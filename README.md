@@ -2,7 +2,7 @@
 
 > Let MAUI Sherpa guide you through all your .NET MAUI dev environment needs!
 
-[![Build](https://github.com/user/MAUI.Sherpa/actions/workflows/build.yml/badge.svg)](https://github.com/user/MAUI.Sherpa/actions/workflows/build.yml)
+[![Build](https://github.com/Redth/MAUI.Sherpa/actions/workflows/build.yml/badge.svg)](https://github.com/Redth/MAUI.Sherpa/actions/workflows/build.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 MAUI Sherpa is a desktop application for **macOS** and **Windows** that helps manage your .NET MAUI development environment. It provides a unified interface for Android SDK management, Apple Developer tools, environment diagnostics, and GitHub Copilot integration.
@@ -122,7 +122,7 @@ MAUI Sherpa is a desktop application for **macOS** and **Windows** that helps ma
 
 ### Installation
 
-Download the latest release from the [Releases](https://github.com/user/MAUI.Sherpa/releases) page.
+Download the latest release from the [Releases](https://github.com/Redth/MAUI.Sherpa/releases) page.
 
 #### macOS
 1. Download `MAUI.Sherpa-macOS.zip`
@@ -160,7 +160,7 @@ To use the Copilot integration:
 
 ```bash
 # Clone the repository
-git clone https://github.com/user/MAUI.Sherpa.git
+git clone https://github.com/Redth/MAUI.Sherpa.git
 cd MAUI.Sherpa
 
 # Restore dependencies
