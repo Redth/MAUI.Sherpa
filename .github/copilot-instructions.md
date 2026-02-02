@@ -14,7 +14,7 @@ dotnet build -f net10.0-maccatalyst
 dotnet build -f net10.0-windows10.0.19041
 
 # Run on Mac Catalyst
-dotnet run --project src/MauiSherpa.Platform -f net10.0-maccatalyst
+dotnet run --project src/MauiSherpa -f net10.0-maccatalyst
 
 # Verbose build for debugging
 dotnet build -f net10.0-maccatalyst --verbosity diagnostic
@@ -25,7 +25,7 @@ dotnet build -f net10.0-maccatalyst --verbosity diagnostic
 ### Project Structure
 
 - **MauiSherpa.Core**: Business logic library (ViewModels, interfaces, services contracts)
-- **MauiSherpa.Platform**: MAUI application with platform-specific implementations
+- **MauiSherpa**: MAUI application with platform-specific implementations
 
 ### Key Patterns
 

@@ -1,0 +1,509 @@
+@page "/root-certificates"
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Core.Requests.Apple
+@using MauiSherpa.Services
+@using Shiny.Mediator
+@inject IMediator Mediator
+@inject IAppleRootCertService CertService
+@inject IAlertService AlertService
+@inject IPlatformService Platform
+@inject OperationModalService OperationModal
+
+<h1><i class="fas fa-shield-alt"></i> Apple Root & Intermediate Certificates</h1>
+
+@if (!CertService.IsSupported)
+{
+    <div class="not-supported">
+        <div class="warning-icon"><i class="fas fa-exclamation-triangle"></i></div>
+        <h2>macOS Only</h2>
+        <p>Certificate management is only available on macOS.</p>
+    </div>
+}
+else
+{
+    <p class="page-description">
+        Manage Apple root and intermediate certificates required for code signing.
+        Missing certificates can cause "unable to build chain for self-signed root" errors.
+    </p>
+
+    @if (isLoading)
+    {
+        <div class="loading">
+            <span class="spinner"></span>
+            <span>@statusMessage</span>
+        </div>
+    }
+
+    <div class="section">
+        <div class="section-header">
+            <div class="cert-tabs">
+                <button class="tab @(activeTab == "root" ? "active" : "")" @onclick="@(() => activeTab = "root")">
+                    Root Certificates
+                </button>
+                <button class="tab @(activeTab == "intermediate" ? "active" : "")" @onclick="@(() => activeTab = "intermediate")">
+                    Intermediate Certificates
+                </button>
+            </div>
+            <div class="header-actions">
+                <button class="btn btn-secondary btn-sm" @onclick="() => RefreshInstalledCerts(forceRefresh: true)" disabled="@isLoading">
+                    <i class="fas fa-sync-alt"></i> Refresh
+                </button>
+                <button class="btn btn-primary btn-sm" @onclick="InstallAllMissing" disabled="@(isLoading || !HasMissingCerts())">
+                    <i class="fas fa-download"></i> Install All Missing
+                </button>
+            </div>
+        </div>
+
+        <div class="cert-list">
+            @if (isLoading && availableCerts.Count == 0)
+            {
+                <div class="loading-state">
+                    <div class="loading-spinner">
+                        <i class="fas fa-shield-alt"></i>
+                    </div>
+                    <div class="loading-title">Loading Certificates</div>
+                    <div class="loading-description">Checking Apple root certificates...</div>
+                </div>
+            }
+            else
+            {
+                @foreach (var cert in availableCerts.Where(c => c.Type == (activeTab == "root" ? "Root" : "Intermediate")))
+                {
+                    var isInstalled = IsCertInstalled(cert);
+                    <div class="cert-item @(isInstalled ? "installed" : "not-installed")">
+                        <div class="cert-icon"><i class="fas @(isInstalled ? "fa-check-circle" : "fa-square")"></i></div>
+                        <div class="cert-info">
+                            <div class="cert-name">@cert.Name</div>
+                            @if (!string.IsNullOrEmpty(cert.Description))
+                            {
+                                <div class="cert-details">@cert.Description</div>
+                            }
+                        </div>
+                        <div class="cert-actions">
+                            @if (installingCerts.Contains(cert.Name))
+                            {
+                                <span class="installing"><span class="spinner-small"></span> Installing...</span>
+                            }
+                            else if (isInstalled)
+                            {
+                                <span class="status-installed"><i class="fas fa-check"></i> Installed</span>
+                            }
+                        else
+                        {
+                            <button class="btn btn-sm btn-primary" @onclick="@(() => InstallCert(cert))" disabled="@isLoading">
+                                <i class="fas fa-download"></i> Install
+                            </button>
+                        }
+                    </div>
+                </div>
+                }
+            }
+        </div>
+    </div>
+}
+
+<style>
+    h1 {
+        margin-bottom: 8px;
+        font-size: 28px;
+        color: #2d3748;
+    }
+
+    .page-description {
+        color: #718096;
+        margin-bottom: 24px;
+    }
+
+    .not-supported {
+        text-align: center;
+        padding: 60px 20px;
+        background: #fff5f5;
+        border-radius: 12px;
+        border: 1px solid #feb2b2;
+    }
+
+    .not-supported .warning-icon {
+        font-size: 48px;
+        margin-bottom: 16px;
+        color: #ed8936;
+    }
+
+    .not-supported .warning-icon i { font-size: 48px; }
+
+    .not-supported h2 {
+        color: #c53030;
+        margin-bottom: 8px;
+    }
+
+    .not-supported p {
+        color: #718096;
+    }
+
+    .loading {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 20px;
+        background: #ebf8ff;
+        border-radius: 8px;
+        margin-bottom: 20px;
+    }
+
+    .section {
+        background: white;
+        border-radius: 12px;
+        padding: 24px;
+        margin-bottom: 24px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    }
+
+    .section-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 16px;
+        flex-wrap: wrap;
+        gap: 12px;
+    }
+
+    .header-actions {
+        display: flex;
+        gap: 8px;
+    }
+
+    .cert-tabs {
+        display: flex;
+        gap: 4px;
+    }
+
+    .tab {
+        padding: 8px 16px;
+        background: none;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 14px;
+        color: #718096;
+        transition: all 0.15s;
+    }
+
+    .tab:hover {
+        background: #f7fafc;
+        color: #4a5568;
+    }
+
+    .tab.active {
+        background: #4299e1;
+        color: white;
+    }
+
+    .cert-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .cert-item {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 16px;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        transition: all 0.15s;
+    }
+
+    .cert-item:hover {
+        border-color: #cbd5e0;
+        background: #f7fafc;
+    }
+
+    .cert-item.installed {
+        background: #f0fff4;
+        border-color: #9ae6b4;
+    }
+
+    .cert-item.not-installed {
+        background: #fffaf0;
+        border-color: #fbd38d;
+    }
+
+    .cert-icon {
+        font-size: 20px;
+        flex-shrink: 0;
+        width: 24px;
+        text-align: center;
+    }
+
+    .cert-icon .fa-check-circle { color: #48bb78; }
+    .cert-icon .fa-square { color: #cbd5e0; }
+
+    .cert-info {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .cert-name {
+        font-weight: 500;
+        color: #2d3748;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .cert-details {
+        font-size: 12px;
+        color: #718096;
+        margin-top: 2px;
+    }
+
+    .cert-actions {
+        flex-shrink: 0;
+    }
+
+    .status-installed {
+        color: #38a169;
+        font-size: 13px;
+        font-weight: 500;
+    }
+
+    .installing {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        color: #4299e1;
+        font-size: 13px;
+    }
+
+    .empty-state {
+        text-align: center;
+        padding: 40px 20px;
+        color: #718096;
+    }
+
+    .spinner {
+        width: 20px;
+        height: 20px;
+        border: 2px solid #e2e8f0;
+        border-top-color: #4299e1;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+    }
+
+    .spinner-small {
+        display: inline-block;
+        width: 14px;
+        height: 14px;
+        border: 2px solid #e2e8f0;
+        border-top-color: #4299e1;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+    }
+
+    @@keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+
+    .btn {
+        padding: 8px 16px;
+        border: none;
+        border-radius: 6px;
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.15s;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    .btn-primary {
+        background: #4299e1;
+        color: white;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+        background: #3182ce;
+    }
+
+    .btn-secondary {
+        background: #edf2f7;
+        color: #4a5568;
+    }
+
+    .btn-secondary:hover:not(:disabled) {
+        background: #e2e8f0;
+    }
+
+    .btn-sm {
+        padding: 6px 12px;
+        font-size: 13px;
+    }
+</style>
+
+@code {
+    private List<AppleRootCertInfo> availableCerts = new();
+    private HashSet<string> installedSerials = new();
+    private HashSet<string> installedCertNames = new();
+    private HashSet<string> installingCerts = new();
+    private IReadOnlyDictionary<string, MauiSherpa.Core.Services.CachedCertInfo>? cachedCerts;
+    private bool isLoading = false;
+    private string statusMessage = "";
+    private string activeTab = "intermediate"; // Most commonly needed
+
+    protected override async Task OnInitializedAsync()
+    {
+        availableCerts = CertService.GetAvailableCertificates().ToList();
+        if (CertService.IsSupported)
+        {
+            isLoading = true;
+            statusMessage = "Initializing certificate cache...";
+            StateHasChanged();
+            
+            // Wait for background caching to complete (usually already done)
+            var progress = new Progress<string>(msg =>
+            {
+                statusMessage = msg;
+                InvokeAsync(StateHasChanged);
+            });
+            await CertService.EnsureCertsCachedAsync(progress);
+            cachedCerts = CertService.GetCachedCerts();
+            
+            await RefreshInstalledCerts(forceRefresh: true);
+        }
+    }
+
+    private async Task RefreshInstalledCerts(bool forceRefresh = false)
+    {
+        isLoading = true;
+        statusMessage = "Checking installed certificates...";
+        StateHasChanged();
+
+        try
+        {
+            var (_, installedCerts) = forceRefresh
+                ? await Mediator.Request(new GetInstalledCertsRequest(), CancellationToken.None, ctx => ctx.ClearCache())
+                : await Mediator.Request(new GetInstalledCertsRequest());
+            
+            var certList = installedCerts?.ToList() ?? new();
+            
+            // Track installed serial numbers for precise matching
+            installedSerials = certList
+                .Where(c => !string.IsNullOrEmpty(c.SerialNumber))
+                .Select(c => c.SerialNumber!.ToUpperInvariant())
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            
+            // Also track names for fallback matching
+            installedCertNames = certList
+                .Select(c => c.SubjectName.ToLowerInvariant())
+                .ToHashSet();
+        }
+        catch (Exception ex)
+        {
+            await AlertService.ShowAlertAsync("Error", $"Failed to check certificates: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+            statusMessage = "";
+            StateHasChanged();
+        }
+    }
+
+    private bool IsCertInstalled(AppleRootCertInfo cert)
+    {
+        // Use cached serial number for precise matching (most reliable)
+        if (cachedCerts != null && cachedCerts.TryGetValue(cert.Name, out var cached) && !string.IsNullOrEmpty(cached.SerialNumber))
+        {
+            return installedSerials.Contains(cached.SerialNumber);
+        }
+
+        // Fallback: simple name matching
+        var simpleName = cert.Name.ToLowerInvariant().Replace(" - ", " ").Replace("-", " ");
+        return installedCertNames.Any(installed => installed.Contains(simpleName));
+    }
+
+    private bool HasMissingCerts()
+    {
+        return availableCerts.Any(c => !IsCertInstalled(c));
+    }
+
+    private async Task InstallCert(AppleRootCertInfo cert)
+    {
+        var result = await OperationModal.RunAsync(
+            "Install Certificate",
+            $"Installing {cert.Name}...",
+            async ctx =>
+            {
+                ctx.LogInfo($"Certificate: {cert.Name}");
+                ctx.LogInfo($"Type: {cert.Type}");
+                ctx.SetStatus("Downloading certificate...");
+                
+                var success = await CertService.InstallCertificateAsync(cert, new Progress<string>(msg =>
+                {
+                    ctx.LogInfo(msg);
+                    ctx.SetStatus(msg);
+                }));
+                
+                if (success)
+                {
+                    ctx.LogSuccess("Certificate installed to Keychain");
+                }
+                return success;
+            });
+
+        if (result.Success)
+        {
+            await RefreshInstalledCerts(forceRefresh: true);
+        }
+    }
+
+    private async Task InstallAllMissing()
+    {
+        var missing = availableCerts.Where(c => !IsCertInstalled(c)).ToList();
+        if (missing.Count == 0)
+        {
+            await AlertService.ShowToastAsync("All certificates are already installed");
+            return;
+        }
+
+        var result = await OperationModal.RunAsync(
+            "Install Missing Certificates",
+            $"Installing {missing.Count} missing certificate(s)...",
+            async ctx =>
+            {
+                var installed = 0;
+                var failed = 0;
+
+                foreach (var cert in missing)
+                {
+                    ctx.CancellationToken.ThrowIfCancellationRequested();
+                    ctx.SetStatus($"Installing {cert.Name}...");
+                    ctx.SetProgress(((installed + failed) * 100) / missing.Count);
+
+                    var success = await CertService.InstallCertificateAsync(cert, null);
+                    if (success)
+                    {
+                        installed++;
+                        ctx.LogSuccess($"Installed: {cert.Name}");
+                    }
+                    else
+                    {
+                        failed++;
+                        ctx.LogError($"Failed: {cert.Name}");
+                    }
+                }
+
+                ctx.SetProgress(100);
+                ctx.LogInfo($"Completed: {installed} installed, {failed} failed");
+                return failed == 0;
+            });
+
+        await RefreshInstalledCerts(forceRefresh: true);
+    }
+}

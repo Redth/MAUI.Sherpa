@@ -21,7 +21,7 @@ MAUI.Sherpa/
 │   │   ├── Services/             # Service implementations
 │   │   ├── ViewModels/           # MVVM ViewModels
 │   │   └── Interfaces.cs         # All interface definitions
-│   ├── MauiSherpa.Platform/      # MAUI app with Blazor UI
+│   ├── MauiSherpa/      # MAUI app with Blazor UI
 │   │   ├── Components/           # Reusable Blazor components
 │   │   ├── Pages/                # Blazor page components
 │   │   ├── Services/             # Platform-specific service implementations
@@ -40,13 +40,13 @@ MAUI.Sherpa/
 
 ```bash
 # Build for Mac Catalyst
-dotnet build src/MauiSherpa.Platform -f net10.0-maccatalyst
+dotnet build src/MauiSherpa -f net10.0-maccatalyst
 
 # Build for Windows (on Windows only)
-dotnet build src/MauiSherpa.Platform -f net10.0-windows10.0.19041.0
+dotnet build src/MauiSherpa -f net10.0-windows10.0.19041.0
 
 # Run on Mac Catalyst
-dotnet run --project src/MauiSherpa.Platform -f net10.0-maccatalyst
+dotnet run --project src/MauiSherpa -f net10.0-maccatalyst
 
 # Build entire solution (uses default TFM for each project)
 dotnet build MauiSherpa.sln
@@ -55,10 +55,10 @@ dotnet build MauiSherpa.sln
 dotnet test MauiSherpa.sln
 
 # Publish Mac Catalyst app
-dotnet publish src/MauiSherpa.Platform -f net10.0-maccatalyst -c Release
+dotnet publish src/MauiSherpa -f net10.0-maccatalyst -c Release
 
 # Publish Windows app
-dotnet publish src/MauiSherpa.Platform -f net10.0-windows10.0.19041.0 -c Release
+dotnet publish src/MauiSherpa -f net10.0-windows10.0.19041.0 -c Release
 ```
 
 ## Architecture Patterns
@@ -123,7 +123,7 @@ builder.Services.AddSingleton<MyViewModel>();
 ## UI Patterns
 
 ### Blazor Pages
-- Located in `src/MauiSherpa.Platform/Pages/`
+- Located in `src/MauiSherpa/Pages/`
 - Use `@inject` for services
 - Use mediator for cached data: `await Mediator.Request(new GetDataRequest())`
 

@@ -1,0 +1,627 @@
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Services
+@inject ProcessModalService ModalService
+@inject IProcessExecutionService ProcessService
+@inject IJSRuntime JS
+@implements IDisposable
+
+@if (IsVisible)
+{
+    <div class="process-modal-overlay">
+        <div class="process-modal @(CurrentView == ModalView.Running ? "expanded" : "")">
+            <div class="modal-header">
+                <h2>@GetTitle()</h2>
+                @if (CurrentView != ModalView.Running)
+                {
+                    <button class="close-btn" @onclick="HandleClose">×</button>
+                }
+            </div>
+
+            <div class="modal-body">
+                @if (CurrentView == ModalView.Confirmation)
+                {
+                    <div class="confirmation-view">
+                        @if (!string.IsNullOrEmpty(Request?.Description))
+                        {
+                            <p class="description">@Request.Description</p>
+                        }
+
+                        <div class="command-preview">
+                            <label>Command to execute:</label>
+                            <div class="command-box">
+                                <code>@Request?.CommandLine</code>
+                            </div>
+                        </div>
+
+                        @if (Request?.RequiresElevation == true)
+                        {
+                            <div class="elevation-warning">
+                                <span class="warning-icon">⚠️</span>
+                                <span>This command requires administrator privileges. You may be prompted for your password.</span>
+                            </div>
+                        }
+
+                        @if (!string.IsNullOrEmpty(Request?.WorkingDirectory))
+                        {
+                            <div class="working-dir">
+                                <label>Working directory:</label>
+                                <code>@Request.WorkingDirectory</code>
+                            </div>
+                        }
+                    </div>
+                }
+                else if (CurrentView == ModalView.Running)
+                {
+                    <div class="running-view">
+                        <div class="status-bar">
+                            <div class="status-info">
+                                <span class="spinner">⏳</span>
+                                <span class="status-text">Running... @ElapsedTime</span>
+                            </div>
+                            <div class="process-controls">
+                                <button class="btn btn-warning btn-sm" @onclick="HandleCancel" disabled="@(!CanCancel)">
+                                    Cancel
+                                </button>
+                                <button class="btn btn-danger btn-sm" @onclick="HandleKill" disabled="@(!CanKill)">
+                                    Force Kill
+                                </button>
+                            </div>
+                        </div>
+                        <div class="terminal-wrapper">
+                            <div class="terminal-container" id="process-terminal"></div>
+                        </div>
+                    </div>
+                }
+                else if (CurrentView == ModalView.Completed)
+                {
+                    <div class="completed-view">
+                        <div class="result-status @GetResultClass()">
+                            <span class="result-icon">@GetResultIcon()</span>
+                            <span class="result-text">@GetResultText()</span>
+                        </div>
+                        <div class="result-details">
+                            <div class="detail-item">
+                                <label>Exit code:</label>
+                                <span class="@(Result?.ExitCode == 0 ? "success" : "error")">@Result?.ExitCode</span>
+                            </div>
+                            <div class="detail-item">
+                                <label>Duration:</label>
+                                <span>@Result?.Duration.ToString(@"mm\:ss\.fff")</span>
+                            </div>
+                        </div>
+                        <div class="terminal-wrapper completed">
+                            <div class="terminal-header">
+                                <span>Output</span>
+                                <button class="btn-icon" @onclick="CopyOutput" title="Copy output">📋</button>
+                            </div>
+                            <div class="terminal-container" id="process-terminal"></div>
+                        </div>
+                    </div>
+                }
+            </div>
+
+            <div class="modal-footer">
+                @if (CurrentView == ModalView.Confirmation)
+                {
+                    <button class="btn btn-secondary" @onclick="HandleCancelBeforeExecution">Cancel</button>
+                    <button class="btn btn-primary" @onclick="HandleExecute">
+                        @if (Request?.RequiresElevation == true)
+                        {
+                            <span>🔐 Execute</span>
+                        }
+                        else
+                        {
+                            <span>Execute</span>
+                        }
+                    </button>
+                }
+                else if (CurrentView == ModalView.Completed)
+                {
+                    @if (Result != null && !Result.Success && !Result.WasCancelled && !Result.WasKilled)
+                    {
+                        <button class="btn btn-copilot" @onclick="HandleTryWithCopilot">
+                            <i class="fas fa-robot"></i> Try with Copilot
+                        </button>
+                    }
+                    <button class="btn btn-primary" @onclick="HandleClose">Close</button>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .process-modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.6);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10000;
+        backdrop-filter: blur(2px);
+    }
+
+    .process-modal {
+        background: white;
+        border-radius: 12px;
+        width: 90%;
+        max-width: 600px;
+        max-height: 90vh;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        transition: all 0.3s ease;
+    }
+
+    .process-modal.expanded {
+        max-width: 900px;
+        height: 80vh;
+    }
+
+    .modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 16px 20px;
+        border-bottom: 1px solid #e2e8f0;
+    }
+
+    .modal-header h2 {
+        margin: 0;
+        font-size: 18px;
+        font-weight: 600;
+        color: #1a202c;
+    }
+
+    .close-btn {
+        background: none;
+        border: none;
+        font-size: 24px;
+        color: #a0aec0;
+        cursor: pointer;
+        padding: 0;
+        line-height: 1;
+    }
+
+    .close-btn:hover { color: #4a5568; }
+
+    .modal-body {
+        flex: 1;
+        padding: 20px;
+        overflow: auto;
+    }
+
+    .modal-footer {
+        padding: 16px 20px;
+        border-top: 1px solid #e2e8f0;
+        display: flex;
+        justify-content: flex-end;
+        gap: 12px;
+    }
+
+    /* Confirmation View */
+    .confirmation-view .description {
+        color: #4a5568;
+        margin-bottom: 16px;
+    }
+
+    .command-preview {
+        margin-bottom: 16px;
+    }
+
+    .command-preview label {
+        display: block;
+        font-size: 13px;
+        font-weight: 500;
+        color: #718096;
+        margin-bottom: 8px;
+    }
+
+    .command-box {
+        background: #1e1e1e;
+        border-radius: 8px;
+        padding: 16px;
+        overflow-x: auto;
+    }
+
+    .command-box code {
+        font-family: "SF Mono", Menlo, Monaco, monospace;
+        font-size: 13px;
+        color: #4ec9b0;
+        white-space: pre-wrap;
+        word-break: break-all;
+    }
+
+    .elevation-warning {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 12px 16px;
+        background: #fffbeb;
+        border: 1px solid #f59e0b;
+        border-radius: 8px;
+        margin-bottom: 16px;
+    }
+
+    .elevation-warning .warning-icon { font-size: 18px; }
+    .elevation-warning span { color: #92400e; font-size: 14px; }
+
+    .working-dir {
+        font-size: 13px;
+        color: #718096;
+    }
+
+    .working-dir label {
+        font-weight: 500;
+        margin-right: 8px;
+    }
+
+    .working-dir code {
+        font-family: monospace;
+        background: #f7fafc;
+        padding: 2px 6px;
+        border-radius: 4px;
+    }
+
+    /* Running View */
+    .running-view {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+    }
+
+    .status-bar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 12px;
+    }
+
+    .status-info {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .spinner {
+        animation: spin 1s linear infinite;
+    }
+
+    @@keyframes spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+    }
+
+    .status-text { color: #4a5568; font-weight: 500; }
+
+    .process-controls { display: flex; gap: 8px; }
+
+    .terminal-wrapper {
+        flex: 1;
+        min-height: 300px;
+        background: #1e1e1e;
+        border-radius: 8px;
+        overflow: hidden;
+    }
+
+    .terminal-wrapper.completed {
+        min-height: 200px;
+        max-height: 300px;
+    }
+
+    .terminal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px 12px;
+        background: #2d2d2d;
+        border-bottom: 1px solid #3e3e3e;
+        font-size: 12px;
+        color: #a0aec0;
+    }
+
+    .terminal-container {
+        height: calc(100% - 35px);
+        padding: 8px;
+    }
+
+    .terminal-wrapper:not(.completed) .terminal-container {
+        height: 100%;
+    }
+
+    /* Completed View */
+    .completed-view { display: flex; flex-direction: column; gap: 16px; }
+
+    .result-status {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 16px;
+        border-radius: 8px;
+    }
+
+    .result-status.success { background: #f0fff4; border: 1px solid #68d391; }
+    .result-status.error { background: #fff5f5; border: 1px solid #fc8181; }
+    .result-status.cancelled { background: #fffbeb; border: 1px solid #f6e05e; }
+
+    .result-icon { font-size: 24px; }
+    .result-text { font-weight: 600; font-size: 16px; }
+
+    .result-status.success .result-text { color: #276749; }
+    .result-status.error .result-text { color: #c53030; }
+    .result-status.cancelled .result-text { color: #975a16; }
+
+    .result-details {
+        display: flex;
+        gap: 24px;
+    }
+
+    .detail-item label {
+        font-size: 13px;
+        color: #718096;
+        margin-right: 6px;
+    }
+
+    .detail-item span { font-weight: 500; }
+    .detail-item span.success { color: #38a169; }
+    .detail-item span.error { color: #e53e3e; }
+
+    /* Buttons */
+    .btn {
+        padding: 10px 20px;
+        border: none;
+        border-radius: 6px;
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    .btn-primary { background: #4299e1; color: white; }
+    .btn-primary:hover:not(:disabled) { background: #3182ce; }
+
+    .btn-secondary { background: #e2e8f0; color: #4a5568; }
+    .btn-secondary:hover:not(:disabled) { background: #cbd5e0; }
+
+    .btn-warning { background: #ed8936; color: white; }
+    .btn-warning:hover:not(:disabled) { background: #dd6b20; }
+
+    .btn-danger { background: #e53e3e; color: white; }
+    .btn-danger:hover:not(:disabled) { background: #c53030; }
+
+    .btn-copilot { background: linear-gradient(135deg, #6366f1, #8b5cf6); color: white; display: inline-flex; align-items: center; gap: 8px; }
+    .btn-copilot:hover:not(:disabled) { background: linear-gradient(135deg, #4f46e5, #7c3aed); }
+
+    .btn-sm { padding: 6px 12px; font-size: 13px; }
+
+    .btn-icon {
+        background: none;
+        border: none;
+        cursor: pointer;
+        font-size: 14px;
+        padding: 4px;
+        opacity: 0.7;
+    }
+
+    .btn-icon:hover { opacity: 1; }
+</style>
+
+@code {
+    private enum ModalView { Confirmation, Running, Completed }
+
+    private ModalView CurrentView { get; set; } = ModalView.Confirmation;
+    private ProcessRequest? Request => ModalService.CurrentRequest;
+    private bool IsVisible => ModalService.IsVisible;
+    private ProcessResult? Result { get; set; }
+    private string ElapsedTime { get; set; } = "00:00";
+    private System.Timers.Timer? _elapsedTimer;
+    private DateTime _startTime;
+    private bool _terminalInitialized;
+    private CancellationTokenSource? _cts;
+
+    private bool CanCancel => ProcessService.CurrentState == ProcessState.Running;
+    private bool CanKill => ProcessService.CurrentState == ProcessState.Running || 
+                           ProcessService.CurrentState == ProcessState.Cancelled;
+
+    protected override void OnInitialized()
+    {
+        ModalService.OnShowRequested += HandleShowRequested;
+        ProcessService.OutputReceived += HandleOutputReceived;
+        ProcessService.StateChanged += HandleStateChanged;
+    }
+
+    private void HandleShowRequested(ProcessRequest request)
+    {
+        CurrentView = ModalService.RequiresConfirmation ? ModalView.Confirmation : ModalView.Running;
+        Result = null;
+        _terminalInitialized = false;
+        InvokeAsync(StateHasChanged);
+
+        if (!ModalService.RequiresConfirmation)
+        {
+            _ = ExecuteProcessAsync();
+        }
+    }
+
+    private async void HandleOutputReceived(object? sender, ProcessOutputEventArgs e)
+    {
+        await InvokeAsync(async () =>
+        {
+            if (_terminalInitialized)
+            {
+                if (e.IsError)
+                    await JS.InvokeVoidAsync("terminalInterop.writeError", "process-terminal", e.Data);
+                else
+                    await JS.InvokeVoidAsync("terminalInterop.write", "process-terminal", e.Data);
+            }
+        });
+    }
+
+    private async void HandleStateChanged(object? sender, ProcessStateChangedEventArgs e)
+    {
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task HandleExecute()
+    {
+        CurrentView = ModalView.Running;
+        StateHasChanged();
+
+        // Wait a tick for the terminal container to render
+        await Task.Delay(50);
+
+        await ExecuteProcessAsync();
+    }
+
+    private async Task ExecuteProcessAsync()
+    {
+        if (Request == null) return;
+
+        // Initialize terminal
+        await JS.InvokeVoidAsync("terminalInterop.initialize", "process-terminal", new { });
+        _terminalInitialized = true;
+
+        // Start elapsed timer
+        _startTime = DateTime.Now;
+        _elapsedTimer = new System.Timers.Timer(1000);
+        _elapsedTimer.Elapsed += (_, _) =>
+        {
+            var elapsed = DateTime.Now - _startTime;
+            ElapsedTime = elapsed.ToString(@"mm\:ss");
+            InvokeAsync(StateHasChanged);
+        };
+        _elapsedTimer.Start();
+
+        // Execute
+        _cts = new CancellationTokenSource();
+        try
+        {
+            Result = await ProcessService.ExecuteAsync(Request, _cts.Token);
+        }
+        catch (Exception ex)
+        {
+            Result = new ProcessResult(-1, "", ex.Message, DateTime.Now - _startTime, ProcessState.Failed);
+        }
+        finally
+        {
+            _elapsedTimer?.Stop();
+            _elapsedTimer?.Dispose();
+            _elapsedTimer = null;
+        }
+
+        // Write final status to terminal
+        if (Result.Success)
+            await JS.InvokeVoidAsync("terminalInterop.writeSuccess", "process-terminal", $"\n✅ Process completed successfully (exit code {Result.ExitCode})");
+        else if (Result.WasCancelled)
+            await JS.InvokeVoidAsync("terminalInterop.writeWarning", "process-terminal", $"\n⚠️ Process was cancelled");
+        else if (Result.WasKilled)
+            await JS.InvokeVoidAsync("terminalInterop.writeWarning", "process-terminal", $"\n🛑 Process was killed");
+        else
+            await JS.InvokeVoidAsync("terminalInterop.writeError", "process-terminal", $"\n❌ Process failed (exit code {Result.ExitCode})");
+
+        CurrentView = ModalView.Completed;
+        ModalService.CompleteWithResult(Result);
+        StateHasChanged();
+    }
+
+    private void HandleCancelBeforeExecution()
+    {
+        ModalService.CancelBeforeExecution();
+    }
+
+    private void HandleCancel()
+    {
+        ProcessService.Cancel();
+    }
+
+    private void HandleKill()
+    {
+        ProcessService.Kill();
+    }
+
+    private void HandleClose()
+    {
+        if (_terminalInitialized)
+        {
+            _ = JS.InvokeVoidAsync("terminalInterop.dispose", "process-terminal");
+        }
+        ModalService.Close();
+    }
+
+    private async Task HandleTryWithCopilot()
+    {
+        var output = "";
+        if (_terminalInitialized)
+        {
+            try
+            {
+                output = await JS.InvokeAsync<string>("terminalInterop.getContent", "process-terminal");
+            }
+            catch { }
+        }
+        await ModalService.TryWithCopilotAsync(output);
+    }
+
+    private async Task CopyOutput()
+    {
+        if (_terminalInitialized)
+        {
+            var content = await JS.InvokeAsync<string>("terminalInterop.getContent", "process-terminal");
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", content);
+        }
+    }
+
+    private string GetTitle()
+    {
+        return Request?.Title ?? CurrentView switch
+        {
+            ModalView.Confirmation => "Confirm Execution",
+            ModalView.Running => "Running Process",
+            ModalView.Completed => "Process Complete",
+            _ => "Process Execution"
+        };
+    }
+
+    private string GetResultClass()
+    {
+        if (Result == null) return "";
+        if (Result.Success) return "success";
+        if (Result.WasCancelled || Result.WasKilled) return "cancelled";
+        return "error";
+    }
+
+    private string GetResultIcon()
+    {
+        if (Result == null) return "";
+        if (Result.Success) return "✅";
+        if (Result.WasCancelled || Result.WasKilled) return "⚠️";
+        return "❌";
+    }
+
+    private string GetResultText()
+    {
+        if (Result == null) return "";
+        if (Result.Success) return "Process completed successfully";
+        if (Result.WasCancelled) return "Process was cancelled";
+        if (Result.WasKilled) return "Process was killed";
+        return "Process failed";
+    }
+
+    public void Dispose()
+    {
+        ModalService.OnShowRequested -= HandleShowRequested;
+        ProcessService.OutputReceived -= HandleOutputReceived;
+        ProcessService.StateChanged -= HandleStateChanged;
+        _elapsedTimer?.Dispose();
+        _cts?.Dispose();
+    }
+}

@@ -16,7 +16,7 @@
 ### Build Status: ✅ SUCCESS
 - Both Core and Platform projects compile without errors
 - Only warnings about nullable references in AlertService
-- App bundle created at: `src/MauiSherpa.Platform/bin/Debug/net10.0-maccatalyst/maccatalyst-arm64/MauiSherpa.app`
+- App bundle created at: `src/MauiSherpa/bin/Debug/net10.0-maccatalyst/maccatalyst-arm64/MauiSherpa.app`
 
 ### Runtime Status: ✅ SUCCESS
 The Mac Catalyst app builds and launches successfully. The basic MAUI ContentPage (MainPage.cs) displays correctly.
@@ -37,7 +37,7 @@ The app exits immediately, likely due to:
 1. Created solution structure:
    - `MauiSherpa.sln` - Root solution file
    - `src/MauiSherpa.Core/` - Business logic library
-   - `src/MauiSherpa.Platform/` - MAUI platform application
+   - `src/MauiSherpa/` - MAUI platform application
 
 2. **MauiSherpa.Core Project** (Building successfully):
    - Created `Interfaces.cs` with all service interfaces
@@ -46,7 +46,7 @@ The app exits immediately, likely due to:
    - Added packages: Microsoft.Extensions.DependencyInjection, FluentValidation, GitHub.Copilot.SDK
    - All ViewModels use stub services to avoid DI issues
 
-3. **MauiSherpa.Platform Project** (Building successfully):
+3. **MauiSherpa Project** (Building successfully):
    - Created multi-target MAUI project targeting net10.0-maccatalyst and Windows
    - Added MAUI resources (icons, splash screen)
    - Created Blazor components and pages
@@ -54,7 +54,7 @@ The app exits immediately, likely due to:
 
 ### Phase 2: Service Layer Implementation ✅
 
-Created in `src/MauiSherpa.Platform/Services/`:
+Created in `src/MauiSherpa/Services/`:
 
 1. **PlatformService.cs** - Detects runtime platform using DeviceInfo
 2. **LoggingService.cs** - Wraps Microsoft.Extensions.Logging
@@ -77,7 +77,7 @@ All ViewModels inherit from `ViewModelBase` with injected services.
 
 ### Phase 4: Blazor UI Components ✅
 
-Created in `src/MauiSherpa.Platform/Pages/`:
+Created in `src/MauiSherpa/Pages/`:
 
 1. **Dashboard.razor** - Navigation cards for each feature
 2. **AndroidSdk.razor** - Load button, status display
@@ -85,7 +85,7 @@ Created in `src/MauiSherpa.Platform/Pages/`:
 4. **Copilot.razor** - Chat interface with connection toggle
 5. **Settings.razor** - Form controls for preferences
 
-Created in `src/MauiSherpa.Platform/Components/`:
+Created in `src/MauiSherpa/Components/`:
 
 1. **App.razor** - Router component
 2. **MainLayout.razor** - Sidebar navigation layout
@@ -119,8 +119,8 @@ MauiSherpa.sln
 │   │   └── Services/
 │   │       └── StubServices.cs           ⚠️ Conflicts/errors
 │   │
-│   └── MauiSherpa.Platform/
-│       ├── MauiSherpa.Platform.csproj       ✅ Building (no BlazorWebView)
+│   └── MauiSherpa/
+│       ├── MauiSherpa.csproj       ✅ Building (no BlazorWebView)
 │       ├── Program.cs                     ⚠️ Entry point issues
 │       ├── App.cs                        ✅ Window creation
 │       ├── MainPage.cs                    ✅ Simple ContentPage
@@ -274,7 +274,7 @@ dotnet build -f net10.0-maccatalyst
 dotnet run -f net10.0-maccatalyst
 
 # Open app bundle (currently failing)
-open src/MauiSherpa.Platform/bin/Debug/net10.0-maccatalyst/maccatalyst-arm64/MauiSherpa.app
+open src/MauiSherpa/bin/Debug/net10.0-maccatalyst/maccatalyst-arm64/MauiSherpa.app
 ```
 
 ---
@@ -292,10 +292,10 @@ open src/MauiSherpa.Platform/bin/Debug/net10.0-maccatalyst/maccatalyst-arm64/Mau
 
 ## Files to Focus On in Next Session
 
-1. **`src/MauiSherpa.Platform/Program.cs`** - Entry point (CRITICAL)
-2. **`src/MauiSherpa.Platform/MauiSherpa.Platform.csproj`** - May need BlazorWebView re-addition
-3. **`src/MauiSherpa.Platform/MainPage.cs`** - Will need BlazorWebView integration
-4. **`src/MauiSherpa.Platform/App.cs`** - May need updates based on Program.cs changes
+1. **`src/MauiSherpa/Program.cs`** - Entry point (CRITICAL)
+2. **`src/MauiSherpa/MauiSherpa.csproj`** - May need BlazorWebView re-addition
+3. **`src/MauiSherpa/MainPage.cs`** - Will need BlazorWebView integration
+4. **`src/MauiSherpa/App.cs`** - May need updates based on Program.cs changes
 
 ---
 

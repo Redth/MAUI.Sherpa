@@ -1,0 +1,640 @@
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Services
+@inject MultiOperationModalService ModalService
+@implements IDisposable
+
+@if (ModalService.IsVisible)
+{
+    <div class="multi-op-modal-overlay">
+        <div class="multi-op-modal">
+            <div class="modal-header">
+                <h2>
+                    @if (ModalService.IsRunning)
+                    {
+                        <i class="fas fa-cog fa-spin"></i>
+                    }
+                    else if (HasResult)
+                    {
+                        <i class="fas @GetOverallResultIcon() @GetOverallResultClass()"></i>
+                    }
+                    else
+                    {
+                        <i class="fas fa-tasks"></i>
+                    }
+                    @ModalService.Title
+                </h2>
+                @if (!ModalService.IsRunning)
+                {
+                    <button class="close-btn" @onclick="HandleClose"><i class="fas fa-times"></i></button>
+                }
+            </div>
+
+            <div class="modal-body">
+                <p class="description">@ModalService.Description</p>
+
+                @if (HasResult)
+                {
+                    <div class="result-summary @GetOverallResultClass()">
+                        <div class="summary-stats">
+                            <span class="stat"><i class="fas fa-check-circle"></i> @CompletedCount completed</span>
+                            @if (FailedCount > 0)
+                            {
+                                <span class="stat error"><i class="fas fa-times-circle"></i> @FailedCount failed</span>
+                            }
+                            @if (SkippedCount > 0)
+                            {
+                                <span class="stat skipped"><i class="fas fa-forward"></i> @SkippedCount skipped</span>
+                            }
+                        </div>
+                        <span class="duration"><i class="fas fa-clock"></i> @ElapsedTime</span>
+                    </div>
+                }
+                else if (ModalService.IsRunning)
+                {
+                    <div class="progress-summary">
+                        <div class="progress-bar-container">
+                            <div class="progress-bar" style="width: @ProgressPercent%"></div>
+                        </div>
+                        <span class="progress-text">@CurrentProgress / @TotalEnabled</span>
+                    </div>
+                }
+
+                <div class="operations-list">
+                    @foreach (var op in ModalService.Operations)
+                    {
+                        var isExpanded = expandedOperations.Contains(op.Id) || 
+                                        (ModalService.IsRunning && ModalService.CurrentOperationIndex >= 0 && 
+                                         ModalService.Operations[ModalService.CurrentOperationIndex].Id == op.Id);
+                        var canToggle = !ModalService.IsRunning && op.CanDisable && ModalService.IsConfirming;
+
+                        <div class="operation-card @GetOperationCardClass(op) @(isExpanded ? "expanded" : "")">
+                            <div class="operation-header" @onclick="() => ToggleExpanded(op.Id)">
+                                <div class="operation-left">
+                                    @if (ModalService.IsConfirming && !ModalService.IsRunning)
+                                    {
+                                        <input type="checkbox" 
+                                               checked="@op.IsEnabled" 
+                                               disabled="@(!canToggle)"
+                                               @onclick:stopPropagation="true"
+                                               @onchange="@(e => HandleToggle(op.Id, (bool)(e.Value ?? false)))" />
+                                    }
+                                    else
+                                    {
+                                        <span class="state-icon">
+                                            @switch (op.State)
+                                            {
+                                                case OperationItemState.Pending:
+                                                    <i class="fas fa-circle text-muted"></i>
+                                                    break;
+                                                case OperationItemState.Running:
+                                                    <i class="fas fa-spinner fa-spin text-primary"></i>
+                                                    break;
+                                                case OperationItemState.Completed:
+                                                    <i class="fas fa-check-circle text-success"></i>
+                                                    break;
+                                                case OperationItemState.Failed:
+                                                    <i class="fas fa-times-circle text-error"></i>
+                                                    break;
+                                                case OperationItemState.Skipped:
+                                                    <i class="fas fa-forward text-muted"></i>
+                                                    break;
+                                            }
+                                        </span>
+                                    }
+                                    <div class="operation-info">
+                                        <span class="operation-name">@op.Name</span>
+                                        <span class="operation-desc">@op.Description</span>
+                                    </div>
+                                </div>
+                                <div class="operation-right">
+                                    @if (op.Duration.HasValue)
+                                    {
+                                        <span class="duration">@op.Duration.Value.ToString(@"mm\:ss\.f")</span>
+                                    }
+                                    <i class="fas @(isExpanded ? "fa-chevron-up" : "fa-chevron-down") expand-icon"></i>
+                                </div>
+                            </div>
+                            
+                            @if (isExpanded && op.Log.Any())
+                            {
+                                <div class="operation-log">
+                                    @foreach (var entry in op.Log)
+                                    {
+                                        <div class="log-entry @GetLogLevelClass(entry.Level)">
+                                            <span class="log-time">@entry.Timestamp.ToString("HH:mm:ss")</span>
+                                            <i class="fas @GetLogLevelIcon(entry.Level)"></i>
+                                            <span class="log-message">@entry.Message</span>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                            @if (isExpanded && !string.IsNullOrEmpty(op.ErrorMessage) && op.State == OperationItemState.Failed)
+                            {
+                                <div class="operation-error">
+                                    <i class="fas fa-exclamation-triangle"></i>
+                                    @op.ErrorMessage
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <div class="modal-footer">
+                @if (ModalService.IsConfirming && !ModalService.IsRunning)
+                {
+                    <button class="btn btn-secondary" @onclick="HandleCancel">
+                        <i class="fas fa-times"></i> Cancel
+                    </button>
+                    <button class="btn btn-primary" @onclick="HandleStart" disabled="@(EnabledCount == 0)">
+                        <i class="fas fa-play"></i> Run @EnabledCount Operation@(EnabledCount != 1 ? "s" : "")
+                    </button>
+                }
+                else if (ModalService.IsRunning)
+                {
+                    <button class="btn btn-warning" @onclick="HandleRequestCancel">
+                        <i class="fas fa-stop"></i> Stop
+                    </button>
+                }
+                else
+                {
+                    <button class="btn btn-primary" @onclick="HandleClose">
+                        <i class="fas fa-check"></i> Close
+                    </button>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .multi-op-modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.6);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10000;
+        backdrop-filter: blur(2px);
+    }
+
+    .multi-op-modal {
+        background: white;
+        border-radius: 12px;
+        width: 90%;
+        max-width: 700px;
+        max-height: 85vh;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    }
+
+    .modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 16px 20px;
+        border-bottom: 1px solid #e2e8f0;
+    }
+
+    .modal-header h2 {
+        margin: 0;
+        font-size: 18px;
+        font-weight: 600;
+        color: #1a202c;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .modal-header h2 i { font-size: 20px; }
+    .modal-header h2 .text-success { color: #38a169; }
+    .modal-header h2 .text-error { color: #e53e3e; }
+    .modal-header h2 .text-warning { color: #d69e2e; }
+
+    .close-btn {
+        background: none;
+        border: none;
+        font-size: 18px;
+        color: #a0aec0;
+        cursor: pointer;
+        padding: 4px 8px;
+    }
+
+    .close-btn:hover { color: #4a5568; }
+
+    .modal-body {
+        flex: 1;
+        padding: 20px;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+    }
+
+    .description {
+        color: #4a5568;
+        font-size: 14px;
+        margin: 0;
+    }
+
+    .result-summary {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 12px 16px;
+        border-radius: 8px;
+        background: #f7fafc;
+        border: 1px solid #e2e8f0;
+    }
+
+    .result-summary.text-success { background: #f0fff4; border-color: #68d391; }
+    .result-summary.text-error { background: #fff5f5; border-color: #fc8181; }
+
+    .summary-stats {
+        display: flex;
+        gap: 16px;
+    }
+
+    .summary-stats .stat {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 14px;
+        color: #38a169;
+    }
+
+    .summary-stats .stat.error { color: #e53e3e; }
+    .summary-stats .stat.skipped { color: #718096; }
+
+    .duration {
+        font-size: 13px;
+        color: #718096;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .progress-summary {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+
+    .progress-bar-container {
+        flex: 1;
+        height: 8px;
+        background: #e2e8f0;
+        border-radius: 4px;
+        overflow: hidden;
+    }
+
+    .progress-bar {
+        height: 100%;
+        background: linear-gradient(90deg, #4299e1, #667eea);
+        border-radius: 4px;
+        transition: width 0.3s ease;
+    }
+
+    .progress-text {
+        font-size: 13px;
+        color: #718096;
+        white-space: nowrap;
+    }
+
+    .operations-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .operation-card {
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        overflow: hidden;
+        transition: all 0.2s;
+    }
+
+    .operation-card.running { border-color: #4299e1; background: #ebf8ff; }
+    .operation-card.completed { border-color: #68d391; }
+    .operation-card.failed { border-color: #fc8181; }
+    .operation-card.skipped { opacity: 0.6; }
+
+    .operation-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 12px 16px;
+        cursor: pointer;
+        background: white;
+    }
+
+    .operation-card.running .operation-header { background: #ebf8ff; }
+
+    .operation-header:hover { background: #f7fafc; }
+
+    .operation-left {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+
+    .operation-left input[type="checkbox"] {
+        width: 18px;
+        height: 18px;
+        cursor: pointer;
+    }
+
+    .state-icon {
+        width: 20px;
+        text-align: center;
+    }
+
+    .state-icon .text-muted { color: #a0aec0; }
+    .state-icon .text-primary { color: #4299e1; }
+    .state-icon .text-success { color: #38a169; }
+    .state-icon .text-error { color: #e53e3e; }
+
+    .operation-info {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+
+    .operation-name {
+        font-weight: 500;
+        color: #1a202c;
+    }
+
+    .operation-desc {
+        font-size: 12px;
+        color: #718096;
+    }
+
+    .operation-right {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+
+    .expand-icon {
+        color: #a0aec0;
+        font-size: 12px;
+    }
+
+    .operation-log {
+        max-height: 150px;
+        overflow-y: auto;
+        padding: 8px 12px;
+        font-family: "SF Mono", Menlo, Monaco, monospace;
+        font-size: 11px;
+        background: #1e1e1e;
+        border-top: 1px solid #e2e8f0;
+    }
+
+    .log-entry {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        padding: 3px 6px;
+        border-radius: 3px;
+    }
+
+    .log-entry:hover { background: #2d2d2d; }
+
+    .log-time {
+        color: #718096;
+        flex-shrink: 0;
+    }
+
+    .log-entry i {
+        flex-shrink: 0;
+        width: 12px;
+        text-align: center;
+    }
+
+    .log-message {
+        color: #e2e8f0;
+        word-break: break-word;
+    }
+
+    .log-entry.info i { color: #4299e1; }
+    .log-entry.success i { color: #48bb78; }
+    .log-entry.warning i { color: #ed8936; }
+    .log-entry.error i { color: #fc8181; }
+
+    .log-entry.success .log-message { color: #9ae6b4; }
+    .log-entry.warning .log-message { color: #fbd38d; }
+    .log-entry.error .log-message { color: #feb2b2; }
+
+    .operation-error {
+        padding: 10px 16px;
+        background: #fff5f5;
+        border-top: 1px solid #fc8181;
+        color: #c53030;
+        font-size: 13px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .modal-footer {
+        padding: 16px 20px;
+        border-top: 1px solid #e2e8f0;
+        display: flex;
+        justify-content: flex-end;
+        gap: 12px;
+    }
+
+    .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 20px;
+        border: none;
+        border-radius: 6px;
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .btn-primary { background: #4299e1; color: white; }
+    .btn-primary:hover:not(:disabled) { background: #3182ce; }
+
+    .btn-secondary { background: #e2e8f0; color: #4a5568; }
+    .btn-secondary:hover:not(:disabled) { background: #cbd5e0; }
+
+    .btn-warning { background: #ed8936; color: white; }
+    .btn-warning:hover:not(:disabled) { background: #dd6b20; }
+</style>
+
+@code {
+    private HashSet<string> expandedOperations = new();
+    private System.Timers.Timer? _elapsedTimer;
+    private DateTime _startTime;
+    private string ElapsedTime { get; set; } = "00:00";
+
+    private int EnabledCount => ModalService.Operations.Count(o => o.IsEnabled);
+    private int TotalEnabled => ModalService.Operations.Count(o => o.IsEnabled);
+    private int CurrentProgress => ModalService.Operations.Count(o => 
+        o.State == OperationItemState.Completed || 
+        o.State == OperationItemState.Failed || 
+        o.State == OperationItemState.Skipped);
+    private int ProgressPercent => TotalEnabled > 0 ? (CurrentProgress * 100) / TotalEnabled : 0;
+
+    private int CompletedCount => ModalService.Operations.Count(o => o.State == OperationItemState.Completed);
+    private int FailedCount => ModalService.Operations.Count(o => o.State == OperationItemState.Failed);
+    private int SkippedCount => ModalService.Operations.Count(o => o.State == OperationItemState.Skipped);
+    private bool HasResult => !ModalService.IsConfirming && !ModalService.IsRunning;
+
+    protected override void OnInitialized()
+    {
+        ModalService.OnShowRequested += HandleShowRequested;
+        ModalService.OnOperationStateChanged += HandleOperationStateChanged;
+        ModalService.OnLogEntry += HandleLogEntry;
+        ModalService.OnExecutionStarted += HandleExecutionStarted;
+        ModalService.OnExecutionCompleted += HandleExecutionCompleted;
+    }
+
+    private void HandleShowRequested(string title, string description)
+    {
+        expandedOperations.Clear();
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void HandleOperationStateChanged(OperationItemStatus status)
+    {
+        // Auto-expand running operation, auto-collapse completed ones
+        if (status.State == OperationItemState.Running)
+        {
+            expandedOperations.Add(status.Id);
+        }
+        else if (status.State == OperationItemState.Completed && status.Log.Count == 0)
+        {
+            expandedOperations.Remove(status.Id);
+        }
+        
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void HandleLogEntry(string operationId, OperationLogEntry entry)
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void HandleExecutionStarted()
+    {
+        _startTime = DateTime.Now;
+        _elapsedTimer = new System.Timers.Timer(1000);
+        _elapsedTimer.Elapsed += (_, _) =>
+        {
+            ElapsedTime = (DateTime.Now - _startTime).ToString(@"mm\:ss");
+            InvokeAsync(StateHasChanged);
+        };
+        _elapsedTimer.Start();
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void HandleExecutionCompleted()
+    {
+        _elapsedTimer?.Stop();
+        _elapsedTimer?.Dispose();
+        _elapsedTimer = null;
+        ElapsedTime = (DateTime.Now - _startTime).ToString(@"mm\:ss\.f");
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void ToggleExpanded(string operationId)
+    {
+        if (expandedOperations.Contains(operationId))
+            expandedOperations.Remove(operationId);
+        else
+            expandedOperations.Add(operationId);
+    }
+
+    private void HandleToggle(string operationId, bool enabled)
+    {
+        ModalService.ToggleOperation(operationId, enabled);
+        StateHasChanged();
+    }
+
+    private async Task HandleStart()
+    {
+        await ModalService.StartExecutionAsync();
+    }
+
+    private void HandleCancel()
+    {
+        ModalService.CancelBeforeExecution();
+    }
+
+    private void HandleRequestCancel()
+    {
+        ModalService.RequestCancellation();
+    }
+
+    private void HandleClose()
+    {
+        ModalService.Close();
+    }
+
+    private string GetOperationCardClass(OperationItemStatus op) => op.State switch
+    {
+        OperationItemState.Running => "running",
+        OperationItemState.Completed => "completed",
+        OperationItemState.Failed => "failed",
+        OperationItemState.Skipped => "skipped",
+        _ => ""
+    };
+
+    private string GetOverallResultClass()
+    {
+        if (FailedCount > 0) return "text-error";
+        if (CompletedCount > 0) return "text-success";
+        return "text-muted";
+    }
+
+    private string GetOverallResultIcon()
+    {
+        if (FailedCount > 0) return "fa-exclamation-circle";
+        if (CompletedCount > 0) return "fa-check-circle";
+        return "fa-circle";
+    }
+
+    private string GetLogLevelClass(OperationLogLevel level) => level switch
+    {
+        OperationLogLevel.Debug => "debug",
+        OperationLogLevel.Info => "info",
+        OperationLogLevel.Warning => "warning",
+        OperationLogLevel.Error => "error",
+        OperationLogLevel.Success => "success",
+        _ => "info"
+    };
+
+    private string GetLogLevelIcon(OperationLogLevel level) => level switch
+    {
+        OperationLogLevel.Debug => "fa-bug",
+        OperationLogLevel.Info => "fa-info-circle",
+        OperationLogLevel.Warning => "fa-exclamation-triangle",
+        OperationLogLevel.Error => "fa-times-circle",
+        OperationLogLevel.Success => "fa-check-circle",
+        _ => "fa-info-circle"
+    };
+
+    public void Dispose()
+    {
+        ModalService.OnShowRequested -= HandleShowRequested;
+        ModalService.OnOperationStateChanged -= HandleOperationStateChanged;
+        ModalService.OnLogEntry -= HandleLogEntry;
+        ModalService.OnExecutionStarted -= HandleExecutionStarted;
+        ModalService.OnExecutionCompleted -= HandleExecutionCompleted;
+        _elapsedTimer?.Dispose();
+    }
+}
