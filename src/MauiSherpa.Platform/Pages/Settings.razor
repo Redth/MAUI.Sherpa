@@ -1,0 +1,721 @@
+@page "/settings"
+@using MauiSherpa.Core.ViewModels
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Core.Services
+@using MauiSherpa.Core.Requests.Android
+@using Shiny.Mediator
+@inject SettingsViewModel ViewModel
+@inject IMediator Mediator
+@inject IAppleIdentityService AppleIdentityService
+@inject IAndroidSdkService SdkService
+@inject IAndroidSdkSettingsService SdkSettings
+@inject IAlertService AlertService
+@inject IDialogService DialogService
+@inject IFileSystemService FileSystem
+@inject IThemeService ThemeService
+@implements IDisposable
+
+<h1><i class="fas fa-cog"></i> @ViewModel.Title</h1>
+
+<div class="settings-section">
+    <h2>General</h2>
+    <div class="settings-container">
+        <div class="setting-group">
+            <div class="setting-item">
+                <label class="setting-label">Theme</label>
+                <select value="@ViewModel.Theme" @onchange="OnThemeChanged">
+                    <option value="System">System</option>
+                    <option value="Light">Light</option>
+                    <option value="Dark">Dark</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="actions">
+            <button class="btn btn-primary" @onclick="SaveSettings">
+                <i class="fas fa-save"></i> Save Settings
+            </button>
+            <button class="btn btn-secondary" @onclick="ResetSettings">
+                <i class="fas fa-undo"></i> Reset to Defaults
+            </button>
+        </div>
+    </div>
+</div>
+
+<div class="settings-section">
+    <h2>Android SDK</h2>
+    <p class="section-description">
+        Configure the Android SDK location used for managing packages, emulators, and devices.
+    </p>
+    
+    <div class="settings-container">
+        <div class="sdk-path-setting">
+            <div class="sdk-path-info">
+                <div class="detail-item">
+                    <span class="detail-label">SDK PATH</span>
+                    <span class="detail-value mono copyable">
+                        @if (isLoadingSdk)
+                        {
+                            <span class="detecting"><i class="fas fa-spinner fa-spin"></i> Detecting...</span>
+                        }
+                        else if (!string.IsNullOrEmpty(SdkService.SdkPath))
+                        {
+                            @SdkService.SdkPath
+                            <button class="btn-copy" @onclick="@(() => CopyToClipboard(SdkService.SdkPath!))" title="Copy to clipboard">
+                                <i class="fas fa-copy"></i>
+                            </button>
+                            <button class="btn-reveal" @onclick="@(() => FileSystem.RevealInFileManager(SdkService.SdkPath!))" title="Reveal in Finder">
+                                <i class="fas fa-external-link-alt"></i>
+                            </button>
+                        }
+                        else
+                        {
+                            <span class="no-sdk">No SDK detected</span>
+                        }
+                    </span>
+                </div>
+                @if (!string.IsNullOrEmpty(SdkSettings.CustomSdkPath))
+                {
+                    <div class="custom-path-badge">
+                        <i class="fas fa-user-edit"></i> Custom path
+                    </div>
+                }
+            </div>
+            <div class="sdk-path-actions">
+                <button class="btn btn-secondary btn-sm" @onclick="ChangeSdkPath" disabled="@isLoadingSdk">
+                    <i class="fas fa-folder-open"></i> Change
+                </button>
+                @if (!string.IsNullOrEmpty(SdkSettings.CustomSdkPath))
+                {
+                    <button class="btn btn-secondary btn-sm" @onclick="ResetSdkPath" disabled="@isLoadingSdk">
+                        <i class="fas fa-undo"></i> Reset to Default
+                    </button>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="settings-section">
+    <h2>Apple Identities</h2>
+    <p class="section-description">
+        Configure App Store Connect API credentials for managing Apple Developer resources.
+        <a href="https://appstoreconnect.apple.com/access/api" target="_blank">Get API keys</a>
+    </p>
+    
+    <div class="settings-container">
+        @if (appleIdentities.Count == 0)
+        {
+            <div class="empty-identities">
+                <p>No Apple identities configured</p>
+            </div>
+        }
+        else
+        {
+            <div class="identity-list">
+                @foreach (var identity in appleIdentities)
+                {
+                    <div class="identity-card">
+                        <div class="identity-header">
+                            <div class="identity-name">@identity.Name</div>
+                            <div class="identity-actions">
+                                <button class="btn btn-sm btn-secondary" @onclick="@(() => TestIdentity(identity))" title="Test Connection">
+                                    <i class="fas fa-plug"></i> Test
+                                </button>
+                                <button class="btn btn-sm btn-secondary" @onclick="@(() => EditIdentity(identity))" title="Edit">
+                                    <i class="fas fa-edit"></i> Edit
+                                </button>
+                                <button class="btn btn-sm btn-danger" @onclick="@(() => DeleteIdentity(identity))" title="Delete">
+                                    <i class="fas fa-trash"></i> Delete
+                                </button>
+                            </div>
+                        </div>
+                        <div class="identity-details">
+                            <div class="detail-item">
+                                <span class="detail-label">KEY ID</span>
+                                <span class="detail-value mono copyable">
+                                    @identity.KeyId
+                                    <button class="btn-copy" @onclick="@(() => CopyToClipboard(identity.KeyId))" title="Copy to clipboard">
+                                        <i class="fas fa-copy"></i>
+                                    </button>
+                                </span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="detail-label">ISSUER ID</span>
+                                <span class="detail-value mono copyable">
+                                    @identity.IssuerId
+                                    <button class="btn-copy" @onclick="@(() => CopyToClipboard(identity.IssuerId))" title="Copy to clipboard">
+                                        <i class="fas fa-copy"></i>
+                                    </button>
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+        
+        <div class="add-identity">
+            <button class="btn btn-success" @onclick="ShowAddIdentityDialog">
+                <i class="fas fa-plus"></i> Add Apple Identity
+            </button>
+        </div>
+    </div>
+</div>
+
+@if (showIdentityDialog)
+{
+    <div class="modal-overlay">
+        <div class="modal" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h2>@(editingIdentity == null ? "Add" : "Edit") Apple Identity</h2>
+                <button class="close-btn" @onclick="CloseIdentityDialog">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Name</label>
+                    <input type="text" @bind="identityName" placeholder="My Team" />
+                    <div class="help-text">A friendly name to identify this credential</div>
+                </div>
+                <div class="form-group">
+                    <label>Key ID</label>
+                    <input type="text" @bind="identityKeyId" placeholder="ABC123XYZ" />
+                    <div class="help-text">The 10-character Key ID from App Store Connect</div>
+                </div>
+                <div class="form-group">
+                    <label>Issuer ID (Team ID)</label>
+                    <input type="text" @bind="identityIssuerId" placeholder="12345678-1234-1234-1234-123456789012" />
+                    <div class="help-text">Your Issuer ID (UUID format) from App Store Connect → Users and Access → Keys</div>
+                </div>
+                <div class="form-group">
+                    <label>Private Key (.p8)</label>
+                    <div class="p8-input-toggle">
+                        <button class="toggle-btn @(p8InputMode == "file" ? "active" : "")" @onclick="@(() => p8InputMode = "file")">
+                            <i class="fas fa-folder-open"></i> File
+                        </button>
+                        <button class="toggle-btn @(p8InputMode == "text" ? "active" : "")" @onclick="@(() => p8InputMode = "text")">
+                            <i class="fas fa-file-alt"></i> Text
+                        </button>
+                    </div>
+                    @if (p8InputMode == "file")
+                    {
+                        <div class="file-input-group">
+                            <input type="text" @bind="identityP8Path" placeholder="Path to .p8 file" readonly />
+                            <button class="btn btn-secondary" @onclick="BrowseP8File">
+                                <i class="fas fa-folder-open"></i> Browse...
+                            </button>
+                        </div>
+                        <div class="help-text">Select your AuthKey_XXXXXX.p8 file downloaded from App Store Connect</div>
+                    }
+                    else
+                    {
+                        <textarea @bind="identityP8Content" 
+                                  placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----" 
+                                  rows="6"
+                                  class="p8-textarea"></textarea>
+                        <div class="help-text">Paste the contents of your .p8 file (including BEGIN/END lines)</div>
+                    }
+                </div>
+                @if (!string.IsNullOrEmpty(identityP8Content))
+                {
+                    <div class="p8-preview">
+                        <span class="p8-loaded"><i class="fas fa-check-circle"></i> P8 key loaded (@identityP8Content.Length chars)</span>
+                    </div>
+                }
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" @onclick="CloseIdentityDialog">
+                    <i class="fas fa-times"></i> Cancel
+                </button>
+                <button class="btn btn-primary" @onclick="SaveIdentity" 
+                        disabled="@(!CanSaveIdentity)">
+                    <i class="fas fa-save"></i> Save
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    h1 { margin-bottom: 20px; font-size: 28px; color: #2d3748; font-weight: 600; }
+    h2 { margin: 0 0 16px 0; font-size: 18px; color: #2d3748; font-weight: 600; }
+
+    .settings-section { margin-bottom: 32px; }
+    .section-description { color: #718096; margin-bottom: 16px; font-size: 14px; }
+    .section-description a { color: #4299e1; }
+
+    .settings-container {
+        background: white;
+        padding: 24px;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    .setting-group { margin-bottom: 24px; }
+
+    .setting-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 16px 0;
+        border-bottom: 1px solid #e2e8f0;
+    }
+
+    .setting-item:last-child { border-bottom: none; }
+    .setting-label { font-size: 16px; color: #2d3748; font-weight: 500; }
+    .setting-item input[type="checkbox"] { width: 20px; height: 20px; cursor: pointer; }
+
+    .setting-item select {
+        padding: 8px 12px;
+        border: 1px solid #e2e8f0;
+        border-radius: 6px;
+        font-size: 14px;
+        cursor: pointer;
+        min-width: 150px;
+    }
+
+    .setting-item select:focus { outline: none; border-color: #4299e1; }
+
+    .actions { display: flex; gap: 12px; }
+
+    .btn { 
+        padding: 10px 20px; 
+        border: none; 
+        border-radius: 6px; 
+        font-size: 14px; 
+        cursor: pointer; 
+        transition: all 0.2s ease;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .btn i { font-size: 14px; }
+    .btn-sm { padding: 6px 12px; font-size: 13px; }
+    .btn-sm i { font-size: 12px; }
+    .btn-primary { background-color: #4299e1; color: white; }
+    .btn-primary:hover { background-color: #3182ce; }
+    .btn-secondary { background-color: #718096; color: white; }
+    .btn-secondary:hover { background-color: #4a5568; }
+    .btn-success { background-color: #48bb78; color: white; }
+    .btn-success:hover { background-color: #38a169; }
+    .btn-danger { background-color: #f56565; color: white; }
+    .btn-danger:hover { background-color: #e53e3e; }
+
+    .identity-list { display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px; }
+
+    .identity-card {
+        padding: 16px;
+        background: #f7fafc;
+        border-radius: 6px;
+        border: 1px solid #e2e8f0;
+    }
+
+    .identity-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 16px;
+        padding-bottom: 12px;
+        border-bottom: 1px solid #e2e8f0;
+    }
+
+    .identity-name { font-weight: 600; color: #2d3748; font-size: 16px; }
+    .identity-actions { display: flex; gap: 8px; }
+
+    .identity-details {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 16px;
+    }
+
+    .detail-item {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .detail-label {
+        font-size: 11px;
+        color: #718096;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        font-weight: 500;
+    }
+
+    .detail-value {
+        font-size: 14px;
+        color: #2d3748;
+    }
+
+    .detail-value.mono {
+        font-family: "SF Mono", Menlo, Monaco, monospace;
+        font-size: 13px;
+        word-break: break-all;
+    }
+
+    .detail-value.copyable {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .btn-copy {
+        background: none;
+        border: none;
+        color: #a0aec0;
+        cursor: pointer;
+        padding: 2px 6px;
+        font-size: 12px;
+        border-radius: 4px;
+        transition: all 0.15s;
+        flex-shrink: 0;
+    }
+    .btn-copy:hover {
+        color: #4299e1;
+        background: #edf2f7;
+    }
+
+    .btn-reveal {
+        background: none;
+        border: none;
+        color: #a0aec0;
+        cursor: pointer;
+        padding: 2px 6px;
+        font-size: 12px;
+        border-radius: 4px;
+        transition: all 0.15s;
+        flex-shrink: 0;
+    }
+    .btn-reveal:hover {
+        color: #4299e1;
+        background: #edf2f7;
+    }
+
+    .sdk-path-setting {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 16px;
+    }
+
+    .sdk-path-info {
+        flex: 1;
+    }
+
+    .sdk-path-actions {
+        display: flex;
+        gap: 8px;
+        flex-shrink: 0;
+    }
+
+    .detecting {
+        color: #718096;
+        font-style: italic;
+        font-family: inherit;
+    }
+
+    .no-sdk {
+        color: #a0aec0;
+        font-style: italic;
+        font-family: inherit;
+    }
+
+    .custom-path-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 8px;
+        padding: 4px 10px;
+        background: #bee3f8;
+        color: #2c5282;
+        border-radius: 12px;
+        font-size: 12px;
+        font-weight: 500;
+    }
+
+    .empty-identities { padding: 20px; text-align: center; color: #718096; }
+    .add-identity { margin-top: 16px; }
+
+    .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+    .modal { background: var(--bg-color, white); border-radius: 12px; width: 90%; max-width: 500px; max-height: 90vh; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3); }
+    .modal-header { display: flex; justify-content: space-between; align-items: center; padding: 20px 24px; border-bottom: 1px solid var(--border-color, #e2e8f0); flex-shrink: 0; }
+    .modal-header h2 { margin: 0; font-size: 18px; color: var(--text-color, #2d3748); }
+    .close-btn { background: none; border: none; font-size: 24px; cursor: pointer; color: #a0aec0; }
+    .modal-body { padding: 24px; overflow-y: auto; flex: 1; }
+    .modal-footer { padding: 16px 24px; border-top: 1px solid var(--border-color, #e2e8f0); display: flex; justify-content: flex-end; gap: 12px; flex-shrink: 0; }
+
+    .form-group { margin-bottom: 20px; }
+    .form-group label { display: block; margin-bottom: 8px; font-weight: 500; color: #4a5568; }
+    .form-group input { width: 100%; padding: 10px 12px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 14px; }
+    .form-group input:focus { outline: none; border-color: #4299e1; box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.1); }
+    .help-text { margin-top: 6px; font-size: 12px; color: #718096; }
+
+    .file-input-group { display: flex; gap: 8px; }
+    .file-input-group input { flex: 1; }
+
+    .p8-input-toggle { display: flex; gap: 0; margin-bottom: 12px; }
+    .toggle-btn { 
+        padding: 8px 16px; 
+        border: 1px solid #e2e8f0; 
+        background: #f7fafc; 
+        cursor: pointer; 
+        font-size: 13px;
+        color: #4a5568;
+        transition: all 0.15s;
+    }
+    .toggle-btn:first-child { border-radius: 6px 0 0 6px; }
+    .toggle-btn:last-child { border-radius: 0 6px 6px 0; border-left: none; }
+    .toggle-btn.active { 
+        background: #4299e1; 
+        color: white; 
+        border-color: #4299e1; 
+    }
+    .toggle-btn:hover:not(.active) { background: #edf2f7; }
+
+    .p8-textarea {
+        width: 100%;
+        padding: 10px 12px;
+        border: 1px solid #e2e8f0;
+        border-radius: 6px;
+        font-size: 13px;
+        font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+        resize: vertical;
+        min-height: 120px;
+    }
+    .p8-textarea:focus { outline: none; border-color: #4299e1; box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.1); }
+
+    .p8-preview { margin-top: 8px; }
+    .p8-loaded { color: #38a169; font-size: 13px; }
+</style>
+
+@code {
+    private List<AppleIdentity> appleIdentities = new();
+    
+    private bool showIdentityDialog = false;
+    private AppleIdentity? editingIdentity = null;
+    private string identityName = "";
+    private string identityKeyId = "";
+    private string identityIssuerId = "";
+    private string identityP8Path = "";
+    private string identityP8Content = "";
+    private string p8InputMode = "file"; // "file" or "text"
+    
+    private bool isLoadingSdk = true;
+
+    private bool CanSaveIdentity => 
+        !string.IsNullOrWhiteSpace(identityName) &&
+        !string.IsNullOrWhiteSpace(identityKeyId) &&
+        !string.IsNullOrWhiteSpace(identityIssuerId) &&
+        !string.IsNullOrWhiteSpace(identityP8Content);
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Sync ViewModel with current theme service state
+        ViewModel.Theme = ThemeService.CurrentTheme;
+        
+        // Subscribe to SDK path changes
+        SdkSettings.SdkPathChanged += OnSdkPathChanged;
+        
+        await LoadAppleIdentities();
+        await InitializeSdk();
+    }
+
+    private async Task InitializeSdk()
+    {
+        isLoadingSdk = true;
+        StateHasChanged();
+        
+        try
+        {
+            if (SdkSettings is AndroidSdkSettingsService settingsService)
+            {
+                await settingsService.InitializeAsync();
+            }
+        }
+        finally
+        {
+            isLoadingSdk = false;
+            StateHasChanged();
+        }
+    }
+
+    private void OnSdkPathChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        SdkSettings.SdkPathChanged -= OnSdkPathChanged;
+    }
+
+    private async Task LoadAppleIdentities()
+    {
+        appleIdentities = (await AppleIdentityService.GetIdentitiesAsync()).ToList();
+    }
+
+    private void OnThemeChanged(ChangeEventArgs e)
+    {
+        var theme = e.Value?.ToString() ?? "System";
+        ViewModel.Theme = theme;
+        ThemeService.SetTheme(theme);
+    }
+
+    private async Task SaveSettings()
+    {
+        await ViewModel.SaveSettingsAsync();
+    }
+
+    private async Task ResetSettings()
+    {
+        await ViewModel.ResetSettingsAsync();
+        ThemeService.SetTheme(ViewModel.Theme);
+    }
+
+    private void ShowAddIdentityDialog()
+    {
+        editingIdentity = null;
+        identityName = "";
+        identityKeyId = "";
+        identityIssuerId = "";
+        identityP8Path = "";
+        identityP8Content = "";
+        p8InputMode = "file";
+        showIdentityDialog = true;
+    }
+
+    private async Task ChangeSdkPath()
+    {
+        var path = await DialogService.PickFolderAsync("Select Android SDK Location");
+        if (string.IsNullOrEmpty(path)) return;
+
+        isLoadingSdk = true;
+        StateHasChanged();
+
+        try
+        {
+            await SdkSettings.SetCustomSdkPathAsync(path);
+            // Invalidate SDK path cache
+            await Mediator.Request(new GetSdkPathRequest(), CancellationToken.None, ctx => ctx.ClearCache());
+            await AlertService.ShowToastAsync("SDK path updated");
+        }
+        catch (Exception ex)
+        {
+            await AlertService.ShowAlertAsync("Error", $"Failed to set SDK path: {ex.Message}");
+        }
+        finally
+        {
+            isLoadingSdk = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ResetSdkPath()
+    {
+        var confirm = await AlertService.ShowConfirmAsync(
+            "Reset SDK Path",
+            "Reset to the default auto-detected SDK path?");
+        
+        if (!confirm) return;
+
+        isLoadingSdk = true;
+        StateHasChanged();
+
+        try
+        {
+            await SdkSettings.ResetToDefaultAsync();
+            // Invalidate SDK path cache
+            await Mediator.Request(new GetSdkPathRequest(), CancellationToken.None, ctx => ctx.ClearCache());
+            await AlertService.ShowToastAsync("SDK path reset to default");
+        }
+        catch (Exception ex)
+        {
+            await AlertService.ShowAlertAsync("Error", $"Failed to reset SDK path: {ex.Message}");
+        }
+        finally
+        {
+            isLoadingSdk = false;
+            StateHasChanged();
+        }
+    }
+
+    private void EditIdentity(AppleIdentity identity)
+    {
+        editingIdentity = identity;
+        identityName = identity.Name;
+        identityKeyId = identity.KeyId;
+        identityIssuerId = identity.IssuerId;
+        identityP8Path = identity.P8KeyPath ?? "";
+        identityP8Content = identity.P8KeyContent ?? "";
+        // If we have content but no path, default to text mode
+        p8InputMode = string.IsNullOrEmpty(identity.P8KeyPath) && !string.IsNullOrEmpty(identity.P8KeyContent) ? "text" : "file";
+        showIdentityDialog = true;
+    }
+
+    private void CloseIdentityDialog()
+    {
+        showIdentityDialog = false;
+        editingIdentity = null;
+    }
+
+    private async Task BrowseP8File()
+    {
+        var path = await DialogService.ShowFileDialogAsync(
+            "Select P8 Key File",
+            isSave: false,
+            filters: new[] { "*.p8" });
+
+        if (!string.IsNullOrEmpty(path))
+        {
+            identityP8Path = path;
+            identityP8Content = await FileSystem.ReadFileAsync(path) ?? "";
+        }
+    }
+
+    private async Task SaveIdentity()
+    {
+        var id = editingIdentity?.Id ?? Guid.NewGuid().ToString();
+        
+        var identity = new AppleIdentity(
+            Id: id,
+            Name: identityName.Trim(),
+            KeyId: identityKeyId.Trim(),
+            IssuerId: identityIssuerId.Trim(),
+            P8KeyPath: string.IsNullOrEmpty(identityP8Path) ? null : identityP8Path,
+            P8KeyContent: identityP8Content);
+
+        await AppleIdentityService.SaveIdentityAsync(identity);
+        await AlertService.ShowToastAsync($"Identity '{identityName}' saved");
+        
+        CloseIdentityDialog();
+        await LoadAppleIdentities();
+    }
+
+    private async Task TestIdentity(AppleIdentity identity)
+    {
+        var success = await AppleIdentityService.TestConnectionAsync(identity);
+        if (success)
+            await AlertService.ShowToastAsync("Connection successful!");
+        else
+            await AlertService.ShowAlertAsync("Connection Failed", "Could not connect with these credentials. Check your Key ID, Issuer ID, and P8 key.");
+    }
+
+    private async Task DeleteIdentity(AppleIdentity identity)
+    {
+        var confirm = await AlertService.ShowConfirmAsync(
+            "Delete Identity",
+            $"Are you sure you want to delete '{identity.Name}'?");
+
+        if (!confirm) return;
+
+        await AppleIdentityService.DeleteIdentityAsync(identity.Id);
+        await AlertService.ShowToastAsync("Identity deleted");
+        await LoadAppleIdentities();
+    }
+
+    private async Task CopyToClipboard(string text)
+    {
+        await DialogService.CopyToClipboardAsync(text);
+        await AlertService.ShowToastAsync("Copied to clipboard");
+    }
+}

@@ -1,0 +1,469 @@
+@page "/apple-devices"
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Core.Requests.Apple
+@using Shiny.Mediator
+@inject IMediator Mediator
+@inject IAppleConnectService AppleService
+@inject IAppleIdentityStateService IdentityState
+@inject IAlertService AlertService
+@implements IDisposable
+
+<h1><i class="fas fa-mobile-alt"></i> Registered Devices</h1>
+
+<AppleIdentityPicker />
+
+@if (IdentityState.SelectedIdentity != null)
+{
+    <div class="toolbar">
+        <button class="btn btn-primary" @onclick="@(() => RefreshData(forceRefresh: true))" disabled="@isLoading">
+            <i class="fas fa-sync-alt"></i> @(isLoading ? "Loading..." : "Refresh")
+        </button>
+        <button class="btn btn-success" @onclick="ShowRegisterDialog" disabled="@isLoading">
+            <i class="fas fa-plus"></i> Register Device
+        </button>
+    </div>
+
+    <!-- Filter Section -->
+    <div class="filter-section">
+        <div class="search-box">
+            <span class="search-icon"><i class="fas fa-search"></i></span>
+            <input type="text" @bind="searchQuery" @bind:event="oninput" placeholder="Search devices..." />
+            @if (!string.IsNullOrEmpty(searchQuery))
+            {
+                <button class="clear-btn" @onclick="@(() => searchQuery = "")">×</button>
+            }
+        </div>
+        <div class="filter-chips">
+            <select @bind="filterPlatform" class="filter-select">
+                <option value="">All Platforms</option>
+                <option value="IOS">iOS</option>
+                <option value="MAC_OS">macOS</option>
+            </select>
+            <select @bind="filterStatus" class="filter-select">
+                <option value="">All Status</option>
+                <option value="ENABLED">Enabled</option>
+                <option value="DISABLED">Disabled</option>
+            </select>
+        </div>
+        @if (HasActiveFilters)
+        {
+            <button class="clear-filters-btn" @onclick="ClearFilters">Clear Filters</button>
+        }
+    </div>
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="error-bar">@errorMessage</div>
+    }
+
+    <div class="results-info">
+        Showing @FilteredDevices.Count() of @devices.Count devices
+    </div>
+
+    <div class="device-list">
+        @if (isLoading && devices.Count == 0)
+        {
+            <div class="loading-state">
+                <div class="loading-spinner">
+                    <i class="fab fa-apple"></i>
+                </div>
+                <div class="loading-title">Loading Devices</div>
+                <div class="loading-description">Fetching registered devices from App Store Connect...</div>
+            </div>
+        }
+        else if (!FilteredDevices.Any())
+        {
+            <div class="empty-state">
+                <div class="empty-icon"><i class="fas fa-mobile-alt"></i></div>
+                <div class="empty-title">@(devices.Count == 0 ? "No devices registered" : "No devices match filters")</div>
+                <div class="empty-description">@(devices.Count == 0 ? "Register a device UDID to use it for development" : "Try adjusting your search or filters")</div>
+            </div>
+        }
+        else
+        {
+            @foreach (var device in FilteredDevices)
+            {
+                var isEnabled = device.Status == "ENABLED";
+                <div class="device-card @(isEnabled ? "" : "disabled")">
+                    <div class="device-icon"><i class="fas @GetDeviceIcon(device.DeviceClass)"></i></div>
+                    <div class="device-details">
+                        <div class="device-name">@device.Name</div>
+                        <div class="device-udid">@device.Udid</div>
+                        <div class="device-badges">
+                            <span class="badge badge-platform">@device.Platform</span>
+                            <span class="badge badge-class">@device.DeviceClass</span>
+                            <span class="badge @(isEnabled ? "badge-enabled" : "badge-disabled")">@device.Status</span>
+                            @if (!string.IsNullOrEmpty(device.Model))
+                            {
+                                <span class="badge badge-model">@device.Model</span>
+                            }
+                        </div>
+                    </div>
+                    <div class="device-actions">
+                        @if (isEnabled)
+                        {
+                            <button class="btn btn-warning btn-sm" @onclick="@(() => ToggleDevice(device, false))" disabled="@isLoading">
+                                <i class="fas fa-ban"></i> Disable
+                            </button>
+                        }
+                        else
+                        {
+                            <button class="btn btn-success btn-sm" @onclick="@(() => ToggleDevice(device, true))" disabled="@isLoading">
+                                <i class="fas fa-check"></i> Enable
+                            </button>
+                        }
+                    </div>
+                </div>
+            }
+        }
+    </div>
+}
+
+@if (showRegisterDialog)
+{
+    <div class="modal-overlay">
+        <div class="modal" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h2>Register Device</h2>
+                <button class="close-btn" @onclick="CloseRegisterDialog">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Device UDID</label>
+                    <input type="text" @bind="newUdid" placeholder="00008030-000000000000002E" />
+                    <div class="help-text">Find UDID in Finder (macOS) or iTunes (Windows) when device is connected</div>
+                </div>
+                <div class="form-group">
+                    <label>Device Name</label>
+                    <input type="text" @bind="newDeviceName" placeholder="John's iPhone" />
+                </div>
+                <div class="form-group">
+                    <label>Platform</label>
+                    <select @bind="newPlatform">
+                        <option value="IOS">iOS</option>
+                        <option value="MACOS">macOS</option>
+                    </select>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" @onclick="CloseRegisterDialog">
+                    <i class="fas fa-times"></i> Cancel
+                </button>
+                <button class="btn btn-primary" @onclick="RegisterDevice" 
+                        disabled="@(string.IsNullOrWhiteSpace(newUdid) || string.IsNullOrWhiteSpace(newDeviceName) || isLoading)">
+                    <i class="fas @(isLoading ? "fa-spinner fa-spin" : "fa-plus")"></i> @(isLoading ? "Registering..." : "Register")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    h1 { margin-bottom: 20px; font-size: 28px; color: #2d3748; }
+
+    .toolbar { margin-bottom: 16px; display: flex; gap: 12px; }
+    .error-bar { background: #fed7d7; color: #c53030; padding: 12px 16px; border-radius: 6px; margin-bottom: 16px; }
+
+    /* Filter Section Styles */
+    .filter-section {
+        background: white;
+        border-radius: 8px;
+        padding: 16px;
+        margin-bottom: 16px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        align-items: center;
+    }
+
+    .search-box {
+        position: relative;
+        flex: 1;
+        min-width: 200px;
+    }
+
+    .search-box input {
+        width: 100%;
+        padding: 10px 36px 10px 36px;
+        border: 1px solid #e2e8f0;
+        border-radius: 6px;
+        font-size: 14px;
+        box-sizing: border-box;
+    }
+
+    .search-box input:focus {
+        outline: none;
+        border-color: #4299e1;
+        box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.15);
+    }
+
+    .search-icon {
+        position: absolute;
+        left: 12px;
+        top: 50%;
+        transform: translateY(-50%);
+        font-size: 14px;
+        opacity: 0.5;
+    }
+
+    .clear-btn {
+        position: absolute;
+        right: 8px;
+        top: 50%;
+        transform: translateY(-50%);
+        background: #e2e8f0;
+        border: none;
+        border-radius: 50%;
+        width: 20px;
+        height: 20px;
+        font-size: 14px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #718096;
+    }
+
+    .clear-btn:hover { background: #cbd5e0; }
+
+    .filter-chips { display: flex; gap: 8px; flex-wrap: wrap; }
+
+    .filter-select {
+        padding: 8px 12px;
+        border: 1px solid #e2e8f0;
+        border-radius: 6px;
+        font-size: 13px;
+        background: white;
+        cursor: pointer;
+        min-width: 120px;
+    }
+
+    .filter-select:focus { outline: none; border-color: #4299e1; }
+
+    .clear-filters-btn {
+        padding: 8px 12px;
+        background: none;
+        border: 1px solid #e2e8f0;
+        border-radius: 6px;
+        font-size: 13px;
+        color: #718096;
+        cursor: pointer;
+    }
+
+    .clear-filters-btn:hover { background: #f7fafc; color: #4a5568; }
+
+    .results-info { font-size: 13px; color: #718096; margin-bottom: 12px; }
+
+    .btn { 
+        padding: 10px 20px; 
+        border: none; 
+        border-radius: 6px; 
+        font-size: 14px; 
+        cursor: pointer; 
+        transition: all 0.2s ease;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+    }
+    .btn i { font-size: 12px; }
+    .btn-primary { background-color: #4299e1; color: white; }
+    .btn-primary:hover:not(:disabled) { background-color: #3182ce; }
+    .btn-success { background-color: #48bb78; color: white; }
+    .btn-success:hover:not(:disabled) { background-color: #38a169; }
+    .btn-warning { background-color: #ed8936; color: white; }
+    .btn-warning:hover:not(:disabled) { background-color: #dd6b20; }
+    .btn-secondary { background-color: #a0aec0; color: white; }
+    .btn-sm { padding: 6px 12px; font-size: 12px; }
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+    .device-list { display: flex; flex-direction: column; gap: 12px; }
+
+    .device-card {
+        background: white;
+        border-radius: 8px;
+        padding: 20px;
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    .device-card.disabled { opacity: 0.6; }
+
+    .device-icon { font-size: 36px; color: #4299e1; }
+    .device-icon i { font-size: 32px; }
+    .device-details { flex: 1; }
+    .device-name { font-weight: 600; font-size: 16px; color: #2d3748; }
+    .device-udid { font-family: monospace; font-size: 12px; color: #718096; margin-top: 4px; }
+    .device-badges { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+
+    .badge { padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 500; }
+    .badge-platform { background: #bee3f8; color: #2c5282; }
+    .badge-class { background: #e2e8f0; color: #4a5568; }
+    .badge-model { background: #faf5ff; color: #6b46c1; }
+    .badge-enabled { background: #c6f6d5; color: #276749; }
+    .badge-disabled { background: #fed7d7; color: #c53030; }
+
+    .empty-state { background: white; border-radius: 8px; padding: 60px 40px; text-align: center; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); }
+    .empty-icon { font-size: 48px; margin-bottom: 16px; color: #a0aec0; }
+    .empty-icon i { font-size: 48px; }
+    .empty-title { font-size: 18px; font-weight: 600; color: #2d3748; margin-bottom: 8px; }
+    .empty-description { color: #718096; font-size: 14px; }
+
+    .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+    .modal { background: white; border-radius: 12px; width: 90%; max-width: 500px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3); }
+    .modal-header { display: flex; justify-content: space-between; align-items: center; padding: 20px 24px; border-bottom: 1px solid #e2e8f0; }
+    .modal-header h2 { margin: 0; font-size: 18px; color: #2d3748; }
+    .close-btn { background: none; border: none; font-size: 24px; cursor: pointer; color: #a0aec0; }
+    .modal-body { padding: 24px; }
+    .modal-footer { padding: 16px 24px; border-top: 1px solid #e2e8f0; display: flex; justify-content: flex-end; gap: 12px; }
+
+    .form-group { margin-bottom: 20px; }
+    .form-group label { display: block; margin-bottom: 8px; font-weight: 500; color: #4a5568; }
+    .form-group input, .form-group select { width: 100%; padding: 10px 12px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 14px; }
+    .form-group input:focus, .form-group select:focus { outline: none; border-color: #4299e1; box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.1); }
+    .help-text { margin-top: 6px; font-size: 12px; color: #718096; }
+</style>
+
+@code {
+    private List<AppleDevice> devices = new();
+    private bool isLoading = false;
+    private string errorMessage = "";
+
+    // Filter state
+    private string searchQuery = "";
+    private string filterPlatform = "";
+    private string filterStatus = "";
+
+    private bool showRegisterDialog = false;
+    private string newUdid = "";
+    private string newDeviceName = "";
+    private string newPlatform = "IOS";
+
+    private bool HasActiveFilters => !string.IsNullOrEmpty(searchQuery) || 
+                                      !string.IsNullOrEmpty(filterPlatform) ||
+                                      !string.IsNullOrEmpty(filterStatus);
+
+    private IEnumerable<AppleDevice> FilteredDevices => devices
+        .Where(d => string.IsNullOrEmpty(searchQuery) || 
+                    d.Name.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) ||
+                    d.Udid.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) ||
+                    (d.Model?.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) ?? false))
+        .Where(d => string.IsNullOrEmpty(filterPlatform) || (d.Platform?.Equals(filterPlatform, StringComparison.OrdinalIgnoreCase) ?? false))
+        .Where(d => string.IsNullOrEmpty(filterStatus) || (d.Status?.Equals(filterStatus, StringComparison.OrdinalIgnoreCase) ?? false))
+        .OrderByDescending(d => d.Status == "ENABLED") // Enabled first
+        .ThenBy(d => d.Name);
+
+    private void ClearFilters()
+    {
+        searchQuery = "";
+        filterPlatform = "";
+        filterStatus = "";
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        IdentityState.OnSelectionChanged += OnIdentityChanged;
+        if (IdentityState.SelectedIdentity != null)
+            await RefreshData(forceRefresh: true);
+    }
+
+    private void OnIdentityChanged()
+    {
+        InvokeAsync(async () =>
+        {
+            await RefreshData(forceRefresh: true);
+            StateHasChanged();
+        });
+    }
+
+    public void Dispose()
+    {
+        IdentityState.OnSelectionChanged -= OnIdentityChanged;
+    }
+
+    private string GetDeviceIcon(string deviceClass) => deviceClass.ToUpperInvariant() switch
+    {
+        "IPHONE" => "fa-mobile-alt",
+        "IPAD" => "fa-tablet-alt",
+        "APPLE_WATCH" => "fa-clock",
+        "APPLE_TV" => "fa-tv",
+        "MAC" => "fa-laptop",
+        _ => "fa-mobile-alt"
+    };
+
+    private async Task RefreshData(bool forceRefresh = false)
+    {
+        if (IdentityState.SelectedIdentity == null) return;
+
+        isLoading = true;
+        errorMessage = "";
+        try
+        {
+            var request = new GetAppleDevicesRequest(IdentityState.SelectedIdentity.Id);
+            var (_, result) = forceRefresh 
+                ? await Mediator.Request(request, CancellationToken.None, ctx => ctx.ClearCache())
+                : await Mediator.Request(request);
+            devices = result.ToList();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to load devices: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void ShowRegisterDialog()
+    {
+        newUdid = "";
+        newDeviceName = "";
+        newPlatform = "IOS";
+        showRegisterDialog = true;
+    }
+
+    private void CloseRegisterDialog() => showRegisterDialog = false;
+
+    private async Task RegisterDevice()
+    {
+        isLoading = true;
+        try
+        {
+            await AppleService.RegisterDeviceAsync(newUdid, newDeviceName, newPlatform);
+            await AlertService.ShowToastAsync($"Device '{newDeviceName}' registered!");
+            CloseRegisterDialog();
+            await RefreshData(forceRefresh: true);
+        }
+        catch (Exception ex)
+        {
+            await AlertService.ShowAlertAsync("Error", $"Failed to register device: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task ToggleDevice(AppleDevice device, bool enable)
+    {
+        isLoading = true;
+        try
+        {
+            await AppleService.UpdateDeviceStatusAsync(device.Id, enable);
+            await AlertService.ShowToastAsync($"Device {(enable ? "enabled" : "disabled")}");
+            await RefreshData(forceRefresh: true);
+        }
+        catch (Exception ex)
+        {
+            await AlertService.ShowAlertAsync("Error", $"Failed to update device: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+}

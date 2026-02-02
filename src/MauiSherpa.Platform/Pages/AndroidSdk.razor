@@ -1,0 +1,1080 @@
+@page "/android-sdk"
+@using MauiSherpa.Core.ViewModels
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Platform.Services
+@inject AndroidSdkViewModel ViewModel
+@inject IAndroidSdkService SdkService
+@inject IDialogService DialogService
+@inject IAlertService AlertService
+@inject IFileSystemService FileSystem
+@inject INavigationService Navigation
+@inject OperationModalService OperationModal
+@inject MultiOperationModalService MultiOpModal
+
+<h1><i class="fas fa-cube"></i> Android SDK Packages</h1>
+
+<div class="sdk-path-bar">
+    <i class="fas fa-folder"></i>
+    @if (!string.IsNullOrEmpty(ViewModel.SdkPath))
+    {
+        <span class="sdk-path-text">@ViewModel.SdkPath</span>
+        <button class="btn-copy" @onclick="@(() => CopyToClipboard(ViewModel.SdkPath!))" title="Copy to clipboard">
+            <i class="fas fa-copy"></i>
+        </button>
+        <button class="btn-reveal" @onclick="@(() => FileSystem.RevealInFileManager(ViewModel.SdkPath!))" title="Reveal in Finder">
+            <i class="fas fa-external-link-alt"></i>
+        </button>
+    }
+    else if (ViewModel.IsLoading || !hasInitialized)
+    {
+        <span class="sdk-path-text detecting"><i class="fas fa-spinner fa-spin"></i> Detecting SDK locations...</span>
+    }
+    else
+    {
+        <span class="sdk-path-text no-sdk">No SDK detected</span>
+    }
+    <a class="btn-link-settings" href="settings" title="Change SDK path in Settings">
+        <i class="fas fa-cog"></i>
+    </a>
+</div>
+
+<div class="toolbar">
+    @if (!ViewModel.IsSdkInstalled)
+    {
+    <button class="btn btn-success" @onclick="AcquireSdk" disabled="@ViewModel.IsLoading">
+            <i class="fas fa-download"></i> @(ViewModel.IsLoading ? "Installing..." : "Install Android SDK")
+        </button>
+    }
+    else
+    {
+        <button class="btn btn-primary" @onclick="RefreshData" disabled="@ViewModel.IsLoading">
+            <i class="fas fa-sync-alt"></i> @(ViewModel.IsLoading ? "Loading..." : "Refresh")
+        </button>
+        @if (GetUpdatablePackages().Any())
+        {
+            <button class="btn btn-success" @onclick="UpdateAllPackages" disabled="@ViewModel.IsLoading">
+                <i class="fas fa-arrow-up"></i> Update All (@GetUpdatablePackages().Count())
+            </button>
+        }
+    }
+</div>
+
+@if (ViewModel.IsSdkInstalled)
+{
+    <div class="tabs">
+        <button class="tab @(activeTab == "installed" ? "active" : "")" @onclick="@(() => activeTab = "installed")">
+            Installed (@FilteredInstalledPackages.Count())
+            @if (GetUpdatablePackages().Any())
+            {
+                <span class="tab-badge">@GetUpdatablePackages().Count()</span>
+            }
+        </button>
+        <button class="tab @(activeTab == "available" ? "active" : "")" @onclick="@(() => activeTab = "available")">
+            Available (@FilteredAvailablePackages.Count())
+        </button>
+    </div>
+
+    <!-- Filter Section -->
+    <div class="filter-section">
+        <div class="search-box">
+            <span class="search-icon"><i class="fas fa-search"></i></span>
+            <input type="text" @bind="searchQuery" @bind:event="oninput" placeholder="Search packages..." />
+            @if (!string.IsNullOrEmpty(searchQuery))
+            {
+                <button class="clear-btn" @onclick="@(() => searchQuery = "")">×</button>
+            }
+        </div>
+        <div class="filter-chips">
+            <select @bind="filterCategory" class="filter-select">
+                <option value="">All Categories</option>
+                @foreach (var cat in GetAllCategories())
+                {
+                    <option value="@cat">@cat</option>
+                }
+            </select>
+            @if (activeTab == "installed")
+            {
+                <select @bind="filterUpdates" class="filter-select">
+                    <option value="">All Packages</option>
+                    <option value="updates">Has Updates</option>
+                    <option value="current">Up to Date</option>
+                </select>
+            }
+        </div>
+        @if (HasActiveFilters)
+        {
+            <button class="clear-filters-btn" @onclick="ClearFilters">Clear Filters</button>
+        }
+    </div>
+
+    @if (activeTab == "installed")
+    {
+        <div class="package-groups">
+            @if (!FilteredInstalledPackages.Any())
+            {
+                <div class="empty-state">@(ViewModel.InstalledPackages.Count == 0 ? "No packages installed" : "No packages match filters")</div>
+            }
+            else
+            {
+                @foreach (var group in GetPackageGroups(FilteredInstalledPackages))
+                {
+                    var groupUpdates = group.Count(p => HasUpdate(p));
+                    <div class="package-group">
+                        <div class="group-header" @onclick="@(() => ToggleGroup(group.Key))">
+                            <span class="group-chevron">@(IsGroupExpanded(group.Key) ? "▼" : "▶")</span>
+                            <span class="group-name">@group.Key</span>
+                            @if (groupUpdates > 0)
+                            {
+                                <span class="group-update-badge">@groupUpdates update@(groupUpdates > 1 ? "s" : "")</span>
+                            }
+                            <span class="group-count">@group.Count()</span>
+                        </div>
+                        @if (IsGroupExpanded(group.Key))
+                        {
+                            <div class="group-content">
+                                @foreach (var package in group.OrderBy(p => p.Path))
+                                {
+                                    var availableUpdate = GetAvailableUpdate(package);
+                                    var hasUpdate = availableUpdate != null;
+                                    <div class="package-item @(hasUpdate ? "has-update" : "")">
+                                        <div class="package-info">
+                                            <div class="package-name-row">
+                                                <span class="package-path">@GetPackageShortName(package.Path)</span>
+                                                @if (hasUpdate)
+                                                {
+                                                    <span class="update-indicator"><i class="fas fa-arrow-up"></i> Update</span>
+                                                }
+                                            </div>
+                                            <span class="package-description">@package.Description</span>
+                                            <div class="version-row">
+                                                @if (!string.IsNullOrEmpty(package.Version))
+                                                {
+                                                    <span class="package-version">v@(package.Version)</span>
+                                                }
+                                                @if (hasUpdate)
+                                                {
+                                                    <span class="update-version">→ v@(availableUpdate!.Version)</span>
+                                                }
+                                            </div>
+                                        </div>
+                                        <div class="package-actions">
+                                            @if (hasUpdate)
+                                            {
+                                                <button class="btn btn-success btn-sm" @onclick="@(() => InstallPackage(package.Path))" disabled="@ViewModel.IsLoading">
+                                                    <i class="fas fa-arrow-up"></i> Update
+                                                </button>
+                                            }
+                                            <button class="btn btn-danger btn-sm" @onclick="@(() => UninstallPackage(package.Path))" disabled="@ViewModel.IsLoading">
+                                                <i class="fas fa-trash"></i> Uninstall
+                                            </button>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+            }
+        </div>
+    }
+
+    @if (activeTab == "available")
+    {
+        <div class="package-groups">
+            @if (!FilteredAvailablePackages.Any())
+            {
+                <div class="empty-state">No packages match filters</div>
+            }
+            else
+            {
+                @foreach (var group in GetPackageGroups(FilteredAvailablePackages))
+                {
+                    <div class="package-group">
+                        <div class="group-header" @onclick="@(() => ToggleGroup("avail_" + group.Key))">
+                            <span class="group-chevron">@(IsGroupExpanded("avail_" + group.Key) ? "▼" : "▶")</span>
+                            <span class="group-name">@group.Key</span>
+                            <span class="group-count">@group.Count()</span>
+                        </div>
+                        @if (IsGroupExpanded("avail_" + group.Key))
+                        {
+                            <div class="group-content">
+                                @foreach (var package in group.OrderBy(p => p.Path))
+                                {
+                                    var installedVersion = GetInstalledVersion(package.Path);
+                                    var isUpdate = installedVersion != null;
+                                    <div class="package-item @(isUpdate ? "is-update" : "")">
+                                        <div class="package-info">
+                                            <div class="package-name-row">
+                                                <span class="package-path">@GetPackageShortName(package.Path)</span>
+                                                @if (isUpdate)
+                                                {
+                                                    <span class="installed-indicator">Installed: v@(installedVersion)</span>
+                                                }
+                                            </div>
+                                            <span class="package-description">@package.Description</span>
+                                            @if (!string.IsNullOrEmpty(package.Version))
+                                            {
+                                                <span class="package-version">v@(package.Version)</span>
+                                            }
+                                        </div>
+                                        <button class="btn @(isUpdate ? "btn-success" : "btn-primary") btn-sm" @onclick="@(() => InstallPackage(package.Path))" disabled="@ViewModel.IsLoading">
+                                            <i class="fas @(isUpdate ? "fa-arrow-up" : "fa-download")"></i> @(isUpdate ? "Update" : "Install")
+                                        </button>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+            }
+        </div>
+    }
+}
+
+<style>
+    h1 {
+        margin-bottom: 20px;
+        font-size: 28px;
+        color: #2d3748;
+    }
+
+    .sdk-path-bar {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        background: #f7fafc;
+        padding: 12px 16px;
+        border-radius: 8px;
+        margin-bottom: 16px;
+        border: 1px solid #e2e8f0;
+        font-family: 'Consolas', 'Monaco', monospace;
+    }
+    .sdk-path-bar i.fa-folder { color: #4299e1; }
+    .sdk-path-text {
+        flex: 1;
+        color: #2d3748;
+        font-size: 14px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .sdk-path-text.detecting { color: #718096; font-style: italic; }
+    .sdk-path-text.no-sdk { color: #a0aec0; font-style: italic; }
+
+    .btn-link-settings {
+        color: #a0aec0;
+        padding: 4px 8px;
+        font-size: 14px;
+        text-decoration: none;
+        transition: color 0.15s;
+    }
+    .btn-link-settings:hover {
+        color: #4299e1;
+    }
+
+    .btn-reveal, .btn-copy {
+        background: none;
+        border: none;
+        color: #a0aec0;
+        cursor: pointer;
+        padding: 2px 6px;
+        font-size: 12px;
+        border-radius: 4px;
+        transition: all 0.15s;
+        flex-shrink: 0;
+    }
+    .btn-reveal:hover, .btn-copy:hover {
+        color: #4299e1;
+        background: #edf2f7;
+    }
+
+    .toolbar {
+        margin-bottom: 16px;
+        display: flex;
+        align-items: center;
+    }
+
+    /* Filter Section Styles */
+    .filter-section {
+        background: white;
+        border-radius: 8px;
+        padding: 16px;
+        margin-bottom: 16px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        align-items: center;
+    }
+
+    .filter-section .search-box {
+        position: relative;
+        flex: 1;
+        min-width: 200px;
+        margin-bottom: 0;
+    }
+
+    .filter-section .search-box input {
+        width: 100%;
+        padding: 10px 36px 10px 36px;
+        border: 1px solid #e2e8f0;
+        border-radius: 6px;
+        font-size: 14px;
+        box-sizing: border-box;
+    }
+
+    .filter-section .search-box input:focus {
+        outline: none;
+        border-color: #4299e1;
+        box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.15);
+    }
+
+    .search-icon {
+        position: absolute;
+        left: 12px;
+        top: 50%;
+        transform: translateY(-50%);
+        font-size: 14px;
+        opacity: 0.5;
+    }
+
+    .clear-btn {
+        position: absolute;
+        right: 8px;
+        top: 50%;
+        transform: translateY(-50%);
+        background: #e2e8f0;
+        border: none;
+        border-radius: 50%;
+        width: 20px;
+        height: 20px;
+        font-size: 14px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #718096;
+    }
+
+    .clear-btn:hover { background: #cbd5e0; }
+
+    .filter-chips { display: flex; gap: 8px; flex-wrap: wrap; }
+
+    .filter-select {
+        padding: 8px 12px;
+        border: 1px solid #e2e8f0;
+        border-radius: 6px;
+        font-size: 13px;
+        background: white;
+        cursor: pointer;
+        min-width: 140px;
+    }
+
+    .filter-select:focus { outline: none; border-color: #4299e1; }
+
+    .clear-filters-btn {
+        padding: 8px 12px;
+        background: none;
+        border: 1px solid #e2e8f0;
+        border-radius: 6px;
+        font-size: 13px;
+        color: #718096;
+        cursor: pointer;
+    }
+
+    .clear-filters-btn:hover { background: #f7fafc; color: #4a5568; }
+
+    .results-info { font-size: 13px; color: #718096; margin-bottom: 12px; }
+
+    .btn {
+        padding: 10px 20px;
+        border: none;
+        border-radius: 6px;
+        font-size: 14px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .btn i { font-size: 12px; }
+
+    .btn-primary {
+        background-color: #4299e1;
+        color: white;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+        background-color: #3182ce;
+    }
+
+    .btn-success {
+        background-color: #48bb78;
+        color: white;
+    }
+
+    .btn-success:hover:not(:disabled) {
+        background-color: #38a169;
+    }
+
+    .btn-danger {
+        background-color: #f56565;
+        color: white;
+    }
+
+    .btn-danger:hover:not(:disabled) {
+        background-color: #e53e3e;
+    }
+
+    .btn-sm {
+        padding: 6px 12px;
+        font-size: 12px;
+    }
+
+    .btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+
+    .tabs {
+        display: flex;
+        gap: 4px;
+        margin-bottom: 16px;
+        border-bottom: 2px solid #e2e8f0;
+        padding-bottom: 0;
+    }
+
+    .tab {
+        padding: 12px 20px;
+        background: transparent;
+        border: none;
+        cursor: pointer;
+        color: #718096;
+        font-size: 14px;
+        border-bottom: 2px solid transparent;
+        margin-bottom: -2px;
+        transition: all 0.2s ease;
+    }
+
+    .tab:hover {
+        color: #4299e1;
+    }
+
+    .tab.active {
+        color: #4299e1;
+        border-bottom-color: #4299e1;
+        font-weight: 600;
+    }
+
+    .search-box {
+        margin-bottom: 16px;
+    }
+
+    .search-box input {
+        width: 100%;
+        padding: 12px 16px;
+        border: 1px solid #e2e8f0;
+        border-radius: 6px;
+        font-size: 14px;
+    }
+
+    .search-box input:focus {
+        outline: none;
+        border-color: #4299e1;
+        box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.1);
+    }
+
+    .package-groups {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .package-group {
+        background: white;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        overflow: hidden;
+    }
+
+    .group-header {
+        display: flex;
+        align-items: center;
+        padding: 14px 20px;
+        cursor: pointer;
+        background: #f8fafc;
+        border-bottom: 1px solid #e2e8f0;
+        transition: background 0.2s ease;
+        user-select: none;
+    }
+
+    .group-header:hover {
+        background: #edf2f7;
+    }
+
+    .group-chevron {
+        width: 20px;
+        color: #718096;
+        font-size: 12px;
+    }
+
+    .group-name {
+        flex: 1;
+        font-weight: 600;
+        color: #2d3748;
+        font-size: 15px;
+    }
+
+    .group-count {
+        background: #e2e8f0;
+        color: #4a5568;
+        padding: 2px 10px;
+        border-radius: 12px;
+        font-size: 12px;
+        font-weight: 500;
+    }
+
+    .group-update-badge {
+        background: #feebc8;
+        color: #c05621;
+        padding: 2px 10px;
+        border-radius: 12px;
+        font-size: 11px;
+        font-weight: 500;
+        margin-right: 8px;
+    }
+
+    .group-content {
+        border-top: 1px solid #e2e8f0;
+    }
+
+    .package-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 12px 20px 12px 44px;
+        border-bottom: 1px solid #f0f4f8;
+    }
+
+    .package-item:last-child {
+        border-bottom: none;
+    }
+
+    .package-item:hover {
+        background: #f8fafc;
+    }
+
+    .package-item.has-update {
+        background: #fffff0;
+        border-left: 3px solid #ecc94b;
+    }
+
+    .package-item.is-update {
+        background: #f0fff4;
+    }
+
+    .package-info {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+
+    .package-name-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .package-path {
+        font-weight: 500;
+        color: #2d3748;
+        font-family: monospace;
+        font-size: 13px;
+    }
+
+    .package-description {
+        color: #718096;
+        font-size: 12px;
+    }
+
+    .package-version {
+        color: #a0aec0;
+        font-size: 11px;
+    }
+
+    .version-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .update-version {
+        color: #48bb78;
+        font-size: 11px;
+        font-weight: 500;
+    }
+
+    .update-indicator {
+        background: #feebc8;
+        color: #c05621;
+        padding: 1px 6px;
+        border-radius: 4px;
+        font-size: 10px;
+        font-weight: 600;
+    }
+
+    .installed-indicator {
+        background: #c6f6d5;
+        color: #276749;
+        padding: 1px 6px;
+        border-radius: 4px;
+        font-size: 10px;
+        font-weight: 500;
+    }
+
+    .package-actions {
+        display: flex;
+        gap: 8px;
+    }
+
+    .update-badge {
+        background: #feebc8;
+        color: #c05621;
+        padding: 6px 12px;
+        border-radius: 6px;
+        font-size: 13px;
+        font-weight: 500;
+        margin-left: 12px;
+    }
+
+    .tab-badge {
+        background: #feebc8;
+        color: #c05621;
+        padding: 1px 6px;
+        border-radius: 10px;
+        font-size: 11px;
+        font-weight: 600;
+        margin-left: 6px;
+    }
+
+    .device-list {
+        background: white;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        overflow: hidden;
+    }
+
+    .device-item {
+        display: flex;
+        gap: 16px;
+        padding: 16px 20px;
+        border-bottom: 1px solid #e2e8f0;
+    }
+
+    .device-item:last-child {
+        border-bottom: none;
+    }
+
+    .device-icon {
+        font-size: 24px;
+    }
+
+    .device-info {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .device-serial {
+        font-weight: 600;
+        color: #2d3748;
+        font-family: monospace;
+    }
+
+    .device-model {
+        color: #718096;
+        font-size: 13px;
+    }
+
+    .device-state {
+        font-size: 12px;
+        padding: 2px 8px;
+        border-radius: 4px;
+        display: inline-block;
+        width: fit-content;
+    }
+
+    .device-state.device {
+        background: #c6f6d5;
+        color: #276749;
+    }
+
+    .device-state.offline {
+        background: #fed7d7;
+        color: #c53030;
+    }
+
+    .empty-state {
+        padding: 40px;
+        text-align: center;
+        color: #a0aec0;
+        background: white;
+        border-radius: 8px;
+    }
+</style>
+
+@code {
+    private string activeTab = "installed";
+    private HashSet<string> expandedGroups = new();
+    private bool hasInitialized = false;
+
+    // Filter state
+    private string searchQuery = "";
+    private string filterCategory = "";
+    private string filterUpdates = "";
+
+    private bool HasActiveFilters => !string.IsNullOrEmpty(searchQuery) || 
+                                      !string.IsNullOrEmpty(filterCategory) || 
+                                      !string.IsNullOrEmpty(filterUpdates);
+
+    private void ClearFilters()
+    {
+        searchQuery = "";
+        filterCategory = "";
+        filterUpdates = "";
+    }
+
+    private IEnumerable<string> GetAllCategories()
+    {
+        var installedCats = ViewModel.InstalledPackages.Select(p => GetPackageGroup(p.Path));
+        var availableCats = ViewModel.AvailablePackages.Select(p => GetPackageGroup(p.Path));
+        return installedCats.Union(availableCats).OrderBy(c => c).Distinct();
+    }
+
+    private IList<SdkPackageInfo> FilteredInstalledPackages
+    {
+        get
+        {
+            var packages = ViewModel.InstalledPackages.AsEnumerable();
+
+            if (!string.IsNullOrWhiteSpace(searchQuery))
+            {
+                var query = searchQuery.ToLowerInvariant();
+                packages = packages.Where(p => 
+                    p.Path.ToLowerInvariant().Contains(query) ||
+                    (p.Description?.ToLowerInvariant().Contains(query) ?? false));
+            }
+
+            if (!string.IsNullOrEmpty(filterCategory))
+            {
+                packages = packages.Where(p => GetPackageGroup(p.Path) == filterCategory);
+            }
+
+            if (filterUpdates == "updates")
+            {
+                packages = packages.Where(p => HasUpdate(p));
+            }
+            else if (filterUpdates == "current")
+            {
+                packages = packages.Where(p => !HasUpdate(p));
+            }
+
+            return packages.ToList();
+        }
+    }
+
+    private IList<SdkPackageInfo> FilteredAvailablePackages
+    {
+        get
+        {
+            var packages = ViewModel.AvailablePackages.AsEnumerable();
+
+            // Hide packages that are already installed at the same or newer version
+            packages = packages.Where(p =>
+            {
+                var installed = ViewModel.InstalledPackages.FirstOrDefault(i => i.Path == p.Path);
+                if (installed == null) return true; // Not installed, show it
+                
+                // Only show if available version is newer than installed
+                return IsNewerVersion(p.Version ?? "", installed.Version ?? "");
+            });
+
+            if (!string.IsNullOrWhiteSpace(searchQuery))
+            {
+                var query = searchQuery.ToLowerInvariant();
+                packages = packages.Where(p => 
+                    p.Path.ToLowerInvariant().Contains(query) ||
+                    (p.Description?.ToLowerInvariant().Contains(query) ?? false));
+            }
+
+            if (!string.IsNullOrEmpty(filterCategory))
+            {
+                packages = packages.Where(p => GetPackageGroup(p.Path) == filterCategory);
+            }
+
+            return packages.ToList();
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await ViewModel.InitializeAsync();
+        hasInitialized = true;
+    }
+
+    private IEnumerable<IGrouping<string, SdkPackageInfo>> GetPackageGroups(IEnumerable<SdkPackageInfo> packages)
+    {
+        return packages
+            .GroupBy(p => GetPackageGroup(p.Path))
+            .OrderBy(g => g.Key);
+    }
+
+    private string GetPackageGroup(string path)
+    {
+        var parts = path.Split(';');
+        return parts[0];
+    }
+
+    private string GetPackageShortName(string path)
+    {
+        var parts = path.Split(';');
+        return parts.Length > 1 ? string.Join(";", parts.Skip(1)) : path;
+    }
+
+    private bool IsGroupExpanded(string groupKey)
+    {
+        return expandedGroups.Contains(groupKey);
+    }
+
+    private void ToggleGroup(string groupKey)
+    {
+        if (expandedGroups.Contains(groupKey))
+            expandedGroups.Remove(groupKey);
+        else
+            expandedGroups.Add(groupKey);
+    }
+
+    // Check if an installed package has an update available
+    private bool HasUpdate(SdkPackageInfo installedPackage)
+    {
+        return GetAvailableUpdate(installedPackage) != null;
+    }
+
+    // Get the available update for an installed package
+    private SdkPackageInfo? GetAvailableUpdate(SdkPackageInfo installedPackage)
+    {
+        var available = ViewModel.AvailablePackages
+            .FirstOrDefault(a => a.Path == installedPackage.Path);
+        
+        if (available == null) return null;
+        
+        // Compare versions - only return if available is actually newer
+        if (string.IsNullOrEmpty(installedPackage.Version) || string.IsNullOrEmpty(available.Version))
+            return null;
+            
+        if (IsNewerVersion(available.Version, installedPackage.Version))
+        {
+            return available;
+        }
+        
+        return null;
+    }
+
+    // Compare version strings, returns true if version1 > version2
+    private bool IsNewerVersion(string version1, string version2)
+    {
+        // Try parsing as Version objects first
+        var parts1 = version1.Split('.', '-', '_');
+        var parts2 = version2.Split('.', '-', '_');
+        
+        var maxParts = Math.Max(parts1.Length, parts2.Length);
+        
+        for (int i = 0; i < maxParts; i++)
+        {
+            var p1 = i < parts1.Length ? parts1[i] : "0";
+            var p2 = i < parts2.Length ? parts2[i] : "0";
+            
+            // Try numeric comparison first
+            if (int.TryParse(p1, out var n1) && int.TryParse(p2, out var n2))
+            {
+                if (n1 > n2) return true;
+                if (n1 < n2) return false;
+                // Equal, continue to next part
+            }
+            else
+            {
+                // String comparison as fallback
+                var cmp = string.Compare(p1, p2, StringComparison.OrdinalIgnoreCase);
+                if (cmp > 0) return true;
+                if (cmp < 0) return false;
+            }
+        }
+        
+        return false; // Versions are equal
+    }
+
+    // Get installed version for an available package (to show on Available tab)
+    private string? GetInstalledVersion(string packagePath)
+    {
+        var installed = ViewModel.InstalledPackages
+            .FirstOrDefault(p => p.Path == packagePath);
+        return installed?.Version;
+    }
+
+    // Get all packages that have updates
+    private IEnumerable<SdkPackageInfo> GetUpdatablePackages()
+    {
+        return ViewModel.InstalledPackages.Where(p => HasUpdate(p));
+    }
+
+    private async Task RefreshData()
+    {
+        await ViewModel.RefreshPackagesAsync(forceRefresh: true);
+    }
+
+    private async Task AcquireSdk()
+    {
+        var result = await OperationModal.RunAsync(
+            "Install Android SDK",
+            "Downloading and installing the Android SDK...",
+            async ctx =>
+            {
+                ctx.SetStatus("Initializing...");
+                var success = await SdkService.AcquireSdkAsync(progress: new Progress<string>(msg =>
+                {
+                    ctx.LogInfo(msg);
+                    ctx.SetStatus(msg);
+                }));
+                return success;
+            });
+
+        if (result.Success)
+        {
+            await ViewModel.RefreshPackagesAsync(forceRefresh: true);
+        }
+    }
+
+    private async Task InstallPackage(string packagePath)
+    {
+        var result = await OperationModal.RunAsync(
+            "Install Package",
+            $"Installing {packagePath}...",
+            async ctx =>
+            {
+                ctx.SetStatus($"Installing {packagePath}...");
+                var success = await SdkService.InstallPackageAsync(packagePath, new Progress<string>(msg =>
+                {
+                    ctx.LogInfo(msg);
+                    ctx.SetStatus(msg);
+                }));
+                return success;
+            });
+
+        if (result.Success)
+        {
+            await ViewModel.RefreshPackagesAsync(forceRefresh: true);
+        }
+    }
+
+    private async Task UninstallPackage(string packagePath)
+    {
+        var result = await OperationModal.RunAsync(
+            "Uninstall Package",
+            $"Uninstalling {packagePath}...",
+            async ctx =>
+            {
+                ctx.SetStatus($"Uninstalling {packagePath}...");
+                var success = await SdkService.UninstallPackageAsync(packagePath);
+                if (success)
+                {
+                    ctx.LogSuccess($"Uninstalled {packagePath}");
+                }
+                return success;
+            });
+
+        if (result.Success)
+        {
+            await ViewModel.RefreshPackagesAsync(forceRefresh: true);
+        }
+    }
+
+    private async Task UpdateAllPackages()
+    {
+        var updatable = GetUpdatablePackages().ToList();
+        if (!updatable.Any()) return;
+
+        // Build operation items for each updatable package
+        var operations = updatable.Select(pkg =>
+        {
+            var update = GetAvailableUpdate(pkg);
+            var newVersion = update?.Version ?? "latest";
+            // Use the available package's path which may include version info
+            var updatePath = update?.Path ?? pkg.Path;
+            
+            return new OperationItem(
+                Id: pkg.Path,
+                Name: GetPackageDisplayName(pkg.Path),
+                Description: $"Update from {pkg.Version} to {newVersion}",
+                Execute: async ctx =>
+                {
+                    ctx.LogInfo($"Updating {pkg.Path}");
+                    ctx.LogInfo($"Installed path: {pkg.Path}");
+                    ctx.LogInfo($"Available path: {updatePath}");
+                    ctx.LogInfo($"Current version: {pkg.Version}");
+                    ctx.LogInfo($"New version: {newVersion}");
+                    
+                    // Use the available package path for installation
+                    var success = await SdkService.InstallPackageAsync(updatePath, new Progress<string>(msg =>
+                    {
+                        ctx.LogInfo(msg);
+                    }));
+                    
+                    if (success)
+                    {
+                        ctx.LogSuccess($"Updated {pkg.Path}");
+                    }
+                    else
+                    {
+                        ctx.LogError($"Failed to update {pkg.Path}");
+                    }
+                    return success;
+                },
+                IsEnabled: true,
+                CanDisable: true
+            );
+        }).ToList();
+
+        var result = await MultiOpModal.RunAsync(
+            "Update SDK Packages",
+            $"The following {updatable.Count} package(s) have updates available. Uncheck any you want to skip.",
+            operations);
+
+        if (result.Completed > 0)
+        {
+            await ViewModel.RefreshPackagesAsync(forceRefresh: true);
+        }
+    }
+
+    private string GetPackageDisplayName(string packagePath)
+    {
+        // Extract a friendly name from the package path
+        var parts = packagePath.Split(';');
+        if (parts.Length > 0)
+        {
+            var category = parts[0];
+            if (parts.Length > 1)
+            {
+                return $"{category} {string.Join(" ", parts.Skip(1))}";
+            }
+            return category;
+        }
+        return packagePath;
+    }
+
+    private async Task CopyToClipboard(string text)
+    {
+        await DialogService.CopyToClipboardAsync(text);
+        await AlertService.ShowToastAsync("Copied to clipboard");
+    }
+}

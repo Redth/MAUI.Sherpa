@@ -1,0 +1,1244 @@
+@page "/doctor"
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Platform.Services
+@using Microsoft.Extensions.Logging
+@inject IDoctorService DoctorService
+@inject IAlertService AlertService
+@inject IDialogService DialogService
+@inject IProcessModalService ProcessModal
+@inject MultiOperationModalService MultiOpModal
+@inject IFileSystemService FileSystem
+@inject ICopilotService CopilotService
+@inject ILogger<Doctor> Logger
+@implements IDisposable
+
+<h1><i class="fas fa-stethoscope"></i> Environment Doctor</h1>
+
+<div class="toolbar">
+    <button class="btn btn-primary" @onclick="RunDoctor" disabled="@isLoading">
+        @if (isLoading)
+        {
+            <i class="fas fa-spinner fa-spin"></i>
+            <span>Checking...</span>
+        }
+        else
+        {
+            <i class="fas fa-sync-alt"></i>
+            <span>Run Doctor</span>
+        }
+    </button>
+    @if (report != null && (report.HasErrors || report.HasWarnings))
+    {
+        <button class="btn btn-success" @onclick="FixAll" disabled="@isLoading">
+            <i class="fas fa-wrench"></i>
+            <span>Fix All Issues</span>
+        </button>
+        <button class="btn btn-copilot" @onclick="FixWithCopilot" disabled="@isLoading">
+            <i class="fas fa-robot"></i>
+            <span>Fix with Copilot</span>
+        </button>
+    }
+</div>
+
+@if (showCopilotDialog)
+{
+    <div class="modal-backdrop" @onclick="CloseCopilotDialog">
+        <div class="modal-content copilot-modal" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h2><i class="fas fa-robot"></i> Copilot Environment Fix</h2>
+                <button class="btn-close" @onclick="CloseCopilotDialog" disabled="@copilotBusy">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="copilot-status">
+                    @if (!copilotConnected)
+                    {
+                        <div class="copilot-connecting">
+                            <i class="fas fa-plug"></i>
+                            <span>@copilotStatus</span>
+                        </div>
+                    }
+                    else if (copilotBusy)
+                    {
+                        <div class="copilot-working">
+                            <i class="fas fa-spinner fa-spin"></i>
+                            <span>@copilotStatus</span>
+                        </div>
+                    }
+                </div>
+                <div class="copilot-output" @ref="copilotOutputRef">
+                    @foreach (var line in copilotOutput)
+                    {
+                        <div class="output-line @line.Type">@line.Text</div>
+                    }
+                </div>
+            </div>
+            <div class="modal-footer">
+                @if (copilotBusy)
+                {
+                    <button class="btn btn-danger" @onclick="AbortCopilot">
+                        <i class="fas fa-stop"></i> Abort
+                    </button>
+                }
+                else
+                {
+                    <button class="btn btn-secondary" @onclick="CloseCopilotDialog">Close</button>
+                    @if (copilotComplete)
+                    {
+                        <button class="btn btn-primary" @onclick="RunDoctorAfterCopilot">
+                            <i class="fas fa-sync-alt"></i> Re-run Doctor
+                        </button>
+                    }
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@if (!string.IsNullOrEmpty(errorMessage))
+{
+    <div class="error-bar">@errorMessage</div>
+}
+
+@if (report != null)
+{
+    <!-- Summary Banner -->
+    <div class="summary-banner @GetSummaryClass()">
+        <div class="summary-icon"><i class="@GetSummaryIconClass()"></i></div>
+        <div class="summary-text">
+            <strong>@GetSummaryTitle()</strong>
+            <span>@report.OkCount OK, @report.WarningCount warnings, @report.ErrorCount errors</span>
+        </div>
+    </div>
+
+    <!-- Context Section -->
+    <div class="section">
+        <div class="section-header" @onclick="@(() => contextExpanded = !contextExpanded)">
+            <i class="fas @(contextExpanded ? "fa-chevron-down" : "fa-chevron-right") section-icon"></i>
+            <span class="section-title">Context</span>
+            @if (report.Context.PinnedSdkVersion != null || report.Context.PinnedWorkloadSetVersion != null)
+            {
+                <span class="badge badge-info"><i class="fas fa-thumbtack"></i> Pinned</span>
+            }
+        </div>
+        @if (contextExpanded)
+        {
+            <div class="section-content">
+                <div class="context-list">
+                    <div class="context-item full-width">
+                        <span class="context-label">Working Directory</span>
+                        <span class="context-value mono path-value">
+                            @(report.Context.WorkingDirectory ?? "Not set")
+                            @if (!string.IsNullOrEmpty(report.Context.WorkingDirectory))
+                            {
+                                <button class="btn-copy" @onclick="@(() => CopyToClipboard(report.Context.WorkingDirectory!))" title="Copy to clipboard">
+                                    <i class="fas fa-copy"></i>
+                                </button>
+                                <button class="btn-reveal" @onclick="@(() => FileSystem.RevealInFileManager(report.Context.WorkingDirectory!))" title="Reveal in Finder">
+                                    <i class="fas fa-external-link-alt"></i>
+                                </button>
+                            }
+                        </span>
+                    </div>
+                    <div class="context-item full-width">
+                        <span class="context-label">.NET SDK Path</span>
+                        <span class="context-value mono path-value">
+                            @(report.Context.DotNetSdkPath ?? "Not found")
+                            @if (!string.IsNullOrEmpty(report.Context.DotNetSdkPath))
+                            {
+                                <button class="btn-copy" @onclick="@(() => CopyToClipboard(report.Context.DotNetSdkPath!))" title="Copy to clipboard">
+                                    <i class="fas fa-copy"></i>
+                                </button>
+                                <button class="btn-reveal" @onclick="@(() => FileSystem.RevealInFileManager(report.Context.DotNetSdkPath!))" title="Reveal in Finder">
+                                    <i class="fas fa-external-link-alt"></i>
+                                </button>
+                            }
+                        </span>
+                    </div>
+                    @if (report.Context.GlobalJsonPath != null)
+                    {
+                        <div class="context-item full-width">
+                            <span class="context-label">global.json</span>
+                            <span class="context-value mono path-value">
+                                @report.Context.GlobalJsonPath
+                                <button class="btn-copy" @onclick="@(() => CopyToClipboard(report.Context.GlobalJsonPath!))" title="Copy to clipboard">
+                                    <i class="fas fa-copy"></i>
+                                </button>
+                                <button class="btn-reveal" @onclick="@(() => FileSystem.RevealInFileManager(report.Context.GlobalJsonPath!))" title="Reveal in Finder">
+                                    <i class="fas fa-external-link-alt"></i>
+                                </button>
+                            </span>
+                        </div>
+                    }
+                    @if (report.Context.PinnedSdkVersion != null)
+                    {
+                        <div class="context-item">
+                            <span class="context-label">Pinned SDK Version</span>
+                            <span class="context-value"><i class="fas fa-thumbtack"></i> @report.Context.PinnedSdkVersion</span>
+                        </div>
+                    }
+                    @if (report.Context.PinnedWorkloadSetVersion != null)
+                    {
+                        <div class="context-item">
+                            <span class="context-label">Pinned Workload Set</span>
+                            <span class="context-value"><i class="fas fa-thumbtack"></i> @report.Context.PinnedWorkloadSetVersion</span>
+                        </div>
+                    }
+                    <div class="context-item">
+                        <span class="context-label">Feature Band</span>
+                        <span class="context-value">@(report.Context.EffectiveFeatureBand ?? "Unknown")</span>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+
+    <!-- Installed SDKs Section -->
+    <div class="section">
+        <div class="section-header" @onclick="@(() => sdksExpanded = !sdksExpanded)">
+            <i class="fas @(sdksExpanded ? "fa-chevron-down" : "fa-chevron-right") section-icon"></i>
+            <span class="section-title">.NET SDKs</span>
+            <span class="badge badge-count">@report.InstalledSdks.Count installed</span>
+            @if (report.AvailableSdkVersions?.Count > 0)
+            {
+                var latestAvailable = report.AvailableSdkVersions[0].Version;
+                var latestInstalled = report.InstalledSdks.FirstOrDefault()?.Version;
+                if (latestInstalled != latestAvailable)
+                {
+                    <span class="badge badge-warning"><i class="fas fa-arrow-up"></i> Update available</span>
+                }
+            }
+        </div>
+        @if (sdksExpanded)
+        {
+            <div class="section-content">
+                @if (report.InstalledSdks.Count == 0)
+                {
+                    <div class="empty-message">No .NET SDKs found</div>
+                }
+                else
+                {
+                    <div class="subsection-title">Installed</div>
+                    <div class="sdk-list">
+                        @{ var isFirst = true; }
+                        @foreach (var sdk in report.InstalledSdks)
+                        {
+                            <div class="sdk-item @(isFirst ? "latest" : "")">
+                                <span class="sdk-version">@sdk.Version</span>
+                                <span class="badge badge-secondary">@sdk.FeatureBand</span>
+                                @if (isFirst)
+                                {
+                                    <span class="badge badge-success">Active</span>
+                                }
+                                @if (sdk.IsPreview)
+                                {
+                                    <span class="badge badge-warning">Preview</span>
+                                }
+                            </div>
+                            isFirst = false;
+                        }
+                    </div>
+                }
+                
+                @if (report.AvailableSdkVersions?.Count > 0)
+                {
+                    <div class="subsection-title" style="margin-top: 16px;">Available (Latest)</div>
+                    <div class="sdk-list">
+                        @foreach (var sdk in report.AvailableSdkVersions.Take(5))
+                        {
+                            var isInstalled = report.InstalledSdks.Any(i => i.Version == sdk.Version);
+                            <div class="sdk-item @(isInstalled ? "installed" : "")">
+                                <span class="sdk-version">@sdk.Version</span>
+                                <span class="badge badge-secondary">@sdk.FeatureBand</span>
+                                @if (isInstalled)
+                                {
+                                    <span class="badge badge-success">Installed</span>
+                                }
+                                else
+                                {
+                                    <a href="@GetSdkDownloadUrl(sdk.Version)" target="_blank" class="download-link" title="Download SDK">
+                                        <i class="fas fa-download"></i> Download
+                                    </a>
+                                }
+                                @if (sdk.IsPreview)
+                                {
+                                    <span class="badge badge-warning">Preview</span>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        }
+    </div>
+
+    <!-- Workload Set Section -->
+    <div class="section">
+        <div class="section-header" @onclick="@(() => workloadExpanded = !workloadExpanded)">
+            <i class="fas @(workloadExpanded ? "fa-chevron-down" : "fa-chevron-right") section-icon"></i>
+            <span class="section-title">Workload Set</span>
+            @if (report.InstalledWorkloadSetVersion != null)
+            {
+                <span class="badge badge-success">@report.InstalledWorkloadSetVersion</span>
+            }
+            else
+            {
+                <span class="badge badge-warning">Not installed</span>
+            }
+        </div>
+        @if (workloadExpanded)
+        {
+            <div class="section-content">
+                @if (report.InstalledWorkloadSetVersion != null)
+                {
+                    <p>Installed version: <strong>@report.InstalledWorkloadSetVersion</strong></p>
+                }
+                else
+                {
+                    <p class="text-warning">No workload set installed. Running in loose manifest mode.</p>
+                }
+                
+                @if (report.AvailableWorkloadSetVersions?.Count > 0)
+                {
+                    <div class="available-versions">
+                        <span class="label">Available versions:</span>
+                        @foreach (var version in report.AvailableWorkloadSetVersions.Take(5))
+                        {
+                            var isCurrent = version == report.InstalledWorkloadSetVersion;
+                            <span class="version-tag @(isCurrent ? "current" : "")" 
+                                  @onclick="@(() => UpdateToVersion(version))"
+                                  title="@(isCurrent ? "Current version" : "Click to update")">
+                                @version @(isCurrent ? "✓" : "")
+                            </span>
+                        }
+                    </div>
+                }
+            </div>
+        }
+    </div>
+
+    <!-- Workload Manifests Section -->
+    <div class="section">
+        <div class="section-header" @onclick="@(() => manifestsExpanded = !manifestsExpanded)">
+            <i class="fas @(manifestsExpanded ? "fa-chevron-down" : "fa-chevron-right") section-icon"></i>
+            <span class="section-title">Workload Manifests</span>
+            <span class="badge badge-count">@report.Manifests.Count</span>
+        </div>
+        @if (manifestsExpanded)
+        {
+            <div class="section-content">
+                @if (report.Manifests.Count == 0)
+                {
+                    <div class="empty-message">No workload manifests installed</div>
+                }
+                else
+                {
+                    <div class="manifest-list">
+                        @foreach (var manifest in report.Manifests)
+                        {
+                            <div class="manifest-item">
+                                <div class="manifest-name">@manifest.ManifestId</div>
+                                <div class="manifest-details">
+                                    <span class="badge badge-secondary">v@(manifest.Version)</span>
+                                    <span class="manifest-counts">@manifest.WorkloadCount workloads, @manifest.PackCount packs</span>
+                                </div>
+                                @if (!string.IsNullOrEmpty(manifest.Description))
+                                {
+                                    <div class="manifest-desc">@manifest.Description</div>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        }
+    </div>
+
+    <!-- Dependencies Section -->
+    <div class="section">
+        <div class="section-header" @onclick="@(() => depsExpanded = !depsExpanded)">
+            <i class="fas @(depsExpanded ? "fa-chevron-down" : "fa-chevron-right") section-icon"></i>
+            <span class="section-title">Dependencies</span>
+            @if (report.HasErrors)
+            {
+                <span class="badge badge-error"><i class="fas fa-times-circle"></i> @report.ErrorCount errors</span>
+            }
+            @if (report.HasWarnings)
+            {
+                <span class="badge badge-warning"><i class="fas fa-exclamation-triangle"></i> @report.WarningCount warnings</span>
+            }
+            @if (!report.HasErrors && !report.HasWarnings)
+            {
+                <span class="badge badge-success"><i class="fas fa-check-circle"></i> All OK</span>
+            }
+        </div>
+        @if (depsExpanded)
+        {
+            <div class="section-content">
+                @foreach (var group in report.Dependencies.GroupBy(d => d.Category))
+                {
+                    <div class="dep-group">
+                        <div class="dep-group-title">@GetCategoryName(group.Key)</div>
+                        @foreach (var dep in group)
+                        {
+                            <div class="dep-item @GetDepStatusClass(dep.Status)">
+                                <span class="dep-icon"><i class="@GetStatusIconClass(dep.Status)"></i></span>
+                                <div class="dep-details">
+                                    <span class="dep-name">@dep.Name</span>
+                                    @if (dep.InstalledVersion != null)
+                                    {
+                                        <span class="dep-version">@dep.InstalledVersion</span>
+                                    }
+                                    @if (!string.IsNullOrEmpty(dep.Message))
+                                    {
+                                        <span class="dep-message">@dep.Message</span>
+                                    }
+                                </div>
+                                @if (dep.IsFixable)
+                                {
+                                    <button class="btn btn-sm btn-fix" @onclick="@(() => FixDependency(dep))" disabled="@isLoading">
+                                        Fix
+                                    </button>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        }
+    </div>
+
+    <div class="timestamp">
+        Last checked: @report.Timestamp.ToLocalTime().ToString("g")
+    </div>
+}
+else if (isLoading)
+{
+    <div class="loading-state">
+        <div class="loading-spinner">
+            <i class="fas fa-stethoscope fa-3x"></i>
+        </div>
+        <div class="loading-title">Analyzing Environment</div>
+        <div class="loading-description">@(string.IsNullOrEmpty(progressMessage) ? "Starting analysis..." : progressMessage)</div>
+    </div>
+}
+else
+{
+    <div class="empty-state">
+        <div class="empty-icon">🩺</div>
+        <div class="empty-title">Environment Doctor</div>
+        <div class="empty-description">
+            Check your .NET MAUI development environment for issues.
+            <br/>Click "Run Doctor" to analyze SDK, workloads, and dependencies.
+        </div>
+    </div>
+}
+
+<style>
+    h1 { margin-bottom: 20px; font-size: 28px; color: #2d3748; }
+
+    .toolbar { margin-bottom: 20px; display: flex; gap: 12px; }
+    
+    .btn { padding: 10px 20px; border: none; border-radius: 6px; font-size: 14px; cursor: pointer; transition: all 0.2s ease; display: inline-flex; align-items: center; gap: 6px; }
+    .btn-primary { background-color: #4299e1; color: white; }
+    .btn-primary:hover:not(:disabled) { background-color: #3182ce; }
+    .btn-success { background-color: #48bb78; color: white; }
+    .btn-success:hover:not(:disabled) { background-color: #38a169; }
+    .btn-copilot { background: linear-gradient(135deg, #6366f1, #8b5cf6); color: white; }
+    .btn-copilot:hover:not(:disabled) { background: linear-gradient(135deg, #4f46e5, #7c3aed); }
+    .btn-secondary { background-color: #718096; color: white; }
+    .btn-secondary:hover:not(:disabled) { background-color: #4a5568; }
+    .btn-danger { background-color: #e53e3e; color: white; }
+    .btn-danger:hover:not(:disabled) { background-color: #c53030; }
+    .btn-sm { padding: 4px 12px; font-size: 12px; }
+    .btn-fix { background-color: #ed8936; color: white; }
+    .btn-fix:hover:not(:disabled) { background-color: #dd6b20; }
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    
+    .text-success { color: #38a169; }
+    .text-warning { color: #d69e2e; }
+    .text-error { color: #e53e3e; }
+    .text-muted { color: #a0aec0; }
+
+    .progress-bar { background: #ebf8ff; color: #2b6cb0; padding: 12px 16px; border-radius: 6px; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+
+    .error-bar { background: #fed7d7; color: #c53030; padding: 12px 16px; border-radius: 6px; margin-bottom: 16px; }
+
+    .summary-banner {
+        padding: 20px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+        display: flex;
+        align-items: center;
+        gap: 16px;
+    }
+    .summary-banner.success { background: #c6f6d5; color: #276749; }
+    .summary-banner.warning { background: #feebc8; color: #c05621; }
+    .summary-banner.error { background: #fed7d7; color: #c53030; }
+    .summary-icon { font-size: 32px; }
+    .summary-text { display: flex; flex-direction: column; gap: 4px; }
+    .summary-text strong { font-size: 18px; }
+
+    .section {
+        background: white;
+        border-radius: 8px;
+        margin-bottom: 12px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        overflow: hidden;
+    }
+
+    .section-header {
+        padding: 16px 20px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        cursor: pointer;
+        user-select: none;
+        border-bottom: 1px solid transparent;
+    }
+    .section-header:hover { background: #f7fafc; }
+    .section-icon { font-size: 12px; color: #718096; width: 16px; }
+    .section-title { font-weight: 600; font-size: 16px; color: #2d3748; flex: 1; }
+
+    .section-content { padding: 16px 20px; border-top: 1px solid #e2e8f0; }
+    
+    .subsection-title { font-size: 13px; font-weight: 600; color: #718096; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
+
+    .badge { padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 500; }
+    .badge-success { background: #c6f6d5; color: #276749; }
+    .badge-warning { background: #feebc8; color: #c05621; }
+    .badge-error { background: #fed7d7; color: #c53030; }
+    .badge-info { background: #bee3f8; color: #2c5282; }
+    .badge-secondary { background: #e2e8f0; color: #4a5568; }
+    .badge-count { background: #e2e8f0; color: #4a5568; }
+
+    .context-list { display: flex; flex-direction: column; gap: 12px; }
+    .context-item { display: flex; flex-direction: column; gap: 4px; }
+    .context-item.full-width { grid-column: 1 / -1; }
+    .context-label { font-size: 12px; color: #718096; text-transform: uppercase; letter-spacing: 0.05em; }
+    .context-value { font-size: 14px; color: #2d3748; }
+    .context-value.path-value { display: flex; align-items: center; gap: 8px; }
+    .mono { font-family: monospace; font-size: 13px; word-break: break-all; }
+
+    .btn-reveal {
+        background: none;
+        border: none;
+        color: #a0aec0;
+        cursor: pointer;
+        padding: 2px 6px;
+        font-size: 12px;
+        border-radius: 4px;
+        transition: all 0.15s;
+        flex-shrink: 0;
+    }
+    .btn-reveal:hover {
+        color: #4299e1;
+        background: #edf2f7;
+    }
+
+    .btn-copy {
+        background: none;
+        border: none;
+        color: #a0aec0;
+        cursor: pointer;
+        padding: 2px 6px;
+        font-size: 12px;
+        border-radius: 4px;
+        transition: all 0.15s;
+        flex-shrink: 0;
+    }
+    .btn-copy:hover {
+        color: #4299e1;
+        background: #edf2f7;
+    }
+
+    .sdk-list { display: flex; flex-direction: column; gap: 8px; }
+    .sdk-item { display: flex; align-items: center; gap: 12px; padding: 8px 12px; background: #f7fafc; border-radius: 6px; }
+    .sdk-item.installed { background: #f0fff4; }
+    .sdk-item.latest { background: #c6f6d5; }
+    .sdk-version { font-weight: 600; font-family: monospace; }
+    
+    .download-link {
+        padding: 2px 8px;
+        background: #3182ce;
+        color: white;
+        border-radius: 4px;
+        font-size: 11px;
+        text-decoration: none;
+        transition: background 0.2s;
+    }
+    .download-link:hover { background: #2c5282; }
+
+    .available-versions { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .available-versions .label { font-size: 13px; color: #718096; }
+    .version-tag { 
+        padding: 4px 10px; 
+        background: #e2e8f0; 
+        border-radius: 4px; 
+        font-size: 12px; 
+        font-family: monospace;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+    .version-tag:hover { background: #cbd5e0; }
+    .version-tag.current { background: #c6f6d5; color: #276749; cursor: default; }
+
+    .manifest-list { display: flex; flex-direction: column; gap: 12px; }
+    .manifest-item { padding: 12px; background: #f7fafc; border-radius: 6px; }
+    .manifest-name { font-weight: 600; color: #2d3748; margin-bottom: 4px; }
+    .manifest-details { display: flex; align-items: center; gap: 12px; }
+    .manifest-counts { font-size: 13px; color: #718096; }
+    .manifest-desc { font-size: 13px; color: #718096; margin-top: 8px; }
+
+    .dep-group { margin-bottom: 16px; }
+    .dep-group:last-child { margin-bottom: 0; }
+    .dep-group-title { font-size: 12px; font-weight: 600; color: #718096; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
+
+    .dep-item {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px;
+        border-radius: 6px;
+        margin-bottom: 8px;
+    }
+    .dep-item:last-child { margin-bottom: 0; }
+    .dep-item.status-ok { background: #f0fff4; }
+    .dep-item.status-warning { background: #fffaf0; }
+    .dep-item.status-error { background: #fff5f5; }
+    .dep-item.status-unknown { background: #f7fafc; }
+
+    .dep-icon { font-size: 20px; }
+    .dep-details { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+    .dep-name { font-weight: 600; color: #2d3748; }
+    .dep-version { font-size: 13px; color: #4a5568; font-family: monospace; }
+    .dep-message { font-size: 13px; color: #718096; }
+
+    .timestamp { text-align: right; font-size: 12px; color: #a0aec0; margin-top: 20px; }
+
+    .loading-state { 
+        background: white; 
+        border-radius: 8px; 
+        padding: 60px 40px; 
+        text-align: center; 
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        user-select: none;
+    }
+    .loading-spinner { 
+        color: #4299e1; 
+        margin-bottom: 20px;
+        animation: pulse 1.5s ease-in-out infinite;
+    }
+    .loading-title { font-size: 20px; font-weight: 600; color: #2d3748; margin-bottom: 8px; }
+    .loading-description { color: #718096; font-size: 14px; }
+
+    @@keyframes pulse {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50% { opacity: 0.6; transform: scale(0.95); }
+    }
+
+    .empty-state { background: white; border-radius: 8px; padding: 60px 40px; text-align: center; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); }
+    .empty-icon { font-size: 64px; margin-bottom: 16px; }
+    .empty-title { font-size: 20px; font-weight: 600; color: #2d3748; margin-bottom: 8px; }
+    .empty-description { color: #718096; font-size: 14px; line-height: 1.6; }
+    .empty-message { color: #718096; font-style: italic; }
+
+    .text-warning { color: #dd6b20; }
+
+    /* Copilot Modal */
+    .modal-backdrop {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+    }
+
+    .copilot-modal {
+        background: white;
+        border-radius: 12px;
+        width: 90%;
+        max-width: 800px;
+        max-height: 80vh;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    }
+
+    .modal-header {
+        padding: 20px 24px;
+        border-bottom: 1px solid #e2e8f0;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    .modal-header h2 {
+        font-size: 18px;
+        color: #2d3748;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 0;
+    }
+
+    .modal-header h2 i {
+        color: #6366f1;
+    }
+
+    .btn-close {
+        background: none;
+        border: none;
+        color: #718096;
+        cursor: pointer;
+        font-size: 18px;
+        padding: 4px;
+    }
+
+    .btn-close:hover { color: #2d3748; }
+
+    .modal-body {
+        flex: 1;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        padding: 16px 24px;
+        min-height: 300px;
+    }
+
+    .copilot-status {
+        margin-bottom: 12px;
+    }
+
+    .copilot-connecting, .copilot-working {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 14px;
+        background: #ebf4ff;
+        color: #3c366b;
+        border-radius: 6px;
+        font-size: 14px;
+    }
+
+    .copilot-output {
+        flex: 1;
+        background: #1a202c;
+        border-radius: 8px;
+        padding: 16px;
+        font-family: 'SF Mono', Menlo, Monaco, 'Courier New', monospace;
+        font-size: 13px;
+        overflow-y: auto;
+        line-height: 1.5;
+    }
+
+    .output-line {
+        color: #e2e8f0;
+        white-space: pre-wrap;
+        word-break: break-word;
+    }
+
+    .output-line.assistant { color: #a5b4fc; }
+    .output-line.tool { color: #fbbf24; }
+    .output-line.error { color: #f87171; }
+    .output-line.system { color: #9ca3af; font-style: italic; }
+
+    .modal-footer {
+        padding: 16px 24px;
+        border-top: 1px solid #e2e8f0;
+        display: flex;
+        justify-content: flex-end;
+        gap: 12px;
+    }
+</style>
+
+@code {
+    private DoctorReport? report;
+    private bool isLoading = false;
+    private string errorMessage = "";
+    private string progressMessage = "";
+
+    // Section expansion states
+    private bool contextExpanded = true;
+    private bool sdksExpanded = true;
+    private bool workloadExpanded = true;
+    private bool manifestsExpanded = false;
+    private bool depsExpanded = true;
+
+    // Copilot dialog state
+    private bool showCopilotDialog = false;
+    private bool copilotConnected = false;
+    private bool copilotBusy = false;
+    private bool copilotComplete = false;
+    private string copilotStatus = "";
+    private List<OutputLine> copilotOutput = new();
+    private ElementReference copilotOutputRef;
+
+    private record OutputLine(string Text, string Type);
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Subscribe to Copilot events
+        CopilotService.OnAssistantDelta += OnAssistantDelta;
+        CopilotService.OnAssistantMessage += OnAssistantMessage;
+        CopilotService.OnSessionIdle += OnSessionIdle;
+        CopilotService.OnError += OnCopilotError;
+        CopilotService.OnToolStart += OnToolStart;
+        CopilotService.OnToolComplete += OnToolComplete;
+
+        // Auto-run doctor on page load
+        await RunDoctor();
+    }
+
+    public void Dispose()
+    {
+        CopilotService.OnAssistantDelta -= OnAssistantDelta;
+        CopilotService.OnAssistantMessage -= OnAssistantMessage;
+        CopilotService.OnSessionIdle -= OnSessionIdle;
+        CopilotService.OnError -= OnCopilotError;
+        CopilotService.OnToolStart -= OnToolStart;
+        CopilotService.OnToolComplete -= OnToolComplete;
+    }
+
+    private async Task RunDoctor()
+    {
+        isLoading = true;
+        errorMessage = "";
+        progressMessage = "";
+        StateHasChanged();
+
+        try
+        {
+            Logger.LogInformation("Starting RunDoctorAsync...");
+            var progress = new Progress<string>(msg =>
+            {
+                progressMessage = msg;
+                Logger.LogDebug("Progress: {Message}", msg);
+                InvokeAsync(StateHasChanged);
+            });
+
+            report = await DoctorService.RunDoctorAsync(progress: progress);
+            Logger.LogInformation("Doctor complete. WorkloadSet: {Version}", report?.InstalledWorkloadSetVersion ?? "NULL");
+            Logger.LogInformation("Available versions: {Versions}", string.Join(", ", report?.AvailableWorkloadSetVersions ?? []));
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Doctor check failed");
+            errorMessage = $"Doctor check failed: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+            progressMessage = "";
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task FixAll()
+    {
+        if (report == null) return;
+
+        var fixable = report.Dependencies.Where(d => d.IsFixable).ToList();
+        if (fixable.Count == 0)
+        {
+            await AlertService.ShowToastAsync("No fixable issues found");
+            return;
+        }
+
+        // Build operation items for each fixable dependency
+        var operations = fixable.Select(dep => new OperationItem(
+            Id: dep.Name,
+            Name: $"Fix: {dep.Name}",
+            Description: dep.Message ?? $"Installing/fixing {dep.Name}",
+            Execute: async ctx =>
+            {
+                ctx.LogInfo($"Starting fix for {dep.Name}");
+                
+                // For workload/SDK fixes that have a command
+                if (!string.IsNullOrEmpty(dep.FixAction))
+                {
+                    ctx.LogInfo($"Command: {dep.FixAction}");
+                }
+                
+                var success = await DoctorService.FixDependencyAsync(dep, new Progress<string>(msg =>
+                {
+                    ctx.LogInfo(msg);
+                }));
+                
+                if (success)
+                {
+                    ctx.LogSuccess($"Fixed: {dep.Name}");
+                }
+                else
+                {
+                    ctx.LogError($"Failed to fix: {dep.Name}");
+                }
+                return success;
+            },
+            IsEnabled: true,
+            CanDisable: true
+        )).ToList();
+
+        var result = await MultiOpModal.RunAsync(
+            "Fix All Issues",
+            $"The following {fixable.Count} issue(s) will be fixed. Uncheck any you want to skip.",
+            operations);
+
+        if (result.Completed > 0)
+        {
+            // Re-run doctor to update status
+            await RunDoctor();
+        }
+    }
+
+    private async Task FixDependency(DependencyStatus dep)
+    {
+        // Build command based on dependency type
+        ProcessRequest? request = null;
+
+        if (dep.Category == DependencyCategory.Workload && !string.IsNullOrEmpty(dep.FixAction))
+        {
+            // e.g., "dotnet workload install maui"
+            var parts = dep.FixAction.Split(' ', 2);
+            request = new ProcessRequest(
+                Command: parts[0],
+                Arguments: parts.Length > 1 ? parts[1].Split(' ') : Array.Empty<string>(),
+                RequiresElevation: true,
+                ElevationPrompt: $"Install {dep.Name}",
+                Title: $"Fix: {dep.Name}",
+                Description: dep.Message ?? $"Installing {dep.Name}"
+            );
+        }
+        else if (dep.Category == DependencyCategory.AndroidSdk && !string.IsNullOrEmpty(dep.FixAction))
+        {
+            // Android SDK package install - typically via sdkmanager
+            var parts = dep.FixAction.Split(' ', 2);
+            request = new ProcessRequest(
+                Command: parts[0],
+                Arguments: parts.Length > 1 ? parts[1].Split(' ') : Array.Empty<string>(),
+                RequiresElevation: false,
+                Title: $"Fix: {dep.Name}",
+                Description: dep.Message ?? $"Installing {dep.Name}"
+            );
+        }
+        
+        if (request == null)
+        {
+            // Fall back to old behavior for non-command fixes
+            isLoading = true;
+            progressMessage = $"Fixing: {dep.Name}...";
+            StateHasChanged();
+
+            try
+            {
+                var success = await DoctorService.FixDependencyAsync(dep);
+                if (success)
+                {
+                    await AlertService.ShowToastAsync($"Fixed: {dep.Name}");
+                    await RunDoctor();
+                }
+                else
+                {
+                    await AlertService.ShowAlertAsync("Fix Failed", $"Could not fix: {dep.Name}");
+                }
+            }
+            catch (Exception ex)
+            {
+                await AlertService.ShowAlertAsync("Error", ex.Message);
+            }
+            finally
+            {
+                isLoading = false;
+                progressMessage = "";
+                StateHasChanged();
+            }
+            return;
+        }
+
+        var result = await ProcessModal.ShowProcessAsync(request);
+        
+        if (result?.Success == true)
+        {
+            await AlertService.ShowToastAsync($"Fixed: {dep.Name}");
+            await RunDoctor();
+        }
+        else if (result != null && !result.WasCancelled && !result.WasKilled)
+        {
+            await AlertService.ShowAlertAsync("Fix Failed", $"Could not fix: {dep.Name}. Check the output for details.");
+        }
+    }
+
+    private async Task UpdateToVersion(string version)
+    {
+        if (version == report?.InstalledWorkloadSetVersion) return;
+
+        // Build the workload update command
+        var request = new ProcessRequest(
+            Command: "dotnet",
+            Arguments: new[] { "workload", "update", "--version", version },
+            RequiresElevation: true,
+            ElevationPrompt: "Install .NET Workloads",
+            Title: "Update Workloads",
+            Description: $"Update .NET workloads to version {version}"
+        );
+
+        var result = await ProcessModal.ShowProcessAsync(request);
+        
+        if (result?.Success == true)
+        {
+            await AlertService.ShowToastAsync("Workloads updated successfully");
+            await RunDoctor();
+        }
+        else if (result != null && !result.WasCancelled && !result.WasKilled)
+        {
+            await AlertService.ShowAlertAsync("Update Failed", "Workload update failed. Check the output for details.");
+        }
+    }
+
+    private string GetSummaryClass()
+    {
+        if (report == null) return "";
+        if (report.HasErrors) return "error";
+        if (report.HasWarnings) return "warning";
+        return "success";
+    }
+
+    private string GetSummaryIconClass()
+    {
+        if (report == null) return "";
+        if (report.HasErrors) return "fas fa-times-circle text-error";
+        if (report.HasWarnings) return "fas fa-exclamation-triangle text-warning";
+        return "fas fa-check-circle text-success";
+    }
+
+    private string GetSummaryTitle()
+    {
+        if (report == null) return "";
+        if (report.HasErrors) return "Issues Found";
+        if (report.HasWarnings) return "Some Warnings";
+        return "Environment Ready";
+    }
+
+    private string GetStatusIconClass(DependencyStatusType status) => status switch
+    {
+        DependencyStatusType.Ok => "fas fa-check-circle text-success",
+        DependencyStatusType.Warning => "fas fa-exclamation-triangle text-warning",
+        DependencyStatusType.Error => "fas fa-times-circle text-error",
+        _ => "fas fa-question-circle text-muted"
+    };
+
+    private string GetDepStatusClass(DependencyStatusType status) => status switch
+    {
+        DependencyStatusType.Ok => "status-ok",
+        DependencyStatusType.Warning => "status-warning",
+        DependencyStatusType.Error => "status-error",
+        _ => "status-unknown"
+    };
+
+    private string GetCategoryName(DependencyCategory category) => category switch
+    {
+        DependencyCategory.DotNetSdk => ".NET SDK",
+        DependencyCategory.Workload => "Workloads",
+        DependencyCategory.Jdk => "Java Development Kit",
+        DependencyCategory.AndroidSdk => "Android SDK",
+        DependencyCategory.Xcode => "Xcode",
+        DependencyCategory.WindowsAppSdk => "Windows App SDK",
+        DependencyCategory.WindowsSdkBuildTools => "Windows SDK Build Tools",
+        DependencyCategory.WebView2 => "WebView2",
+        _ => "Other"
+    };
+
+    private string GetSdkDownloadUrl(string version)
+    {
+        // Parse version to get major.minor for the download page
+        var parts = version.Split('.');
+        if (parts.Length >= 2)
+        {
+            var majorMinor = $"{parts[0]}.{parts[1]}";
+            // Always link to the official Microsoft download page for that version
+            // This is more reliable than GitHub release notes which may have different URL patterns
+            return $"https://dotnet.microsoft.com/download/dotnet/{majorMinor}";
+        }
+        // Fallback to main download page
+        return "https://dotnet.microsoft.com/download/dotnet";
+    }
+
+    private async Task CopyToClipboard(string text)
+    {
+        await DialogService.CopyToClipboardAsync(text);
+        await AlertService.ShowToastAsync("Copied to clipboard");
+    }
+
+    // Copilot Methods
+    private async Task FixWithCopilot()
+    {
+        showCopilotDialog = true;
+        copilotOutput.Clear();
+        copilotConnected = false;
+        copilotBusy = true;
+        copilotComplete = false;
+        copilotStatus = "Connecting to Copilot...";
+        StateHasChanged();
+
+        try
+        {
+            // Connect to Copilot if not already connected
+            if (!CopilotService.IsConnected)
+            {
+                AddOutput("Connecting to GitHub Copilot CLI...", "system");
+                await CopilotService.ConnectAsync();
+            }
+
+            copilotStatus = "Starting session...";
+            AddOutput("Starting Copilot session...", "system");
+            StateHasChanged();
+
+            // Start a new session
+            await CopilotService.StartSessionAsync();
+            copilotConnected = true;
+
+            copilotStatus = "Analyzing environment...";
+            AddOutput("Sending environment analysis request...", "system");
+            StateHasChanged();
+
+            // Load and send the prompt
+            var prompt = LoadMauiDoctorPrompt();
+            await CopilotService.SendMessageAsync(prompt);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to start Copilot fix");
+            AddOutput($"Error: {ex.Message}", "error");
+            copilotBusy = false;
+            copilotStatus = "Failed to connect";
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private string LoadMauiDoctorPrompt()
+    {
+        // Load the embedded prompt resource
+        var assembly = typeof(MauiSherpa.Core.Services.CopilotService).Assembly;
+        var resourceName = "MauiSherpa.Core.Prompts.maui-doctor.md";
+        
+        using var stream = assembly.GetManifestResourceStream(resourceName);
+        if (stream == null)
+        {
+            Logger.LogWarning("Could not find embedded prompt resource: {ResourceName}", resourceName);
+            // Fallback to a default prompt
+            return @"Please check my .NET MAUI development environment and help me fix any issues.
+
+Check:
+1. .NET SDK installation
+2. MAUI workloads
+3. JDK (Microsoft Build of OpenJDK)
+4. Android SDK
+5. Xcode (if on macOS)
+
+Ask before making any changes to my system.";
+        }
+
+        using var reader = new StreamReader(stream);
+        return reader.ReadToEnd();
+    }
+
+    private void OnAssistantDelta(string delta)
+    {
+        if (string.IsNullOrEmpty(delta)) return;
+        
+        // Append to last assistant line or create new one
+        var lastLine = copilotOutput.LastOrDefault();
+        if (lastLine?.Type == "assistant")
+        {
+            copilotOutput.RemoveAt(copilotOutput.Count - 1);
+            copilotOutput.Add(new OutputLine(lastLine.Text + delta, "assistant"));
+        }
+        else
+        {
+            copilotOutput.Add(new OutputLine(delta, "assistant"));
+        }
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void OnAssistantMessage(string message)
+    {
+        if (!string.IsNullOrEmpty(message))
+        {
+            // Replace last delta line with complete message
+            if (copilotOutput.Count > 0 && copilotOutput[^1].Type == "assistant")
+            {
+                copilotOutput.RemoveAt(copilotOutput.Count - 1);
+            }
+            AddOutput(message, "assistant");
+        }
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void OnSessionIdle()
+    {
+        copilotBusy = false;
+        copilotComplete = true;
+        copilotStatus = "Complete";
+        AddOutput("\n--- Analysis complete ---", "system");
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void OnCopilotError(string error)
+    {
+        AddOutput($"Error: {error}", "error");
+        copilotBusy = false;
+        copilotStatus = "Error occurred";
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void OnToolStart(string toolName, string args)
+    {
+        copilotStatus = $"Running: {toolName}";
+        AddOutput($"[Tool: {toolName}]", "tool");
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void OnToolComplete(string toolName, string result)
+    {
+        copilotStatus = "Processing...";
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void AddOutput(string text, string type)
+    {
+        copilotOutput.Add(new OutputLine(text, type));
+    }
+
+    private async Task AbortCopilot()
+    {
+        try
+        {
+            AddOutput("Aborting...", "system");
+            await CopilotService.AbortAsync();
+            copilotBusy = false;
+            copilotStatus = "Aborted";
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to abort Copilot");
+        }
+    }
+
+    private void CloseCopilotDialog()
+    {
+        if (copilotBusy) return;
+        showCopilotDialog = false;
+    }
+
+    private async Task RunDoctorAfterCopilot()
+    {
+        showCopilotDialog = false;
+        await RunDoctor();
+    }
+}

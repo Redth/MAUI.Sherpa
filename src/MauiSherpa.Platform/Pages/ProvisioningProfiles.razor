@@ -1,0 +1,640 @@
+@page "/profiles"
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Core.Requests.Apple
+@using MauiSherpa.Platform.Services
+@using Shiny.Mediator
+@inject IMediator Mediator
+@inject IAppleConnectService AppleService
+@inject IAppleIdentityStateService IdentityState
+@inject IAlertService AlertService
+@inject IDialogService DialogService
+@inject IFileSystemService FileSystem
+@inject OperationModalService OperationModal
+@implements IDisposable
+
+<h1><i class="fas fa-id-card"></i> Provisioning Profiles</h1>
+
+<AppleIdentityPicker />
+
+@if (IdentityState.SelectedIdentity != null)
+{
+    <div class="toolbar">
+        <button class="btn btn-primary" @onclick="@(() => RefreshData(forceRefresh: true))" disabled="@isLoading">
+            <i class="fas fa-sync-alt"></i> @(isLoading ? "Loading..." : "Refresh")
+        </button>
+        @if (GetInstallableProfiles().Any())
+        {
+            <button class="btn btn-success" @onclick="InstallAllProfiles" disabled="@isLoading">
+                <i class="fas fa-download"></i> Install All (@GetInstallableProfiles().Count())
+            </button>
+        }
+    </div>
+
+    <!-- Filter Section -->
+    <div class="filter-section">
+        <div class="search-box">
+            <span class="search-icon"><i class="fas fa-search"></i></span>
+            <input type="text" @bind="searchQuery" @bind:event="oninput" placeholder="Search profiles..." />
+            @if (!string.IsNullOrEmpty(searchQuery))
+            {
+                <button class="clear-btn" @onclick="@(() => searchQuery = "")">×</button>
+            }
+        </div>
+        <div class="filter-chips">
+            <select @bind="filterState" class="filter-select">
+                <option value="">All States</option>
+                <option value="ACTIVE">Active</option>
+                <option value="INVALID">Invalid</option>
+            </select>
+            <select @bind="filterType" class="filter-select">
+                <option value="">All Types</option>
+                <option value="DEVELOPMENT">Development</option>
+                <option value="ADHOC">Ad Hoc</option>
+                <option value="APPSTORE">App Store</option>
+            </select>
+            <select @bind="filterPlatform" class="filter-select">
+                <option value="">All Platforms</option>
+                <option value="IOS">iOS</option>
+                <option value="MAC_OS">macOS</option>
+            </select>
+        </div>
+        @if (HasActiveFilters)
+        {
+            <button class="clear-filters-btn" @onclick="ClearFilters">Clear Filters</button>
+        }
+    </div>
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="error-bar">@errorMessage</div>
+    }
+
+    <div class="results-info">
+        Showing @FilteredProfiles.Count() of @profiles.Count profiles
+    </div>
+
+    <div class="profile-list">
+        @if (isLoading && profiles.Count == 0)
+        {
+            <div class="loading-state">
+                <div class="loading-spinner">
+                    <i class="fas fa-id-card"></i>
+                </div>
+                <div class="loading-title">Loading Profiles</div>
+                <div class="loading-description">Fetching provisioning profiles from App Store Connect...</div>
+            </div>
+        }
+        else if (!FilteredProfiles.Any())
+        {
+            <div class="empty-state">
+                <div class="empty-icon"><i class="fas fa-file-alt"></i></div>
+                <div class="empty-title">@(profiles.Count == 0 ? "No provisioning profiles found" : "No profiles match filters")</div>
+                <div class="empty-description">@(profiles.Count == 0 ? "Create profiles in Xcode or Apple Developer Portal" : "Try adjusting your search or filters")</div>
+            </div>
+        }
+        else
+        {
+            @foreach (var profile in FilteredProfiles)
+            {
+                var isExpired = profile.ExpirationDate < DateTime.UtcNow;
+                var isExpiringSoon = !isExpired && profile.ExpirationDate < DateTime.UtcNow.AddDays(30);
+                var isInvalid = profile.State != "ACTIVE";
+                
+                <div class="profile-card @(isExpired || isInvalid ? "invalid" : isExpiringSoon ? "expiring" : "")">
+                    <div class="profile-icon"><i class="fas fa-file-alt"></i></div>
+                    <div class="profile-details">
+                        <div class="profile-name">@profile.Name</div>
+                        <div class="profile-uuid">
+                            @profile.Uuid
+                            <button class="btn-copy" @onclick="@(() => CopyToClipboard(profile.Uuid))" title="Copy to clipboard">
+                                <i class="fas fa-copy"></i>
+                            </button>
+                        </div>
+                        <div class="profile-badges">
+                            <span class="badge badge-type">@FormatProfileType(profile.ProfileType)</span>
+                            @if (!string.IsNullOrEmpty(profile.Platform))
+                            {
+                                <span class="badge badge-platform">@profile.Platform</span>
+                            }
+                            @if (isInvalid)
+                            {
+                                <span class="badge badge-invalid">@profile.State</span>
+                            }
+                            else if (isExpired)
+                            {
+                                <span class="badge badge-expired">Expired</span>
+                            }
+                            else if (isExpiringSoon)
+                            {
+                                <span class="badge badge-expiring">Expiring Soon</span>
+                            }
+                            else
+                            {
+                                <span class="badge badge-valid">Active</span>
+                            }
+                        </div>
+                        <div class="profile-expiry">
+                            Expires: @profile.ExpirationDate.ToString("MMM dd, yyyy")
+                        </div>
+                    </div>
+                    <div class="profile-actions">
+                        <div class="btn-group">
+                            <button class="btn btn-secondary btn-sm" @onclick="@(() => DownloadProfile(profile))" disabled="@isLoading" title="Download to file">
+                                <i class="fas fa-download"></i> Download
+                            </button>
+                            <button class="btn btn-secondary btn-sm btn-dropdown" @onclick="@(() => ToggleDropdown(profile.Id))">
+                                ▼
+                            </button>
+                            @if (openDropdown == profile.Id)
+                            {
+                                <div class="dropdown-menu">
+                                    <button class="dropdown-item" @onclick="@(() => InstallProfile(profile))">
+                                        <i class="fas fa-folder-plus"></i> Install to System
+                                    </button>
+                                </div>
+                            }
+                        </div>
+                        <button class="btn btn-danger btn-sm" @onclick="@(() => DeleteProfile(profile))" disabled="@isLoading">
+                            <i class="fas fa-trash"></i> Delete
+                        </button>
+                    </div>
+                </div>
+            }
+        }
+    </div>
+}
+
+<style>
+    h1 { margin-bottom: 20px; font-size: 28px; color: #2d3748; }
+
+    .toolbar { margin-bottom: 16px; display: flex; gap: 12px; }
+    .error-bar { background: #fed7d7; color: #c53030; padding: 12px 16px; border-radius: 6px; margin-bottom: 16px; }
+
+    /* Filter Section Styles */
+    .filter-section {
+        background: white;
+        border-radius: 8px;
+        padding: 16px;
+        margin-bottom: 16px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        align-items: center;
+    }
+
+    .search-box {
+        position: relative;
+        flex: 1;
+        min-width: 200px;
+    }
+
+    .search-box input {
+        width: 100%;
+        padding: 10px 36px 10px 36px;
+        border: 1px solid #e2e8f0;
+        border-radius: 6px;
+        font-size: 14px;
+        box-sizing: border-box;
+    }
+
+    .search-box input:focus {
+        outline: none;
+        border-color: #4299e1;
+        box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.15);
+    }
+
+    .search-icon {
+        position: absolute;
+        left: 12px;
+        top: 50%;
+        transform: translateY(-50%);
+        font-size: 14px;
+        opacity: 0.5;
+    }
+
+    .clear-btn {
+        position: absolute;
+        right: 8px;
+        top: 50%;
+        transform: translateY(-50%);
+        background: #e2e8f0;
+        border: none;
+        border-radius: 50%;
+        width: 20px;
+        height: 20px;
+        font-size: 14px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #718096;
+    }
+
+    .clear-btn:hover { background: #cbd5e0; }
+
+    .filter-chips {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+
+    .filter-select {
+        padding: 8px 12px;
+        border: 1px solid #e2e8f0;
+        border-radius: 6px;
+        font-size: 13px;
+        background: white;
+        cursor: pointer;
+        min-width: 120px;
+    }
+
+    .filter-select:focus {
+        outline: none;
+        border-color: #4299e1;
+    }
+
+    .clear-filters-btn {
+        padding: 8px 12px;
+        background: none;
+        border: 1px solid #e2e8f0;
+        border-radius: 6px;
+        font-size: 13px;
+        color: #718096;
+        cursor: pointer;
+    }
+
+    .clear-filters-btn:hover {
+        background: #f7fafc;
+        color: #4a5568;
+    }
+
+    .results-info {
+        font-size: 13px;
+        color: #718096;
+        margin-bottom: 12px;
+    }
+
+    .btn { 
+        padding: 10px 20px; 
+        border: none; 
+        border-radius: 6px; 
+        font-size: 14px; 
+        cursor: pointer; 
+        transition: all 0.2s ease;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+    }
+    .btn i { font-size: 12px; }
+    .btn-primary { background-color: #4299e1; color: white; }
+    .btn-primary:hover:not(:disabled) { background-color: #3182ce; }
+    .btn-secondary { background-color: #a0aec0; color: white; }
+    .btn-secondary:hover:not(:disabled) { background-color: #718096; }
+    .btn-danger { background-color: #f56565; color: white; }
+    .btn-danger:hover:not(:disabled) { background-color: #e53e3e; }
+    .btn-success { background-color: #48bb78; color: white; }
+    .btn-success:hover:not(:disabled) { background-color: #38a169; }
+    .btn-sm { padding: 6px 12px; font-size: 12px; }
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+    .btn-group {
+        position: relative;
+        display: inline-flex;
+    }
+
+    .btn-group .btn:first-child {
+        border-top-right-radius: 0;
+        border-bottom-right-radius: 0;
+    }
+
+    .btn-dropdown {
+        border-top-left-radius: 0;
+        border-bottom-left-radius: 0;
+        padding: 6px 8px;
+        border-left: 1px solid rgba(255,255,255,0.3);
+    }
+
+    .dropdown-menu {
+        position: absolute;
+        top: 100%;
+        right: 0;
+        margin-top: 4px;
+        background: white;
+        border-radius: 6px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        z-index: 100;
+        min-width: 160px;
+        overflow: hidden;
+    }
+
+    .dropdown-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        padding: 10px 14px;
+        border: none;
+        background: none;
+        text-align: left;
+        cursor: pointer;
+        font-size: 13px;
+        color: #2d3748;
+    }
+
+    .dropdown-item:hover {
+        background: #edf2f7;
+    }
+
+    .profile-list { display: flex; flex-direction: column; gap: 12px; }
+
+    .profile-card {
+        background: white;
+        border-radius: 8px;
+        padding: 20px;
+        display: flex;
+        align-items: flex-start;
+        gap: 16px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        border-left: 4px solid #48bb78;
+    }
+
+    .profile-card.invalid { border-left-color: #f56565; opacity: 0.7; }
+    .profile-card.expiring { border-left-color: #ed8936; }
+
+    .profile-icon { font-size: 36px; color: #6b46c1; }
+    .profile-icon i { font-size: 28px; }
+    .profile-details { flex: 1; }
+    .profile-name { font-weight: 600; font-size: 16px; color: #2d3748; }
+    .profile-uuid { 
+        font-family: monospace; 
+        font-size: 11px; 
+        color: #a0aec0; 
+        margin-top: 4px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .profile-expiry { font-size: 13px; color: #718096; margin-top: 8px; }
+    .profile-badges { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+
+    .profile-actions { display: flex; gap: 8px; }
+
+    .btn-copy {
+        background: none;
+        border: none;
+        color: #a0aec0;
+        cursor: pointer;
+        padding: 2px 6px;
+        font-size: 12px;
+        border-radius: 4px;
+        transition: all 0.15s;
+        flex-shrink: 0;
+    }
+    .btn-copy:hover {
+        color: #4299e1;
+        background: #edf2f7;
+    }
+
+    .badge { padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 500; }
+    .badge-type { background: #faf5ff; color: #6b46c1; }
+    .badge-platform { background: #bee3f8; color: #2c5282; }
+    .badge-valid { background: #c6f6d5; color: #276749; }
+    .badge-expiring { background: #feebc8; color: #c05621; }
+    .badge-expired { background: #fed7d7; color: #c53030; }
+    .badge-invalid { background: #fed7d7; color: #c53030; }
+
+    .empty-state { background: white; border-radius: 8px; padding: 60px 40px; text-align: center; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); }
+    .empty-icon { font-size: 48px; margin-bottom: 16px; color: #a0aec0; }
+    .empty-icon i { font-size: 48px; }
+    .empty-title { font-size: 18px; font-weight: 600; color: #2d3748; margin-bottom: 8px; }
+    .empty-description { color: #718096; font-size: 14px; }
+</style>
+
+@code {
+    private List<AppleProfile> profiles = new();
+    private bool isLoading = false;
+    private string errorMessage = "";
+    private string? openDropdown = null;
+    
+    // Filter state
+    private string searchQuery = "";
+    private string filterState = "";
+    private string filterType = "";
+    private string filterPlatform = "";
+
+    private bool HasActiveFilters => !string.IsNullOrEmpty(searchQuery) || 
+                                      !string.IsNullOrEmpty(filterState) || 
+                                      !string.IsNullOrEmpty(filterType) || 
+                                      !string.IsNullOrEmpty(filterPlatform);
+
+    // Get profiles that can be installed (active, not expired, matching current filters)
+    private List<AppleProfile> GetInstallableProfiles() => FilteredProfiles
+        .Where(p => p.State?.Equals("ACTIVE", StringComparison.OrdinalIgnoreCase) ?? false)
+        .Where(p => p.ExpirationDate > DateTime.UtcNow)
+        .ToList();
+
+    private void ToggleDropdown(string id)
+    {
+        openDropdown = openDropdown == id ? null : id;
+    }
+
+    private IEnumerable<AppleProfile> FilteredProfiles => profiles
+        .Where(p => string.IsNullOrEmpty(searchQuery) || 
+                    p.Name.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) ||
+                    p.Uuid.Contains(searchQuery, StringComparison.OrdinalIgnoreCase))
+        .Where(p => string.IsNullOrEmpty(filterState) || (p.State?.Equals(filterState, StringComparison.OrdinalIgnoreCase) ?? false))
+        .Where(p => string.IsNullOrEmpty(filterType) || (p.ProfileType?.Contains(filterType, StringComparison.OrdinalIgnoreCase) ?? false))
+        .Where(p => string.IsNullOrEmpty(filterPlatform) || (p.Platform?.Equals(filterPlatform, StringComparison.OrdinalIgnoreCase) ?? false))
+        .OrderByDescending(p => p.State?.Equals("ACTIVE", StringComparison.OrdinalIgnoreCase) ?? false) // Active first
+        .ThenByDescending(p => p.ExpirationDate > DateTime.UtcNow) // Non-expired next
+        .ThenBy(p => p.Name);
+
+    private void ClearFilters()
+    {
+        searchQuery = "";
+        filterState = "";
+        filterType = "";
+        filterPlatform = "";
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        IdentityState.OnSelectionChanged += OnIdentityChanged;
+        if (IdentityState.SelectedIdentity != null)
+            await RefreshData();
+    }
+
+    private void OnIdentityChanged()
+    {
+        InvokeAsync(async () =>
+        {
+            await RefreshData();
+            StateHasChanged();
+        });
+    }
+
+    public void Dispose()
+    {
+        IdentityState.OnSelectionChanged -= OnIdentityChanged;
+    }
+
+    private async Task RefreshData(bool forceRefresh = false)
+    {
+        if (IdentityState.SelectedIdentity == null) return;
+
+        isLoading = true;
+        errorMessage = "";
+        try
+        {
+            var request = new GetProfilesRequest(IdentityState.SelectedIdentity.Id);
+            var (_, result) = forceRefresh 
+                ? await Mediator.Request(request, CancellationToken.None, ctx => ctx.ClearCache())
+                : await Mediator.Request(request);
+            profiles = result.ToList();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to load profiles: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private string FormatProfileType(string profileType)
+    {
+        return profileType.Replace("_", " ") switch
+        {
+            var t when t.Contains("DEVELOPMENT") => "Development",
+            var t when t.Contains("AD HOC") || t.Contains("ADHOC") => "Ad Hoc",
+            var t when t.Contains("APP STORE") || t.Contains("APPSTORE") => "App Store",
+            _ => profileType.Replace("_", " ")
+        };
+    }
+
+    private async Task DownloadProfile(AppleProfile profile)
+    {
+        openDropdown = null;
+        isLoading = true;
+        try
+        {
+            var savePath = await DialogService.ShowFileDialogAsync(
+                "Save Provisioning Profile",
+                isSave: true,
+                filters: new[] { "*.mobileprovision" });
+
+            if (string.IsNullOrEmpty(savePath)) return;
+
+            if (!savePath.EndsWith(".mobileprovision"))
+                savePath += ".mobileprovision";
+
+            var content = await AppleService.DownloadProfileAsync(profile.Id);
+            await File.WriteAllBytesAsync(savePath, content);
+            
+            await AlertService.ShowToastAsync($"Profile saved to {Path.GetFileName(savePath)}");
+        }
+        catch (Exception ex)
+        {
+            await AlertService.ShowAlertAsync("Error", $"Failed to download profile: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task InstallProfile(AppleProfile profile)
+    {
+        openDropdown = null;
+        
+        var result = await OperationModal.RunAsync(
+            "Install Profile",
+            $"Installing '{profile.Name}' to system...",
+            async ctx =>
+            {
+                ctx.SetStatus("Downloading profile...");
+                ctx.LogInfo($"Installing profile: {profile.Name}");
+                
+                var path = await AppleService.InstallProfileAsync(profile.Id);
+                ctx.LogSuccess($"Profile installed: {Path.GetFileName(path)}");
+                return true;
+            });
+    }
+
+    private async Task InstallAllProfiles()
+    {
+        var installable = GetInstallableProfiles();
+        if (!installable.Any())
+        {
+            await AlertService.ShowToastAsync("No active profiles to install");
+            return;
+        }
+
+        var result = await OperationModal.RunAsync(
+            "Install All Profiles",
+            $"Installing {installable.Count} active profile(s) to system...",
+            async ctx =>
+            {
+                ctx.SetStatus("Starting batch installation...");
+                ctx.LogInfo($"Installing {installable.Count} profiles");
+
+                var installed = 0;
+                foreach (var profile in installable)
+                {
+                    ctx.CancellationToken.ThrowIfCancellationRequested();
+                    ctx.SetStatus($"Installing {profile.Name}...");
+                    ctx.SetProgress((installed * 100) / installable.Count);
+                    
+                    try
+                    {
+                        var path = await AppleService.InstallProfileAsync(profile.Id);
+                        ctx.LogSuccess($"Installed: {profile.Name}");
+                        installed++;
+                    }
+                    catch (Exception ex)
+                    {
+                        ctx.LogError($"Failed to install {profile.Name}: {ex.Message}");
+                    }
+                }
+
+                ctx.SetProgress(100);
+                ctx.LogInfo($"Installed {installed} of {installable.Count} profile(s)");
+                return installed == installable.Count;
+            });
+    }
+
+    private async Task DeleteProfile(AppleProfile profile)
+    {
+        var confirm = await AlertService.ShowConfirmAsync(
+            "Delete Profile",
+            $"Are you sure you want to delete '{profile.Name}'?");
+
+        if (!confirm) return;
+
+        var result = await OperationModal.RunAsync(
+            "Delete Profile",
+            $"Deleting '{profile.Name}'...",
+            async ctx =>
+            {
+                ctx.SetStatus("Deleting profile...");
+                await AppleService.DeleteProfileAsync(profile.Id);
+                ctx.LogSuccess("Profile deleted");
+                return true;
+            },
+            canCancel: false);
+
+        if (result.Success)
+        {
+            await RefreshData(forceRefresh: true);
+        }
+    }
+
+    private async Task CopyToClipboard(string text)
+    {
+        await DialogService.CopyToClipboardAsync(text);
+        await AlertService.ShowToastAsync("Copied to clipboard");
+    }
+}

@@ -1,0 +1,953 @@
+@page "/copilot"
+@using MauiSherpa.Core.Interfaces
+@inject ICopilotService CopilotService
+@inject IAlertService AlertService
+@implements IDisposable
+
+<h1><i class="fas fa-robot"></i> GitHub Copilot</h1>
+
+@if (isCheckingAvailability)
+{
+    <div class="checking-status">
+        <div class="loading-spinner"><i class="fas fa-spinner fa-spin"></i></div>
+        <div class="loading-text">Checking Copilot availability...</div>
+    </div>
+}
+else if (availability != null && !availability.IsInstalled)
+{
+    <!-- Copilot Not Installed -->
+    <div class="setup-required">
+        <div class="setup-icon error"><i class="fas fa-exclamation-triangle"></i></div>
+        <h2>GitHub Copilot CLI Not Found</h2>
+        <p>The GitHub Copilot CLI needs to be installed to use this feature.</p>
+        
+        <div class="setup-steps">
+            <div class="step">
+                <div class="step-number">1</div>
+                <div class="step-content">
+                    <strong>Install GitHub Copilot CLI</strong>
+                    <p>Visit the GitHub Copilot website to download and install the CLI tool.</p>
+                    <a href="https://docs.github.com/en/copilot/managing-copilot/configure-personal-settings/installing-the-github-copilot-extension-in-your-environment" 
+                       target="_blank" class="btn btn-primary">
+                        <i class="fas fa-external-link-alt"></i> Get GitHub Copilot CLI
+                    </a>
+                </div>
+            </div>
+            <div class="step">
+                <div class="step-number">2</div>
+                <div class="step-content">
+                    <strong>Verify Installation</strong>
+                    <p>After installation, run <code>copilot --version</code> in your terminal to verify.</p>
+                </div>
+            </div>
+        </div>
+
+        <button class="btn btn-secondary" @onclick="CheckAvailability">
+            <i class="fas fa-sync-alt"></i> Check Again
+        </button>
+    </div>
+}
+else if (availability != null && !availability.IsAuthenticated)
+{
+    <!-- Copilot Not Authenticated -->
+    <div class="setup-required">
+        <div class="setup-icon warning"><i class="fas fa-sign-in-alt"></i></div>
+        <h2>Authentication Required</h2>
+        <p>You need to log in to GitHub Copilot before you can use it.</p>
+        @if (!string.IsNullOrEmpty(availability.Version))
+        {
+            <p class="version-info"><i class="fas fa-check-circle"></i> Copilot CLI installed (v@(availability.Version))</p>
+        }
+        
+        <div class="setup-steps">
+            <div class="step">
+                <div class="step-number">1</div>
+                <div class="step-content">
+                    <strong>Open Terminal</strong>
+                    <p>Open your terminal or command prompt.</p>
+                </div>
+            </div>
+            <div class="step">
+                <div class="step-number">2</div>
+                <div class="step-content">
+                    <strong>Run Login Command</strong>
+                    <p>Run the following command to authenticate:</p>
+                    <div class="code-block">
+                        <code>copilot auth login</code>
+                        <button class="btn-copy-code" @onclick="@(() => CopyToClipboard("copilot auth login"))" title="Copy">
+                            <i class="fas fa-copy"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div class="step">
+                <div class="step-number">3</div>
+                <div class="step-content">
+                    <strong>Follow Browser Prompts</strong>
+                    <p>Complete the authentication in your browser when prompted.</p>
+                </div>
+            </div>
+        </div>
+
+        <button class="btn btn-secondary" @onclick="CheckAvailability">
+            <i class="fas fa-sync-alt"></i> Check Again
+        </button>
+    </div>
+}
+else
+{
+    <!-- Copilot Available -->
+    <div class="connection-status @(CopilotService.IsConnected ? "connected" : "disconnected")">
+        <span class="status-indicator"></span>
+        <span class="status-text">
+            @(CopilotService.IsConnected ? "Connected" : "Disconnected")
+            @if (availability?.Login != null)
+            {
+                <span class="login-badge">@@@(availability.Login)</span>
+            }
+            @if (availability?.Version != null)
+            {
+                <span class="version-badge">v@(availability.Version)</span>
+            }
+        </span>
+        @if (!CopilotService.IsConnected)
+        {
+            <button class="btn btn-sm btn-primary" @onclick="Connect" disabled="@isConnecting">
+                <i class="fas @(isConnecting ? "fa-spinner fa-spin" : "fa-plug")"></i>
+                @(isConnecting ? "Connecting..." : "Connect")
+            </button>
+        }
+        else
+        {
+            <button class="btn btn-sm btn-secondary" @onclick="Disconnect">
+                <i class="fas fa-unlink"></i> Disconnect
+            </button>
+        }
+    </div>
+
+    @if (!CopilotService.IsConnected && !isConnecting)
+    {
+        <div class="welcome-section">
+            <div class="welcome-icon"><i class="fas fa-robot"></i></div>
+            <h2>Welcome to Copilot</h2>
+            <p>Connect to GitHub Copilot to get AI-powered assistance with your development environment.</p>
+            <button class="btn btn-primary btn-lg" @onclick="Connect">
+                <i class="fas fa-plug"></i> Connect to Copilot
+            </button>
+        </div>
+    }
+    else
+    {
+        <div class="chat-layout">
+            <!-- Suggested Prompts (shown when no messages) -->
+            @if (messages.Count == 0 && !isBusy)
+            {
+                <div class="suggestions-section">
+                    <p class="suggestions-hint"><i class="fas fa-lightbulb"></i> Try asking:</p>
+                    <div class="suggestions-grid">
+                        @foreach (var suggestion in suggestedPrompts)
+                        {
+                        <button class="suggestion-bubble" @onclick="@(() => UseSuggestion(suggestion))">
+                            <span class="bubble-text">"@suggestion.Prompt.Substring(0, Math.Min(80, suggestion.Prompt.Length))@(suggestion.Prompt.Length > 80 ? "..." : "")"</span>
+                            <i class="fas fa-arrow-right bubble-arrow"></i>
+                        </button>
+                    }
+                </div>
+            </div>
+        }
+
+        <!-- Chat Messages -->
+        <div class="chat-container @(messages.Count == 0 && !isBusy ? "with-suggestions" : "")">
+            <div class="chat-messages" @ref="chatMessagesRef">
+                @foreach (var msg in messages)
+                {
+                    <div class="message @(msg.IsUser ? "user-message" : "assistant-message")">
+                        <div class="message-header">
+                            <i class="fas @(msg.IsUser ? "fa-user" : "fa-robot")"></i>
+                            <span>@(msg.IsUser ? "You" : "Copilot")</span>
+                        </div>
+                        <div class="message-content">@msg.Content</div>
+                    </div>
+                }
+                @if (isBusy && !string.IsNullOrEmpty(currentResponse))
+                {
+                    <div class="message assistant-message streaming">
+                        <div class="message-header">
+                            <i class="fas fa-robot"></i>
+                            <span>Copilot</span>
+                            <i class="fas fa-spinner fa-spin typing-indicator"></i>
+                        </div>
+                        <div class="message-content">@currentResponse</div>
+                    </div>
+                }
+                else if (isBusy)
+                {
+                    <div class="message assistant-message thinking">
+                        <div class="message-header">
+                            <i class="fas fa-robot"></i>
+                            <span>Copilot</span>
+                        </div>
+                        <div class="message-content">
+                            <span class="thinking-dots">
+                                <span>●</span><span>●</span><span>●</span>
+                            </span>
+                        </div>
+                    </div>
+                }
+            </div>
+
+            <div class="chat-input-area">
+                @if (!string.IsNullOrEmpty(currentTool))
+                {
+                    <div class="tool-indicator">
+                        <i class="fas fa-cog fa-spin"></i>
+                        <span>Running: @currentTool</span>
+                    </div>
+                }
+                <div class="chat-input">
+                    <textarea 
+                        placeholder="Ask Copilot something..." 
+                        @bind="userInput"
+                        @onkeydown="HandleKeyDown"
+                        disabled="@(isBusy || !CopilotService.IsConnected)"
+                        rows="1"></textarea>
+                    <button class="btn-send" @onclick="SendMessage" disabled="@(isBusy || string.IsNullOrWhiteSpace(userInput) || !CopilotService.IsConnected)">
+                        @if (isBusy)
+                        {
+                            <i class="fas fa-stop"></i>
+                        }
+                        else
+                        {
+                            <i class="fas fa-paper-plane"></i>
+                        }
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    }
+}
+
+<style>
+    h1 {
+        margin-bottom: 20px;
+        font-size: 28px;
+        color: #2d3748;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+
+    h1 i { color: #6366f1; }
+
+    /* Checking/Loading State */
+    .checking-status {
+        background: white;
+        border-radius: 12px;
+        padding: 60px 40px;
+        text-align: center;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    }
+
+    .checking-status .loading-spinner {
+        font-size: 48px;
+        color: #6366f1;
+        margin-bottom: 16px;
+    }
+
+    .checking-status .loading-text {
+        color: #718096;
+        font-size: 16px;
+    }
+
+    /* Setup Required States */
+    .setup-required {
+        background: white;
+        border-radius: 12px;
+        padding: 40px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    }
+
+    .setup-icon {
+        font-size: 48px;
+        margin-bottom: 20px;
+    }
+
+    .setup-icon.error { color: #e53e3e; }
+    .setup-icon.warning { color: #dd6b20; }
+
+    .setup-required h2 {
+        font-size: 24px;
+        color: #2d3748;
+        margin-bottom: 12px;
+    }
+
+    .setup-required > p {
+        color: #718096;
+        margin-bottom: 24px;
+        max-width: 600px;
+    }
+
+    .version-info {
+        color: #38a169;
+        font-size: 14px;
+        margin-bottom: 24px;
+    }
+
+    .version-info i { margin-right: 6px; }
+
+    .setup-steps {
+        background: #f7fafc;
+        border-radius: 8px;
+        padding: 24px;
+        margin-bottom: 24px;
+    }
+
+    .step {
+        display: flex;
+        gap: 16px;
+        margin-bottom: 20px;
+    }
+
+    .step:last-child { margin-bottom: 0; }
+
+    .step-number {
+        width: 32px;
+        height: 32px;
+        background: #6366f1;
+        color: white;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 600;
+        flex-shrink: 0;
+    }
+
+    .step-content {
+        flex: 1;
+    }
+
+    .step-content strong {
+        display: block;
+        color: #2d3748;
+        margin-bottom: 4px;
+    }
+
+    .step-content p {
+        color: #718096;
+        font-size: 14px;
+        margin-bottom: 12px;
+    }
+
+    .step-content code {
+        background: #1a202c;
+        color: #68d391;
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-family: 'SF Mono', Menlo, Monaco, monospace;
+        font-size: 13px;
+    }
+
+    .code-block {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        background: #1a202c;
+        padding: 12px 16px;
+        border-radius: 6px;
+    }
+
+    .code-block code {
+        background: transparent;
+        padding: 0;
+        flex: 1;
+    }
+
+    .btn-copy-code {
+        background: transparent;
+        border: none;
+        color: #a0aec0;
+        cursor: pointer;
+        padding: 4px 8px;
+        border-radius: 4px;
+    }
+
+    .btn-copy-code:hover {
+        color: white;
+        background: rgba(255,255,255,0.1);
+    }
+
+    .connection-status {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 16px;
+        background: white;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        margin-bottom: 20px;
+    }
+
+    .status-indicator {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+    }
+
+    .connection-status.connected .status-indicator { background: #48bb78; }
+    .connection-status.disconnected .status-indicator { background: #e53e3e; }
+
+    .status-text {
+        font-weight: 600;
+        color: #4a5568;
+        flex: 1;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .version-badge {
+        font-size: 12px;
+        font-weight: normal;
+        color: #718096;
+        background: #edf2f7;
+        padding: 2px 8px;
+        border-radius: 4px;
+    }
+
+    .login-badge {
+        font-size: 12px;
+        font-weight: 500;
+        color: #6366f1;
+        background: #eef2ff;
+        padding: 2px 8px;
+        border-radius: 4px;
+    }
+
+    .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 20px;
+        border: none;
+        border-radius: 6px;
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s;
+        text-decoration: none;
+    }
+
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .btn-sm { padding: 6px 14px; font-size: 13px; }
+    .btn-lg { padding: 14px 28px; font-size: 16px; }
+    .btn-primary { background: linear-gradient(135deg, #6366f1, #8b5cf6); color: white; }
+    .btn-primary:hover:not(:disabled) { background: linear-gradient(135deg, #4f46e5, #7c3aed); }
+    .btn-secondary { background: #718096; color: white; }
+    .btn-secondary:hover:not(:disabled) { background: #4a5568; }
+
+    .welcome-section {
+        background: white;
+        border-radius: 12px;
+        padding: 60px 40px;
+        text-align: center;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    }
+
+    .welcome-icon {
+        font-size: 64px;
+        color: #6366f1;
+        margin-bottom: 20px;
+    }
+
+    .welcome-section h2 {
+        font-size: 24px;
+        color: #2d3748;
+        margin-bottom: 12px;
+    }
+
+    .welcome-section p {
+        color: #718096;
+        margin-bottom: 24px;
+        max-width: 400px;
+        margin-left: auto;
+        margin-right: auto;
+    }
+
+    .chat-layout {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+    }
+
+    .suggestions-section {
+        background: white;
+        border-radius: 12px;
+        padding: 20px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    }
+
+    .suggestions-section h3 {
+        font-size: 16px;
+        color: #4a5568;
+        margin-bottom: 16px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .suggestions-section h3 i { color: #f6ad55; }
+
+    .suggestions-section {
+        margin-bottom: 16px;
+    }
+
+    .suggestions-hint {
+        font-size: 13px;
+        color: #718096;
+        margin-bottom: 12px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .suggestions-hint i {
+        color: #ecc94b;
+    }
+
+    .suggestions-grid {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .suggestion-bubble {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 14px;
+        background: linear-gradient(135deg, #f0f4ff 0%, #e8ecff 100%);
+        border: 1px solid #c7d2fe;
+        border-radius: 18px;
+        cursor: pointer;
+        text-align: left;
+        transition: all 0.2s;
+        max-width: 100%;
+    }
+
+    .suggestion-bubble:hover {
+        background: linear-gradient(135deg, #e8ecff 0%, #ddd6fe 100%);
+        border-color: #a5b4fc;
+        transform: translateY(-1px);
+        box-shadow: 0 2px 8px rgba(99, 102, 241, 0.15);
+    }
+
+    .bubble-text {
+        font-size: 13px;
+        color: #4338ca;
+        font-style: italic;
+        line-height: 1.3;
+    }
+
+    .bubble-arrow {
+        font-size: 11px;
+        color: #6366f1;
+        opacity: 0;
+        transition: opacity 0.2s, transform 0.2s;
+        flex-shrink: 0;
+    }
+
+    .suggestion-bubble:hover .bubble-arrow {
+        opacity: 1;
+        transform: translateX(2px);
+    }
+
+    .chat-container {
+        display: flex;
+        flex-direction: column;
+        height: calc(100vh - 280px);
+        min-height: 400px;
+        background: white;
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    }
+
+    .chat-container.with-suggestions {
+        height: calc(100vh - 500px);
+        min-height: 300px;
+    }
+
+    .chat-messages {
+        flex: 1;
+        padding: 20px;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+    }
+
+    .message {
+        max-width: 85%;
+        padding: 12px 16px;
+        border-radius: 12px;
+    }
+
+    .user-message {
+        align-self: flex-end;
+        background: linear-gradient(135deg, #6366f1, #8b5cf6);
+        color: white;
+    }
+
+    .assistant-message {
+        align-self: flex-start;
+        background: #f7fafc;
+        border: 1px solid #e2e8f0;
+    }
+
+    .message-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 12px;
+        font-weight: 600;
+        margin-bottom: 8px;
+        opacity: 0.8;
+    }
+
+    .user-message .message-header { color: rgba(255,255,255,0.9); }
+    .assistant-message .message-header { color: #718096; }
+
+    .typing-indicator {
+        margin-left: auto;
+        font-size: 10px;
+    }
+
+    .message-content {
+        line-height: 1.6;
+        white-space: pre-wrap;
+        word-break: break-word;
+    }
+
+    .assistant-message .message-content { color: #2d3748; }
+
+    .thinking-dots {
+        display: inline-flex;
+        gap: 4px;
+    }
+
+    .thinking-dots span {
+        animation: thinking 1.4s infinite ease-in-out both;
+        color: #a0aec0;
+    }
+
+    .thinking-dots span:nth-child(1) { animation-delay: -0.32s; }
+    .thinking-dots span:nth-child(2) { animation-delay: -0.16s; }
+
+    @@keyframes thinking {
+        0%, 80%, 100% { opacity: 0.3; }
+        40% { opacity: 1; }
+    }
+
+    .chat-input-area {
+        border-top: 1px solid #e2e8f0;
+        padding: 16px;
+    }
+
+    .tool-indicator {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        background: #fef3c7;
+        color: #92400e;
+        border-radius: 6px;
+        font-size: 13px;
+        margin-bottom: 12px;
+    }
+
+    .chat-input {
+        display: flex;
+        gap: 12px;
+        align-items: flex-end;
+    }
+
+    .chat-input textarea {
+        flex: 1;
+        padding: 12px 16px;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        font-size: 14px;
+        font-family: inherit;
+        resize: none;
+        min-height: 44px;
+        max-height: 120px;
+    }
+
+    .chat-input textarea:focus {
+        outline: none;
+        border-color: #6366f1;
+        box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+    }
+
+    .chat-input textarea:disabled {
+        background: #f7fafc;
+    }
+
+    .btn-send {
+        width: 44px;
+        height: 44px;
+        border: none;
+        border-radius: 8px;
+        background: linear-gradient(135deg, #6366f1, #8b5cf6);
+        color: white;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.2s;
+        flex-shrink: 0;
+    }
+
+    .btn-send:hover:not(:disabled) {
+        background: linear-gradient(135deg, #4f46e5, #7c3aed);
+    }
+
+    .btn-send:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+</style>
+
+@code {
+    private bool isCheckingAvailability = true;
+    private CopilotAvailability? availability;
+    private bool isConnecting = false;
+    private bool isBusy = false;
+    private string userInput = "";
+    private string currentResponse = "";
+    private string currentTool = "";
+    private List<ChatMessage> messages = new();
+    private ElementReference chatMessagesRef;
+
+    private record ChatMessage(string Content, bool IsUser);
+
+    private readonly List<SuggestedPrompt> suggestedPrompts = new()
+    {
+        new("fa-stethoscope", "Check Development Environment", 
+            "Analyze and help setup my .NET MAUI development environment",
+            "Please check my .NET MAUI development environment and help me fix any issues. Check .NET SDK, MAUI workloads, JDK, Android SDK, and Xcode (if on macOS). Ask before making changes."),
+        
+        new("fa-mobile-alt", "Register iPhone for Development",
+            "Help register a new iPhone device for iOS development",
+            "Help me register my new iPhone for iOS development. Guide me through getting the device UDID, adding it to my Apple Developer account, and updating my provisioning profiles."),
+        
+        new("fa-desktop", "Create Android Emulator",
+            "Create a new Android emulator with recommended settings",
+            "Help me create a new Android emulator. Suggest a good system image and device definition for testing .NET MAUI apps. Walk me through the options."),
+        
+        new("fa-certificate", "Setup Code Signing",
+            "Help configure iOS code signing certificates and profiles",
+            "Help me set up code signing for my iOS app. I need to create or check my development certificate, app ID, and provisioning profile. Guide me through the process."),
+        
+        new("fa-box", "Install Android SDK Packages",
+            "Recommend and install essential Android SDK packages",
+            "What Android SDK packages do I need for .NET MAUI development? Please check what I have installed and recommend any missing packages."),
+        
+        new("fa-bug", "Debug Build Issues",
+            "Help troubleshoot .NET MAUI build errors",
+            "I'm having build issues with my .NET MAUI project. Help me diagnose and fix the problem. What information do you need to help?")
+    };
+
+    private record SuggestedPrompt(string Icon, string Title, string Description, string Prompt);
+
+    protected override async Task OnInitializedAsync()
+    {
+        CopilotService.OnAssistantDelta += OnAssistantDelta;
+        CopilotService.OnAssistantMessage += OnAssistantMessage;
+        CopilotService.OnSessionIdle += OnSessionIdle;
+        CopilotService.OnError += OnCopilotError;
+        CopilotService.OnToolStart += OnToolStart;
+        CopilotService.OnToolComplete += OnToolComplete;
+
+        await CheckAvailability();
+    }
+
+    public void Dispose()
+    {
+        CopilotService.OnAssistantDelta -= OnAssistantDelta;
+        CopilotService.OnAssistantMessage -= OnAssistantMessage;
+        CopilotService.OnSessionIdle -= OnSessionIdle;
+        CopilotService.OnError -= OnCopilotError;
+        CopilotService.OnToolStart -= OnToolStart;
+        CopilotService.OnToolComplete -= OnToolComplete;
+    }
+
+    private async Task CheckAvailability()
+    {
+        isCheckingAvailability = true;
+        StateHasChanged();
+
+        try
+        {
+            availability = await CopilotService.CheckAvailabilityAsync();
+            
+            // Auto-connect if Copilot is available and authenticated
+            if (availability.IsInstalled && availability.IsAuthenticated && !CopilotService.IsConnected)
+            {
+                await Connect();
+            }
+        }
+        finally
+        {
+            isCheckingAvailability = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task CopyToClipboard(string text)
+    {
+        try
+        {
+            await Clipboard.Default.SetTextAsync(text);
+            await AlertService.ShowToastAsync("Copied to clipboard");
+        }
+        catch { }
+    }
+
+    private async Task Connect()
+    {
+        isConnecting = true;
+        StateHasChanged();
+
+        try
+        {
+            await CopilotService.ConnectAsync();
+            await CopilotService.StartSessionAsync();
+        }
+        catch (Exception ex)
+        {
+            await AlertService.ShowAlertAsync("Connection Failed", ex.Message);
+        }
+        finally
+        {
+            isConnecting = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task Disconnect()
+    {
+        try
+        {
+            await CopilotService.DisconnectAsync();
+            messages.Clear();
+            currentResponse = "";
+        }
+        catch (Exception ex)
+        {
+            await AlertService.ShowAlertAsync("Error", ex.Message);
+        }
+        StateHasChanged();
+    }
+
+    private async Task UseSuggestion(SuggestedPrompt suggestion)
+    {
+        if (!CopilotService.IsConnected)
+        {
+            await Connect();
+            if (!CopilotService.IsConnected) return;
+        }
+
+        userInput = suggestion.Prompt;
+        await SendMessage();
+    }
+
+    private async Task SendMessage()
+    {
+        if (string.IsNullOrWhiteSpace(userInput) || isBusy) return;
+
+        var message = userInput.Trim();
+        userInput = "";
+        
+        messages.Add(new ChatMessage(message, true));
+        currentResponse = "";
+        isBusy = true;
+        StateHasChanged();
+
+        try
+        {
+            if (!CopilotService.IsConnected)
+            {
+                await CopilotService.ConnectAsync();
+                await CopilotService.StartSessionAsync();
+            }
+
+            await CopilotService.SendMessageAsync(message);
+        }
+        catch (Exception ex)
+        {
+            messages.Add(new ChatMessage($"Error: {ex.Message}", false));
+            isBusy = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey)
+        {
+            await SendMessage();
+        }
+    }
+
+    private void OnAssistantDelta(string delta)
+    {
+        if (string.IsNullOrEmpty(delta)) return;
+        currentResponse += delta;
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void OnAssistantMessage(string message)
+    {
+        // Final message - replace streaming content
+        if (!string.IsNullOrEmpty(message))
+        {
+            currentResponse = message;
+        }
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void OnSessionIdle()
+    {
+        if (!string.IsNullOrEmpty(currentResponse))
+        {
+            messages.Add(new ChatMessage(currentResponse, false));
+            currentResponse = "";
+        }
+        isBusy = false;
+        currentTool = "";
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void OnCopilotError(string error)
+    {
+        messages.Add(new ChatMessage($"Error: {error}", false));
+        isBusy = false;
+        currentTool = "";
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void OnToolStart(string toolName, string args)
+    {
+        currentTool = toolName;
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void OnToolComplete(string toolName, string result)
+    {
+        currentTool = "";
+        InvokeAsync(StateHasChanged);
+    }
+}

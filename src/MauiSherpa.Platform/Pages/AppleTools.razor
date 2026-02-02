@@ -1,0 +1,73 @@
+@page "/apple-tools"
+@using MauiSherpa.Core.ViewModels
+@inject AppleToolsViewModel ViewModel
+
+<h1><i class="fab fa-apple"></i> @ViewModel.Title</h1>
+
+<div class="status-bar">
+    <span class="status-label">Status:</span>
+    <span class="status-text">@ViewModel.StatusMessage</span>
+</div>
+
+<div class="controls">
+    <button class="btn-primary" @onclick="LoadData" disabled="@ViewModel.IsLoading">
+        @(ViewModel.IsLoading ? "Loading..." : "Load Tools Information")
+    </button>
+</div>
+
+<style>
+    h1 {
+        margin-bottom: 20px;
+        font-size: 32px;
+        color: #2d3748;
+    }
+
+    .status-bar {
+        background: white;
+        padding: 16px 20px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    .status-label {
+        font-weight: 600;
+        color: #2d3748;
+        margin-right: 10px;
+    }
+
+    .status-text {
+        color: #4a5568;
+    }
+
+    .controls {
+        margin-top: 20px;
+    }
+
+    .btn-primary {
+        padding: 12px 24px;
+        background-color: #4299e1;
+        color: white;
+        border: none;
+        border-radius: 6px;
+        font-size: 16px;
+        cursor: pointer;
+        transition: background-color 0.2s ease;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+        background-color: #3182ce;
+    }
+
+    .btn-primary:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+</style>
+
+@code {
+    private async Task LoadData()
+    {
+        await ViewModel.LoadAsync();
+    }
+}

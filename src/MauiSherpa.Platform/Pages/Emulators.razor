@@ -1,0 +1,1076 @@
+@page "/emulators"
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Core.Requests.Android
+@using MauiSherpa.Platform.Services
+@using Shiny.Mediator
+@inject IMediator Mediator
+@inject IAndroidSdkService SdkService
+@inject IAndroidSdkSettingsService SdkSettings
+@inject IAlertService AlertService
+@inject IDialogService DialogService
+@inject IFileSystemService FileSystem
+@inject OperationModalService OperationModal
+@implements IDisposable
+
+<h1><i class="fas fa-desktop"></i> Android Emulators</h1>
+
+<div class="sdk-path-bar">
+    <i class="fas fa-folder"></i>
+    @if (!string.IsNullOrEmpty(SdkService.SdkPath))
+    {
+        <span class="sdk-path-text">@SdkService.SdkPath</span>
+        <button class="btn-copy" @onclick="@(() => CopyToClipboard(SdkService.SdkPath!))" title="Copy to clipboard">
+            <i class="fas fa-copy"></i>
+        </button>
+        <button class="btn-reveal" @onclick="@(() => FileSystem.RevealInFileManager(SdkService.SdkPath!))" title="Reveal in Finder">
+            <i class="fas fa-external-link-alt"></i>
+        </button>
+    }
+    else if (isLoading)
+    {
+        <span class="sdk-path-text detecting"><i class="fas fa-spinner fa-spin"></i> Detecting SDK...</span>
+    }
+    else
+    {
+        <span class="sdk-path-text no-sdk">No SDK detected</span>
+    }
+    <a class="btn-link-settings" href="settings" title="Change SDK path in Settings">
+        <i class="fas fa-cog"></i>
+    </a>
+</div>
+
+<div class="toolbar">
+    <button class="btn btn-primary" @onclick="() => RefreshEmulators(forceRefresh: true)" disabled="@isLoading">
+        <i class="fas fa-sync-alt"></i> @(isLoading ? "Refreshing..." : "Refresh")
+    </button>
+    <button class="btn btn-success" @onclick="ShowCreateDialog" disabled="@isLoading">
+        <i class="fas fa-plus"></i> Create Emulator
+    </button>
+</div>
+
+@if (!string.IsNullOrEmpty(statusMessage))
+{
+    <div class="status-bar @(statusMessage.StartsWith("Error") ? "error" : "")">
+        @if (isStartingEmulator)
+        {
+            <span class="spinner"></span>
+        }
+        @statusMessage
+    </div>
+}
+
+<div class="emulator-list">
+    @if (isLoading && emulators.Count == 0)
+    {
+        <div class="loading-state">
+            <div class="loading-spinner">
+                <i class="fas fa-mobile-alt"></i>
+            </div>
+            <div class="loading-title">Loading Emulators</div>
+            <div class="loading-description">Discovering Android Virtual Devices...</div>
+        </div>
+    }
+    else if (emulators.Count == 0)
+    {
+        <div class="empty-state">
+            <div class="empty-icon"><i class="fas fa-mobile-alt"></i></div>
+            <div class="empty-title">No emulators configured</div>
+            <div class="empty-description">Click "Create Emulator" to set up a new Android Virtual Device</div>
+        </div>
+    }
+    else
+    {
+        @foreach (var emulator in emulators)
+        {
+            var isRunning = runningEmulators.ContainsKey(emulator.Name);
+            var isStarting = startingEmulators.Contains(emulator.Name);
+            <div class="emulator-card @(isRunning ? "running" : "") @(isStarting ? "starting" : "")">
+                <div class="emulator-icon">
+                    @if (isStarting)
+                    {
+                        <span class="spinner-large"></span>
+                    }
+                    else
+                    {
+                        <span><i class="fas fa-mobile-alt"></i></span>
+                    }
+                </div>
+                <div class="emulator-details">
+                    <div class="emulator-name">@emulator.Name</div>
+                    <div class="emulator-info">
+                        @if (!string.IsNullOrEmpty(emulator.Device))
+                        {
+                            <span>@emulator.Device</span>
+                        }
+                        @if (!string.IsNullOrEmpty(emulator.Target))
+                        {
+                            <span>• @emulator.Target</span>
+                        }
+                    </div>
+                    <div class="emulator-badges">
+                        @if (isStarting)
+                        {
+                            <span class="badge badge-starting">Starting...</span>
+                        }
+                        else if (isRunning)
+                        {
+                            <span class="badge badge-success">Running</span>
+                        }
+                        @if (emulator.Properties.TryGetValue("hw.cpu.arch", out var arch))
+                        {
+                            <span class="badge badge-info">@arch</span>
+                        }
+                    </div>
+                </div>
+                <div class="emulator-actions">
+                    @if (isStarting)
+                    {
+                        <button class="btn btn-secondary btn-sm" disabled>
+                            <i class="fas fa-spinner fa-spin"></i> Starting...
+                        </button>
+                    }
+                    else if (isRunning)
+                    {
+                        <button class="btn btn-warning btn-sm" @onclick="@(() => StopEmulator(emulator.Name))" disabled="@isLoading">
+                            <i class="fas fa-stop"></i> Stop
+                        </button>
+                    }
+                    else
+                    {
+                        <div class="btn-group">
+                            <button class="btn btn-success btn-sm" @onclick="@(() => StartEmulator(emulator.Name, false))" disabled="@isLoading">
+                                <i class="fas fa-play"></i> Start
+                            </button>
+                            <button class="btn btn-success btn-sm btn-dropdown" @onclick="@(() => ToggleDropdown(emulator.Name))">
+                                ▼
+                            </button>
+                            @if (openDropdown == emulator.Name)
+                            {
+                                <div class="dropdown-menu">
+                                    <button class="dropdown-item" @onclick="@(() => StartEmulator(emulator.Name, true))">
+                                        <i class="fas fa-sync-alt"></i> Cold Boot
+                                    </button>
+                                </div>
+                            }
+                        </div>
+                    }
+                    <button class="btn btn-danger btn-sm" @onclick="@(() => DeleteEmulator(emulator.Name))" disabled="@(isLoading || isRunning || isStarting)">
+                        <i class="fas fa-trash"></i> Delete
+                    </button>
+                </div>
+            </div>
+        }
+    }
+</div>
+
+@if (showCreateDialog)
+{
+    <div class="modal-overlay">
+        <div class="modal" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h2>Create New Emulator</h2>
+                <button class="close-btn" @onclick="CloseCreateDialog">×</button>
+            </div>
+            <div class="modal-body">
+                @if (!string.IsNullOrEmpty(createProgress))
+                {
+                    <div class="create-progress">
+                        <span class="spinner"></span>
+                        <span>@createProgress</span>
+                    </div>
+                }
+                <div class="form-group">
+                    <label>Emulator Name</label>
+                    <input type="text" @bind="newEmulatorName" placeholder="MyEmulator" disabled="@isCreating" />
+                </div>
+                <div class="form-group">
+                    <label>System Image</label>
+                    <select @bind="selectedSystemImage" disabled="@isCreating">
+                        <option value="">Select a system image...</option>
+                        @if (installedSystemImages.Count > 0)
+                        {
+                            <optgroup label="✓ Installed">
+                                @foreach (var image in installedSystemImages)
+                                {
+                                    <option value="@image">@FormatSystemImage(image)</option>
+                                }
+                            </optgroup>
+                        }
+                        @if (availableSystemImages.Count > 0)
+                        {
+                            <optgroup label="📥 Available to Install">
+                                @foreach (var image in availableSystemImages)
+                                {
+                                    <option value="@image">@FormatSystemImage(image)</option>
+                                }
+                            </optgroup>
+                        }
+                    </select>
+                    @if (installedSystemImages.Count == 0 && availableSystemImages.Count == 0)
+                    {
+                        <div class="help-text">No system images found.</div>
+                    }
+                    else if (!string.IsNullOrEmpty(selectedSystemImage) && !installedSystemImages.Contains(selectedSystemImage))
+                    {
+                        <div class="help-text info">📥 This image will be downloaded and installed first</div>
+                    }
+                </div>
+                <div class="form-group">
+                    <label>Device Definition (optional)</label>
+                    <select @bind="selectedDevice" disabled="@isCreating">
+                        <option value="">Default</option>
+                        @foreach (var device in deviceDefinitions)
+                        {
+                            <option value="@device.Id">@device.Name (@device.Oem)</option>
+                        }
+                    </select>
+                </div>
+                
+                <!-- Advanced Options -->
+                <details class="advanced-section">
+                    <summary>Advanced Options</summary>
+                    <div class="advanced-content">
+                        <div class="form-group">
+                            <label>RAM Size (MB)</label>
+                            <select @bind="selectedRamSize" disabled="@isCreating">
+                                <option value="">Default</option>
+                                <option value="1024">1024 MB (1 GB)</option>
+                                <option value="1536">1536 MB (1.5 GB)</option>
+                                <option value="2048">2048 MB (2 GB)</option>
+                                <option value="3072">3072 MB (3 GB)</option>
+                                <option value="4096">4096 MB (4 GB)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Internal Storage (MB)</label>
+                            <select @bind="selectedStorageSize" disabled="@isCreating">
+                                <option value="">Default (800 MB)</option>
+                                <option value="2048">2 GB</option>
+                                <option value="4096">4 GB</option>
+                                <option value="6144">6 GB</option>
+                                <option value="8192">8 GB</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>SD Card Size</label>
+                            <select @bind="selectedSdCardSize" disabled="@isCreating">
+                                <option value="">None</option>
+                                <option value="128M">128 MB</option>
+                                <option value="256M">256 MB</option>
+                                <option value="512M">512 MB</option>
+                                <option value="1G">1 GB</option>
+                                <option value="2G">2 GB</option>
+                            </select>
+                        </div>
+                        @if (availableSkins.Count > 0)
+                        {
+                            <div class="form-group">
+                                <label>Skin</label>
+                                <select @bind="selectedSkin" disabled="@isCreating">
+                                    <option value="">Default</option>
+                                    @foreach (var skin in availableSkins)
+                                    {
+                                        <option value="@skin">@skin</option>
+                                    }
+                                </select>
+                            </div>
+                        }
+                    </div>
+                </details>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" @onclick="CloseCreateDialog" disabled="@isCreating">
+                    <i class="fas fa-times"></i> Cancel
+                </button>
+                <button class="btn btn-primary" @onclick="CreateEmulator" disabled="@(string.IsNullOrEmpty(newEmulatorName) || string.IsNullOrEmpty(selectedSystemImage) || isCreating)">
+                    @if (isCreating)
+                    {
+                        <span><i class="fas fa-spinner fa-spin"></i> Creating...</span>
+                    }
+                    else if (!string.IsNullOrEmpty(selectedSystemImage) && !installedSystemImages.Contains(selectedSystemImage))
+                    {
+                        <span><i class="fas fa-download"></i> Install & Create</span>
+                    }
+                    else
+                    {
+                        <span><i class="fas fa-plus"></i> Create</span>
+                    }
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    h1 {
+        margin-bottom: 20px;
+        font-size: 28px;
+        color: #2d3748;
+    }
+
+    .sdk-path-bar {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        background: #f7fafc;
+        padding: 12px 16px;
+        border-radius: 8px;
+        margin-bottom: 16px;
+        border: 1px solid #e2e8f0;
+        font-family: 'Consolas', 'Monaco', monospace;
+    }
+    .sdk-path-bar i.fa-folder { color: #4299e1; }
+    .sdk-path-text {
+        flex: 1;
+        color: #2d3748;
+        font-size: 14px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .sdk-path-text.detecting { color: #718096; font-style: italic; }
+    .sdk-path-text.no-sdk { color: #a0aec0; font-style: italic; }
+
+    .btn-link-settings {
+        color: #a0aec0;
+        padding: 4px 8px;
+        font-size: 14px;
+        text-decoration: none;
+        transition: color 0.15s;
+    }
+    .btn-link-settings:hover {
+        color: #4299e1;
+    }
+
+    .btn-reveal, .btn-copy {
+        background: none;
+        border: none;
+        color: #a0aec0;
+        cursor: pointer;
+        padding: 2px 6px;
+        font-size: 12px;
+        border-radius: 4px;
+        transition: all 0.15s;
+        flex-shrink: 0;
+    }
+    .btn-reveal:hover, .btn-copy:hover {
+        color: #4299e1;
+        background: #edf2f7;
+    }
+
+    .toolbar {
+        margin-bottom: 20px;
+        display: flex;
+        gap: 12px;
+    }
+
+    .status-bar {
+        background: #edf2f7;
+        padding: 12px 16px;
+        border-radius: 6px;
+        margin-bottom: 16px;
+        color: #4a5568;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .status-bar.error {
+        background: #fed7d7;
+        color: #c53030;
+    }
+
+    .spinner {
+        width: 16px;
+        height: 16px;
+        border: 2px solid #a0aec0;
+        border-top-color: #4299e1;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+    }
+
+    .spinner-large {
+        display: inline-block;
+        width: 32px;
+        height: 32px;
+        border: 3px solid #e2e8f0;
+        border-top-color: #48bb78;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+    }
+
+    @@keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+
+    .btn {
+        padding: 10px 20px;
+        border: none;
+        border-radius: 6px;
+        font-size: 14px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .btn i { font-size: 12px; }
+
+    .btn-primary { background-color: #4299e1; color: white; }
+    .btn-primary:hover:not(:disabled) { background-color: #3182ce; }
+    .btn-success { background-color: #48bb78; color: white; }
+    .btn-success:hover:not(:disabled) { background-color: #38a169; }
+    .btn-warning { background-color: #ed8936; color: white; }
+    .btn-warning:hover:not(:disabled) { background-color: #dd6b20; }
+    .btn-danger { background-color: #f56565; color: white; }
+    .btn-danger:hover:not(:disabled) { background-color: #e53e3e; }
+    .btn-secondary { background-color: #a0aec0; color: white; }
+    .btn-secondary:hover:not(:disabled) { background-color: #718096; }
+    .btn-sm { padding: 6px 12px; font-size: 12px; }
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+    .btn-group {
+        position: relative;
+        display: inline-flex;
+    }
+
+    .btn-group .btn:first-child {
+        border-top-right-radius: 0;
+        border-bottom-right-radius: 0;
+    }
+
+    .btn-group .btn-dropdown {
+        border-top-left-radius: 0;
+        border-bottom-left-radius: 0;
+        border-top-right-radius: 6px;
+        border-bottom-right-radius: 6px;
+        padding: 6px 8px;
+        border-left: 1px solid rgba(255,255,255,0.3);
+    }
+
+    .dropdown-menu {
+        position: absolute;
+        top: 100%;
+        right: 0;
+        margin-top: 4px;
+        background: white;
+        border-radius: 6px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        z-index: 100;
+        min-width: 140px;
+        overflow: hidden;
+    }
+
+    .dropdown-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        padding: 10px 14px;
+        border: none;
+        background: none;
+        text-align: left;
+        cursor: pointer;
+        font-size: 13px;
+        color: #2d3748;
+    }
+
+    .dropdown-item:hover {
+        background: #edf2f7;
+    }
+
+    .emulator-list {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .emulator-card {
+        background: white;
+        border-radius: 8px;
+        padding: 20px;
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        border-left: 4px solid transparent;
+    }
+
+    .emulator-card.running {
+        border-left-color: #48bb78;
+    }
+
+    .emulator-card.starting {
+        border-left-color: #ed8936;
+        background: #fffaf0;
+    }
+
+    .emulator-icon {
+        font-size: 36px;
+        width: 40px;
+        height: 40px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #4299e1;
+    }
+
+    .emulator-icon i { font-size: 32px; }
+
+    .emulator-details {
+        flex: 1;
+    }
+
+    .emulator-name {
+        font-weight: 600;
+        font-size: 16px;
+        color: #2d3748;
+    }
+
+    .emulator-info {
+        font-size: 13px;
+        color: #718096;
+        margin-top: 4px;
+    }
+
+    .emulator-info span {
+        margin-right: 8px;
+    }
+
+    .emulator-badges {
+        display: flex;
+        gap: 8px;
+        margin-top: 8px;
+    }
+
+    .emulator-actions {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+    }
+
+    .badge {
+        padding: 2px 10px;
+        border-radius: 12px;
+        font-size: 12px;
+        font-weight: 500;
+    }
+
+    .badge-success { background: #c6f6d5; color: #276749; }
+    .badge-info { background: #bee3f8; color: #2c5282; }
+    .badge-starting { background: #feebc8; color: #c05621; }
+
+    .empty-state {
+        background: white;
+        border-radius: 8px;
+        padding: 60px 40px;
+        text-align: center;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    .empty-icon { font-size: 48px; margin-bottom: 16px; color: #a0aec0; }
+    .empty-icon i { font-size: 48px; }
+    .empty-title { font-size: 18px; font-weight: 600; color: #2d3748; margin-bottom: 8px; }
+    .empty-description { color: #718096; font-size: 14px; }
+
+    .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+    }
+
+    .modal {
+        background: white;
+        border-radius: 12px;
+        width: 90%;
+        max-width: 500px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    }
+
+    .modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 20px 24px;
+        border-bottom: 1px solid #e2e8f0;
+    }
+
+    .modal-header h2 {
+        margin: 0;
+        font-size: 18px;
+        color: #2d3748;
+    }
+
+    .close-btn {
+        background: none;
+        border: none;
+        font-size: 24px;
+        cursor: pointer;
+        color: #a0aec0;
+    }
+
+    .modal-body {
+        padding: 24px;
+    }
+
+    .modal-footer {
+        padding: 16px 24px;
+        border-top: 1px solid #e2e8f0;
+        display: flex;
+        justify-content: flex-end;
+        gap: 12px;
+    }
+
+    .create-progress {
+        background: #ebf8ff;
+        border: 1px solid #90cdf4;
+        border-radius: 6px;
+        padding: 12px 16px;
+        margin-bottom: 20px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        color: #2c5282;
+    }
+
+    .form-group {
+        margin-bottom: 20px;
+    }
+
+    .form-group label {
+        display: block;
+        margin-bottom: 8px;
+        font-weight: 500;
+        color: #4a5568;
+    }
+
+    .form-group input,
+    .form-group select {
+        width: 100%;
+        padding: 10px 12px;
+        border: 1px solid #e2e8f0;
+        border-radius: 6px;
+        font-size: 14px;
+    }
+
+    .form-group input:focus,
+    .form-group select:focus {
+        outline: none;
+        border-color: #4299e1;
+        box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.1);
+    }
+
+    .help-text {
+        margin-top: 8px;
+        font-size: 12px;
+        color: #ed8936;
+    }
+
+    .help-text.info {
+        color: #3182ce;
+    }
+
+    .advanced-section {
+        margin-top: 16px;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        overflow: hidden;
+    }
+
+    .advanced-section summary {
+        padding: 12px 16px;
+        background: #f7fafc;
+        cursor: pointer;
+        font-weight: 500;
+        color: #4a5568;
+        user-select: none;
+    }
+
+    .advanced-section summary:hover {
+        background: #edf2f7;
+    }
+
+    .advanced-section[open] summary {
+        border-bottom: 1px solid #e2e8f0;
+    }
+
+    .advanced-content {
+        padding: 16px;
+        background: #fafafa;
+    }
+
+    .advanced-content .form-group {
+        margin-bottom: 12px;
+    }
+
+    .advanced-content .form-group:last-child {
+        margin-bottom: 0;
+    }
+</style>
+
+@code {
+    private List<AvdInfo> emulators = new();
+    private List<string> installedSystemImages = new();
+    private List<string> availableSystemImages = new();
+    private List<string> availableSkins = new();
+    private List<AvdDeviceDefinition> deviceDefinitions = new();
+    private Dictionary<string, string> runningEmulators = new(); // Name -> Serial
+    private HashSet<string> startingEmulators = new();
+    private bool isLoading = false;
+    private bool isStartingEmulator = false;
+    private string statusMessage = "";
+    private string? openDropdown = null;
+    private System.Threading.Timer? _pollTimer;
+
+    private bool showCreateDialog = false;
+    private bool isCreating = false;
+    private string createProgress = "";
+    private string newEmulatorName = "";
+    private string selectedSystemImage = "";
+    private string selectedDevice = "";
+    
+    // Advanced options
+    private string selectedRamSize = "";
+    private string selectedStorageSize = "";
+    private string selectedSdCardSize = "";
+    private string selectedSkin = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Subscribe to SDK path changes from Settings
+        SdkService.SdkPathChanged += OnSdkPathChanged;
+        
+        // Initialize SDK settings (loads stored custom path if any)
+        await SdkSettings.InitializeAsync();
+        await RefreshEmulators(forceRefresh: true);
+    }
+
+    private void OnSdkPathChanged()
+    {
+        InvokeAsync(async () =>
+        {
+            StateHasChanged();
+            await RefreshEmulators(forceRefresh: true);
+        });
+    }
+
+    private async Task RefreshEmulators(bool forceRefresh = false)
+    {
+        isLoading = true;
+        statusMessage = ""; // Clear status - we show loading state in the UI
+        StateHasChanged();
+        
+        try
+        {
+            var (_, emuResult) = forceRefresh 
+                ? await Mediator.Request(new GetEmulatorsRequest(), CancellationToken.None, ctx => ctx.ClearCache())
+                : await Mediator.Request(new GetEmulatorsRequest());
+            emulators = emuResult?.ToList() ?? new();
+            
+            var (_, sysImgResult) = forceRefresh
+                ? await Mediator.Request(new GetSystemImagesRequest(), CancellationToken.None, ctx => ctx.ClearCache())
+                : await Mediator.Request(new GetSystemImagesRequest());
+            installedSystemImages = sysImgResult?.ToList() ?? new();
+            
+            var (_, deviceDefs) = await Mediator.Request(new GetDeviceDefinitionsRequest());
+            deviceDefinitions = deviceDefs?.ToList() ?? new();
+            
+            var (_, skins) = await Mediator.Request(new GetAvdSkinsRequest());
+            availableSkins = skins?.ToList() ?? new();
+            
+            // Get available system images from available packages
+            var (_, availPkgs) = forceRefresh
+                ? await Mediator.Request(new GetAvailablePackagesRequest(), CancellationToken.None, ctx => ctx.ClearCache())
+                : await Mediator.Request(new GetAvailablePackagesRequest());
+            availableSystemImages = (availPkgs ?? Enumerable.Empty<SdkPackageInfo>())
+                .Where(p => p.Path.StartsWith("system-images;"))
+                .Select(p => p.Path)
+                .Where(p => !installedSystemImages.Contains(p))
+                .OrderByDescending(p => p) // Newest first
+                .Take(50) // Limit to avoid overwhelming the dropdown
+                .ToList();
+
+            await RefreshRunningState(forceRefresh);
+            statusMessage = "";
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RefreshRunningState(bool forceRefresh = false)
+    {
+        var (_, devices) = forceRefresh
+            ? await Mediator.Request(new GetAndroidDevicesRequest(), CancellationToken.None, ctx => ctx.ClearCache())
+            : await Mediator.Request(new GetAndroidDevicesRequest());
+        runningEmulators.Clear();
+        
+        foreach (var device in (devices ?? Enumerable.Empty<DeviceInfo>()).Where(d => d.IsEmulator))
+        {
+            foreach (var avd in emulators)
+            {
+                if (device.Model?.Contains(avd.Name) == true || 
+                    (avd.Properties.TryGetValue("avd.ini.displayname", out var displayName) && 
+                     device.Model?.Contains(displayName) == true))
+                {
+                    runningEmulators[avd.Name] = device.Serial;
+                    startingEmulators.Remove(avd.Name);
+                }
+            }
+        }
+    }
+
+    private void ToggleDropdown(string name)
+    {
+        openDropdown = openDropdown == name ? null : name;
+    }
+
+    private void ShowCreateDialog()
+    {
+        newEmulatorName = "";
+        selectedSystemImage = installedSystemImages.FirstOrDefault() ?? "";
+        selectedDevice = "";
+        selectedRamSize = "";
+        selectedStorageSize = "";
+        selectedSdCardSize = "";
+        selectedSkin = "";
+        createProgress = "";
+        isCreating = false;
+        showCreateDialog = true;
+        openDropdown = null;
+    }
+
+    private void CloseCreateDialog()
+    {
+        if (!isCreating)
+        {
+            showCreateDialog = false;
+        }
+    }
+
+    private async Task CreateEmulator()
+    {
+        if (string.IsNullOrWhiteSpace(newEmulatorName) || string.IsNullOrWhiteSpace(selectedSystemImage))
+            return;
+
+        showCreateDialog = false;
+        var emulatorName = newEmulatorName.Trim().Replace(" ", "_");
+        var systemImage = selectedSystemImage;
+        var needsInstall = !installedSystemImages.Contains(systemImage);
+
+        var result = await OperationModal.RunAsync(
+            "Create Emulator",
+            $"Creating emulator '{emulatorName}'...",
+            async ctx =>
+            {
+                ctx.LogInfo($"Emulator name: {emulatorName}");
+                ctx.LogInfo($"System image: {systemImage}");
+
+                // Check if we need to install the system image first
+                if (needsInstall)
+                {
+                    ctx.SetStatus("Installing system image...");
+                    ctx.LogInfo("System image not installed, downloading...");
+                    
+                    var installSuccess = await SdkService.InstallPackageAsync(systemImage, new Progress<string>(msg =>
+                    {
+                        ctx.LogInfo(msg);
+                        ctx.SetStatus(msg);
+                    }));
+                    
+                    if (!installSuccess)
+                    {
+                        ctx.LogError("Failed to install system image");
+                        return false;
+                    }
+                    ctx.LogSuccess("System image installed");
+                }
+
+                ctx.SetStatus("Creating AVD...");
+
+                var createOptions = new EmulatorCreateOptions(
+                    Device: string.IsNullOrEmpty(selectedDevice) ? null : selectedDevice,
+                    SdCardSize: string.IsNullOrEmpty(selectedSdCardSize) ? null : selectedSdCardSize,
+                    Skin: string.IsNullOrEmpty(selectedSkin) ? null : selectedSkin,
+                    RamSizeMb: string.IsNullOrEmpty(selectedRamSize) ? null : int.Parse(selectedRamSize),
+                    InternalStorageMb: string.IsNullOrEmpty(selectedStorageSize) ? null : int.Parse(selectedStorageSize)
+                );
+
+                var success = await SdkService.CreateAvdAsync(
+                    emulatorName,
+                    systemImage,
+                    createOptions,
+                    new Progress<string>(msg =>
+                    {
+                        ctx.LogInfo(msg);
+                        ctx.SetStatus(msg);
+                    }));
+
+                if (success)
+                {
+                    ctx.LogSuccess($"Emulator '{emulatorName}' created successfully");
+                }
+                return success;
+            });
+
+        if (result.Success)
+        {
+            await RefreshEmulators(forceRefresh: true);
+        }
+    }
+
+    private async Task StartEmulator(string name, bool coldBoot)
+    {
+        openDropdown = null;
+        var bootType = coldBoot ? " (cold boot)" : "";
+
+        var result = await OperationModal.RunAsync(
+            "Start Emulator",
+            $"Starting {name}{bootType}...",
+            async ctx =>
+            {
+                ctx.LogInfo($"Emulator: {name}");
+                ctx.LogInfo($"Cold boot: {coldBoot}");
+                ctx.SetStatus("Launching emulator process...");
+
+                var success = await SdkService.StartEmulatorAsync(name, coldBoot, new Progress<string>(msg =>
+                {
+                    ctx.LogInfo(msg);
+                    ctx.SetStatus(msg);
+                }));
+                
+                if (!success)
+                {
+                    ctx.LogError("Failed to start emulator");
+                    return false;
+                }
+
+                ctx.SetStatus("Waiting for emulator to boot...");
+                ctx.LogInfo("Emulator process started, waiting for boot...");
+                
+                var maxWait = TimeSpan.FromSeconds(60);
+                var pollInterval = TimeSpan.FromSeconds(2);
+                var elapsed = TimeSpan.Zero;
+                
+                while (elapsed < maxWait)
+                {
+                    ctx.CancellationToken.ThrowIfCancellationRequested();
+                    await Task.Delay(pollInterval);
+                    elapsed += pollInterval;
+                    
+                    var devices = await SdkService.GetDevicesAsync();
+                    var emulatorDevice = devices.FirstOrDefault(d => d.IsEmulator);
+                    
+                    if (emulatorDevice != null)
+                    {
+                        ctx.LogSuccess($"Emulator '{name}' is now running");
+                        return true;
+                    }
+                    
+                    ctx.SetStatus($"Waiting for boot... ({elapsed.TotalSeconds:0}s)");
+                    ctx.SetProgress((int)((elapsed.TotalSeconds / maxWait.TotalSeconds) * 100));
+                }
+
+                ctx.LogWarning("Emulator started but may still be booting");
+                return true;
+            });
+
+        await RefreshRunningState();
+    }
+
+    private async Task StopEmulator(string name)
+    {
+        if (!runningEmulators.TryGetValue(name, out var serial))
+            return;
+
+        var result = await OperationModal.RunAsync(
+            "Stop Emulator",
+            $"Stopping {name}...",
+            async ctx =>
+            {
+                ctx.LogInfo($"Emulator: {name}");
+                ctx.LogInfo($"Serial: {serial}");
+                ctx.SetStatus("Sending shutdown command...");
+
+                await SdkService.StopEmulatorAsync(serial);
+                ctx.LogInfo("Shutdown command sent, waiting...");
+                
+                await Task.Delay(2000);
+                ctx.LogSuccess($"Emulator '{name}' stopped");
+                return true;
+            },
+            canCancel: false);
+
+        await RefreshRunningState();
+    }
+
+    private async Task DeleteEmulator(string name)
+    {
+        var confirm = await AlertService.ShowConfirmAsync(
+            "Delete Emulator",
+            $"Are you sure you want to delete '{name}'? This cannot be undone.");
+
+        if (!confirm) return;
+
+        var result = await OperationModal.RunAsync(
+            "Delete Emulator",
+            $"Deleting '{name}'...",
+            async ctx =>
+            {
+                ctx.LogInfo($"Emulator: {name}");
+                ctx.SetStatus("Deleting AVD...");
+
+                var success = await SdkService.DeleteAvdAsync(name);
+                if (success)
+                {
+                    ctx.LogSuccess($"Emulator '{name}' deleted");
+                }
+                return success;
+            },
+            canCancel: false);
+
+        if (result.Success)
+        {
+            await RefreshEmulators(forceRefresh: true);
+        }
+    }
+
+    private string FormatSystemImage(string path)
+    {
+        var parts = path.Split(';');
+        if (parts.Length >= 4)
+        {
+            var api = parts[1].Replace("android-", "Android ");
+            var variant = parts[2].Replace("_", " ");
+            var arch = parts[3];
+            return $"{api} ({variant}, {arch})";
+        }
+        return path;
+    }
+
+    private async Task CopyToClipboard(string text)
+    {
+        await DialogService.CopyToClipboardAsync(text);
+        await AlertService.ShowToastAsync("Copied to clipboard");
+    }
+
+    public void Dispose()
+    {
+        SdkService.SdkPathChanged -= OnSdkPathChanged;
+        _pollTimer?.Dispose();
+    }
+}

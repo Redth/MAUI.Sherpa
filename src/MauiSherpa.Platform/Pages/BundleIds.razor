@@ -1,0 +1,480 @@
+@page "/bundle-ids"
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Core.Requests.Apple
+@using MauiSherpa.Platform.Services
+@using Shiny.Mediator
+@inject IMediator Mediator
+@inject IAppleConnectService AppleService
+@inject IAppleIdentityStateService IdentityState
+@inject IAlertService AlertService
+@inject IDialogService DialogService
+@inject OperationModalService OperationModal
+@implements IDisposable
+
+<h1><i class="fas fa-fingerprint"></i> Bundle IDs</h1>
+
+<AppleIdentityPicker />
+
+@if (IdentityState.SelectedIdentity != null)
+{
+    <div class="toolbar">
+        <button class="btn btn-primary" @onclick="@(() => RefreshData(forceRefresh: true))" disabled="@isLoading">
+            <i class="fas fa-sync-alt"></i> @(isLoading ? "Loading..." : "Refresh")
+        </button>
+        <button class="btn btn-success" @onclick="ShowCreateDialog" disabled="@isLoading">
+            <i class="fas fa-plus"></i> Register Bundle ID
+        </button>
+    </div>
+
+    <!-- Filter Section -->
+    <div class="filter-section">
+        <div class="search-box">
+            <span class="search-icon"><i class="fas fa-search"></i></span>
+            <input type="text" @bind="searchQuery" @bind:event="oninput" placeholder="Search bundle IDs..." />
+            @if (!string.IsNullOrEmpty(searchQuery))
+            {
+                <button class="clear-btn" @onclick="@(() => searchQuery = "")">×</button>
+            }
+        </div>
+        <div class="filter-chips">
+            <select @bind="filterPlatform" class="filter-select">
+                <option value="">All Platforms</option>
+                <option value="UNIVERSAL">Universal</option>
+                <option value="IOS">iOS</option>
+                <option value="MAC_OS">macOS</option>
+            </select>
+        </div>
+        @if (HasActiveFilters)
+        {
+            <button class="clear-filters-btn" @onclick="ClearFilters">Clear Filters</button>
+        }
+    </div>
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="error-bar">@errorMessage</div>
+    }
+
+    <div class="results-info">
+        Showing @FilteredBundleIds.Count() of @bundleIds.Count bundle IDs
+    </div>
+
+    <div class="bundle-list">
+        @if (isLoading && bundleIds.Count == 0)
+        {
+            <div class="loading-state">
+                <div class="loading-spinner">
+                    <i class="fas fa-fingerprint"></i>
+                </div>
+                <div class="loading-title">Loading Bundle IDs</div>
+                <div class="loading-description">Fetching bundle identifiers from App Store Connect...</div>
+            </div>
+        }
+        else if (!FilteredBundleIds.Any())
+        {
+            <div class="empty-state">
+                <div class="empty-icon"><i class="fas fa-cube"></i></div>
+                <div class="empty-title">@(bundleIds.Count == 0 ? "No Bundle IDs found" : "No bundle IDs match filters")</div>
+                <div class="empty-description">@(bundleIds.Count == 0 ? "Register a new bundle ID to get started" : "Try adjusting your search or filters")</div>
+            </div>
+        }
+        else
+        {
+            @foreach (var bundle in FilteredBundleIds)
+            {
+                <div class="bundle-card">
+                    <div class="bundle-details">
+                        <div class="bundle-identifier">
+                            @bundle.Identifier
+                            <button class="btn-copy" @onclick="@(() => CopyToClipboard(bundle.Identifier))" title="Copy to clipboard">
+                                <i class="fas fa-copy"></i>
+                            </button>
+                        </div>
+                        <div class="bundle-name">@bundle.Name</div>
+                        <div class="bundle-badges">
+                            <span class="badge badge-platform">@bundle.Platform</span>
+                            @if (!string.IsNullOrEmpty(bundle.SeedId))
+                            {
+                                <span class="badge badge-seed">@bundle.SeedId</span>
+                            }
+                        </div>
+                    </div>
+                    <div class="bundle-actions">
+                        <button class="btn btn-danger btn-sm" @onclick="@(() => DeleteBundle(bundle))" disabled="@isLoading">
+                            <i class="fas fa-trash"></i> Delete
+                        </button>
+                    </div>
+                </div>
+            }
+        }
+    </div>
+}
+
+@if (showCreateDialog)
+{
+    <div class="modal-overlay">
+        <div class="modal" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h2>Register Bundle ID</h2>
+                <button class="close-btn" @onclick="CloseCreateDialog">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Bundle Identifier</label>
+                    <input type="text" @bind="newIdentifier" placeholder="com.example.myapp" />
+                </div>
+                <div class="form-group">
+                    <label>Name</label>
+                    <input type="text" @bind="newName" placeholder="My App" />
+                </div>
+                <div class="form-group">
+                    <label>Platform</label>
+                    <select @bind="newPlatform">
+                        <option value="UNIVERSAL">Universal</option>
+                        <option value="IOS">iOS</option>
+                        <option value="MACOS">macOS</option>
+                    </select>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" @onclick="CloseCreateDialog">
+                    <i class="fas fa-times"></i> Cancel
+                </button>
+                <button class="btn btn-primary" @onclick="CreateBundle" 
+                        disabled="@(string.IsNullOrWhiteSpace(newIdentifier) || string.IsNullOrWhiteSpace(newName) || isLoading)">
+                    <i class="fas @(isLoading ? "fa-spinner fa-spin" : "fa-plus")"></i> @(isLoading ? "Creating..." : "Create")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    h1 { margin-bottom: 20px; font-size: 28px; color: #2d3748; }
+
+    .toolbar { margin-bottom: 16px; display: flex; gap: 12px; }
+    .error-bar { background: #fed7d7; color: #c53030; padding: 12px 16px; border-radius: 6px; margin-bottom: 16px; }
+
+    /* Filter Section Styles */
+    .filter-section {
+        background: white;
+        border-radius: 8px;
+        padding: 16px;
+        margin-bottom: 16px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        align-items: center;
+    }
+
+    .search-box {
+        position: relative;
+        flex: 1;
+        min-width: 200px;
+    }
+
+    .search-box input {
+        width: 100%;
+        padding: 10px 36px 10px 36px;
+        border: 1px solid #e2e8f0;
+        border-radius: 6px;
+        font-size: 14px;
+        box-sizing: border-box;
+    }
+
+    .search-box input:focus {
+        outline: none;
+        border-color: #4299e1;
+        box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.15);
+    }
+
+    .search-icon {
+        position: absolute;
+        left: 12px;
+        top: 50%;
+        transform: translateY(-50%);
+        font-size: 14px;
+        opacity: 0.5;
+    }
+
+    .clear-btn {
+        position: absolute;
+        right: 8px;
+        top: 50%;
+        transform: translateY(-50%);
+        background: #e2e8f0;
+        border: none;
+        border-radius: 50%;
+        width: 20px;
+        height: 20px;
+        font-size: 14px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #718096;
+    }
+
+    .clear-btn:hover { background: #cbd5e0; }
+
+    .filter-chips { display: flex; gap: 8px; flex-wrap: wrap; }
+
+    .filter-select {
+        padding: 8px 12px;
+        border: 1px solid #e2e8f0;
+        border-radius: 6px;
+        font-size: 13px;
+        background: white;
+        cursor: pointer;
+        min-width: 120px;
+    }
+
+    .filter-select:focus { outline: none; border-color: #4299e1; }
+
+    .clear-filters-btn {
+        padding: 8px 12px;
+        background: none;
+        border: 1px solid #e2e8f0;
+        border-radius: 6px;
+        font-size: 13px;
+        color: #718096;
+        cursor: pointer;
+    }
+
+    .clear-filters-btn:hover { background: #f7fafc; color: #4a5568; }
+
+    .results-info { font-size: 13px; color: #718096; margin-bottom: 12px; }
+
+    .btn { 
+        padding: 10px 20px; 
+        border: none; 
+        border-radius: 6px; 
+        font-size: 14px; 
+        cursor: pointer; 
+        transition: all 0.2s ease;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+    }
+    .btn i { font-size: 12px; }
+    .btn-primary { background-color: #4299e1; color: white; }
+    .btn-primary:hover:not(:disabled) { background-color: #3182ce; }
+    .btn-success { background-color: #48bb78; color: white; }
+    .btn-success:hover:not(:disabled) { background-color: #38a169; }
+    .btn-danger { background-color: #f56565; color: white; }
+    .btn-danger:hover:not(:disabled) { background-color: #e53e3e; }
+    .btn-secondary { background-color: #a0aec0; color: white; }
+    .btn-sm { padding: 6px 12px; font-size: 12px; }
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+    .bundle-list { display: flex; flex-direction: column; gap: 12px; }
+
+    .bundle-card {
+        background: white;
+        border-radius: 8px;
+        padding: 20px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    .bundle-identifier { 
+        font-weight: 600; 
+        font-size: 16px; 
+        color: #2d3748; 
+        font-family: monospace;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .bundle-name { color: #718096; font-size: 14px; margin-top: 4px; }
+    .bundle-badges { display: flex; gap: 8px; margin-top: 8px; }
+
+    .btn-copy {
+        background: none;
+        border: none;
+        color: #a0aec0;
+        cursor: pointer;
+        padding: 2px 6px;
+        font-size: 12px;
+        border-radius: 4px;
+        transition: all 0.15s;
+        flex-shrink: 0;
+    }
+    .btn-copy:hover {
+        color: #4299e1;
+        background: #edf2f7;
+    }
+
+    .badge { padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 500; }
+    .badge-platform { background: #bee3f8; color: #2c5282; }
+    .badge-seed { background: #e2e8f0; color: #4a5568; }
+
+    .empty-state { background: white; border-radius: 8px; padding: 60px 40px; text-align: center; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); }
+    .empty-icon { font-size: 48px; margin-bottom: 16px; color: #a0aec0; }
+    .empty-icon i { font-size: 48px; }
+    .empty-title { font-size: 18px; font-weight: 600; color: #2d3748; margin-bottom: 8px; }
+    .empty-description { color: #718096; font-size: 14px; }
+
+    .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+    .modal { background: white; border-radius: 12px; width: 90%; max-width: 500px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3); }
+    .modal-header { display: flex; justify-content: space-between; align-items: center; padding: 20px 24px; border-bottom: 1px solid #e2e8f0; }
+    .modal-header h2 { margin: 0; font-size: 18px; color: #2d3748; }
+    .close-btn { background: none; border: none; font-size: 24px; cursor: pointer; color: #a0aec0; }
+    .modal-body { padding: 24px; }
+    .modal-footer { padding: 16px 24px; border-top: 1px solid #e2e8f0; display: flex; justify-content: flex-end; gap: 12px; }
+
+    .form-group { margin-bottom: 20px; }
+    .form-group label { display: block; margin-bottom: 8px; font-weight: 500; color: #4a5568; }
+    .form-group input, .form-group select { width: 100%; padding: 10px 12px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 14px; }
+    .form-group input:focus, .form-group select:focus { outline: none; border-color: #4299e1; box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.1); }
+</style>
+
+@code {
+    private List<AppleBundleId> bundleIds = new();
+    private bool isLoading = false;
+    private string errorMessage = "";
+
+    // Filter state
+    private string searchQuery = "";
+    private string filterPlatform = "";
+
+    private bool showCreateDialog = false;
+    private string newIdentifier = "";
+    private string newName = "";
+    private string newPlatform = "UNIVERSAL";
+
+    private bool HasActiveFilters => !string.IsNullOrEmpty(searchQuery) || !string.IsNullOrEmpty(filterPlatform);
+
+    private IEnumerable<AppleBundleId> FilteredBundleIds => bundleIds
+        .Where(b => string.IsNullOrEmpty(searchQuery) || 
+                    b.Identifier.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) ||
+                    b.Name.Contains(searchQuery, StringComparison.OrdinalIgnoreCase))
+        .Where(b => string.IsNullOrEmpty(filterPlatform) || (b.Platform?.Equals(filterPlatform, StringComparison.OrdinalIgnoreCase) ?? false))
+        .OrderBy(b => b.Identifier);
+
+    private void ClearFilters()
+    {
+        searchQuery = "";
+        filterPlatform = "";
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        IdentityState.OnSelectionChanged += OnIdentityChanged;
+        if (IdentityState.SelectedIdentity != null)
+            await RefreshData(forceRefresh: true);
+    }
+
+    private void OnIdentityChanged()
+    {
+        InvokeAsync(async () =>
+        {
+            await RefreshData(forceRefresh: true);
+            StateHasChanged();
+        });
+    }
+
+    public void Dispose()
+    {
+        IdentityState.OnSelectionChanged -= OnIdentityChanged;
+    }
+
+    private async Task RefreshData(bool forceRefresh = false)
+    {
+        if (IdentityState.SelectedIdentity == null) return;
+
+        isLoading = true;
+        errorMessage = "";
+        try
+        {
+            var request = new GetBundleIdsRequest(IdentityState.SelectedIdentity.Id);
+            var (_, result) = forceRefresh 
+                ? await Mediator.Request(request, CancellationToken.None, ctx => ctx.ClearCache())
+                : await Mediator.Request(request);
+            bundleIds = result.ToList();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to load bundle IDs: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void ShowCreateDialog()
+    {
+        newIdentifier = "";
+        newName = "";
+        newPlatform = "UNIVERSAL";
+        showCreateDialog = true;
+    }
+
+    private void CloseCreateDialog() => showCreateDialog = false;
+
+    private async Task CreateBundle()
+    {
+        showCreateDialog = false;
+        
+        var result = await OperationModal.RunAsync(
+            "Create Bundle ID",
+            $"Creating bundle ID '{newIdentifier}'...",
+            async ctx =>
+            {
+                ctx.SetStatus("Registering bundle ID...");
+                ctx.LogInfo($"Identifier: {newIdentifier}");
+                ctx.LogInfo($"Name: {newName}");
+                ctx.LogInfo($"Platform: {newPlatform}");
+                
+                await AppleService.CreateBundleIdAsync(newIdentifier, newName, newPlatform);
+                ctx.LogSuccess("Bundle ID created successfully");
+                return true;
+            },
+            canCancel: false);
+
+        if (result.Success)
+        {
+            CloseCreateDialog();
+            await RefreshData(forceRefresh: true);
+        }
+    }
+
+    private async Task DeleteBundle(AppleBundleId bundle)
+    {
+        var confirm = await AlertService.ShowConfirmAsync(
+            "Delete Bundle ID",
+            $"Are you sure you want to delete '{bundle.Identifier}'?");
+
+        if (!confirm) return;
+
+        var result = await OperationModal.RunAsync(
+            "Delete Bundle ID",
+            $"Deleting '{bundle.Identifier}'...",
+            async ctx =>
+            {
+                ctx.SetStatus("Deleting bundle ID...");
+                ctx.LogInfo($"Identifier: {bundle.Identifier}");
+                
+                await AppleService.DeleteBundleIdAsync(bundle.Id);
+                ctx.LogSuccess("Bundle ID deleted");
+                return true;
+            },
+            canCancel: false);
+
+        if (result.Success)
+        {
+            await RefreshData(forceRefresh: true);
+        }
+    }
+
+    private async Task CopyToClipboard(string text)
+    {
+        await DialogService.CopyToClipboardAsync(text);
+        await AlertService.ShowToastAsync("Copied to clipboard");
+    }
+}

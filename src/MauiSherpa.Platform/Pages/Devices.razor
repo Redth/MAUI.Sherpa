@@ -1,0 +1,391 @@
+@page "/devices"
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Core.Requests.Android
+@using Shiny.Mediator
+@inject IMediator Mediator
+@inject IAndroidSdkService SdkService
+@inject IAndroidSdkSettingsService SdkSettings
+@inject IAlertService AlertService
+@inject IDialogService DialogService
+@inject IFileSystemService FileSystem
+@implements IDisposable
+
+<h1><i class="fas fa-mobile-alt"></i> Android Devices</h1>
+
+<div class="sdk-path-bar">
+    <i class="fas fa-folder"></i>
+    @if (!string.IsNullOrEmpty(SdkService.SdkPath))
+    {
+        <span class="sdk-path-text">@SdkService.SdkPath</span>
+        <button class="btn-copy" @onclick="@(() => CopyToClipboard(SdkService.SdkPath!))" title="Copy to clipboard">
+            <i class="fas fa-copy"></i>
+        </button>
+        <button class="btn-reveal" @onclick="@(() => FileSystem.RevealInFileManager(SdkService.SdkPath!))" title="Reveal in Finder">
+            <i class="fas fa-external-link-alt"></i>
+        </button>
+    }
+    else if (isLoading)
+    {
+        <span class="sdk-path-text detecting"><i class="fas fa-spinner fa-spin"></i> Detecting SDK...</span>
+    }
+    else
+    {
+        <span class="sdk-path-text no-sdk">No SDK detected</span>
+    }
+    <a class="btn-link-settings" href="settings" title="Change SDK path in Settings">
+        <i class="fas fa-cog"></i>
+    </a>
+</div>
+
+<div class="toolbar">
+    <button class="btn btn-primary" @onclick="() => RefreshDevices(forceRefresh: true)" disabled="@isLoading">
+        <i class="fas fa-sync-alt"></i> @(isLoading ? "Refreshing..." : "Refresh")
+    </button>
+</div>
+
+<div class="device-list">
+    @if (isLoading && devices.Count == 0)
+    {
+        <div class="loading-state">
+            <div class="loading-spinner">
+                <i class="fas fa-mobile-alt"></i>
+            </div>
+            <div class="loading-title">Scanning for Devices</div>
+            <div class="loading-description">Looking for connected Android devices...</div>
+        </div>
+    }
+    else if (devices.Count == 0)
+    {
+        <div class="empty-state">
+            <div class="empty-icon"><i class="fas fa-mobile-alt"></i></div>
+            <div class="empty-title">No devices connected</div>
+            <div class="empty-description">Connect an Android device via USB or start an emulator</div>
+        </div>
+    }
+    else
+    {
+        @foreach (var device in devices)
+        {
+            <div class="device-card">
+                <div class="device-icon"><i class="fas @(device.IsEmulator ? "fa-mobile-alt" : "fa-mobile")"></i></div>
+                <div class="device-details">
+                    <div class="device-name">@(device.Model ?? "Unknown Device")</div>
+                    <div class="device-serial">
+                        @device.Serial
+                        <button class="btn-copy" @onclick="@(() => CopyToClipboard(device.Serial))" title="Copy to clipboard">
+                            <i class="fas fa-copy"></i>
+                        </button>
+                    </div>
+                    <div class="device-badges">
+                        <span class="badge @(device.State == "device" ? "badge-success" : "badge-warning")">
+                            @device.State
+                        </span>
+                        @if (device.IsEmulator)
+                        {
+                            <span class="badge badge-info">Emulator</span>
+                        }
+                    </div>
+                </div>
+                <div class="device-actions">
+                    @if (device.IsEmulator)
+                    {
+                        <button class="btn btn-danger btn-sm" @onclick="@(() => StopEmulator(device.Serial))" disabled="@isLoading">
+                            <i class="fas fa-stop"></i> Stop
+                        </button>
+                    }
+                </div>
+            </div>
+        }
+    }
+</div>
+
+<style>
+    h1 {
+        margin-bottom: 20px;
+        font-size: 28px;
+        color: #2d3748;
+    }
+
+    .sdk-path-bar {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        background: #f7fafc;
+        padding: 12px 16px;
+        border-radius: 8px;
+        margin-bottom: 16px;
+        border: 1px solid #e2e8f0;
+        font-family: 'Consolas', 'Monaco', monospace;
+    }
+    .sdk-path-bar i.fa-folder { color: #4299e1; }
+    .sdk-path-text {
+        flex: 1;
+        color: #2d3748;
+        font-size: 14px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .sdk-path-text.detecting { color: #718096; font-style: italic; }
+    .sdk-path-text.no-sdk { color: #a0aec0; font-style: italic; }
+
+    .btn-link-settings {
+        color: #a0aec0;
+        padding: 4px 8px;
+        font-size: 14px;
+        text-decoration: none;
+        transition: color 0.15s;
+    }
+    .btn-link-settings:hover {
+        color: #4299e1;
+    }
+
+    .btn-reveal, .btn-copy {
+        background: none;
+        border: none;
+        color: #a0aec0;
+        cursor: pointer;
+        padding: 2px 6px;
+        font-size: 12px;
+        border-radius: 4px;
+        transition: all 0.15s;
+        flex-shrink: 0;
+    }
+    .btn-reveal:hover, .btn-copy:hover {
+        color: #4299e1;
+        background: #edf2f7;
+    }
+
+    .toolbar {
+        margin-bottom: 20px;
+    }
+
+    .btn {
+        padding: 10px 20px;
+        border: none;
+        border-radius: 6px;
+        font-size: 14px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .btn i { font-size: 12px; }
+
+    .btn-primary {
+        background-color: #4299e1;
+        color: white;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+        background-color: #3182ce;
+    }
+
+    .btn-danger {
+        background-color: #f56565;
+        color: white;
+    }
+
+    .btn-danger:hover:not(:disabled) {
+        background-color: #e53e3e;
+    }
+
+    .btn-sm {
+        padding: 6px 12px;
+        font-size: 12px;
+    }
+
+    .btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+
+    .device-list {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .device-card {
+        background: white;
+        border-radius: 8px;
+        padding: 20px;
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    .device-icon {
+        font-size: 36px;
+        color: #4299e1;
+    }
+
+    .device-icon i { font-size: 32px; }
+
+    .device-details {
+        flex: 1;
+    }
+
+    .device-name {
+        font-weight: 600;
+        font-size: 16px;
+        color: #2d3748;
+    }
+
+    .device-serial {
+        font-family: monospace;
+        font-size: 13px;
+        color: #718096;
+        margin-top: 4px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .btn-copy {
+        background: none;
+        border: none;
+        color: #a0aec0;
+        cursor: pointer;
+        padding: 2px 6px;
+        font-size: 12px;
+        border-radius: 4px;
+        transition: all 0.15s;
+        flex-shrink: 0;
+    }
+    .btn-copy:hover {
+        color: #4299e1;
+        background: #edf2f7;
+    }
+
+    .device-badges {
+        display: flex;
+        gap: 8px;
+        margin-top: 8px;
+    }
+
+    .badge {
+        padding: 2px 10px;
+        border-radius: 12px;
+        font-size: 12px;
+        font-weight: 500;
+    }
+
+    .badge-success {
+        background: #c6f6d5;
+        color: #276749;
+    }
+
+    .badge-warning {
+        background: #feebc8;
+        color: #c05621;
+    }
+
+    .badge-info {
+        background: #bee3f8;
+        color: #2c5282;
+    }
+
+    .empty-state {
+        background: white;
+        border-radius: 8px;
+        padding: 60px 40px;
+        text-align: center;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    .empty-icon {
+        font-size: 48px;
+        margin-bottom: 16px;
+        color: #a0aec0;
+    }
+
+    .empty-icon i { font-size: 48px; }
+
+    .empty-title {
+        font-size: 18px;
+        font-weight: 600;
+        color: #2d3748;
+        margin-bottom: 8px;
+    }
+
+    .empty-description {
+        color: #718096;
+        font-size: 14px;
+    }
+</style>
+
+@code {
+    private List<DeviceInfo> devices = new();
+    private bool isLoading = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Subscribe to SDK path changes from Settings
+        SdkService.SdkPathChanged += OnSdkPathChanged;
+        
+        // Initialize SDK settings (loads stored custom path if any)
+        await SdkSettings.InitializeAsync();
+        await RefreshDevices();
+    }
+
+    private void OnSdkPathChanged()
+    {
+        InvokeAsync(async () =>
+        {
+            StateHasChanged();
+            await RefreshDevices();
+        });
+    }
+
+    private async Task RefreshDevices(bool forceRefresh = false)
+    {
+        isLoading = true;
+        try
+        {
+            var (_, result) = forceRefresh
+                ? await Mediator.Request(new GetAndroidDevicesRequest(), CancellationToken.None, ctx => ctx.ClearCache())
+                : await Mediator.Request(new GetAndroidDevicesRequest());
+            devices = result?.ToList() ?? new();
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task StopEmulator(string serial)
+    {
+        var confirm = await AlertService.ShowConfirmAsync(
+            "Stop Emulator",
+            $"Are you sure you want to stop this emulator?");
+
+        if (!confirm) return;
+
+        isLoading = true;
+        try
+        {
+            await SdkService.StopEmulatorAsync(serial);
+            await Task.Delay(1000);
+            await RefreshDevices(forceRefresh: true);
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task CopyToClipboard(string text)
+    {
+        await DialogService.CopyToClipboardAsync(text);
+        await AlertService.ShowToastAsync("Copied to clipboard");
+    }
+
+    public void Dispose()
+    {
+        SdkService.SdkPathChanged -= OnSdkPathChanged;
+    }
+}

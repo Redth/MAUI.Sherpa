@@ -1,0 +1,170 @@
+@using MauiSherpa.Core.Interfaces
+@using Microsoft.AspNetCore.Components
+@inject IAppleIdentityService IdentityService
+@inject IAppleIdentityStateService IdentityState
+@inject NavigationManager Navigation
+@implements IDisposable
+
+@if (identities.Count == 0)
+{
+    <div class="no-identity-container">
+        <div class="no-identity-icon">
+            <i class="fab fa-apple"></i>
+        </div>
+        <h2>No App Store Connect Profile</h2>
+        <p>Configure your App Store Connect API credentials to manage certificates, provisioning profiles, devices, and bundle IDs.</p>
+        <button class="btn btn-primary" @onclick="GoToSettings">
+            <i class="fas fa-cog"></i> Configure in Settings
+        </button>
+    </div>
+}
+else
+{
+    <div class="identity-picker">
+        <label><i class="fab fa-apple"></i> Apple Identity:</label>
+        <select @bind="selectedIdentityId" @bind:after="OnSelectionChanged">
+            @foreach (var identity in identities)
+            {
+                <option value="@identity.Id">@identity.Name</option>
+            }
+        </select>
+    </div>
+}
+
+<style>
+    .identity-picker {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 16px;
+        background: var(--surface-color, #edf2f7);
+        border-radius: 8px;
+        margin-bottom: 20px;
+    }
+
+    .identity-picker label {
+        font-weight: 500;
+        color: var(--text-secondary, #4a5568);
+        white-space: nowrap;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .identity-picker select {
+        flex: 1;
+        max-width: 300px;
+        padding: 8px 12px;
+        border: 1px solid var(--border-color, #e2e8f0);
+        border-radius: 6px;
+        font-size: 14px;
+        background: var(--bg-color, white);
+        color: var(--text-color, #1a202c);
+    }
+
+    .identity-picker select:focus {
+        outline: none;
+        border-color: #4299e1;
+        box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.1);
+    }
+
+    .no-identity-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 60px 40px;
+        background: var(--surface-color, #f7fafc);
+        border-radius: 12px;
+        border: 2px dashed var(--border-color, #e2e8f0);
+        text-align: center;
+        margin: 20px 0;
+    }
+
+    .no-identity-icon {
+        width: 80px;
+        height: 80px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 24px;
+    }
+
+    .no-identity-icon i {
+        font-size: 40px;
+        color: white;
+    }
+
+    .no-identity-container h2 {
+        margin: 0 0 12px 0;
+        font-size: 24px;
+        font-weight: 600;
+        color: var(--text-color, #1a202c);
+    }
+
+    .no-identity-container p {
+        margin: 0 0 24px 0;
+        font-size: 15px;
+        color: var(--text-secondary, #718096);
+        max-width: 400px;
+        line-height: 1.6;
+    }
+
+    .no-identity-container .btn-primary {
+        padding: 12px 24px;
+        font-size: 15px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+</style>
+
+@code {
+    private List<AppleIdentity> identities = new();
+    private string selectedIdentityId = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        identities = (await IdentityService.GetIdentitiesAsync()).ToList();
+        
+        // Restore selection or select first
+        if (IdentityState.SelectedIdentity != null)
+        {
+            selectedIdentityId = IdentityState.SelectedIdentity.Id;
+        }
+        else if (identities.Count > 0)
+        {
+            selectedIdentityId = identities[0].Id;
+            IdentityState.SetSelectedIdentity(identities[0]);
+        }
+
+        IdentityState.OnSelectionChanged += HandleExternalSelectionChange;
+    }
+
+    private void OnSelectionChanged()
+    {
+        var identity = identities.FirstOrDefault(i => i.Id == selectedIdentityId);
+        IdentityState.SetSelectedIdentity(identity);
+    }
+
+    private void HandleExternalSelectionChange()
+    {
+        if (IdentityState.SelectedIdentity?.Id != selectedIdentityId)
+        {
+            selectedIdentityId = IdentityState.SelectedIdentity?.Id ?? "";
+            InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void GoToSettings()
+    {
+        Navigation.NavigateTo("settings");
+    }
+
+    public void Dispose()
+    {
+        IdentityState.OnSelectionChanged -= HandleExternalSelectionChange;
+    }
+}

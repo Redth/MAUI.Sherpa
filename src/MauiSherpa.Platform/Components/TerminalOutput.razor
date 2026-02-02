@@ -1,0 +1,98 @@
+@using MauiSherpa.Core.Interfaces
+@inject IProcessExecutionService ProcessService
+@inject IJSRuntime JS
+
+<div class="terminal-container" id="@ContainerId"></div>
+
+@code {
+    [Parameter] public string ContainerId { get; set; } = "terminal-output";
+    [Parameter] public EventCallback OnTerminalReady { get; set; }
+
+    private bool _initialized;
+    private DotNetObjectReference<TerminalOutput>? _objRef;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && !_initialized)
+        {
+            _objRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("terminalInterop.initialize", ContainerId, new { });
+            _initialized = true;
+            await OnTerminalReady.InvokeAsync();
+        }
+    }
+
+    public async Task WriteAsync(string text)
+    {
+        if (_initialized)
+        {
+            await JS.InvokeVoidAsync("terminalInterop.write", ContainerId, text);
+        }
+    }
+
+    public async Task WriteErrorAsync(string text)
+    {
+        if (_initialized)
+        {
+            await JS.InvokeVoidAsync("terminalInterop.writeError", ContainerId, text);
+        }
+    }
+
+    public async Task WriteSuccessAsync(string text)
+    {
+        if (_initialized)
+        {
+            await JS.InvokeVoidAsync("terminalInterop.writeSuccess", ContainerId, text);
+        }
+    }
+
+    public async Task WriteWarningAsync(string text)
+    {
+        if (_initialized)
+        {
+            await JS.InvokeVoidAsync("terminalInterop.writeWarning", ContainerId, text);
+        }
+    }
+
+    public async Task WriteCommandAsync(string text)
+    {
+        if (_initialized)
+        {
+            await JS.InvokeVoidAsync("terminalInterop.writeCommand", ContainerId, text);
+        }
+    }
+
+    public async Task ClearAsync()
+    {
+        if (_initialized)
+        {
+            await JS.InvokeVoidAsync("terminalInterop.clear", ContainerId);
+        }
+    }
+
+    public async Task ScrollToBottomAsync()
+    {
+        if (_initialized)
+        {
+            await JS.InvokeVoidAsync("terminalInterop.scrollToBottom", ContainerId);
+        }
+    }
+
+    public async Task<string> GetContentAsync()
+    {
+        if (_initialized)
+        {
+            return await JS.InvokeAsync<string>("terminalInterop.getContent", ContainerId);
+        }
+        return string.Empty;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_initialized)
+        {
+            await JS.InvokeVoidAsync("terminalInterop.dispose", ContainerId);
+        }
+        _objRef?.Dispose();
+    }
+}
