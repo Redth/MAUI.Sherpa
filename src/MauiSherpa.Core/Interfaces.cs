@@ -945,3 +945,14 @@ public record CopilotAvailability(
     string? Login,
     string? ErrorMessage
 );
+
+/// <summary>
+/// Service that provides Copilot SDK tool definitions for Apple Developer operations
+/// </summary>
+public interface ICopilotToolsService
+{
+    /// <summary>
+    /// Gets all tool definitions for use in Copilot sessions
+    /// </summary>
+    IReadOnlyList<Microsoft.Extensions.AI.AIFunction> GetTools();
+}

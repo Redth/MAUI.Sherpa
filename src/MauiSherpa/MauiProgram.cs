@@ -53,6 +53,7 @@ public static class MauiProgram
         builder.Services.AddSingleton<IAndroidSdkService, AndroidSdkService>();
         builder.Services.AddSingleton<IAndroidSdkSettingsService, AndroidSdkSettingsService>();
         builder.Services.AddSingleton<IDoctorService, DoctorService>();
+        builder.Services.AddSingleton<ICopilotToolsService, CopilotToolsService>();
         builder.Services.AddSingleton<ICopilotService, CopilotService>();
         
         // Apple services

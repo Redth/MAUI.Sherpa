@@ -9,6 +9,7 @@ namespace MauiSherpa.Core.Services;
 public class CopilotService : ICopilotService, IAsyncDisposable
 {
     private readonly ILoggingService _logger;
+    private readonly ICopilotToolsService _toolsService;
     private readonly string _skillsPath;
     private readonly List<CopilotChatMessage> _messages = new();
     
@@ -29,9 +30,10 @@ public class CopilotService : ICopilotService, IAsyncDisposable
     public event Action<string, string>? OnToolStart;
     public event Action<string, string>? OnToolComplete;
 
-    public CopilotService(ILoggingService logger)
+    public CopilotService(ILoggingService logger, ICopilotToolsService toolsService)
     {
         _logger = logger;
+        _toolsService = toolsService;
         _skillsPath = GetSkillsPath();
         _logger.LogInformation($"Copilot skills path: {_skillsPath}");
     }
@@ -248,10 +250,15 @@ public class CopilotService : ICopilotService, IAsyncDisposable
         {
             _logger.LogInformation($"Starting Copilot session with model: {model ?? "default"}");
             
+            // Get tools from tools service
+            var tools = _toolsService.GetTools();
+            _logger.LogInformation($"Registering {tools.Count} tools with Copilot session");
+            
             var config = new SessionConfig
             {
                 Model = model ?? "gpt-5",
-                Streaming = true
+                Streaming = true,
+                Tools = tools.ToList()
             };
 
             _session = await _client.CreateSessionAsync(config);
