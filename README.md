@@ -1,9 +1,17 @@
-# MAUI Sherpa
+<p align="center">
+  <img src="docs/maui.sherpa.logo.png" width="150" alt="MAUI Sherpa Logo">
+</p>
 
-> Let MAUI Sherpa guide you through all your .NET MAUI dev environment needs!
+<h1 align="center">MAUI Sherpa</h1>
 
-[![Build](https://github.com/Redth/MAUI.Sherpa/actions/workflows/build.yml/badge.svg)](https://github.com/Redth/MAUI.Sherpa/actions/workflows/build.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+<p align="center">
+  <em>Let MAUI Sherpa guide you through all your .NET MAUI dev environment needs!</em>
+</p>
+
+<p align="center">
+  <a href="https://github.com/Redth/MAUI.Sherpa/actions/workflows/build.yml"><img src="https://github.com/Redth/MAUI.Sherpa/actions/workflows/build.yml/badge.svg" alt="Build"></a>
+  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
+</p>
 
 MAUI Sherpa is a desktop application for **macOS** and **Windows** that helps manage your .NET MAUI development environment. It provides a unified interface for Android SDK management, Apple Developer tools, environment diagnostics, and GitHub Copilot integration.
 
