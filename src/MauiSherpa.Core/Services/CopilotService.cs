@@ -254,17 +254,38 @@ public class CopilotService : ICopilotService, IAsyncDisposable
         try
         {
             _logger.LogInformation($"Starting Copilot session with model: {model ?? "default"}");
+            _logger.LogInformation($"Skills path: {_skillsPath}");
             
             // Get tools from tools service
             var copilotTools = _toolsService.GetTools();
             var readOnlyTools = _toolsService.ReadOnlyToolNames;
             _logger.LogInformation($"Registering {copilotTools.Count} tools with Copilot session ({readOnlyTools.Count} read-only)");
             
+            // Build skill directories list
+            var skillDirectories = new List<string>();
+            if (Directory.Exists(_skillsPath))
+            {
+                skillDirectories.Add(_skillsPath);
+                _logger.LogInformation($"Added skills directory: {_skillsPath}");
+                
+                // Log available skills
+                foreach (var skillDir in Directory.GetDirectories(_skillsPath))
+                {
+                    var skillName = Path.GetFileName(skillDir);
+                    _logger.LogInformation($"  Found skill: {skillName}");
+                }
+            }
+            else
+            {
+                _logger.LogWarning($"Skills directory not found: {_skillsPath}");
+            }
+            
             var config = new SessionConfig
             {
                 Model = model ?? "anthropic/claude-opus-4.5",
                 Streaming = true,
                 Tools = copilotTools.Select(t => t.Function).ToList(),
+                SkillDirectories = skillDirectories,
                 OnPermissionRequest = async (request, invocation) =>
                 {
                     // Extract tool name from request
