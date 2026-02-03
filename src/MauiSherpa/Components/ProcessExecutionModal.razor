@@ -1,7 +1,9 @@
 @using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Core.Services
 @using MauiSherpa.Services
 @inject ProcessModalService ModalService
 @inject IProcessExecutionService ProcessService
+@inject ICopilotContextService CopilotContext
 @inject IJSRuntime JS
 @implements IDisposable
 
@@ -568,7 +570,18 @@
             }
             catch { }
         }
-        await ModalService.TryWithCopilotAsync(output);
+        
+        // Build context and open overlay
+        var context = CopilotContextService.BuildProcessFailureContext(
+            Request?.CommandLine ?? "Unknown command",
+            Result?.ExitCode ?? -1,
+            output
+        );
+        
+        CopilotContext.OpenWithContext(context);
+        
+        // Close the modal
+        HandleClose();
     }
 
     private async Task CopyOutput()

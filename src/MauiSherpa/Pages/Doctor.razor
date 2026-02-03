@@ -1,5 +1,6 @@
 @page "/doctor"
 @using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Core.Services
 @using MauiSherpa.Services
 @using Microsoft.Extensions.Logging
 @inject IDoctorService DoctorService
@@ -10,7 +11,7 @@
 @inject INavigationService NavigationService
 @inject MultiOperationModalService MultiOpModal
 @inject IFileSystemService FileSystem
-@inject ICopilotService CopilotService
+@inject ICopilotContextService CopilotContext
 @inject ILogger<Doctor> Logger
 @implements IDisposable
 
@@ -41,62 +42,6 @@
         </button>
     }
 </div>
-
-@if (showCopilotDialog)
-{
-    <div class="modal-backdrop" @onclick="CloseCopilotDialog">
-        <div class="modal-content copilot-modal" @onclick:stopPropagation="true">
-            <div class="modal-header">
-                <h2><i class="fas fa-robot"></i> Copilot Environment Fix</h2>
-                <button class="btn-close" @onclick="CloseCopilotDialog" disabled="@copilotBusy">
-                    <i class="fas fa-times"></i>
-                </button>
-            </div>
-            <div class="modal-body">
-                <div class="copilot-status">
-                    @if (!copilotConnected)
-                    {
-                        <div class="copilot-connecting">
-                            <i class="fas fa-plug"></i>
-                            <span>@copilotStatus</span>
-                        </div>
-                    }
-                    else if (copilotBusy)
-                    {
-                        <div class="copilot-working">
-                            <i class="fas fa-spinner fa-spin"></i>
-                            <span>@copilotStatus</span>
-                        </div>
-                    }
-                </div>
-                <div class="copilot-output" @ref="copilotOutputRef">
-                    @foreach (var line in copilotOutput)
-                    {
-                        <div class="output-line @line.Type">@line.Text</div>
-                    }
-                </div>
-            </div>
-            <div class="modal-footer">
-                @if (copilotBusy)
-                {
-                    <button class="btn btn-danger" @onclick="AbortCopilot">
-                        <i class="fas fa-stop"></i> Abort
-                    </button>
-                }
-                else
-                {
-                    <button class="btn btn-secondary" @onclick="CloseCopilotDialog">Close</button>
-                    @if (copilotComplete)
-                    {
-                        <button class="btn btn-primary" @onclick="RunDoctorAfterCopilot">
-                            <i class="fas fa-sync-alt"></i> Re-run Doctor
-                        </button>
-                    }
-                }
-            </div>
-        </div>
-    </div>
-}
 
 @if (!string.IsNullOrEmpty(errorMessage))
 {
@@ -774,39 +719,15 @@ else
     private bool manifestsExpanded = false;
     private bool depsExpanded = true;
 
-    // Copilot dialog state
-    private bool showCopilotDialog = false;
-    private bool copilotConnected = false;
-    private bool copilotBusy = false;
-    private bool copilotComplete = false;
-    private string copilotStatus = "";
-    private List<OutputLine> copilotOutput = new();
-    private ElementReference copilotOutputRef;
-
-    private record OutputLine(string Text, string Type);
-
     protected override async Task OnInitializedAsync()
     {
-        // Subscribe to Copilot events
-        CopilotService.OnAssistantDelta += OnAssistantDelta;
-        CopilotService.OnAssistantMessage += OnAssistantMessage;
-        CopilotService.OnSessionIdle += OnSessionIdle;
-        CopilotService.OnError += OnCopilotError;
-        CopilotService.OnToolStart += OnToolStart;
-        CopilotService.OnToolComplete += OnToolComplete;
-
         // Auto-run doctor on page load
         await RunDoctor();
     }
 
     public void Dispose()
     {
-        CopilotService.OnAssistantDelta -= OnAssistantDelta;
-        CopilotService.OnAssistantMessage -= OnAssistantMessage;
-        CopilotService.OnSessionIdle -= OnSessionIdle;
-        CopilotService.OnError -= OnCopilotError;
-        CopilotService.OnToolStart -= OnToolStart;
-        CopilotService.OnToolComplete -= OnToolComplete;
+        // No cleanup needed
     }
 
     private async Task RunDoctor()
@@ -1154,64 +1075,33 @@ else
         await AlertService.ShowToastAsync("Copied to clipboard");
     }
 
-    // Copilot Methods
-    private async Task FixWithCopilot()
+    // Copilot Method - uses global overlay
+    private void FixWithCopilot()
     {
-        showCopilotDialog = true;
-        copilotOutput.Clear();
-        copilotConnected = false;
-        copilotBusy = true;
-        copilotComplete = false;
-        copilotStatus = "Connecting to Copilot...";
-        StateHasChanged();
-
-        try
-        {
-            // Connect to Copilot if not already connected
-            if (!CopilotService.IsConnected)
-            {
-                AddOutput("Connecting to GitHub Copilot CLI...", "system");
-                await CopilotService.ConnectAsync();
-            }
-
-            copilotStatus = "Starting session...";
-            AddOutput("Starting Copilot session...", "system");
-            StateHasChanged();
-
-            // Start a new session
-            await CopilotService.StartSessionAsync();
-            copilotConnected = true;
-
-            copilotStatus = "Analyzing environment...";
-            AddOutput("Sending environment analysis request...", "system");
-            StateHasChanged();
-
-            // Load and send the prompt
-            var prompt = LoadMauiDoctorPrompt();
-            await CopilotService.SendMessageAsync(prompt);
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Failed to start Copilot fix");
-            AddOutput($"Error: {ex.Message}", "error");
-            copilotBusy = false;
-            copilotStatus = "Failed to connect";
-            await InvokeAsync(StateHasChanged);
-        }
-    }
-
-    private string LoadMauiDoctorPrompt()
-    {
-        // Load the embedded prompt resource
-        var assembly = typeof(MauiSherpa.Core.Services.CopilotService).Assembly;
-        var resourceName = "MauiSherpa.Core.Prompts.maui-doctor.md";
+        // Build context from current report
+        var issues = new List<(string Category, string Message, bool IsError)>();
         
-        using var stream = assembly.GetManifestResourceStream(resourceName);
-        if (stream == null)
+        if (report != null)
         {
-            Logger.LogWarning("Could not find embedded prompt resource: {ResourceName}", resourceName);
-            // Fallback to a default prompt
-            return @"Please check my .NET MAUI development environment and help me fix any issues.
+            foreach (var dep in report.Dependencies)
+            {
+                if (dep.Status == DependencyStatusType.Error)
+                {
+                    issues.Add((dep.Name, dep.Message ?? "Unknown error", true));
+                }
+                else if (dep.Status == DependencyStatusType.Warning)
+                {
+                    issues.Add((dep.Name, dep.Message ?? "Unknown warning", false));
+                }
+            }
+        }
+        
+        // If no issues from report, add a generic request
+        if (issues.Count == 0)
+        {
+            var context = new CopilotContext(
+                Title: "Environment Check",
+                Message: @"Please check my .NET MAUI development environment and help me fix any issues.
 
 Check:
 1. .NET SDK installation
@@ -1220,104 +1110,15 @@ Check:
 4. Android SDK
 5. Xcode (if on macOS)
 
-Ask before making any changes to my system.";
-        }
-
-        using var reader = new StreamReader(stream);
-        return reader.ReadToEnd();
-    }
-
-    private void OnAssistantDelta(string delta)
-    {
-        if (string.IsNullOrEmpty(delta)) return;
-        
-        // Append to last assistant line or create new one
-        var lastLine = copilotOutput.LastOrDefault();
-        if (lastLine?.Type == "assistant")
-        {
-            copilotOutput.RemoveAt(copilotOutput.Count - 1);
-            copilotOutput.Add(new OutputLine(lastLine.Text + delta, "assistant"));
+Ask before making any changes to my system.",
+                Type: CopilotContextType.EnvironmentFix
+            );
+            CopilotContext.OpenWithContext(context);
         }
         else
         {
-            copilotOutput.Add(new OutputLine(delta, "assistant"));
+            var context = CopilotContextService.BuildEnvironmentFixContext(issues);
+            CopilotContext.OpenWithContext(context);
         }
-        InvokeAsync(StateHasChanged);
-    }
-
-    private void OnAssistantMessage(string message)
-    {
-        if (!string.IsNullOrEmpty(message))
-        {
-            // Replace last delta line with complete message
-            if (copilotOutput.Count > 0 && copilotOutput[^1].Type == "assistant")
-            {
-                copilotOutput.RemoveAt(copilotOutput.Count - 1);
-            }
-            AddOutput(message, "assistant");
-        }
-        InvokeAsync(StateHasChanged);
-    }
-
-    private void OnSessionIdle()
-    {
-        copilotBusy = false;
-        copilotComplete = true;
-        copilotStatus = "Complete";
-        AddOutput("\n--- Analysis complete ---", "system");
-        InvokeAsync(StateHasChanged);
-    }
-
-    private void OnCopilotError(string error)
-    {
-        AddOutput($"Error: {error}", "error");
-        copilotBusy = false;
-        copilotStatus = "Error occurred";
-        InvokeAsync(StateHasChanged);
-    }
-
-    private void OnToolStart(string toolName, string args)
-    {
-        copilotStatus = $"Running: {toolName}";
-        AddOutput($"[Tool: {toolName}]", "tool");
-        InvokeAsync(StateHasChanged);
-    }
-
-    private void OnToolComplete(string toolName, string result)
-    {
-        copilotStatus = "Processing...";
-        InvokeAsync(StateHasChanged);
-    }
-
-    private void AddOutput(string text, string type)
-    {
-        copilotOutput.Add(new OutputLine(text, type));
-    }
-
-    private async Task AbortCopilot()
-    {
-        try
-        {
-            AddOutput("Aborting...", "system");
-            await CopilotService.AbortAsync();
-            copilotBusy = false;
-            copilotStatus = "Aborted";
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Failed to abort Copilot");
-        }
-    }
-
-    private void CloseCopilotDialog()
-    {
-        if (copilotBusy) return;
-        showCopilotDialog = false;
-    }
-
-    private async Task RunDoctorAfterCopilot()
-    {
-        showCopilotDialog = false;
-        await RunDoctor();
     }
 }

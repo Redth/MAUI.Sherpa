@@ -34,15 +34,26 @@ else
         </div>
     }
 
+    <div class="tabs">
+        <button class="tab @(activeTab == "root" ? "active" : "")" @onclick="@(() => activeTab = "root")">
+            Root Certificates
+        </button>
+        <button class="tab @(activeTab == "intermediate" ? "active" : "")" @onclick="@(() => activeTab = "intermediate")">
+            Intermediate Certificates
+        </button>
+    </div>
+    
     <div class="section">
         <div class="section-header">
-            <div class="cert-tabs">
-                <button class="tab @(activeTab == "root" ? "active" : "")" @onclick="@(() => activeTab = "root")">
-                    Root Certificates
-                </button>
-                <button class="tab @(activeTab == "intermediate" ? "active" : "")" @onclick="@(() => activeTab = "intermediate")">
-                    Intermediate Certificates
-                </button>
+            <div class="section-title">
+                @if (activeTab == "root")
+                {
+                    <span>Root Certificates</span>
+                }
+                else
+                {
+                    <span>Intermediate Certificates</span>
+                }
             </div>
             <div class="header-actions">
                 <button class="btn btn-secondary btn-sm" @onclick="() => RefreshInstalledCerts(forceRefresh: true)" disabled="@isLoading">
@@ -172,30 +183,40 @@ else
         gap: 8px;
     }
 
-    .cert-tabs {
+    .tabs {
         display: flex;
         gap: 4px;
+        margin-bottom: 16px;
+        border-bottom: 2px solid var(--border-color);
+        padding-bottom: 0;
     }
 
     .tab {
-        padding: 8px 16px;
-        background: none;
+        padding: 12px 20px;
+        background: transparent;
         border: none;
-        border-radius: 6px;
         cursor: pointer;
-        font-size: 14px;
         color: var(--text-muted);
-        transition: all 0.15s;
+        font-size: 14px;
+        border-bottom: 2px solid transparent;
+        margin-bottom: -2px;
+        transition: all 0.2s ease;
     }
 
     .tab:hover {
-        background: var(--bg-tertiary);
-        color: var(--text-secondary);
+        color: var(--accent-primary);
     }
 
     .tab.active {
-        background: var(--accent-primary);
-        color: white;
+        color: var(--accent-primary);
+        border-bottom-color: var(--accent-primary);
+        font-weight: 600;
+    }
+    
+    .section-title {
+        font-size: 16px;
+        font-weight: 600;
+        color: var(--text-primary);
     }
 
     .cert-list {

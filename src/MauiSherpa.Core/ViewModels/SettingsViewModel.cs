@@ -48,5 +48,8 @@ public class SettingsViewModel : ViewModelBase
         public void LogWarning(string message) { }
         public void LogError(string message, Exception? exception = null) { }
         public void LogDebug(string message) { }
+        public IReadOnlyList<Interfaces.LogEntry> GetRecentLogs(int maxCount = 500) => [];
+        public void ClearLogs() { }
+        public event Action? OnLogAdded;
     }
 }

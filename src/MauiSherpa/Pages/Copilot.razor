@@ -1,10 +1,18 @@
-@page "/copilot"
 @using MauiSherpa.Core.Interfaces
+@using Markdig
 @inject ICopilotService CopilotService
 @inject IAlertService AlertService
+@inject ICopilotToolsService ToolsService
+@inject IJSRuntime JSRuntime
+@inject ILoggingService _logger
 @implements IDisposable
 
-<h1><i class="fas fa-robot"></i> GitHub Copilot</h1>
+<div class="copilot-page @(IsEmbedded ? "embedded" : "")">
+
+@if (!IsEmbedded)
+{
+    <h1><i class="fas fa-robot"></i> GitHub Copilot</h1>
+}
 
 @if (isCheckingAvailability)
 {
@@ -158,29 +166,128 @@ else
 
         <!-- Chat Messages -->
         <div class="chat-container @(messages.Count == 0 && !isBusy ? "with-suggestions" : "")">
-            <div class="chat-messages" @ref="chatMessagesRef">
-                @foreach (var msg in messages)
+            @if (messages.Count > 0 || isBusy)
+            {
+            <div class="chat-messages" @ref="chatMessagesRef" @onscroll="OnChatScroll">
+                @foreach (var msg in messages.ToList())
                 {
-                    <div class="message @(msg.IsUser ? "user-message" : "assistant-message")">
-                        <div class="message-header">
-                            <i class="fas @(msg.IsUser ? "fa-user" : "fa-robot")"></i>
-                            <span>@(msg.IsUser ? "You" : "Copilot")</span>
+                    @if (msg.MessageType == CopilotMessageType.Reasoning)
+                    {
+                        @* Reasoning/Thinking Message *@
+                        <div class="reasoning-block @(msg.IsCollapsed ? "collapsed" : "")">
+                            <button class="reasoning-header" @onclick="@(() => ToggleMessageCollapse(msg))">
+                                <div class="reasoning-title">
+                                    <i class="fas fa-brain"></i>
+                                    <span>@(msg.IsComplete ? "Thought" : "Thinking...")</span>
+                                </div>
+                                <i class="fas @(msg.IsCollapsed ? "fa-chevron-down" : "fa-chevron-up") collapse-icon"></i>
+                            </button>
+                            @if (!msg.IsCollapsed)
+                            {
+                                <div class="reasoning-content">@msg.Content</div>
+                            }
                         </div>
-                        <div class="message-content">@msg.Content</div>
-                    </div>
+                    }
+                    else if (msg.MessageType == CopilotMessageType.ToolCall)
+                    {
+                        @* Tool Call Message - skip internal/noisy tools *@
+                        @if (!IsInternalTool(msg.ToolName))
+                        {
+                        <div class="tool-card @(msg.IsComplete ? (msg.IsSuccess ? "success" : "error") : "running")">
+                            <div class="tool-header">
+                                <div class="tool-info">
+                                    <i class="@GetToolIconClass(msg.ToolName ?? "") @GetToolIcon(msg.ToolName ?? "")"></i>
+                                    <span class="tool-name">@FormatToolName(msg.ToolName ?? "")</span>
+                                </div>
+                                <div class="tool-status">
+                                    @if (!msg.IsComplete)
+                                    {
+                                        <i class="fas fa-spinner fa-spin"></i>
+                                        <span>Running</span>
+                                    }
+                                    else if (msg.IsSuccess)
+                                    {
+                                        <i class="fas fa-check-circle"></i>
+                                        <span>Complete</span>
+                                    }
+                                    else
+                                    {
+                                        <i class="fas fa-times-circle"></i>
+                                        <span>Failed</span>
+                                    }
+                                </div>
+                            </div>
+                            @if (msg.IsComplete && !string.IsNullOrEmpty(msg.Content) && !IsUnusableToolResult(msg.Content))
+                            {
+                                <div class="tool-result @(msg.IsCollapsed ? "collapsed" : "")">
+                                    <button class="tool-result-toggle" @onclick="@(() => ToggleMessageCollapse(msg))">
+                                        <span>@(msg.IsCollapsed ? "Show Result" : "Hide Result")</span>
+                                        <i class="fas @(msg.IsCollapsed ? "fa-chevron-down" : "fa-chevron-up")"></i>
+                                    </button>
+                                    @if (!msg.IsCollapsed)
+                                    {
+                                        <pre class="tool-result-content">@TruncateResult(msg.Content)</pre>
+                                    }
+                                </div>
+                            }
+                        </div>
+                        }
+                    }
+                    else if (msg.MessageType == CopilotMessageType.Error)
+                    {
+                        @* Error Message *@
+                        <div class="error-card">
+                            <div class="error-header">
+                                <i class="fas fa-exclamation-triangle"></i>
+                                <span>Error@(!string.IsNullOrEmpty(msg.ToolName) ? $" ({msg.ToolName})" : "")</span>
+                            </div>
+                            <div class="error-content">
+                                @msg.Content
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        @* Regular Text Message *@
+                        <div class="message @(msg.IsUser ? "user-message" : "assistant-message")">
+                            <div class="message-header">
+                                <i class="fas @(msg.IsUser ? "fa-user" : "fa-robot")"></i>
+                                <span>@(msg.IsUser ? "You" : "Copilot")</span>
+                            </div>
+                            <div class="message-content">
+                                @if (msg.IsUser)
+                                {
+                                    @msg.Content
+                                }
+                                else
+                                {
+                                    @((MarkupString)RenderMarkdown(msg.Content))
+                                }
+                            </div>
+                        </div>
+                    }
                 }
+                
+                @* Streaming Response *@
                 @if (isBusy && !string.IsNullOrEmpty(currentResponse))
                 {
                     <div class="message assistant-message streaming">
                         <div class="message-header">
                             <i class="fas fa-robot"></i>
                             <span>Copilot</span>
-                            <i class="fas fa-spinner fa-spin typing-indicator"></i>
                         </div>
-                        <div class="message-content">@currentResponse</div>
+                        <div class="message-content">
+                            @((MarkupString)RenderMarkdown(currentResponse))
+                            <div class="streaming-indicator">
+                                <span class="thinking-dots">
+                                    <span>●</span><span>●</span><span>●</span>
+                                </span>
+                            </div>
+                        </div>
                     </div>
                 }
-                else if (isBusy)
+                else if (isBusy && !messages.Any(m => m.MessageType == CopilotMessageType.Reasoning && !m.IsComplete) 
+                         && !messages.Any(m => m.MessageType == CopilotMessageType.ToolCall && !m.IsComplete))
                 {
                     <div class="message assistant-message thinking">
                         <div class="message-header">
@@ -195,20 +302,65 @@ else
                     </div>
                 }
             </div>
+            }
 
             <div class="chat-input-area">
-                @if (!string.IsNullOrEmpty(currentTool))
+                @{
+                    var hasUsageToShow = currentUsageInfo != null && (
+                        !string.IsNullOrEmpty(currentUsageInfo.Model) ||
+                        currentUsageInfo.InputTokens.HasValue ||
+                        currentUsageInfo.OutputTokens.HasValue ||
+                        (currentUsageInfo.CurrentTokens.HasValue && currentUsageInfo.TokenLimit.HasValue)
+                    );
+                }
+                @if (hasUsageToShow)
+                {
+                    <div class="usage-info">
+                        @if (!string.IsNullOrEmpty(currentUsageInfo!.Model))
+                        {
+                            <span class="usage-item"><i class="fas fa-robot"></i> @currentUsageInfo.Model</span>
+                        }
+                        @if (currentUsageInfo.InputTokens.HasValue || currentUsageInfo.OutputTokens.HasValue)
+                        {
+                            <span class="usage-item">
+                                <i class="fas fa-arrow-right"></i> @(currentUsageInfo.InputTokens ?? 0)
+                                <i class="fas fa-arrow-left"></i> @(currentUsageInfo.OutputTokens ?? 0)
+                            </span>
+                        }
+                        @if (currentUsageInfo.CurrentTokens.HasValue && currentUsageInfo.TokenLimit.HasValue)
+                        {
+                            <span class="usage-item"><i class="fas fa-database"></i> @currentUsageInfo.CurrentTokens / @currentUsageInfo.TokenLimit</span>
+                        }
+                    </div>
+                }
+                else if (CopilotService.IsConnected)
+                {
+                    <div class="usage-info subtle">
+                        <span class="usage-item"><i class="fas fa-robot"></i> claude-opus-4-5-20250514</span>
+                        <span class="usage-item muted">Waiting for response...</span>
+                    </div>
+                }
+                @if (!string.IsNullOrEmpty(currentIntent))
+                {
+                    <div class="intent-indicator">
+                        <i class="fas fa-lightbulb"></i>
+                        <span>@currentIntent</span>
+                    </div>
+                }
+                else if (!string.IsNullOrEmpty(currentTool))
                 {
                     <div class="tool-indicator">
                         <i class="fas fa-cog fa-spin"></i>
-                        <span>Running: @currentTool</span>
+                        <span>Running: @FormatToolName(currentTool)</span>
                     </div>
                 }
                 <div class="chat-input">
                     <textarea 
                         placeholder="Ask Copilot something..." 
                         @bind="userInput"
+                        @bind:event="oninput"
                         @onkeydown="HandleKeyDown"
+                        @onkeydown:preventDefault="shouldPreventDefault"
                         disabled="@(isBusy || !CopilotService.IsConnected)"
                         rows="1"></textarea>
                     <button class="btn-send" @onclick="SendMessage" disabled="@(isBusy || string.IsNullOrWhiteSpace(userInput) || !CopilotService.IsConnected)">
@@ -228,7 +380,126 @@ else
     }
 }
 
+@* Permission Dialog Modal *@
+@if (_showPermissionDialog && _pendingPermissionRequest != null)
+{
+    <div class="modal-overlay" @onclick="DenyPermission">
+        <div class="permission-modal" @onclick:stopPropagation="true">
+            <div class="permission-header">
+                <i class="fas fa-shield-alt"></i>
+                <h3>Permission Required</h3>
+            </div>
+            <div class="permission-content">
+                <p>Copilot wants to execute the following tool:</p>
+                <div class="tool-details">
+                    <div class="tool-detail-name">
+                        <i class="@GetToolIconClass(_pendingPermissionRequest.ToolName) @GetToolIcon(_pendingPermissionRequest.ToolName)"></i>
+                        <strong>@FormatToolName(_pendingPermissionRequest.ToolName)</strong>
+                    </div>
+                    @if (!string.IsNullOrEmpty(_pendingPermissionRequest.ToolDescription))
+                    {
+                        <p class="tool-description">@_pendingPermissionRequest.ToolDescription</p>
+                    }
+                    @if (!string.IsNullOrEmpty(_pendingPermissionRequest.Command))
+                    {
+                        <div class="tool-command">
+                            <label><i class="fas fa-terminal"></i> Command:</label>
+                            <code>@_pendingPermissionRequest.Command</code>
+                        </div>
+                    }
+                    @if (!string.IsNullOrEmpty(_pendingPermissionRequest.Path) && string.IsNullOrEmpty(_pendingPermissionRequest.Command))
+                    {
+                        <div class="tool-path">
+                            <label><i class="fas fa-folder"></i> Path:</label>
+                            <code>@_pendingPermissionRequest.Path</code>
+                        </div>
+                    }
+                </div>
+                <p class="permission-warning">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    This action may modify your system or data.
+                </p>
+            </div>
+            <div class="permission-actions">
+                <button class="btn btn-secondary" @onclick="DenyPermission">
+                    <i class="fas fa-times"></i> Deny
+                </button>
+                <button class="btn btn-primary" @onclick="AllowPermission">
+                    <i class="fas fa-check"></i> Allow
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@* Debug Overlay *@
+@if (showDebugOverlay)
+{
+    <div class="debug-overlay @(debugOverlayExpanded ? "expanded" : "")">
+        <div class="debug-header">
+            <span class="debug-title"><i class="fas fa-bug"></i> Debug Logs</span>
+            <div class="debug-controls">
+                <input type="text" class="debug-filter" placeholder="Filter logs..." 
+                       @bind="debugFilter" @bind:event="oninput" />
+                <button class="debug-btn" @onclick="CopyFilteredLogs" title="Copy filtered logs">
+                    <i class="fas fa-copy"></i>
+                </button>
+                <button class="debug-btn" @onclick="ClearDebugLogs" title="Clear logs">
+                    <i class="fas fa-trash"></i>
+                </button>
+                <button class="debug-btn" @onclick="ToggleDebugExpanded" title="@(debugOverlayExpanded ? "Collapse" : "Expand")">
+                    <i class="fas @(debugOverlayExpanded ? "fa-compress-alt" : "fa-expand-alt")"></i>
+                </button>
+                <button class="debug-btn" @onclick="() => showDebugOverlay = false" title="Close">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+        </div>
+        <div class="debug-content" @ref="debugContentRef">
+            @foreach (var log in GetFilteredLogs())
+            {
+                <div class="debug-log @GetLogLevelClass(log.Level)">
+                    <span class="log-time">@log.Timestamp.ToString("HH:mm:ss.fff")</span>
+                    <span class="log-level">[@log.Level]</span>
+                    <span class="log-message">@log.Message</span>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@* Debug Toggle Button *@
+<button class="debug-toggle-btn" @onclick="() => showDebugOverlay = !showDebugOverlay" title="Toggle Debug Overlay">
+    <i class="fas fa-bug"></i>
+</button>
+
+</div> @* Close copilot-page *@
+
 <style>
+    .copilot-page {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+    }
+    
+    .copilot-page.embedded {
+        height: 100%;
+        overflow: hidden;
+    }
+    
+    .copilot-page.embedded .chat-layout {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+    
+    .copilot-page.embedded .chat-container {
+        flex: 1;
+        height: auto !important;
+        min-height: 0 !important;
+    }
+    
     h1 {
         margin-bottom: 20px;
         font-size: 28px;
@@ -576,8 +847,9 @@ else
     }
 
     .chat-container.with-suggestions {
-        height: calc(100vh - 500px);
-        min-height: 300px;
+        height: auto;
+        min-height: unset;
+        max-height: none;
     }
 
     .chat-messages {
@@ -593,6 +865,7 @@ else
         max-width: 85%;
         padding: 12px 16px;
         border-radius: 12px;
+        flex-shrink: 0; /* Prevent shrinking */
     }
 
     .user-message {
@@ -626,9 +899,13 @@ else
     }
 
     .message-content {
-        line-height: 1.6;
-        white-space: pre-wrap;
+        line-height: 1.5;
         word-break: break-word;
+    }
+    
+    /* User messages preserve whitespace since they're not markdown */
+    .user-message .message-content {
+        white-space: pre-wrap;
     }
 
     .assistant-message .message-content { color: var(--text-primary); }
@@ -650,10 +927,76 @@ else
         0%, 80%, 100% { opacity: 0.3; }
         40% { opacity: 1; }
     }
+    
+    .streaming-indicator {
+        margin-top: 12px;
+        padding-top: 8px;
+        border-top: 1px solid var(--border-color);
+    }
 
     .chat-input-area {
         border-top: 1px solid var(--border-color);
         padding: 16px;
+        flex-shrink: 0;
+    }
+
+    .usage-info {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 6px 12px;
+        margin-bottom: 8px;
+        font-size: 11px;
+        color: #6366f1;
+        background: linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(139, 92, 246, 0.08) 100%);
+        border-radius: 8px;
+        border: 1px solid rgba(99, 102, 241, 0.15);
+        flex-shrink: 0;
+        min-height: 24px;
+    }
+    
+    .usage-item {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+    
+    .usage-item i {
+        font-size: 10px;
+        opacity: 0.7;
+    }
+    
+    .usage-info.subtle {
+        opacity: 0.7;
+    }
+    
+    .usage-item.muted {
+        font-style: italic;
+        opacity: 0.6;
+    }
+    
+    /* Dark mode usage info */
+    :root.dark .usage-info {
+        color: #a5b4fc;
+        background: linear-gradient(135deg, rgba(99, 102, 241, 0.12) 0%, rgba(139, 92, 246, 0.12) 100%);
+        border-color: rgba(99, 102, 241, 0.25);
+    }
+
+    .intent-indicator {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(139, 92, 246, 0.1));
+        color: #6366f1;
+        border-radius: 6px;
+        font-size: 13px;
+        margin-bottom: 12px;
+        border: 1px solid rgba(99, 102, 241, 0.2);
+    }
+    
+    .intent-indicator i {
+        color: #8b5cf6;
     }
 
     .tool-indicator {
@@ -719,9 +1062,703 @@ else
         opacity: 0.5;
         cursor: not-allowed;
     }
+
+    /* Reasoning Block Styles */
+    .reasoning-block {
+        background: linear-gradient(135deg, rgba(139, 92, 246, 0.08) 0%, rgba(99, 102, 241, 0.08) 100%);
+        border: 1px solid rgba(139, 92, 246, 0.25);
+        border-radius: 12px;
+        margin-bottom: 8px;
+        overflow: hidden;
+        max-width: 95%;
+        flex-shrink: 0; /* Prevent shrinking */
+    }
+
+    .reasoning-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        width: 100%;
+        padding: 12px 16px;
+        background: transparent;
+        border: none;
+        cursor: pointer;
+        color: var(--text-primary);
+    }
+
+    .reasoning-header:hover {
+        background: rgba(139, 92, 246, 0.1);
+    }
+
+    .reasoning-title {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 13px;
+        font-weight: 600;
+        color: #8b5cf6;
+    }
+
+    .reasoning-title i {
+        font-size: 16px;
+    }
+
+    .collapse-icon {
+        font-size: 12px;
+        color: var(--text-muted);
+        transition: transform 0.2s;
+    }
+
+    .reasoning-content {
+        padding: 0 16px 16px 16px;
+        font-size: 13px;
+        line-height: 1.6;
+        color: var(--text-secondary);
+        font-style: italic;
+        white-space: pre-wrap;
+        word-break: break-word;
+        max-height: 200px;
+        overflow-y: auto;
+    }
+
+    .reasoning-block.collapsed .reasoning-content {
+        display: none;
+    }
+
+    /* Tool Card Styles */
+    .tool-card {
+        background: var(--card-bg);
+        border-radius: 10px;
+        border: 1px solid var(--border-color);
+        margin-bottom: 8px;
+        overflow: hidden;
+        max-width: 90%;
+        flex-shrink: 0; /* Prevent shrinking */
+    }
+    }
+
+    .tool-card.running {
+        border-color: rgba(99, 102, 241, 0.5);
+        box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.15);
+    }
+
+    .tool-card.success {
+        border-color: rgba(34, 197, 94, 0.4);
+    }
+
+    .tool-card.error {
+        border-color: rgba(239, 68, 68, 0.4);
+    }
+
+    .tool-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 16px;
+        background: var(--bg-tertiary);
+    }
+
+    .tool-info {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .tool-info i {
+        font-size: 14px;
+        color: #6366f1;
+    }
+
+    .tool-name {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text-primary);
+    }
+
+    .tool-status {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        font-weight: 500;
+    }
+
+    .tool-card.running .tool-status {
+        color: #6366f1;
+    }
+
+    .tool-card.success .tool-status {
+        color: #22c55e;
+    }
+
+    .tool-card.error .tool-status {
+        color: #ef4444;
+    }
+
+    /* Error Card Styles */
+    .error-card {
+        flex-shrink: 0;
+        border-radius: 12px;
+        background: linear-gradient(135deg, rgba(239, 68, 68, 0.1), rgba(220, 38, 38, 0.05));
+        border: 1px solid rgba(239, 68, 68, 0.3);
+        overflow: hidden;
+    }
+    
+    .error-header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 12px 16px;
+        background: rgba(239, 68, 68, 0.15);
+        border-bottom: 1px solid rgba(239, 68, 68, 0.2);
+    }
+    
+    .error-header i {
+        color: #ef4444;
+        font-size: 16px;
+    }
+    
+    .error-header span {
+        font-weight: 600;
+        color: #dc2626;
+        font-size: 14px;
+    }
+    
+    .error-content {
+        padding: 12px 16px;
+        font-size: 13px;
+        color: #b91c1c;
+        white-space: pre-wrap;
+        line-height: 1.5;
+    }
+    
+    :global(.theme-dark) .error-card {
+        background: linear-gradient(135deg, rgba(239, 68, 68, 0.15), rgba(220, 38, 38, 0.08));
+    }
+    
+    :global(.theme-dark) .error-header span {
+        color: #f87171;
+    }
+    
+    :global(.theme-dark) .error-content {
+        color: #fca5a5;
+    }
+
+    .tool-result {
+        border-top: 1px solid var(--border-color);
+    }
+
+    .tool-result-toggle {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 8px 16px;
+        background: transparent;
+        border: none;
+        cursor: pointer;
+        font-size: 12px;
+        color: var(--text-muted);
+    }
+
+    .tool-result-toggle:hover {
+        background: var(--bg-hover);
+    }
+
+    .tool-result-content {
+        margin: 0;
+        padding: 12px 16px;
+        font-size: 12px;
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+        white-space: pre-wrap;
+        word-break: break-word;
+        max-height: 200px;
+        overflow-y: auto;
+        font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    }
+
+    /* Markdown Content Styles */
+    .message-content p {
+        margin: 0 0 8px 0;
+    }
+
+    .message-content p:last-child {
+        margin-bottom: 0;
+    }
+
+    .message-content code {
+        background: rgba(99, 102, 241, 0.1);
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 0.9em;
+        font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    }
+
+    .user-message .message-content code {
+        background: rgba(255, 255, 255, 0.2);
+    }
+
+    .message-content pre {
+        background: var(--bg-tertiary);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        padding: 12px;
+        overflow-x: auto;
+        margin: 8px 0;
+    }
+
+    .message-content pre code {
+        background: transparent;
+        padding: 0;
+        font-size: 13px;
+        line-height: 1.4;
+    }
+
+    .user-message .message-content pre {
+        background: rgba(255, 255, 255, 0.1);
+        border-color: rgba(255, 255, 255, 0.2);
+    }
+
+    .message-content ul, .message-content ol {
+        margin: 6px 0;
+        padding-left: 24px;
+    }
+
+    .message-content li {
+        margin: 2px 0;
+    }
+
+    .message-content h1, .message-content h2, .message-content h3 {
+        margin: 12px 0 6px 0;
+    }
+
+    .message-content h1 { font-size: 1.3em; }
+    .message-content h2 { font-size: 1.15em; }
+    .message-content h3 { font-size: 1.05em; }
+
+    .message-content blockquote {
+        border-left: 3px solid #6366f1;
+        margin: 12px 0;
+        padding: 8px 16px;
+        background: rgba(99, 102, 241, 0.05);
+        border-radius: 0 8px 8px 0;
+    }
+
+    .user-message .message-content blockquote {
+        border-left-color: rgba(255, 255, 255, 0.5);
+        background: rgba(255, 255, 255, 0.1);
+    }
+
+    .message-content a {
+        color: #6366f1;
+        text-decoration: none;
+    }
+
+    .message-content a:hover {
+        text-decoration: underline;
+    }
+
+    .user-message .message-content a {
+        color: #c4b5fd;
+    }
+
+    .message-content table {
+        border-collapse: collapse;
+        margin: 12px 0;
+        width: 100%;
+    }
+
+    .message-content th, .message-content td {
+        border: 1px solid var(--border-color);
+        padding: 8px 12px;
+        text-align: left;
+    }
+
+    .message-content th {
+        background: var(--bg-tertiary);
+        font-weight: 600;
+    }
+
+    /* Dark mode specific for reasoning */
+    :global(.theme-dark) .reasoning-block {
+        background: linear-gradient(135deg, rgba(139, 92, 246, 0.12) 0%, rgba(99, 102, 241, 0.12) 100%);
+        border-color: rgba(139, 92, 246, 0.3);
+    }
+
+    :global(.theme-dark) .reasoning-header:hover {
+        background: rgba(139, 92, 246, 0.15);
+    }
+
+    /* Permission Modal Styles */
+    .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+        backdrop-filter: blur(4px);
+    }
+
+    .permission-modal {
+        background: var(--card-bg);
+        border-radius: 16px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        max-width: 600px;
+        min-width: 400px;
+        width: auto;
+        overflow: hidden;
+        animation: modalSlideIn 0.2s ease-out;
+    }
+
+    @@keyframes modalSlideIn {
+        from {
+            opacity: 0;
+            transform: translateY(-20px) scale(0.95);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+        }
+    }
+
+    .permission-header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 20px 24px;
+        background: linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(139, 92, 246, 0.1) 100%);
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .permission-header i {
+        font-size: 24px;
+        color: #6366f1;
+    }
+
+    .permission-header h3 {
+        margin: 0;
+        font-size: 18px;
+        color: var(--text-primary);
+    }
+
+    .permission-content {
+        padding: 24px;
+    }
+
+    .permission-content > p {
+        margin: 0 0 16px 0;
+        color: var(--text-secondary);
+    }
+
+    .tool-details {
+        background: var(--bg-tertiary);
+        border-radius: 10px;
+        padding: 16px;
+        margin-bottom: 16px;
+    }
+
+    .tool-detail-name {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .tool-detail-name i {
+        font-size: 18px;
+        color: #6366f1;
+    }
+
+    .tool-detail-name strong {
+        font-size: 15px;
+        color: var(--text-primary);
+    }
+
+    .tool-description {
+        margin: 10px 0 0 0;
+        font-size: 13px;
+        color: var(--text-muted);
+        line-height: 1.5;
+    }
+    
+    .tool-command, .tool-path {
+        margin: 12px 0 0 0;
+        padding: 12px;
+        background: var(--bg-tertiary, #f1f5f9);
+        border-radius: 8px;
+        border: 1px solid var(--border-color, #e2e8f0);
+    }
+    
+    .tool-command label, .tool-path label {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--text-muted);
+        margin-bottom: 8px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+    
+    .tool-command code, .tool-path code {
+        display: block;
+        font-family: 'SF Mono', 'Menlo', 'Monaco', 'Courier New', monospace;
+        font-size: 12px;
+        color: var(--text-primary);
+        word-break: break-all;
+        white-space: pre-wrap;
+        line-height: 1.5;
+    }
+
+    .permission-warning {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 12px 16px;
+        background: rgba(245, 158, 11, 0.1);
+        border: 1px solid rgba(245, 158, 11, 0.3);
+        border-radius: 8px;
+        color: #d97706;
+        font-size: 13px;
+        margin: 0;
+    }
+
+    .permission-warning i {
+        color: #f59e0b;
+    }
+
+    .permission-actions {
+        display: flex;
+        gap: 12px;
+        padding: 16px 24px 24px;
+        justify-content: flex-end;
+    }
+
+    .permission-actions .btn {
+        padding: 10px 20px;
+        font-size: 14px;
+        font-weight: 500;
+    }
+
+    /* Debug Overlay Styles */
+    .debug-toggle-btn {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        width: 44px;
+        height: 44px;
+        border-radius: 50%;
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        color: var(--text-secondary);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 999;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        transition: all 0.2s ease;
+    }
+
+    .debug-toggle-btn:hover {
+        background: #6366f1;
+        color: white;
+        border-color: #6366f1;
+    }
+
+    .debug-overlay {
+        position: fixed;
+        bottom: 80px;
+        right: 20px;
+        width: 500px;
+        height: 300px;
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+        z-index: 1000;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        transition: all 0.2s ease;
+    }
+
+    .debug-overlay.expanded {
+        width: 1000px;
+        height: 700px;
+        bottom: 40px;
+        right: 40px;
+    }
+
+    .debug-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 16px;
+        background: rgba(99, 102, 241, 0.1);
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .debug-title {
+        font-weight: 600;
+        color: #6366f1;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .debug-controls {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .debug-filter {
+        padding: 6px 12px;
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        background: var(--input-bg, var(--card-bg));
+        color: var(--text-primary);
+        font-size: 13px;
+        width: 150px;
+    }
+
+    .debug-filter:focus {
+        outline: none;
+        border-color: #6366f1;
+    }
+
+    .debug-btn {
+        width: 32px;
+        height: 32px;
+        border: none;
+        border-radius: 6px;
+        background: transparent;
+        color: var(--text-secondary);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.15s ease;
+    }
+
+    .debug-btn:hover {
+        background: rgba(99, 102, 241, 0.15);
+        color: #6366f1;
+    }
+
+    .debug-content {
+        flex: 1;
+        overflow-y: auto;
+        font-family: 'SF Mono', Consolas, monospace;
+        font-size: 12px;
+        padding: 8px;
+        background: #f8fafc;
+    }
+    
+    :global(.theme-dark) .debug-content {
+        background: #1e1e2e;
+    }
+
+    .debug-log {
+        display: flex;
+        gap: 8px;
+        padding: 4px 8px;
+        border-radius: 4px;
+        white-space: pre-wrap;
+        word-break: break-word;
+    }
+
+    .debug-log:hover {
+        background: rgba(99, 102, 241, 0.1);
+    }
+
+    .log-time {
+        color: #64748b;
+        flex-shrink: 0;
+    }
+
+    .log-level {
+        flex-shrink: 0;
+        font-weight: 600;
+    }
+
+    .log-message {
+        color: #1e293b;
+    }
+    
+    :global(.theme-dark) .log-time {
+        color: #94a3b8;
+    }
+    
+    :global(.theme-dark) .log-message {
+        color: #e2e8f0;
+    }
+
+    .debug-log.log-dbg .log-level { color: #64748b; }
+    .debug-log.log-inf .log-level { color: #2563eb; }
+    .debug-log.log-wrn .log-level { color: #d97706; }
+    .debug-log.log-err .log-level { color: #dc2626; }
+    .debug-log.log-err { background: rgba(239, 68, 68, 0.15); }
+    
+    :global(.theme-dark) .debug-log.log-dbg .log-level { color: #94a3b8; }
+    :global(.theme-dark) .debug-log.log-inf .log-level { color: #60a5fa; }
+    :global(.theme-dark) .debug-log.log-wrn .log-level { color: #fbbf24; }
+    :global(.theme-dark) .debug-log.log-err .log-level { color: #f87171; }
 </style>
 
+<script suppress-error="BL9992">
+    window.copilotChat = {
+        scrollToBottom: function(element) {
+            if (element) {
+                element.scrollTop = element.scrollHeight;
+            }
+        },
+        isAtBottom: function(element) {
+            if (!element) return true;
+            // Consider "at bottom" if within 50px of the bottom
+            const threshold = 50;
+            return element.scrollHeight - element.scrollTop - element.clientHeight < threshold;
+        },
+        scrollReasoningToBottom: function() {
+            // Find all reasoning-content elements and scroll the last one to bottom
+            const elements = document.querySelectorAll('.reasoning-content');
+            if (elements.length > 0) {
+                const lastElement = elements[elements.length - 1];
+                lastElement.scrollTop = lastElement.scrollHeight;
+            }
+        },
+        scrollDebugToBottom: function(element) {
+            if (element) {
+                element.scrollTop = element.scrollHeight;
+            }
+        },
+        copyToClipboard: async function(text) {
+            try {
+                await navigator.clipboard.writeText(text);
+                return true;
+            } catch (e) {
+                console.error('Failed to copy:', e);
+                return false;
+            }
+        }
+    };
+</script>
+
 @code {
+    // Parameters for embedded mode (overlay)
+    [Parameter] public bool IsEmbedded { get; set; } = false;
+    [Parameter] public string? PendingMessage { get; set; }
+    [Parameter] public CopilotContext? PendingContext { get; set; }
+    [Parameter] public EventCallback OnPendingHandled { get; set; }
+    [Parameter] public EventCallback OnReady { get; set; }
+    
     private bool isCheckingAvailability = true;
     private CopilotAvailability? availability;
     private bool isConnecting = false;
@@ -729,7 +1766,36 @@ else
     private string userInput = "";
     private string currentResponse = "";
     private string currentTool = "";
+    private string currentToolCallId = "";
+    private string currentIntent = "";
     private ElementReference chatMessagesRef;
+    private ElementReference? _activeReasoningRef;
+    private bool shouldPreventDefault = false;
+    private bool isAtBottom = true; // Track if user is scrolled to bottom
+    
+    // Debug overlay state
+    private bool showDebugOverlay = false;
+    private bool debugOverlayExpanded = false;
+    private string debugFilter = "";
+    private ElementReference debugContentRef;
+    
+    // Usage info state
+    private CopilotUsageInfo? currentUsageInfo;
+    
+    // System prompt loaded from bundled file
+    private string? _systemPrompt;
+    
+    // Current streaming reasoning ID for updates
+    private string? currentReasoningId;
+    
+    // Track if pending was already processed
+    private string? _lastProcessedMessage;
+    private CopilotContext? _lastProcessedContext;
+    
+    // Markdig pipeline for markdown rendering
+    private static readonly MarkdownPipeline MarkdownPipeline = new MarkdownPipelineBuilder()
+        .UseAdvancedExtensions()
+        .Build();
 
     // Use service's message list for persistence across navigation
     private IReadOnlyList<CopilotChatMessage> messages => CopilotService.Messages;
@@ -771,8 +1837,92 @@ else
         CopilotService.OnError += OnCopilotError;
         CopilotService.OnToolStart += OnToolStart;
         CopilotService.OnToolComplete += OnToolComplete;
+        CopilotService.OnReasoningStart += OnReasoningStart;
+        CopilotService.OnReasoningDelta += OnReasoningDelta;
+        CopilotService.OnTurnStart += OnTurnStart;
+        CopilotService.OnTurnEnd += OnTurnEnd;
+        CopilotService.OnIntentChanged += OnIntentChanged;
+        CopilotService.OnUsageInfoChanged += OnUsageInfoChanged;
+        CopilotService.OnSessionError += OnSessionError;
+        _logger.OnLogAdded += OnLogAdded;
+        
+        // Set up permission handler
+        CopilotService.PermissionHandler = HandlePermissionRequest;
+        
+        // Load system prompt from bundled file
+        await LoadSystemPromptAsync();
 
         await CheckAvailability();
+        
+        // Notify ready
+        await OnReady.InvokeAsync();
+    }
+    
+    protected override async Task OnParametersSetAsync()
+    {
+        // Handle pending message when overlay opens with context
+        await ProcessPendingAsync();
+    }
+    
+    private async Task ProcessPendingAsync()
+    {
+        // Check for pending message
+        if (!string.IsNullOrEmpty(PendingMessage) && PendingMessage != _lastProcessedMessage)
+        {
+            _lastProcessedMessage = PendingMessage;
+            
+            // Ensure connected
+            if (!CopilotService.IsConnected && availability?.IsAuthenticated == true)
+            {
+                await Connect();
+                await Task.Delay(100); // Brief wait for connection
+            }
+            
+            // Set user input and send
+            userInput = PendingMessage;
+            StateHasChanged();
+            await Task.Delay(50);
+            await SendMessage();
+            
+            await OnPendingHandled.InvokeAsync();
+        }
+        
+        // Check for pending context
+        if (PendingContext != null && PendingContext != _lastProcessedContext)
+        {
+            _lastProcessedContext = PendingContext;
+            
+            // Ensure connected
+            if (!CopilotService.IsConnected && availability?.IsAuthenticated == true)
+            {
+                await Connect();
+                await Task.Delay(100);
+            }
+            
+            // Set user input from context and send
+            userInput = PendingContext.Message;
+            StateHasChanged();
+            await Task.Delay(50);
+            await SendMessage();
+            
+            await OnPendingHandled.InvokeAsync();
+        }
+    }
+    
+    private async Task LoadSystemPromptAsync()
+    {
+        try
+        {
+            using var stream = await FileSystem.OpenAppPackageFileAsync("SystemPrompt.md");
+            using var reader = new StreamReader(stream);
+            _systemPrompt = await reader.ReadToEndAsync();
+            _logger.LogInformation($"Loaded system prompt ({_systemPrompt.Length} chars)");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning($"Could not load system prompt file, using default: {ex.Message}");
+            _systemPrompt = null; // Will use default
+        }
     }
 
     public void Dispose()
@@ -783,6 +1933,15 @@ else
         CopilotService.OnError -= OnCopilotError;
         CopilotService.OnToolStart -= OnToolStart;
         CopilotService.OnToolComplete -= OnToolComplete;
+        CopilotService.OnReasoningStart -= OnReasoningStart;
+        CopilotService.OnReasoningDelta -= OnReasoningDelta;
+        CopilotService.OnTurnStart -= OnTurnStart;
+        CopilotService.OnTurnEnd -= OnTurnEnd;
+        CopilotService.OnIntentChanged -= OnIntentChanged;
+        CopilotService.OnUsageInfoChanged -= OnUsageInfoChanged;
+        CopilotService.OnSessionError -= OnSessionError;
+        _logger.OnLogAdded -= OnLogAdded;
+        CopilotService.PermissionHandler = null;
     }
 
     private async Task CheckAvailability()
@@ -840,7 +1999,7 @@ else
         try
         {
             await CopilotService.ConnectAsync();
-            await CopilotService.StartSessionAsync();
+            await CopilotService.StartSessionAsync(systemPrompt: _systemPrompt);
         }
         catch (Exception ex)
         {
@@ -890,14 +2049,19 @@ else
         CopilotService.AddUserMessage(message);
         currentResponse = "";
         isBusy = true;
+        isAtBottom = true; // Reset to bottom when user sends a message
         StateHasChanged();
+        
+        // Force scroll after DOM update
+        await Task.Delay(50);
+        await ForceScrollToBottom();
 
         try
         {
             if (!CopilotService.IsConnected)
             {
                 await CopilotService.ConnectAsync();
-                await CopilotService.StartSessionAsync();
+                await CopilotService.StartSessionAsync(systemPrompt: _systemPrompt);
             }
 
             await CopilotService.SendMessageAsync(message);
@@ -907,11 +2071,15 @@ else
             CopilotService.AddAssistantMessage($"Error: {ex.Message}");
             isBusy = false;
             StateHasChanged();
+            await ScrollToBottomIfNeeded();
         }
     }
 
     private async Task HandleKeyDown(KeyboardEventArgs e)
     {
+        // Prevent default only for Enter without Shift (submit on Enter, newline on Shift+Enter)
+        shouldPreventDefault = e.Key == "Enter" && !e.ShiftKey;
+        
         if (e.Key == "Enter" && !e.ShiftKey)
         {
             await SendMessage();
@@ -922,7 +2090,11 @@ else
     {
         if (string.IsNullOrEmpty(delta)) return;
         currentResponse += delta;
-        InvokeAsync(StateHasChanged);
+        InvokeAsync(async () => 
+        {
+            StateHasChanged();
+            await ScrollToBottomIfNeeded();
+        });
     }
 
     private void OnAssistantMessage(string message)
@@ -932,7 +2104,11 @@ else
         {
             currentResponse = message;
         }
-        InvokeAsync(StateHasChanged);
+        InvokeAsync(async () => 
+        {
+            StateHasChanged();
+            await ScrollToBottomIfNeeded();
+        });
     }
 
     private void OnSessionIdle()
@@ -944,7 +2120,12 @@ else
         }
         isBusy = false;
         currentTool = "";
-        InvokeAsync(StateHasChanged);
+        currentReasoningId = null;
+        InvokeAsync(async () => 
+        {
+            StateHasChanged();
+            await ScrollToBottomIfNeeded();
+        });
     }
 
     private void OnCopilotError(string error)
@@ -952,18 +2133,382 @@ else
         CopilotService.AddAssistantMessage($"Error: {error}");
         isBusy = false;
         currentTool = "";
-        InvokeAsync(StateHasChanged);
+        currentReasoningId = null;
+        InvokeAsync(async () => 
+        {
+            StateHasChanged();
+            await ScrollToBottomIfNeeded();
+        });
     }
 
-    private void OnToolStart(string toolName, string args)
+    private void OnToolStart(string toolName, string toolCallId)
     {
         currentTool = toolName;
-        InvokeAsync(StateHasChanged);
+        currentToolCallId = toolCallId;
+        _logger.LogDebug($"UI: OnToolStart - {toolName}, callId={toolCallId}");
+        CopilotService.AddToolMessage(toolName, toolCallId);
+        InvokeAsync(async () => 
+        {
+            StateHasChanged();
+            await ScrollToBottomIfNeeded();
+        });
     }
 
-    private void OnToolComplete(string toolName, string result)
+    private void OnToolComplete(string toolCallId, string result)
     {
+        _logger.LogDebug($"UI: OnToolComplete - callId={toolCallId}, currentTool={currentTool}, currentCallId={currentToolCallId}, resultLen={result?.Length ?? 0}");
+        // Use stored callId/name if event doesn't have it
+        var completedCallId = !string.IsNullOrEmpty(toolCallId) ? toolCallId : currentToolCallId;
         currentTool = "";
+        currentToolCallId = "";
+        CopilotService.CompleteToolMessage(null, completedCallId, true, result ?? "(no result)");
+        InvokeAsync(async () => 
+        {
+            StateHasChanged();
+            await ScrollToBottomIfNeeded();
+        });
+    }
+    
+    private void OnReasoningStart(string reasoningId)
+    {
+        // Complete any previous reasoning
+        if (currentReasoningId != null)
+        {
+            CopilotService.CompleteReasoningMessage(currentReasoningId);
+        }
+        currentReasoningId = reasoningId;
+        CopilotService.AddReasoningMessage(reasoningId);
+        InvokeAsync(async () => 
+        {
+            StateHasChanged();
+            await ScrollToBottomIfNeeded();
+        });
+    }
+    
+    private void OnReasoningDelta(string reasoningId, string content)
+    {
+        if (!string.IsNullOrEmpty(content))
+        {
+            CopilotService.UpdateReasoningMessage(reasoningId, content);
+            InvokeAsync(async () => 
+            {
+                StateHasChanged();
+                await ScrollToBottomIfNeeded();
+                // Also scroll the reasoning content itself to the bottom
+                try
+                {
+                    await JSRuntime.InvokeVoidAsync("copilotChat.scrollReasoningToBottom");
+                }
+                catch { /* Ignore JS errors */ }
+            });
+        }
+    }
+    
+    private void OnTurnStart()
+    {
+        // Complete any pending reasoning from previous turn
+        if (currentReasoningId != null)
+        {
+            CopilotService.CompleteReasoningMessage(currentReasoningId);
+            currentReasoningId = null;
+        }
         InvokeAsync(StateHasChanged);
+    }
+    
+    private void OnTurnEnd()
+    {
+        // Complete reasoning when turn ends
+        if (currentReasoningId != null)
+        {
+            CopilotService.CompleteReasoningMessage(currentReasoningId);
+            currentReasoningId = null;
+        }
+        // Clear intent when turn ends
+        currentIntent = "";
+        InvokeAsync(StateHasChanged);
+    }
+    
+    private void OnIntentChanged(string intent)
+    {
+        currentIntent = intent;
+        _logger.LogDebug($"UI: Intent changed to: {intent}");
+        InvokeAsync(StateHasChanged);
+    }
+    
+    private void OnUsageInfoChanged(CopilotUsageInfo usageInfo)
+    {
+        _logger.LogDebug($"UI: UsageInfo received - Model={usageInfo.Model}, Tokens={usageInfo.CurrentTokens}/{usageInfo.TokenLimit}, In={usageInfo.InputTokens}, Out={usageInfo.OutputTokens}");
+        
+        // Merge with existing info (some events only have partial data)
+        if (currentUsageInfo == null)
+        {
+            currentUsageInfo = usageInfo;
+        }
+        else
+        {
+            currentUsageInfo = new CopilotUsageInfo(
+                usageInfo.Model ?? currentUsageInfo.Model,
+                usageInfo.CurrentTokens ?? currentUsageInfo.CurrentTokens,
+                usageInfo.TokenLimit ?? currentUsageInfo.TokenLimit,
+                usageInfo.InputTokens ?? currentUsageInfo.InputTokens,
+                usageInfo.OutputTokens ?? currentUsageInfo.OutputTokens
+            );
+        }
+        
+        _logger.LogDebug($"UI: UsageInfo merged - Model={currentUsageInfo.Model}, Tokens={currentUsageInfo.CurrentTokens}/{currentUsageInfo.TokenLimit}");
+        InvokeAsync(StateHasChanged);
+    }
+    
+    private void OnSessionError(CopilotSessionError error)
+    {
+        _logger.LogError($"Session error: {error.Message} (Code: {error.Code})");
+        
+        // Add error message to chat
+        var errorMsg = new CopilotChatMessage(
+            error.Message + (error.Details != null ? $"\n\nDetails: {error.Details}" : ""),
+            false,
+            CopilotMessageType.Error,
+            toolName: error.Code
+        );
+        CopilotService.AddErrorMessage(errorMsg);
+        
+        InvokeAsync(async () =>
+        {
+            StateHasChanged();
+            await ScrollToBottomIfNeeded();
+        });
+    }
+    
+    // Permission handling
+    private TaskCompletionSource<ToolPermissionResult>? _permissionTcs;
+    private ToolPermissionRequest? _pendingPermissionRequest;
+    private bool _showPermissionDialog = false;
+    
+    private async Task<ToolPermissionResult> HandlePermissionRequest(ToolPermissionRequest request)
+    {
+        // Auto-approve read-only tools
+        if (request.IsReadOnly)
+        {
+            return new ToolPermissionResult(true);
+        }
+        
+        // Show dialog for destructive tools
+        _pendingPermissionRequest = request;
+        _permissionTcs = new TaskCompletionSource<ToolPermissionResult>();
+        _showPermissionDialog = true;
+        await InvokeAsync(StateHasChanged);
+        
+        return await _permissionTcs.Task;
+    }
+    
+    private void AllowPermission()
+    {
+        _logger.LogDebug($"AllowPermission called, _permissionTcs is {(_permissionTcs == null ? "null" : "set")}");
+        _showPermissionDialog = false;
+        var setResult = _permissionTcs?.TrySetResult(new ToolPermissionResult(true));
+        _logger.LogDebug($"AllowPermission: TrySetResult returned {setResult}");
+        _pendingPermissionRequest = null;
+        StateHasChanged();
+    }
+    
+    private void DenyPermission()
+    {
+        _logger.LogDebug($"DenyPermission called, _permissionTcs is {(_permissionTcs == null ? "null" : "set")}");
+        _showPermissionDialog = false;
+        var setResult = _permissionTcs?.TrySetResult(new ToolPermissionResult(false, "User denied permission"));
+        _logger.LogDebug($"DenyPermission: TrySetResult returned {setResult}");
+        _pendingPermissionRequest = null;
+        StateHasChanged();
+    }
+    
+    // UI helper methods
+    private void ToggleMessageCollapse(CopilotChatMessage msg)
+    {
+        msg.IsCollapsed = !msg.IsCollapsed;
+        StateHasChanged();
+    }
+    
+    private bool IsInternalTool(string? toolName)
+    {
+        if (string.IsNullOrEmpty(toolName)) return false;
+        // These tools are internal/noisy and shouldn't be shown in the UI
+        return toolName switch
+        {
+            "report_intent" => true,
+            "skill" => true,
+            "update_todo" => true, // TODO tracking tool
+            _ => false
+        };
+    }
+    
+    private string RenderMarkdown(string markdown)
+    {
+        if (string.IsNullOrEmpty(markdown)) return "";
+        try
+        {
+            return Markdown.ToHtml(markdown, MarkdownPipeline);
+        }
+        catch
+        {
+            return System.Web.HttpUtility.HtmlEncode(markdown);
+        }
+    }
+    
+    private string TruncateResult(string result, int maxLength = 1000)
+    {
+        if (string.IsNullOrEmpty(result)) return "";
+        if (result.Length <= maxLength) return result;
+        return result.Substring(0, maxLength) + "\n... (truncated)";
+    }
+    
+    private bool IsUnusableToolResult(string? content)
+    {
+        if (string.IsNullOrEmpty(content)) return true;
+        // Filter out SDK type names that aren't useful to display
+        if (content.StartsWith("GitHub.Copilot.SDK.")) return true;
+        if (content == "(no result)") return true;
+        return false;
+    }
+    
+    private string FormatToolName(string toolName)
+    {
+        if (string.IsNullOrEmpty(toolName)) return "";
+        // Convert snake_case to Title Case
+        return string.Join(" ", toolName.Split('_').Select(w => 
+            char.ToUpperInvariant(w[0]) + w.Substring(1).ToLowerInvariant()));
+    }
+    
+    private string GetToolIcon(string toolName)
+    {
+        // Note: Brand icons (apple, android) need "fab" class, others use "fas"
+        return toolName switch
+        {
+            var t when t.Contains("apple") || t.Contains("certificate") || t.Contains("profile") => "fa-apple",
+            var t when t.Contains("android") || t.Contains("emulator") || t.Contains("avd") => "fa-android",
+            var t when t.Contains("bundle") || t.Contains("package") => "fa-box",
+            var t when t.Contains("device") => "fa-mobile-alt",
+            var t when t.Contains("identity") => "fa-id-card",
+            var t when t.Contains("list") => "fa-list",
+            var t when t.Contains("create") || t.Contains("install") => "fa-plus-circle",
+            var t when t.Contains("delete") || t.Contains("uninstall") => "fa-trash",
+            var t when t.Contains("download") => "fa-download",
+            var t when t.Contains("sdk") || t.Contains("path") => "fa-folder-open",
+            _ => "fa-cog"
+        };
+    }
+    
+    private string GetToolIconClass(string toolName)
+    {
+        // Brand icons need "fab" class, others use "fas"
+        var isBrandIcon = toolName.Contains("apple") || toolName.Contains("android") 
+            || toolName.Contains("certificate") || toolName.Contains("profile")
+            || toolName.Contains("emulator") || toolName.Contains("avd");
+        return isBrandIcon ? "fab" : "fas";
+    }
+    
+    // Auto-scroll functionality
+    private async Task ScrollToBottomIfNeeded()
+    {
+        if (isAtBottom)
+        {
+            try
+            {
+                await JSRuntime.InvokeVoidAsync("copilotChat.scrollToBottom", chatMessagesRef);
+            }
+            catch { /* Ignore JS interop errors during disposal */ }
+        }
+    }
+    
+    private async Task ForceScrollToBottom()
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("copilotChat.scrollToBottom", chatMessagesRef);
+            isAtBottom = true;
+        }
+        catch { /* Ignore JS interop errors during disposal */ }
+    }
+    
+    private async Task CheckScrollPosition()
+    {
+        try
+        {
+            isAtBottom = await JSRuntime.InvokeAsync<bool>("copilotChat.isAtBottom", chatMessagesRef);
+        }
+        catch { /* Ignore JS interop errors */ }
+    }
+    
+    private async Task OnChatScroll()
+    {
+        await CheckScrollPosition();
+    }
+    
+    // Debug overlay methods
+    private void OnLogAdded()
+    {
+        InvokeAsync(async () =>
+        {
+            StateHasChanged();
+            if (showDebugOverlay)
+            {
+                await Task.Delay(10);
+                try
+                {
+                    await JSRuntime.InvokeVoidAsync("copilotChat.scrollDebugToBottom", debugContentRef);
+                }
+                catch { }
+            }
+        });
+    }
+    
+    private IEnumerable<LogEntry> GetFilteredLogs()
+    {
+        var logs = _logger.GetRecentLogs();
+        if (string.IsNullOrWhiteSpace(debugFilter))
+            return logs;
+        
+        var filter = debugFilter.Trim();
+        return logs.Where(l => 
+            l.Message.Contains(filter, StringComparison.OrdinalIgnoreCase) ||
+            l.Level.Contains(filter, StringComparison.OrdinalIgnoreCase));
+    }
+    
+    private string GetLogLevelClass(string level) => level switch
+    {
+        "DBG" => "log-dbg",
+        "INF" => "log-inf",
+        "WRN" => "log-wrn",
+        "ERR" => "log-err",
+        _ => ""
+    };
+    
+    private void ToggleDebugExpanded()
+    {
+        debugOverlayExpanded = !debugOverlayExpanded;
+    }
+    
+    private void ClearDebugLogs()
+    {
+        _logger.ClearLogs();
+        StateHasChanged();
+    }
+    
+    private async Task CopyFilteredLogs()
+    {
+        var logs = GetFilteredLogs();
+        var text = string.Join("\n", logs.Select(l => $"[{l.Timestamp:HH:mm:ss.fff}] [{l.Level}] {l.Message}"));
+        
+        try
+        {
+            var success = await JSRuntime.InvokeAsync<bool>("copilotChat.copyToClipboard", text);
+            if (success)
+            {
+                await AlertService.ShowToastAsync("Logs copied to clipboard");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError("Failed to copy logs", ex);
+        }
     }
 }

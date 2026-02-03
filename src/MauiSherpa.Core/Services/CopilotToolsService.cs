@@ -15,6 +15,9 @@ public class CopilotToolsService : ICopilotToolsService
     private readonly IAppleIdentityService _identityService;
     private readonly IAndroidSdkService _androidService;
     private readonly ILoggingService _logger;
+    
+    private readonly List<CopilotTool> _tools = new();
+    private readonly HashSet<string> _readOnlyToolNames = new();
 
     public CopilotToolsService(
         IAppleConnectService appleService,
@@ -28,91 +31,112 @@ public class CopilotToolsService : ICopilotToolsService
         _identityService = identityService;
         _androidService = androidService;
         _logger = logger;
+        
+        InitializeTools();
     }
-
+    
+    public IReadOnlyList<string> ReadOnlyToolNames => _readOnlyToolNames.ToList();
+    
     public IReadOnlyList<AIFunction> GetTools()
     {
-        var tools = new List<AIFunction>();
-
+        return _tools.Select(t => t.Function).ToList();
+    }
+    
+    public CopilotTool? GetTool(string name)
+    {
+        return _tools.FirstOrDefault(t => t.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+    }
+    
+    private void AddTool(AIFunction function, bool isReadOnly = false)
+    {
+        _tools.Add(new CopilotTool(function, isReadOnly));
+        if (isReadOnly)
+        {
+            _readOnlyToolNames.Add(function.Name);
+        }
+    }
+    
+    private void InitializeTools()
+    {
         // Apple Identity Tools
-        tools.Add(AIFunctionFactory.Create(ListAppleIdentitiesAsync, "list_apple_identities", 
-            "List all configured Apple Developer identities (App Store Connect API keys). Shows which one is currently selected."));
-        tools.Add(AIFunctionFactory.Create(GetCurrentAppleIdentity, "get_current_apple_identity", 
-            "Get the currently selected Apple Developer identity."));
-        tools.Add(AIFunctionFactory.Create(SelectAppleIdentityAsync, "select_apple_identity", 
-            "Select an Apple Developer identity by name or ID for subsequent operations."));
+        AddTool(AIFunctionFactory.Create(ListAppleIdentitiesAsync, "list_apple_identities", 
+            "List all configured Apple Developer identities (App Store Connect API keys). Shows which one is currently selected."), isReadOnly: true);
+        AddTool(AIFunctionFactory.Create(GetCurrentAppleIdentity, "get_current_apple_identity", 
+            "Get the currently selected Apple Developer identity."), isReadOnly: true);
+        AddTool(AIFunctionFactory.Create(SelectAppleIdentityAsync, "select_apple_identity", 
+            "Select an Apple Developer identity by name or ID for subsequent operations."), isReadOnly: false);
 
         // Bundle ID Tools
-        tools.Add(AIFunctionFactory.Create(ListBundleIdsAsync, "list_bundle_ids", 
-            "List all Bundle IDs (App IDs) for the current Apple Developer account. Optionally filter by search query."));
-        tools.Add(AIFunctionFactory.Create(CreateBundleIdAsync, "create_bundle_id", 
-            "Create a new Bundle ID (App ID) in App Store Connect."));
-        tools.Add(AIFunctionFactory.Create(DeleteBundleIdAsync, "delete_bundle_id", 
-            "Delete a Bundle ID from App Store Connect."));
+        AddTool(AIFunctionFactory.Create(ListBundleIdsAsync, "list_bundle_ids", 
+            "List all Bundle IDs (App IDs) for the current Apple Developer account. Optionally filter by search query."), isReadOnly: true);
+        AddTool(AIFunctionFactory.Create(CreateBundleIdAsync, "create_bundle_id", 
+            "Create a new Bundle ID (App ID) in App Store Connect. Supports explicit IDs (com.company.appname) or wildcard IDs (com.company.*). Platform should be 'IOS' or 'MAC_OS'."), isReadOnly: false);
+        AddTool(AIFunctionFactory.Create(GetAppIdPrefixesAsync, "get_app_id_prefixes", 
+            "Get the list of App ID Prefixes (Team IDs) available for your account. These are assigned by Apple and shown on Bundle IDs."), isReadOnly: true);
+        AddTool(AIFunctionFactory.Create(DeleteBundleIdAsync, "delete_bundle_id", 
+            "Delete a Bundle ID from App Store Connect."), isReadOnly: false);
 
         // Device Tools
-        tools.Add(AIFunctionFactory.Create(ListDevicesAsync, "list_devices", 
-            "List all registered Apple devices. Optionally filter by name or UDID."));
-        tools.Add(AIFunctionFactory.Create(RegisterDeviceAsync, "register_device", 
-            "Register a new device for development or ad-hoc distribution."));
-        tools.Add(AIFunctionFactory.Create(EnableDeviceAsync, "enable_device", 
-            "Enable a disabled device."));
-        tools.Add(AIFunctionFactory.Create(DisableDeviceAsync, "disable_device", 
-            "Disable a device (it will no longer be usable for development)."));
+        AddTool(AIFunctionFactory.Create(ListDevicesAsync, "list_devices", 
+            "List all registered Apple devices. Optionally filter by name or UDID."), isReadOnly: true);
+        AddTool(AIFunctionFactory.Create(RegisterDeviceAsync, "register_device", 
+            "Register a new device for development or ad-hoc distribution."), isReadOnly: false);
+        AddTool(AIFunctionFactory.Create(EnableDeviceAsync, "enable_device", 
+            "Enable a disabled device."), isReadOnly: false);
+        AddTool(AIFunctionFactory.Create(DisableDeviceAsync, "disable_device", 
+            "Disable a device (it will no longer be usable for development)."), isReadOnly: false);
 
         // Certificate Tools
-        tools.Add(AIFunctionFactory.Create(ListCertificatesAsync, "list_certificates", 
-            "List all signing certificates. Optionally filter by name or type (e.g., 'DEVELOPMENT', 'DISTRIBUTION')."));
-        tools.Add(AIFunctionFactory.Create(CreateCertificateAsync, "create_certificate", 
-            "Create a new signing certificate. The PFX file will be saved to your Downloads folder."));
-        tools.Add(AIFunctionFactory.Create(RevokeCertificateAsync, "revoke_certificate", 
-            "Revoke a signing certificate. This action cannot be undone."));
+        AddTool(AIFunctionFactory.Create(ListCertificatesAsync, "list_certificates", 
+            "List all signing certificates. Optionally filter by name or type (e.g., 'DEVELOPMENT', 'DISTRIBUTION')."), isReadOnly: true);
+        AddTool(AIFunctionFactory.Create(CreateCertificateAsync, "create_certificate", 
+            "Create a new signing certificate. The PFX file will be saved to your Downloads folder."), isReadOnly: false);
+        AddTool(AIFunctionFactory.Create(RevokeCertificateAsync, "revoke_certificate", 
+            "Revoke a signing certificate. This action cannot be undone."), isReadOnly: false);
 
         // Provisioning Profile Tools
-        tools.Add(AIFunctionFactory.Create(ListProvisioningProfilesAsync, "list_provisioning_profiles", 
-            "List all provisioning profiles. Optionally filter by name or bundle ID."));
-        tools.Add(AIFunctionFactory.Create(DownloadProvisioningProfileAsync, "download_provisioning_profile", 
-            "Download a provisioning profile to your Downloads folder."));
-        tools.Add(AIFunctionFactory.Create(InstallProvisioningProfileAsync, "install_provisioning_profile", 
-            "Install a provisioning profile to the system (~/Library/MobileDevice/Provisioning Profiles)."));
-        tools.Add(AIFunctionFactory.Create(InstallAllProvisioningProfilesAsync, "install_all_provisioning_profiles", 
-            "Install all valid (active, non-expired) provisioning profiles to the system."));
-        tools.Add(AIFunctionFactory.Create(DeleteProvisioningProfileAsync, "delete_provisioning_profile", 
-            "Delete a provisioning profile from App Store Connect."));
+        AddTool(AIFunctionFactory.Create(ListProvisioningProfilesAsync, "list_provisioning_profiles", 
+            "List all provisioning profiles. Optionally filter by name or bundle ID."), isReadOnly: true);
+        AddTool(AIFunctionFactory.Create(DownloadProvisioningProfileAsync, "download_provisioning_profile", 
+            "Download a provisioning profile to your Downloads folder."), isReadOnly: false);
+        AddTool(AIFunctionFactory.Create(InstallProvisioningProfileAsync, "install_provisioning_profile", 
+            "Install a provisioning profile to the system (~/Library/MobileDevice/Provisioning Profiles)."), isReadOnly: false);
+        AddTool(AIFunctionFactory.Create(InstallAllProvisioningProfilesAsync, "install_all_provisioning_profiles", 
+            "Install all valid (active, non-expired) provisioning profiles to the system."), isReadOnly: false);
+        AddTool(AIFunctionFactory.Create(DeleteProvisioningProfileAsync, "delete_provisioning_profile", 
+            "Delete a provisioning profile from App Store Connect."), isReadOnly: false);
 
         // Android SDK Tools
-        tools.Add(AIFunctionFactory.Create(GetAndroidSdkPath, "get_android_sdk_path", 
-            "Get the Android SDK installation path."));
-        tools.Add(AIFunctionFactory.Create(ListAndroidPackagesAsync, "list_android_packages", 
-            "List Android SDK packages. Can filter by installed, available, or search query."));
-        tools.Add(AIFunctionFactory.Create(InstallAndroidPackageAsync, "install_android_package", 
-            "Install an Android SDK package."));
-        tools.Add(AIFunctionFactory.Create(UninstallAndroidPackageAsync, "uninstall_android_package", 
-            "Uninstall an Android SDK package."));
+        AddTool(AIFunctionFactory.Create(GetAndroidSdkPathAsync, "get_android_sdk_path", 
+            "Get the Android SDK installation path."), isReadOnly: true);
+        AddTool(AIFunctionFactory.Create(ListAndroidPackagesAsync, "list_android_packages", 
+            "List Android SDK packages. Can filter by installed, available, or search query."), isReadOnly: true);
+        AddTool(AIFunctionFactory.Create(InstallAndroidPackageAsync, "install_android_package", 
+            "Install an Android SDK package."), isReadOnly: false);
+        AddTool(AIFunctionFactory.Create(UninstallAndroidPackageAsync, "uninstall_android_package", 
+            "Uninstall an Android SDK package."), isReadOnly: false);
 
         // Android Emulator/AVD Tools
-        tools.Add(AIFunctionFactory.Create(ListEmulatorsAsync, "list_emulators", 
-            "List all Android emulators (AVDs). Shows running status."));
-        tools.Add(AIFunctionFactory.Create(CreateEmulatorAsync, "create_emulator", 
-            "Create a new Android emulator (AVD)."));
-        tools.Add(AIFunctionFactory.Create(DeleteEmulatorAsync, "delete_emulator", 
-            "Delete an Android emulator (AVD)."));
-        tools.Add(AIFunctionFactory.Create(StartEmulatorAsync, "start_emulator", 
-            "Start an Android emulator."));
-        tools.Add(AIFunctionFactory.Create(StopEmulatorAsync, "stop_emulator", 
-            "Stop a running Android emulator."));
+        AddTool(AIFunctionFactory.Create(ListEmulatorsAsync, "list_emulators", 
+            "List all Android emulators (AVDs). Shows running status."), isReadOnly: true);
+        AddTool(AIFunctionFactory.Create(CreateEmulatorAsync, "create_emulator", 
+            "Create a new Android emulator (AVD)."), isReadOnly: false);
+        AddTool(AIFunctionFactory.Create(DeleteEmulatorAsync, "delete_emulator", 
+            "Delete an Android emulator (AVD)."), isReadOnly: false);
+        AddTool(AIFunctionFactory.Create(StartEmulatorAsync, "start_emulator", 
+            "Start an Android emulator."), isReadOnly: false);
+        AddTool(AIFunctionFactory.Create(StopEmulatorAsync, "stop_emulator", 
+            "Stop a running Android emulator."), isReadOnly: false);
 
         // Android Device Tools
-        tools.Add(AIFunctionFactory.Create(ListAndroidDevicesAsync, "list_android_devices", 
-            "List connected Android devices and running emulators."));
+        AddTool(AIFunctionFactory.Create(ListAndroidDevicesAsync, "list_android_devices", 
+            "List connected Android devices and running emulators."), isReadOnly: true);
 
         // Android System Images & Device Definitions
-        tools.Add(AIFunctionFactory.Create(ListSystemImagesAsync, "list_system_images", 
-            "List available Android system images for creating emulators."));
-        tools.Add(AIFunctionFactory.Create(ListDeviceDefinitionsAsync, "list_device_definitions", 
-            "List available device definitions for creating emulators."));
-
-        return tools;
+        AddTool(AIFunctionFactory.Create(ListSystemImagesAsync, "list_system_images", 
+            "List available Android system images for creating emulators."), isReadOnly: true);
+        AddTool(AIFunctionFactory.Create(ListDeviceDefinitionsAsync, "list_device_definitions", 
+            "List available device definitions for creating emulators."), isReadOnly: true);
     }
 
     private string? CheckIdentitySelected()
@@ -129,6 +153,7 @@ public class CopilotToolsService : ICopilotToolsService
     [Description("List all configured Apple Developer identities")]
     private async Task<string> ListAppleIdentitiesAsync()
     {
+        _logger.LogDebug("Tool: list_apple_identities called");
         var identities = await _identityService.GetIdentitiesAsync();
         if (!identities.Any())
         {
@@ -143,17 +168,21 @@ public class CopilotToolsService : ICopilotToolsService
             i.KeyId,
             IsSelected = current?.Id == i.Id
         });
+        _logger.LogDebug($"Tool: list_apple_identities returning {identities.Count()} identities");
         return JsonSerializer.Serialize(results, new JsonSerializerOptions { WriteIndented = true });
     }
 
     [Description("Get the currently selected Apple Developer identity")]
     private string GetCurrentAppleIdentity()
     {
+        _logger.LogDebug("Tool: get_current_apple_identity called");
         var identity = _identityState.SelectedIdentity;
         if (identity == null)
         {
+            _logger.LogDebug("Tool: get_current_apple_identity - no identity selected");
             return JsonSerializer.Serialize(new { Selected = false, Message = "No Apple Developer identity is currently selected." });
         }
+        _logger.LogDebug($"Tool: get_current_apple_identity - returning {identity.Name}");
         return JsonSerializer.Serialize(new
         {
             Selected = true,
@@ -168,6 +197,7 @@ public class CopilotToolsService : ICopilotToolsService
     private async Task<string> SelectAppleIdentityAsync(
         [Description("The name or ID of the Apple identity to select")] string identityNameOrId)
     {
+        _logger.LogDebug($"Tool: select_apple_identity called with: {identityNameOrId}");
         var identities = await _identityService.GetIdentitiesAsync();
         var identity = identities.FirstOrDefault(i =>
             i.Id.Equals(identityNameOrId, StringComparison.OrdinalIgnoreCase) ||
@@ -176,10 +206,12 @@ public class CopilotToolsService : ICopilotToolsService
         if (identity == null)
         {
             var available = string.Join(", ", identities.Select(i => i.Name));
+            _logger.LogWarning($"Tool: select_apple_identity - identity not found: {identityNameOrId}");
             return $"Identity '{identityNameOrId}' not found. Available identities: {available}";
         }
 
         _identityState.SetSelectedIdentity(identity);
+        _logger.LogInformation($"Tool: select_apple_identity - selected: {identity.Name}");
         return $"Selected Apple identity: {identity.Name}";
     }
 
@@ -217,29 +249,74 @@ public class CopilotToolsService : ICopilotToolsService
 
     [Description("Create a new Bundle ID in App Store Connect")]
     private async Task<string> CreateBundleIdAsync(
-        [Description("The bundle identifier (e.g., com.company.appname)")] string identifier,
+        [Description("The bundle identifier (e.g., 'com.company.appname' for explicit or 'com.company.*' for wildcard)")] string identifier,
         [Description("A descriptive name for the Bundle ID")] string name,
-        [Description("Platform: 'IOS' or 'MAC_OS'")] string platform)
+        [Description("Platform: 'IOS' for iPhone/iPad or 'MAC_OS' for Mac apps. Defaults to IOS.")] string platform = "IOS")
     {
         var error = CheckIdentitySelected();
         if (error != null) return error;
 
         try
         {
+            // Validate identifier format
+            if (string.IsNullOrWhiteSpace(identifier))
+            {
+                return JsonSerializer.Serialize(new { Success = false, Message = "Bundle identifier cannot be empty" });
+            }
+            
+            // Check for valid wildcard format
+            bool isWildcard = identifier.EndsWith(".*");
+            if (identifier.Contains("*") && !isWildcard)
+            {
+                return JsonSerializer.Serialize(new { Success = false, Message = "Wildcard bundle IDs must end with '.*' (e.g., 'com.company.*')" });
+            }
+            
             var result = await _appleService.CreateBundleIdAsync(identifier, name, platform.ToUpperInvariant());
             return JsonSerializer.Serialize(new
             {
                 Success = true,
-                Message = $"Created Bundle ID: {result.Identifier}",
+                Message = $"Created {(isWildcard ? "wildcard " : "")}Bundle ID: {result.Identifier}",
                 result.Id,
                 result.Identifier,
                 result.Name,
-                result.Platform
+                result.Platform,
+                result.SeedId,
+                IsWildcard = isWildcard
             }, new JsonSerializerOptions { WriteIndented = true });
         }
         catch (Exception ex)
         {
             return JsonSerializer.Serialize(new { Success = false, Message = $"Failed to create Bundle ID: {ex.Message}" });
+        }
+    }
+
+    [Description("Get the list of App ID Prefixes (Team IDs/Seed IDs) available for your account")]
+    private async Task<string> GetAppIdPrefixesAsync()
+    {
+        var error = CheckIdentitySelected();
+        if (error != null) return error;
+
+        try
+        {
+            // Get all bundle IDs and extract unique seed IDs
+            var bundleIds = await _appleService.GetBundleIdsAsync();
+            var prefixes = bundleIds
+                .Where(b => !string.IsNullOrEmpty(b.SeedId))
+                .Select(b => b.SeedId!)
+                .Distinct()
+                .ToList();
+            
+            return JsonSerializer.Serialize(new
+            {
+                Success = true,
+                Message = $"Found {prefixes.Count} App ID prefix(es)",
+                Prefixes = prefixes,
+                Note = "App ID Prefixes are assigned by Apple to your team. When creating a Bundle ID, Apple automatically assigns an appropriate prefix."
+            }, new JsonSerializerOptions { WriteIndented = true });
+        }
+        catch (Exception ex)
+        {
+            return JsonSerializer.Serialize(new { Success = false, Message = $"Failed to get App ID prefixes: {ex.Message}" });
         }
     }
 
@@ -673,12 +750,24 @@ public class CopilotToolsService : ICopilotToolsService
     }
 
     [Description("Get the Android SDK installation path")]
-    private string GetAndroidSdkPath()
+    private async Task<string> GetAndroidSdkPathAsync()
     {
+        _logger.LogDebug("Tool: get_android_sdk_path called");
+        
+        // Try to detect SDK if not already done
         if (!_androidService.IsSdkInstalled)
         {
-            return JsonSerializer.Serialize(new { Installed = false, Message = "Android SDK is not installed or not detected." });
+            _logger.LogDebug("Tool: get_android_sdk_path - SDK not detected, attempting detection...");
+            await _androidService.DetectSdkAsync();
         }
+        
+        if (!_androidService.IsSdkInstalled)
+        {
+            _logger.LogWarning("Tool: get_android_sdk_path - SDK not found");
+            return JsonSerializer.Serialize(new { Installed = false, Message = "Android SDK is not installed or not detected. Check ANDROID_HOME environment variable or install Android SDK." });
+        }
+        
+        _logger.LogDebug($"Tool: get_android_sdk_path - found at {_androidService.SdkPath}");
         return JsonSerializer.Serialize(new
         {
             Installed = true,

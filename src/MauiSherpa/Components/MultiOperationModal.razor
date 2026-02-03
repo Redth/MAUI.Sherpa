@@ -1,6 +1,8 @@
 @using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Core.Services
 @using MauiSherpa.Services
 @inject MultiOperationModalService ModalService
+@inject ICopilotContextService CopilotContext
 @implements IDisposable
 
 @if (ModalService.IsVisible)
@@ -158,6 +160,12 @@
                 }
                 else
                 {
+                    @if (FailedCount > 0)
+                    {
+                        <button class="btn btn-copilot" @onclick="HandleTryWithCopilot">
+                            <i class="fas fa-robot"></i> Try with Copilot
+                        </button>
+                    }
                     <button class="btn btn-primary" @onclick="HandleClose">
                         <i class="fas fa-check"></i> Close
                     </button>
@@ -473,6 +481,9 @@
 
     .btn-warning { background: #ed8936; color: white; }
     .btn-warning:hover:not(:disabled) { background: #dd6b20; }
+    
+    .btn-copilot { background: linear-gradient(135deg, #6366f1, #8b5cf6); color: white; display: inline-flex; align-items: center; gap: 8px; }
+    .btn-copilot:hover:not(:disabled) { background: linear-gradient(135deg, #4f46e5, #7c3aed); }
 </style>
 
 @code {
@@ -582,6 +593,36 @@
 
     private void HandleClose()
     {
+        ModalService.Close();
+    }
+    
+    private void HandleTryWithCopilot()
+    {
+        // Collect failed operations
+        var failedOps = ModalService.Operations
+            .Where(op => op.State == OperationItemState.Failed)
+            .ToList();
+        
+        var details = new System.Text.StringBuilder();
+        details.AppendLine($"Batch operation: {ModalService.Title}");
+        details.AppendLine($"Total: {ModalService.Operations.Count}, Failed: {FailedCount}, Completed: {CompletedCount}");
+        details.AppendLine();
+        details.AppendLine("Failed operations:");
+        
+        foreach (var op in failedOps)
+        {
+            details.AppendLine($"- {op.Name}: {op.ErrorMessage ?? "Unknown error"}");
+        }
+        
+        var context = CopilotContextService.BuildOperationFailureContext(
+            ModalService.Title ?? "Batch operation",
+            $"{FailedCount} operation(s) failed",
+            details.ToString()
+        );
+        
+        CopilotContext.OpenWithContext(context);
+        
+        // Close the modal
         ModalService.Close();
     }
 

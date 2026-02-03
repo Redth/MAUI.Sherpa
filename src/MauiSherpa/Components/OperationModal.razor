@@ -1,6 +1,8 @@
 @using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Core.Services
 @using MauiSherpa.Services
 @inject OperationModalService ModalService
+@inject ICopilotContextService CopilotContext
 @implements IDisposable
 
 @if (ModalService.IsVisible)
@@ -492,9 +494,28 @@
         ModalService.Close();
     }
 
-    private async Task HandleTryWithCopilot()
+    private void HandleTryWithCopilot()
     {
-        await ModalService.TryWithCopilotAsync();
+        // Get error details from log
+        var errorLogs = ModalService.LogEntries
+            .Where(e => e.Level == OperationLogLevel.Error)
+            .Select(e => e.Message)
+            .ToList();
+        
+        var lastError = errorLogs.LastOrDefault() ?? "Operation failed";
+        var allLogs = string.Join("\n", ModalService.LogEntries.Select(e => $"[{e.Level}] {e.Message}"));
+        
+        // Build context and open overlay
+        var context = CopilotContextService.BuildOperationFailureContext(
+            ModalService.Title ?? "Unknown operation",
+            lastError,
+            allLogs.Length > 2000 ? allLogs.Substring(0, 2000) + "..." : allLogs
+        );
+        
+        CopilotContext.OpenWithContext(context);
+        
+        // Close the modal - use HandleClose which handles proper cleanup
+        HandleClose();
     }
 
     private async Task CopyLog()

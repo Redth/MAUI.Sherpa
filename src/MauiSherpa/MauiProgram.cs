@@ -58,6 +58,7 @@ public static class MauiProgram
         builder.Services.AddSingleton<IDoctorService, DoctorService>();
         builder.Services.AddSingleton<ICopilotToolsService, CopilotToolsService>();
         builder.Services.AddSingleton<ICopilotService, CopilotService>();
+        builder.Services.AddSingleton<ICopilotContextService, CopilotContextService>();
         
         // Apple services
         builder.Services.AddSingleton<IAppleIdentityService, AppleIdentityService>();

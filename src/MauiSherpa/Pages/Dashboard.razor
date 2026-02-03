@@ -1,6 +1,8 @@
 @page "/"
 @using MauiSherpa.Core.ViewModels
+@using MauiSherpa.Core.Interfaces
 @inject DashboardViewModel ViewModel
+@inject ICopilotContextService CopilotContext
 
 <h1><i class="fas fa-home"></i> @ViewModel.Title</h1>
 <p class="welcome">@ViewModel.WelcomeMessage</p>
@@ -14,10 +16,10 @@
         <i class="fas fa-cog action-icon"></i>
         <span>Settings</span>
     </a>
-    <a href="copilot" class="action-btn copilot">
+    <button class="action-btn copilot" @onclick="OpenCopilot">
         <i class="fas fa-robot action-icon"></i>
         <span>Copilot</span>
-    </a>
+    </button>
 </div>
 
 <div class="dashboard-cards">
@@ -182,3 +184,10 @@
         opacity: 0.7;
     }
 </style>
+
+@code {
+    private void OpenCopilot()
+    {
+        CopilotContext.OpenOverlay();
+    }
+}

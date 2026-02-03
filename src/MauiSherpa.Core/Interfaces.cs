@@ -13,7 +13,13 @@ public interface ILoggingService
     void LogWarning(string message);
     void LogError(string message, Exception? exception = null);
     void LogDebug(string message);
+    
+    IReadOnlyList<LogEntry> GetRecentLogs(int maxCount = 500);
+    void ClearLogs();
+    event Action? OnLogAdded;
 }
+
+public record LogEntry(DateTime Timestamp, string Level, string Message);
 
 public interface INavigationService
 {
@@ -861,7 +867,7 @@ public interface ICopilotService
     /// Start a new chat session
     /// </summary>
     /// <param name="model">Optional model to use</param>
-    Task StartSessionAsync(string? model = null);
+    Task StartSessionAsync(string? model = null, string? systemPrompt = null);
     
     /// <summary>
     /// End the current chat session
@@ -910,6 +916,41 @@ public interface ICopilotService
     event Action<string, string>? OnToolComplete; // toolName, result
     
     /// <summary>
+    /// Event fired when reasoning/thinking starts
+    /// </summary>
+    event Action<string>? OnReasoningStart; // reasoningId
+    
+    /// <summary>
+    /// Event fired when reasoning delta is received
+    /// </summary>
+    event Action<string, string>? OnReasoningDelta; // reasoningId, content
+    
+    /// <summary>
+    /// Event fired when assistant turn starts
+    /// </summary>
+    event Action? OnTurnStart;
+    
+    /// <summary>
+    /// Event fired when assistant turn ends
+    /// </summary>
+    event Action? OnTurnEnd;
+    
+    /// <summary>
+    /// Event fired when assistant intent changes (what Copilot is currently doing)
+    /// </summary>
+    event Action<string>? OnIntentChanged;
+    
+    /// <summary>
+    /// Event fired when session usage info is updated
+    /// </summary>
+    event Action<CopilotUsageInfo>? OnUsageInfoChanged;
+    
+    /// <summary>
+    /// Event fired when a session error occurs
+    /// </summary>
+    event Action<CopilotSessionError>? OnSessionError;
+    
+    /// <summary>
     /// Chat messages in the current session
     /// </summary>
     IReadOnlyList<CopilotChatMessage> Messages { get; }
@@ -925,15 +966,132 @@ public interface ICopilotService
     void AddAssistantMessage(string content);
     
     /// <summary>
+    /// Add a reasoning/thinking message to the chat history
+    /// </summary>
+    void AddReasoningMessage(string reasoningId);
+    
+    /// <summary>
+    /// Update a reasoning message with additional content
+    /// </summary>
+    void UpdateReasoningMessage(string reasoningId, string content);
+    
+    /// <summary>
+    /// Mark a reasoning message as complete and collapse it
+    /// </summary>
+    void CompleteReasoningMessage(string? reasoningId = null);
+    
+    /// <summary>
+    /// Add a tool call message to the chat history
+    /// </summary>
+    void AddToolMessage(string toolName, string? toolCallId = null);
+    
+    /// <summary>
+    /// Mark a tool message as complete with result
+    /// </summary>
+    void CompleteToolMessage(string? toolName, string? toolCallId, bool success, string result);
+    
+    /// <summary>
+    /// Add an error message to the chat history
+    /// </summary>
+    void AddErrorMessage(CopilotChatMessage errorMessage);
+    
+    /// <summary>
     /// Clear all chat messages
     /// </summary>
     void ClearMessages();
+    
+    /// <summary>
+    /// Sets a delegate to handle permission requests for tool execution.
+    /// The delegate receives the tool name, description, and the default result.
+    /// Return the default result to accept default behavior, or a custom result to override.
+    /// </summary>
+    Func<ToolPermissionRequest, Task<ToolPermissionResult>>? PermissionHandler { get; set; }
 }
+
+/// <summary>
+/// Information about a tool permission request
+/// </summary>
+public record ToolPermissionRequest(
+    string ToolName,
+    string ToolDescription,
+    bool IsReadOnly,
+    ToolPermissionResult DefaultResult,
+    string? Command = null,
+    string? Path = null
+);
+
+/// <summary>
+/// Result of a tool permission request
+/// </summary>
+public record ToolPermissionResult(bool IsAllowed, string? DenialReason = null);
 
 /// <summary>
 /// A chat message in a Copilot conversation
 /// </summary>
-public record CopilotChatMessage(string Content, bool IsUser);
+public record CopilotChatMessage
+{
+    public string Content { get; set; } = "";
+    public bool IsUser { get; init; }
+    public CopilotMessageType MessageType { get; init; } = CopilotMessageType.Text;
+    public string? ToolName { get; init; }
+    public string? ToolCallId { get; init; }
+    public bool IsComplete { get; set; }
+    public bool IsSuccess { get; set; } = true;
+    public bool IsCollapsed { get; set; }
+    public string? ReasoningId { get; init; }
+    
+    // Simple constructor for backwards compatibility
+    public CopilotChatMessage(string content, bool isUser)
+    {
+        Content = content;
+        IsUser = isUser;
+        MessageType = CopilotMessageType.Text;
+        IsComplete = true;
+    }
+    
+    // Full constructor
+    public CopilotChatMessage(string content, bool isUser, CopilotMessageType messageType, string? toolName = null, string? reasoningId = null, string? toolCallId = null)
+    {
+        Content = content;
+        IsUser = isUser;
+        MessageType = messageType;
+        ToolName = toolName;
+        ReasoningId = reasoningId;
+        ToolCallId = toolCallId;
+        IsComplete = messageType == CopilotMessageType.Text;
+    }
+}
+
+/// <summary>
+/// Type of Copilot chat message
+/// </summary>
+public enum CopilotMessageType
+{
+    Text,
+    Reasoning,
+    ToolCall,
+    Error
+}
+
+/// <summary>
+/// Session usage information from Copilot
+/// </summary>
+public record CopilotUsageInfo(
+    string? Model,
+    int? CurrentTokens,
+    int? TokenLimit,
+    int? InputTokens,
+    int? OutputTokens
+);
+
+/// <summary>
+/// Session error information from Copilot
+/// </summary>
+public record CopilotSessionError(
+    string Message,
+    string? Code,
+    string? Details
+);
 
 /// <summary>
 /// Result of checking Copilot CLI availability
@@ -947,6 +1105,100 @@ public record CopilotAvailability(
 );
 
 /// <summary>
+/// Context for a Copilot assistance request
+/// </summary>
+public record CopilotContext(
+    string Title,
+    string Message,
+    CopilotContextType Type = CopilotContextType.General,
+    string? OperationName = null,
+    string? ErrorMessage = null,
+    string? Details = null,
+    int? ExitCode = null
+);
+
+/// <summary>
+/// Type of Copilot context request
+/// </summary>
+public enum CopilotContextType
+{
+    General,
+    EnvironmentFix,
+    OperationFailure,
+    ProcessFailure
+}
+
+/// <summary>
+/// Service for managing the global Copilot overlay
+/// </summary>
+public interface ICopilotContextService
+{
+    /// <summary>
+    /// Whether the Copilot overlay is currently open
+    /// </summary>
+    bool IsOverlayOpen { get; }
+    
+    /// <summary>
+    /// Open the Copilot overlay without sending a message
+    /// </summary>
+    void OpenOverlay();
+    
+    /// <summary>
+    /// Close the Copilot overlay
+    /// </summary>
+    void CloseOverlay();
+    
+    /// <summary>
+    /// Toggle the Copilot overlay open/closed
+    /// </summary>
+    void ToggleOverlay();
+    
+    /// <summary>
+    /// Open the overlay and send a simple message
+    /// </summary>
+    void OpenWithMessage(string message);
+    
+    /// <summary>
+    /// Open the overlay and send a context-aware message
+    /// </summary>
+    void OpenWithContext(CopilotContext context);
+    
+    /// <summary>
+    /// Event fired when overlay open is requested
+    /// </summary>
+    event Action? OnOpenRequested;
+    
+    /// <summary>
+    /// Event fired when overlay close is requested
+    /// </summary>
+    event Action? OnCloseRequested;
+    
+    /// <summary>
+    /// Event fired when a message should be sent
+    /// </summary>
+    event Action<string>? OnMessageRequested;
+    
+    /// <summary>
+    /// Event fired when a context message should be sent
+    /// </summary>
+    event Action<CopilotContext>? OnContextRequested;
+    
+    /// <summary>
+    /// Notify that the overlay state changed (called by overlay component)
+    /// </summary>
+    void NotifyOverlayStateChanged(bool isOpen);
+}
+
+/// <summary>
+/// Represents a Copilot tool with metadata
+/// </summary>
+public record CopilotTool(Microsoft.Extensions.AI.AIFunction Function, bool IsReadOnly = false)
+{
+    public string Name => Function.Name;
+    public string Description => Function.Description ?? string.Empty;
+}
+
+/// <summary>
 /// Service that provides Copilot SDK tool definitions for Apple Developer operations
 /// </summary>
 public interface ICopilotToolsService
@@ -955,6 +1207,16 @@ public interface ICopilotToolsService
     /// Gets all tool definitions for use in Copilot sessions
     /// </summary>
     IReadOnlyList<Microsoft.Extensions.AI.AIFunction> GetTools();
+    
+    /// <summary>
+    /// Gets a specific tool by name
+    /// </summary>
+    CopilotTool? GetTool(string name);
+    
+    /// <summary>
+    /// Gets the names of all read-only tools
+    /// </summary>
+    IReadOnlyList<string> ReadOnlyToolNames { get; }
 }
 
 /// <summary>

@@ -1,0 +1,308 @@
+@using MauiSherpa.Core.Interfaces
+@inject ICopilotContextService ContextService
+@inject ICopilotService CopilotService
+@inject ILoggingService Logger
+@implements IDisposable
+
+@* Floating Copilot Button - stays visible when open, acts as minimize button *@
+<button class="copilot-fab @(isOpen ? "overlay-open" : "")" 
+        @onclick="ToggleOverlay"
+        title="@(isOpen ? "Minimize Copilot" : "Open Copilot")">
+    <i class="fas @(isOpen ? "fa-chevron-down" : "fa-robot")"></i>
+</button>
+
+@* Overlay *@
+@if (isOpen)
+{
+    <div class="copilot-overlay-backdrop" @onclick="CloseOverlay">
+        <div class="copilot-overlay @(isClosing ? "closing" : "")" @onclick:stopPropagation="true">
+            <div class="overlay-header">
+                <div class="header-title">
+                    <i class="fas fa-robot"></i>
+                    <span>GitHub Copilot</span>
+                    @if (CopilotService.IsConnected)
+                    {
+                        <span class="status-badge connected">Connected</span>
+                    }
+                    else
+                    {
+                        <span class="status-badge disconnected">Disconnected</span>
+                    }
+                </div>
+                <button class="btn-minimize-overlay" @onclick="CloseOverlay" title="Minimize">
+                    <i class="fas fa-chevron-down"></i>
+                </button>
+            </div>
+            <div class="overlay-content">
+                <MauiSherpa.Pages.Copilot 
+                    IsEmbedded="true"
+                    PendingMessage="@pendingMessage"
+                    PendingContext="@pendingContext"
+                    OnPendingHandled="ClearPending"
+                    OnReady="OnChatReady" />
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    /* Floating Action Button */
+    .copilot-fab {
+        position: fixed;
+        bottom: 24px;
+        left: 24px;
+        width: 56px;
+        height: 56px;
+        border-radius: 50%;
+        border: none;
+        background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+        color: white;
+        font-size: 24px;
+        cursor: pointer;
+        box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+        transition: all 0.3s ease;
+        z-index: 10001; /* Above overlay */
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    
+    .copilot-fab:hover {
+        transform: scale(1.1);
+        box-shadow: 0 6px 20px rgba(99, 102, 241, 0.5);
+    }
+    
+    .copilot-fab.overlay-open {
+        background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+        box-shadow: 0 4px 12px rgba(79, 70, 229, 0.5);
+    }
+    
+    .copilot-fab.overlay-open:hover {
+        transform: scale(1.1) translateY(2px);
+    }
+    
+
+    
+    /* Overlay Backdrop */
+    .copilot-overlay-backdrop {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.5);
+        backdrop-filter: blur(4px);
+        z-index: 10000;
+        display: flex;
+        align-items: flex-end;
+        justify-content: flex-start;
+        padding: 100px 40px 100px 100px; /* top right bottom left - offset from FAB */
+        animation: fadeIn 0.2s ease;
+    }
+    
+    @@keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+    }
+    
+    /* Overlay Container */
+    .copilot-overlay {
+        width: calc(100vw - 160px);
+        max-width: 900px;
+        height: calc(100vh - 100px);
+        max-height: 800px;
+        background: var(--card-bg, #ffffff);
+        border-radius: 16px;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        transform-origin: bottom left;
+        animation: expandFromCorner 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+    
+    .copilot-overlay.closing {
+        animation: collapseToCorner 0.25s ease-in forwards;
+    }
+    
+    @@keyframes expandFromCorner {
+        from { 
+            opacity: 0;
+            transform: scale(0.3) translateX(-20px) translateY(20px);
+        }
+        to { 
+            opacity: 1;
+            transform: scale(1) translateX(0) translateY(0);
+        }
+    }
+    
+    @@keyframes collapseToCorner {
+        from { 
+            opacity: 1;
+            transform: scale(1) translateX(0) translateY(0);
+        }
+        to { 
+            opacity: 0;
+            transform: scale(0.3) translateX(-20px) translateY(20px);
+        }
+    }
+    
+    /* Overlay Header */
+    .overlay-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 16px 20px;
+        background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+        color: white;
+    }
+    
+    .header-title {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-size: 18px;
+        font-weight: 600;
+    }
+    
+    .header-title i {
+        font-size: 24px;
+    }
+    
+    .status-badge {
+        font-size: 11px;
+        padding: 4px 8px;
+        border-radius: 12px;
+        font-weight: 500;
+    }
+    
+    .status-badge.connected {
+        background: rgba(52, 211, 153, 0.3);
+        color: #a7f3d0;
+    }
+    
+    .status-badge.disconnected {
+        background: rgba(251, 191, 36, 0.3);
+        color: #fde68a;
+    }
+    
+    .btn-minimize-overlay {
+        background: rgba(255, 255, 255, 0.2);
+        border: none;
+        color: white;
+        width: 36px;
+        height: 36px;
+        border-radius: 8px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.2s;
+    }
+    
+    .btn-minimize-overlay:hover {
+        background: rgba(255, 255, 255, 0.3);
+        transform: translateY(2px);
+    }
+    
+    /* Overlay Content */
+    .overlay-content {
+        flex: 1;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+    }
+    
+    /* Dark mode */
+    :root.dark .copilot-overlay {
+        background: var(--card-bg, #2d3748);
+    }
+</style>
+
+@code {
+    private bool isOpen = false;
+    private bool isClosing = false;
+    private string? pendingMessage;
+    private CopilotContext? pendingContext;
+    private bool chatReady = false;
+    
+    protected override void OnInitialized()
+    {
+        ContextService.OnOpenRequested += HandleOpenRequested;
+        ContextService.OnCloseRequested += HandleCloseRequested;
+        ContextService.OnMessageRequested += HandleMessageRequested;
+        ContextService.OnContextRequested += HandleContextRequested;
+    }
+    
+    public void Dispose()
+    {
+        ContextService.OnOpenRequested -= HandleOpenRequested;
+        ContextService.OnCloseRequested -= HandleCloseRequested;
+        ContextService.OnMessageRequested -= HandleMessageRequested;
+        ContextService.OnContextRequested -= HandleContextRequested;
+    }
+    
+    private void HandleOpenRequested()
+    {
+        isClosing = false;
+        isOpen = true;
+        ContextService.NotifyOverlayStateChanged(true);
+        InvokeAsync(StateHasChanged);
+    }
+    
+    private void HandleCloseRequested()
+    {
+        CloseOverlay();
+    }
+    
+    private void HandleMessageRequested(string message)
+    {
+        pendingMessage = message;
+        pendingContext = null;
+        InvokeAsync(StateHasChanged);
+    }
+    
+    private void HandleContextRequested(CopilotContext context)
+    {
+        pendingContext = context;
+        pendingMessage = null;
+        InvokeAsync(StateHasChanged);
+    }
+    
+    private void ToggleOverlay()
+    {
+        if (isOpen)
+            CloseOverlay();
+        else
+            OpenOverlay();
+    }
+    
+    private void OpenOverlay()
+    {
+        isClosing = false;
+        isOpen = true;
+        ContextService.NotifyOverlayStateChanged(true);
+    }
+    
+    private async void CloseOverlay()
+    {
+        isClosing = true;
+        StateHasChanged();
+        
+        // Wait for animation to complete
+        await Task.Delay(250);
+        
+        isOpen = false;
+        isClosing = false;
+        ContextService.NotifyOverlayStateChanged(false);
+        await InvokeAsync(StateHasChanged);
+    }
+    
+    private void OnChatReady()
+    {
+        chatReady = true;
+    }
+    
+    private void ClearPending()
+    {
+        pendingMessage = null;
+        pendingContext = null;
+    }
+}
