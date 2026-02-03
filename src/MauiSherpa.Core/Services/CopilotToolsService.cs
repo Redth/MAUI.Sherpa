@@ -15,6 +15,8 @@ public class CopilotToolsService : ICopilotToolsService
     private readonly IAppleIdentityService _identityService;
     private readonly IAndroidSdkService _androidService;
     private readonly ILoggingService _logger;
+    
+    private List<CopilotTool>? _tools;
 
     public CopilotToolsService(
         IAppleConnectService appleService,
@@ -30,89 +32,122 @@ public class CopilotToolsService : ICopilotToolsService
         _logger = logger;
     }
 
-    public IReadOnlyList<AIFunction> GetTools()
+    public IReadOnlySet<string> ReadOnlyToolNames => _tools == null 
+        ? new HashSet<string>() 
+        : _tools.Where(t => t.IsReadOnly).Select(t => t.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    public CopilotTool? GetTool(string name)
     {
-        var tools = new List<AIFunction>();
+        var tools = GetTools(); // Ensure tools are initialized
+        return tools.FirstOrDefault(t => t.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+    }
+
+    public IReadOnlyList<CopilotTool> GetTools()
+    {
+        if (_tools != null) return _tools;
+        
+        _tools = new List<CopilotTool>();
 
         // Apple Identity Tools
-        tools.Add(AIFunctionFactory.Create(ListAppleIdentitiesAsync, "list_apple_identities", 
-            "List all configured Apple Developer identities (App Store Connect API keys). Shows which one is currently selected."));
-        tools.Add(AIFunctionFactory.Create(GetCurrentAppleIdentity, "get_current_apple_identity", 
-            "Get the currently selected Apple Developer identity."));
-        tools.Add(AIFunctionFactory.Create(SelectAppleIdentityAsync, "select_apple_identity", 
+        _tools.Add(Tool(ListAppleIdentitiesAsync, "list_apple_identities", 
+            "List all configured Apple Developer identities (App Store Connect API keys). Shows which one is currently selected.", 
+            readOnly: true));
+        _tools.Add(Tool(GetCurrentAppleIdentity, "get_current_apple_identity", 
+            "Get the currently selected Apple Developer identity.", 
+            readOnly: true));
+        _tools.Add(Tool(SelectAppleIdentityAsync, "select_apple_identity", 
             "Select an Apple Developer identity by name or ID for subsequent operations."));
 
         // Bundle ID Tools
-        tools.Add(AIFunctionFactory.Create(ListBundleIdsAsync, "list_bundle_ids", 
-            "List all Bundle IDs (App IDs) for the current Apple Developer account. Optionally filter by search query."));
-        tools.Add(AIFunctionFactory.Create(CreateBundleIdAsync, "create_bundle_id", 
+        _tools.Add(Tool(ListBundleIdsAsync, "list_bundle_ids", 
+            "List all Bundle IDs (App IDs) for the current Apple Developer account. Optionally filter by search query.", 
+            readOnly: true));
+        _tools.Add(Tool(CreateBundleIdAsync, "create_bundle_id", 
             "Create a new Bundle ID (App ID) in App Store Connect."));
-        tools.Add(AIFunctionFactory.Create(DeleteBundleIdAsync, "delete_bundle_id", 
+        _tools.Add(Tool(DeleteBundleIdAsync, "delete_bundle_id", 
             "Delete a Bundle ID from App Store Connect."));
 
         // Device Tools
-        tools.Add(AIFunctionFactory.Create(ListDevicesAsync, "list_devices", 
-            "List all registered Apple devices. Optionally filter by name or UDID."));
-        tools.Add(AIFunctionFactory.Create(RegisterDeviceAsync, "register_device", 
+        _tools.Add(Tool(ListDevicesAsync, "list_devices", 
+            "List all registered Apple devices. Optionally filter by name or UDID.", 
+            readOnly: true));
+        _tools.Add(Tool(RegisterDeviceAsync, "register_device", 
             "Register a new device for development or ad-hoc distribution."));
-        tools.Add(AIFunctionFactory.Create(EnableDeviceAsync, "enable_device", 
+        _tools.Add(Tool(EnableDeviceAsync, "enable_device", 
             "Enable a disabled device."));
-        tools.Add(AIFunctionFactory.Create(DisableDeviceAsync, "disable_device", 
+        _tools.Add(Tool(DisableDeviceAsync, "disable_device", 
             "Disable a device (it will no longer be usable for development)."));
 
         // Certificate Tools
-        tools.Add(AIFunctionFactory.Create(ListCertificatesAsync, "list_certificates", 
-            "List all signing certificates. Optionally filter by name or type (e.g., 'DEVELOPMENT', 'DISTRIBUTION')."));
-        tools.Add(AIFunctionFactory.Create(CreateCertificateAsync, "create_certificate", 
+        _tools.Add(Tool(ListCertificatesAsync, "list_certificates", 
+            "List all signing certificates. Optionally filter by name or type (e.g., 'DEVELOPMENT', 'DISTRIBUTION').", 
+            readOnly: true));
+        _tools.Add(Tool(CreateCertificateAsync, "create_certificate", 
             "Create a new signing certificate. The PFX file will be saved to your Downloads folder."));
-        tools.Add(AIFunctionFactory.Create(RevokeCertificateAsync, "revoke_certificate", 
+        _tools.Add(Tool(RevokeCertificateAsync, "revoke_certificate", 
             "Revoke a signing certificate. This action cannot be undone."));
 
         // Provisioning Profile Tools
-        tools.Add(AIFunctionFactory.Create(ListProvisioningProfilesAsync, "list_provisioning_profiles", 
-            "List all provisioning profiles. Optionally filter by name or bundle ID."));
-        tools.Add(AIFunctionFactory.Create(DownloadProvisioningProfileAsync, "download_provisioning_profile", 
+        _tools.Add(Tool(ListProvisioningProfilesAsync, "list_provisioning_profiles", 
+            "List all provisioning profiles. Optionally filter by name or bundle ID.", 
+            readOnly: true));
+        _tools.Add(Tool(DownloadProvisioningProfileAsync, "download_provisioning_profile", 
             "Download a provisioning profile to your Downloads folder."));
-        tools.Add(AIFunctionFactory.Create(InstallProvisioningProfileAsync, "install_provisioning_profile", 
+        _tools.Add(Tool(InstallProvisioningProfileAsync, "install_provisioning_profile", 
             "Install a provisioning profile to the system (~/Library/MobileDevice/Provisioning Profiles)."));
-        tools.Add(AIFunctionFactory.Create(InstallAllProvisioningProfilesAsync, "install_all_provisioning_profiles", 
+        _tools.Add(Tool(InstallAllProvisioningProfilesAsync, "install_all_provisioning_profiles", 
             "Install all valid (active, non-expired) provisioning profiles to the system."));
-        tools.Add(AIFunctionFactory.Create(DeleteProvisioningProfileAsync, "delete_provisioning_profile", 
+        _tools.Add(Tool(DeleteProvisioningProfileAsync, "delete_provisioning_profile", 
             "Delete a provisioning profile from App Store Connect."));
 
         // Android SDK Tools
-        tools.Add(AIFunctionFactory.Create(GetAndroidSdkPath, "get_android_sdk_path", 
-            "Get the Android SDK installation path."));
-        tools.Add(AIFunctionFactory.Create(ListAndroidPackagesAsync, "list_android_packages", 
-            "List Android SDK packages. Can filter by installed, available, or search query."));
-        tools.Add(AIFunctionFactory.Create(InstallAndroidPackageAsync, "install_android_package", 
+        _tools.Add(Tool(GetAndroidSdkPath, "get_android_sdk_path", 
+            "Get the Android SDK installation path.", 
+            readOnly: true));
+        _tools.Add(Tool(ListAndroidPackagesAsync, "list_android_packages", 
+            "List Android SDK packages. Can filter by installed, available, or search query.", 
+            readOnly: true));
+        _tools.Add(Tool(InstallAndroidPackageAsync, "install_android_package", 
             "Install an Android SDK package."));
-        tools.Add(AIFunctionFactory.Create(UninstallAndroidPackageAsync, "uninstall_android_package", 
+        _tools.Add(Tool(UninstallAndroidPackageAsync, "uninstall_android_package", 
             "Uninstall an Android SDK package."));
 
         // Android Emulator/AVD Tools
-        tools.Add(AIFunctionFactory.Create(ListEmulatorsAsync, "list_emulators", 
-            "List all Android emulators (AVDs). Shows running status."));
-        tools.Add(AIFunctionFactory.Create(CreateEmulatorAsync, "create_emulator", 
+        _tools.Add(Tool(ListEmulatorsAsync, "list_emulators", 
+            "List all Android emulators (AVDs). Shows running status.", 
+            readOnly: true));
+        _tools.Add(Tool(CreateEmulatorAsync, "create_emulator", 
             "Create a new Android emulator (AVD)."));
-        tools.Add(AIFunctionFactory.Create(DeleteEmulatorAsync, "delete_emulator", 
+        _tools.Add(Tool(DeleteEmulatorAsync, "delete_emulator", 
             "Delete an Android emulator (AVD)."));
-        tools.Add(AIFunctionFactory.Create(StartEmulatorAsync, "start_emulator", 
+        _tools.Add(Tool(StartEmulatorAsync, "start_emulator", 
             "Start an Android emulator."));
-        tools.Add(AIFunctionFactory.Create(StopEmulatorAsync, "stop_emulator", 
+        _tools.Add(Tool(StopEmulatorAsync, "stop_emulator", 
             "Stop a running Android emulator."));
 
         // Android Device Tools
-        tools.Add(AIFunctionFactory.Create(ListAndroidDevicesAsync, "list_android_devices", 
-            "List connected Android devices and running emulators."));
+        _tools.Add(Tool(ListAndroidDevicesAsync, "list_android_devices", 
+            "List connected Android devices and running emulators.", 
+            readOnly: true));
 
         // Android System Images & Device Definitions
-        tools.Add(AIFunctionFactory.Create(ListSystemImagesAsync, "list_system_images", 
-            "List available Android system images for creating emulators."));
-        tools.Add(AIFunctionFactory.Create(ListDeviceDefinitionsAsync, "list_device_definitions", 
-            "List available device definitions for creating emulators."));
+        _tools.Add(Tool(ListSystemImagesAsync, "list_system_images", 
+            "List available Android system images for creating emulators.", 
+            readOnly: true));
+        _tools.Add(Tool(ListDeviceDefinitionsAsync, "list_device_definitions", 
+            "List available device definitions for creating emulators.", 
+            readOnly: true));
 
-        return tools;
+        return _tools;
+    }
+    
+    /// <summary>
+    /// Helper to create a CopilotTool with the given metadata
+    /// </summary>
+    private static CopilotTool Tool(Delegate method, string name, string description, bool readOnly = false)
+    {
+        var function = AIFunctionFactory.Create(method, name, description);
+        return new CopilotTool(function, readOnly);
     }
 
     private string? CheckIdentitySelected()

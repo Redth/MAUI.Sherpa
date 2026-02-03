@@ -22,6 +22,11 @@ public class CopilotService : ICopilotService, IAsyncDisposable
     public string? CurrentSessionId => _session?.SessionId;
     public IReadOnlyList<CopilotChatMessage> Messages => _messages.AsReadOnly();
     public CopilotAvailability? CachedAvailability => _cachedAvailability;
+    
+    /// <summary>
+    /// Optional handler for permission requests. If not set, uses default behavior.
+    /// </summary>
+    public Func<ToolPermissionRequest, Task<ToolPermissionResult>>? PermissionHandler { get; set; }
 
     public event Action<string>? OnAssistantMessage;
     public event Action<string>? OnAssistantDelta;
@@ -251,14 +256,75 @@ public class CopilotService : ICopilotService, IAsyncDisposable
             _logger.LogInformation($"Starting Copilot session with model: {model ?? "default"}");
             
             // Get tools from tools service
-            var tools = _toolsService.GetTools();
-            _logger.LogInformation($"Registering {tools.Count} tools with Copilot session");
+            var copilotTools = _toolsService.GetTools();
+            var readOnlyTools = _toolsService.ReadOnlyToolNames;
+            _logger.LogInformation($"Registering {copilotTools.Count} tools with Copilot session ({readOnlyTools.Count} read-only)");
             
             var config = new SessionConfig
             {
-                Model = model ?? "gpt-5",
+                Model = model ?? "anthropic/claude-opus-4.5",
                 Streaming = true,
-                Tools = tools.ToList()
+                Tools = copilotTools.Select(t => t.Function).ToList(),
+                OnPermissionRequest = async (request, invocation) =>
+                {
+                    // Extract tool name from request
+                    string? toolName = null;
+                    if (request.ExtensionData != null && 
+                        request.ExtensionData.TryGetValue("toolName", out var toolNameObj))
+                    {
+                        toolName = toolNameObj as string;
+                    }
+                    
+                    // Get tool metadata
+                    var tool = toolName != null ? _toolsService.GetTool(toolName) : null;
+                    var isReadOnly = tool?.IsReadOnly ?? false;
+                    var description = tool?.Description ?? "";
+                    
+                    // Determine default result based on whether tool is read-only
+                    var defaultResult = new ToolPermissionResult(IsAllowed: true);
+                    
+                    // If we have a permission handler, let it decide
+                    if (PermissionHandler != null && toolName != null)
+                    {
+                        var permissionRequest = new ToolPermissionRequest(
+                            ToolName: toolName,
+                            ToolDescription: description,
+                            IsReadOnly: isReadOnly,
+                            DefaultResult: defaultResult
+                        );
+                        
+                        try
+                        {
+                            var result = await PermissionHandler(permissionRequest);
+                            _logger.LogDebug($"Permission handler returned: {(result.IsAllowed ? "allow" : "deny")} for tool: {toolName}");
+                            
+                            if (result.IsAllowed)
+                            {
+                                return new PermissionRequestResult { Kind = "allow" };
+                            }
+                            else
+                            {
+                                return new PermissionRequestResult { Kind = "deny" };
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError($"Permission handler threw exception: {ex.Message}", ex);
+                            // Fall through to default behavior on error
+                        }
+                    }
+                    
+                    // Default behavior: auto-approve read-only tools, allow others
+                    if (isReadOnly)
+                    {
+                        _logger.LogDebug($"Auto-approving read-only tool: {toolName}");
+                    }
+                    else
+                    {
+                        _logger.LogDebug($"Allowing tool execution for: {toolName ?? request.Kind}");
+                    }
+                    return new PermissionRequestResult { Kind = "allow" };
+                }
             };
 
             _session = await _client.CreateSessionAsync(config);

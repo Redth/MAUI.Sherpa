@@ -928,7 +928,29 @@ public interface ICopilotService
     /// Clear all chat messages
     /// </summary>
     void ClearMessages();
+    
+    /// <summary>
+    /// Sets a delegate to handle permission requests for tool execution.
+    /// The delegate receives the tool name, description, and the default result.
+    /// Return the default result to accept default behavior, or a custom result to override.
+    /// </summary>
+    Func<ToolPermissionRequest, Task<ToolPermissionResult>>? PermissionHandler { get; set; }
 }
+
+/// <summary>
+/// Information about a tool permission request
+/// </summary>
+public record ToolPermissionRequest(
+    string ToolName,
+    string ToolDescription,
+    bool IsReadOnly,
+    ToolPermissionResult DefaultResult
+);
+
+/// <summary>
+/// Result of a tool permission request
+/// </summary>
+public record ToolPermissionResult(bool IsAllowed, string? DenialReason = null);
 
 /// <summary>
 /// A chat message in a Copilot conversation
@@ -947,12 +969,40 @@ public record CopilotAvailability(
 );
 
 /// <summary>
+/// Represents a Copilot tool with its function and metadata
+/// </summary>
+/// <param name="Function">The AI function definition</param>
+/// <param name="IsReadOnly">Whether this tool is read-only and doesn't require user permission</param>
+public record CopilotTool(Microsoft.Extensions.AI.AIFunction Function, bool IsReadOnly = false)
+{
+    /// <summary>
+    /// Gets the tool name from the underlying function
+    /// </summary>
+    public string Name => Function.Name;
+    
+    /// <summary>
+    /// Gets the tool description from the underlying function
+    /// </summary>
+    public string Description => Function.Description ?? string.Empty;
+}
+
+/// <summary>
 /// Service that provides Copilot SDK tool definitions for Apple Developer operations
 /// </summary>
 public interface ICopilotToolsService
 {
     /// <summary>
-    /// Gets all tool definitions for use in Copilot sessions
+    /// Gets all tool definitions with metadata for use in Copilot sessions
     /// </summary>
-    IReadOnlyList<Microsoft.Extensions.AI.AIFunction> GetTools();
+    IReadOnlyList<CopilotTool> GetTools();
+    
+    /// <summary>
+    /// Gets the names of tools that are read-only and don't require permission
+    /// </summary>
+    IReadOnlySet<string> ReadOnlyToolNames { get; }
+    
+    /// <summary>
+    /// Gets a tool by name, or null if not found
+    /// </summary>
+    CopilotTool? GetTool(string name);
 }

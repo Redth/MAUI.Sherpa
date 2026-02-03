@@ -228,6 +228,44 @@ else
     }
 }
 
+<!-- Permission Request Modal -->
+@if (showPermissionDialog && pendingPermissionRequest != null)
+{
+    <div class="permission-modal-overlay">
+        <div class="permission-modal">
+            <div class="permission-modal-header">
+                <i class="fas fa-shield-alt"></i>
+                <h3>Permission Required</h3>
+            </div>
+            <div class="permission-modal-body">
+                <p>Copilot wants to run the following tool:</p>
+                <div class="tool-info">
+                    <div class="tool-name">
+                        <i class="fas fa-cog"></i>
+                        <strong>@FormatToolName(pendingPermissionRequest.ToolName)</strong>
+                    </div>
+                    @if (!string.IsNullOrEmpty(pendingPermissionRequest.ToolDescription))
+                    {
+                        <p class="tool-description">@pendingPermissionRequest.ToolDescription</p>
+                    }
+                </div>
+                <p class="permission-warning">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    This action may modify your system or account.
+                </p>
+            </div>
+            <div class="permission-modal-footer">
+                <button class="btn btn-secondary" @onclick="DenyPermission">
+                    <i class="fas fa-times"></i> Deny
+                </button>
+                <button class="btn btn-primary" @onclick="AllowPermission">
+                    <i class="fas fa-check"></i> Allow
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
 <style>
     h1 {
         margin-bottom: 20px;
@@ -719,6 +757,114 @@ else
         opacity: 0.5;
         cursor: not-allowed;
     }
+    
+    /* Permission Modal */
+    .permission-modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+    }
+    
+    .permission-modal {
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        width: 90%;
+        max-width: 420px;
+        overflow: hidden;
+    }
+    
+    .permission-modal-header {
+        background: linear-gradient(135deg, #6366f1, #8b5cf6);
+        color: white;
+        padding: 20px 24px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+    
+    .permission-modal-header i {
+        font-size: 24px;
+    }
+    
+    .permission-modal-header h3 {
+        margin: 0;
+        font-size: 18px;
+        font-weight: 600;
+    }
+    
+    .permission-modal-body {
+        padding: 24px;
+    }
+    
+    .permission-modal-body > p {
+        margin: 0 0 16px 0;
+        color: #4a5568;
+    }
+    
+    .tool-info {
+        background: #f7fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 16px;
+        margin-bottom: 16px;
+    }
+    
+    .tool-name {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: #2d3748;
+        font-size: 15px;
+    }
+    
+    .tool-name i {
+        color: #6366f1;
+    }
+    
+    .tool-description {
+        margin: 8px 0 0 0;
+        color: #718096;
+        font-size: 13px;
+        line-height: 1.5;
+    }
+    
+    .permission-warning {
+        background: #fffbeb;
+        border: 1px solid #fcd34d;
+        border-radius: 8px;
+        padding: 12px 16px;
+        margin: 0;
+        color: #92400e;
+        font-size: 13px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    
+    .permission-warning i {
+        color: #d97706;
+    }
+    
+    .permission-modal-footer {
+        padding: 16px 24px;
+        background: #f7fafc;
+        display: flex;
+        justify-content: flex-end;
+        gap: 12px;
+    }
+    
+    .permission-modal-footer .btn {
+        padding: 10px 20px;
+        font-weight: 500;
+    }
 </style>
 
 @code {
@@ -730,6 +876,11 @@ else
     private string currentResponse = "";
     private string currentTool = "";
     private ElementReference chatMessagesRef;
+    
+    // Permission dialog state
+    private bool showPermissionDialog = false;
+    private ToolPermissionRequest? pendingPermissionRequest;
+    private TaskCompletionSource<ToolPermissionResult>? permissionTcs;
 
     // Use service's message list for persistence across navigation
     private IReadOnlyList<CopilotChatMessage> messages => CopilotService.Messages;
@@ -771,6 +922,9 @@ else
         CopilotService.OnError += OnCopilotError;
         CopilotService.OnToolStart += OnToolStart;
         CopilotService.OnToolComplete += OnToolComplete;
+        
+        // Set up permission handler for non-readonly tools
+        CopilotService.PermissionHandler = HandlePermissionRequest;
 
         await CheckAvailability();
     }
@@ -783,6 +937,7 @@ else
         CopilotService.OnError -= OnCopilotError;
         CopilotService.OnToolStart -= OnToolStart;
         CopilotService.OnToolComplete -= OnToolComplete;
+        CopilotService.PermissionHandler = null;
     }
 
     private async Task CheckAvailability()
@@ -965,5 +1120,48 @@ else
     {
         currentTool = "";
         InvokeAsync(StateHasChanged);
+    }
+    
+    private async Task<ToolPermissionResult> HandlePermissionRequest(ToolPermissionRequest request)
+    {
+        // Auto-approve read-only tools
+        if (request.IsReadOnly)
+        {
+            return request.DefaultResult;
+        }
+        
+        // Show permission dialog for non-readonly tools
+        pendingPermissionRequest = request;
+        permissionTcs = new TaskCompletionSource<ToolPermissionResult>();
+        showPermissionDialog = true;
+        await InvokeAsync(StateHasChanged);
+        
+        // Wait for user response
+        var result = await permissionTcs.Task;
+        
+        // Reset state
+        showPermissionDialog = false;
+        pendingPermissionRequest = null;
+        permissionTcs = null;
+        await InvokeAsync(StateHasChanged);
+        
+        return result;
+    }
+    
+    private void AllowPermission()
+    {
+        permissionTcs?.TrySetResult(new ToolPermissionResult(IsAllowed: true));
+    }
+    
+    private void DenyPermission()
+    {
+        permissionTcs?.TrySetResult(new ToolPermissionResult(IsAllowed: false, DenialReason: "User denied permission"));
+    }
+    
+    private string FormatToolName(string toolName)
+    {
+        // Convert snake_case to Title Case
+        return string.Join(" ", toolName.Split('_').Select(word => 
+            char.ToUpper(word[0]) + word.Substring(1).ToLower()));
     }
 }
