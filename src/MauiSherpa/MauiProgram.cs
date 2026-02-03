@@ -30,6 +30,9 @@ public static class MauiProgram
         builder.Logging.AddProvider(new DebugOverlayLoggerProvider(debugLogService));
         builder.Logging.SetMinimumLevel(LogLevel.Debug);
 
+        // Splash service (must be registered early as singleton for sharing)
+        builder.Services.AddSingleton<ISplashService, SplashService>();
+        
         // Platform services
         builder.Services.AddSingleton<IAlertService, AlertService>();
         builder.Services.AddSingleton<ILoggingService, LoggingService>();

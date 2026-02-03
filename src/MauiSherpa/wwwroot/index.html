@@ -70,104 +70,9 @@
             cursor: pointer;
             margin-left: 1rem;
         }
-        
-        /* Splash screen */
-        #splash-screen {
-            position: fixed;
-            inset: 0;
-            background: linear-gradient(135deg, #1a1625 0%, #2d1f4e 50%, #1a1625 100%);
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            z-index: 99999;
-            transition: opacity 0.5s ease-out;
-        }
-        
-        #splash-screen.fade-out {
-            opacity: 0;
-            pointer-events: none;
-        }
-        
-        .splash-logo {
-            width: 120px;
-            height: 120px;
-            background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
-            border-radius: 28px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            box-shadow: 0 20px 60px rgba(99, 102, 241, 0.4);
-            animation: pulse-glow 2s ease-in-out infinite;
-        }
-        
-        .splash-logo svg {
-            width: 70px;
-            height: 70px;
-        }
-        
-        .splash-title {
-            margin-top: 24px;
-            font-size: 28px;
-            font-weight: 600;
-            color: white;
-            letter-spacing: 0.5px;
-        }
-        
-        .splash-subtitle {
-            margin-top: 8px;
-            font-size: 14px;
-            color: rgba(255, 255, 255, 0.6);
-        }
-        
-        .splash-loader {
-            margin-top: 40px;
-            width: 48px;
-            height: 4px;
-            background: rgba(255, 255, 255, 0.2);
-            border-radius: 2px;
-            overflow: hidden;
-        }
-        
-        .splash-loader::after {
-            content: '';
-            display: block;
-            width: 50%;
-            height: 100%;
-            background: linear-gradient(90deg, #6366f1, #8b5cf6);
-            border-radius: 2px;
-            animation: loader-slide 1s ease-in-out infinite;
-        }
-        
-        @keyframes pulse-glow {
-            0%, 100% { box-shadow: 0 20px 60px rgba(99, 102, 241, 0.4); }
-            50% { box-shadow: 0 20px 80px rgba(139, 92, 246, 0.6); }
-        }
-        
-        @keyframes loader-slide {
-            0% { transform: translateX(-100%); }
-            100% { transform: translateX(300%); }
-        }
     </style>
 </head>
 <body>
-    <!-- Splash screen overlay -->
-    <div id="splash-screen">
-        <div class="splash-logo">
-            <!-- Mountain/Sherpa icon -->
-            <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M8 21l4-10 4 10"/>
-                <path d="M12 11l5-8"/>
-                <path d="M12 11L7 3"/>
-                <path d="M3 21h18"/>
-                <circle cx="12" cy="6" r="2"/>
-            </svg>
-        </div>
-        <div class="splash-title">MAUI Sherpa</div>
-        <div class="splash-subtitle">Your guide to .NET MAUI development</div>
-        <div class="splash-loader"></div>
-    </div>
-    
     <div id="app"></div>
 
     <div id="blazor-error-ui" data-nosnippet>
@@ -178,36 +83,5 @@
 
     <script src="_framework/blazor.webview.js" autostart="false"></script>
     <script src="js/terminal.js"></script>
-    <script>
-        // Hide splash screen once Blazor is ready
-        document.addEventListener('DOMContentLoaded', function() {
-            // Check for Blazor load completion
-            const checkBlazorReady = setInterval(function() {
-                const app = document.getElementById('app');
-                if (app && app.children.length > 0) {
-                    const splash = document.getElementById('splash-screen');
-                    if (splash) {
-                        splash.classList.add('fade-out');
-                        setTimeout(function() {
-                            splash.remove();
-                        }, 500);
-                    }
-                    clearInterval(checkBlazorReady);
-                }
-            }, 100);
-            
-            // Safety timeout - hide splash after 10 seconds max
-            setTimeout(function() {
-                const splash = document.getElementById('splash-screen');
-                if (splash) {
-                    splash.classList.add('fade-out');
-                    setTimeout(function() {
-                        splash.remove();
-                    }, 500);
-                }
-                clearInterval(checkBlazorReady);
-            }, 10000);
-        });
-    </script>
 </body>
 </html>

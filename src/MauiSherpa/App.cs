@@ -1,16 +1,23 @@
+using MauiSherpa.Core.Interfaces;
+
 namespace MauiSherpa;
 
 public class App : Application
 {
-    public App()
+    private readonly IServiceProvider _serviceProvider;
+    
+    public App(IServiceProvider serviceProvider)
     {
+        _serviceProvider = serviceProvider;
     }
 
     protected override Window CreateWindow(IActivationState? activationState)
     {
+        var splashService = _serviceProvider.GetRequiredService<ISplashService>();
+        
         var window = new Window
         {
-            Page = new MainPage()
+            Page = new MainPage(splashService)
         };
 
         window.Created += (s, e) =>

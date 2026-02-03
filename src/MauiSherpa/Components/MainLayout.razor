@@ -1,6 +1,7 @@
 @inherits LayoutComponentBase
 @using MauiSherpa.Core.Interfaces
 @inject IThemeService ThemeService
+@inject ISplashService SplashService
 @implements IDisposable
 
 <div class="main-layout @ThemeClass">
@@ -79,6 +80,15 @@
     protected override void OnInitialized()
     {
         ThemeService.ThemeChanged += OnThemeChanged;
+    }
+    
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // Notify MAUI that Blazor is ready - splash can be hidden
+            SplashService.NotifyBlazorReady();
+        }
     }
 
     private void OnThemeChanged()
