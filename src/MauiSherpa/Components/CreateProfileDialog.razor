@@ -65,26 +65,26 @@
                     @switch (currentStep)
                     {
                         case 1:
-                            <Step1ProfileType />
+                            Step1ProfileType();
                             break;
                         case 2:
-                            <Step2BundleId />
+                            Step2BundleId();
                             break;
                         case 3:
-                            <Step3Certificates />
+                            Step3Certificates();
                             break;
                         case 4:
-                            @if (RequiresDevices)
+                            if (RequiresDevices)
                             {
-                                <Step4Devices />
+                                Step4Devices();
                             }
                             else
                             {
-                                <Step5Name />
+                                Step5Name();
                             }
                             break;
                         case 5:
-                            <Step5Name />
+                            Step5Name();
                             break;
                     }
                 }
@@ -882,17 +882,17 @@
             new ProfileTypeInfo("IOS_APP_ADHOC", "Ad Hoc", "Distribute to a limited number of registered devices"),
             new ProfileTypeInfo("IOS_APP_STORE", "App Store", "Submit to the App Store or TestFlight")
         }),
-        new("macOS", "fas fa-laptop", new[]
-        {
-            new ProfileTypeInfo("MAC_APP_DEVELOPMENT", "Development", "Run app on registered Macs during development"),
-            new ProfileTypeInfo("MAC_APP_STORE", "Mac App Store", "Submit to the Mac App Store"),
-            new ProfileTypeInfo("MAC_APP_DIRECT", "Direct Distribution", "Distribute outside the Mac App Store (notarized)")
-        }),
         new("Mac Catalyst", "fas fa-layer-group", new[]
         {
             new ProfileTypeInfo("MAC_CATALYST_APP_DEVELOPMENT", "Development", "Run iPad app on Mac during development"),
             new ProfileTypeInfo("MAC_CATALYST_APP_STORE", "Mac App Store", "Submit iPad app to Mac App Store"),
             new ProfileTypeInfo("MAC_CATALYST_APP_DIRECT", "Direct Distribution", "Distribute iPad app outside Mac App Store")
+        }),
+        new("macOS", "fas fa-laptop", new[]
+        {
+            new ProfileTypeInfo("MAC_APP_DEVELOPMENT", "Development", "Run app on registered Macs during development"),
+            new ProfileTypeInfo("MAC_APP_STORE", "Mac App Store", "Submit to the Mac App Store"),
+            new ProfileTypeInfo("MAC_APP_DIRECT", "Direct Distribution", "Distribute outside the Mac App Store (notarized)")
         })
     };
 
@@ -1004,6 +1004,13 @@
 
         var isDev = IsDevelopmentProfile;
         var certTypeLower = certType.ToUpperInvariant();
+        
+        // Direct distribution profiles require Developer ID certificates
+        var isDirectDistribution = selectedProfileType?.Contains("DIRECT") == true;
+        if (isDirectDistribution)
+        {
+            return certTypeLower.Contains("DEVELOPER_ID");
+        }
 
         return isDev
             ? certTypeLower.Contains("DEVELOPMENT")
@@ -1014,11 +1021,12 @@
     {
         if (string.IsNullOrEmpty(selectedProfileType)) return true;
 
-        if (selectedProfileType.StartsWith("IOS_") || selectedProfileType.StartsWith("MAC_CATALYST_"))
+        if (selectedProfileType.StartsWith("IOS_"))
         {
             return devicePlatform == "IOS" || deviceClass is "IPHONE" or "IPAD" or "IPOD";
         }
-        if (selectedProfileType.StartsWith("MAC_APP_"))
+        // Mac Catalyst apps run on Macs, so they need Mac devices
+        if (selectedProfileType.StartsWith("MAC_CATALYST_") || selectedProfileType.StartsWith("MAC_APP_"))
         {
             return devicePlatform == "MAC_OS" || deviceClass == "MAC";
         }
@@ -1119,13 +1127,68 @@
         }
         catch (Exception ex)
         {
-            errorMessage = $"Failed to create profile: {ex.Message}";
-            Logger.LogError(errorMessage, ex);
+            errorMessage = GetFriendlyErrorMessage(ex);
+            Logger.LogError($"Failed to create profile: {ex.Message}", ex);
         }
         finally
         {
             isCreating = false;
         }
+    }
+    
+    private string GetFriendlyErrorMessage(Exception ex)
+    {
+        var message = ex.Message;
+        
+        // Check for 403 Forbidden / permissions errors
+        if (message.Contains("403") || message.Contains("FORBIDDEN"))
+        {
+            if (message.Contains("Team Admin") || message.Contains("not allowed to perform this operation"))
+            {
+                var isDirectDistribution = selectedProfileType?.Contains("DIRECT") == true;
+                var profileTypeHint = isDirectDistribution 
+                    ? "Developer ID / Direct Distribution profiles require special API key permissions. "
+                    : "";
+                    
+                return $"API Key Permission Error: {profileTypeHint}Your API key may not have sufficient permissions to create this profile type. " +
+                       "To fix this:\n" +
+                       "• Use a Team API key (not Individual) with Admin role\n" +
+                       "• Individual Apple Developer accounts have limited API access\n" +
+                       "• Developer ID profiles may require Account Holder permissions";
+            }
+            return $"Access Denied (403): Your API key doesn't have permission for this operation. Check your key's role in App Store Connect.";
+        }
+        
+        // Check for 401 Unauthorized
+        if (message.Contains("401") || message.Contains("UNAUTHORIZED"))
+        {
+            return "Authentication Failed: Your API key may be invalid, expired, or incorrectly configured. " +
+                   "Verify the Key ID, Issuer ID, and private key are correct.";
+        }
+        
+        // Check for 409 Conflict / Entity errors
+        if (message.Contains("409") || message.Contains("ENTITY_ERROR"))
+        {
+            if (message.Contains("already exists"))
+            {
+                return "A profile with this name or configuration already exists. Try a different name or check existing profiles.";
+            }
+            if (message.Contains("no current") && message.Contains("devices"))
+            {
+                return "No compatible devices found for this profile type. Make sure you have registered devices that match the platform (e.g., Mac devices for Mac Catalyst profiles).";
+            }
+            // Return the actual API error for other 409 cases
+            return $"Conflict Error: {message}";
+        }
+        
+        // Check for 422 validation errors
+        if (message.Contains("422") || message.Contains("ENTITY_UNPROCESSABLE"))
+        {
+            return $"Validation Error: {message}";
+        }
+        
+        // Default message
+        return $"Failed to create profile: {message}";
     }
 
     private async Task Close()

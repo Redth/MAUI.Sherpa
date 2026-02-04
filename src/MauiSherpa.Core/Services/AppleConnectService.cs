@@ -261,7 +261,7 @@ public class AppleConnectService : IAppleConnectService
                 fieldsCertificates: null,
                 cancellationToken: default);
 
-            return response.Data
+            var certs = response.Data
                 .Select(c => new AppleCertificate(
                     c.Id,
                     c.Attributes?.DisplayName ?? c.Attributes?.Name ?? "",
@@ -270,6 +270,13 @@ public class AppleConnectService : IAppleConnectService
                     DateTime.UtcNow.AddYears(1), // CertificateAttributes doesn't have ExpirationDate directly
                     c.Attributes?.SerialNumber ?? ""))
                 .ToList();
+            
+            foreach (var cert in certs)
+            {
+                _logger.LogInformation($"  Cert: {cert.Id} - {cert.Name} - Type: {cert.CertificateType}");
+            }
+            
+            return certs;
         }
         catch (Exception ex)
         {
@@ -383,14 +390,19 @@ public class AppleConnectService : IAppleConnectService
     public async Task<AppleProfile> CreateProfileAsync(AppleProfileCreateRequest request)
     {
         _logger.LogInformation($"Creating profile: {request.Name} ({request.ProfileType})");
+        _logger.LogInformation($"  BundleIdResourceId: {request.BundleIdResourceId}");
+        _logger.LogInformation($"  CertificateIds: [{string.Join(", ", request.CertificateIds)}]");
+        _logger.LogInformation($"  DeviceIds: [{string.Join(", ", request.DeviceIds ?? [])}]");
         try
         {
             var client = await GetClientAsync();
             
             // Parse profile type
             var profileType = Enum.Parse<ProfileType>(request.ProfileType, ignoreCase: true);
+            _logger.LogInformation($"  Parsed ProfileType enum: {profileType}");
             
             // Build the request
+            _logger.LogInformation($"Calling App Store Connect API CreateProfileAsync...");
             var response = await client.CreateProfileAsync(
                 name: request.Name,
                 profileType: profileType,
@@ -399,6 +411,7 @@ public class AppleConnectService : IAppleConnectService
                 deviceIds: request.DeviceIds?.ToArray(),
                 cancellationToken: default);
             
+            _logger.LogInformation($"Profile created successfully, response Id: {response.Data?.Id}");
             var p = response.Data;
             return new AppleProfile(
                 p.Id,
@@ -413,6 +426,11 @@ public class AppleConnectService : IAppleConnectService
         catch (Exception ex)
         {
             _logger.LogError($"Failed to create profile: {ex.Message}", ex);
+            _logger.LogError($"Exception type: {ex.GetType().FullName}");
+            if (ex.InnerException != null)
+            {
+                _logger.LogError($"Inner exception: {ex.InnerException.Message}");
+            }
             throw;
         }
     }

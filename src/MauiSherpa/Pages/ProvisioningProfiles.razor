@@ -157,7 +157,7 @@
                             <i class="fas fa-edit"></i> Edit
                         </button>
                         <div class="btn-group">
-                            <button class="btn btn-secondary btn-sm" @onclick="@(() => DownloadProfile(profile))" disabled="@isLoading" title="Download to file">
+                            <button class="btn btn-secondary btn-sm" @onclick="@(() => DownloadProfile(profile))" disabled="@isLoading" title="Download to Downloads folder">
                                 <i class="fas fa-download"></i> Download
                             </button>
                             <button class="btn btn-secondary btn-sm btn-dropdown" @onclick="@(() => ToggleDropdown(profile.Id))">
@@ -166,6 +166,9 @@
                             @if (openDropdown == profile.Id)
                             {
                                 <div class="dropdown-menu">
+                                    <button class="dropdown-item" @onclick="@(() => DownloadProfileTo(profile))">
+                                        <i class="fas fa-folder-open"></i> Download to...
+                                    </button>
                                     <button class="dropdown-item" @onclick="@(() => InstallProfile(profile))">
                                         <i class="fas fa-folder-plus"></i> Install to System
                                     </button>
@@ -605,15 +608,46 @@
         isLoading = true;
         try
         {
-            var savePath = await DialogService.ShowFileDialogAsync(
-                "Save Provisioning Profile",
-                isSave: true,
-                filters: new[] { "*.mobileprovision" });
+            // Save to Downloads folder by default
+            var downloadsFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
+            var fileName = SanitizeFileName($"{profile.Name}.mobileprovision");
+            var savePath = Path.Combine(downloadsFolder, fileName);
+            
+            // If file exists, add a number suffix
+            var counter = 1;
+            var baseName = Path.GetFileNameWithoutExtension(fileName);
+            while (File.Exists(savePath))
+            {
+                savePath = Path.Combine(downloadsFolder, $"{baseName} ({counter}).mobileprovision");
+                counter++;
+            }
 
-            if (string.IsNullOrEmpty(savePath)) return;
+            var content = await AppleService.DownloadProfileAsync(profile.Id);
+            await File.WriteAllBytesAsync(savePath, content);
+            
+            await AlertService.ShowToastAsync($"Profile saved to Downloads: {Path.GetFileName(savePath)}");
+        }
+        catch (Exception ex)
+        {
+            await AlertService.ShowAlertAsync("Error", $"Failed to download profile: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+    
+    private async Task DownloadProfileTo(AppleProfile profile)
+    {
+        openDropdown = null;
+        isLoading = true;
+        try
+        {
+            var folder = await DialogService.PickFolderAsync("Select Download Location");
+            if (string.IsNullOrEmpty(folder)) return;
 
-            if (!savePath.EndsWith(".mobileprovision"))
-                savePath += ".mobileprovision";
+            var fileName = SanitizeFileName($"{profile.Name}.mobileprovision");
+            var savePath = Path.Combine(folder, fileName);
 
             var content = await AppleService.DownloadProfileAsync(profile.Id);
             await File.WriteAllBytesAsync(savePath, content);
@@ -628,6 +662,12 @@
         {
             isLoading = false;
         }
+    }
+    
+    private static string SanitizeFileName(string fileName)
+    {
+        var invalid = Path.GetInvalidFileNameChars();
+        return string.Join("_", fileName.Split(invalid, StringSplitOptions.RemoveEmptyEntries));
     }
 
     private async Task InstallProfile(AppleProfile profile)
