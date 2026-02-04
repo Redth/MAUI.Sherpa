@@ -13,6 +13,8 @@
 @inject IDialogService DialogService
 @inject IFileSystemService FileSystem
 @inject IThemeService ThemeService
+@inject ICloudSecretsService CloudSecretsService
+@inject ICloudSecretsProviderFactory CloudSecretsProviderFactory
 @implements IDisposable
 
 <h1><i class="fas fa-cog"></i> @ViewModel.Title</h1>
@@ -43,7 +45,7 @@
 </div>
 
 <div class="settings-section">
-    <h2>Android SDK</h2>
+    <h2><i class="fab fa-android"></i> Android SDK</h2>
     <p class="section-description">
         Configure the Android SDK location used for managing packages, emulators, and devices.
     </p>
@@ -97,7 +99,7 @@
 </div>
 
 <div class="settings-section">
-    <h2>Apple Identities</h2>
+    <h2><i class="fab fa-apple"></i> Apple Identities</h2>
     <p class="section-description">
         Configure App Store Connect API credentials for managing Apple Developer resources.
         <a href="https://appstoreconnect.apple.com/access/api" target="_blank">Get API keys</a>
@@ -117,7 +119,10 @@
                 {
                     <div class="identity-card">
                         <div class="identity-header">
-                            <div class="identity-name">@identity.Name</div>
+                            <div class="identity-info">
+                                <i class="fas fa-id-badge identity-icon"></i>
+                                <span class="identity-name">@identity.Name</span>
+                            </div>
                             <div class="identity-actions">
                                 <button class="btn btn-sm btn-secondary" @onclick="@(() => TestIdentity(identity))" title="Test Connection">
                                     <i class="fas fa-plug"></i> Test
@@ -158,6 +163,112 @@
         <div class="add-identity">
             <button class="btn btn-success" @onclick="ShowAddIdentityDialog">
                 <i class="fas fa-plus"></i> Add Apple Identity
+            </button>
+        </div>
+    </div>
+</div>
+
+<div class="settings-section">
+    <h2><i class="fas fa-cloud"></i> Cloud Secrets Storage</h2>
+    <p class="section-description">
+        Store certificate private keys securely in the cloud to sync across machines.
+        This enables sharing signing certificates between development machines and CI/CD pipelines.
+    </p>
+    
+    <div class="settings-container">
+        @if (cloudProviders.Count == 0)
+        {
+            <div class="empty-providers">
+                <p>No cloud providers configured</p>
+            </div>
+        }
+        else
+        {
+            <div class="provider-list">
+                @foreach (var provider in cloudProviders)
+                {
+                    var isActive = CloudSecretsService.ActiveProvider?.Id == provider.Id;
+                    var providerUrl = GetProviderUrl(provider);
+                    <div class="provider-card @(isActive ? "active" : "")">
+                        <div class="provider-header">
+                            <div class="provider-info">
+                                <i class="@GetProviderIcon(provider.ProviderType) provider-icon"></i>
+                                <span class="provider-name">@provider.Name</span>
+                                @if (!string.IsNullOrEmpty(providerUrl))
+                                {
+                                    <a href="@providerUrl" target="_blank" class="provider-link" title="Open in browser">
+                                        <i class="fas fa-external-link-alt"></i>
+                                    </a>
+                                }
+                                @if (isActive)
+                                {
+                                    <span class="active-badge">Active</span>
+                                }
+                            </div>
+                            <div class="provider-actions">
+                                @if (!isActive)
+                                {
+                                    <button class="btn btn-sm btn-primary" @onclick="@(() => SetActiveProvider(provider))" title="Set as Active">
+                                        <i class="fas fa-check"></i> Activate
+                                    </button>
+                                }
+                                <button class="btn btn-sm btn-secondary" @onclick="@(() => TestProvider(provider))" title="Test Connection">
+                                    <i class="fas fa-plug"></i> Test
+                                </button>
+                                <button class="btn btn-sm btn-secondary" @onclick="@(() => EditProvider(provider))" title="Edit">
+                                    <i class="fas fa-edit"></i> Edit
+                                </button>
+                                <button class="btn btn-sm btn-danger" @onclick="@(() => DeleteProvider(provider))" title="Delete">
+                                    <i class="fas fa-trash"></i> Delete
+                                </button>
+                            </div>
+                        </div>
+                        <div class="provider-details">
+                            <div class="detail-item">
+                                <span class="detail-label">TYPE</span>
+                                <span class="detail-value">@CloudSecretsProviderFactory.GetProviderDisplayName(provider.ProviderType)</span>
+                            </div>
+                            @if (provider.ProviderType == CloudSecretsProviderType.Infisical)
+                            {
+                                <div class="detail-item">
+                                    <span class="detail-label">SITE</span>
+                                    <span class="detail-value mono">@provider.Settings.GetValueOrDefault("SiteUrl", "https://app.infisical.com")</span>
+                                </div>
+                                <div class="detail-item">
+                                    <span class="detail-label">PROJECT</span>
+                                    <span class="detail-value mono">@provider.Settings.GetValueOrDefault("ProjectId", "")</span>
+                                </div>
+                            }
+                            @if (provider.ProviderType == CloudSecretsProviderType.AzureKeyVault)
+                            {
+                                <div class="detail-item">
+                                    <span class="detail-label">VAULT</span>
+                                    <span class="detail-value mono">@provider.Settings.GetValueOrDefault("VaultUrl", "")</span>
+                                </div>
+                            }
+                            @if (provider.ProviderType == CloudSecretsProviderType.AwsSecretsManager)
+                            {
+                                <div class="detail-item">
+                                    <span class="detail-label">REGION</span>
+                                    <span class="detail-value mono">@provider.Settings.GetValueOrDefault("Region", "us-east-1")</span>
+                                </div>
+                            }
+                            @if (provider.ProviderType == CloudSecretsProviderType.GoogleSecretManager)
+                            {
+                                <div class="detail-item">
+                                    <span class="detail-label">PROJECT</span>
+                                    <span class="detail-value mono">@provider.Settings.GetValueOrDefault("ProjectId", "")</span>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+        
+        <div class="add-provider">
+            <button class="btn btn-success" @onclick="ShowAddProviderDialog">
+                <i class="fas fa-plus"></i> Add Cloud Provider
             </button>
         </div>
     </div>
@@ -236,9 +347,87 @@
     </div>
 }
 
+@if (showProviderDialog)
+{
+    <div class="modal-overlay">
+        <div class="modal" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h2>@(editingProvider == null ? "Add" : "Edit") Cloud Provider</h2>
+                <button class="close-btn" @onclick="CloseProviderDialog">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Name</label>
+                    <input type="text" @bind="providerName" placeholder="My Team Vault" />
+                    <div class="help-text">A friendly name to identify this provider</div>
+                </div>
+                <div class="form-group">
+                    <label>Provider Type</label>
+                    @if (editingProvider != null)
+                    {
+                        <input type="text" value="@CloudSecretsProviderFactory.GetProviderDisplayName(providerType)" disabled />
+                    }
+                    else
+                    {
+                        <div class="provider-type-selector">
+                            @foreach (var type in CloudSecretsProviderFactory.SupportedProviders)
+                            {
+                                <div class="provider-type-card @(providerType == type ? "selected" : "")" 
+                                     @onclick="@(() => providerType = type)">
+                                    <i class="@GetProviderIcon(type) provider-icon"></i>
+                                    <span class="provider-name">@CloudSecretsProviderFactory.GetProviderDisplayName(type)</span>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+                
+                @foreach (var setting in GetCurrentProviderSettings())
+                {
+                    <div class="form-group">
+                        <label>@setting.DisplayName @(setting.IsRequired ? "*" : "")</label>
+                        @if (setting.IsSecret)
+                        {
+                            <input type="password" 
+                                   value="@(providerSettings.GetValueOrDefault(setting.Key, ""))"
+                                   @onchange="@(e => providerSettings[setting.Key] = e.Value?.ToString() ?? "")"
+                                   placeholder="@setting.Placeholder" />
+                        }
+                        else if (setting.Key == "CredentialsJson")
+                        {
+                            <textarea rows="6"
+                                      class="p8-textarea"
+                                      @bind="@providerSettings[setting.Key]"
+                                      placeholder="@setting.Placeholder"></textarea>
+                        }
+                        else
+                        {
+                            <input type="text" 
+                                   value="@(providerSettings.GetValueOrDefault(setting.Key, setting.DefaultValue ?? ""))"
+                                   @onchange="@(e => providerSettings[setting.Key] = e.Value?.ToString() ?? "")"
+                                   placeholder="@setting.Placeholder" />
+                        }
+                        <div class="help-text">@setting.Description</div>
+                    </div>
+                }
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" @onclick="CloseProviderDialog">
+                    <i class="fas fa-times"></i> Cancel
+                </button>
+                <button class="btn btn-primary" @onclick="SaveProvider" 
+                        disabled="@(!CanSaveProvider)">
+                    <i class="fas fa-save"></i> Save
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
 <style>
     h1 { margin-bottom: 20px; font-size: 28px; color: var(--text-primary); font-weight: 600; }
-    h2 { margin: 0 0 16px 0; font-size: 18px; color: var(--text-primary); font-weight: 600; }
+    h2 { margin: 0 0 16px 0; font-size: 18px; color: var(--text-primary); font-weight: 600; display: flex; align-items: center; gap: 10px; }
+    h2 i { color: var(--text-secondary); }
 
     .settings-section { margin-bottom: 32px; }
     .section-description { color: var(--text-muted); margin-bottom: 16px; font-size: 14px; }
@@ -304,22 +493,32 @@
     .identity-list { display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px; }
 
     .identity-card {
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
         padding: 16px;
         background: var(--bg-tertiary);
-        border-radius: 6px;
-        border: 1px solid var(--border-color);
+        box-shadow: none;
     }
 
     .identity-header {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        margin-bottom: 16px;
-        padding-bottom: 12px;
-        border-bottom: 1px solid var(--border-color);
+        margin-bottom: 12px;
     }
 
-    .identity-name { font-weight: 600; color: var(--text-primary); font-size: 16px; }
+    .identity-info {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .identity-icon {
+        font-size: 20px;
+        color: var(--text-secondary);
+    }
+
+    .identity-name { font-weight: 600; color: var(--text-primary); font-size: 15px; }
     .identity-actions { display: flex; gap: 8px; }
 
     .identity-details {
@@ -446,9 +645,83 @@
 
     .form-group { margin-bottom: 20px; }
     .form-group label { display: block; margin-bottom: 8px; font-weight: 500; color: var(--text-secondary); }
-    .form-group input { width: 100%; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 6px; font-size: 14px; }
+    .form-group input { width: 100%; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 6px; font-size: 14px; box-sizing: border-box; }
     .form-group input:focus { outline: none; border-color: var(--accent-primary); box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.1); }
+    .form-group select { 
+        width: 100%; 
+        padding: 10px 12px; 
+        border: 1px solid var(--border-color); 
+        border-radius: 6px; 
+        font-size: 14px; 
+        box-sizing: border-box;
+        background-color: var(--bg-color, white);
+        cursor: pointer;
+        appearance: none;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236b7280' d='M2.5 4.5L6 8l3.5-3.5'/%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 12px center;
+        padding-right: 36px;
+    }
+    .form-group select:focus { outline: none; border-color: var(--accent-primary); box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.1); }
+    .form-group select:disabled { 
+        background-color: var(--bg-tertiary); 
+        color: var(--text-muted); 
+        cursor: not-allowed;
+    }
     .help-text { margin-top: 6px; font-size: 12px; color: var(--text-muted); }
+
+    /* Provider Type Selector Cards */
+    .provider-type-selector {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        gap: 12px;
+        margin-top: 8px;
+    }
+
+    .provider-type-card {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 16px 12px;
+        border: 2px solid var(--border-color);
+        border-radius: 8px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        background: var(--bg-color, white);
+    }
+
+    .provider-type-card:hover {
+        border-color: var(--accent-primary);
+        background: rgba(66, 153, 225, 0.05);
+    }
+
+    .provider-type-card.selected {
+        border-color: var(--accent-primary);
+        background: rgba(66, 153, 225, 0.1);
+        box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.15);
+    }
+
+    .provider-type-card.disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    .provider-type-card .provider-icon {
+        font-size: 28px;
+        margin-bottom: 8px;
+        color: var(--text-secondary);
+    }
+
+    .provider-type-card.selected .provider-icon {
+        color: var(--accent-primary);
+    }
+
+    .provider-type-card .provider-name {
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--text-primary);
+        text-align: center;
+    }
 
     .file-input-group { display: flex; gap: 8px; }
     .file-input-group input { flex: 1; }
@@ -486,6 +759,81 @@
 
     .p8-preview { margin-top: 8px; }
     .p8-loaded { color: #38a169; font-size: 13px; }
+
+    /* Cloud Provider Styles */
+    .empty-providers { padding: 20px; text-align: center; color: var(--text-muted); }
+    .add-provider { margin-top: 16px; }
+    
+    .provider-list { display: flex; flex-direction: column; gap: 16px; }
+    
+    .provider-card {
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        padding: 16px;
+        background: var(--bg-tertiary);
+        transition: border-color 0.2s;
+    }
+    .provider-card.active {
+        border-color: var(--accent-primary);
+    }
+    
+    .provider-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 12px;
+    }
+    
+    .provider-info {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    
+    .provider-icon {
+        font-size: 20px;
+        color: var(--text-secondary);
+    }
+    
+    .provider-name {
+        font-weight: 600;
+        color: var(--text-primary);
+        font-size: 15px;
+    }
+
+    .provider-link {
+        color: var(--text-muted);
+        font-size: 14px;
+        padding: 4px;
+        border-radius: 4px;
+        transition: color 0.2s, background 0.2s;
+        text-decoration: none;
+    }
+
+    .provider-link:hover {
+        color: var(--accent-primary);
+        background: rgba(66, 153, 225, 0.1);
+    }
+    
+    .active-badge {
+        background: var(--accent-primary);
+        color: white;
+        font-size: 11px;
+        font-weight: 500;
+        padding: 2px 8px;
+        border-radius: 10px;
+    }
+    
+    .provider-actions {
+        display: flex;
+        gap: 8px;
+    }
+    
+    .provider-details {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 16px;
+    }
 </style>
 
 @code {
@@ -501,12 +849,30 @@
     private string p8InputMode = "file"; // "file" or "text"
     
     private bool isLoadingSdk = true;
+    
+    // Cloud provider state
+    private List<CloudSecretsProviderConfig> cloudProviders = new();
+    private bool showProviderDialog = false;
+    private CloudSecretsProviderConfig? editingProvider = null;
+    private string providerName = "";
+    private CloudSecretsProviderType providerType = CloudSecretsProviderType.Infisical;
+    private Dictionary<string, string> providerSettings = new();
 
     private bool CanSaveIdentity => 
         !string.IsNullOrWhiteSpace(identityName) &&
         !string.IsNullOrWhiteSpace(identityKeyId) &&
         !string.IsNullOrWhiteSpace(identityIssuerId) &&
         !string.IsNullOrWhiteSpace(identityP8Content);
+    
+    private bool CanSaveProvider
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(providerName)) return false;
+            var requiredSettings = GetCurrentProviderSettings().Where(s => s.IsRequired);
+            return requiredSettings.All(s => !string.IsNullOrWhiteSpace(providerSettings.GetValueOrDefault(s.Key)));
+        }
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -516,7 +882,11 @@
         // Subscribe to SDK path changes
         SdkSettings.SdkPathChanged += OnSdkPathChanged;
         
+        // Subscribe to cloud provider changes
+        CloudSecretsService.OnActiveProviderChanged += OnCloudProviderChanged;
+        
         await LoadAppleIdentities();
+        await LoadCloudProviders();
         await InitializeSdk();
     }
 
@@ -543,15 +913,32 @@
     {
         InvokeAsync(StateHasChanged);
     }
+    
+    private void OnCloudProviderChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
 
     public void Dispose()
     {
         SdkSettings.SdkPathChanged -= OnSdkPathChanged;
+        CloudSecretsService.OnActiveProviderChanged -= OnCloudProviderChanged;
     }
 
     private async Task LoadAppleIdentities()
     {
         appleIdentities = (await AppleIdentityService.GetIdentitiesAsync()).ToList();
+    }
+    
+    private async Task LoadCloudProviders()
+    {
+        cloudProviders = (await CloudSecretsService.GetProvidersAsync()).ToList();
+        
+        // Initialize service if needed
+        if (CloudSecretsService is CloudSecretsService svc)
+        {
+            await svc.InitializeAsync();
+        }
     }
 
     private void OnThemeChanged(ChangeEventArgs e)
@@ -717,5 +1104,160 @@
     {
         await DialogService.CopyToClipboardAsync(text);
         await AlertService.ShowToastAsync("Copied to clipboard");
+    }
+    
+    // Cloud Provider Methods
+    
+    private string GetProviderIcon(CloudSecretsProviderType type) => type switch
+    {
+        CloudSecretsProviderType.Infisical => "fas fa-shield-alt",
+        CloudSecretsProviderType.AzureKeyVault => "fas fa-key",
+        CloudSecretsProviderType.AwsSecretsManager => "fab fa-aws",
+        CloudSecretsProviderType.GoogleSecretManager => "fab fa-google",
+        _ => "fas fa-lock"
+    };
+
+    private string? GetProviderUrl(CloudSecretsProviderConfig provider)
+    {
+        return provider.ProviderType switch
+        {
+            CloudSecretsProviderType.Infisical => GetInfisicalUrl(provider),
+            CloudSecretsProviderType.AzureKeyVault => GetAzureKeyVaultUrl(provider),
+            CloudSecretsProviderType.AwsSecretsManager => GetAwsSecretsManagerUrl(provider),
+            CloudSecretsProviderType.GoogleSecretManager => GetGoogleSecretManagerUrl(provider),
+            _ => null
+        };
+    }
+
+    private string? GetInfisicalUrl(CloudSecretsProviderConfig provider)
+    {
+        var siteUrl = provider.Settings.GetValueOrDefault("SiteUrl", "https://app.infisical.com").TrimEnd('/');
+        var projectId = provider.Settings.GetValueOrDefault("ProjectId", "");
+        var environment = provider.Settings.GetValueOrDefault("Environment", "prod");
+        
+        if (string.IsNullOrEmpty(projectId))
+            return siteUrl;
+        
+        return $"{siteUrl}/projects/secret-management/{projectId}/overview";
+    }
+
+    private string? GetAzureKeyVaultUrl(CloudSecretsProviderConfig provider)
+    {
+        var vaultUrl = provider.Settings.GetValueOrDefault("VaultUrl", "").TrimEnd('/');
+        
+        if (string.IsNullOrEmpty(vaultUrl))
+            return null;
+        
+        // Extract vault name from URL like https://my-vault.vault.azure.net
+        try
+        {
+            var uri = new Uri(vaultUrl);
+            var vaultName = uri.Host.Split('.')[0];
+            // Link to Azure Portal for the Key Vault
+            return $"https://portal.azure.com/#view/Microsoft_Azure_KeyVault/VaultBlade/vaultName/{vaultName}";
+        }
+        catch
+        {
+            return vaultUrl;
+        }
+    }
+
+    private string? GetAwsSecretsManagerUrl(CloudSecretsProviderConfig provider)
+    {
+        var region = provider.Settings.GetValueOrDefault("Region", "us-east-1");
+        // Link to AWS Secrets Manager console for the region
+        return $"https://{region}.console.aws.amazon.com/secretsmanager/listsecrets?region={region}";
+    }
+
+    private string? GetGoogleSecretManagerUrl(CloudSecretsProviderConfig provider)
+    {
+        var projectId = provider.Settings.GetValueOrDefault("ProjectId", "");
+        if (string.IsNullOrEmpty(projectId))
+            return null;
+        // Link to Google Cloud Console Secret Manager for the project
+        return $"https://console.cloud.google.com/security/secret-manager?project={projectId}";
+    }
+    
+    private IReadOnlyList<CloudProviderSettingInfo> GetCurrentProviderSettings()
+    {
+        return CloudSecretsProviderFactory.GetProviderSettings(providerType);
+    }
+    
+    private void ShowAddProviderDialog()
+    {
+        editingProvider = null;
+        providerName = "";
+        providerType = CloudSecretsProviderFactory.SupportedProviders.FirstOrDefault();
+        providerSettings = new Dictionary<string, string>();
+        
+        // Initialize with default values
+        foreach (var setting in GetCurrentProviderSettings())
+        {
+            if (!string.IsNullOrEmpty(setting.DefaultValue))
+            {
+                providerSettings[setting.Key] = setting.DefaultValue;
+            }
+        }
+        
+        showProviderDialog = true;
+    }
+    
+    private void EditProvider(CloudSecretsProviderConfig provider)
+    {
+        editingProvider = provider;
+        providerName = provider.Name;
+        providerType = provider.ProviderType;
+        providerSettings = new Dictionary<string, string>(provider.Settings);
+        showProviderDialog = true;
+    }
+    
+    private void CloseProviderDialog()
+    {
+        showProviderDialog = false;
+        editingProvider = null;
+    }
+    
+    private async Task SaveProvider()
+    {
+        var config = new CloudSecretsProviderConfig(
+            editingProvider?.Id ?? Guid.NewGuid().ToString("N"),
+            providerName,
+            providerType,
+            new Dictionary<string, string>(providerSettings)
+        );
+        
+        await CloudSecretsService.SaveProviderAsync(config);
+        await AlertService.ShowToastAsync($"Provider '{providerName}' saved");
+        CloseProviderDialog();
+        await LoadCloudProviders();
+    }
+    
+    private async Task DeleteProvider(CloudSecretsProviderConfig provider)
+    {
+        var confirm = await AlertService.ShowConfirmAsync(
+            "Delete Provider",
+            $"Are you sure you want to delete '{provider.Name}'?");
+        
+        if (!confirm) return;
+        
+        await CloudSecretsService.DeleteProviderAsync(provider.Id);
+        await AlertService.ShowToastAsync("Provider deleted");
+        await LoadCloudProviders();
+    }
+    
+    private async Task TestProvider(CloudSecretsProviderConfig provider)
+    {
+        var success = await CloudSecretsService.TestProviderConnectionAsync(provider.Id);
+        if (success)
+            await AlertService.ShowToastAsync("Connection successful!");
+        else
+            await AlertService.ShowAlertAsync("Connection Failed", "Could not connect to the cloud provider. Check your credentials and settings.");
+    }
+    
+    private async Task SetActiveProvider(CloudSecretsProviderConfig provider)
+    {
+        await CloudSecretsService.SetActiveProviderAsync(provider.Id);
+        await AlertService.ShowToastAsync($"'{provider.Name}' is now the active provider");
+        StateHasChanged();
     }
 }

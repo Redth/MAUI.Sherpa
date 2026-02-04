@@ -41,7 +41,7 @@ public interface IDialogService
     Task ShowLoadingAsync(string message);
     Task HideLoadingAsync();
     Task<string?> ShowInputDialogAsync(string title, string message, string placeholder = "");
-    Task<string?> ShowFileDialogAsync(string title, bool isSave = false, string[]? filters = null);
+    Task<string?> ShowFileDialogAsync(string title, bool isSave = false, string[]? filters = null, string? defaultFileName = null);
     Task<string?> PickFolderAsync(string title);
     Task CopyToClipboardAsync(string text);
 }
@@ -335,7 +335,8 @@ public record LocalSigningIdentity(
     string? TeamId,           // Team ID extracted from identity
     string? SerialNumber,     // For matching with API certificates
     DateTime? ExpirationDate,
-    bool IsValid              // Valid according to security tool
+    bool IsValid,             // Valid according to security tool
+    string? Hash = null       // SHA-1 hash from keychain (for looking up details)
 );
 
 /// <summary>
@@ -360,6 +361,24 @@ public interface ILocalCertificateService
     /// <param name="password">Password to protect the P12 file</param>
     /// <returns>P12 file contents</returns>
     Task<byte[]> ExportP12Async(string identity, string password);
+    
+    /// <summary>
+    /// Exports a certificate (public key only) as a .cer file
+    /// </summary>
+    /// <param name="serialNumber">The certificate serial number</param>
+    /// <returns>DER-encoded certificate data</returns>
+    Task<byte[]> ExportCertificateAsync(string serialNumber);
+    
+    /// <summary>
+    /// Deletes a certificate and its private key from the local keychain
+    /// </summary>
+    /// <param name="identity">The identity string or serial number</param>
+    Task DeleteCertificateAsync(string identity);
+    
+    /// <summary>
+    /// Invalidates the cached list of signing identities, forcing a refresh on next query
+    /// </summary>
+    void InvalidateCache();
     
     /// <summary>
     /// Gets whether this service is supported on the current platform
@@ -1355,4 +1374,299 @@ public interface ISplashService
     /// Whether Blazor has signaled it's ready
     /// </summary>
     bool IsBlazorReady { get; }
+}
+
+// ============================================================================
+// Cloud Secrets Storage - Abstractions for secure cloud-based secrets
+// ============================================================================
+
+/// <summary>
+/// Type of cloud secrets provider
+/// </summary>
+public enum CloudSecretsProviderType
+{
+    None,
+    AzureKeyVault,
+    AwsSecretsManager,
+    GoogleSecretManager,
+    Infisical
+}
+
+/// <summary>
+/// Configuration for a cloud secrets provider instance
+/// </summary>
+public record CloudSecretsProviderConfig(
+    string Id,
+    string Name,
+    CloudSecretsProviderType ProviderType,
+    Dictionary<string, string> Settings
+)
+{
+    /// <summary>
+    /// Creates a new config with a generated ID
+    /// </summary>
+    public static CloudSecretsProviderConfig Create(
+        string name,
+        CloudSecretsProviderType providerType,
+        Dictionary<string, string> settings) =>
+        new(Guid.NewGuid().ToString("N"), name, providerType, settings);
+}
+
+/// <summary>
+/// Where a secret/certificate private key is stored
+/// </summary>
+public enum SecretLocation
+{
+    /// <summary>Not found anywhere - cannot be used for signing</summary>
+    None,
+    /// <summary>Only in local keychain - can sign but not synced</summary>
+    LocalOnly,
+    /// <summary>Only in cloud storage - can be installed locally</summary>
+    CloudOnly,
+    /// <summary>Synced - exists in both local keychain and cloud</summary>
+    Both
+}
+
+/// <summary>
+/// Information about a certificate's secret (private key) storage status
+/// </summary>
+public record CertificateSecretInfo(
+    string CertificateId,
+    string SerialNumber,
+    SecretLocation Location,
+    string? CloudProviderId,
+    string? CloudSecretId,
+    DateTime? LastSyncedUtc
+);
+
+/// <summary>
+/// Metadata stored alongside a certificate's private key in the cloud
+/// </summary>
+public record CertificateSecretMetadata(
+    string CertificateId,
+    string SerialNumber,
+    string CommonName,
+    string CertificateType,
+    DateTime ExpirationDate,
+    string CreatedByMachine,
+    DateTime CreatedAt
+);
+
+/// <summary>
+/// Information about provider configuration requirements
+/// </summary>
+public record CloudProviderSettingInfo(
+    string Key,
+    string DisplayName,
+    string Description,
+    bool IsRequired,
+    bool IsSecret,
+    string? DefaultValue = null,
+    string? Placeholder = null
+);
+
+/// <summary>
+/// Abstract interface for cloud secrets providers (Azure, AWS, Google, Infisical, etc.)
+/// </summary>
+public interface ICloudSecretsProvider
+{
+    /// <summary>
+    /// The type of this provider
+    /// </summary>
+    CloudSecretsProviderType ProviderType { get; }
+    
+    /// <summary>
+    /// Human-readable display name
+    /// </summary>
+    string DisplayName { get; }
+    
+    /// <summary>
+    /// Tests the connection to the cloud provider
+    /// </summary>
+    Task<bool> TestConnectionAsync(CancellationToken cancellationToken = default);
+    
+    /// <summary>
+    /// Stores a secret value
+    /// </summary>
+    /// <param name="key">The secret key/name</param>
+    /// <param name="value">The secret value as bytes</param>
+    /// <param name="metadata">Optional metadata to store with the secret</param>
+    Task<bool> StoreSecretAsync(string key, byte[] value, Dictionary<string, string>? metadata = null, CancellationToken cancellationToken = default);
+    
+    /// <summary>
+    /// Retrieves a secret value
+    /// </summary>
+    /// <param name="key">The secret key/name</param>
+    /// <returns>The secret value, or null if not found</returns>
+    Task<byte[]?> GetSecretAsync(string key, CancellationToken cancellationToken = default);
+    
+    /// <summary>
+    /// Deletes a secret
+    /// </summary>
+    /// <param name="key">The secret key/name</param>
+    Task<bool> DeleteSecretAsync(string key, CancellationToken cancellationToken = default);
+    
+    /// <summary>
+    /// Checks if a secret exists
+    /// </summary>
+    /// <param name="key">The secret key/name</param>
+    Task<bool> SecretExistsAsync(string key, CancellationToken cancellationToken = default);
+    
+    /// <summary>
+    /// Lists all secrets with an optional prefix filter
+    /// </summary>
+    /// <param name="prefix">Optional prefix to filter secrets</param>
+    Task<IReadOnlyList<string>> ListSecretsAsync(string? prefix = null, CancellationToken cancellationToken = default);
+}
+
+/// <summary>
+/// Factory for creating cloud secrets provider instances
+/// </summary>
+public interface ICloudSecretsProviderFactory
+{
+    /// <summary>
+    /// Creates a provider instance from configuration
+    /// </summary>
+    ICloudSecretsProvider CreateProvider(CloudSecretsProviderConfig config);
+    
+    /// <summary>
+    /// Gets the list of supported provider types
+    /// </summary>
+    IReadOnlyList<CloudSecretsProviderType> SupportedProviders { get; }
+    
+    /// <summary>
+    /// Gets the required and optional settings for a provider type
+    /// </summary>
+    IReadOnlyList<CloudProviderSettingInfo> GetProviderSettings(CloudSecretsProviderType providerType);
+    
+    /// <summary>
+    /// Gets the display name for a provider type
+    /// </summary>
+    string GetProviderDisplayName(CloudSecretsProviderType providerType);
+}
+
+/// <summary>
+/// Service for managing cloud secrets storage providers and operations
+/// </summary>
+public interface ICloudSecretsService
+{
+    // Provider management
+    
+    /// <summary>
+    /// Gets all configured cloud secrets providers
+    /// </summary>
+    Task<IReadOnlyList<CloudSecretsProviderConfig>> GetProvidersAsync();
+    
+    /// <summary>
+    /// Saves (adds or updates) a provider configuration
+    /// </summary>
+    Task SaveProviderAsync(CloudSecretsProviderConfig provider);
+    
+    /// <summary>
+    /// Deletes a provider configuration
+    /// </summary>
+    Task DeleteProviderAsync(string providerId);
+    
+    /// <summary>
+    /// Tests a provider's connection
+    /// </summary>
+    Task<bool> TestProviderConnectionAsync(string providerId);
+    
+    // Active provider
+    
+    /// <summary>
+    /// Gets the currently active provider (if any)
+    /// </summary>
+    CloudSecretsProviderConfig? ActiveProvider { get; }
+    
+    /// <summary>
+    /// Sets the active provider by ID (null to clear)
+    /// </summary>
+    Task SetActiveProviderAsync(string? providerId);
+    
+    /// <summary>
+    /// Event fired when the active provider changes
+    /// </summary>
+    event Action? OnActiveProviderChanged;
+    
+    // Secret operations (uses active provider)
+    
+    /// <summary>
+    /// Stores a secret using the active provider
+    /// </summary>
+    Task<bool> StoreSecretAsync(string key, byte[] value, Dictionary<string, string>? metadata = null, CancellationToken cancellationToken = default);
+    
+    /// <summary>
+    /// Retrieves a secret from the active provider
+    /// </summary>
+    Task<byte[]?> GetSecretAsync(string key, CancellationToken cancellationToken = default);
+    
+    /// <summary>
+    /// Deletes a secret from the active provider
+    /// </summary>
+    Task<bool> DeleteSecretAsync(string key, CancellationToken cancellationToken = default);
+    
+    /// <summary>
+    /// Checks if a secret exists in the active provider
+    /// </summary>
+    Task<bool> SecretExistsAsync(string key, CancellationToken cancellationToken = default);
+    
+    /// <summary>
+    /// Lists secrets from the active provider
+    /// </summary>
+    Task<IReadOnlyList<string>> ListSecretsAsync(string? prefix = null, CancellationToken cancellationToken = default);
+}
+
+/// <summary>
+/// Service for syncing certificate private keys between local keychain and cloud storage
+/// </summary>
+public interface ICertificateSyncService
+{
+    /// <summary>
+    /// Gets the storage status for a list of certificates
+    /// </summary>
+    Task<IReadOnlyList<CertificateSecretInfo>> GetCertificateStatusesAsync(
+        IEnumerable<AppleCertificate> certificates,
+        CancellationToken cancellationToken = default);
+    
+    /// <summary>
+    /// Uploads a certificate's private key to cloud storage
+    /// </summary>
+    /// <param name="certificate">The certificate to upload</param>
+    /// <param name="p12Data">The P12/PFX data containing the private key</param>
+    /// <param name="password">Password protecting the P12</param>
+    /// <param name="metadata">Optional metadata about the certificate</param>
+    Task<bool> UploadToCloudAsync(
+        AppleCertificate certificate,
+        byte[] p12Data,
+        string password,
+        CertificateSecretMetadata? metadata = null,
+        CancellationToken cancellationToken = default);
+    
+    /// <summary>
+    /// Downloads a certificate's private key from cloud storage and installs locally
+    /// </summary>
+    /// <param name="certificateId">The certificate ID to download</param>
+    Task<bool> DownloadAndInstallAsync(string certificateId, CancellationToken cancellationToken = default);
+    
+    /// <summary>
+    /// Gets the cloud secret key for a certificate
+    /// </summary>
+    string GetCertificateSecretKey(string serialNumber);
+    
+    /// <summary>
+    /// Gets the password secret key for a certificate
+    /// </summary>
+    string GetCertificatePasswordKey(string serialNumber);
+    
+    /// <summary>
+    /// Gets the metadata secret key for a certificate
+    /// </summary>
+    string GetCertificateMetadataKey(string serialNumber);
+    
+    /// <summary>
+    /// Deletes a certificate's private key from cloud storage
+    /// </summary>
+    /// <param name="serialNumber">The serial number of the certificate to delete</param>
+    Task<bool> DeleteFromCloudAsync(string serialNumber, CancellationToken cancellationToken = default);
 }

@@ -9,6 +9,11 @@
 @inject IAlertService AlertService
 @inject IDialogService DialogService
 @inject OperationModalService OperationModal
+@inject MultiOperationModalService MultiOpModal
+@inject ICertificateSyncService CertificateSyncService
+@inject ICloudSecretsService CloudSecretsService
+@inject ILocalCertificateService LocalCertificateService
+@inject ILoggingService Logger
 @implements IDisposable
 
 <h1><i class="fas fa-certificate"></i> Certificates</h1>
@@ -24,7 +29,31 @@
         <button class="btn btn-success" @onclick="ShowCreateDialog" disabled="@isLoading">
             <i class="fas fa-plus"></i> Create Certificate
         </button>
+        @if (CloudSecretsService.ActiveProvider != null)
+        {
+            <button class="btn btn-outline-primary" @onclick="SyncAllFromCloud" disabled="@(isLoading || !HasCloudOnlyCerts)">
+                <i class="fas fa-cloud-download-alt"></i> Install All from Cloud
+            </button>
+            <button class="btn btn-outline-primary" @onclick="SyncAllToCloud" disabled="@(isLoading || !HasLocalOnlyCerts)">
+                <i class="fas fa-cloud-upload-alt"></i> Upload All to Cloud
+            </button>
+        }
     </div>
+
+    <!-- Cloud Sync Hint -->
+    @if (CloudSecretsService.ActiveProvider == null && !syncHintDismissed)
+    {
+        <div class="alert alert-info alert-dismissible">
+            <div class="alert-content">
+                <i class="fas fa-cloud info-icon"></i>
+                <div>
+                    <strong>Sync certificates across machines</strong>
+                    <p>Configure a cloud secrets provider (like Infisical) in Settings to securely sync your signing certificates and private keys across all your development machines.</p>
+                </div>
+            </div>
+            <button type="button" class="btn-close" @onclick="DismissSyncHint" title="Dismiss">×</button>
+        </div>
+    }
 
     <!-- Filter Section -->
     <div class="filter-section">
@@ -95,6 +124,7 @@
             {
                 var isExpired = cert.ExpirationDate < DateTime.UtcNow;
                 var isExpiringSoon = !isExpired && cert.ExpirationDate < DateTime.UtcNow.AddDays(30);
+                var syncStatus = GetSyncStatus(cert);
                 
                 <div class="cert-card @(isExpired ? "expired" : isExpiringSoon ? "expiring" : "")">
                     <div class="cert-icon"><i class="fas fa-lock"></i></div>
@@ -110,7 +140,7 @@
                             <span class="badge badge-type">@FormatCertType(cert.CertificateType)</span>
                             @if (!string.IsNullOrEmpty(cert.Platform))
                             {
-                                <span class="badge badge-platform">@cert.Platform</span>
+                                <span class="badge badge-platform">@FormatPlatform(cert.Platform)</span>
                             }
                             @if (isExpired)
                             {
@@ -124,12 +154,63 @@
                             {
                                 <span class="badge badge-valid">Valid</span>
                             }
+                            @* Sync status badge *@
+                            @if (CloudSecretsService.ActiveProvider != null)
+                            {
+                                <span class="badge @GetSyncBadgeClass(syncStatus)" title="@GetSyncStatusTooltip(syncStatus)">
+                                    @GetSyncStatusIcon(syncStatus) @GetSyncStatusText(syncStatus)
+                                </span>
+                            }
                         </div>
                         <div class="cert-expiry">
                             Expires: @cert.ExpirationDate.ToString("MMM dd, yyyy")
                         </div>
                     </div>
                     <div class="cert-actions">
+                        @* Sync actions dropdown - only show if cloud provider is configured *@
+                        @if (CloudSecretsService.ActiveProvider != null)
+                        {
+                            var currentCertId = cert.Id;
+                            var currentSyncStatus = syncStatus;
+                            <div class="dropdown">
+                                <button class="btn btn-secondary btn-sm dropdown-toggle" @onclick="@(() => ToggleSyncMenu(currentCertId))" @onclick:stopPropagation="true">
+                                    <i class="fas fa-cloud"></i> Sync
+                                </button>
+                                @if (openSyncMenuCertId == currentCertId)
+                                {
+                                    <div class="dropdown-menu show">
+                                        @if (currentSyncStatus == SecretLocation.LocalOnly || currentSyncStatus == SecretLocation.Both)
+                                        {
+                                            <button type="button" class="dropdown-item" @onclick="@(() => HandleUploadClick(currentCertId))">
+                                                <i class="fas fa-cloud-upload-alt"></i> Upload to Cloud
+                                            </button>
+                                            <button type="button" class="dropdown-item text-danger" @onclick="@(() => DeleteLocalCertificate(cert))">
+                                                <i class="fas fa-trash-alt"></i> Delete from Keychain
+                                            </button>
+                                        }
+                                        @if (currentSyncStatus == SecretLocation.CloudOnly || currentSyncStatus == SecretLocation.Both)
+                                        {
+                                            <button type="button" class="dropdown-item" @onclick="@(() => HandleInstallClick(currentCertId))">
+                                                <i class="fas fa-download"></i> Install Locally
+                                            </button>
+                                            <button type="button" class="dropdown-item text-danger" @onclick="@(() => DeleteFromCloud(cert))">
+                                                <i class="fas fa-cloud"></i> Delete from Cloud
+                                            </button>
+                                        }
+                                        @if (currentSyncStatus == SecretLocation.None)
+                                        {
+                                            <div class="dropdown-item disabled">
+                                                <i class="fas fa-exclamation-circle"></i> No private key available
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        }
+                        <button class="btn btn-secondary btn-sm" @onclick="@(() => ShowExportDialog(cert))" 
+                                disabled="@isLoading" title="Export certificate">
+                            <i class="fas fa-file-export"></i> Export
+                        </button>
                         <button class="btn btn-danger btn-sm" @onclick="@(() => RevokeCertificate(cert))" 
                                 disabled="@isLoading" title="Revoke certificate">
                             <i class="fas fa-ban"></i> Revoke
@@ -187,11 +268,150 @@
     </div>
 }
 
+@if (showExportDialog && exportCertificate != null)
+{
+    <div class="modal-overlay">
+        <div class="modal" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h2>Export Certificate</h2>
+                <button class="close-btn" @onclick="CloseExportDialog">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="cert-export-info">
+                    <strong>@exportCertificate.Name</strong>
+                    <div class="text-muted">@exportCertificate.CertificateType</div>
+                </div>
+                
+                <div class="form-group">
+                    <label>Export Type</label>
+                    <div class="export-type-options">
+                        <label class="radio-option">
+                            <input type="radio" name="exportType" value="p12" checked="@(exportType == "p12")" @onchange="@(() => exportType = "p12")" />
+                            <span class="radio-label">
+                                <strong>P12 / PFX (with private key)</strong>
+                                <small>Includes both public and private key - can be used for signing</small>
+                            </span>
+                        </label>
+                        <label class="radio-option">
+                            <input type="radio" name="exportType" value="cer" checked="@(exportType == "cer")" @onchange="@(() => exportType = "cer")" />
+                            <span class="radio-label">
+                                <strong>CER (public key only)</strong>
+                                <small>Contains only the public certificate - cannot be used for signing</small>
+                            </span>
+                        </label>
+                    </div>
+                </div>
+                
+                @if (exportType == "p12")
+                {
+                    var localIdentity = localIdentities?.FirstOrDefault(i => 
+                        i.SerialNumber?.Equals(exportCertificate?.SerialNumber, StringComparison.OrdinalIgnoreCase) == true);
+                    if (localIdentity == null)
+                    {
+                        <div class="alert alert-warning">
+                            <i class="fas fa-exclamation-triangle"></i>
+                            Private key not found in local keychain. You can only export the public certificate.
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="form-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" @bind="exportWithPassword" />
+                                <span>Protect with password</span>
+                            </label>
+                        </div>
+                        
+                        @if (exportWithPassword)
+                        {
+                            <div class="form-group">
+                                <label>Password</label>
+                                <input type="password" @bind="exportPassword" class="form-control" placeholder="Enter password" />
+                            </div>
+                            <div class="form-group">
+                                <label>Confirm Password</label>
+                                <input type="password" @bind="exportPasswordConfirm" class="form-control" placeholder="Confirm password" />
+                                @if (!string.IsNullOrEmpty(exportPassword) && !string.IsNullOrEmpty(exportPasswordConfirm) && exportPassword != exportPasswordConfirm)
+                                {
+                                    <small class="form-error">Passwords do not match</small>
+                                }
+                            </div>
+                        }
+                    }
+                }
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" @onclick="CloseExportDialog" disabled="@isExporting">
+                    <i class="fas fa-times"></i> Cancel
+                </button>
+                <button class="btn btn-primary" @onclick="ExportCertificate" disabled="@(!CanExport)">
+                    <i class="fas @(isExporting ? "fa-spinner fa-spin" : "fa-file-export")"></i> @(isExporting ? "Exporting..." : "Export")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
 <style>
     h1 { margin-bottom: 20px; font-size: 28px; color: var(--text-primary); }
 
-    .toolbar { margin-bottom: 16px; display: flex; gap: 12px; }
+    .toolbar { margin-bottom: 16px; display: flex; gap: 12px; flex-wrap: wrap; }
     .error-bar { background: var(--status-error-bg); color: var(--status-error-text); padding: 12px 16px; border-radius: 6px; margin-bottom: 16px; }
+
+    /* Info Alert */
+    .alert-info {
+        background: linear-gradient(135deg, rgba(66, 153, 225, 0.1), rgba(66, 153, 225, 0.05));
+        border: 1px solid rgba(66, 153, 225, 0.3);
+        border-radius: 8px;
+        padding: 16px;
+        margin-bottom: 16px;
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+    }
+
+    .alert-info .alert-content {
+        flex: 1;
+        display: flex;
+        gap: 12px;
+        align-items: flex-start;
+    }
+
+    .alert-info .info-icon {
+        font-size: 24px;
+        color: var(--accent-primary);
+        flex-shrink: 0;
+        margin-top: 2px;
+    }
+
+    .alert-info strong {
+        display: block;
+        color: var(--text-primary);
+        margin-bottom: 4px;
+    }
+
+    .alert-info p {
+        margin: 0;
+        color: var(--text-secondary);
+        font-size: 14px;
+        line-height: 1.5;
+    }
+
+    .alert-info .btn-close {
+        background: none;
+        border: none;
+        font-size: 20px;
+        color: var(--text-secondary);
+        cursor: pointer;
+        padding: 0;
+        line-height: 1;
+        opacity: 0.6;
+        transition: opacity 0.2s;
+    }
+
+    .alert-info .btn-close:hover {
+        opacity: 1;
+    }
 
     /* Filter Section Styles */
     .filter-section {
@@ -376,6 +596,49 @@
     .badge-valid { background: var(--status-success-bg); color: var(--status-success-text); }
     .badge-expiring { background: var(--status-warning-bg); color: var(--status-warning-text); }
     .badge-expired { background: var(--status-error-bg); color: var(--status-error-text); }
+    
+    /* Sync status badges */
+    .badge-sync-both { background: #c6f6d5; color: #22543d; }
+    .badge-sync-local { background: #bee3f8; color: #2c5282; }
+    .badge-sync-cloud { background: #fefcbf; color: #744210; }
+    .badge-sync-none { background: #e2e8f0; color: #4a5568; }
+    
+    /* Dropdown menu */
+    .dropdown { position: relative; display: inline-block; }
+    .dropdown-toggle::after { content: ''; display: inline-block; margin-left: 6px; vertical-align: middle; border-top: 4px solid; border-right: 4px solid transparent; border-left: 4px solid transparent; }
+    .dropdown-menu {
+        position: absolute;
+        top: 100%;
+        right: 0;
+        z-index: 1000;
+        min-width: 180px;
+        padding: 6px 0;
+        margin-top: 4px;
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+    }
+    .dropdown-menu.show { display: block; }
+    .dropdown-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        padding: 8px 16px;
+        background: none;
+        border: none;
+        text-align: left;
+        font-size: 14px;
+        color: var(--text-primary);
+        cursor: pointer;
+        transition: background 0.15s;
+    }
+    .dropdown-item:hover:not(.disabled) { background: var(--bg-hover); }
+    .dropdown-item.disabled { color: var(--text-muted); cursor: default; }
+    .dropdown-item i { font-size: 14px; width: 16px; text-align: center; }
+    .dropdown-item.text-danger { color: #e53e3e; }
+    .dropdown-item.text-danger:hover { background: #fed7d7; }
 
     .empty-state { background: var(--card-bg); border-radius: 8px; padding: 60px 40px; text-align: center; box-shadow: var(--card-shadow); }
     .empty-icon { font-size: 48px; margin-bottom: 16px; color: #a0aec0; }
@@ -450,6 +713,86 @@
     }
     .form-control:focus { outline: none; border-color: var(--accent-primary); box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.15); }
     .form-hint { display: block; margin-top: 4px; font-size: 12px; color: var(--text-muted); }
+    .form-error { display: block; margin-top: 4px; font-size: 12px; color: var(--status-error-text); }
+    
+    /* Export dialog styles */
+    .cert-export-info {
+        background: var(--bg-secondary);
+        padding: 12px 16px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+    }
+    
+    .export-type-options {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+    
+    .radio-option {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        padding: 12px 16px;
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        cursor: pointer;
+        transition: border-color 0.15s, background 0.15s;
+    }
+    
+    .radio-option:hover {
+        background: var(--bg-hover);
+    }
+    
+    .radio-option input[type="radio"] {
+        margin-top: 4px;
+    }
+    
+    .radio-option input[type="radio"]:checked + .radio-label {
+        color: var(--accent-primary);
+    }
+    
+    .radio-label {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+    
+    .radio-label strong {
+        font-size: 14px;
+    }
+    
+    .radio-label small {
+        font-size: 12px;
+        color: var(--text-muted);
+    }
+    
+    .checkbox-label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        cursor: pointer;
+    }
+    
+    .checkbox-label input[type="checkbox"] {
+        width: 18px;
+        height: 18px;
+    }
+    
+    .alert {
+        padding: 12px 16px;
+        border-radius: 8px;
+        margin-bottom: 16px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    
+    .alert-warning {
+        background: #fef3cd;
+        color: #856404;
+        border: 1px solid #ffc107;
+    }
 </style>
 
 @code {
@@ -469,6 +812,29 @@
     private string newCertType = "IOS_DEVELOPMENT";
     private string newCertCommonName = "";
     private string newCertPassphrase = "";
+    
+    // Export dialog state
+    private bool showExportDialog = false;
+    private bool isExporting = false;
+    private AppleCertificate? exportCertificate = null;
+    private string exportType = "p12";
+    private bool exportWithPassword = false;
+    private string exportPassword = "";
+    private string exportPasswordConfirm = "";
+    private IReadOnlyList<LocalSigningIdentity>? localIdentities = null;
+    
+    // Sync state
+    private Dictionary<string, CertificateSecretInfo> syncStatuses = new();
+    private string? openSyncMenuCertId = null;
+    private bool syncHintDismissed = false;
+    private const string SyncHintDismissedKey = "CertificatesSyncHintDismissed";
+    
+    private bool CanExport => exportCertificate != null && 
+        !isExporting && 
+        (exportType == "cer" || 
+         (exportType == "p12" && 
+          localIdentities?.Any(i => i.SerialNumber?.Equals(exportCertificate.SerialNumber, StringComparison.OrdinalIgnoreCase) == true) == true &&
+          (!exportWithPassword || (exportPassword == exportPasswordConfirm && !string.IsNullOrEmpty(exportPassword)))));
 
     private bool HasActiveFilters => !string.IsNullOrEmpty(searchQuery) || 
                                       !string.IsNullOrEmpty(filterType) || 
@@ -484,6 +850,10 @@
         .Where(c => string.IsNullOrEmpty(filterStatus) || GetCertStatus(c) == filterStatus)
         .OrderByDescending(c => c.ExpirationDate > DateTime.UtcNow) // Valid first
         .ThenBy(c => c.ExpirationDate);
+
+    // Computed properties for bulk sync buttons
+    private bool HasCloudOnlyCerts => syncStatuses.Values.Any(s => s.Location == SecretLocation.CloudOnly);
+    private bool HasLocalOnlyCerts => syncStatuses.Values.Any(s => s.Location == SecretLocation.LocalOnly);
 
     private string GetCertStatus(AppleCertificate cert)
     {
@@ -503,8 +873,25 @@
     protected override async Task OnInitializedAsync()
     {
         IdentityState.OnSelectionChanged += OnIdentityChanged;
+        
+        // Load sync hint dismissed preference
+        syncHintDismissed = Preferences.Default.Get(SyncHintDismissedKey, false);
+        
+        // Initialize cloud secrets service to load active provider
+        if (CloudSecretsService is MauiSherpa.Core.Services.CloudSecretsService svc)
+        {
+            await svc.InitializeAsync();
+        }
+        
         if (IdentityState.SelectedIdentity != null)
             await RefreshData();
+    }
+
+    private void DismissSyncHint()
+    {
+        syncHintDismissed = true;
+        Preferences.Default.Set(SyncHintDismissedKey, true);
+        StateHasChanged();
     }
 
     private void OnIdentityChanged()
@@ -529,11 +916,20 @@
         errorMessage = "";
         try
         {
+            // Invalidate local certificate cache on force refresh
+            if (forceRefresh)
+            {
+                LocalCertificateService.InvalidateCache();
+            }
+            
             var request = new GetCertificatesRequest(IdentityState.SelectedIdentity.Id);
             var (_, result) = forceRefresh 
                 ? await Mediator.Request(request, CancellationToken.None, ctx => ctx.ClearCache())
                 : await Mediator.Request(request);
             certificates = result.ToList();
+            
+            // Load sync statuses if cloud provider is configured
+            await LoadSyncStatuses();
         }
         catch (Exception ex)
         {
@@ -543,6 +939,26 @@
         {
             isLoading = false;
             await InvokeAsync(StateHasChanged);
+        }
+    }
+    
+    private async Task LoadSyncStatuses()
+    {
+        if (CloudSecretsService.ActiveProvider == null || certificates.Count == 0)
+        {
+            syncStatuses.Clear();
+            return;
+        }
+        
+        try
+        {
+            var statuses = await CertificateSyncService.GetCertificateStatusesAsync(certificates);
+            syncStatuses = statuses.ToDictionary(s => s.CertificateId, s => s);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError($"Failed to load sync statuses: {ex.Message}", ex);
+            syncStatuses.Clear();
         }
     }
 
@@ -557,6 +973,91 @@
     private void CloseCreateDialog()
     {
         showCreateDialog = false;
+    }
+    
+    private async Task ShowExportDialog(AppleCertificate cert)
+    {
+        exportCertificate = cert;
+        exportType = "p12";
+        exportWithPassword = false;
+        exportPassword = "";
+        exportPasswordConfirm = "";
+        
+        // Load local identities to check if we have the private key
+        if (LocalCertificateService.IsSupported)
+        {
+            localIdentities = await LocalCertificateService.GetSigningIdentitiesAsync();
+        }
+        
+        showExportDialog = true;
+    }
+    
+    private void CloseExportDialog()
+    {
+        showExportDialog = false;
+        exportCertificate = null;
+    }
+    
+    private async Task ExportCertificate()
+    {
+        if (exportCertificate == null) return;
+        
+        isExporting = true;
+        StateHasChanged();
+        
+        try
+        {
+            var cert = exportCertificate;
+            var fileName = $"{cert.Name?.Replace(" ", "_") ?? "certificate"}_{DateTime.Now:yyyyMMdd}";
+            byte[] data;
+            string extension;
+            
+            if (exportType == "p12")
+            {
+                extension = ".p12";
+                var matchingIdentity = localIdentities?.FirstOrDefault(i => 
+                    i.SerialNumber?.Equals(cert.SerialNumber, StringComparison.OrdinalIgnoreCase) == true);
+                
+                if (matchingIdentity == null)
+                {
+                    await AlertService.ShowAlertAsync("Error", "Private key not found in local keychain.");
+                    return;
+                }
+                
+                var password = exportWithPassword ? exportPassword : "";
+                data = await LocalCertificateService.ExportP12Async(matchingIdentity.Identity, password);
+            }
+            else
+            {
+                extension = ".cer";
+                data = await LocalCertificateService.ExportCertificateAsync(cert.SerialNumber ?? "");
+            }
+            
+            // Get save location
+            var savePath = await DialogService.ShowFileDialogAsync(
+                "Save Certificate", 
+                isSave: true, 
+                defaultFileName: fileName + extension);
+            
+            if (string.IsNullOrEmpty(savePath))
+            {
+                return; // User cancelled
+            }
+            
+            await File.WriteAllBytesAsync(savePath, data);
+            await AlertService.ShowToastAsync($"Certificate exported to {Path.GetFileName(savePath)}");
+            CloseExportDialog();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError($"Export failed: {ex}");
+            await AlertService.ShowAlertAsync("Export Failed", ex.Message);
+        }
+        finally
+        {
+            isExporting = false;
+            StateHasChanged();
+        }
     }
 
     private async Task CreateCertificate()
@@ -623,21 +1124,490 @@
             await RefreshData(forceRefresh: true);
         }
     }
-
-    private string FormatCertType(string certType)
+    
+    private async Task DeleteLocalCertificate(AppleCertificate cert)
     {
+        openSyncMenuCertId = null;
+        
+        if (!LocalCertificateService.IsSupported)
+        {
+            await AlertService.ShowAlertAsync("Not Supported", "Certificate deletion is only supported on macOS.");
+            return;
+        }
+        
+        // Confirm deletion
+        var confirmed = await AlertService.ShowConfirmAsync(
+            "Delete from Keychain",
+            $"Are you sure you want to delete '{cert.Name}' from your local keychain?\n\nThis will remove both the certificate and its private key. This action cannot be undone.");
+        
+        if (!confirmed)
+            return;
+        
+        try
+        {
+            // Find the matching local identity
+            var identities = await LocalCertificateService.GetSigningIdentitiesAsync();
+            var matchingIdentity = identities.FirstOrDefault(i => 
+                i.SerialNumber?.Equals(cert.SerialNumber, StringComparison.OrdinalIgnoreCase) == true);
+            
+            if (matchingIdentity == null)
+            {
+                await AlertService.ShowAlertAsync("Not Found", "Certificate not found in local keychain.");
+                return;
+            }
+            
+            // Extract the common name from the identity for deletion
+            // Identity looks like: "Apple Development: John Doe (TEAMID)"
+            var commonName = matchingIdentity.Identity;
+            
+            await LocalCertificateService.DeleteCertificateAsync(commonName);
+            await AlertService.ShowToastAsync("Certificate deleted from keychain");
+            
+            // Invalidate cache and refresh sync statuses
+            LocalCertificateService.InvalidateCache();
+            await LoadSyncStatuses();
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError($"Failed to delete certificate: {ex}");
+            await AlertService.ShowAlertAsync("Delete Failed", ex.Message);
+        }
+    }
+
+    private async Task DeleteFromCloud(AppleCertificate cert)
+    {
+        openSyncMenuCertId = null;
+        
+        if (string.IsNullOrEmpty(cert.SerialNumber))
+        {
+            await AlertService.ShowAlertAsync("Error", "Certificate serial number is not available.");
+            return;
+        }
+        
+        // Confirm deletion
+        var confirmed = await AlertService.ShowConfirmAsync(
+            "Delete from Cloud",
+            $"Are you sure you want to delete '{cert.Name}' from cloud storage?\n\nThis will remove the private key from your cloud secrets provider. This action cannot be undone.");
+        
+        if (!confirmed)
+            return;
+        
+        try
+        {
+            var success = await CertificateSyncService.DeleteFromCloudAsync(cert.SerialNumber);
+            
+            if (success)
+            {
+                await AlertService.ShowToastAsync("Certificate deleted from cloud");
+                
+                // Refresh sync statuses
+                await LoadSyncStatuses();
+                StateHasChanged();
+            }
+            else
+            {
+                await AlertService.ShowAlertAsync("Delete Failed", "Failed to delete certificate from cloud storage.");
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError($"Failed to delete certificate from cloud: {ex}");
+            await AlertService.ShowAlertAsync("Delete Failed", ex.Message);
+        }
+    }
+
+    private async Task SyncAllFromCloud()
+    {
+        // Get all cloud-only certificates
+        var cloudOnlyCerts = certificates
+            .Where(c => syncStatuses.TryGetValue(c.Id, out var status) && status.Location == SecretLocation.CloudOnly)
+            .ToList();
+
+        if (cloudOnlyCerts.Count == 0)
+        {
+            await AlertService.ShowToastAsync("No certificates to install from cloud");
+            return;
+        }
+
+        var operations = cloudOnlyCerts.Select(cert => new OperationItem(
+            Id: cert.Id,
+            Name: cert.Name,
+            Description: $"{FormatCertType(cert.CertificateType ?? "Unknown")} - {cert.SerialNumber}",
+            Execute: async ctx =>
+            {
+                ctx.LogInfo($"Installing {cert.Name} from cloud...");
+                
+                try
+                {
+                    var success = await CertificateSyncService.DownloadAndInstallAsync(cert.Id);
+                    
+                    if (success)
+                    {
+                        ctx.LogSuccess($"Installed {cert.Name} to local keychain");
+                        return true;
+                    }
+                    else
+                    {
+                        ctx.LogError($"Failed to install {cert.Name}");
+                        return false;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    ctx.LogError($"Error installing {cert.Name}: {ex.Message}");
+                    return false;
+                }
+            },
+            IsEnabled: true,
+            CanDisable: true
+        )).ToList();
+
+        var result = await MultiOpModal.RunAsync(
+            "Install Certificates from Cloud",
+            $"The following {cloudOnlyCerts.Count} certificate(s) will be installed to your local keychain. Uncheck any you want to skip.",
+            operations);
+
+        if (result.Completed > 0)
+        {
+            // Refresh local identities cache and sync statuses
+            LocalCertificateService.InvalidateCache();
+            await LoadSyncStatuses();
+            StateHasChanged();
+        }
+    }
+
+    private async Task SyncAllToCloud()
+    {
+        // Get all local-only certificates
+        var localOnlyCerts = certificates
+            .Where(c => syncStatuses.TryGetValue(c.Id, out var status) && status.Location == SecretLocation.LocalOnly)
+            .ToList();
+
+        if (localOnlyCerts.Count == 0)
+        {
+            await AlertService.ShowToastAsync("No certificates to upload to cloud");
+            return;
+        }
+
+        // Get local identities for P12 export
+        var identities = await LocalCertificateService.GetSigningIdentitiesAsync();
+
+        var operations = localOnlyCerts.Select(cert => new OperationItem(
+            Id: cert.Id,
+            Name: cert.Name,
+            Description: $"{FormatCertType(cert.CertificateType ?? "Unknown")} - {cert.SerialNumber}",
+            Execute: async ctx =>
+            {
+                ctx.LogInfo($"Uploading {cert.Name} to cloud...");
+                
+                try
+                {
+                    // Find matching local identity
+                    var identity = identities.FirstOrDefault(i =>
+                        i.SerialNumber?.Equals(cert.SerialNumber, StringComparison.OrdinalIgnoreCase) == true);
+                    
+                    if (identity == null)
+                    {
+                        ctx.LogError($"Could not find local identity for {cert.Name}");
+                        return false;
+                    }
+
+                    // Generate a random password for the P12
+                    var password = GenerateRandomPassword();
+                    
+                    // Export P12 from keychain
+                    ctx.LogInfo("Exporting certificate from keychain...");
+                    var p12Data = await LocalCertificateService.ExportP12Async(identity.Identity, password);
+                    
+                    // Upload to cloud
+                    ctx.LogInfo("Uploading to cloud storage...");
+                    var metadata = new CertificateSecretMetadata(
+                        CertificateId: cert.Id,
+                        SerialNumber: cert.SerialNumber ?? "",
+                        CommonName: cert.Name,
+                        CertificateType: cert.CertificateType ?? "Unknown",
+                        ExpirationDate: cert.ExpirationDate,
+                        CreatedByMachine: Environment.MachineName,
+                        CreatedAt: DateTime.UtcNow
+                    );
+                    
+                    var success = await CertificateSyncService.UploadToCloudAsync(cert, p12Data, password, metadata);
+                    
+                    if (success)
+                    {
+                        ctx.LogSuccess($"Uploaded {cert.Name} to cloud");
+                        return true;
+                    }
+                    else
+                    {
+                        ctx.LogError($"Failed to upload {cert.Name}");
+                        return false;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    ctx.LogError($"Error uploading {cert.Name}: {ex.Message}");
+                    return false;
+                }
+            },
+            IsEnabled: true,
+            CanDisable: true
+        )).ToList();
+
+        var result = await MultiOpModal.RunAsync(
+            "Upload Certificates to Cloud",
+            $"The following {localOnlyCerts.Count} certificate(s) will be uploaded to cloud storage. Uncheck any you want to skip.",
+            operations);
+
+        if (result.Completed > 0)
+        {
+            await LoadSyncStatuses();
+            StateHasChanged();
+        }
+    }
+
+    private string FormatCertType(string? certType)
+    {
+        if (string.IsNullOrEmpty(certType))
+            return "Unknown";
+            
         return certType.Replace("_", " ").ToLowerInvariant() switch
         {
             var t when t.Contains("development") => "Development",
             var t when t.Contains("distribution") => "Distribution",
             var t when t.Contains("push") => "Push Notification",
+            var t when t.Contains("developer id application") => "Developer ID App",
+            var t when t.Contains("developer id installer") => "Developer ID Installer",
+            var t when t.Contains("developer id") => "Developer ID",
             _ => certType.Replace("_", " ")
         };
+    }
+
+    private static string FormatPlatform(string? platform)
+    {
+        if (string.IsNullOrEmpty(platform))
+            return "Unknown";
+            
+        return platform.ToUpperInvariant() switch
+        {
+            "IOS" => "iOS",
+            "MAC_OS" => "macOS",
+            "MACOS" => "macOS",
+            "UNIVERSAL" => "Universal",
+            _ => platform.Replace("_", " ")
+        };
+    }
+
+    private static string GenerateRandomPassword()
+    {
+        return Convert.ToBase64String(Guid.NewGuid().ToByteArray())[..16];
     }
 
     private async Task CopyToClipboard(string text)
     {
         await DialogService.CopyToClipboardAsync(text);
         await AlertService.ShowToastAsync("Copied to clipboard");
+    }
+    
+    // Sync helper methods
+    
+    private SecretLocation GetSyncStatus(AppleCertificate cert)
+    {
+        if (syncStatuses.TryGetValue(cert.Id ?? "", out var status))
+            return status.Location;
+        return SecretLocation.None;
+    }
+    
+    private string GetSyncBadgeClass(SecretLocation location) => location switch
+    {
+        SecretLocation.Both => "badge-sync-both",
+        SecretLocation.LocalOnly => "badge-sync-local",
+        SecretLocation.CloudOnly => "badge-sync-cloud",
+        _ => "badge-sync-none"
+    };
+    
+    private string GetSyncStatusIcon(SecretLocation location) => location switch
+    {
+        SecretLocation.Both => "🟢",
+        SecretLocation.LocalOnly => "🔵",
+        SecretLocation.CloudOnly => "🟡",
+        _ => "⚫"
+    };
+    
+    private string GetSyncStatusText(SecretLocation location) => location switch
+    {
+        SecretLocation.Both => "Synced",
+        SecretLocation.LocalOnly => "Local",
+        SecretLocation.CloudOnly => "Cloud",
+        _ => "No Key"
+    };
+    
+    private string GetSyncStatusTooltip(SecretLocation location) => location switch
+    {
+        SecretLocation.Both => "Private key exists locally and in cloud storage",
+        SecretLocation.LocalOnly => "Private key exists locally only - can upload to cloud",
+        SecretLocation.CloudOnly => "Private key in cloud only - can install locally",
+        _ => "No private key available - cannot sign with this certificate"
+    };
+    
+    private void ToggleSyncMenu(string? certId)
+    {
+        openSyncMenuCertId = openSyncMenuCertId == certId ? null : certId;
+    }
+    
+    private async void HandleUploadClick(string certId)
+    {
+        try
+        {
+            Logger.LogInformation($"HandleUploadClick called for cert ID: {certId}");
+            var cert = certificates?.FirstOrDefault(c => c.Id == certId);
+            if (cert != null)
+            {
+                await UploadToCloud(cert);
+            }
+            else
+            {
+                await AlertService.ShowAlertAsync("Error", $"Could not find cert with ID: {certId}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError($"HandleUploadClick error: {ex}");
+            await AlertService.ShowAlertAsync("Error", $"Upload failed: {ex.Message}");
+        }
+    }
+    
+    private void HandleInstallClick(string certId)
+    {
+        Logger.LogInformation($"HandleInstallClick called for cert ID: {certId}");
+        var cert = certificates?.FirstOrDefault(c => c.Id == certId);
+        if (cert != null)
+        {
+            _ = InstallLocally(cert);
+        }
+    }
+    
+    private async Task UploadToCloud(AppleCertificate cert)
+    {
+        try
+        {
+            Logger.LogInformation($"UploadToCloud called for cert: {cert.Id} ({cert.Name})");
+            openSyncMenuCertId = null;
+            StateHasChanged();
+            
+            // We need to get the P12 from the local keychain
+            if (!LocalCertificateService.IsSupported)
+            {
+                await AlertService.ShowAlertAsync("Not Supported", "Certificate export is only supported on macOS.");
+                return;
+            }
+            
+            // Get the local signing identities to find the matching one
+            Logger.LogInformation($"Looking for identity with serial: {cert.SerialNumber}");
+            var identities = await LocalCertificateService.GetSigningIdentitiesAsync();
+            var matchingIdentity = identities.FirstOrDefault(i => 
+                i.SerialNumber?.Equals(cert.SerialNumber, StringComparison.OrdinalIgnoreCase) == true);
+            
+            if (matchingIdentity == null)
+            {
+                Logger.LogWarning($"No matching identity found for serial {cert.SerialNumber}");
+                await AlertService.ShowAlertAsync("Not Found", "Could not find the private key for this certificate in your local keychain.");
+                return;
+            }
+            
+            Logger.LogInformation($"Found matching identity: {matchingIdentity.Identity}");
+            
+            // Generate a random password for the P12 - user doesn't need to know it since we store it in cloud
+            var password = Convert.ToBase64String(Guid.NewGuid().ToByteArray())[..16];
+        
+            var result = await OperationModal.RunAsync(
+                "Upload to Cloud",
+                $"Exporting and uploading certificate...",
+                async ctx =>
+                {
+                    ctx.LogInfo("Exporting certificate from keychain...");
+                    var p12Data = await LocalCertificateService.ExportP12Async(matchingIdentity.Identity, password);
+                    
+                    ctx.LogInfo("Uploading to cloud storage...");
+                    var metadata = new CertificateSecretMetadata(
+                        cert.Id ?? "",
+                        cert.SerialNumber ?? "",
+                        cert.Name ?? "",
+                        cert.CertificateType ?? "",
+                        cert.ExpirationDate,
+                        Environment.MachineName,
+                        DateTime.UtcNow
+                    );
+                    
+                    var success = await CertificateSyncService.UploadToCloudAsync(cert, p12Data, password, metadata);
+                    if (!success)
+                        throw new Exception("Failed to upload certificate to cloud storage");
+                    
+                    return true;
+            },
+            canCancel: false);
+        
+        if (result.Success)
+        {
+            await AlertService.ShowToastAsync("Certificate uploaded to cloud");
+            await LoadSyncStatuses();
+            StateHasChanged();
+        }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError($"Error in UploadToCloud: {ex}");
+            await AlertService.ShowAlertAsync("Error", $"Upload failed: {ex.Message}");
+        }
+    }
+    
+    private async Task InstallLocally(AppleCertificate cert)
+    {
+        openSyncMenuCertId = null;
+        
+        if (!LocalCertificateService.IsSupported)
+        {
+            await AlertService.ShowAlertAsync("Not Supported", "Certificate installation is only supported on macOS.");
+            return;
+        }
+        
+        Logger.LogInformation($"InstallLocally starting for cert: {cert.Id}, serial: {cert.SerialNumber}");
+        
+        var result = await OperationModal.RunAsync(
+            "Install Certificate",
+            $"Downloading and installing certificate...",
+            async ctx =>
+            {
+                ctx.LogInfo($"Certificate: {cert.Name}");
+                ctx.LogInfo($"Serial: {cert.SerialNumber}");
+                ctx.LogInfo("Downloading from cloud storage...");
+                
+                // Use the CertificateSyncService to download and install
+                if (CertificateSyncService is MauiSherpa.Core.Services.CertificateSyncService syncService)
+                {
+                    var success = await syncService.DownloadAndInstallBySerialAsync(cert.SerialNumber ?? "");
+                    if (!success)
+                    {
+                        ctx.LogError("Failed to download and install certificate");
+                        throw new Exception("Failed to download and install certificate - check logs for details");
+                    }
+                    ctx.LogSuccess("Certificate installed successfully");
+                    return true;
+                }
+                else
+                {
+                    throw new Exception("Sync service not available");
+                }
+            },
+            canCancel: false);
+        
+        if (result.Success)
+        {
+            await AlertService.ShowToastAsync("Certificate installed to local keychain");
+            LocalCertificateService.InvalidateCache();
+            await LoadSyncStatuses();
+            StateHasChanged();
+        }
     }
 }

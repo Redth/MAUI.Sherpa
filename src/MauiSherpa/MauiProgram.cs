@@ -66,6 +66,11 @@ public static class MauiProgram
         builder.Services.AddSingleton<IAppleConnectService, AppleConnectService>();
         builder.Services.AddSingleton<IAppleRootCertService, AppleRootCertService>();
         builder.Services.AddSingleton<ILocalCertificateService, LocalCertificateService>();
+        
+        // Cloud Secrets Storage services
+        builder.Services.AddSingleton<ICloudSecretsProviderFactory, CloudSecretsProviderFactory>();
+        builder.Services.AddSingleton<ICloudSecretsService, CloudSecretsService>();
+        builder.Services.AddSingleton<ICertificateSyncService, CertificateSyncService>();
 
         // ViewModels
         builder.Services.AddSingleton<DashboardViewModel>();
