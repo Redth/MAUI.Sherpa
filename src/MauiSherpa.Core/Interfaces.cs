@@ -323,6 +323,111 @@ public interface IAppleRootCertService
 }
 
 // ============================================================================
+// Local Signing Identities - Keychain Certificate Management
+// ============================================================================
+
+/// <summary>
+/// A signing identity from the local macOS keychain that includes the private key
+/// </summary>
+public record LocalSigningIdentity(
+    string Identity,          // Full identity string (e.g., "Apple Development: Name (TEAM)")
+    string CommonName,        // Certificate common name
+    string? TeamId,           // Team ID extracted from identity
+    string? SerialNumber,     // For matching with API certificates
+    DateTime? ExpirationDate,
+    bool IsValid              // Valid according to security tool
+);
+
+/// <summary>
+/// Service for managing local signing identities in the macOS keychain
+/// </summary>
+public interface ILocalCertificateService
+{
+    /// <summary>
+    /// Gets all valid code signing identities from the local keychain
+    /// </summary>
+    Task<IReadOnlyList<LocalSigningIdentity>> GetSigningIdentitiesAsync();
+    
+    /// <summary>
+    /// Checks if a certificate with the given serial number has a private key locally
+    /// </summary>
+    Task<bool> HasPrivateKeyAsync(string serialNumber);
+    
+    /// <summary>
+    /// Exports a signing identity as a P12/PFX file
+    /// </summary>
+    /// <param name="identity">The full identity string</param>
+    /// <param name="password">Password to protect the P12 file</param>
+    /// <returns>P12 file contents</returns>
+    Task<byte[]> ExportP12Async(string identity, string password);
+    
+    /// <summary>
+    /// Gets whether this service is supported on the current platform
+    /// </summary>
+    bool IsSupported { get; }
+}
+
+// ============================================================================
+// CI Secrets Wizard Models
+// ============================================================================
+
+/// <summary>
+/// Platform selection for CI secrets wizard
+/// </summary>
+public enum ApplePlatformType
+{
+    iOS,
+    MacCatalyst,
+    macOS
+}
+
+/// <summary>
+/// Distribution type for CI secrets wizard
+/// </summary>
+public enum AppleDistributionType
+{
+    Development,
+    AdHoc,        // iOS only
+    AppStore,
+    Direct        // Mac Catalyst / macOS only (Developer ID)
+}
+
+/// <summary>
+/// State for the CI secrets wizard
+/// </summary>
+public record CISecretsWizardState
+{
+    public ApplePlatformType Platform { get; init; }
+    public AppleDistributionType Distribution { get; init; }
+    public bool NeedsInstallerCert { get; init; }
+    
+    // Selected resources
+    public AppleBundleId? SelectedBundleId { get; init; }
+    public AppleCertificate? SigningCertificate { get; init; }
+    public AppleCertificate? InstallerCertificate { get; init; }
+    public AppleProfile? ProvisioningProfile { get; init; }
+    
+    // Local signing identity (with private key)
+    public LocalSigningIdentity? LocalSigningIdentity { get; init; }
+    public LocalSigningIdentity? LocalInstallerIdentity { get; init; }
+    
+    // Notarization (for Direct Distribution)
+    public string? NotarizationAppleId { get; init; }
+    public string? NotarizationPassword { get; init; }
+    public string? NotarizationTeamId { get; init; }
+}
+
+/// <summary>
+/// A secret to be exported for CI configuration
+/// </summary>
+public record CISecretExport(
+    string Name,           // Recommended secret name (e.g., "APPLE_CERTIFICATE_P12")
+    string Value,          // The actual secret value (base64 encoded, etc.)
+    string Description,    // Human-readable description
+    bool IsSensitive       // Whether to mask in UI
+);
+
+// ============================================================================
 // MAUI Doctor Service - SDK/Workload Health Checking
 // ============================================================================
 

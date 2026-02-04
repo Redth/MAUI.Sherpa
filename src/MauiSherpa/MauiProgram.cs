@@ -65,6 +65,7 @@ public static class MauiProgram
         builder.Services.AddSingleton<IAppleIdentityStateService, AppleIdentityStateService>();
         builder.Services.AddSingleton<IAppleConnectService, AppleConnectService>();
         builder.Services.AddSingleton<IAppleRootCertService, AppleRootCertService>();
+        builder.Services.AddSingleton<ILocalCertificateService, LocalCertificateService>();
 
         // ViewModels
         builder.Services.AddSingleton<DashboardViewModel>();

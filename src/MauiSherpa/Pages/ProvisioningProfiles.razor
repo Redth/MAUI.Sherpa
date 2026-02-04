@@ -31,6 +31,10 @@
                 <i class="fas fa-download"></i> Install All (@GetInstallableProfiles().Count())
             </button>
         }
+        <div class="toolbar-spacer"></div>
+        <button class="btn btn-secondary" @onclick="ShowCISecretsWizard" disabled="@isLoading" title="Configure CI/CD secrets">
+            <i class="fas fa-key"></i> CI Secrets
+        </button>
     </div>
 
     <!-- Filter Section -->
@@ -187,11 +191,13 @@
 
 <CreateProfileDialog @bind-IsVisible="showCreateDialog" OnProfileCreated="OnProfileCreated" />
 <EditProfileDialog @bind-IsVisible="showEditDialog" Profile="selectedProfileForEdit" OnProfileRegenerated="OnProfileRegenerated" />
+<CISecretsWizard @bind-IsVisible="showCISecretsWizard" />
 
 <style>
     h1 { margin-bottom: 20px; font-size: 28px; color: var(--text-primary); }
 
-    .toolbar { margin-bottom: 16px; display: flex; gap: 12px; }
+    .toolbar { margin-bottom: 16px; display: flex; gap: 12px; align-items: center; }
+    .toolbar-spacer { flex: 1; }
     .error-bar { background: var(--status-error-bg); color: var(--status-error-text); padding: 12px 16px; border-radius: 6px; margin-bottom: 16px; }
 
     .btn-purple { background: #8b5cf6; color: white; }
@@ -475,6 +481,7 @@
     private string errorMessage = "";
     private string? openDropdown = null;
     private bool showCreateDialog = false;
+    private bool showCISecretsWizard = false;
     
     // Filter state
     private string searchQuery = "";
@@ -505,6 +512,11 @@
     private void ShowCreateDialog()
     {
         showCreateDialog = true;
+    }
+
+    private void ShowCISecretsWizard()
+    {
+        showCISecretsWizard = true;
     }
 
     private void ShowEditDialog(AppleProfile profile)
