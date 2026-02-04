@@ -1,0 +1,1159 @@
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Services
+@inject IAppleConnectService AppleService
+@inject IAppleIdentityStateService IdentityState
+@inject IAlertService AlertService
+@inject ILoggingService Logger
+
+@if (IsVisible)
+{
+    <div class="dialog-overlay" @onclick="HandleOverlayClick">
+        <div class="dialog" @onclick:stopPropagation="true">
+            <div class="dialog-header">
+                <h2><i class="fas fa-plus-circle"></i> Create Provisioning Profile</h2>
+                <button class="close-btn" @onclick="Close"><i class="fas fa-times"></i></button>
+            </div>
+
+            <!-- Step Indicator -->
+            <div class="step-indicator">
+                <div class="step @(currentStep >= 1 ? "active" : "") @(currentStep > 1 ? "completed" : "")">
+                    <div class="step-number">@(currentStep > 1 ? "✓" : "1")</div>
+                    <div class="step-label">Type</div>
+                </div>
+                <div class="step-line @(currentStep > 1 ? "active" : "")"></div>
+                <div class="step @(currentStep >= 2 ? "active" : "") @(currentStep > 2 ? "completed" : "")">
+                    <div class="step-number">@(currentStep > 2 ? "✓" : "2")</div>
+                    <div class="step-label">Bundle ID</div>
+                </div>
+                <div class="step-line @(currentStep > 2 ? "active" : "")"></div>
+                <div class="step @(currentStep >= 3 ? "active" : "") @(currentStep > 3 ? "completed" : "")">
+                    <div class="step-number">@(currentStep > 3 ? "✓" : "3")</div>
+                    <div class="step-label">Certificates</div>
+                </div>
+                <div class="step-line @(currentStep > 3 ? "active" : "")"></div>
+                <div class="step @(currentStep >= 4 ? "active" : "") @(currentStep > 4 ? "completed" : "")">
+                    <div class="step-number">@(currentStep > 4 ? "✓" : "4")</div>
+                    <div class="step-label">@(RequiresDevices ? "Devices" : "Name")</div>
+                </div>
+                @if (RequiresDevices)
+                {
+                    <div class="step-line @(currentStep > 4 ? "active" : "")"></div>
+                    <div class="step @(currentStep >= 5 ? "active" : "")">
+                        <div class="step-number">5</div>
+                        <div class="step-label">Name</div>
+                    </div>
+                }
+            </div>
+
+            <div class="dialog-body">
+                @if (isLoadingData)
+                {
+                    <div class="loading-state">
+                        <i class="fas fa-spinner fa-spin"></i>
+                        <span>Loading data...</span>
+                    </div>
+                }
+                else if (!string.IsNullOrEmpty(errorMessage))
+                {
+                    <div class="error-message">
+                        <i class="fas fa-exclamation-circle"></i>
+                        @errorMessage
+                    </div>
+                }
+                else
+                {
+                    @switch (currentStep)
+                    {
+                        case 1:
+                            <Step1ProfileType />
+                            break;
+                        case 2:
+                            <Step2BundleId />
+                            break;
+                        case 3:
+                            <Step3Certificates />
+                            break;
+                        case 4:
+                            @if (RequiresDevices)
+                            {
+                                <Step4Devices />
+                            }
+                            else
+                            {
+                                <Step5Name />
+                            }
+                            break;
+                        case 5:
+                            <Step5Name />
+                            break;
+                    }
+                }
+            </div>
+
+            <div class="dialog-footer">
+                @if (currentStep > 1)
+                {
+                    <button class="btn btn-secondary" @onclick="PreviousStep" disabled="@isCreating">
+                        <i class="fas fa-arrow-left"></i> Back
+                    </button>
+                }
+                <div class="spacer"></div>
+                <button class="btn btn-outline" @onclick="Close" disabled="@isCreating">Cancel</button>
+                @if (IsLastStep)
+                {
+                    <button class="btn btn-primary" @onclick="CreateProfile" disabled="@(!CanCreate || isCreating)">
+                        @if (isCreating)
+                        {
+                            <i class="fas fa-spinner fa-spin"></i>
+                            <span>Creating...</span>
+                        }
+                        else
+                        {
+                            <i class="fas fa-plus"></i>
+                            <span>Create Profile</span>
+                        }
+                    </button>
+                }
+                else
+                {
+                    <button class="btn btn-primary" @onclick="NextStep" disabled="@(!CanProceed)">
+                        Next <i class="fas fa-arrow-right"></i>
+                    </button>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@* Step 1: Profile Type Selection *@
+@{ void Step1ProfileType() {
+    <div class="step-content">
+        <h3>Select Profile Type</h3>
+        <p class="step-description">Choose the type of provisioning profile you want to create.</p>
+
+        <div class="profile-type-groups">
+            @foreach (var group in ProfileTypeGroups)
+            {
+                <div class="platform-group">
+                    <div class="platform-header">
+                        <i class="@group.Icon"></i> @group.Platform
+                    </div>
+                    <div class="type-options">
+                        @foreach (var type in group.Types)
+                        {
+                            <label class="type-option @(selectedProfileType == type.Value ? "selected" : "")">
+                                <input type="radio" name="profileType" value="@type.Value" 
+                                       checked="@(selectedProfileType == type.Value)"
+                                       @onchange="@(() => SelectProfileType(type.Value))" />
+                                <div class="type-content">
+                                    <div class="type-name">@type.Name</div>
+                                    <div class="type-description">@type.Description</div>
+                                </div>
+                            </label>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+}}
+
+@* Step 2: Bundle ID Selection *@
+@{ void Step2BundleId() {
+    <div class="step-content">
+        <h3>Select Bundle ID</h3>
+        <p class="step-description">Choose the App ID for this profile.</p>
+
+        <div class="search-box">
+            <i class="fas fa-search"></i>
+            <input type="text" @bind="bundleIdSearch" @bind:event="oninput" placeholder="Search bundle IDs..." />
+        </div>
+
+        <div class="selection-list">
+            @foreach (var bundleId in FilteredBundleIds)
+            {
+                <label class="selection-item @(selectedBundleId == bundleId.Id ? "selected" : "")">
+                    <input type="radio" name="bundleId" value="@bundleId.Id"
+                           checked="@(selectedBundleId == bundleId.Id)"
+                           @onchange="@(() => SelectBundleId(bundleId))" />
+                    <div class="item-content">
+                        <div class="item-name">@bundleId.Name</div>
+                        <div class="item-detail">@bundleId.Identifier</div>
+                        <span class="badge">@bundleId.Platform</span>
+                    </div>
+                </label>
+            }
+            @if (!FilteredBundleIds.Any())
+            {
+                <div class="empty-list">
+                    <i class="fas fa-inbox"></i>
+                    <span>No bundle IDs found</span>
+                </div>
+            }
+        </div>
+    </div>
+}}
+
+@* Step 3: Certificate Selection *@
+@{ void Step3Certificates() {
+    <div class="step-content">
+        <h3>Select Certificate(s)</h3>
+        <p class="step-description">
+            Choose the @(IsDevelopmentProfile ? "development" : "distribution") certificate(s) to include in this profile.
+        </p>
+
+        <div class="selection-list">
+            @foreach (var cert in FilteredCertificates)
+            {
+                var isSelected = selectedCertificateIds.Contains(cert.Id);
+                <label class="selection-item checkbox @(isSelected ? "selected" : "")">
+                    <input type="checkbox" value="@cert.Id"
+                           checked="@isSelected"
+                           @onchange="@(e => ToggleCertificate(cert.Id, (bool)(e.Value ?? false)))" />
+                    <div class="item-content">
+                        <div class="item-name">@cert.Name</div>
+                        <div class="item-detail">
+                            <span>@cert.SerialNumber</span>
+                            <span>Expires: @cert.ExpirationDate.ToString("MMM dd, yyyy")</span>
+                        </div>
+                        <span class="badge">@FormatCertType(cert.CertificateType)</span>
+                    </div>
+                </label>
+            }
+            @if (!FilteredCertificates.Any())
+            {
+                <div class="empty-list">
+                    <i class="fas fa-certificate"></i>
+                    <span>No compatible @(IsDevelopmentProfile ? "development" : "distribution") certificates found</span>
+                </div>
+            }
+        </div>
+        
+        @if (selectedCertificateIds.Any())
+        {
+            <div class="selection-summary">
+                <i class="fas fa-check-circle"></i> @selectedCertificateIds.Count certificate(s) selected
+            </div>
+        }
+    </div>
+}}
+
+@* Step 4: Device Selection (only for dev/adhoc) *@
+@{ void Step4Devices() {
+    <div class="step-content">
+        <h3>Select Devices</h3>
+        <p class="step-description">
+            Choose the devices to include in this @(selectedProfileType?.Contains("ADHOC") == true ? "ad hoc" : "development") profile.
+        </p>
+
+        <div class="device-toolbar">
+            <label class="select-all-checkbox">
+                <input type="checkbox" 
+                       checked="@(selectedDeviceIds.Count == FilteredDevices.Count() && FilteredDevices.Any())"
+                       @onchange="ToggleAllDevices" />
+                <span>Select All (@FilteredDevices.Count())</span>
+            </label>
+            <div class="search-box small">
+                <i class="fas fa-search"></i>
+                <input type="text" @bind="deviceSearch" @bind:event="oninput" placeholder="Search devices..." />
+            </div>
+        </div>
+
+        <div class="selection-list devices">
+            @foreach (var device in FilteredDevices)
+            {
+                var isSelected = selectedDeviceIds.Contains(device.Id);
+                var isDisabled = device.Status != "ENABLED";
+                <label class="selection-item checkbox @(isSelected ? "selected" : "") @(isDisabled ? "disabled" : "")">
+                    <input type="checkbox" value="@device.Id"
+                           checked="@isSelected"
+                           disabled="@isDisabled"
+                           @onchange="@(e => ToggleDevice(device.Id, (bool)(e.Value ?? false)))" />
+                    <div class="item-content">
+                        <div class="item-name">
+                            <i class="@GetDeviceIcon(device.DeviceClass)"></i>
+                            @device.Name
+                        </div>
+                        <div class="item-detail">@device.Udid</div>
+                        @if (isDisabled)
+                        {
+                            <span class="badge badge-warning">Disabled</span>
+                        }
+                    </div>
+                </label>
+            }
+            @if (!FilteredDevices.Any())
+            {
+                <div class="empty-list">
+                    <i class="fas fa-mobile-alt"></i>
+                    <span>No compatible devices found for @GetPlatformFromProfileType()</span>
+                </div>
+            }
+        </div>
+
+        @if (selectedDeviceIds.Any())
+        {
+            <div class="selection-summary">
+                <i class="fas fa-check-circle"></i> @selectedDeviceIds.Count device(s) selected
+            </div>
+        }
+        else
+        {
+            <div class="selection-summary warning">
+                <i class="fas fa-exclamation-triangle"></i> At least 1 device is required
+            </div>
+        }
+    </div>
+}}
+
+@* Step 5: Profile Name *@
+@{ void Step5Name() {
+    <div class="step-content">
+        <h3>Profile Name</h3>
+        <p class="step-description">Enter a name for your provisioning profile.</p>
+
+        <div class="form-group">
+            <label>Profile Name</label>
+            <input type="text" @bind="profileName" @bind:event="oninput" placeholder="My App Development" class="form-input" />
+            @if (!string.IsNullOrEmpty(suggestedName) && profileName != suggestedName)
+            {
+                <button class="btn-suggestion" @onclick="@(() => profileName = suggestedName)">
+                    <i class="fas fa-lightbulb"></i> Use suggested: @suggestedName
+                </button>
+            }
+        </div>
+
+        <div class="summary-section">
+            <h4>Profile Summary</h4>
+            <div class="summary-grid">
+                <div class="summary-item">
+                    <span class="summary-label">Type</span>
+                    <span class="summary-value">@FormatProfileTypeDisplay(selectedProfileType)</span>
+                </div>
+                <div class="summary-item">
+                    <span class="summary-label">Bundle ID</span>
+                    <span class="summary-value">@(bundleIds.FirstOrDefault(b => b.Id == selectedBundleId)?.Identifier ?? "-")</span>
+                </div>
+                <div class="summary-item">
+                    <span class="summary-label">Certificates</span>
+                    <span class="summary-value">@selectedCertificateIds.Count selected</span>
+                </div>
+                @if (RequiresDevices)
+                {
+                    <div class="summary-item">
+                        <span class="summary-label">Devices</span>
+                        <span class="summary-value">@selectedDeviceIds.Count selected</span>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+}}
+
+<style>
+    .dialog-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.6);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10000;
+        backdrop-filter: blur(2px);
+    }
+
+    .dialog {
+        background: var(--card-bg, white);
+        border-radius: 12px;
+        width: 90%;
+        max-width: 700px;
+        max-height: 85vh;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    }
+
+    .dialog-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 16px 24px;
+        border-bottom: 1px solid var(--border-color, #e2e8f0);
+    }
+
+    .dialog-header h2 {
+        margin: 0;
+        font-size: 18px;
+        font-weight: 600;
+        color: var(--text-primary, #1a202c);
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .dialog-header h2 i { color: #8b5cf6; }
+
+    .close-btn {
+        background: none;
+        border: none;
+        font-size: 18px;
+        color: var(--text-muted, #a0aec0);
+        cursor: pointer;
+        padding: 4px 8px;
+    }
+
+    .close-btn:hover { color: var(--text-secondary, #4a5568); }
+
+    /* Step Indicator */
+    .step-indicator {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px 24px;
+        background: var(--bg-secondary, #f7fafc);
+        border-bottom: 1px solid var(--border-color, #e2e8f0);
+        gap: 8px;
+    }
+
+    .step {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+    }
+
+    .step-number {
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        background: var(--border-color, #e2e8f0);
+        color: var(--text-muted, #a0aec0);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 12px;
+        font-weight: 600;
+    }
+
+    .step.active .step-number {
+        background: #8b5cf6;
+        color: white;
+    }
+
+    .step.completed .step-number {
+        background: #48bb78;
+        color: white;
+    }
+
+    .step-label {
+        font-size: 11px;
+        color: var(--text-muted, #a0aec0);
+        white-space: nowrap;
+    }
+
+    .step.active .step-label { color: #8b5cf6; font-weight: 500; }
+    .step.completed .step-label { color: #48bb78; }
+
+    .step-line {
+        width: 40px;
+        height: 2px;
+        background: var(--border-color, #e2e8f0);
+        margin-bottom: 20px;
+    }
+
+    .step-line.active { background: #48bb78; }
+
+    .dialog-body {
+        flex: 1;
+        padding: 24px;
+        overflow-y: auto;
+    }
+
+    .step-content h3 {
+        margin: 0 0 4px 0;
+        font-size: 16px;
+        color: var(--text-primary, #1a202c);
+    }
+
+    .step-description {
+        margin: 0 0 20px 0;
+        font-size: 13px;
+        color: var(--text-muted, #718096);
+    }
+
+    /* Profile Type Groups */
+    .profile-type-groups {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+    }
+
+    .platform-group {
+        border: 1px solid var(--border-color, #e2e8f0);
+        border-radius: 8px;
+        overflow: hidden;
+    }
+
+    .platform-header {
+        padding: 10px 14px;
+        background: var(--bg-secondary, #f7fafc);
+        font-weight: 600;
+        font-size: 13px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--text-secondary, #4a5568);
+    }
+
+    .type-options {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .type-option {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        padding: 12px 14px;
+        border-bottom: 1px solid var(--border-color, #e2e8f0);
+        cursor: pointer;
+        transition: background 0.15s;
+    }
+
+    .type-option:last-child { border-bottom: none; }
+    .type-option:hover { background: var(--bg-hover, #f7fafc); }
+    .type-option.selected { background: #faf5ff; }
+
+    .type-option input[type="radio"] {
+        margin-top: 2px;
+        accent-color: #8b5cf6;
+    }
+
+    .type-content { flex: 1; }
+    .type-name { font-weight: 500; font-size: 14px; color: var(--text-primary, #1a202c); }
+    .type-description { font-size: 12px; color: var(--text-muted, #718096); margin-top: 2px; }
+
+    /* Search Box */
+    .search-box {
+        position: relative;
+        margin-bottom: 16px;
+    }
+
+    .search-box i {
+        position: absolute;
+        left: 12px;
+        top: 50%;
+        transform: translateY(-50%);
+        color: var(--text-muted, #a0aec0);
+        font-size: 14px;
+    }
+
+    .search-box input {
+        width: 100%;
+        padding: 10px 12px 10px 36px;
+        border: 1px solid var(--border-color, #e2e8f0);
+        border-radius: 6px;
+        font-size: 14px;
+        box-sizing: border-box;
+    }
+
+    .search-box input:focus {
+        outline: none;
+        border-color: #8b5cf6;
+        box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.15);
+    }
+
+    .search-box.small { margin-bottom: 0; }
+    .search-box.small input { padding: 6px 10px 6px 32px; font-size: 13px; }
+    .search-box.small i { font-size: 12px; left: 10px; }
+
+    /* Selection List */
+    .selection-list {
+        border: 1px solid var(--border-color, #e2e8f0);
+        border-radius: 8px;
+        max-height: 280px;
+        overflow-y: auto;
+    }
+
+    .selection-list.devices { max-height: 240px; }
+
+    .selection-item {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        padding: 12px 14px;
+        border-bottom: 1px solid var(--border-color, #e2e8f0);
+        cursor: pointer;
+        transition: background 0.15s;
+    }
+
+    .selection-item:last-child { border-bottom: none; }
+    .selection-item:hover { background: var(--bg-hover, #f7fafc); }
+    .selection-item.selected { background: #faf5ff; }
+    .selection-item.disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .selection-item input { margin-top: 2px; accent-color: #8b5cf6; }
+
+    .item-content { flex: 1; min-width: 0; }
+    .item-name { 
+        font-weight: 500; 
+        font-size: 14px; 
+        color: var(--text-primary, #1a202c);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .item-detail { 
+        font-size: 12px; 
+        color: var(--text-muted, #718096); 
+        margin-top: 2px;
+        display: flex;
+        gap: 12px;
+        font-family: monospace;
+    }
+
+    .badge {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 10px;
+        font-size: 11px;
+        font-weight: 500;
+        background: #e2e8f0;
+        color: #4a5568;
+        margin-top: 4px;
+    }
+
+    .badge-warning { background: #fef3c7; color: #92400e; }
+
+    .empty-list {
+        padding: 40px 20px;
+        text-align: center;
+        color: var(--text-muted, #a0aec0);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .empty-list i { font-size: 24px; }
+
+    .selection-summary {
+        margin-top: 12px;
+        padding: 8px 12px;
+        background: #f0fff4;
+        border-radius: 6px;
+        font-size: 13px;
+        color: #276749;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .selection-summary.warning {
+        background: #fffbeb;
+        color: #92400e;
+    }
+
+    /* Device Toolbar */
+    .device-toolbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 12px;
+        gap: 12px;
+    }
+
+    .select-all-checkbox {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 13px;
+        cursor: pointer;
+    }
+
+    .select-all-checkbox input { accent-color: #8b5cf6; }
+
+    /* Form Elements */
+    .form-group {
+        margin-bottom: 20px;
+    }
+
+    .form-group label {
+        display: block;
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--text-secondary, #4a5568);
+        margin-bottom: 6px;
+    }
+
+    .form-input {
+        width: 100%;
+        padding: 10px 14px;
+        border: 1px solid var(--border-color, #e2e8f0);
+        border-radius: 6px;
+        font-size: 14px;
+        box-sizing: border-box;
+    }
+
+    .form-input:focus {
+        outline: none;
+        border-color: #8b5cf6;
+        box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.15);
+    }
+
+    .btn-suggestion {
+        margin-top: 8px;
+        padding: 6px 12px;
+        background: #faf5ff;
+        border: 1px dashed #8b5cf6;
+        border-radius: 6px;
+        font-size: 12px;
+        color: #6b46c1;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .btn-suggestion:hover { background: #ede9fe; }
+
+    /* Summary Section */
+    .summary-section {
+        margin-top: 24px;
+        padding: 16px;
+        background: var(--bg-secondary, #f7fafc);
+        border-radius: 8px;
+    }
+
+    .summary-section h4 {
+        margin: 0 0 12px 0;
+        font-size: 14px;
+        color: var(--text-secondary, #4a5568);
+    }
+
+    .summary-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+    }
+
+    .summary-item {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+
+    .summary-label {
+        font-size: 11px;
+        color: var(--text-muted, #a0aec0);
+        text-transform: uppercase;
+    }
+
+    .summary-value {
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--text-primary, #1a202c);
+    }
+
+    /* Dialog Footer */
+    .dialog-footer {
+        display: flex;
+        align-items: center;
+        padding: 16px 24px;
+        border-top: 1px solid var(--border-color, #e2e8f0);
+        gap: 12px;
+    }
+
+    .spacer { flex: 1; }
+
+    .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 20px;
+        border: none;
+        border-radius: 6px;
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .btn-primary { background: #8b5cf6; color: white; }
+    .btn-primary:hover:not(:disabled) { background: #7c3aed; }
+
+    .btn-secondary { background: #a0aec0; color: white; }
+    .btn-secondary:hover:not(:disabled) { background: #718096; }
+
+    .btn-outline {
+        background: none;
+        border: 1px solid var(--border-color, #e2e8f0);
+        color: var(--text-secondary, #4a5568);
+    }
+    .btn-outline:hover:not(:disabled) { background: var(--bg-hover, #f7fafc); }
+
+    /* Loading & Error States */
+    .loading-state {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 40px;
+        gap: 12px;
+        color: var(--text-muted, #a0aec0);
+    }
+
+    .loading-state i { font-size: 24px; color: #8b5cf6; }
+
+    .error-message {
+        padding: 12px 16px;
+        background: #fff5f5;
+        border: 1px solid #fc8181;
+        border-radius: 6px;
+        color: #c53030;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+</style>
+
+@code {
+    [Parameter] public bool IsVisible { get; set; }
+    [Parameter] public EventCallback<bool> IsVisibleChanged { get; set; }
+    [Parameter] public EventCallback<AppleProfile> OnProfileCreated { get; set; }
+
+    // Wizard state
+    private int currentStep = 1;
+    private bool isLoadingData = false;
+    private bool isCreating = false;
+    private string errorMessage = "";
+
+    // Data
+    private List<AppleBundleId> bundleIds = new();
+    private List<AppleCertificate> certificates = new();
+    private List<AppleDevice> devices = new();
+
+    // Selections
+    private string? selectedProfileType;
+    private string? selectedBundleId;
+    private HashSet<string> selectedCertificateIds = new();
+    private HashSet<string> selectedDeviceIds = new();
+    private string profileName = "";
+
+    // Search filters
+    private string bundleIdSearch = "";
+    private string deviceSearch = "";
+
+    // Computed properties
+    private bool RequiresDevices => selectedProfileType?.Contains("DEVELOPMENT") == true || 
+                                    selectedProfileType?.Contains("ADHOC") == true;
+    private bool IsDevelopmentProfile => selectedProfileType?.Contains("DEVELOPMENT") == true;
+    private int TotalSteps => RequiresDevices ? 5 : 4;
+    private bool IsLastStep => currentStep == TotalSteps || (!RequiresDevices && currentStep == 4);
+
+    private string suggestedName => GenerateSuggestedName();
+
+    private bool CanProceed => currentStep switch
+    {
+        1 => !string.IsNullOrEmpty(selectedProfileType),
+        2 => !string.IsNullOrEmpty(selectedBundleId),
+        3 => selectedCertificateIds.Any(),
+        4 => RequiresDevices ? selectedDeviceIds.Any() : !string.IsNullOrEmpty(profileName),
+        _ => false
+    };
+
+    private bool CanCreate => !string.IsNullOrEmpty(profileName) &&
+                              !string.IsNullOrEmpty(selectedProfileType) &&
+                              !string.IsNullOrEmpty(selectedBundleId) &&
+                              selectedCertificateIds.Any() &&
+                              (!RequiresDevices || selectedDeviceIds.Any());
+
+    // Profile type definitions
+    private static readonly List<ProfileTypeGroup> ProfileTypeGroups = new()
+    {
+        new("iOS", "fab fa-apple", new[]
+        {
+            new ProfileTypeInfo("IOS_APP_DEVELOPMENT", "Development", "Run app on registered devices during development"),
+            new ProfileTypeInfo("IOS_APP_ADHOC", "Ad Hoc", "Distribute to a limited number of registered devices"),
+            new ProfileTypeInfo("IOS_APP_STORE", "App Store", "Submit to the App Store or TestFlight")
+        }),
+        new("macOS", "fas fa-laptop", new[]
+        {
+            new ProfileTypeInfo("MAC_APP_DEVELOPMENT", "Development", "Run app on registered Macs during development"),
+            new ProfileTypeInfo("MAC_APP_STORE", "Mac App Store", "Submit to the Mac App Store"),
+            new ProfileTypeInfo("MAC_APP_DIRECT", "Direct Distribution", "Distribute outside the Mac App Store (notarized)")
+        }),
+        new("Mac Catalyst", "fas fa-layer-group", new[]
+        {
+            new ProfileTypeInfo("MAC_CATALYST_APP_DEVELOPMENT", "Development", "Run iPad app on Mac during development"),
+            new ProfileTypeInfo("MAC_CATALYST_APP_STORE", "Mac App Store", "Submit iPad app to Mac App Store"),
+            new ProfileTypeInfo("MAC_CATALYST_APP_DIRECT", "Direct Distribution", "Distribute iPad app outside Mac App Store")
+        })
+    };
+
+    private IEnumerable<AppleBundleId> FilteredBundleIds => bundleIds
+        .Where(b => string.IsNullOrEmpty(bundleIdSearch) || 
+                    b.Name.Contains(bundleIdSearch, StringComparison.OrdinalIgnoreCase) ||
+                    b.Identifier.Contains(bundleIdSearch, StringComparison.OrdinalIgnoreCase))
+        .OrderBy(b => b.Name);
+
+    private IEnumerable<AppleCertificate> FilteredCertificates => certificates
+        .Where(c => IsCertificateCompatible(c.CertificateType))
+        .Where(c => c.ExpirationDate > DateTime.UtcNow)
+        .OrderBy(c => c.Name);
+
+    private IEnumerable<AppleDevice> FilteredDevices => devices
+        .Where(d => IsDeviceCompatible(d.Platform, d.DeviceClass))
+        .Where(d => string.IsNullOrEmpty(deviceSearch) ||
+                    d.Name.Contains(deviceSearch, StringComparison.OrdinalIgnoreCase) ||
+                    d.Udid.Contains(deviceSearch, StringComparison.OrdinalIgnoreCase))
+        .OrderByDescending(d => d.Status == "ENABLED")
+        .ThenBy(d => d.Name);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (IsVisible && bundleIds.Count == 0)
+        {
+            await LoadDataAsync();
+        }
+    }
+
+    private async Task LoadDataAsync()
+    {
+        if (IdentityState.SelectedIdentity == null) return;
+        
+        isLoadingData = true;
+        errorMessage = "";
+        try
+        {
+            var bundleTask = AppleService.GetBundleIdsAsync();
+            var certTask = AppleService.GetCertificatesAsync();
+            var deviceTask = AppleService.GetDevicesAsync();
+
+            await Task.WhenAll(bundleTask, certTask, deviceTask);
+
+            bundleIds = (await bundleTask).ToList();
+            certificates = (await certTask).ToList();
+            devices = (await deviceTask).ToList();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to load data: {ex.Message}";
+            Logger.LogError(errorMessage, ex);
+        }
+        finally
+        {
+            isLoadingData = false;
+        }
+    }
+
+    private void SelectProfileType(string type)
+    {
+        selectedProfileType = type;
+        // Clear certificate selection when type changes (compatibility may change)
+        selectedCertificateIds.Clear();
+    }
+
+    private void SelectBundleId(AppleBundleId bundle)
+    {
+        selectedBundleId = bundle.Id;
+        // Auto-suggest name based on bundle
+        if (string.IsNullOrEmpty(profileName))
+        {
+            profileName = suggestedName;
+        }
+    }
+
+    private void ToggleCertificate(string id, bool selected)
+    {
+        if (selected)
+            selectedCertificateIds.Add(id);
+        else
+            selectedCertificateIds.Remove(id);
+    }
+
+    private void ToggleDevice(string id, bool selected)
+    {
+        if (selected)
+            selectedDeviceIds.Add(id);
+        else
+            selectedDeviceIds.Remove(id);
+    }
+
+    private void ToggleAllDevices(ChangeEventArgs e)
+    {
+        var selectAll = (bool)(e.Value ?? false);
+        selectedDeviceIds.Clear();
+        if (selectAll)
+        {
+            foreach (var device in FilteredDevices.Where(d => d.Status == "ENABLED"))
+            {
+                selectedDeviceIds.Add(device.Id);
+            }
+        }
+    }
+
+    private bool IsCertificateCompatible(string certType)
+    {
+        if (string.IsNullOrEmpty(selectedProfileType)) return true;
+
+        var isDev = IsDevelopmentProfile;
+        var certTypeLower = certType.ToUpperInvariant();
+
+        return isDev
+            ? certTypeLower.Contains("DEVELOPMENT")
+            : certTypeLower.Contains("DISTRIBUTION") || certTypeLower.Contains("STORE");
+    }
+
+    private bool IsDeviceCompatible(string devicePlatform, string deviceClass)
+    {
+        if (string.IsNullOrEmpty(selectedProfileType)) return true;
+
+        if (selectedProfileType.StartsWith("IOS_") || selectedProfileType.StartsWith("MAC_CATALYST_"))
+        {
+            return devicePlatform == "IOS" || deviceClass is "IPHONE" or "IPAD" or "IPOD";
+        }
+        if (selectedProfileType.StartsWith("MAC_APP_"))
+        {
+            return devicePlatform == "MAC_OS" || deviceClass == "MAC";
+        }
+        return true;
+    }
+
+    private string GetPlatformFromProfileType() => selectedProfileType switch
+    {
+        var t when t?.StartsWith("IOS_") == true => "iOS",
+        var t when t?.StartsWith("MAC_CATALYST_") == true => "iOS (Mac Catalyst)",
+        var t when t?.StartsWith("MAC_") == true => "macOS",
+        _ => "this platform"
+    };
+
+    private string GetDeviceIcon(string deviceClass) => deviceClass?.ToUpperInvariant() switch
+    {
+        "IPHONE" => "fas fa-mobile-alt",
+        "IPAD" => "fas fa-tablet-alt",
+        "MAC" => "fas fa-laptop",
+        "APPLE_TV" => "fas fa-tv",
+        "APPLE_WATCH" => "fas fa-clock",
+        _ => "fas fa-microchip"
+    };
+
+    private string FormatCertType(string certType) => certType.Replace("_", " ");
+
+    private string FormatProfileTypeDisplay(string? profileType) => profileType switch
+    {
+        "IOS_APP_DEVELOPMENT" => "iOS Development",
+        "IOS_APP_ADHOC" => "iOS Ad Hoc",
+        "IOS_APP_STORE" => "iOS App Store",
+        "MAC_APP_DEVELOPMENT" => "macOS Development",
+        "MAC_APP_STORE" => "Mac App Store",
+        "MAC_APP_DIRECT" => "macOS Direct Distribution",
+        "MAC_CATALYST_APP_DEVELOPMENT" => "Mac Catalyst Development",
+        "MAC_CATALYST_APP_STORE" => "Mac Catalyst App Store",
+        "MAC_CATALYST_APP_DIRECT" => "Mac Catalyst Direct",
+        _ => profileType ?? "-"
+    };
+
+    private string GenerateSuggestedName()
+    {
+        var bundle = bundleIds.FirstOrDefault(b => b.Id == selectedBundleId);
+        if (bundle == null || string.IsNullOrEmpty(selectedProfileType)) return "";
+
+        var suffix = selectedProfileType switch
+        {
+            var t when t.Contains("DEVELOPMENT") => "Development",
+            var t when t.Contains("ADHOC") => "Ad Hoc",
+            var t when t.Contains("STORE") => "App Store",
+            var t when t.Contains("DIRECT") => "Direct",
+            _ => ""
+        };
+
+        return $"{bundle.Name} {suffix}";
+    }
+
+    private void NextStep()
+    {
+        if (CanProceed && currentStep < TotalSteps)
+        {
+            currentStep++;
+            // Auto-fill name when reaching last step
+            if (IsLastStep && string.IsNullOrEmpty(profileName))
+            {
+                profileName = suggestedName;
+            }
+        }
+    }
+
+    private void PreviousStep()
+    {
+        if (currentStep > 1)
+            currentStep--;
+    }
+
+    private async Task CreateProfile()
+    {
+        if (!CanCreate) return;
+
+        isCreating = true;
+        errorMessage = "";
+        try
+        {
+            var request = new AppleProfileCreateRequest(
+                profileName,
+                selectedProfileType!,
+                selectedBundleId!,
+                selectedCertificateIds.ToList(),
+                RequiresDevices ? selectedDeviceIds.ToList() : null
+            );
+
+            var profile = await AppleService.CreateProfileAsync(request);
+            
+            await AlertService.ShowToastAsync($"Profile '{profile.Name}' created successfully!");
+            await OnProfileCreated.InvokeAsync(profile);
+            await Close();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to create profile: {ex.Message}";
+            Logger.LogError(errorMessage, ex);
+        }
+        finally
+        {
+            isCreating = false;
+        }
+    }
+
+    private async Task Close()
+    {
+        // Reset state
+        currentStep = 1;
+        selectedProfileType = null;
+        selectedBundleId = null;
+        selectedCertificateIds.Clear();
+        selectedDeviceIds.Clear();
+        profileName = "";
+        bundleIdSearch = "";
+        deviceSearch = "";
+        errorMessage = "";
+
+        IsVisible = false;
+        await IsVisibleChanged.InvokeAsync(false);
+    }
+
+    private void HandleOverlayClick()
+    {
+        if (!isCreating)
+        {
+            _ = Close();
+        }
+    }
+
+    // Helper types
+    private record ProfileTypeGroup(string Platform, string Icon, ProfileTypeInfo[] Types);
+    private record ProfileTypeInfo(string Value, string Name, string Description);
+}

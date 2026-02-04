@@ -97,6 +97,12 @@ public class CopilotToolsService : ICopilotToolsService
         // Provisioning Profile Tools
         AddTool(AIFunctionFactory.Create(ListProvisioningProfilesAsync, "list_provisioning_profiles", 
             "List all provisioning profiles. Optionally filter by name or bundle ID."), isReadOnly: true);
+        AddTool(AIFunctionFactory.Create(GetProfileTypesAsync, "get_profile_types", 
+            "Get all valid provisioning profile types with descriptions. Use this to understand available profile types before creating."), isReadOnly: true);
+        AddTool(AIFunctionFactory.Create(CreateProvisioningProfileAsync, "create_provisioning_profile", 
+            "Create a new provisioning profile. Requires profile type, bundle ID, and certificate IDs. For development/adhoc profiles, device IDs are also required."), isReadOnly: false);
+        AddTool(AIFunctionFactory.Create(RegenerateProvisioningProfileAsync, "regenerate_provisioning_profile", 
+            "Regenerate (update) an existing provisioning profile with new certificates and/or devices. This deletes the old profile and creates a new one with the same name and bundle ID."), isReadOnly: false);
         AddTool(AIFunctionFactory.Create(DownloadProvisioningProfileAsync, "download_provisioning_profile", 
             "Download a provisioning profile to your Downloads folder."), isReadOnly: false);
         AddTool(AIFunctionFactory.Create(InstallProvisioningProfileAsync, "install_provisioning_profile", 
@@ -733,6 +739,375 @@ public class CopilotToolsService : ICopilotToolsService
         catch (Exception ex)
         {
             return $"Failed to delete profile: {ex.Message}";
+        }
+    }
+
+    [Description("Get all valid provisioning profile types")]
+    private Task<string> GetProfileTypesAsync()
+    {
+        _logger.LogDebug("Tool: get_profile_types called");
+        
+        var profileTypes = new[]
+        {
+            new { Type = "IOS_APP_DEVELOPMENT", Platform = "iOS", Name = "Development", Description = "Run app on registered devices during development", RequiresDevices = true },
+            new { Type = "IOS_APP_ADHOC", Platform = "iOS", Name = "Ad Hoc", Description = "Distribute to a limited number of registered devices", RequiresDevices = true },
+            new { Type = "IOS_APP_STORE", Platform = "iOS", Name = "App Store", Description = "Submit to the App Store or TestFlight", RequiresDevices = false },
+            new { Type = "MAC_APP_DEVELOPMENT", Platform = "macOS", Name = "Development", Description = "Run app on registered Macs during development", RequiresDevices = true },
+            new { Type = "MAC_APP_STORE", Platform = "macOS", Name = "Mac App Store", Description = "Submit to the Mac App Store", RequiresDevices = false },
+            new { Type = "MAC_APP_DIRECT", Platform = "macOS", Name = "Direct Distribution", Description = "Distribute outside the Mac App Store (notarized)", RequiresDevices = false },
+            new { Type = "MAC_CATALYST_APP_DEVELOPMENT", Platform = "Mac Catalyst", Name = "Development", Description = "Run iPad app on Mac during development", RequiresDevices = true },
+            new { Type = "MAC_CATALYST_APP_STORE", Platform = "Mac Catalyst", Name = "Mac App Store", Description = "Submit iPad app to Mac App Store", RequiresDevices = false },
+            new { Type = "MAC_CATALYST_APP_DIRECT", Platform = "Mac Catalyst", Name = "Direct Distribution", Description = "Distribute iPad app outside Mac App Store", RequiresDevices = false }
+        };
+
+        return Task.FromResult(JsonSerializer.Serialize(new
+        {
+            ProfileTypes = profileTypes,
+            Notes = new[]
+            {
+                "Development profiles require development certificates",
+                "Distribution profiles (Ad Hoc, App Store, Direct) require distribution certificates",
+                "Profiles with RequiresDevices=true must include at least one device ID"
+            }
+        }, new JsonSerializerOptions { WriteIndented = true }));
+    }
+
+    [Description("Create a new provisioning profile")]
+    private async Task<string> CreateProvisioningProfileAsync(
+        [Description("Profile name (e.g., 'My App Development')")] string name,
+        [Description("Profile type (e.g., 'IOS_APP_DEVELOPMENT', 'IOS_APP_STORE'). Use get_profile_types to see all options.")] string profileType,
+        [Description("Bundle ID identifier (e.g., 'com.company.myapp') or App Store Connect Bundle ID resource ID")] string bundleId,
+        [Description("Comma-separated certificate IDs or names to include")] string certificates,
+        [Description("Comma-separated device IDs or UDIDs to include (required for development/adhoc profiles, omit for App Store profiles)")] string? devices = null)
+    {
+        var error = CheckIdentitySelected();
+        if (error != null) return error;
+
+        try
+        {
+            _logger.LogDebug($"Tool: create_provisioning_profile called - name={name}, type={profileType}, bundleId={bundleId}");
+
+            // Validate profile type
+            var validTypes = new[] { "IOS_APP_DEVELOPMENT", "IOS_APP_ADHOC", "IOS_APP_STORE", "IOS_APP_INHOUSE",
+                "MAC_APP_DEVELOPMENT", "MAC_APP_STORE", "MAC_APP_DIRECT",
+                "MAC_CATALYST_APP_DEVELOPMENT", "MAC_CATALYST_APP_STORE", "MAC_CATALYST_APP_DIRECT" };
+            
+            if (!validTypes.Contains(profileType.ToUpperInvariant()))
+            {
+                return JsonSerializer.Serialize(new { Success = false, Message = $"Invalid profile type '{profileType}'. Use get_profile_types to see valid options." });
+            }
+
+            var requiresDevices = profileType.Contains("DEVELOPMENT") || profileType.Contains("ADHOC");
+
+            // Resolve bundle ID
+            var bundleIds = await _appleService.GetBundleIdsAsync();
+            var matchedBundle = bundleIds.FirstOrDefault(b =>
+                b.Id.Equals(bundleId, StringComparison.OrdinalIgnoreCase) ||
+                b.Identifier.Equals(bundleId, StringComparison.OrdinalIgnoreCase) ||
+                b.Name.Equals(bundleId, StringComparison.OrdinalIgnoreCase));
+
+            if (matchedBundle == null)
+            {
+                return JsonSerializer.Serialize(new { 
+                    Success = false, 
+                    Message = $"Bundle ID '{bundleId}' not found. Use list_bundle_ids to see available bundle IDs." 
+                });
+            }
+
+            // Resolve certificates
+            var allCerts = await _appleService.GetCertificatesAsync();
+            var certInputs = certificates.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var resolvedCertIds = new List<string>();
+            
+            foreach (var certInput in certInputs)
+            {
+                var cert = allCerts.FirstOrDefault(c =>
+                    c.Id.Equals(certInput, StringComparison.OrdinalIgnoreCase) ||
+                    c.Name.Contains(certInput, StringComparison.OrdinalIgnoreCase) ||
+                    c.SerialNumber.Equals(certInput, StringComparison.OrdinalIgnoreCase));
+                
+                if (cert == null)
+                {
+                    return JsonSerializer.Serialize(new { 
+                        Success = false, 
+                        Message = $"Certificate '{certInput}' not found. Use list_certificates to see available certificates." 
+                    });
+                }
+                resolvedCertIds.Add(cert.Id);
+            }
+
+            if (!resolvedCertIds.Any())
+            {
+                return JsonSerializer.Serialize(new { Success = false, Message = "At least one certificate is required." });
+            }
+
+            // Resolve devices (if required)
+            List<string>? resolvedDeviceIds = null;
+            if (requiresDevices)
+            {
+                if (string.IsNullOrWhiteSpace(devices))
+                {
+                    return JsonSerializer.Serialize(new { 
+                        Success = false, 
+                        Message = $"Profile type '{profileType}' requires devices. Provide device IDs or UDIDs." 
+                    });
+                }
+
+                var allDevices = await _appleService.GetDevicesAsync();
+                var deviceInputs = devices.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                resolvedDeviceIds = new List<string>();
+
+                foreach (var deviceInput in deviceInputs)
+                {
+                    // Handle special "all" keyword
+                    if (deviceInput.Equals("all", StringComparison.OrdinalIgnoreCase))
+                    {
+                        resolvedDeviceIds = allDevices.Where(d => d.Status == "ENABLED").Select(d => d.Id).ToList();
+                        break;
+                    }
+
+                    var device = allDevices.FirstOrDefault(d =>
+                        d.Id.Equals(deviceInput, StringComparison.OrdinalIgnoreCase) ||
+                        d.Udid.Equals(deviceInput, StringComparison.OrdinalIgnoreCase) ||
+                        d.Name.Contains(deviceInput, StringComparison.OrdinalIgnoreCase));
+
+                    if (device == null)
+                    {
+                        return JsonSerializer.Serialize(new { 
+                            Success = false, 
+                            Message = $"Device '{deviceInput}' not found. Use list_devices to see available devices, or use 'all' to include all enabled devices." 
+                        });
+                    }
+                    resolvedDeviceIds.Add(device.Id);
+                }
+
+                if (!resolvedDeviceIds.Any())
+                {
+                    return JsonSerializer.Serialize(new { Success = false, Message = "At least one device is required for this profile type." });
+                }
+            }
+
+            // Create the profile
+            var request = new AppleProfileCreateRequest(
+                name,
+                profileType.ToUpperInvariant(),
+                matchedBundle.Id,
+                resolvedCertIds,
+                resolvedDeviceIds);
+
+            var profile = await _appleService.CreateProfileAsync(request);
+
+            return JsonSerializer.Serialize(new
+            {
+                Success = true,
+                Message = $"Created profile: {profile.Name}",
+                Profile = new
+                {
+                    profile.Id,
+                    profile.Name,
+                    Type = profile.ProfileType,
+                    profile.Platform,
+                    profile.State,
+                    profile.Uuid,
+                    ExpirationDate = profile.ExpirationDate.ToString("yyyy-MM-dd"),
+                    BundleId = matchedBundle.Identifier,
+                    CertificateCount = resolvedCertIds.Count,
+                    DeviceCount = resolvedDeviceIds?.Count ?? 0
+                }
+            }, new JsonSerializerOptions { WriteIndented = true });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Tool: create_provisioning_profile failed: {ex.Message}", ex);
+            return JsonSerializer.Serialize(new { Success = false, Message = $"Failed to create profile: {ex.Message}" });
+        }
+    }
+
+    [Description("Regenerate (update) an existing provisioning profile")]
+    private async Task<string> RegenerateProvisioningProfileAsync(
+        [Description("The profile name or UUID to regenerate")] string profileNameOrUuid,
+        [Description("Comma-separated certificate IDs or names (optional, uses existing if not specified)")] string? certificates = null,
+        [Description("Comma-separated device IDs or UDIDs (optional for dev/adhoc, use 'all' for all enabled devices)")] string? devices = null)
+    {
+        var error = CheckIdentitySelected();
+        if (error != null) return error;
+
+        try
+        {
+            _logger.LogDebug($"Tool: regenerate_provisioning_profile called - profile={profileNameOrUuid}");
+
+            // Find the existing profile
+            var profiles = await _appleService.GetProfilesAsync();
+            var existingProfile = profiles.FirstOrDefault(p =>
+                p.Id.Equals(profileNameOrUuid, StringComparison.OrdinalIgnoreCase) ||
+                p.Uuid.Equals(profileNameOrUuid, StringComparison.OrdinalIgnoreCase) ||
+                p.Name.Equals(profileNameOrUuid, StringComparison.OrdinalIgnoreCase));
+
+            if (existingProfile == null)
+            {
+                return JsonSerializer.Serialize(new { 
+                    Success = false, 
+                    Message = $"Profile '{profileNameOrUuid}' not found." 
+                });
+            }
+
+            var profileType = existingProfile.ProfileType;
+            var requiresDevices = profileType.Contains("DEVELOPMENT") || profileType.Contains("ADHOC");
+
+            // Resolve bundle ID from existing profile
+            var bundleIds = await _appleService.GetBundleIdsAsync();
+            var matchedBundle = bundleIds.FirstOrDefault(b =>
+                (existingProfile.BundleId != null && b.Identifier.Equals(existingProfile.BundleId, StringComparison.OrdinalIgnoreCase)));
+
+            if (matchedBundle == null)
+            {
+                // Try to find by matching profile name pattern
+                var possibleBundleName = existingProfile.Name.Replace(" Development", "").Replace(" Ad Hoc", "").Replace(" App Store", "").Trim();
+                matchedBundle = bundleIds.FirstOrDefault(b => b.Name.Equals(possibleBundleName, StringComparison.OrdinalIgnoreCase));
+            }
+
+            if (matchedBundle == null)
+            {
+                return JsonSerializer.Serialize(new { 
+                    Success = false, 
+                    Message = $"Could not determine bundle ID for profile. Please specify it using create_provisioning_profile instead." 
+                });
+            }
+
+            // Resolve certificates
+            var allCerts = await _appleService.GetCertificatesAsync();
+            List<string> resolvedCertIds;
+
+            if (!string.IsNullOrWhiteSpace(certificates))
+            {
+                var certInputs = certificates.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                resolvedCertIds = new List<string>();
+                
+                foreach (var certInput in certInputs)
+                {
+                    var cert = allCerts.FirstOrDefault(c =>
+                        c.Id.Equals(certInput, StringComparison.OrdinalIgnoreCase) ||
+                        c.Name.Contains(certInput, StringComparison.OrdinalIgnoreCase) ||
+                        c.SerialNumber.Equals(certInput, StringComparison.OrdinalIgnoreCase));
+                    
+                    if (cert == null)
+                    {
+                        return JsonSerializer.Serialize(new { 
+                            Success = false, 
+                            Message = $"Certificate '{certInput}' not found." 
+                        });
+                    }
+                    resolvedCertIds.Add(cert.Id);
+                }
+            }
+            else
+            {
+                // Use all compatible certificates
+                var isDev = profileType.Contains("DEVELOPMENT");
+                resolvedCertIds = allCerts
+                    .Where(c => isDev ? c.CertificateType.Contains("DEVELOPMENT") : 
+                                       (c.CertificateType.Contains("DISTRIBUTION") || c.CertificateType.Contains("STORE")))
+                    .Where(c => c.ExpirationDate > DateTime.UtcNow)
+                    .Select(c => c.Id)
+                    .ToList();
+
+                if (!resolvedCertIds.Any())
+                {
+                    return JsonSerializer.Serialize(new { 
+                        Success = false, 
+                        Message = $"No valid {(isDev ? "development" : "distribution")} certificates found." 
+                    });
+                }
+            }
+
+            // Resolve devices
+            List<string>? resolvedDeviceIds = null;
+            if (requiresDevices)
+            {
+                var allDevices = await _appleService.GetDevicesAsync();
+
+                if (!string.IsNullOrWhiteSpace(devices))
+                {
+                    if (devices.Equals("all", StringComparison.OrdinalIgnoreCase))
+                    {
+                        resolvedDeviceIds = allDevices.Where(d => d.Status == "ENABLED").Select(d => d.Id).ToList();
+                    }
+                    else
+                    {
+                        var deviceInputs = devices.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                        resolvedDeviceIds = new List<string>();
+
+                        foreach (var deviceInput in deviceInputs)
+                        {
+                            var device = allDevices.FirstOrDefault(d =>
+                                d.Id.Equals(deviceInput, StringComparison.OrdinalIgnoreCase) ||
+                                d.Udid.Equals(deviceInput, StringComparison.OrdinalIgnoreCase) ||
+                                d.Name.Contains(deviceInput, StringComparison.OrdinalIgnoreCase));
+
+                            if (device == null)
+                            {
+                                return JsonSerializer.Serialize(new { 
+                                    Success = false, 
+                                    Message = $"Device '{deviceInput}' not found." 
+                                });
+                            }
+                            resolvedDeviceIds.Add(device.Id);
+                        }
+                    }
+                }
+                else
+                {
+                    // Use all enabled devices
+                    resolvedDeviceIds = allDevices.Where(d => d.Status == "ENABLED").Select(d => d.Id).ToList();
+                }
+
+                if (!resolvedDeviceIds.Any())
+                {
+                    return JsonSerializer.Serialize(new { 
+                        Success = false, 
+                        Message = "At least one device is required for this profile type." 
+                    });
+                }
+            }
+
+            // Delete the old profile
+            await _appleService.DeleteProfileAsync(existingProfile.Id);
+            _logger.LogInformation($"Deleted old profile: {existingProfile.Name}");
+
+            // Create the new profile with the same name
+            var request = new AppleProfileCreateRequest(
+                existingProfile.Name,
+                profileType,
+                matchedBundle.Id,
+                resolvedCertIds,
+                resolvedDeviceIds);
+
+            var newProfile = await _appleService.CreateProfileAsync(request);
+
+            return JsonSerializer.Serialize(new
+            {
+                Success = true,
+                Message = $"Regenerated profile: {newProfile.Name}",
+                Profile = new
+                {
+                    newProfile.Id,
+                    newProfile.Name,
+                    Type = newProfile.ProfileType,
+                    newProfile.Platform,
+                    newProfile.State,
+                    newProfile.Uuid,
+                    ExpirationDate = newProfile.ExpirationDate.ToString("yyyy-MM-dd"),
+                    BundleId = matchedBundle.Identifier,
+                    CertificateCount = resolvedCertIds.Count,
+                    DeviceCount = resolvedDeviceIds?.Count ?? 0
+                },
+                Note = "The profile UUID has changed. You may need to update your Xcode project settings."
+            }, new JsonSerializerOptions { WriteIndented = true });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Tool: regenerate_provisioning_profile failed: {ex.Message}", ex);
+            return JsonSerializer.Serialize(new { Success = false, Message = $"Failed to regenerate profile: {ex.Message}" });
         }
     }
 

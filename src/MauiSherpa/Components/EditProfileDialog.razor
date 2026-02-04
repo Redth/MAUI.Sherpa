@@ -1,0 +1,739 @@
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Services
+@inject IAppleConnectService AppleService
+@inject IAppleIdentityStateService IdentityState
+@inject IAlertService AlertService
+@inject ILoggingService Logger
+
+@if (IsVisible && Profile != null)
+{
+    <div class="dialog-overlay" @onclick="HandleOverlayClick">
+        <div class="dialog" @onclick:stopPropagation="true">
+            <div class="dialog-header">
+                <h2><i class="fas fa-edit"></i> Edit Profile</h2>
+                <button class="close-btn" @onclick="Close"><i class="fas fa-times"></i></button>
+            </div>
+
+            <div class="dialog-body">
+                @if (isLoading)
+                {
+                    <div class="loading-state">
+                        <i class="fas fa-spinner fa-spin"></i>
+                        <span>Loading profile data...</span>
+                    </div>
+                }
+                else if (!string.IsNullOrEmpty(errorMessage))
+                {
+                    <div class="error-message">
+                        <i class="fas fa-exclamation-circle"></i>
+                        @errorMessage
+                    </div>
+                }
+                else
+                {
+                    <div class="warning-banner">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <div>
+                            <strong>This will delete and recreate the profile.</strong>
+                            <p>The profile UUID will change. You may need to update your Xcode project settings.</p>
+                        </div>
+                    </div>
+
+                    <div class="profile-info">
+                        <h3>Profile Details</h3>
+                        <div class="info-grid">
+                            <div class="info-item">
+                                <span class="info-label">Name</span>
+                                <span class="info-value">@Profile.Name</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Type</span>
+                                <span class="info-value">@FormatProfileType(Profile.ProfileType)</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Bundle ID</span>
+                                <span class="info-value">@(selectedBundle?.Identifier ?? Profile.BundleId ?? "Unknown")</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Current Expiration</span>
+                                <span class="info-value @(Profile.ExpirationDate < DateTime.UtcNow ? "expired" : "")">
+                                    @Profile.ExpirationDate.ToString("MMM dd, yyyy")
+                                    @if (Profile.ExpirationDate < DateTime.UtcNow) { <span class="badge-expired">Expired</span> }
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Certificates Section -->
+                    <div class="selection-section">
+                        <h3>Certificates</h3>
+                        <p class="section-description">
+                            Select @(IsDevelopmentProfile ? "development" : "distribution") certificates to include.
+                        </p>
+                        
+                        <div class="selection-list">
+                            @foreach (var cert in FilteredCertificates)
+                            {
+                                var isSelected = selectedCertificateIds.Contains(cert.Id);
+                                <label class="selection-item @(isSelected ? "selected" : "")">
+                                    <input type="checkbox" 
+                                           checked="@isSelected"
+                                           @onchange="@(e => ToggleCertificate(cert.Id, (bool)(e.Value ?? false)))" />
+                                    <div class="item-content">
+                                        <div class="item-name">@cert.Name</div>
+                                        <div class="item-detail">
+                                            <span>@cert.SerialNumber</span>
+                                            <span>Expires: @cert.ExpirationDate.ToString("MMM dd, yyyy")</span>
+                                        </div>
+                                    </div>
+                                </label>
+                            }
+                            @if (!FilteredCertificates.Any())
+                            {
+                                <div class="empty-list">
+                                    <i class="fas fa-certificate"></i>
+                                    <span>No compatible certificates found</span>
+                                </div>
+                            }
+                        </div>
+                        
+                        @if (selectedCertificateIds.Any())
+                        {
+                            <div class="selection-summary">
+                                <i class="fas fa-check-circle"></i> @selectedCertificateIds.Count certificate(s) selected
+                            </div>
+                        }
+                    </div>
+
+                    <!-- Devices Section (only for dev/adhoc) -->
+                    @if (RequiresDevices)
+                    {
+                        <div class="selection-section">
+                            <h3>Devices</h3>
+                            <p class="section-description">
+                                Select devices to include in this profile.
+                            </p>
+
+                            <div class="device-toolbar">
+                                <label class="select-all-checkbox">
+                                    <input type="checkbox" 
+                                           checked="@(selectedDeviceIds.Count == EnabledDevices.Count() && EnabledDevices.Any())"
+                                           @onchange="ToggleAllDevices" />
+                                    <span>Select All (@EnabledDevices.Count())</span>
+                                </label>
+                            </div>
+
+                            <div class="selection-list devices">
+                                @foreach (var device in FilteredDevices)
+                                {
+                                    var isSelected = selectedDeviceIds.Contains(device.Id);
+                                    var isDisabled = device.Status != "ENABLED";
+                                    <label class="selection-item @(isSelected ? "selected" : "") @(isDisabled ? "disabled" : "")">
+                                        <input type="checkbox"
+                                               checked="@isSelected"
+                                               disabled="@isDisabled"
+                                               @onchange="@(e => ToggleDevice(device.Id, (bool)(e.Value ?? false)))" />
+                                        <div class="item-content">
+                                            <div class="item-name">
+                                                <i class="@GetDeviceIcon(device.DeviceClass)"></i>
+                                                @device.Name
+                                            </div>
+                                            <div class="item-detail">@device.Udid</div>
+                                            @if (isDisabled)
+                                            {
+                                                <span class="badge badge-warning">Disabled</span>
+                                            }
+                                        </div>
+                                    </label>
+                                }
+                                @if (!FilteredDevices.Any())
+                                {
+                                    <div class="empty-list">
+                                        <i class="fas fa-mobile-alt"></i>
+                                        <span>No compatible devices found</span>
+                                    </div>
+                                }
+                            </div>
+
+                            @if (selectedDeviceIds.Any())
+                            {
+                                <div class="selection-summary">
+                                    <i class="fas fa-check-circle"></i> @selectedDeviceIds.Count device(s) selected
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="selection-summary warning">
+                                    <i class="fas fa-exclamation-triangle"></i> At least 1 device is required
+                                </div>
+                            }
+                        </div>
+                    }
+                }
+            </div>
+
+            <div class="dialog-footer">
+                <button class="btn btn-outline" @onclick="Close" disabled="@isRegenerating">Cancel</button>
+                <button class="btn btn-primary" @onclick="RegenerateProfile" disabled="@(!CanRegenerate || isRegenerating)">
+                    @if (isRegenerating)
+                    {
+                        <i class="fas fa-spinner fa-spin"></i>
+                        <span>Regenerating...</span>
+                    }
+                    else
+                    {
+                        <i class="fas fa-sync-alt"></i>
+                        <span>Regenerate Profile</span>
+                    }
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .dialog-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.6);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10000;
+        backdrop-filter: blur(2px);
+    }
+
+    .dialog {
+        background: var(--card-bg, white);
+        border-radius: 12px;
+        width: 90%;
+        max-width: 600px;
+        max-height: 85vh;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    }
+
+    .dialog-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 16px 24px;
+        border-bottom: 1px solid var(--border-color, #e2e8f0);
+    }
+
+    .dialog-header h2 {
+        margin: 0;
+        font-size: 18px;
+        font-weight: 600;
+        color: var(--text-primary, #1a202c);
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .dialog-header h2 i { color: #8b5cf6; }
+
+    .close-btn {
+        background: none;
+        border: none;
+        font-size: 18px;
+        color: var(--text-muted, #a0aec0);
+        cursor: pointer;
+        padding: 4px 8px;
+    }
+
+    .close-btn:hover { color: var(--text-secondary, #4a5568); }
+
+    .dialog-body {
+        flex: 1;
+        padding: 24px;
+        overflow-y: auto;
+    }
+
+    .warning-banner {
+        display: flex;
+        gap: 12px;
+        padding: 16px;
+        background: var(--status-warning-bg);
+        border: 1px solid var(--accent-warning);
+        border-radius: 8px;
+        margin-bottom: 20px;
+    }
+
+    .warning-banner i {
+        color: var(--accent-warning);
+        font-size: 20px;
+        flex-shrink: 0;
+        margin-top: 2px;
+    }
+
+    .warning-banner strong {
+        color: var(--status-warning-text);
+        display: block;
+        margin-bottom: 4px;
+    }
+
+    .warning-banner p {
+        margin: 0;
+        font-size: 13px;
+        color: var(--status-warning-text);
+    }
+
+    .profile-info {
+        margin-bottom: 24px;
+    }
+
+    .profile-info h3 {
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--text-secondary, #4a5568);
+        margin: 0 0 12px 0;
+    }
+
+    .info-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+    }
+
+    .info-item {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+
+    .info-label {
+        font-size: 11px;
+        color: var(--text-muted, #a0aec0);
+        text-transform: uppercase;
+    }
+
+    .info-value {
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--text-primary, #1a202c);
+    }
+
+    .info-value.expired { color: #dc2626; }
+
+    .badge-expired {
+        display: inline-block;
+        padding: 2px 6px;
+        background: var(--status-error-bg);
+        color: var(--status-error-text);
+        border-radius: 4px;
+        font-size: 10px;
+        font-weight: 500;
+        margin-left: 8px;
+    }
+
+    .selection-section {
+        margin-bottom: 20px;
+    }
+
+    .selection-section h3 {
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--text-secondary, #4a5568);
+        margin: 0 0 4px 0;
+    }
+
+    .section-description {
+        font-size: 13px;
+        color: var(--text-muted, #718096);
+        margin: 0 0 12px 0;
+    }
+
+    .selection-list {
+        border: 1px solid var(--border-color, #e2e8f0);
+        border-radius: 8px;
+        max-height: 200px;
+        overflow-y: auto;
+        background: var(--input-bg, white);
+    }
+
+    .selection-list.devices { max-height: 180px; }
+
+    .selection-item {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        padding: 12px 14px;
+        border-bottom: 1px solid var(--border-color, #e2e8f0);
+        cursor: pointer;
+        transition: background 0.15s;
+        background: var(--input-bg, white);
+    }
+
+    .selection-item:last-child { border-bottom: none; }
+    .selection-item:hover { background: var(--hover-bg, #f7fafc); }
+    .selection-item.selected { background: var(--accent-bg, #faf5ff); }
+    .selection-item.disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .selection-item input { margin-top: 2px; accent-color: #8b5cf6; }
+
+    .item-content { flex: 1; min-width: 0; }
+    .item-name { 
+        font-weight: 500; 
+        font-size: 14px; 
+        color: var(--text-primary, #1a202c);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .item-detail { 
+        font-size: 12px; 
+        color: var(--text-muted, #718096); 
+        margin-top: 2px;
+        display: flex;
+        gap: 12px;
+        font-family: monospace;
+    }
+
+    .badge { 
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 10px;
+        font-size: 11px;
+        font-weight: 500;
+        margin-top: 4px;
+    }
+
+    .badge-warning { background: var(--status-warning-bg); color: var(--status-warning-text); }
+
+    .empty-list {
+        padding: 30px 20px;
+        text-align: center;
+        color: var(--text-muted);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .empty-list i { font-size: 20px; }
+
+    .selection-summary {
+        margin-top: 8px;
+        padding: 8px 12px;
+        background: var(--status-success-bg);
+        border-radius: 6px;
+        font-size: 13px;
+        color: var(--status-success-text);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .selection-summary.warning {
+        background: var(--status-warning-bg);
+        color: var(--status-warning-text);
+    }
+
+    .device-toolbar {
+        margin-bottom: 8px;
+    }
+
+    .select-all-checkbox {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 13px;
+        cursor: pointer;
+        color: var(--text-secondary);
+    }
+
+    .select-all-checkbox input { accent-color: #8b5cf6; }
+
+    .dialog-footer {
+        display: flex;
+        justify-content: flex-end;
+        padding: 16px 24px;
+        border-top: 1px solid var(--border-color, #e2e8f0);
+        gap: 12px;
+    }
+
+    .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 20px;
+        border: none;
+        border-radius: 6px;
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .btn-primary { background: #ed8936; color: white; }
+    .btn-primary:hover:not(:disabled) { background: #dd6b20; }
+
+    .btn-outline {
+        background: none;
+        border: 1px solid var(--border-color, #e2e8f0);
+        color: var(--text-secondary, #4a5568);
+    }
+    .btn-outline:hover:not(:disabled) { background: var(--bg-hover, #f7fafc); }
+
+    .loading-state {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 40px;
+        gap: 12px;
+        color: var(--text-muted, #a0aec0);
+    }
+
+    .loading-state i { font-size: 24px; color: #ed8936; }
+
+    .error-message {
+        padding: 12px 16px;
+        background: var(--status-error-bg);
+        border: 1px solid var(--accent-danger);
+        border-radius: 6px;
+        color: var(--status-error-text);
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+</style>
+
+@code {
+    [Parameter] public bool IsVisible { get; set; }
+    [Parameter] public EventCallback<bool> IsVisibleChanged { get; set; }
+    [Parameter] public AppleProfile? Profile { get; set; }
+    [Parameter] public EventCallback<AppleProfile> OnProfileRegenerated { get; set; }
+
+    // State
+    private bool isLoading = false;
+    private bool isRegenerating = false;
+    private string errorMessage = "";
+
+    // Data
+    private List<AppleBundleId> bundleIds = new();
+    private List<AppleCertificate> certificates = new();
+    private List<AppleDevice> devices = new();
+    private AppleBundleId? selectedBundle;
+
+    // Selections
+    private HashSet<string> selectedCertificateIds = new();
+    private HashSet<string> selectedDeviceIds = new();
+
+    // Computed
+    private bool RequiresDevices => Profile?.ProfileType?.Contains("DEVELOPMENT") == true || 
+                                    Profile?.ProfileType?.Contains("ADHOC") == true;
+    private bool IsDevelopmentProfile => Profile?.ProfileType?.Contains("DEVELOPMENT") == true;
+
+    private bool CanRegenerate => selectedCertificateIds.Any() &&
+                                  (!RequiresDevices || selectedDeviceIds.Any()) &&
+                                  selectedBundle != null;
+
+    private IEnumerable<AppleCertificate> FilteredCertificates => certificates
+        .Where(c => IsCertificateCompatible(c.CertificateType))
+        .Where(c => c.ExpirationDate > DateTime.UtcNow)
+        .OrderBy(c => c.Name);
+
+    private IEnumerable<AppleDevice> FilteredDevices => devices
+        .Where(d => IsDeviceCompatible(d.Platform, d.DeviceClass))
+        .OrderByDescending(d => d.Status == "ENABLED")
+        .ThenBy(d => d.Name);
+
+    private IEnumerable<AppleDevice> EnabledDevices => FilteredDevices.Where(d => d.Status == "ENABLED");
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (IsVisible && Profile != null && bundleIds.Count == 0)
+        {
+            await LoadDataAsync();
+        }
+    }
+
+    private async Task LoadDataAsync()
+    {
+        if (IdentityState.SelectedIdentity == null || Profile == null) return;
+
+        isLoading = true;
+        errorMessage = "";
+        try
+        {
+            var bundleTask = AppleService.GetBundleIdsAsync();
+            var certTask = AppleService.GetCertificatesAsync();
+            var deviceTask = AppleService.GetDevicesAsync();
+
+            await Task.WhenAll(bundleTask, certTask, deviceTask);
+
+            bundleIds = (await bundleTask).ToList();
+            certificates = (await certTask).ToList();
+            devices = (await deviceTask).ToList();
+
+            // Find matching bundle ID
+            selectedBundle = bundleIds.FirstOrDefault(b =>
+                !string.IsNullOrEmpty(Profile.BundleId) && 
+                b.Identifier.Equals(Profile.BundleId, StringComparison.OrdinalIgnoreCase));
+
+            // Pre-select all compatible certificates
+            selectedCertificateIds = FilteredCertificates.Select(c => c.Id).ToHashSet();
+
+            // Pre-select all enabled devices (for dev/adhoc)
+            if (RequiresDevices)
+            {
+                selectedDeviceIds = EnabledDevices.Select(d => d.Id).ToHashSet();
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to load data: {ex.Message}";
+            Logger.LogError(errorMessage, ex);
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void ToggleCertificate(string id, bool selected)
+    {
+        if (selected)
+            selectedCertificateIds.Add(id);
+        else
+            selectedCertificateIds.Remove(id);
+    }
+
+    private void ToggleDevice(string id, bool selected)
+    {
+        if (selected)
+            selectedDeviceIds.Add(id);
+        else
+            selectedDeviceIds.Remove(id);
+    }
+
+    private void ToggleAllDevices(ChangeEventArgs e)
+    {
+        var selectAll = (bool)(e.Value ?? false);
+        selectedDeviceIds.Clear();
+        if (selectAll)
+        {
+            foreach (var device in EnabledDevices)
+            {
+                selectedDeviceIds.Add(device.Id);
+            }
+        }
+    }
+
+    private bool IsCertificateCompatible(string certType)
+    {
+        if (Profile == null) return true;
+        var certTypeLower = certType.ToUpperInvariant();
+        return IsDevelopmentProfile
+            ? certTypeLower.Contains("DEVELOPMENT")
+            : certTypeLower.Contains("DISTRIBUTION") || certTypeLower.Contains("STORE");
+    }
+
+    private bool IsDeviceCompatible(string devicePlatform, string deviceClass)
+    {
+        if (Profile == null) return true;
+        var profileType = Profile.ProfileType;
+
+        if (profileType.StartsWith("IOS_") || profileType.StartsWith("MAC_CATALYST_"))
+        {
+            return devicePlatform == "IOS" || deviceClass is "IPHONE" or "IPAD" or "IPOD";
+        }
+        if (profileType.StartsWith("MAC_APP_"))
+        {
+            return devicePlatform == "MAC_OS" || deviceClass == "MAC";
+        }
+        return true;
+    }
+
+    private string GetDeviceIcon(string deviceClass) => deviceClass?.ToUpperInvariant() switch
+    {
+        "IPHONE" => "fas fa-mobile-alt",
+        "IPAD" => "fas fa-tablet-alt",
+        "MAC" => "fas fa-laptop",
+        "APPLE_TV" => "fas fa-tv",
+        "APPLE_WATCH" => "fas fa-clock",
+        _ => "fas fa-microchip"
+    };
+
+    private string FormatProfileType(string profileType) => profileType switch
+    {
+        "IOS_APP_DEVELOPMENT" => "iOS Development",
+        "IOS_APP_ADHOC" => "iOS Ad Hoc",
+        "IOS_APP_STORE" => "iOS App Store",
+        "MAC_APP_DEVELOPMENT" => "macOS Development",
+        "MAC_APP_STORE" => "Mac App Store",
+        "MAC_APP_DIRECT" => "macOS Direct Distribution",
+        "MAC_CATALYST_APP_DEVELOPMENT" => "Mac Catalyst Development",
+        "MAC_CATALYST_APP_STORE" => "Mac Catalyst App Store",
+        "MAC_CATALYST_APP_DIRECT" => "Mac Catalyst Direct",
+        _ => profileType.Replace("_", " ")
+    };
+
+    private async Task RegenerateProfile()
+    {
+        if (Profile == null || selectedBundle == null || !CanRegenerate) return;
+
+        isRegenerating = true;
+        errorMessage = "";
+        try
+        {
+            // Delete the old profile
+            await AppleService.DeleteProfileAsync(Profile.Id);
+            Logger.LogInformation($"Deleted old profile: {Profile.Name}");
+
+            // Create the new profile
+            var request = new AppleProfileCreateRequest(
+                Profile.Name,
+                Profile.ProfileType,
+                selectedBundle.Id,
+                selectedCertificateIds.ToList(),
+                RequiresDevices ? selectedDeviceIds.ToList() : null);
+
+            var newProfile = await AppleService.CreateProfileAsync(request);
+            
+            await AlertService.ShowToastAsync($"Profile '{newProfile.Name}' regenerated successfully!");
+            await OnProfileRegenerated.InvokeAsync(newProfile);
+            await Close();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to regenerate profile: {ex.Message}";
+            Logger.LogError(errorMessage, ex);
+        }
+        finally
+        {
+            isRegenerating = false;
+        }
+    }
+
+    private async Task Close()
+    {
+        // Reset state
+        bundleIds.Clear();
+        certificates.Clear();
+        devices.Clear();
+        selectedCertificateIds.Clear();
+        selectedDeviceIds.Clear();
+        selectedBundle = null;
+        errorMessage = "";
+
+        IsVisible = false;
+        await IsVisibleChanged.InvokeAsync(false);
+    }
+
+    private void HandleOverlayClick()
+    {
+        if (!isRegenerating)
+        {
+            _ = Close();
+        }
+    }
+}

@@ -1,6 +1,7 @@
 @using MauiSherpa.Core.Interfaces
 @inject ICopilotContextService ContextService
 @inject ICopilotService CopilotService
+@inject IThemeService ThemeService
 @inject ILoggingService Logger
 @implements IDisposable
 
@@ -14,7 +15,7 @@
 @* Overlay *@
 @if (isOpen)
 {
-    <div class="copilot-overlay-backdrop" @onclick="CloseOverlay">
+    <div class="copilot-overlay-backdrop @(ThemeService.IsDarkMode ? "theme-dark" : "theme-light")" @onclick="CloseOverlay">
         <div class="copilot-overlay @(isClosing ? "closing" : "")" @onclick:stopPropagation="true">
             <div class="overlay-header">
                 <div class="header-title">
@@ -211,8 +212,8 @@
     }
     
     /* Dark mode */
-    :root.dark .copilot-overlay {
-        background: var(--card-bg, #2d3748);
+    :global(.theme-dark) .copilot-overlay {
+        background: var(--card-bg);
     }
 </style>
 

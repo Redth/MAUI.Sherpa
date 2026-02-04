@@ -235,11 +235,23 @@ public interface IAppleConnectService
     
     // Provisioning Profiles
     Task<IReadOnlyList<AppleProfile>> GetProfilesAsync();
+    Task<AppleProfile> CreateProfileAsync(AppleProfileCreateRequest request);
     Task<byte[]> DownloadProfileAsync(string id);
     Task DeleteProfileAsync(string id);
     Task<string> InstallProfileAsync(string id);
     Task<int> InstallProfilesAsync(IEnumerable<string> ids, IProgress<string>? progress = null);
 }
+
+/// <summary>
+/// Request to create a new Apple provisioning profile
+/// </summary>
+public record AppleProfileCreateRequest(
+    string Name,
+    string ProfileType,              // e.g., "IOS_APP_DEVELOPMENT", "IOS_APP_STORE"
+    string BundleIdResourceId,       // App Store Connect resource ID (not the identifier)
+    IReadOnlyList<string> CertificateIds,
+    IReadOnlyList<string>? DeviceIds // null or empty for App Store profiles
+);
 
 /// <summary>
 /// Result of creating a new Apple certificate

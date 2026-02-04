@@ -380,6 +380,43 @@ public class AppleConnectService : IAppleConnectService
         }
     }
 
+    public async Task<AppleProfile> CreateProfileAsync(AppleProfileCreateRequest request)
+    {
+        _logger.LogInformation($"Creating profile: {request.Name} ({request.ProfileType})");
+        try
+        {
+            var client = await GetClientAsync();
+            
+            // Parse profile type
+            var profileType = Enum.Parse<ProfileType>(request.ProfileType, ignoreCase: true);
+            
+            // Build the request
+            var response = await client.CreateProfileAsync(
+                name: request.Name,
+                profileType: profileType,
+                bundleIdId: request.BundleIdResourceId,
+                certificateIds: request.CertificateIds.ToArray(),
+                deviceIds: request.DeviceIds?.ToArray(),
+                cancellationToken: default);
+            
+            var p = response.Data;
+            return new AppleProfile(
+                p.Id,
+                p.Attributes?.Name ?? request.Name,
+                p.Attributes?.ProfileType.ToString() ?? request.ProfileType,
+                p.Attributes?.Platform.ToString() ?? "IOS",
+                p.Attributes?.ProfileState.ToString() ?? "ACTIVE",
+                p.Attributes?.ExpirationDate?.DateTime ?? DateTime.UtcNow.AddYears(1),
+                "", // BundleIdIdentifier
+                p.Attributes?.Uuid ?? "");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Failed to create profile: {ex.Message}", ex);
+            throw;
+        }
+    }
+
     public async Task<byte[]> DownloadProfileAsync(string id)
     {
         _logger.LogInformation($"Downloading profile: {id}");

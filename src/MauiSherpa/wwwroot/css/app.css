@@ -48,6 +48,7 @@
     --accent-danger-hover: #c53030;
     --accent-purple: #9f7aea;
     --accent-indigo: #667eea;
+    --accent-bg: #faf5ff;
     
     /* Specific UI elements */
     --progress-bar-bg: #ebf8ff;
@@ -55,6 +56,20 @@
     --sdk-item-bg: #f7fafc;
     --sdk-item-installed-bg: #f0fff4;
     --modal-overlay: rgba(0, 0, 0, 0.5);
+    
+    /* Copilot suggestions */
+    --suggestion-bg: linear-gradient(135deg, #f0f4ff 0%, #e8ecff 100%);
+    --suggestion-bg-hover: linear-gradient(135deg, #e8ecff 0%, #ddd6fe 100%);
+    --suggestion-border: #c7d2fe;
+    --suggestion-border-hover: #a5b4fc;
+    --suggestion-text: #4338ca;
+    --suggestion-arrow: #6366f1;
+    
+    /* Copilot tool indicator */
+    --tool-indicator-bg: linear-gradient(135deg, rgba(99, 102, 241, 0.12) 0%, rgba(139, 92, 246, 0.08) 100%);
+    --tool-indicator-text: #5b21b6;
+    --tool-indicator-border: rgba(99, 102, 241, 0.25);
+    --tool-indicator-icon: #7c3aed;
 }
 
 /* Dark theme variable overrides */
@@ -105,6 +120,7 @@
     --accent-danger-hover: #f56565;
     --accent-purple: #b794f4;
     --accent-indigo: #7f9cf5;
+    --accent-bg: #312e81;
     
     /* Specific UI elements */
     --progress-bar-bg: #2a4365;
@@ -112,6 +128,20 @@
     --sdk-item-bg: #374151;
     --sdk-item-installed-bg: #276749;
     --modal-overlay: rgba(0, 0, 0, 0.7);
+    
+    /* Copilot suggestions - dark mode */
+    --suggestion-bg: linear-gradient(135deg, rgba(99, 102, 241, 0.2) 0%, rgba(139, 92, 246, 0.2) 100%);
+    --suggestion-bg-hover: linear-gradient(135deg, rgba(99, 102, 241, 0.3) 0%, rgba(139, 92, 246, 0.3) 100%);
+    --suggestion-border: rgba(139, 92, 246, 0.4);
+    --suggestion-border-hover: rgba(139, 92, 246, 0.6);
+    --suggestion-text: #c4b5fd;
+    --suggestion-arrow: #a78bfa;
+    
+    /* Copilot tool indicator - dark mode */
+    --tool-indicator-bg: linear-gradient(135deg, rgba(99, 102, 241, 0.2) 0%, rgba(139, 92, 246, 0.15) 100%);
+    --tool-indicator-text: #c4b5fd;
+    --tool-indicator-border: rgba(139, 92, 246, 0.4);
+    --tool-indicator-icon: #a78bfa;
 }
 
 /* Global styles using CSS variables */
@@ -678,4 +708,147 @@ pre {
 /* Available versions label */
 .available-versions .label {
     color: var(--text-muted);
+}
+
+/* Dialog styles - for modal dialogs like EditProfileDialog, CreateProfileDialog */
+.dialog-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: var(--modal-overlay);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+    backdrop-filter: blur(2px);
+}
+
+.dialog {
+    background: var(--card-bg);
+    border-radius: 12px;
+    width: 90%;
+    max-width: 600px;
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: var(--card-shadow-lg);
+    border: 1px solid var(--border-color);
+}
+
+.dialog-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.dialog-header h2 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.dialog-body {
+    flex: 1;
+    padding: 24px;
+    overflow-y: auto;
+}
+
+.dialog-footer {
+    display: flex;
+    justify-content: flex-end;
+    padding: 16px 24px;
+    border-top: 1px solid var(--border-color);
+    gap: 12px;
+}
+
+/* Selection lists for dialogs */
+.selection-list {
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--input-bg);
+    overflow-y: auto;
+}
+
+.selection-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border-color);
+    cursor: pointer;
+    transition: background 0.15s;
+    background: var(--input-bg);
+}
+
+.selection-item:last-child {
+    border-bottom: none;
+}
+
+.selection-item:hover {
+    background: var(--bg-hover);
+}
+
+.selection-item.selected {
+    background: var(--accent-bg, #faf5ff);
+}
+
+.theme-dark .selection-item.selected {
+    background: #312e81;
+}
+
+.selection-item .item-name {
+    font-weight: 500;
+    font-size: 14px;
+    color: var(--text-primary);
+}
+
+.selection-item .item-detail {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+
+/* Warning banner for dialogs */
+.warning-banner {
+    display: flex;
+    gap: 12px;
+    padding: 16px;
+    background: var(--status-warning-bg);
+    border: 1px solid var(--accent-warning);
+    border-radius: 8px;
+    margin-bottom: 20px;
+}
+
+.warning-banner i {
+    color: var(--accent-warning);
+    font-size: 20px;
+    flex-shrink: 0;
+}
+
+.warning-banner strong,
+.warning-banner p {
+    color: var(--status-warning-text);
+}
+
+/* Selection summary */
+.selection-summary {
+    margin-top: 8px;
+    padding: 8px 12px;
+    background: var(--status-success-bg);
+    border-radius: 6px;
+    font-size: 13px;
+    color: var(--status-success-text);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.selection-summary.warning {
+    background: var(--status-warning-bg);
+    color: var(--status-warning-text);
 }

@@ -19,6 +19,9 @@
 @if (IdentityState.SelectedIdentity != null)
 {
     <div class="toolbar">
+        <button class="btn btn-purple" @onclick="ShowCreateDialog" disabled="@isLoading">
+            <i class="fas fa-plus"></i> Create Profile
+        </button>
         <button class="btn btn-primary" @onclick="@(() => RefreshData(forceRefresh: true))" disabled="@isLoading">
             <i class="fas fa-sync-alt"></i> @(isLoading ? "Loading..." : "Refresh")
         </button>
@@ -89,7 +92,19 @@
             <div class="empty-state">
                 <div class="empty-icon"><i class="fas fa-file-alt"></i></div>
                 <div class="empty-title">@(profiles.Count == 0 ? "No provisioning profiles found" : "No profiles match filters")</div>
-                <div class="empty-description">@(profiles.Count == 0 ? "Create profiles in Xcode or Apple Developer Portal" : "Try adjusting your search or filters")</div>
+                <div class="empty-description">
+                    @if (profiles.Count == 0)
+                    {
+                        <span>Create a new profile to get started</span>
+                        <button class="btn btn-purple btn-empty-cta" @onclick="ShowCreateDialog">
+                            <i class="fas fa-plus"></i> Create Profile
+                        </button>
+                    }
+                    else
+                    {
+                        <span>Try adjusting your search or filters</span>
+                    }
+                </div>
             </div>
         }
         else
@@ -138,6 +153,9 @@
                         </div>
                     </div>
                     <div class="profile-actions">
+                        <button class="btn btn-secondary btn-sm" @onclick="@(() => ShowEditDialog(profile))" disabled="@isLoading" title="Edit profile certificates and devices">
+                            <i class="fas fa-edit"></i> Edit
+                        </button>
                         <div class="btn-group">
                             <button class="btn btn-secondary btn-sm" @onclick="@(() => DownloadProfile(profile))" disabled="@isLoading" title="Download to file">
                                 <i class="fas fa-download"></i> Download
@@ -164,11 +182,20 @@
     </div>
 }
 
+<CreateProfileDialog @bind-IsVisible="showCreateDialog" OnProfileCreated="OnProfileCreated" />
+<EditProfileDialog @bind-IsVisible="showEditDialog" Profile="selectedProfileForEdit" OnProfileRegenerated="OnProfileRegenerated" />
+
 <style>
     h1 { margin-bottom: 20px; font-size: 28px; color: var(--text-primary); }
 
     .toolbar { margin-bottom: 16px; display: flex; gap: 12px; }
     .error-bar { background: var(--status-error-bg); color: var(--status-error-text); padding: 12px 16px; border-radius: 6px; margin-bottom: 16px; }
+
+    .btn-purple { background: #8b5cf6; color: white; }
+    .btn-purple:hover:not(:disabled) { background: #7c3aed; }
+
+    .btn-warning { background: #ed8936; color: white; }
+    .btn-warning:hover:not(:disabled) { background: #dd6b20; }
 
     /* Filter Section Styles */
     .filter-section {
@@ -187,6 +214,7 @@
         position: relative;
         flex: 1;
         min-width: 200px;
+        margin: 0 !important;
     }
 
     .search-box input {
@@ -196,6 +224,8 @@
         border-radius: 6px;
         font-size: 14px;
         box-sizing: border-box;
+        background: var(--input-bg);
+        color: var(--text-primary);
     }
 
     .search-box input:focus {
@@ -207,10 +237,21 @@
     .search-icon {
         position: absolute;
         left: 12px;
-        top: 50%;
-        transform: translateY(-50%);
+        top: 0;
+        bottom: 0;
+        display: flex;
+        align-items: center;
         font-size: 14px;
         opacity: 0.5;
+        color: var(--text-muted);
+        pointer-events: none;
+    }
+
+    .search-icon i {
+        position: static !important;
+        left: auto !important;
+        top: auto !important;
+        transform: none !important;
     }
 
     .clear-btn {
@@ -245,6 +286,7 @@
         border-radius: 6px;
         font-size: 13px;
         background: var(--card-bg);
+        color: var(--text-primary);
         cursor: pointer;
         min-width: 120px;
     }
@@ -303,18 +345,28 @@
         display: inline-flex;
     }
 
+    .btn-group .btn {
+        border-radius: 0;
+    }
+
     .btn-group .btn:first-child {
+        border-top-left-radius: 6px;
+        border-bottom-left-radius: 6px;
         border-top-right-radius: 0;
         border-bottom-right-radius: 0;
     }
 
-    .btn-dropdown {
-        border-top-left-radius: 0;
-        border-bottom-left-radius: 0;
+    .btn-group .btn:last-of-type {
         border-top-right-radius: 6px;
         border-bottom-right-radius: 6px;
+        border-top-left-radius: 0;
+        border-bottom-left-radius: 0;
+    }
+
+    .btn-dropdown {
         padding: 6px 8px;
-        border-left: 1px solid rgba(255,255,255,0.3);
+        border-left: 1px solid rgba(255,255,255,0.2);
+        margin-left: -1px;
     }
 
     .dropdown-menu {
@@ -410,7 +462,8 @@
     .empty-icon { font-size: 48px; margin-bottom: 16px; color: #a0aec0; }
     .empty-icon i { font-size: 48px; }
     .empty-title { font-size: 18px; font-weight: 600; color: var(--text-primary); margin-bottom: 8px; }
-    .empty-description { color: var(--text-muted); font-size: 14px; }
+    .empty-description { color: var(--text-muted); font-size: 14px; display: flex; flex-direction: column; align-items: center; gap: 16px; }
+    .btn-empty-cta { margin-top: 8px; }
 </style>
 
 @code {
@@ -418,12 +471,17 @@
     private bool isLoading = false;
     private string errorMessage = "";
     private string? openDropdown = null;
+    private bool showCreateDialog = false;
     
     // Filter state
     private string searchQuery = "";
     private string filterState = "";
     private string filterType = "";
     private string filterPlatform = "";
+
+    // Edit dialog state
+    private bool showEditDialog = false;
+    private AppleProfile? selectedProfileForEdit = null;
 
     private bool HasActiveFilters => !string.IsNullOrEmpty(searchQuery) || 
                                       !string.IsNullOrEmpty(filterState) || 
@@ -439,6 +497,30 @@
     private void ToggleDropdown(string id)
     {
         openDropdown = openDropdown == id ? null : id;
+    }
+
+    private void ShowCreateDialog()
+    {
+        showCreateDialog = true;
+    }
+
+    private void ShowEditDialog(AppleProfile profile)
+    {
+        selectedProfileForEdit = profile;
+        showEditDialog = true;
+    }
+
+    private async Task OnProfileCreated(AppleProfile profile)
+    {
+        // Refresh the list to show the new profile
+        await RefreshData(forceRefresh: true);
+    }
+
+    private async Task OnProfileRegenerated(AppleProfile profile)
+    {
+        // Refresh the list to show the regenerated profile
+        selectedProfileForEdit = null;
+        await RefreshData(forceRefresh: true);
     }
 
     private IEnumerable<AppleProfile> FilteredProfiles => profiles
