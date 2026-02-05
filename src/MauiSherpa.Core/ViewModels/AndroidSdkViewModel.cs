@@ -105,9 +105,12 @@ public class AndroidSdkViewModel : ViewModelBase
 
         try
         {
-            var (_, sdkPath) = forceRefresh
-                ? await _mediator.Request(new GetSdkPathRequest(), CancellationToken.None, ctx => ctx.ClearCache())
-                : await _mediator.Request(new GetSdkPathRequest());
+            if (forceRefresh)
+            {
+                await _mediator.FlushStores("android:sdkpath");
+            }
+            
+            var (_, sdkPath) = await _mediator.Request(new GetSdkPathRequest());
             
             SdkPath = sdkPath;
             IsSdkInstalled = !string.IsNullOrEmpty(sdkPath);
@@ -142,29 +145,27 @@ public class AndroidSdkViewModel : ViewModelBase
 
         try
         {
-            // Use mediator with caching
-            var installedRequest = new GetInstalledPackagesRequest();
-            var availableRequest = new GetAvailablePackagesRequest();
-            var devicesRequest = new GetAndroidDevicesRequest();
-
             if (forceRefresh)
             {
-                var (_, installed) = await _mediator.Request(installedRequest, CancellationToken.None, ctx => ctx.ClearCache());
-                var (_, available) = await _mediator.Request(availableRequest, CancellationToken.None, ctx => ctx.ClearCache());
-                var (_, devices) = await _mediator.Request(devicesRequest, CancellationToken.None, ctx => ctx.ClearCache());
-                InstalledPackages = installed;
-                AvailablePackages = available;
-                Devices = devices;
+                await _mediator.FlushStores("android:packages:installed");
+                await _mediator.FlushStores("android:packages:available");
+                await _mediator.FlushStores("android:devices");
             }
-            else
-            {
-                var (_, installed) = await _mediator.Request(installedRequest);
-                var (_, available) = await _mediator.Request(availableRequest);
-                var (_, devices) = await _mediator.Request(devicesRequest);
-                InstalledPackages = installed;
-                AvailablePackages = available;
-                Devices = devices;
-            }
+            
+            // Run requests in parallel for faster loading
+            var installedTask = _mediator.Request(new GetInstalledPackagesRequest());
+            var availableTask = _mediator.Request(new GetAvailablePackagesRequest());
+            var devicesTask = _mediator.Request(new GetAndroidDevicesRequest());
+            
+            await Task.WhenAll(installedTask, availableTask, devicesTask);
+            
+            var (_, installed) = await installedTask;
+            var (_, available) = await availableTask;
+            var (_, devices) = await devicesTask;
+            
+            InstalledPackages = installed;
+            AvailablePackages = available;
+            Devices = devices;
             
             StatusMessage = $"Loaded {InstalledPackages.Count} installed, {AvailablePackages.Count} available packages";
         }

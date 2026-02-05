@@ -34,7 +34,7 @@ public class BlazorToastService
         }
     }
 
-    public void Show(string message, ToastType type = ToastType.Success)
+    public ToastMessage Show(string message, ToastType type = ToastType.Success)
     {
         var toast = new ToastMessage(message, type, Guid.NewGuid().ToString());
         
@@ -56,12 +56,14 @@ public class BlazorToastService
             await Task.Delay(AutoDismissMs);
             await DismissWithAnimation(toast);
         });
+        
+        return toast;
     }
 
-    public void ShowSuccess(string message) => Show(message, ToastType.Success);
-    public void ShowInfo(string message) => Show(message, ToastType.Info);
-    public void ShowWarning(string message) => Show(message, ToastType.Warning);
-    public void ShowError(string message) => Show(message, ToastType.Error);
+    public ToastMessage ShowSuccess(string message) => Show(message, ToastType.Success);
+    public ToastMessage ShowInfo(string message) => Show(message, ToastType.Info);
+    public ToastMessage ShowWarning(string message) => Show(message, ToastType.Warning);
+    public ToastMessage ShowError(string message) => Show(message, ToastType.Error);
 
     public async Task DismissWithAnimation(ToastMessage toast)
     {

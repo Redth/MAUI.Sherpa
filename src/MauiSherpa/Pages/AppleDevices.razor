@@ -1,11 +1,13 @@
 @page "/apple-devices"
 @using MauiSherpa.Core.Interfaces
 @using MauiSherpa.Core.Requests.Apple
+@using MauiSherpa.Services
 @using Shiny.Mediator
 @inject IMediator Mediator
 @inject IAppleConnectService AppleService
 @inject IAppleIdentityStateService IdentityState
 @inject IAlertService AlertService
+@inject BlazorToastService ToastService
 @implements IDisposable
 
 <h1><i class="fas fa-mobile-alt"></i> Registered Devices</h1>
@@ -16,7 +18,7 @@
 {
     <div class="toolbar">
         <button class="btn btn-primary" @onclick="@(() => RefreshData(forceRefresh: true))" disabled="@isLoading">
-            <i class="fas fa-sync-alt"></i> @(isLoading ? "Loading..." : "Refresh")
+            <i class="fas @(isLoading ? "fa-spinner fa-spin" : "fa-sync-alt")"></i> Refresh
         </button>
         <button class="btn btn-success" @onclick="ShowRegisterDialog" disabled="@isLoading">
             <i class="fas fa-plus"></i> Register Device
@@ -366,14 +368,14 @@
     {
         IdentityState.OnSelectionChanged += OnIdentityChanged;
         if (IdentityState.SelectedIdentity != null)
-            await RefreshData(forceRefresh: true);
+            await RefreshData(forceRefresh: false); // Use cache on initial load
     }
 
     private void OnIdentityChanged()
     {
         InvokeAsync(async () =>
         {
-            await RefreshData(forceRefresh: true);
+            await RefreshData(forceRefresh: false); // Use cache when identity changes (different identity = different cache key)
             StateHasChanged();
         });
     }
@@ -399,6 +401,13 @@
 
         isLoading = true;
         errorMessage = "";
+        
+        ToastMessage? toast = null;
+        if (forceRefresh)
+        {
+            toast = ToastService.Show("Refreshing devices...", ToastType.Info);
+        }
+        
         try
         {
             // If force refresh, invalidate the cache first
@@ -418,6 +427,7 @@
         finally
         {
             isLoading = false;
+            if (toast != null) ToastService.Dismiss(toast);
             await InvokeAsync(StateHasChanged);
         }
     }

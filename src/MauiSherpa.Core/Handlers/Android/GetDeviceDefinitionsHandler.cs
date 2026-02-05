@@ -17,7 +17,8 @@ public partial class GetDeviceDefinitionsHandler : IRequestHandler<GetDeviceDefi
         _sdkService = sdkService;
     }
 
-    [Cache(AbsoluteExpirationSeconds = 3600)] // 60 min cache - rarely changes
+    [Cache(AbsoluteExpirationSeconds = 3600)]
+    [OfflineAvailable] // 60 min cache - rarely changes
     public async Task<IReadOnlyList<AvdDeviceDefinition>> Handle(
         GetDeviceDefinitionsRequest request,
         IMediatorContext context,
@@ -39,7 +40,8 @@ public partial class GetAvdSkinsHandler : IRequestHandler<GetAvdSkinsRequest, IR
         _sdkService = sdkService;
     }
 
-    [Cache(AbsoluteExpirationSeconds = 3600)] // 60 min cache - rarely changes
+    [Cache(AbsoluteExpirationSeconds = 3600)]
+    [OfflineAvailable] // 60 min cache - rarely changes
     public async Task<IReadOnlyList<string>> Handle(
         GetAvdSkinsRequest request,
         IMediatorContext context,

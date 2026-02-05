@@ -10,6 +10,7 @@
 @inject IDialogService DialogService
 @inject IFileSystemService FileSystem
 @inject OperationModalService OperationModal
+@inject BlazorToastService ToastService
 @implements IDisposable
 
 <h1><i class="fas fa-desktop"></i> Android Emulators</h1>
@@ -41,7 +42,7 @@
 
 <div class="toolbar">
     <button class="btn btn-primary" @onclick="() => RefreshEmulators(forceRefresh: true)" disabled="@isLoading">
-        <i class="fas fa-sync-alt"></i> @(isLoading ? "Refreshing..." : "Refresh")
+        <i class="fas @(isLoading ? "fa-spinner fa-spin" : "fa-sync-alt")"></i> Refresh
     </button>
     <button class="btn btn-success" @onclick="ShowCreateDialog" disabled="@isLoading">
         <i class="fas fa-plus"></i> Create Emulator
@@ -750,7 +751,9 @@
         
         // Initialize SDK settings (loads stored custom path if any)
         await SdkSettings.InitializeAsync();
-        await RefreshEmulators(forceRefresh: true);
+        
+        // Initial load uses cache (no force refresh)
+        await RefreshEmulators(forceRefresh: false);
     }
 
     private void OnSdkPathChanged()
@@ -768,6 +771,12 @@
         statusMessage = ""; // Clear status - we show loading state in the UI
         StateHasChanged();
         
+        ToastMessage? toast = null;
+        if (forceRefresh)
+        {
+            toast = ToastService.Show("Refreshing emulators...", ToastType.Info);
+        }
+        
         try
         {
             // If force refresh, invalidate caches first
@@ -778,20 +787,29 @@
                 await Mediator.FlushStores("android:packages:available");
             }
             
-            var (_, emuResult) = await Mediator.Request(new GetEmulatorsRequest());
+            // Run independent requests in parallel for faster loading
+            var emuTask = Mediator.Request(new GetEmulatorsRequest());
+            var sysImgTask = Mediator.Request(new GetSystemImagesRequest());
+            var deviceDefsTask = Mediator.Request(new GetDeviceDefinitionsRequest());
+            var skinsTask = Mediator.Request(new GetAvdSkinsRequest());
+            var availPkgsTask = Mediator.Request(new GetAvailablePackagesRequest());
+            
+            await Task.WhenAll(emuTask, sysImgTask, deviceDefsTask, skinsTask, availPkgsTask);
+            
+            var (_, emuResult) = await emuTask;
             emulators = emuResult?.ToList() ?? new();
             
-            var (_, sysImgResult) = await Mediator.Request(new GetSystemImagesRequest());
+            var (_, sysImgResult) = await sysImgTask;
             installedSystemImages = sysImgResult?.ToList() ?? new();
             
-            var (_, deviceDefs) = await Mediator.Request(new GetDeviceDefinitionsRequest());
+            var (_, deviceDefs) = await deviceDefsTask;
             deviceDefinitions = deviceDefs?.ToList() ?? new();
             
-            var (_, skins) = await Mediator.Request(new GetAvdSkinsRequest());
+            var (_, skins) = await skinsTask;
             availableSkins = skins?.ToList() ?? new();
             
             // Get available system images from available packages
-            var (_, availPkgs) = await Mediator.Request(new GetAvailablePackagesRequest());
+            var (_, availPkgs) = await availPkgsTask;
             availableSystemImages = (availPkgs ?? Enumerable.Empty<SdkPackageInfo>())
                 .Where(p => p.Path.StartsWith("system-images;"))
                 .Select(p => p.Path)
@@ -810,6 +828,7 @@
         finally
         {
             isLoading = false;
+            if (toast != null) ToastService.Dismiss(toast);
             StateHasChanged();
         }
     }

@@ -9,6 +9,7 @@
 @inject IAlertService AlertService
 @inject IDialogService DialogService
 @inject OperationModalService OperationModal
+@inject BlazorToastService ToastService
 @implements IDisposable
 
 <h1><i class="fas fa-fingerprint"></i> Bundle IDs</h1>
@@ -18,49 +19,51 @@
 @if (IdentityState.SelectedIdentity != null)
 {
     <div class="toolbar">
-        <button class="btn btn-primary" @onclick="@(() => RefreshData(forceRefresh: true))" disabled="@isLoading">
-            <i class="fas fa-sync-alt"></i> @(isLoading ? "Loading..." : "Refresh")
+        <button class="btn btn-primary" @onclick="@(() => RefreshData(forceRefresh: true))" disabled="@isRefreshing">
+            <i class="fas @(isRefreshing ? "fa-spinner fa-spin" : "fa-sync-alt")"></i> Refresh
         </button>
-        <button class="btn btn-success" @onclick="ShowCreateDialog" disabled="@isLoading">
+        <button class="btn btn-success" @onclick="ShowCreateDialog" disabled="@isRefreshing">
             <i class="fas fa-plus"></i> Register Bundle ID
         </button>
-    </div>
+        <MauiSherpa.Components.BackgroundRefreshIndicator IsRefreshing="@isBackgroundRefreshing" />
+        </div>
 
-    <!-- Filter Section -->
-    <div class="filter-section">
-        <div class="search-box">
-            <span class="search-icon"><i class="fas fa-search"></i></span>
-            <input type="text" @bind="searchQuery" @bind:event="oninput" placeholder="Search bundle IDs..." />
-            @if (!string.IsNullOrEmpty(searchQuery))
+        <!-- Filter Section -->
+        <div class="filter-section">
+            <div class="search-box">
+                <span class="search-icon"><i class="fas fa-search"></i></span>
+                <input type="text" @bind="searchQuery" @bind:event="oninput" placeholder="Search bundle IDs..." />
+                @if (!string.IsNullOrEmpty(searchQuery))
+                {
+                    <button class="clear-btn" @onclick="@(() => searchQuery = "")">×</button>
+                }
+            </div>
+            <div class="filter-chips">
+                <select @bind="filterPlatform" class="filter-select">
+                    <option value="">All Platforms</option>
+                    <option value="UNIVERSAL">Universal</option>
+                    <option value="IOS">iOS</option>
+                    <option value="MAC_OS">macOS</option>
+                </select>
+            </div>
+            @if (HasActiveFilters)
             {
-                <button class="clear-btn" @onclick="@(() => searchQuery = "")">×</button>
+                <button class="clear-filters-btn" @onclick="ClearFilters">Clear Filters</button>
             }
         </div>
-        <div class="filter-chips">
-            <select @bind="filterPlatform" class="filter-select">
-                <option value="">All Platforms</option>
-                <option value="UNIVERSAL">Universal</option>
-                <option value="IOS">iOS</option>
-                <option value="MAC_OS">macOS</option>
-            </select>
-        </div>
-        @if (HasActiveFilters)
+
+        @if (!string.IsNullOrEmpty(errorMessage))
         {
-            <button class="clear-filters-btn" @onclick="ClearFilters">Clear Filters</button>
+            <div class="error-bar">@errorMessage</div>
         }
-    </div>
 
-    @if (!string.IsNullOrEmpty(errorMessage))
-    {
-        <div class="error-bar">@errorMessage</div>
-    }
+        <div class="results-info">
+            Showing @FilteredBundleIds.Count() of @bundleIds.Count bundle IDs
+        </div>
 
-    <div class="results-info">
-        Showing @FilteredBundleIds.Count() of @bundleIds.Count bundle IDs
-    </div>
-
-    <div class="bundle-list">
-        @if (isLoading && bundleIds.Count == 0)
+        <div class="bundle-list">
+        
+        @if (bundleIds.Count == 0 && isRefreshing)
         {
             <div class="loading-state">
                 <div class="loading-spinner">
@@ -116,10 +119,10 @@
                         }
                     </div>
                     <div class="bundle-actions">
-                        <button class="btn btn-secondary btn-sm" @onclick="@(() => ShowEditCapabilitiesDialog(bundle))" disabled="@isLoading">
+                        <button class="btn btn-secondary btn-sm" @onclick="@(() => ShowEditCapabilitiesDialog(bundle))" disabled="@isRefreshing">
                             <i class="fas fa-puzzle-piece"></i> Capabilities
                         </button>
-                        <button class="btn btn-danger btn-sm" @onclick="@(() => DeleteBundle(bundle))" disabled="@isLoading">
+                        <button class="btn btn-danger btn-sm" @onclick="@(() => DeleteBundle(bundle))" disabled="@isRefreshing">
                             <i class="fas fa-trash"></i> Delete
                         </button>
                     </div>
@@ -160,8 +163,8 @@
                     <i class="fas fa-times"></i> Cancel
                 </button>
                 <button class="btn btn-primary" @onclick="CreateBundle" 
-                        disabled="@(string.IsNullOrWhiteSpace(newIdentifier) || string.IsNullOrWhiteSpace(newName) || isLoading)">
-                    <i class="fas @(isLoading ? "fa-spinner fa-spin" : "fa-plus")"></i> @(isLoading ? "Creating..." : "Create")
+                        disabled="@(string.IsNullOrWhiteSpace(newIdentifier) || string.IsNullOrWhiteSpace(newName) || isCreating)">
+                    <i class="fas @(isCreating ? "fa-spinner fa-spin" : "fa-plus")"></i> @(isCreating ? "Creating..." : "Create")
                 </button>
             </div>
         </div>
@@ -552,7 +555,8 @@
 
 @code {
     private List<AppleBundleId> bundleIds = new();
-    private bool isLoading = false;
+    private bool isRefreshing = false;
+    private bool isBackgroundRefreshing = false;
     private string errorMessage = "";
 
     // Filter state
@@ -560,6 +564,7 @@
     private string filterPlatform = "";
 
     private bool showCreateDialog = false;
+    private bool isCreating = false;
     private string newIdentifier = "";
     private string newName = "";
     private string newPlatform = "UNIVERSAL";
@@ -594,14 +599,14 @@
     {
         IdentityState.OnSelectionChanged += OnIdentityChanged;
         if (IdentityState.SelectedIdentity != null)
-            await RefreshData(forceRefresh: true);
+            await RefreshData(forceRefresh: false); // Use cache on initial load
     }
 
     private void OnIdentityChanged()
     {
         InvokeAsync(async () =>
         {
-            await RefreshData(forceRefresh: true);
+            await RefreshData(forceRefresh: false); // Use cache when identity changes (different identity = different cache key)
             StateHasChanged();
         });
     }
@@ -615,8 +620,24 @@
     {
         if (IdentityState.SelectedIdentity == null) return;
 
-        isLoading = true;
+        // Set loading states
+        isRefreshing = true;
+        if (!forceRefresh && bundleIds.Count > 0)
+        {
+            // Only show background indicator if we already have data
+            isBackgroundRefreshing = true;
+        }
+        
+        // Show toast for force refresh
+        ToastMessage? toast = null;
+        if (forceRefresh)
+        {
+            toast = ToastService.Show("Refreshing bundle IDs...", ToastType.Info);
+        }
+        
         errorMessage = "";
+        StateHasChanged();
+        
         try
         {
             // If force refresh, invalidate the cache first
@@ -635,7 +656,9 @@
         }
         finally
         {
-            isLoading = false;
+            isRefreshing = false;
+            isBackgroundRefreshing = false;
+            if (toast != null) ToastService.Dismiss(toast);
             await InvokeAsync(StateHasChanged);
         }
     }

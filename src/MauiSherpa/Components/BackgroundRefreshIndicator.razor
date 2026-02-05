@@ -1,0 +1,45 @@
+@* Subtle background refresh indicator - shows when updating cached data *@
+@if (IsRefreshing)
+{
+    <div class="bg-refresh-indicator" title="Updating...">
+        <div class="bg-refresh-spinner"></div>
+        <span class="bg-refresh-text">Updating</span>
+    </div>
+}
+
+<style>
+    .bg-refresh-indicator {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 10px;
+        background: var(--bg-tertiary, #4a5568);
+        border-radius: 12px;
+        font-size: 0.75em;
+        color: var(--text-muted, #a0aec0);
+        opacity: 0.9;
+    }
+
+    .bg-refresh-spinner {
+        width: 12px;
+        height: 12px;
+        border: 2px solid var(--border-color, #4a5568);
+        border-top-color: #8b5cf6;
+        border-radius: 50%;
+        animation: bg-refresh-spin 0.8s linear infinite;
+    }
+
+    .bg-refresh-text {
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        font-weight: 500;
+    }
+
+    @@keyframes bg-refresh-spin {
+        to { transform: rotate(360deg); }
+    }
+</style>
+
+@code {
+    [Parameter] public bool IsRefreshing { get; set; }
+}

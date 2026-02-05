@@ -10,6 +10,7 @@
 @inject IDialogService DialogService
 @inject IFileSystemService FileSystem
 @inject OperationModalService OperationModal
+@inject BlazorToastService ToastService
 @implements IDisposable
 
 <h1><i class="fas fa-id-card"></i> Provisioning Profiles</h1>
@@ -23,7 +24,7 @@
             <i class="fas fa-plus"></i> Create Profile
         </button>
         <button class="btn btn-primary" @onclick="@(() => RefreshData(forceRefresh: true))" disabled="@isLoading">
-            <i class="fas fa-sync-alt"></i> @(isLoading ? "Loading..." : "Refresh")
+            <i class="fas @(isLoading ? "fa-spinner fa-spin" : "fa-sync-alt")"></i> Refresh
         </button>
         @if (GetInstallableProfiles().Any())
         {
@@ -584,6 +585,13 @@
 
         isLoading = true;
         errorMessage = "";
+        
+        ToastMessage? toast = null;
+        if (forceRefresh)
+        {
+            toast = ToastService.Show("Refreshing profiles...", ToastType.Info);
+        }
+        
         try
         {
             // If force refresh, invalidate the cache first
@@ -603,6 +611,7 @@
         finally
         {
             isLoading = false;
+            if (toast != null) ToastService.Dismiss(toast);
             await InvokeAsync(StateHasChanged);
         }
     }

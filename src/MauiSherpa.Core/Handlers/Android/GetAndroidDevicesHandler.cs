@@ -17,7 +17,8 @@ public partial class GetAndroidDevicesHandler : IRequestHandler<GetAndroidDevice
         _sdkService = sdkService;
     }
 
-    [Cache(AbsoluteExpirationSeconds = 60)] // 1 min cache - devices can connect/disconnect
+    [Cache(AbsoluteExpirationSeconds = 60)]
+    [OfflineAvailable] // 1 min cache - devices can connect/disconnect
     public async Task<IReadOnlyList<DeviceInfo>> Handle(
         GetAndroidDevicesRequest request,
         IMediatorContext context,

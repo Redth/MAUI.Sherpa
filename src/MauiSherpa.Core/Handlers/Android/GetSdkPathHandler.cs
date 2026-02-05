@@ -19,7 +19,8 @@ public partial class GetSdkPathHandler : IRequestHandler<GetSdkPathRequest, stri
         _settingsService = settingsService;
     }
 
-    [Cache(AbsoluteExpirationSeconds = 86400)] // 24 hour cache
+    [Cache(AbsoluteExpirationSeconds = 86400)]
+    [OfflineAvailable] // 24 hour cache
     public async Task<string?> Handle(
         GetSdkPathRequest request,
         IMediatorContext context,
