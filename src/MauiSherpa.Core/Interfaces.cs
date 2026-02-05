@@ -1792,3 +1792,156 @@ public interface ICertificateSyncService
     /// <param name="serialNumber">The serial number of the certificate to delete</param>
     Task<bool> DeleteFromCloudAsync(string serialNumber, CancellationToken cancellationToken = default);
 }
+
+// ============================================================================
+// CI/CD Secrets Publisher
+// ============================================================================
+
+/// <summary>
+/// Represents a repository/project in a CI/CD platform
+/// </summary>
+public record PublisherRepository(
+    string Id,
+    string Name,
+    string FullName,       // e.g., "owner/repo"
+    string? Description,
+    string Url
+);
+
+/// <summary>
+/// Configuration for a secrets publisher
+/// </summary>
+public record SecretsPublisherConfig(
+    string Id,
+    string ProviderId,     // "github", "gitea", "gitlab", "azuredevops"
+    string Name,           // User-friendly name
+    Dictionary<string, string> Settings
+);
+
+/// <summary>
+/// Interface for publishing secrets to CI/CD platforms
+/// </summary>
+public interface ISecretsPublisher
+{
+    /// <summary>
+    /// Unique provider identifier (e.g., "github", "gitea")
+    /// </summary>
+    string ProviderId { get; }
+    
+    /// <summary>
+    /// Human-readable display name
+    /// </summary>
+    string DisplayName { get; }
+    
+    /// <summary>
+    /// Font Awesome icon class
+    /// </summary>
+    string IconClass { get; }
+    
+    /// <summary>
+    /// Test connection to the provider
+    /// </summary>
+    Task<bool> TestConnectionAsync(CancellationToken cancellationToken = default);
+    
+    /// <summary>
+    /// List available repositories/projects
+    /// </summary>
+    Task<IReadOnlyList<PublisherRepository>> ListRepositoriesAsync(string? filter = null, CancellationToken cancellationToken = default);
+    
+    /// <summary>
+    /// List existing secrets in a repository (names only - values are never retrievable)
+    /// </summary>
+    Task<IReadOnlyList<string>> ListSecretsAsync(string repositoryId, CancellationToken cancellationToken = default);
+    
+    /// <summary>
+    /// Publish a single secret to a repository
+    /// </summary>
+    Task PublishSecretAsync(string repositoryId, string secretName, string secretValue, CancellationToken cancellationToken = default);
+    
+    /// <summary>
+    /// Publish multiple secrets to a repository
+    /// </summary>
+    Task PublishSecretsAsync(string repositoryId, IReadOnlyDictionary<string, string> secrets, IProgress<string>? progress = null, CancellationToken cancellationToken = default);
+    
+    /// <summary>
+    /// Delete a secret from a repository
+    /// </summary>
+    Task DeleteSecretAsync(string repositoryId, string secretName, CancellationToken cancellationToken = default);
+}
+
+/// <summary>
+/// Factory for creating secrets publisher instances
+/// </summary>
+public interface ISecretsPublisherFactory
+{
+    /// <summary>
+    /// Gets available publisher provider types
+    /// </summary>
+    IReadOnlyList<(string ProviderId, string DisplayName, string IconClass)> GetAvailableProviders();
+    
+    /// <summary>
+    /// Creates a publisher instance from configuration
+    /// </summary>
+    ISecretsPublisher CreatePublisher(SecretsPublisherConfig config);
+    
+    /// <summary>
+    /// Validates configuration settings for a provider
+    /// </summary>
+    (bool IsValid, string? ErrorMessage) ValidateConfig(string providerId, Dictionary<string, string> settings);
+    
+    /// <summary>
+    /// Gets required settings for a provider
+    /// </summary>
+    IReadOnlyList<(string Key, string Label, string Type, bool Required, string? Placeholder)> GetRequiredSettings(string providerId);
+}
+
+/// <summary>
+/// Service for managing secrets publisher configurations and operations
+/// </summary>
+public interface ISecretsPublisherService
+{
+    /// <summary>
+    /// Gets all configured publishers
+    /// </summary>
+    Task<IReadOnlyList<SecretsPublisherConfig>> GetPublishersAsync();
+    
+    /// <summary>
+    /// Gets a publisher by ID
+    /// </summary>
+    Task<SecretsPublisherConfig?> GetPublisherAsync(string id);
+    
+    /// <summary>
+    /// Saves a publisher configuration
+    /// </summary>
+    Task SavePublisherAsync(SecretsPublisherConfig config);
+    
+    /// <summary>
+    /// Deletes a publisher configuration
+    /// </summary>
+    Task DeletePublisherAsync(string id);
+    
+    /// <summary>
+    /// Tests connection for a publisher
+    /// </summary>
+    Task<bool> TestConnectionAsync(string publisherId, CancellationToken cancellationToken = default);
+    
+    /// <summary>
+    /// Gets a publisher instance by ID
+    /// </summary>
+    ISecretsPublisher? GetPublisherInstance(string publisherId);
+    
+    /// <summary>
+    /// Lists repositories for a publisher
+    /// </summary>
+    Task<IReadOnlyList<PublisherRepository>> ListRepositoriesAsync(string publisherId, string? filter = null, CancellationToken cancellationToken = default);
+    
+    /// <summary>
+    /// Publishes secrets to a repository
+    /// </summary>
+    Task PublishSecretsAsync(string publisherId, string repositoryId, IReadOnlyDictionary<string, string> secrets, IProgress<string>? progress = null, CancellationToken cancellationToken = default);
+    
+    /// <summary>
+    /// Event fired when publishers list changes
+    /// </summary>
+    event Action? OnPublishersChanged;
+}
