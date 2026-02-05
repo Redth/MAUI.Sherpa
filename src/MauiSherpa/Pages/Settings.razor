@@ -15,6 +15,8 @@
 @inject IThemeService ThemeService
 @inject ICloudSecretsService CloudSecretsService
 @inject ICloudSecretsProviderFactory CloudSecretsProviderFactory
+@inject ISecretsPublisherService SecretsPublisherService
+@inject ISecretsPublisherFactory SecretsPublisherFactory
 @implements IDisposable
 
 <h1><i class="fas fa-cog"></i> @ViewModel.Title</h1>
@@ -274,6 +276,88 @@
     </div>
 </div>
 
+<!-- CI/CD Secret Publishers Section -->
+<div class="settings-section">
+    <h2><i class="fas fa-rocket"></i> CI/CD Secret Publishers</h2>
+    <p class="section-description">
+        Publish signing secrets directly to your CI/CD platforms for automated builds.
+        Secrets will be encrypted and stored as repository secrets.
+    </p>
+    
+    <div class="settings-container">
+        @if (secretsPublishers.Count == 0)
+        {
+            <div class="empty-providers">
+                <p>No CI/CD publishers configured</p>
+            </div>
+        }
+        else
+        {
+            <div class="provider-list">
+                @foreach (var publisher in secretsPublishers)
+                {
+                    <div class="provider-card">
+                        <div class="provider-header">
+                            <div class="provider-info">
+                                <i class="@GetPublisherIcon(publisher.ProviderId) provider-icon"></i>
+                                <span class="provider-name">@publisher.Name</span>
+                            </div>
+                            <div class="provider-actions">
+                                <button class="btn btn-sm btn-secondary" @onclick="@(() => TestPublisher(publisher))" title="Test Connection">
+                                    <i class="fas fa-plug"></i> Test
+                                </button>
+                                <button class="btn btn-sm btn-secondary" @onclick="@(() => EditPublisher(publisher))" title="Edit">
+                                    <i class="fas fa-edit"></i> Edit
+                                </button>
+                                <button class="btn btn-sm btn-danger" @onclick="@(() => DeletePublisher(publisher))" title="Delete">
+                                    <i class="fas fa-trash"></i> Delete
+                                </button>
+                            </div>
+                        </div>
+                        <div class="provider-details">
+                            <div class="detail-item">
+                                <span class="detail-label">TYPE</span>
+                                <span class="detail-value">@GetPublisherDisplayName(publisher.ProviderId)</span>
+                            </div>
+                            @if (publisher.ProviderId == "github")
+                            {
+                                var owner = publisher.Settings.GetValueOrDefault("Owner", "");
+                                @if (!string.IsNullOrEmpty(owner))
+                                {
+                                    <div class="detail-item">
+                                        <span class="detail-label">OWNER</span>
+                                        <span class="detail-value mono">@owner</span>
+                                    </div>
+                                }
+                            }
+                            @if (publisher.ProviderId == "gitea" || publisher.ProviderId == "gitlab")
+                            {
+                                <div class="detail-item">
+                                    <span class="detail-label">SERVER</span>
+                                    <span class="detail-value mono">@publisher.Settings.GetValueOrDefault("ServerUrl", "")</span>
+                                </div>
+                            }
+                            @if (publisher.ProviderId == "azuredevops")
+                            {
+                                <div class="detail-item">
+                                    <span class="detail-label">ORG</span>
+                                    <span class="detail-value mono">@publisher.Settings.GetValueOrDefault("OrganizationUrl", "")</span>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+        
+        <div class="add-provider">
+            <button class="btn btn-success" @onclick="ShowAddPublisherDialog">
+                <i class="fas fa-plus"></i> Add CI/CD Publisher
+            </button>
+        </div>
+    </div>
+</div>
+
 @if (showIdentityDialog)
 {
     <div class="modal-overlay">
@@ -417,6 +501,89 @@
                 </button>
                 <button class="btn btn-primary" @onclick="SaveProvider" 
                         disabled="@(!CanSaveProvider)">
+                    <i class="fas fa-save"></i> Save
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (showPublisherDialog)
+{
+    <div class="modal-overlay">
+        <div class="modal" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h2>@(editingPublisher == null ? "Add" : "Edit") CI/CD Publisher</h2>
+                <button class="close-btn" @onclick="ClosePublisherDialog">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Name</label>
+                    <input type="text" @bind="publisherName" placeholder="My GitHub Account" />
+                    <div class="help-text">A friendly name to identify this publisher</div>
+                </div>
+                <div class="form-group">
+                    <label>Provider Type</label>
+                    @if (editingPublisher != null)
+                    {
+                        <input type="text" value="@GetPublisherDisplayName(publisherProviderId)" disabled />
+                    }
+                    else
+                    {
+                        <div class="provider-type-selector">
+                            @foreach (var (providerId, displayName, iconClass) in SecretsPublisherFactory.GetAvailableProviders())
+                            {
+                                <div class="provider-type-card @(publisherProviderId == providerId ? "selected" : "")" 
+                                     @onclick="@(() => publisherProviderId = providerId)">
+                                    <i class="@iconClass provider-icon"></i>
+                                    <span class="provider-name">@displayName</span>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+                
+                @foreach (var (key, label, type, required, placeholder) in SecretsPublisherFactory.GetRequiredSettings(publisherProviderId))
+                {
+                    <div class="form-group">
+                        <label>@label @(required ? "*" : "")</label>
+                        @if (type == "password")
+                        {
+                            <input type="password" 
+                                   value="@(publisherSettings.GetValueOrDefault(key, ""))"
+                                   @onchange="@(e => publisherSettings[key] = e.Value?.ToString() ?? "")"
+                                   placeholder="@placeholder" />
+                        }
+                        else if (type == "url")
+                        {
+                            <input type="url" 
+                                   value="@(publisherSettings.GetValueOrDefault(key, ""))"
+                                   @onchange="@(e => publisherSettings[key] = e.Value?.ToString() ?? "")"
+                                   placeholder="@placeholder" />
+                        }
+                        else
+                        {
+                            <input type="text" 
+                                   value="@(publisherSettings.GetValueOrDefault(key, ""))"
+                                   @onchange="@(e => publisherSettings[key] = e.Value?.ToString() ?? "")"
+                                   placeholder="@placeholder" />
+                        }
+                        @if (key == "PersonalAccessToken" && publisherProviderId == "github")
+                        {
+                            <div class="help-text">
+                                Generate a PAT with <code>repo</code> scope at 
+                                <a href="https://github.com/settings/tokens/new?scopes=repo&description=MauiSherpa" target="_blank">GitHub Settings</a>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" @onclick="ClosePublisherDialog">
+                    <i class="fas fa-times"></i> Cancel
+                </button>
+                <button class="btn btn-primary" @onclick="SavePublisher" 
+                        disabled="@(!CanSavePublisher)">
                     <i class="fas fa-save"></i> Save
                 </button>
             </div>
@@ -636,16 +803,16 @@
     .add-identity { margin-top: 16px; }
 
     .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-    .modal { background: var(--bg-color, white); border-radius: 12px; width: 90%; max-width: 500px; max-height: 90vh; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3); }
-    .modal-header { display: flex; justify-content: space-between; align-items: center; padding: 20px 24px; border-bottom: 1px solid var(--border-color, #e2e8f0); flex-shrink: 0; }
-    .modal-header h2 { margin: 0; font-size: 18px; color: var(--text-color, #2d3748); }
+    .modal { background: var(--card-bg); border-radius: 12px; width: 90%; max-width: 500px; max-height: 90vh; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3); }
+    .modal-header { display: flex; justify-content: space-between; align-items: center; padding: 20px 24px; border-bottom: 1px solid var(--border-color); flex-shrink: 0; }
+    .modal-header h2 { margin: 0; font-size: 18px; color: var(--text-primary); }
     .close-btn { background: none; border: none; font-size: 24px; cursor: pointer; color: #a0aec0; }
     .modal-body { padding: 24px; overflow-y: auto; flex: 1; }
-    .modal-footer { padding: 16px 24px; border-top: 1px solid var(--border-color, #e2e8f0); display: flex; justify-content: flex-end; gap: 12px; flex-shrink: 0; }
+    .modal-footer { padding: 16px 24px; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; gap: 12px; flex-shrink: 0; }
 
     .form-group { margin-bottom: 20px; }
     .form-group label { display: block; margin-bottom: 8px; font-weight: 500; color: var(--text-secondary); }
-    .form-group input { width: 100%; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 6px; font-size: 14px; box-sizing: border-box; }
+    .form-group input { width: 100%; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 6px; font-size: 14px; box-sizing: border-box; background: var(--bg-tertiary); color: var(--text-primary); }
     .form-group input:focus { outline: none; border-color: var(--accent-primary); box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.1); }
     .form-group select { 
         width: 100%; 
@@ -654,7 +821,8 @@
         border-radius: 6px; 
         font-size: 14px; 
         box-sizing: border-box;
-        background-color: var(--bg-color, white);
+        background-color: var(--bg-tertiary);
+        color: var(--text-primary);
         cursor: pointer;
         appearance: none;
         background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236b7280' d='M2.5 4.5L6 8l3.5-3.5'/%3E%3C/svg%3E");
@@ -687,7 +855,7 @@
         border-radius: 8px;
         cursor: pointer;
         transition: all 0.2s ease;
-        background: var(--bg-color, white);
+        background: var(--bg-tertiary);
     }
 
     .provider-type-card:hover {
@@ -721,6 +889,19 @@
         font-weight: 500;
         color: var(--text-primary);
         text-align: center;
+    }
+
+    .provider-type-card .coming-soon-badge {
+        position: absolute;
+        top: 4px;
+        right: 4px;
+        font-size: 9px;
+        padding: 2px 6px;
+        background: var(--warning-color, #f59e0b);
+        color: white;
+        border-radius: 4px;
+        font-weight: 600;
+        text-transform: uppercase;
     }
 
     .file-input-group { display: flex; gap: 8px; }
@@ -858,6 +1039,14 @@
     private CloudSecretsProviderType providerType = CloudSecretsProviderType.Infisical;
     private Dictionary<string, string> providerSettings = new();
 
+    // CI/CD Publisher state
+    private List<SecretsPublisherConfig> secretsPublishers = new();
+    private bool showPublisherDialog = false;
+    private SecretsPublisherConfig? editingPublisher = null;
+    private string publisherName = "";
+    private string publisherProviderId = "github";
+    private Dictionary<string, string> publisherSettings = new();
+
     private bool CanSaveIdentity => 
         !string.IsNullOrWhiteSpace(identityName) &&
         !string.IsNullOrWhiteSpace(identityKeyId) &&
@@ -874,6 +1063,16 @@
         }
     }
 
+    private bool CanSavePublisher
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(publisherName)) return false;
+            var (isValid, _) = SecretsPublisherFactory.ValidateConfig(publisherProviderId, publisherSettings);
+            return isValid;
+        }
+    }
+
     protected override async Task OnInitializedAsync()
     {
         // Sync ViewModel with current theme service state
@@ -885,8 +1084,12 @@
         // Subscribe to cloud provider changes
         CloudSecretsService.OnActiveProviderChanged += OnCloudProviderChanged;
         
+        // Subscribe to secrets publisher changes
+        SecretsPublisherService.OnPublishersChanged += OnPublishersChanged;
+        
         await LoadAppleIdentities();
         await LoadCloudProviders();
+        await LoadSecretsPublishers();
         await InitializeSdk();
     }
 
@@ -923,6 +1126,7 @@
     {
         SdkSettings.SdkPathChanged -= OnSdkPathChanged;
         CloudSecretsService.OnActiveProviderChanged -= OnCloudProviderChanged;
+        SecretsPublisherService.OnPublishersChanged -= OnPublishersChanged;
     }
 
     private async Task LoadAppleIdentities()
@@ -939,6 +1143,20 @@
         {
             await svc.InitializeAsync();
         }
+    }
+
+    private async Task LoadSecretsPublishers()
+    {
+        secretsPublishers = (await SecretsPublisherService.GetPublishersAsync()).ToList();
+    }
+
+    private void OnPublishersChanged()
+    {
+        InvokeAsync(async () =>
+        {
+            await LoadSecretsPublishers();
+            StateHasChanged();
+        });
     }
 
     private void OnThemeChanged(ChangeEventArgs e)
@@ -1259,5 +1477,93 @@
         await CloudSecretsService.SetActiveProviderAsync(provider.Id);
         await AlertService.ShowToastAsync($"'{provider.Name}' is now the active provider");
         StateHasChanged();
+    }
+
+    // CI/CD Publisher Methods
+    
+    private string GetPublisherIcon(string providerId) => providerId switch
+    {
+        "github" => "fa-brands fa-github",
+        "gitea" => "fa-solid fa-code-branch",
+        "gitlab" => "fa-brands fa-gitlab",
+        "azuredevops" => "fa-brands fa-microsoft",
+        _ => "fa-solid fa-rocket"
+    };
+
+    private string GetPublisherDisplayName(string providerId) => providerId switch
+    {
+        "github" => "GitHub Actions",
+        "gitea" => "Gitea",
+        "gitlab" => "GitLab CI/CD",
+        "azuredevops" => "Azure DevOps",
+        _ => providerId
+    };
+
+    private void ShowAddPublisherDialog()
+    {
+        editingPublisher = null;
+        publisherName = "";
+        publisherProviderId = "github";
+        publisherSettings = new Dictionary<string, string>();
+        showPublisherDialog = true;
+    }
+
+    private void EditPublisher(SecretsPublisherConfig publisher)
+    {
+        editingPublisher = publisher;
+        publisherName = publisher.Name;
+        publisherProviderId = publisher.ProviderId;
+        publisherSettings = new Dictionary<string, string>(publisher.Settings);
+        showPublisherDialog = true;
+    }
+
+    private void ClosePublisherDialog()
+    {
+        showPublisherDialog = false;
+        editingPublisher = null;
+    }
+
+    private async Task SavePublisher()
+    {
+        var config = new SecretsPublisherConfig(
+            editingPublisher?.Id ?? Guid.NewGuid().ToString("N"),
+            publisherProviderId,
+            publisherName,
+            new Dictionary<string, string>(publisherSettings)
+        );
+        
+        await SecretsPublisherService.SavePublisherAsync(config);
+        await AlertService.ShowToastAsync($"Publisher '{publisherName}' saved");
+        ClosePublisherDialog();
+        await LoadSecretsPublishers();
+    }
+
+    private async Task DeletePublisher(SecretsPublisherConfig publisher)
+    {
+        var confirm = await AlertService.ShowConfirmAsync(
+            "Delete Publisher",
+            $"Are you sure you want to delete '{publisher.Name}'?");
+        
+        if (!confirm) return;
+        
+        await SecretsPublisherService.DeletePublisherAsync(publisher.Id);
+        await AlertService.ShowToastAsync("Publisher deleted");
+        await LoadSecretsPublishers();
+    }
+
+    private async Task TestPublisher(SecretsPublisherConfig publisher)
+    {
+        try
+        {
+            var success = await SecretsPublisherService.TestConnectionAsync(publisher.Id);
+            if (success)
+                await AlertService.ShowToastAsync("Connection successful!");
+            else
+                await AlertService.ShowAlertAsync("Connection Failed", "Could not connect to the CI/CD provider. Check your credentials.");
+        }
+        catch (Exception ex)
+        {
+            await AlertService.ShowAlertAsync("Connection Failed", ex.Message);
+        }
     }
 }

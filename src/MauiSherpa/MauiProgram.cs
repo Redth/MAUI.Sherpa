@@ -72,6 +72,10 @@ public static class MauiProgram
         builder.Services.AddSingleton<ICloudSecretsService, CloudSecretsService>();
         builder.Services.AddSingleton<ICertificateSyncService, CertificateSyncService>();
 
+        // CI/CD Secrets Publisher services
+        builder.Services.AddSingleton<ISecretsPublisherFactory, SecretsPublisherFactory>();
+        builder.Services.AddSingleton<ISecretsPublisherService, SecretsPublisherService>();
+
         // ViewModels
         builder.Services.AddSingleton<DashboardViewModel>();
         builder.Services.AddSingleton<AndroidSdkViewModel>();
