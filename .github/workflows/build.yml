@@ -71,19 +71,34 @@ jobs:
       - name: Install MAUI workload
         run: dotnet workload install maui-maccatalyst
 
-      - name: Import signing certificate
-        if: env.MACOS_CERTIFICATE_P12 != ''
+      - name: Import signing certificate and provisioning profile
+        if: env.APPLE_CERTIFICATE_P12 != ''
         env:
-          MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
-          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
-          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_PROVISIONING_PROFILE: ${{ secrets.APPLE_PROVISIONING_PROFILE }}
+          KEYCHAIN_PASSWORD: ${{ github.run_id }}
         run: |
           # Create variables
           CERTIFICATE_PATH=$RUNNER_TEMP/certificate.p12
           KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          PROFILE_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+
+          # Create provisioning profiles directory
+          mkdir -p "$PROFILE_DIR"
+
+          # Decode and install provisioning profile
+          echo "Installing provisioning profile..."
+          echo -n "$APPLE_PROVISIONING_PROFILE" | base64 --decode > $RUNNER_TEMP/profile.mobileprovision
+          
+          # Extract UUID from profile and install with UUID-based name
+          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" /dev/stdin <<< $(security cms -D -i $RUNNER_TEMP/profile.mobileprovision))
+          cp $RUNNER_TEMP/profile.mobileprovision "$PROFILE_DIR/$PROFILE_UUID.mobileprovision"
+          echo "Installed profile with UUID: $PROFILE_UUID"
 
           # Decode certificate
-          echo -n "$MACOS_CERTIFICATE_P12" | base64 --decode -o $CERTIFICATE_PATH
+          echo "Importing signing certificate..."
+          echo -n "$APPLE_CERTIFICATE_P12" | base64 --decode > $CERTIFICATE_PATH
 
           # Create temporary keychain
           security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
@@ -91,43 +106,93 @@ jobs:
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
 
           # Import certificate to keychain
-          security import $CERTIFICATE_PATH -P "$MACOS_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security import $CERTIFICATE_PATH -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
           security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
           security list-keychain -d user -s $KEYCHAIN_PATH
+          
+          echo "Certificate and profile setup complete."
 
-      - name: Publish Mac Catalyst App
-        run: |
-          dotnet publish src/MauiSherpa/MauiSherpa.csproj \
-            -f net10.0-maccatalyst \
-            -c Release \
-            -p:CreatePackage=true \
-            -p:EnableCodeSigning=true \
-            -p:EnablePackageSigning=true \
-            -p:CodesignKey="${{ secrets.CODESIGN_KEY_NAME }}" \
-            -p:CodesignProvision="${{ secrets.CODESIGN_PROVISION }}" \
-            -o ./artifacts/maccatalyst
-
-      - name: Publish Mac Catalyst App (Unsigned)
-        if: env.MACOS_CERTIFICATE_P12 == ''
+      - name: Publish Mac Catalyst App (Signed)
+        if: env.APPLE_CERTIFICATE_P12 != ''
         env:
-          MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_CODESIGN_IDENTITY: ${{ secrets.APPLE_CODESIGN_IDENTITY }}
         run: |
           dotnet publish src/MauiSherpa/MauiSherpa.csproj \
             -f net10.0-maccatalyst \
             -c Release \
             -p:CreatePackage=false \
-            -p:EnableCodeSigning=false \
-            -o ./artifacts/maccatalyst
+            -p:EnableCodeSigning=true \
+            -p:CodesignKey="$APPLE_CODESIGN_IDENTITY"
+          
+          # Copy the universal app bundle to artifacts
+          mkdir -p ./artifacts/maccatalyst
+          cp -R "src/MauiSherpa/bin/Release/net10.0-maccatalyst/MAUI Sherpa.app" ./artifacts/maccatalyst/
+
+      - name: Publish Mac Catalyst App (Unsigned)
+        if: env.APPLE_CERTIFICATE_P12 == ''
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+        run: |
+          dotnet publish src/MauiSherpa/MauiSherpa.csproj \
+            -f net10.0-maccatalyst \
+            -c Release \
+            -p:CreatePackage=false \
+            -p:EnableCodeSigning=false
+          
+          # Copy the universal app bundle to artifacts
+          mkdir -p ./artifacts/maccatalyst
+          cp -R "src/MauiSherpa/bin/Release/net10.0-maccatalyst/MAUI Sherpa.app" ./artifacts/maccatalyst/
+
+      - name: Verify code signature
+        if: env.APPLE_CERTIFICATE_P12 != ''
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+        run: |
+          APP_PATH=$(find ./artifacts/maccatalyst -name "*.app" -type d | head -1)
+          if [ -n "$APP_PATH" ]; then
+            echo "Verifying signature for: $APP_PATH"
+            codesign -dvv "$APP_PATH"
+          fi
+
+      # Notarization (disabled for now - uncomment when ready)
+      # - name: Notarize Mac Catalyst App
+      #   if: env.APPLE_CERTIFICATE_P12 != '' && env.APPLE_NOTARIZATION_APPLE_ID != ''
+      #   env:
+      #     APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+      #     APPLE_NOTARIZATION_APPLE_ID: ${{ secrets.APPLE_NOTARIZATION_APPLE_ID }}
+      #     APPLE_NOTARIZATION_PASSWORD: ${{ secrets.APPLE_NOTARIZATION_PASSWORD }}
+      #     APPLE_NOTARIZATION_TEAM_ID: ${{ secrets.APPLE_NOTARIZATION_TEAM_ID }}
+      #   run: |
+      #     APP_PATH=$(find ./artifacts/maccatalyst -name "*.app" -type d | head -1)
+      #     if [ -n "$APP_PATH" ]; then
+      #       # Create zip for notarization
+      #       ditto -c -k --keepParent "$APP_PATH" ./artifacts/notarize.zip
+      #       
+      #       # Submit for notarization
+      #       xcrun notarytool submit ./artifacts/notarize.zip \
+      #         --apple-id "$APPLE_NOTARIZATION_APPLE_ID" \
+      #         --password "$APPLE_NOTARIZATION_PASSWORD" \
+      #         --team-id "$APPLE_NOTARIZATION_TEAM_ID" \
+      #         --wait
+      #       
+      #       # Staple the ticket to the app
+      #       xcrun stapler staple "$APP_PATH"
+      #       
+      #       rm ./artifacts/notarize.zip
+      #     fi
 
       - name: Create ZIP archive
         run: |
-          cd ./artifacts/maccatalyst
-          # Find the .app bundle
-          APP_NAME=$(find . -name "*.app" -type d | head -1)
-          if [ -n "$APP_NAME" ]; then
-            zip -r ../MauiSherpa-MacCatalyst.zip "$APP_NAME"
+          APP_PATH=$(find ./artifacts/maccatalyst -name "*.app" -type d | head -1)
+          if [ -n "$APP_PATH" ]; then
+            # Use ditto to preserve code signature and extended attributes
+            ditto -c -k --keepParent "$APP_PATH" ./artifacts/MauiSherpa-MacCatalyst.zip
+            echo "Created archive: ./artifacts/MauiSherpa-MacCatalyst.zip"
+            ls -lh ./artifacts/MauiSherpa-MacCatalyst.zip
           else
-            zip -r ../MauiSherpa-MacCatalyst.zip .
+            echo "No .app bundle found, creating archive of all artifacts"
+            cd ./artifacts/maccatalyst && zip -r ../MauiSherpa-MacCatalyst.zip .
           fi
 
       - name: Upload Mac Catalyst App
@@ -143,6 +208,7 @@ jobs:
           if [ -f "$RUNNER_TEMP/app-signing.keychain-db" ]; then
             security delete-keychain $RUNNER_TEMP/app-signing.keychain-db
           fi
+
 
   publish-windows:
     name: Publish Windows App
