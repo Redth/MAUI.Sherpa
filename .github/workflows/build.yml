@@ -76,6 +76,13 @@ jobs:
           echo "Selected Xcode: $XCODE_PATH"
           sudo xcode-select -s "$XCODE_PATH"
           xcodebuild -version
+          echo "Available SDKs:"
+          xcodebuild -showsdks || true
+          echo "Checking MacOSX SDK path:"
+          ls "$XCODE_PATH/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/" 2>/dev/null || echo "MacOSX SDK directory not found - downloading platform..."
+          if [ ! -d "$XCODE_PATH/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk" ]; then
+            xcodebuild -downloadPlatform macOS || true
+          fi
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
