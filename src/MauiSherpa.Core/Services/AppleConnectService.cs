@@ -106,7 +106,7 @@ public class AppleConnectService : IAppleConnectService
         }
     }
 
-    public async Task<AppleBundleId> CreateBundleIdAsync(string identifier, string name, string platform)
+    public async Task<AppleBundleId> CreateBundleIdAsync(string identifier, string name, string platform, string? seedId = null)
     {
         _logger.LogInformation($"Creating bundle ID: {identifier}");
         try
@@ -123,7 +123,8 @@ public class AppleConnectService : IAppleConnectService
             {
                 Identifier = identifier,
                 Name = name,
-                Platform = platformEnum
+                Platform = platformEnum,
+                SeedId = seedId
             };
             
             var response = await client.CreateBundleIdAsync(attributes, default);
@@ -153,6 +154,74 @@ public class AppleConnectService : IAppleConnectService
         catch (Exception ex)
         {
             _logger.LogError($"Failed to delete bundle ID: {ex.Message}", ex);
+            throw;
+        }
+    }
+
+    // Bundle ID Capabilities
+    public async Task<IReadOnlyList<AppleBundleIdCapability>> GetBundleIdCapabilitiesAsync(string bundleIdResourceId)
+    {
+        _logger.LogInformation($"Fetching capabilities for bundle ID: {bundleIdResourceId}");
+        try
+        {
+            var client = await GetClientAsync();
+            var response = await client.ListBundleIdCapabilitiesAsync(bundleIdResourceId, default);
+            
+            return response.Data
+                .Select(c => new AppleBundleIdCapability(
+                    c.Id,
+                    c.Attributes?.CapabilityType.ToString() ?? "Unknown"))
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Failed to fetch capabilities: {ex.Message}", ex);
+            throw;
+        }
+    }
+
+    public Task<IReadOnlyList<string>> GetAvailableCapabilityTypesAsync()
+    {
+        var types = AppStoreConnectClient.GetAvailableCapabilityTypes()
+            .Select(c => c.ToString())
+            .ToList();
+        return Task.FromResult<IReadOnlyList<string>>(types);
+    }
+
+    public async Task EnableCapabilityAsync(string bundleIdResourceId, string capabilityType)
+    {
+        _logger.LogInformation($"Enabling capability {capabilityType} for bundle ID: {bundleIdResourceId}");
+        try
+        {
+            var client = await GetClientAsync();
+            var capType = Enum.TryParse<CapabilityType>(capabilityType, out var ct) ? ct : CapabilityType.Unknown;
+            if (capType == CapabilityType.Unknown)
+            {
+                throw new ArgumentException($"Unknown capability type: {capabilityType}");
+            }
+            
+            await client.EnableCapabilityAsync(bundleIdResourceId, capType, null, default);
+            _logger.LogInformation($"Successfully enabled {capabilityType}");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Failed to enable capability: {ex.Message}", ex);
+            throw;
+        }
+    }
+
+    public async Task DisableCapabilityAsync(string capabilityId)
+    {
+        _logger.LogInformation($"Disabling capability: {capabilityId}");
+        try
+        {
+            var client = await GetClientAsync();
+            await client.DisableCapabilityAsync(capabilityId, default);
+            _logger.LogInformation($"Successfully disabled capability");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Failed to disable capability: {ex.Message}", ex);
             throw;
         }
     }

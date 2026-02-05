@@ -167,8 +167,124 @@ public record AppleBundleId(
     string Identifier,
     string Name,
     string Platform,
-    string? SeedId
+    string? SeedId,
+    IReadOnlyList<AppleBundleIdCapability>? Capabilities = null
 );
+
+/// <summary>
+/// Represents a capability enabled for a Bundle ID
+/// </summary>
+public record AppleBundleIdCapability(
+    string Id,
+    string CapabilityType
+);
+
+/// <summary>
+/// Category groupings for capabilities
+/// </summary>
+public static class CapabilityCategories
+{
+    public static readonly IReadOnlyDictionary<string, string[]> Categories = new Dictionary<string, string[]>
+    {
+        ["App Services"] = new[] { "PUSH_NOTIFICATIONS", "ICLOUD", "IN_APP_PURCHASE", "GAME_CENTER", "APPLE_PAY", "WALLET" },
+        ["App Capabilities"] = new[] { "HEALTHKIT", "HOMEKIT", "SIRIKIT", "NFC_TAG_READING", "CLASSKIT", "WEATHERKIT" },
+        ["App Groups & Data"] = new[] { "APP_GROUPS", "ASSOCIATED_DOMAINS", "DATA_PROTECTION", "KEYCHAIN_SHARING" },
+        ["Identity & Security"] = new[] { "SIGN_IN_WITH_APPLE", "APPLE_ID_AUTH", "APP_ATTEST", "AUTOFILL_CREDENTIAL_PROVIDER" },
+        ["Network & Communication"] = new[] { "NETWORK_EXTENSIONS", "PERSONAL_VPN", "MULTIPATH", "HOT_SPOT", "ACCESS_WIFI_INFORMATION" },
+        ["System"] = new[] { "MAPS", "INTER_APP_AUDIO", "WIRELESS_ACCESSORY_CONFIGURATION", "FONT_INSTALLATION", "DRIVER_KIT" }
+    };
+    
+    public static string GetCategory(string capabilityType)
+    {
+        foreach (var (category, types) in Categories)
+        {
+            if (types.Contains(capabilityType))
+                return category;
+        }
+        return "Other";
+    }
+    
+    /// <summary>
+    /// Human-readable names for capability types
+    /// </summary>
+    public static string GetDisplayName(string capabilityType) => capabilityType switch
+    {
+        "PUSH_NOTIFICATIONS" => "Push Notifications",
+        "ICLOUD" => "iCloud",
+        "IN_APP_PURCHASE" => "In-App Purchase",
+        "GAME_CENTER" => "Game Center",
+        "APPLE_PAY" => "Apple Pay",
+        "WALLET" => "Wallet",
+        "HEALTHKIT" => "HealthKit",
+        "HOMEKIT" => "HomeKit",
+        "SIRIKIT" => "SiriKit",
+        "NFC_TAG_READING" => "NFC Tag Reading",
+        "CLASSKIT" => "ClassKit",
+        "WEATHERKIT" => "WeatherKit",
+        "APP_GROUPS" => "App Groups",
+        "ASSOCIATED_DOMAINS" => "Associated Domains",
+        "DATA_PROTECTION" => "Data Protection",
+        "KEYCHAIN_SHARING" => "Keychain Sharing",
+        "SIGN_IN_WITH_APPLE" => "Sign in with Apple",
+        "APPLE_ID_AUTH" => "Apple ID Authentication",
+        "APP_ATTEST" => "App Attest",
+        "AUTOFILL_CREDENTIAL_PROVIDER" => "AutoFill Credential Provider",
+        "NETWORK_EXTENSIONS" => "Network Extensions",
+        "PERSONAL_VPN" => "Personal VPN",
+        "MULTIPATH" => "Multipath",
+        "HOT_SPOT" => "Hotspot",
+        "ACCESS_WIFI_INFORMATION" => "Access WiFi Information",
+        "MAPS" => "Maps",
+        "INTER_APP_AUDIO" => "Inter-App Audio",
+        "WIRELESS_ACCESSORY_CONFIGURATION" => "Wireless Accessory Configuration",
+        "FONT_INSTALLATION" => "Font Installation",
+        "DRIVER_KIT" => "DriverKit",
+        "COMMUNICATION_NOTIFICATIONS" => "Communication Notifications",
+        "TIME_SENSITIVE_NOTIFICATIONS" => "Time Sensitive Notifications",
+        "GROUP_ACTIVITIES" => "Group Activities",
+        "FAMILY_CONTROLS" => "Family Controls",
+        "EXPOSURE_NOTIFICATION" => "Exposure Notification",
+        "EXTENDED_VIRTUAL_ADDRESSING" => "Extended Virtual Addressing",
+        "INCREASED_MEMORY_LIMIT" => "Increased Memory Limit",
+        "COREMEDIA_HLS_LOW_LATENCY" => "Low Latency HLS",
+        "SYSTEM_EXTENSION_INSTALL" => "System Extension",
+        "USER_MANAGEMENT" => "User Management",
+        "MARZIPAN" => "Mac Catalyst",
+        "CARPLAY_PLAYABLE_CONTENT" => "CarPlay",
+        _ => capabilityType.Replace("_", " ").ToLowerInvariant()
+            .Split(' ')
+            .Select(w => char.ToUpperInvariant(w[0]) + w[1..])
+            .Aggregate((a, b) => $"{a} {b}")
+    };
+    
+    /// <summary>
+    /// Icon class for capability types (Font Awesome)
+    /// </summary>
+    public static string GetIcon(string capabilityType) => capabilityType switch
+    {
+        "PUSH_NOTIFICATIONS" => "fa-bell",
+        "ICLOUD" => "fa-cloud",
+        "IN_APP_PURCHASE" => "fa-credit-card",
+        "GAME_CENTER" => "fa-gamepad",
+        "APPLE_PAY" => "fa-apple-pay",
+        "WALLET" => "fa-wallet",
+        "HEALTHKIT" => "fa-heart-pulse",
+        "HOMEKIT" => "fa-house",
+        "SIRIKIT" => "fa-microphone",
+        "NFC_TAG_READING" => "fa-wifi",
+        "APP_GROUPS" => "fa-layer-group",
+        "ASSOCIATED_DOMAINS" => "fa-link",
+        "DATA_PROTECTION" => "fa-shield-halved",
+        "KEYCHAIN_SHARING" => "fa-key",
+        "SIGN_IN_WITH_APPLE" => "fa-apple",
+        "APP_ATTEST" => "fa-certificate",
+        "NETWORK_EXTENSIONS" => "fa-network-wired",
+        "PERSONAL_VPN" => "fa-lock",
+        "MAPS" => "fa-map",
+        "WEATHERKIT" => "fa-cloud-sun",
+        _ => "fa-puzzle-piece"
+    };
+}
 
 public record AppleDevice(
     string Id,
@@ -220,8 +336,14 @@ public interface IAppleConnectService
 {
     // Bundle IDs
     Task<IReadOnlyList<AppleBundleId>> GetBundleIdsAsync();
-    Task<AppleBundleId> CreateBundleIdAsync(string identifier, string name, string platform);
+    Task<AppleBundleId> CreateBundleIdAsync(string identifier, string name, string platform, string? seedId = null);
     Task DeleteBundleIdAsync(string id);
+    
+    // Bundle ID Capabilities
+    Task<IReadOnlyList<AppleBundleIdCapability>> GetBundleIdCapabilitiesAsync(string bundleIdResourceId);
+    Task<IReadOnlyList<string>> GetAvailableCapabilityTypesAsync();
+    Task EnableCapabilityAsync(string bundleIdResourceId, string capabilityType);
+    Task DisableCapabilityAsync(string capabilityId);
     
     // Devices
     Task<IReadOnlyList<AppleDevice>> GetDevicesAsync();

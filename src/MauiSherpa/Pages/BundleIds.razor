@@ -82,6 +82,7 @@
         {
             @foreach (var bundle in FilteredBundleIds)
             {
+                var capabilities = GetCapabilities(bundle.Id);
                 <div class="bundle-card">
                     <div class="bundle-details">
                         <div class="bundle-identifier">
@@ -92,14 +93,32 @@
                         </div>
                         <div class="bundle-name">@bundle.Name</div>
                         <div class="bundle-badges">
-                            <span class="badge badge-platform">@bundle.Platform</span>
+                            <span class="badge badge-platform">@FormatPlatform(bundle.Platform)</span>
                             @if (!string.IsNullOrEmpty(bundle.SeedId))
                             {
                                 <span class="badge badge-seed">@bundle.SeedId</span>
                             }
                         </div>
+                        @if (capabilities.Any())
+                        {
+                            <div class="bundle-capabilities">
+                                @foreach (var cap in capabilities.Take(5))
+                                {
+                                    <span class="capability-badge" title="@CapabilityCategories.GetDisplayName(cap.CapabilityType)">
+                                        <i class="fas @CapabilityCategories.GetIcon(cap.CapabilityType)"></i>
+                                    </span>
+                                }
+                                @if (capabilities.Count > 5)
+                                {
+                                    <span class="capability-more">+@(capabilities.Count - 5)</span>
+                                }
+                            </div>
+                        }
                     </div>
                     <div class="bundle-actions">
+                        <button class="btn btn-secondary btn-sm" @onclick="@(() => ShowEditCapabilitiesDialog(bundle))" disabled="@isLoading">
+                            <i class="fas fa-puzzle-piece"></i> Capabilities
+                        </button>
                         <button class="btn btn-danger btn-sm" @onclick="@(() => DeleteBundle(bundle))" disabled="@isLoading">
                             <i class="fas fa-trash"></i> Delete
                         </button>
@@ -143,6 +162,63 @@
                 <button class="btn btn-primary" @onclick="CreateBundle" 
                         disabled="@(string.IsNullOrWhiteSpace(newIdentifier) || string.IsNullOrWhiteSpace(newName) || isLoading)">
                     <i class="fas @(isLoading ? "fa-spinner fa-spin" : "fa-plus")"></i> @(isLoading ? "Creating..." : "Create")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (showCapabilitiesDialog && selectedBundleForCapabilities != null)
+{
+    <div class="modal-overlay">
+        <div class="modal modal-lg" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h2><i class="fas fa-puzzle-piece"></i> Capabilities</h2>
+                <button class="close-btn" @onclick="CloseCapabilitiesDialog">×</button>
+            </div>
+            <div class="modal-subheader">
+                <span class="bundle-id-label">@selectedBundleForCapabilities.Identifier</span>
+            </div>
+            <div class="modal-body capabilities-body">
+                @if (isLoadingCapabilities)
+                {
+                    <div class="loading-capabilities">
+                        <i class="fas fa-spinner fa-spin"></i> Loading capabilities...
+                    </div>
+                }
+                else
+                {
+                    @foreach (var category in GetGroupedCapabilities())
+                    {
+                        <div class="capability-category">
+                            <h3 class="category-title">@category.Key</h3>
+                            <div class="capability-list">
+                                @foreach (var capType in category.Value)
+                                {
+                                    var isEnabled = IsCapabilityEnabled(capType);
+                                    var capId = GetCapabilityId(capType);
+                                    <div class="capability-item @(isEnabled ? "enabled" : "")">
+                                        <div class="capability-info">
+                                            <i class="fas @CapabilityCategories.GetIcon(capType)"></i>
+                                            <span class="capability-name">@CapabilityCategories.GetDisplayName(capType)</span>
+                                        </div>
+                                        <label class="toggle-switch">
+                                            <input type="checkbox" 
+                                                   checked="@isEnabled" 
+                                                   disabled="@isTogglingCapability"
+                                                   @onchange="@(e => ToggleCapability(capType, capId, (bool)(e.Value ?? false)))" />
+                                            <span class="toggle-slider"></span>
+                                        </label>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+                }
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" @onclick="CloseCapabilitiesDialog">
+                    <i class="fas fa-times"></i> Close
                 </button>
             </div>
         </div>
@@ -330,6 +406,148 @@
     .form-group label { display: block; margin-bottom: 8px; font-weight: 500; color: var(--text-secondary); }
     .form-group input, .form-group select { width: 100%; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 6px; font-size: 14px; }
     .form-group input:focus, .form-group select:focus { outline: none; border-color: var(--accent-primary); box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.1); }
+
+    /* Capability badges in bundle cards */
+    .bundle-capabilities {
+        display: flex;
+        gap: 6px;
+        margin-top: 10px;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+    .capability-badge {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        background: #f0f4ff;
+        border-radius: 6px;
+        color: #5a67d8;
+        font-size: 12px;
+    }
+    .capability-more {
+        font-size: 12px;
+        color: var(--text-muted);
+        padding: 4px 8px;
+        background: var(--bg-hover);
+        border-radius: 4px;
+    }
+
+    /* Capabilities Modal */
+    .modal-lg { max-width: 700px; }
+    .modal-subheader {
+        padding: 12px 24px;
+        background: var(--bg-hover);
+        border-bottom: 1px solid var(--border-color);
+    }
+    .bundle-id-label {
+        font-family: monospace;
+        font-size: 14px;
+        color: var(--text-secondary);
+    }
+    .capabilities-body {
+        max-height: 60vh;
+        overflow-y: auto;
+    }
+    .loading-capabilities {
+        text-align: center;
+        padding: 40px;
+        color: var(--text-muted);
+    }
+    .capability-category {
+        margin-bottom: 24px;
+    }
+    .category-title {
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--text-secondary);
+        margin: 0 0 12px 0;
+        padding-bottom: 8px;
+        border-bottom: 1px solid var(--border-color);
+    }
+    .capability-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+    .capability-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 12px 16px;
+        background: var(--bg-hover);
+        border-radius: 8px;
+        border: 1px solid transparent;
+        transition: all 0.15s;
+    }
+    .capability-item.enabled {
+        background: rgba(72, 187, 120, 0.15);
+        border-color: #38a169;
+    }
+    .capability-info {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+    .capability-info i {
+        font-size: 16px;
+        width: 20px;
+        text-align: center;
+        color: #718096;
+    }
+    .capability-item.enabled .capability-info i {
+        color: #38a169;
+    }
+    .capability-name {
+        font-size: 14px;
+        color: var(--text-primary);
+    }
+
+    /* Toggle Switch */
+    .toggle-switch {
+        position: relative;
+        display: inline-block;
+        width: 44px;
+        height: 24px;
+    }
+    .toggle-switch input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+    }
+    .toggle-slider {
+        position: absolute;
+        cursor: pointer;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-color: #cbd5e0;
+        transition: 0.2s;
+        border-radius: 24px;
+    }
+    .toggle-slider:before {
+        position: absolute;
+        content: "";
+        height: 18px;
+        width: 18px;
+        left: 3px;
+        bottom: 3px;
+        background-color: white;
+        transition: 0.2s;
+        border-radius: 50%;
+    }
+    .toggle-switch input:checked + .toggle-slider {
+        background-color: #48bb78;
+    }
+    .toggle-switch input:checked + .toggle-slider:before {
+        transform: translateX(20px);
+    }
+    .toggle-switch input:disabled + .toggle-slider {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
 </style>
 
 @code {
@@ -345,6 +563,17 @@
     private string newIdentifier = "";
     private string newName = "";
     private string newPlatform = "UNIVERSAL";
+
+    // Capabilities state
+    private bool showCapabilitiesDialog = false;
+    private AppleBundleId? selectedBundleForCapabilities = null;
+    private List<AppleBundleIdCapability> currentCapabilities = new();
+    private List<string> availableCapabilityTypes = new();
+    private bool isLoadingCapabilities = false;
+    private bool isTogglingCapability = false;
+    
+    // Capabilities cache per bundle ID
+    private Dictionary<string, List<AppleBundleIdCapability>> capabilitiesCache = new();
 
     private bool HasActiveFilters => !string.IsNullOrEmpty(searchQuery) || !string.IsNullOrEmpty(filterPlatform);
 
@@ -476,5 +705,120 @@
     {
         await DialogService.CopyToClipboardAsync(text);
         await AlertService.ShowToastAsync("Copied to clipboard");
+    }
+
+    // Capability-related methods
+    private List<AppleBundleIdCapability> GetCapabilities(string bundleId)
+    {
+        return capabilitiesCache.TryGetValue(bundleId, out var caps) ? caps : new();
+    }
+
+    private async Task ShowEditCapabilitiesDialog(AppleBundleId bundle)
+    {
+        selectedBundleForCapabilities = bundle;
+        showCapabilitiesDialog = true;
+        isLoadingCapabilities = true;
+        currentCapabilities.Clear();
+        StateHasChanged();
+
+        try
+        {
+            // Load available capability types if not already loaded
+            if (!availableCapabilityTypes.Any())
+            {
+                availableCapabilityTypes = (await AppleService.GetAvailableCapabilityTypesAsync()).ToList();
+            }
+
+            // Load current capabilities for this bundle
+            var caps = await AppleService.GetBundleIdCapabilitiesAsync(bundle.Id);
+            currentCapabilities = caps.ToList();
+            capabilitiesCache[bundle.Id] = currentCapabilities;
+        }
+        catch (Exception ex)
+        {
+            await AlertService.ShowToastAsync($"Failed to load capabilities: {ex.Message}");
+        }
+        finally
+        {
+            isLoadingCapabilities = false;
+            StateHasChanged();
+        }
+    }
+
+    private void CloseCapabilitiesDialog()
+    {
+        showCapabilitiesDialog = false;
+        selectedBundleForCapabilities = null;
+        currentCapabilities.Clear();
+    }
+
+    private IEnumerable<KeyValuePair<string, List<string>>> GetGroupedCapabilities()
+    {
+        var grouped = availableCapabilityTypes
+            .GroupBy(cap => CapabilityCategories.GetCategory(cap))
+            .OrderBy(g => g.Key == "Other" ? 1 : 0)
+            .ThenBy(g => g.Key)
+            .Select(g => new KeyValuePair<string, List<string>>(g.Key, g.ToList()));
+        return grouped;
+    }
+
+    private bool IsCapabilityEnabled(string capabilityType)
+    {
+        return currentCapabilities.Any(c => c.CapabilityType == capabilityType);
+    }
+
+    private string? GetCapabilityId(string capabilityType)
+    {
+        return currentCapabilities.FirstOrDefault(c => c.CapabilityType == capabilityType)?.Id;
+    }
+
+    private async Task ToggleCapability(string capabilityType, string? capabilityId, bool enable)
+    {
+        if (selectedBundleForCapabilities == null) return;
+
+        isTogglingCapability = true;
+        StateHasChanged();
+
+        try
+        {
+            if (enable && capabilityId == null)
+            {
+                // Enable capability
+                await AppleService.EnableCapabilityAsync(selectedBundleForCapabilities.Id, capabilityType);
+                await AlertService.ShowToastAsync($"Enabled {CapabilityCategories.GetDisplayName(capabilityType)}");
+            }
+            else if (!enable && capabilityId != null)
+            {
+                // Disable capability
+                await AppleService.DisableCapabilityAsync(capabilityId);
+                await AlertService.ShowToastAsync($"Disabled {CapabilityCategories.GetDisplayName(capabilityType)}");
+            }
+
+            // Refresh capabilities
+            var caps = await AppleService.GetBundleIdCapabilitiesAsync(selectedBundleForCapabilities.Id);
+            currentCapabilities = caps.ToList();
+            capabilitiesCache[selectedBundleForCapabilities.Id] = currentCapabilities;
+        }
+        catch (Exception ex)
+        {
+            await AlertService.ShowToastAsync($"Failed: {ex.Message}");
+        }
+        finally
+        {
+            isTogglingCapability = false;
+            StateHasChanged();
+        }
+    }
+
+    private static string FormatPlatform(string? platform)
+    {
+        if (string.IsNullOrEmpty(platform)) return "Universal";
+        return platform.ToUpperInvariant() switch
+        {
+            "IOS" => "iOS",
+            "MAC_OS" or "MACOS" => "macOS",
+            "UNIVERSAL" => "Universal",
+            _ => platform
+        };
     }
 }
