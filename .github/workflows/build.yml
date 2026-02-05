@@ -15,11 +15,21 @@ env:
 jobs:
   build-test:
     name: Build & Test
-    runs-on: macos-latest
+    runs-on: macos-15
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: |
+          XCODE_PATH=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          if [ -z "$XCODE_PATH" ]; then
+            XCODE_PATH=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1)
+          fi
+          echo "Selected Xcode: $XCODE_PATH"
+          sudo xcode-select -s "$XCODE_PATH"
+          xcodebuild -version
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -49,13 +59,23 @@ jobs:
 
   publish-maccatalyst:
     name: Publish Mac Catalyst App
-    runs-on: macos-latest
+    runs-on: macos-15
     needs: build-test
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: |
+          XCODE_PATH=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          if [ -z "$XCODE_PATH" ]; then
+            XCODE_PATH=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1)
+          fi
+          echo "Selected Xcode: $XCODE_PATH"
+          sudo xcode-select -s "$XCODE_PATH"
+          xcodebuild -version
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
