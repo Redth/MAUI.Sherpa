@@ -17,7 +17,8 @@ public partial class GetAppleDevicesHandler : IRequestHandler<GetAppleDevicesReq
         _appleService = appleService;
     }
 
-    [Cache(AbsoluteExpirationSeconds = 600)] // 10 min cache - devices rarely change
+    [Cache(AbsoluteExpirationSeconds = 600)]
+    [OfflineAvailable] // 10 min cache - devices rarely change
     public async Task<IReadOnlyList<AppleDevice>> Handle(
         GetAppleDevicesRequest request,
         IMediatorContext context,

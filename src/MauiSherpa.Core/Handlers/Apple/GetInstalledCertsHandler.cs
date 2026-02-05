@@ -17,7 +17,8 @@ public partial class GetInstalledCertsHandler : IRequestHandler<GetInstalledCert
         _certService = certService;
     }
 
-    [Cache(AbsoluteExpirationSeconds = 600)] // 10 min cache
+    [Cache(AbsoluteExpirationSeconds = 600)]
+    [OfflineAvailable] // 10 min cache
     public async Task<IReadOnlyList<InstalledCertInfo>> Handle(
         GetInstalledCertsRequest request,
         IMediatorContext context,

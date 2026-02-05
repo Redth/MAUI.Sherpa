@@ -17,7 +17,8 @@ public partial class GetProfilesHandler : IRequestHandler<GetProfilesRequest, IR
         _appleService = appleService;
     }
 
-    [Cache(AbsoluteExpirationSeconds = 300)] // 5 min cache
+    [Cache(AbsoluteExpirationSeconds = 300)]
+    [OfflineAvailable] // 5 min cache
     public async Task<IReadOnlyList<AppleProfile>> Handle(
         GetProfilesRequest request,
         IMediatorContext context,

@@ -17,7 +17,8 @@ public partial class GetBundleIdsHandler : IRequestHandler<GetBundleIdsRequest, 
         _appleService = appleService;
     }
 
-    [Cache(AbsoluteExpirationSeconds = 600)] // 10 min cache - bundle IDs rarely change
+    [Cache(AbsoluteExpirationSeconds = 600)]
+    [OfflineAvailable] // 10 min cache - bundle IDs rarely change
     public async Task<IReadOnlyList<AppleBundleId>> Handle(
         GetBundleIdsRequest request,
         IMediatorContext context,
