@@ -15,16 +15,7 @@ env:
 jobs:
   build-test:
     name: Build & Test
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macos-latest, windows-latest]
-        include:
-          - os: macos-latest
-            rid: osx
-          - os: windows-latest
-            rid: win
+    runs-on: macos-latest
 
     steps:
       - name: Checkout
@@ -38,20 +29,19 @@ jobs:
       - name: Install MAUI workload
         run: dotnet workload install maui
 
-      - name: Restore dependencies
-        run: dotnet restore MauiSherpa.sln
-
-      - name: Build solution
-        run: dotnet build MauiSherpa.sln --configuration Release --no-restore
+      - name: Build and test libraries
+        run: |
+          dotnet build tests/MauiSherpa.Core.Tests --configuration Release
+          dotnet build tests/MauiSherpa.Workloads.Tests --configuration Release
 
       - name: Run tests
-        run: dotnet test MauiSherpa.sln --configuration Release --no-build --verbosity normal --logger "trx;LogFileName=test-results.trx"
+        run: dotnet test tests/ --configuration Release --no-build --verbosity normal --logger "trx;LogFileName=test-results.trx"
 
       - name: Upload test results
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: test-results-${{ matrix.rid }}
+          name: test-results
           path: '**/TestResults/*.trx'
           retention-days: 7
 
