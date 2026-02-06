@@ -71,8 +71,10 @@ public class DialogService : IDialogService
         }
         else
         {
-            // TODO: Implement file open picker
-            return null;
+            var extensions = filters?
+                .Select(f => f.TrimStart('*'))
+                .ToArray();
+            return await PickOpenFileAsync(title, extensions);
         }
 #else
         return await Task.FromResult<string?>(null);
@@ -151,11 +153,11 @@ public class DialogService : IDialogService
             var picker = new UIDocumentPickerViewController(types.ToArray(), false);
             picker.AllowsMultipleSelection = false;
 
-            picker.DidPickDocument += (sender, e) =>
+            picker.DidPickDocumentAtUrls += (sender, e) =>
             {
-                var url = e.Url;
-                if (url != null)
+                if (e.Urls?.Length > 0)
                 {
+                    var url = e.Urls[0];
                     url.StartAccessingSecurityScopedResource();
                     tcs.TrySetResult(url.Path);
                 }
