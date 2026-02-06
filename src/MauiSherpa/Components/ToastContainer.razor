@@ -1,0 +1,114 @@
+@using MauiSherpa.Services
+@implements IDisposable
+@inject BlazorToastService ToastService
+
+<div class="sherpa-toast-container">
+    @foreach (var toast in ToastService.Toasts)
+    {
+        <div class="sherpa-toast sherpa-toast-@toast.Type.ToString().ToLower() @(toast.IsExiting ? "exiting" : "")" @key="toast.Id">
+            <i class="fas @GetIcon(toast.Type)"></i>
+            <span class="sherpa-toast-message">@toast.Message</span>
+            <button class="sherpa-toast-dismiss" @onclick="() => ToastService.Dismiss(toast)">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+    }
+</div>
+
+<style>
+    .sherpa-toast-container {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        z-index: 10000;
+        display: flex;
+        flex-direction: column-reverse;
+        gap: 10px;
+        pointer-events: none;
+    }
+
+    .sherpa-toast {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 16px;
+        border-radius: 8px;
+        background: #2d3748;
+        color: #fff;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        min-width: 280px;
+        max-width: 400px;
+        pointer-events: auto;
+        animation: sherpaSlideIn 0.3s ease-out;
+        border-left: 4px solid;
+    }
+
+    .sherpa-toast.exiting {
+        animation: sherpaSlideOut 0.3s ease-in forwards;
+    }
+
+    .sherpa-toast-success { border-left-color: #28a745; }
+    .sherpa-toast-success i:first-child { color: #28a745; }
+    .sherpa-toast-info { border-left-color: #17a2b8; }
+    .sherpa-toast-info i:first-child { color: #17a2b8; }
+    .sherpa-toast-warning { border-left-color: #ffc107; }
+    .sherpa-toast-warning i:first-child { color: #ffc107; }
+    .sherpa-toast-error { border-left-color: #dc3545; }
+    .sherpa-toast-error i:first-child { color: #dc3545; }
+
+    .sherpa-toast i:first-child { font-size: 1.2em; flex-shrink: 0; }
+    .sherpa-toast-message { flex: 1; font-size: 0.9em; line-height: 1.4; }
+
+    .sherpa-toast-dismiss {
+        background: none;
+        border: none;
+        color: #888;
+        cursor: pointer;
+        padding: 4px;
+        margin: -4px;
+        border-radius: 4px;
+        transition: color 0.2s, background 0.2s;
+        flex-shrink: 0;
+    }
+
+    .sherpa-toast-dismiss:hover {
+        color: #fff;
+        background: rgba(255, 255, 255, 0.1);
+    }
+
+    @@keyframes sherpaSlideIn {
+        from { transform: translateX(100%); opacity: 0; }
+        to { transform: translateX(0); opacity: 1; }
+    }
+
+    @@keyframes sherpaSlideOut {
+        from { transform: translateX(0); opacity: 1; }
+        to { transform: translateX(100%); opacity: 0; }
+    }
+</style>
+
+@code {
+    protected override void OnInitialized()
+    {
+        ToastService.OnChange += HandleToastChange;
+    }
+
+    private void HandleToastChange()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    private string GetIcon(ToastType type) => type switch
+    {
+        ToastType.Success => "fa-check-circle",
+        ToastType.Info => "fa-info-circle",
+        ToastType.Warning => "fa-exclamation-triangle",
+        ToastType.Error => "fa-times-circle",
+        _ => "fa-info-circle"
+    };
+
+    public void Dispose()
+    {
+        ToastService.OnChange -= HandleToastChange;
+    }
+}

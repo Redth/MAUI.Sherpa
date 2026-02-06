@@ -13,6 +13,7 @@
 @inject ICertificateSyncService CertificateSyncService
 @inject ICloudSecretsService CloudSecretsService
 @inject ILocalCertificateService LocalCertificateService
+@inject BlazorToastService ToastService
 @inject ILoggingService Logger
 @implements IDisposable
 
@@ -24,7 +25,7 @@
 {
     <div class="toolbar">
         <button class="btn btn-primary" @onclick="@(() => RefreshData(forceRefresh: true))" disabled="@isLoading">
-            <i class="fas fa-sync-alt"></i> @(isLoading ? "Loading..." : "Refresh")
+            <i class="fas @(isLoading ? "fa-spinner fa-spin" : "fa-sync-alt")"></i> Refresh
         </button>
         <button class="btn btn-success" @onclick="ShowCreateDialog" disabled="@isLoading">
             <i class="fas fa-plus"></i> Create Certificate
@@ -918,6 +919,13 @@
 
         isLoading = true;
         errorMessage = "";
+        
+        ToastMessage? toast = null;
+        if (forceRefresh)
+        {
+            toast = ToastService.Show("Refreshing certificates...", ToastType.Info);
+        }
+        
         try
         {
             // Invalidate local certificate cache on force refresh
@@ -926,10 +934,14 @@
                 LocalCertificateService.InvalidateCache();
             }
             
+            // If force refresh, invalidate the mediator cache first
+            if (forceRefresh)
+            {
+                await Mediator.FlushStores($"apple:certs:{IdentityState.SelectedIdentity.Id}");
+            }
+            
             var request = new GetCertificatesRequest(IdentityState.SelectedIdentity.Id);
-            var (_, result) = forceRefresh 
-                ? await Mediator.Request(request, CancellationToken.None, ctx => ctx.ClearCache())
-                : await Mediator.Request(request);
+            var (_, result) = await Mediator.Request(request);
             certificates = result.ToList();
             
             // Load sync statuses if cloud provider is configured
@@ -942,6 +954,7 @@
         finally
         {
             isLoading = false;
+            if (toast != null) ToastService.Dismiss(toast);
             await InvokeAsync(StateHasChanged);
         }
     }

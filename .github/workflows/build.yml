@@ -9,53 +9,60 @@ on:
   workflow_dispatch:
 
 env:
-  DOTNET_VERSION: '10.0.x'
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
 
 jobs:
   build-test:
     name: Build & Test
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macos-latest, windows-latest]
-        include:
-          - os: macos-latest
-            rid: osx
-          - os: windows-latest
-            rid: win
+    runs-on: macos-26
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Select Xcode
+        run: |
+          if [ -d "/Applications/Xcode_26.2.app" ]; then
+            XCODE_PATH="/Applications/Xcode_26.2.app"
+          elif [ -d "/Applications/Xcode_26.2.0.app" ]; then
+            XCODE_PATH="/Applications/Xcode_26.2.0.app"
+          else
+            XCODE_PATH=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -rV | head -1)
+          fi
+          echo "Selected Xcode: $XCODE_PATH"
+          sudo xcode-select -s "$XCODE_PATH"
+          xcodebuild -version
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: ${{ env.DOTNET_VERSION }}
+          global-json-file: global.json
 
-      - name: Restore dependencies
-        run: dotnet restore MauiSherpa.sln
+      - name: Install MAUI workload
+        run: dotnet workload install maui
 
-      - name: Build solution
-        run: dotnet build MauiSherpa.sln --configuration Release --no-restore
+      - name: Build and test libraries
+        run: |
+          dotnet build tests/MauiSherpa.Core.Tests --configuration Release
+          dotnet build tests/MauiSherpa.Workloads.Tests --configuration Release
 
       - name: Run tests
-        run: dotnet test MauiSherpa.sln --configuration Release --no-build --verbosity normal --logger "trx;LogFileName=test-results.trx"
+        run: |
+          dotnet test tests/MauiSherpa.Core.Tests --configuration Release --no-build --verbosity normal --logger "trx;LogFileName=test-results.trx"
+          dotnet test tests/MauiSherpa.Workloads.Tests --configuration Release --no-build --verbosity normal --logger "trx;LogFileName=test-results.trx"
 
       - name: Upload test results
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: test-results-${{ matrix.rid }}
+          name: test-results
           path: '**/TestResults/*.trx'
           retention-days: 7
 
   publish-maccatalyst:
     name: Publish Mac Catalyst App
-    runs-on: macos-latest
+    runs-on: macos-26
     needs: build-test
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
 
@@ -63,27 +70,61 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Select Xcode
+        run: |
+          # List available Xcode installations
+          ls -d /Applications/Xcode*.app 2>/dev/null
+          # Select Xcode 26.2 specifically (required by .NET MacCatalyst SDK)
+          if [ -d "/Applications/Xcode_26.2.app" ]; then
+            XCODE_PATH="/Applications/Xcode_26.2.app"
+          elif [ -d "/Applications/Xcode_26.2.0.app" ]; then
+            XCODE_PATH="/Applications/Xcode_26.2.0.app"
+          else
+            XCODE_PATH=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -rV | head -1)
+          fi
+          echo "Selected Xcode: $XCODE_PATH"
+          sudo xcode-select -s "$XCODE_PATH"
+          sudo xcodebuild -license accept 2>/dev/null || true
+          xcodebuild -version
+          # Set MD_APPLE_SDK_ROOT for .NET Xamarin SDK
+          echo "MD_APPLE_SDK_ROOT=$XCODE_PATH" >> $GITHUB_ENV
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: ${{ env.DOTNET_VERSION }}
+          global-json-file: global.json
 
       - name: Install MAUI workload
-        run: dotnet workload install maui-maccatalyst
+        run: dotnet workload install maui
 
-      - name: Import signing certificate
-        if: env.MACOS_CERTIFICATE_P12 != ''
+      - name: Import signing certificate and provisioning profile
+        if: env.APPLE_CERTIFICATE_P12 != ''
         env:
-          MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
-          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
-          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_PROVISIONING_PROFILE: ${{ secrets.APPLE_PROVISIONING_PROFILE }}
+          KEYCHAIN_PASSWORD: ${{ github.run_id }}
         run: |
           # Create variables
           CERTIFICATE_PATH=$RUNNER_TEMP/certificate.p12
           KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          PROFILE_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+
+          # Create provisioning profiles directory
+          mkdir -p "$PROFILE_DIR"
+
+          # Decode and install provisioning profile
+          echo "Installing provisioning profile..."
+          echo -n "$APPLE_PROVISIONING_PROFILE" | base64 --decode > $RUNNER_TEMP/profile.mobileprovision
+          
+          # Extract UUID from profile and install with UUID-based name
+          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" /dev/stdin <<< $(security cms -D -i $RUNNER_TEMP/profile.mobileprovision))
+          cp $RUNNER_TEMP/profile.mobileprovision "$PROFILE_DIR/$PROFILE_UUID.mobileprovision"
+          echo "Installed profile with UUID: $PROFILE_UUID"
 
           # Decode certificate
-          echo -n "$MACOS_CERTIFICATE_P12" | base64 --decode -o $CERTIFICATE_PATH
+          echo "Importing signing certificate..."
+          echo -n "$APPLE_CERTIFICATE_P12" | base64 --decode > $CERTIFICATE_PATH
 
           # Create temporary keychain
           security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
@@ -91,43 +132,93 @@ jobs:
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
 
           # Import certificate to keychain
-          security import $CERTIFICATE_PATH -P "$MACOS_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security import $CERTIFICATE_PATH -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
           security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
           security list-keychain -d user -s $KEYCHAIN_PATH
+          
+          echo "Certificate and profile setup complete."
 
-      - name: Publish Mac Catalyst App
-        run: |
-          dotnet publish src/MauiSherpa/MauiSherpa.csproj \
-            -f net10.0-maccatalyst \
-            -c Release \
-            -p:CreatePackage=true \
-            -p:EnableCodeSigning=true \
-            -p:EnablePackageSigning=true \
-            -p:CodesignKey="${{ secrets.CODESIGN_KEY_NAME }}" \
-            -p:CodesignProvision="${{ secrets.CODESIGN_PROVISION }}" \
-            -o ./artifacts/maccatalyst
-
-      - name: Publish Mac Catalyst App (Unsigned)
-        if: env.MACOS_CERTIFICATE_P12 == ''
+      - name: Publish Mac Catalyst App (Signed)
+        if: env.APPLE_CERTIFICATE_P12 != ''
         env:
-          MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_CODESIGN_IDENTITY: ${{ secrets.APPLE_CODESIGN_IDENTITY }}
         run: |
           dotnet publish src/MauiSherpa/MauiSherpa.csproj \
             -f net10.0-maccatalyst \
             -c Release \
             -p:CreatePackage=false \
-            -p:EnableCodeSigning=false \
-            -o ./artifacts/maccatalyst
+            -p:EnableCodeSigning=true \
+            -p:CodesignKey="$APPLE_CODESIGN_IDENTITY"
+          
+          # Copy the universal app bundle to artifacts
+          mkdir -p ./artifacts/maccatalyst
+          cp -R "src/MauiSherpa/bin/Release/net10.0-maccatalyst/MAUI Sherpa.app" ./artifacts/maccatalyst/
+
+      - name: Publish Mac Catalyst App (Unsigned)
+        if: env.APPLE_CERTIFICATE_P12 == ''
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+        run: |
+          dotnet publish src/MauiSherpa/MauiSherpa.csproj \
+            -f net10.0-maccatalyst \
+            -c Release \
+            -p:CreatePackage=false \
+            -p:EnableCodeSigning=false
+          
+          # Copy the universal app bundle to artifacts
+          mkdir -p ./artifacts/maccatalyst
+          cp -R "src/MauiSherpa/bin/Release/net10.0-maccatalyst/MAUI Sherpa.app" ./artifacts/maccatalyst/
+
+      - name: Verify code signature
+        if: env.APPLE_CERTIFICATE_P12 != ''
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+        run: |
+          APP_PATH=$(find ./artifacts/maccatalyst -name "*.app" -type d | head -1)
+          if [ -n "$APP_PATH" ]; then
+            echo "Verifying signature for: $APP_PATH"
+            codesign -dvv "$APP_PATH"
+          fi
+
+      # Notarization (disabled for now - uncomment when ready)
+      # - name: Notarize Mac Catalyst App
+      #   if: env.APPLE_CERTIFICATE_P12 != '' && env.APPLE_NOTARIZATION_APPLE_ID != ''
+      #   env:
+      #     APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+      #     APPLE_NOTARIZATION_APPLE_ID: ${{ secrets.APPLE_NOTARIZATION_APPLE_ID }}
+      #     APPLE_NOTARIZATION_PASSWORD: ${{ secrets.APPLE_NOTARIZATION_PASSWORD }}
+      #     APPLE_NOTARIZATION_TEAM_ID: ${{ secrets.APPLE_NOTARIZATION_TEAM_ID }}
+      #   run: |
+      #     APP_PATH=$(find ./artifacts/maccatalyst -name "*.app" -type d | head -1)
+      #     if [ -n "$APP_PATH" ]; then
+      #       # Create zip for notarization
+      #       ditto -c -k --keepParent "$APP_PATH" ./artifacts/notarize.zip
+      #       
+      #       # Submit for notarization
+      #       xcrun notarytool submit ./artifacts/notarize.zip \
+      #         --apple-id "$APPLE_NOTARIZATION_APPLE_ID" \
+      #         --password "$APPLE_NOTARIZATION_PASSWORD" \
+      #         --team-id "$APPLE_NOTARIZATION_TEAM_ID" \
+      #         --wait
+      #       
+      #       # Staple the ticket to the app
+      #       xcrun stapler staple "$APP_PATH"
+      #       
+      #       rm ./artifacts/notarize.zip
+      #     fi
 
       - name: Create ZIP archive
         run: |
-          cd ./artifacts/maccatalyst
-          # Find the .app bundle
-          APP_NAME=$(find . -name "*.app" -type d | head -1)
-          if [ -n "$APP_NAME" ]; then
-            zip -r ../MauiSherpa-MacCatalyst.zip "$APP_NAME"
+          APP_PATH=$(find ./artifacts/maccatalyst -name "*.app" -type d | head -1)
+          if [ -n "$APP_PATH" ]; then
+            # Use ditto to preserve code signature and extended attributes
+            ditto -c -k --keepParent "$APP_PATH" ./artifacts/MauiSherpa-MacCatalyst.zip
+            echo "Created archive: ./artifacts/MauiSherpa-MacCatalyst.zip"
+            ls -lh ./artifacts/MauiSherpa-MacCatalyst.zip
           else
-            zip -r ../MauiSherpa-MacCatalyst.zip .
+            echo "No .app bundle found, creating archive of all artifacts"
+            cd ./artifacts/maccatalyst && zip -r ../MauiSherpa-MacCatalyst.zip .
           fi
 
       - name: Upload Mac Catalyst App
@@ -144,50 +235,51 @@ jobs:
             security delete-keychain $RUNNER_TEMP/app-signing.keychain-db
           fi
 
-  publish-windows:
-    name: Publish Windows App
-    runs-on: windows-latest
-    needs: build-test
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
 
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: ${{ env.DOTNET_VERSION }}
-
-      - name: Install MAUI workload
-        run: dotnet workload install maui-windows
-
-      - name: Publish Windows App
-        run: |
-          dotnet publish src/MauiSherpa/MauiSherpa.csproj `
-            -f net10.0-windows10.0.19041.0 `
-            -c Release `
-            -p:WindowsPackageType=None `
-            -p:PublishSingleFile=false `
-            -p:SelfContained=true `
-            -p:PublishTrimmed=false `
-            -o ./artifacts/windows
-
-      - name: Create ZIP archive
-        run: |
-          Compress-Archive -Path ./artifacts/windows/* -DestinationPath ./artifacts/MauiSherpa-Windows.zip
-
-      - name: Upload Windows App
-        uses: actions/upload-artifact@v4
-        with:
-          name: MauiSherpa-Windows
-          path: ./artifacts/MauiSherpa-Windows.zip
-          retention-days: 30
+  # publish-windows:
+  #   name: Publish Windows App
+  #   runs-on: windows-latest
+  #   needs: build-test
+  #   if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+  #
+  #   steps:
+  #     - name: Checkout
+  #       uses: actions/checkout@v4
+  #
+  #     - name: Setup .NET
+  #       uses: actions/setup-dotnet@v4
+  #       with:
+  #         global-json-file: global.json
+  #
+  #     - name: Install MAUI workload
+  #       run: dotnet workload install maui
+  #
+  #     - name: Publish Windows App
+  #       run: |
+  #         dotnet publish src/MauiSherpa/MauiSherpa.csproj `
+  #           -f net10.0-windows10.0.19041.0 `
+  #           -c Release `
+  #           -p:WindowsPackageType=None `
+  #           -p:PublishSingleFile=false `
+  #           -p:SelfContained=true `
+  #           -p:PublishTrimmed=false `
+  #           -o ./artifacts/windows
+  #
+  #     - name: Create ZIP archive
+  #       run: |
+  #         Compress-Archive -Path ./artifacts/windows/* -DestinationPath ./artifacts/MauiSherpa-Windows.zip
+  #
+  #     - name: Upload Windows App
+  #       uses: actions/upload-artifact@v4
+  #       with:
+  #         name: MauiSherpa-Windows
+  #         path: ./artifacts/MauiSherpa-Windows.zip
+  #         retention-days: 30
 
   create-release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
-    needs: [publish-maccatalyst, publish-windows]
+    needs: [publish-maccatalyst]
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
@@ -199,18 +291,17 @@ jobs:
           name: MauiSherpa-MacCatalyst
           path: ./release
 
-      - name: Download Windows artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: MauiSherpa-Windows
-          path: ./release
+      # - name: Download Windows artifact
+      #   uses: actions/download-artifact@v4
+      #   with:
+      #     name: MauiSherpa-Windows
+      #     path: ./release
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           files: |
             ./release/MauiSherpa-MacCatalyst.zip
-            ./release/MauiSherpa-Windows.zip
           generate_release_notes: true
           draft: false
           prerelease: ${{ contains(github.ref, '-') }}

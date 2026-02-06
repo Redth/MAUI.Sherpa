@@ -34,6 +34,7 @@ public static class MauiProgram
         builder.Services.AddSingleton<ISplashService, SplashService>();
         
         // Platform services
+        builder.Services.AddSingleton<BlazorToastService>();
         builder.Services.AddSingleton<IAlertService, AlertService>();
         builder.Services.AddSingleton<ILoggingService, LoggingService>();
         builder.Services.AddSingleton<IPlatformService, PlatformService>();
@@ -110,6 +111,9 @@ public static class MauiProgram
         builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Apple.GetAppleDevicesHandler>();
         builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Apple.GetBundleIdsHandler>();
         builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Apple.GetInstalledCertsHandler>();
+        builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Publisher.ListPublisherRepositoriesHandler>();
+        builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Apple.TrackBundleIdUsageHandler>();
+        builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Apple.GetRecentBundleIdsHandler>();
 
 #if DEBUG
         builder.Services.AddBlazorWebViewDeveloperTools();

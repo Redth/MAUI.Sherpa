@@ -1,9 +1,12 @@
 @using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Core.Requests.Apple
 @using MauiSherpa.Services
+@using Shiny.Mediator
 @inject IAppleConnectService AppleService
 @inject IAppleIdentityStateService IdentityState
 @inject IAlertService AlertService
 @inject ILoggingService Logger
+@inject IMediator Mediator
 
 @if (IsVisible)
 {
@@ -931,15 +934,18 @@
         errorMessage = "";
         try
         {
-            var bundleTask = AppleService.GetBundleIdsAsync();
-            var certTask = AppleService.GetCertificatesAsync();
-            var deviceTask = AppleService.GetDevicesAsync();
+            var identityId = IdentityState.SelectedIdentity.Id;
+            
+            // Use mediator for all cached Apple data
+            var bundleTask = Mediator.Request(new GetBundleIdsRequest(identityId));
+            var certTask = Mediator.Request(new GetCertificatesRequest(identityId));
+            var deviceTask = Mediator.Request(new GetAppleDevicesRequest(identityId));
 
             await Task.WhenAll(bundleTask, certTask, deviceTask);
 
-            bundleIds = (await bundleTask).ToList();
-            certificates = (await certTask).ToList();
-            devices = (await deviceTask).ToList();
+            bundleIds = (await bundleTask).Result.ToList();
+            certificates = (await certTask).Result.ToList();
+            devices = (await deviceTask).Result.ToList();
         }
         catch (Exception ex)
         {
@@ -1121,7 +1127,12 @@
 
             var profile = await AppleService.CreateProfileAsync(request);
             
-            await AlertService.ShowToastAsync($"Profile '{profile.Name}' created successfully!");
+            // Invalidate profiles cache after creation
+            if (IdentityState.SelectedIdentity != null)
+            {
+                await Mediator.FlushStores($"apple:profiles:{IdentityState.SelectedIdentity.Id}");
+            }
+            
             await OnProfileCreated.InvokeAsync(profile);
             await Close();
         }

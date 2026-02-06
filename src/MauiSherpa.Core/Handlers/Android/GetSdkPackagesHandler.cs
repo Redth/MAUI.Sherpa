@@ -17,7 +17,8 @@ public partial class GetInstalledPackagesHandler : IRequestHandler<GetInstalledP
         _sdkService = sdkService;
     }
 
-    [Cache(AbsoluteExpirationSeconds = 300)] // 5 min cache
+    [Cache(AbsoluteExpirationSeconds = 300)]
+    [OfflineAvailable] // 5 min cache
     public async Task<IReadOnlyList<SdkPackageInfo>> Handle(
         GetInstalledPackagesRequest request,
         IMediatorContext context,
@@ -39,7 +40,8 @@ public partial class GetAvailablePackagesHandler : IRequestHandler<GetAvailableP
         _sdkService = sdkService;
     }
 
-    [Cache(AbsoluteExpirationSeconds = 1800)] // 30 min cache - this is a slow network call
+    [Cache(AbsoluteExpirationSeconds = 1800)]
+    [OfflineAvailable] // 30 min cache - this is a slow network call
     public async Task<IReadOnlyList<SdkPackageInfo>> Handle(
         GetAvailablePackagesRequest request,
         IMediatorContext context,

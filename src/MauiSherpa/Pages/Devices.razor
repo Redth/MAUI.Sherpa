@@ -1,6 +1,7 @@
 @page "/devices"
 @using MauiSherpa.Core.Interfaces
 @using MauiSherpa.Core.Requests.Android
+@using MauiSherpa.Services
 @using Shiny.Mediator
 @inject IMediator Mediator
 @inject IAndroidSdkService SdkService
@@ -8,6 +9,7 @@
 @inject IAlertService AlertService
 @inject IDialogService DialogService
 @inject IFileSystemService FileSystem
+@inject BlazorToastService ToastService
 @implements IDisposable
 
 <h1><i class="fas fa-mobile-alt"></i> Android Devices</h1>
@@ -39,7 +41,7 @@
 
 <div class="toolbar">
     <button class="btn btn-primary" @onclick="() => RefreshDevices(forceRefresh: true)" disabled="@isLoading">
-        <i class="fas fa-sync-alt"></i> @(isLoading ? "Refreshing..." : "Refresh")
+        <i class="fas @(isLoading ? "fa-spinner fa-spin" : "fa-sync-alt")"></i> Refresh
     </button>
 </div>
 
@@ -344,16 +346,28 @@
     private async Task RefreshDevices(bool forceRefresh = false)
     {
         isLoading = true;
+        
+        ToastMessage? toast = null;
+        if (forceRefresh)
+        {
+            toast = ToastService.Show("Refreshing devices...", ToastType.Info);
+        }
+        
         try
         {
-            var (_, result) = forceRefresh
-                ? await Mediator.Request(new GetAndroidDevicesRequest(), CancellationToken.None, ctx => ctx.ClearCache())
-                : await Mediator.Request(new GetAndroidDevicesRequest());
+            // If force refresh, invalidate the cache first
+            if (forceRefresh)
+            {
+                await Mediator.FlushStores("android:devices");
+            }
+            
+            var (_, result) = await Mediator.Request(new GetAndroidDevicesRequest());
             devices = result?.ToList() ?? new();
         }
         finally
         {
             isLoading = false;
+            if (toast != null) ToastService.Dismiss(toast);
         }
     }
 

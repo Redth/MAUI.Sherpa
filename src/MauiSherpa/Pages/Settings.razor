@@ -702,7 +702,7 @@
                         {
                             <div class="help-text">
                                 Generate a PAT with <code>repo</code> scope at 
-                                <a href="https://github.com/settings/tokens/new?scopes=repo&description=MauiSherpa" target="_blank">GitHub Settings</a>
+                                <a href="#" @onclick:preventDefault @onclick='() => OpenUrl("https://github.com/settings/tokens/new?scopes=repo&description=MauiSherpa")'>GitHub Settings</a>
                             </div>
                         }
                     </div>
@@ -1224,6 +1224,11 @@
 @code {
     private List<AppleIdentity> appleIdentities = new();
     
+    private async Task OpenUrl(string url)
+    {
+        await Launcher.Default.OpenAsync(new Uri(url));
+    }
+    
     private bool showIdentityDialog = false;
     private AppleIdentity? editingIdentity = null;
     private string identityName = "";
@@ -1417,7 +1422,7 @@
         {
             await SdkSettings.SetCustomSdkPathAsync(path);
             // Invalidate SDK path cache
-            await Mediator.Request(new GetSdkPathRequest(), CancellationToken.None, ctx => ctx.ClearCache());
+            await Mediator.FlushStores("android:sdkpath");
             await AlertService.ShowToastAsync("SDK path updated");
         }
         catch (Exception ex)
@@ -1446,7 +1451,7 @@
         {
             await SdkSettings.ResetToDefaultAsync();
             // Invalidate SDK path cache
-            await Mediator.Request(new GetSdkPathRequest(), CancellationToken.None, ctx => ctx.ClearCache());
+            await Mediator.FlushStores("android:sdkpath");
             await AlertService.ShowToastAsync("SDK path reset to default");
         }
         catch (Exception ex)
@@ -1530,6 +1535,11 @@
         if (!confirm) return;
 
         await AppleIdentityService.DeleteIdentityAsync(identity.Id);
+        
+        // Immediately remove from list for responsive UI
+        appleIdentities.Remove(identity);
+        StateHasChanged();
+        
         await AlertService.ShowToastAsync("Identity deleted");
         await LoadAppleIdentities();
     }
@@ -1675,6 +1685,11 @@
         if (!confirm) return;
         
         await CloudSecretsService.DeleteProviderAsync(provider.Id);
+        
+        // Immediately remove from list for responsive UI
+        cloudProviders.Remove(provider);
+        StateHasChanged();
+        
         await AlertService.ShowToastAsync("Provider deleted");
         await LoadCloudProviders();
     }
@@ -1763,6 +1778,11 @@
         if (!confirm) return;
         
         await SecretsPublisherService.DeletePublisherAsync(publisher.Id);
+        
+        // Immediately remove from list for responsive UI
+        secretsPublishers.Remove(publisher);
+        StateHasChanged();
+        
         await AlertService.ShowToastAsync("Publisher deleted");
         await LoadSecretsPublishers();
     }

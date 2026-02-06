@@ -17,7 +17,8 @@ public partial class GetSystemImagesHandler : IRequestHandler<GetSystemImagesReq
         _sdkService = sdkService;
     }
 
-    [Cache(AbsoluteExpirationSeconds = 3600)] // 60 min cache - system images rarely change
+    [Cache(AbsoluteExpirationSeconds = 3600)]
+    [OfflineAvailable] // 60 min cache - system images rarely change
     public async Task<IReadOnlyList<string>> Handle(
         GetSystemImagesRequest request,
         IMediatorContext context,

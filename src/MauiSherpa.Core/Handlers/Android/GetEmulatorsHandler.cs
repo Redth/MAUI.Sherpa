@@ -17,7 +17,8 @@ public partial class GetEmulatorsHandler : IRequestHandler<GetEmulatorsRequest, 
         _sdkService = sdkService;
     }
 
-    [Cache(AbsoluteExpirationSeconds = 120)] // 2 min cache - emulator state changes
+    [Cache(AbsoluteExpirationSeconds = 120)]
+    [OfflineAvailable] // 2 min cache - emulator state changes
     public async Task<IReadOnlyList<AvdInfo>> Handle(
         GetEmulatorsRequest request,
         IMediatorContext context,
