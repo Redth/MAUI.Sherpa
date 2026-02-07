@@ -3,6 +3,8 @@ using MauiSherpa.Services;
 using MauiSherpa.Core.ViewModels;
 using MauiSherpa.Core.Interfaces;
 using MauiSherpa.Core.Services;
+using MauiDevFlow.Agent;
+using MauiDevFlow.Blazor;
 using Shiny.Mediator;
 
 namespace MauiSherpa;
@@ -117,6 +119,8 @@ public static class MauiProgram
 
 #if DEBUG
         builder.Services.AddBlazorWebViewDeveloperTools();
+        builder.AddMauiDevFlowAgent();
+        builder.AddMauiBlazorDevFlowTools();
         builder.Logging.AddDebug();
 #endif
 
