@@ -181,33 +181,6 @@ jobs:
             codesign -dvv "$APP_PATH"
           fi
 
-      # Notarization (disabled for now - uncomment when ready)
-      # - name: Notarize Mac Catalyst App
-      #   if: env.APPLE_CERTIFICATE_P12 != '' && env.APPLE_NOTARIZATION_APPLE_ID != ''
-      #   env:
-      #     APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
-      #     APPLE_NOTARIZATION_APPLE_ID: ${{ secrets.APPLE_NOTARIZATION_APPLE_ID }}
-      #     APPLE_NOTARIZATION_PASSWORD: ${{ secrets.APPLE_NOTARIZATION_PASSWORD }}
-      #     APPLE_NOTARIZATION_TEAM_ID: ${{ secrets.APPLE_NOTARIZATION_TEAM_ID }}
-      #   run: |
-      #     APP_PATH=$(find ./artifacts/maccatalyst -name "*.app" -type d | head -1)
-      #     if [ -n "$APP_PATH" ]; then
-      #       # Create zip for notarization
-      #       ditto -c -k --keepParent "$APP_PATH" ./artifacts/notarize.zip
-      #       
-      #       # Submit for notarization
-      #       xcrun notarytool submit ./artifacts/notarize.zip \
-      #         --apple-id "$APPLE_NOTARIZATION_APPLE_ID" \
-      #         --password "$APPLE_NOTARIZATION_PASSWORD" \
-      #         --team-id "$APPLE_NOTARIZATION_TEAM_ID" \
-      #         --wait
-      #       
-      #       # Staple the ticket to the app
-      #       xcrun stapler staple "$APP_PATH"
-      #       
-      #       rm ./artifacts/notarize.zip
-      #     fi
-
       - name: Create ZIP archive
         run: |
           APP_PATH=$(find ./artifacts/maccatalyst -name "*.app" -type d | head -1)
@@ -276,10 +249,84 @@ jobs:
   #         path: ./artifacts/MauiSherpa-Windows.zip
   #         retention-days: 30
 
+  notarize-maccatalyst:
+    name: Notarize Mac Catalyst App
+    runs-on: macos-26
+    needs: publish-maccatalyst
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Download Mac Catalyst artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: MauiSherpa-MacCatalyst
+          path: ./artifacts
+
+      - name: Notarize with retry
+        env:
+          APPLE_NOTARIZATION_APPLE_ID: ${{ secrets.APPLE_NOTARIZATION_APPLE_ID }}
+          APPLE_NOTARIZATION_PASSWORD: ${{ secrets.APPLE_NOTARIZATION_PASSWORD }}
+          APPLE_NOTARIZATION_TEAM_ID: ${{ secrets.APPLE_NOTARIZATION_TEAM_ID }}
+        run: |
+          # Extract the app bundle from the published ZIP
+          mkdir -p ./artifacts/maccatalyst
+          ditto -x -k ./artifacts/MauiSherpa-MacCatalyst.zip ./artifacts/maccatalyst
+
+          APP_PATH=$(find ./artifacts/maccatalyst -name "*.app" -type d | head -1)
+          if [ -z "$APP_PATH" ]; then
+            echo "::error::No .app bundle found in artifact"
+            exit 1
+          fi
+
+          # Create zip for notarization submission
+          ditto -c -k --keepParent "$APP_PATH" ./artifacts/notarize.zip
+
+          # Submit for notarization with retry logic
+          MAX_RETRIES=3
+          RETRY_DELAY=30
+          for i in $(seq 1 $MAX_RETRIES); do
+            echo "Notarization attempt $i of $MAX_RETRIES..."
+            if xcrun notarytool submit ./artifacts/notarize.zip \
+              --apple-id "$APPLE_NOTARIZATION_APPLE_ID" \
+              --password "$APPLE_NOTARIZATION_PASSWORD" \
+              --team-id "$APPLE_NOTARIZATION_TEAM_ID" \
+              --wait; then
+              echo "Notarization succeeded on attempt $i"
+              break
+            fi
+            if [ $i -lt $MAX_RETRIES ]; then
+              echo "Attempt $i failed, retrying in ${RETRY_DELAY}s..."
+              sleep $RETRY_DELAY
+              RETRY_DELAY=$((RETRY_DELAY * 2))
+            else
+              echo "::error::Notarization failed after $MAX_RETRIES attempts"
+              exit 1
+            fi
+          done
+
+          rm ./artifacts/notarize.zip
+
+          # Staple the notarization ticket to the app
+          xcrun stapler staple "$APP_PATH"
+
+          # Re-create the final ZIP with the stapled app
+          rm ./artifacts/MauiSherpa-MacCatalyst.zip
+          ditto -c -k --keepParent "$APP_PATH" ./artifacts/MauiSherpa-MacCatalyst.zip
+          echo "Created notarized archive"
+          ls -lh ./artifacts/MauiSherpa-MacCatalyst.zip
+
+      - name: Upload notarized Mac Catalyst App
+        uses: actions/upload-artifact@v4
+        with:
+          name: MauiSherpa-MacCatalyst
+          path: ./artifacts/MauiSherpa-MacCatalyst.zip
+          overwrite: true
+          retention-days: 30
+
   create-release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
-    needs: [publish-maccatalyst]
+    needs: [notarize-maccatalyst]
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
