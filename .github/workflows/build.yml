@@ -149,6 +149,7 @@ jobs:
             -c Release \
             -p:CreatePackage=false \
             -p:EnableCodeSigning=true \
+            -p:EnableHardenedRuntime=true \
             -p:CodesignKey="$APPLE_CODESIGN_IDENTITY"
           
           # Copy the universal app bundle to artifacts
@@ -178,7 +179,15 @@ jobs:
           APP_PATH=$(find ./artifacts/maccatalyst -name "*.app" -type d | head -1)
           if [ -n "$APP_PATH" ]; then
             echo "Verifying signature for: $APP_PATH"
-            codesign -dvv "$APP_PATH"
+            codesign -dvv "$APP_PATH" 2>&1 | tee /tmp/codesign-output.txt
+            
+            # Verify hardened runtime is enabled (required for notarization)
+            if grep -q "flags=0x10000(runtime)" /tmp/codesign-output.txt; then
+              echo "✅ Hardened Runtime is enabled"
+            else
+              echo "::error::Hardened Runtime is NOT enabled — notarization will fail"
+              exit 1
+            fi
           fi
 
       - name: Create ZIP archive
@@ -352,3 +361,57 @@ jobs:
           generate_release_notes: true
           draft: false
           prerelease: ${{ contains(github.ref, '-') }}
+
+  update-homebrew:
+    name: Update Homebrew Tap
+    runs-on: macos-latest
+    needs: [create-release]
+    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-')
+
+    steps:
+      - name: Extract version from tag
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
+
+      - name: Download release asset and compute SHA256
+        run: |
+          curl -fSL -o MauiSherpa-MacCatalyst.zip \
+            "https://github.com/Redth/MAUI.Sherpa/releases/download/v${VERSION}/MauiSherpa-MacCatalyst.zip"
+          SHA256=$(shasum -a 256 MauiSherpa-MacCatalyst.zip | awk '{print $1}')
+          echo "SHA256=$SHA256" >> $GITHUB_ENV
+
+      - name: Update cask in tap repo
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          git clone https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/Redth/homebrew-tap.git
+          cd homebrew-tap
+
+          cat > Casks/maui-sherpa.rb << CASK
+          cask "maui-sherpa" do
+            version "${VERSION}"
+            sha256 "${SHA256}"
+
+            url "https://github.com/Redth/MAUI.Sherpa/releases/download/v#{version}/MauiSherpa-MacCatalyst.zip"
+            name "MAUI Sherpa"
+            desc "Desktop app for managing .NET MAUI developer tools"
+            homepage "https://github.com/Redth/MAUI.Sherpa"
+
+            depends_on macos: ">= :ventura"
+
+            app "MAUI Sherpa.app"
+
+            zap trash: [
+              "~/.maui-sherpa",
+            ]
+          end
+          CASK
+
+          # Remove leading whitespace from heredoc
+          sed -i '' 's/^          //' Casks/maui-sherpa.rb
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Casks/maui-sherpa.rb
+          git diff --cached --quiet && echo "No changes to commit" && exit 0
+          git commit -m "Update maui-sherpa to v${VERSION}"
+          git push
