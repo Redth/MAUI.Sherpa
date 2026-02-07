@@ -505,6 +505,132 @@ public interface IAppleRootCertService
 }
 
 // ============================================================================
+// iOS/Apple Simulators
+// ============================================================================
+
+/// <summary>
+/// Represents a simulator device from xcrun simctl
+/// </summary>
+public record SimulatorDevice(
+    string Udid,
+    string Name,
+    string State,
+    bool IsAvailable,
+    string DeviceTypeIdentifier,
+    string RuntimeIdentifier,
+    string? Runtime,
+    string? ProductFamily,
+    string? LastBootedAt
+);
+
+/// <summary>
+/// Represents a simulator device type from xcrun simctl
+/// </summary>
+public record SimulatorDeviceType(
+    string Identifier,
+    string Name,
+    string ProductFamily
+);
+
+/// <summary>
+/// Represents a simulator runtime from xcrun simctl
+/// </summary>
+public record SimulatorRuntime(
+    string Identifier,
+    string Name,
+    string Version,
+    string? Platform,
+    bool IsAvailable,
+    IReadOnlyList<SimulatorDeviceType>? SupportedDeviceTypes = null
+);
+
+/// <summary>
+/// Service for managing iOS/Apple simulators via xcrun simctl
+/// </summary>
+public interface ISimulatorService
+{
+    Task<IReadOnlyList<SimulatorDevice>> GetSimulatorsAsync();
+    Task<IReadOnlyList<SimulatorDeviceType>> GetDeviceTypesAsync();
+    Task<IReadOnlyList<SimulatorRuntime>> GetRuntimesAsync();
+    Task<bool> CreateSimulatorAsync(string name, string deviceTypeId, string runtimeId, IProgress<string>? progress = null);
+    Task<bool> DeleteSimulatorAsync(string udid, IProgress<string>? progress = null);
+    Task<bool> BootSimulatorAsync(string udid, IProgress<string>? progress = null);
+    Task<bool> ShutdownSimulatorAsync(string udid, IProgress<string>? progress = null);
+    Task<bool> EraseSimulatorAsync(string udid, IProgress<string>? progress = null);
+
+    // App management
+    Task<IReadOnlyList<SimulatorApp>> GetInstalledAppsAsync(string udid);
+    Task<bool> InstallAppAsync(string udid, string appPath, IProgress<string>? progress = null);
+    Task<bool> UninstallAppAsync(string udid, string bundleId, IProgress<string>? progress = null);
+    Task<bool> LaunchAppAsync(string udid, string bundleId, IProgress<string>? progress = null);
+    Task<bool> TerminateAppAsync(string udid, string bundleId, IProgress<string>? progress = null);
+
+    // Device exploration
+    Task<bool> TakeScreenshotAsync(string udid, string outputPath, IProgress<string>? progress = null);
+    Task<string?> GetAppContainerPathAsync(string udid, string bundleId, string containerType = "data");
+    Task<bool> OpenUrlAsync(string udid, string url, IProgress<string>? progress = null);
+    string GetSimulatorDataPath(string udid);
+    Task<bool> CloneSimulatorAsync(string udid, string newName, IProgress<string>? progress = null);
+}
+
+/// <summary>
+/// Represents an installed app on a simulator
+/// </summary>
+public record SimulatorApp(
+    string BundleId,
+    string Name,
+    string? Version,
+    string ApplicationType,
+    string? DataContainerPath,
+    string? BundlePath
+);
+
+// ============================================================================
+// iOS Simulator Log Streaming
+// ============================================================================
+
+/// <summary>
+/// Log message type from iOS unified logging
+/// </summary>
+public enum SimulatorLogLevel
+{
+    Default = 0,
+    Info = 1,
+    Debug = 2,
+    Error = 3,
+    Fault = 4
+}
+
+/// <summary>
+/// A single log entry from the iOS unified logging system
+/// </summary>
+public record SimulatorLogEntry(
+    string Timestamp,
+    int ProcessId,
+    int ThreadId,
+    SimulatorLogLevel Level,
+    string ProcessName,
+    string? Subsystem,
+    string? Category,
+    string Message,
+    string RawLine
+);
+
+/// <summary>
+/// Service for streaming logs from iOS simulators via xcrun simctl spawn log stream
+/// </summary>
+public interface ISimulatorLogService : IDisposable
+{
+    bool IsRunning { get; }
+    IReadOnlyList<SimulatorLogEntry> Entries { get; }
+    Task StartAsync(string udid, CancellationToken ct = default);
+    void Stop();
+    void Clear();
+    IAsyncEnumerable<SimulatorLogEntry> StreamAsync(CancellationToken ct = default);
+    event Action? OnCleared;
+}
+
+// ============================================================================
 // Local Signing Identities - Keychain Certificate Management
 // ============================================================================
 

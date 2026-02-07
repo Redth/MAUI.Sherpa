@@ -1,0 +1,798 @@
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Core.Services
+@using MauiSherpa.Services
+@inject ISimulatorLogService LogService
+@inject ISimulatorService SimulatorService
+@inject SimLogPanelService PanelService
+@inject IAlertService AlertService
+@inject ILoggingService Logger
+@inject IJSRuntime JS
+@implements IDisposable
+
+<div class="simlog-page">
+    <div class="simlog-toolbar">
+        <div class="toolbar-left">
+            <div class="device-selector" @onclick="FocusDeviceSelect">
+                <i class="fab fa-apple device-selector-icon"></i>
+                <select class="device-select" @ref="deviceSelectRef" value="@Udid" @onchange="OnDeviceChanged">
+                    @foreach (var s in bootedSimulators)
+                    {
+                        <option value="@s.Udid" selected="@(s.Udid == Udid)">@s.Name</option>
+                    }
+                </select>
+            </div>
+            @if (LogService.IsRunning)
+            {
+                <button class="btn btn-sm btn-danger" @onclick="StopLog">
+                    <i class="fas fa-stop"></i> Stop
+                </button>
+            }
+            else
+            {
+                <button class="btn btn-sm btn-success" @onclick="StartLog">
+                    <i class="fas fa-play"></i> Start
+                </button>
+            }
+            <button class="btn btn-sm btn-secondary" @onclick="ClearLog">
+                <i class="fas fa-trash-alt"></i> Clear
+            </button>
+            <button class="btn btn-sm @(isPaused ? "btn-warning" : "btn-secondary")" @onclick="TogglePause">
+                <i class="fas @(isPaused ? "fa-play" : "fa-pause")"></i> @(isPaused ? "Resume" : "Pause")
+            </button>
+            <button class="btn btn-sm @(autoScroll ? "btn-primary" : "btn-secondary")" @onclick="ToggleAutoScroll">
+                <i class="fas fa-arrow-down"></i> Auto-scroll
+            </button>
+        </div>
+        <div class="toolbar-right">
+            @if (LogService.IsRunning)
+            {
+                <span class="streaming-dot @(isPaused ? "paused" : "")"></span>
+            }
+        </div>
+    </div>
+
+    <div class="simlog-filters">
+        <div class="filter-group">
+            <label>Level</label>
+            <select @bind="filterLevel" @bind:after="ApplyFilters">
+                <option value="">All</option>
+                <option value="Default">D - Default</option>
+                <option value="Info">I - Info</option>
+                <option value="Debug">G - Debug</option>
+                <option value="Error">E - Error</option>
+                <option value="Fault">F - Fault</option>
+            </select>
+        </div>
+        <div class="filter-group filter-grow">
+            <label>Subsystem</label>
+            <input type="text" placeholder="Filter by subsystem..." @bind="filterSubsystem" @bind:event="oninput" @bind:after="DebouncedApplyFilters" />
+        </div>
+        <div class="filter-group filter-grow">
+            <label>Process</label>
+            <input type="text" placeholder="Filter by process..." @bind="filterProcess" @bind:event="oninput" @bind:after="DebouncedApplyFilters" />
+        </div>
+        <div class="filter-group filter-grow">
+            <label>Search</label>
+            <input type="text" placeholder="Search messages..." @bind="filterText" @bind:event="oninput" @bind:after="DebouncedApplyFilters" />
+        </div>
+        @if (HasActiveFilters)
+        {
+            <button class="btn btn-sm btn-ghost" @onclick="ClearFilters">
+                <i class="fas fa-times"></i> Clear
+            </button>
+        }
+    </div>
+
+    <div class="simlog-grid-container">
+        <div class="simlog-grid">
+            <div class="grid-header">
+                <div class="col-time" style="width:@(colWidths[0])px">Time<span class="col-resizer" @onpointerdown="@(e => StartColResize(e, 0))"></span></div>
+                <div class="col-level" style="width:@(colWidths[1])px">Lvl<span class="col-resizer" @onpointerdown="@(e => StartColResize(e, 1))"></span></div>
+                <div class="col-pid" style="width:@(colWidths[2])px">PID<span class="col-resizer" @onpointerdown="@(e => StartColResize(e, 2))"></span></div>
+                <div class="col-process" style="width:@(colWidths[3])px">Process<span class="col-resizer" @onpointerdown="@(e => StartColResize(e, 3))"></span></div>
+                <div class="col-subsystem" style="width:@(colWidths[4])px">Subsystem<span class="col-resizer" @onpointerdown="@(e => StartColResize(e, 4))"></span></div>
+                <div class="col-message">Message</div>
+            </div>
+            <div class="simlog-grid-body grid-body" @ref="gridBody" @onscroll="OnScroll">
+                <div style="height:@(filteredCount * RowHeight)px;position:relative;">
+                    <div style="position:absolute;top:@(visibleStart * RowHeight)px;left:0;right:0;">
+                        @for (int i = visibleStart; i < visibleEnd; i++)
+                        {
+                            var entry = filteredEntries[i];
+                            <div class="grid-row @GetLevelClass(entry.Level)">
+                                <div class="col-time" style="width:@(colWidths[0])px">@FormatTimestamp(entry.Timestamp)</div>
+                                <div class="col-level" style="width:@(colWidths[1])px"><span class="level-badge @GetLevelBadgeClass(entry.Level)">@GetLevelChar(entry.Level)</span></div>
+                                <div class="col-pid" style="width:@(colWidths[2])px">@entry.ProcessId</div>
+                                <div class="col-process" style="width:@(colWidths[3])px" title="@entry.ProcessName">@entry.ProcessName</div>
+                                <div class="col-subsystem" style="width:@(colWidths[4])px" title="@entry.Subsystem">@entry.Subsystem</div>
+                                <div class="col-message" title="@entry.Message">@entry.Message</div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .simlog-page {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        gap: 0;
+    }
+
+    .simlog-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 6px 8px;
+        background: var(--bg-secondary);
+        border-bottom: 1px solid var(--border-color);
+        flex-shrink: 0;
+    }
+    .simlog-toolbar .toolbar-left {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+    .simlog-toolbar .toolbar-right {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .simlog-toolbar .device-selector {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        background: var(--bg-tertiary);
+        padding: 2px 8px 2px 10px;
+        border-radius: 20px;
+        border: 1px solid var(--border-color);
+        cursor: pointer;
+        transition: border-color 0.15s;
+    }
+    .simlog-toolbar .device-selector:focus-within {
+        border-color: var(--accent-primary, #4299e1);
+    }
+    .simlog-toolbar .device-selector-icon {
+        color: #a2aaad;
+        font-size: 13px;
+        flex-shrink: 0;
+        pointer-events: none;
+    }
+    .simlog-toolbar .device-select {
+        background: transparent;
+        border: none;
+        color: var(--text-primary);
+        font-size: 12px;
+        font-weight: 600;
+        font-family: 'Consolas', 'Monaco', monospace;
+        cursor: pointer;
+        outline: none;
+        padding: 2px 0;
+        max-width: 220px;
+        -webkit-appearance: none;
+        appearance: none;
+    }
+    .simlog-toolbar .device-select:focus {
+        outline: none;
+        box-shadow: none;
+    }
+    .simlog-toolbar .device-select option {
+        background: var(--bg-secondary);
+        color: var(--text-primary);
+    }
+
+    .simlog-toolbar .streaming-dot {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        background: #48bb78;
+        border-radius: 50%;
+        margin-left: 6px;
+        animation: simlog-pulse 1.5s ease-in-out infinite;
+    }
+    .simlog-toolbar .streaming-dot.paused {
+        background: #ed8936;
+        animation: none;
+    }
+
+    @@keyframes simlog-pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.3; }
+    }
+
+    /* Filter bar */
+    .simlog-filters {
+        display: flex;
+        align-items: flex-end;
+        gap: 8px;
+        padding: 5px 8px;
+        background: var(--bg-secondary);
+        border-bottom: 1px solid var(--border-color);
+        flex-shrink: 0;
+    }
+    .simlog-filters .filter-group {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+    .simlog-filters .filter-group label {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: var(--text-muted);
+        font-weight: 600;
+    }
+    .simlog-filters .filter-grow { flex: 1; }
+    .simlog-filters .filter-group input, .simlog-filters .filter-group select {
+        background: var(--bg-tertiary);
+        border: 1px solid var(--border-color);
+        color: var(--text-primary);
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        font-family: 'Consolas', 'Monaco', monospace;
+    }
+    .simlog-filters .filter-group input:focus, .simlog-filters .filter-group select:focus {
+        outline: none;
+        border-color: var(--accent-primary);
+    }
+
+    /* Grid */
+    .simlog-grid-container {
+        flex: 1;
+        overflow: hidden;
+        background: var(--bg-primary, #1a1a2e);
+    }
+    .simlog-grid {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+        font-size: 12px;
+    }
+    .simlog-grid .grid-header {
+        display: flex;
+        padding: 4px 0;
+        background: var(--bg-tertiary);
+        border-bottom: 2px solid var(--border-color);
+        font-weight: 700;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: var(--text-secondary);
+        flex-shrink: 0;
+    }
+    .simlog-grid .grid-header > div {
+        position: relative;
+        padding: 0 6px;
+        flex-shrink: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .simlog-grid .grid-header > .col-message { flex: 1; flex-shrink: 1; }
+    .simlog-grid .col-resizer {
+        position: absolute;
+        top: 0;
+        right: -3px;
+        width: 7px;
+        height: 100%;
+        cursor: col-resize;
+        z-index: 5;
+    }
+    .simlog-grid .col-resizer:hover, .simlog-grid .col-resizer:active {
+        background: var(--accent-primary, #4299e1);
+        opacity: 0.4;
+        border-radius: 2px;
+    }
+    .simlog-grid-body {
+        flex: 1;
+        overflow-y: auto;
+        overflow-x: hidden;
+    }
+    .simlog-grid .grid-row {
+        display: flex;
+        height: 22px;
+        line-height: 22px;
+        box-sizing: border-box;
+    }
+    .simlog-grid .grid-row > div {
+        padding: 0 6px;
+        flex-shrink: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .simlog-grid .grid-row > .col-message { flex: 1; flex-shrink: 1; }
+    .simlog-grid .grid-row:hover {
+        background: rgba(255,255,255,0.05) !important;
+    }
+
+    /* Column colors */
+    .simlog-grid .col-time { color: var(--text-muted); }
+    .simlog-grid .col-level { text-align: center; }
+    .simlog-grid .col-pid { color: var(--text-secondary); }
+    .simlog-grid .col-process { color: var(--text-primary); font-weight: 500; }
+    .simlog-grid .col-subsystem { color: var(--text-secondary); }
+    .simlog-grid .col-message { color: var(--text-primary); }
+
+    /* Level badges */
+    .simlog-grid .level-badge {
+        display: inline-block;
+        width: 20px;
+        height: 18px;
+        line-height: 18px;
+        text-align: center;
+        border-radius: 3px;
+        font-weight: 700;
+        font-size: 11px;
+    }
+    .simlog-grid .level-default { background: #4a5568; color: #a0aec0; }
+    .simlog-grid .level-info { background: #276749; color: #c6f6d5; }
+    .simlog-grid .level-debug { background: #2b6cb0; color: #bee3f8; }
+    .simlog-grid .level-error { background: #9b2c2c; color: #fed7d7; }
+    .simlog-grid .level-fault { background: #702459; color: #fed7e2; }
+
+    /* Row level tinting */
+    .simlog-grid .row-default { }
+    .simlog-grid .row-info { }
+    .simlog-grid .row-debug { }
+    .simlog-grid .row-error { background: rgba(245, 101, 101, 0.10); }
+    .simlog-grid .row-fault { background: rgba(183, 62, 137, 0.12); }
+
+    /* Buttons */
+    .simlog-page .btn { padding: 6px 14px; border: none; border-radius: 5px; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; transition: all 0.15s; }
+    .simlog-page .btn i { font-size: 11px; }
+    .simlog-page .btn-sm { padding: 4px 8px; font-size: 11px; }
+    .simlog-page .btn-primary { background: var(--accent-primary); color: white; }
+    .simlog-page .btn-secondary { background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border-color); }
+    .simlog-page .btn-success { background: #48bb78; color: white; }
+    .simlog-page .btn-danger { background: #f56565; color: white; }
+    .simlog-page .btn-warning { background: #ed8936; color: white; }
+    .simlog-page .btn-ghost { background: transparent; color: var(--text-muted); }
+    .simlog-page .btn:hover:not(:disabled) { filter: brightness(1.1); }
+    .simlog-page .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+</style>
+
+@code {
+    [Parameter] public string Udid { get; set; } = "";
+
+    private ElementReference gridBody;
+    private ElementReference deviceSelectRef;
+    private List<SimulatorDevice> bootedSimulators = new();
+
+    private List<SimulatorLogEntry> filteredEntries = new();
+    private int filteredCount;
+    private int totalCount;
+    private bool isPaused;
+    private bool autoScroll = true;
+
+    // Virtualization
+    private const int RowHeight = 22;
+    private const int OverscanRows = 10;
+    private int visibleStart;
+    private int visibleEnd;
+    private double scrollTop;
+    private double viewportHeight;
+
+    // Column widths (px) — Time, Lvl, PID, Process, Subsystem; Message is 1fr
+    private double[] colWidths = [90, 36, 56, 120, 160];
+    private const int ColCount = 5; // resizable columns (Message excluded)
+
+    // Column resize state
+    private bool isColResizing;
+    private int resizeColIndex;
+    private double colResizeStartX;
+    private double colResizeStartWidth;
+    private DotNetObjectReference<SimLogContent>? colResizeSelfRef;
+
+    // Filters
+    private string filterLevel = "";
+    private string filterSubsystem = "";
+    private string filterProcess = "";
+    private string filterText = "";
+
+    private bool HasActiveFilters => !string.IsNullOrEmpty(filterLevel) || !string.IsNullOrEmpty(filterSubsystem)
+        || !string.IsNullOrEmpty(filterProcess) || !string.IsNullOrEmpty(filterText);
+
+    // Stream
+    private CancellationTokenSource? _streamCts;
+    private CancellationTokenSource? _filterDebounce;
+
+    protected override async Task OnInitializedAsync()
+    {
+        LogService.OnCleared += OnLogCleared;
+        PanelService.DeviceChanged += OnDeviceSwitched;
+        await RefreshBootedSimulators();
+        if (bootedSimulators.Count == 0 && !string.IsNullOrEmpty(Udid))
+            bootedSimulators = new() { new SimulatorDevice(Udid, Udid, "Booted", true, "", "", null, null, null) };
+        await StartLog();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            colResizeSelfRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("eval", @"
+                window.__simlogColResize = {
+                    onMove: null, onUp: null,
+                    start: function(dotnetRef) {
+                        this.onMove = (e) => { e.preventDefault(); dotnetRef.invokeMethodAsync('OnColResizeMoveJS', e.clientX); };
+                        this.onUp = () => { dotnetRef.invokeMethodAsync('OnColResizeUpJS'); window.__simlogColResize.stop(); };
+                        document.addEventListener('pointermove', this.onMove);
+                        document.addEventListener('pointerup', this.onUp);
+                    },
+                    stop: function() {
+                        if (this.onMove) document.removeEventListener('pointermove', this.onMove);
+                        if (this.onUp) document.removeEventListener('pointerup', this.onUp);
+                        this.onMove = null; this.onUp = null;
+                    }
+                };
+            ");
+            await UpdateViewportHeight();
+        }
+    }
+
+    private async Task RefreshBootedSimulators()
+    {
+        try
+        {
+            var allSims = await SimulatorService.GetSimulatorsAsync();
+            bootedSimulators = allSims.Where(s => s.State == "Booted").ToList();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError($"Failed to get simulators: {ex.Message}", ex);
+        }
+    }
+
+    private async Task UpdateViewportHeight()
+    {
+        try
+        {
+            viewportHeight = await JS.InvokeAsync<double>("eval", "(function(){ var el = document.querySelector('.simlog-grid-body'); return el ? el.clientHeight : 400; })()");
+            RecalcVisibleRange();
+        }
+        catch { viewportHeight = 400; }
+    }
+
+    private void RecalcVisibleRange()
+    {
+        var count = filteredCount;
+        if (count == 0)
+        {
+            visibleStart = 0;
+            visibleEnd = 0;
+            return;
+        }
+
+        int firstVisible = Math.Max(0, (int)(scrollTop / RowHeight) - OverscanRows);
+        int visibleRows = (int)Math.Ceiling(viewportHeight / RowHeight) + OverscanRows * 2;
+        visibleStart = firstVisible;
+        visibleEnd = Math.Min(count, firstVisible + visibleRows);
+    }
+
+    private void OnScroll(EventArgs e)
+    {
+        _ = InvokeAsync(async () =>
+        {
+            try
+            {
+                var dims = await JS.InvokeAsync<double[]>("eval", "(function(){ var el = document.querySelector('.simlog-grid-body'); return el ? [el.scrollTop, el.clientHeight] : [0, 400]; })()");
+                scrollTop = dims[0];
+                if (dims[1] > 0) viewportHeight = dims[1];
+                var maxScroll = filteredCount * RowHeight - viewportHeight;
+                if (maxScroll > 0 && scrollTop < maxScroll - RowHeight * 2)
+                    autoScroll = false;
+                RecalcVisibleRange();
+                StateHasChanged();
+            }
+            catch { }
+        });
+    }
+
+    private async Task StartLog()
+    {
+        try
+        {
+            _streamCts?.Cancel();
+            _streamCts = new CancellationTokenSource();
+            await LogService.StartAsync(Udid);
+            _ = ConsumeStreamAsync(_streamCts.Token);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError($"Failed to start simulator log: {ex.Message}", ex);
+            await AlertService.ShowAlertAsync("Error", $"Failed to start simulator log: {ex.Message}");
+        }
+    }
+
+    private async Task ConsumeStreamAsync(CancellationToken ct)
+    {
+        const int batchIntervalMs = 150;
+        var lastFlush = Environment.TickCount64;
+        var viewportChecked = false;
+
+        try
+        {
+            await foreach (var entry in LogService.StreamAsync(ct))
+            {
+                if (isPaused)
+                {
+                    continue;
+                }
+
+                var now = Environment.TickCount64;
+                if (now - lastFlush >= batchIntervalMs)
+                {
+                    lastFlush = now;
+
+                    if (!viewportChecked || viewportHeight <= 400)
+                    {
+                        await UpdateViewportHeight();
+                        if (viewportHeight > 400) viewportChecked = true;
+                    }
+
+                    await InvokeAsync(() =>
+                    {
+                        ApplyFilters();
+                        if (autoScroll)
+                            ScrollToBottom();
+                        StateHasChanged();
+                    });
+                }
+            }
+        }
+        catch (OperationCanceledException) { }
+
+        // Final flush
+        await InvokeAsync(() =>
+        {
+            ApplyFilters();
+            StateHasChanged();
+        });
+    }
+
+    private void StopLog()
+    {
+        _streamCts?.Cancel();
+        LogService.Stop();
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void ClearLog()
+    {
+        LogService.Clear();
+    }
+
+    private void TogglePause()
+    {
+        isPaused = !isPaused;
+        if (!isPaused)
+        {
+            ApplyFilters();
+            ScrollToBottom();
+            StateHasChanged();
+        }
+    }
+
+    private void ToggleAutoScroll()
+    {
+        autoScroll = !autoScroll;
+        if (autoScroll)
+            ScrollToBottom();
+    }
+
+    private void OnLogCleared()
+    {
+        InvokeAsync(() =>
+        {
+            filteredEntries.Clear();
+            filteredCount = 0;
+            totalCount = 0;
+            scrollTop = 0;
+            RecalcVisibleRange();
+            StateHasChanged();
+        });
+    }
+
+    private void ScrollToBottom()
+    {
+        scrollTop = Math.Max(0, filteredCount * RowHeight - viewportHeight);
+        RecalcVisibleRange();
+        _ = InvokeAsync(async () =>
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("eval", "(function(){ var el = document.querySelector('.simlog-grid-body'); if(el) el.scrollTop = el.scrollHeight; })()");
+            }
+            catch { }
+        });
+    }
+
+    private void ApplyFilters()
+    {
+        var entries = LogService.Entries;
+        totalCount = entries.Count;
+
+        SimulatorLogLevel? minLevel = filterLevel switch
+        {
+            "Default" => SimulatorLogLevel.Default,
+            "Info" => SimulatorLogLevel.Info,
+            "Debug" => SimulatorLogLevel.Debug,
+            "Error" => SimulatorLogLevel.Error,
+            "Fault" => SimulatorLogLevel.Fault,
+            _ => null
+        };
+
+        var subsystemFilter = filterSubsystem?.Trim();
+        var processFilter = filterProcess?.Trim();
+        var textFilter = filterText?.Trim();
+
+        IEnumerable<SimulatorLogEntry> query = entries;
+
+        if (minLevel.HasValue)
+            query = query.Where(e => e.Level >= minLevel.Value);
+        if (!string.IsNullOrEmpty(subsystemFilter))
+            query = query.Where(e => e.Subsystem?.Contains(subsystemFilter, StringComparison.OrdinalIgnoreCase) == true);
+        if (!string.IsNullOrEmpty(processFilter))
+            query = query.Where(e => e.ProcessName.Contains(processFilter, StringComparison.OrdinalIgnoreCase));
+        if (!string.IsNullOrEmpty(textFilter))
+            query = query.Where(e => e.Message.Contains(textFilter, StringComparison.OrdinalIgnoreCase)
+                || e.ProcessName.Contains(textFilter, StringComparison.OrdinalIgnoreCase)
+                || (e.Subsystem?.Contains(textFilter, StringComparison.OrdinalIgnoreCase) == true));
+
+        filteredEntries = query.ToList();
+        filteredCount = filteredEntries.Count;
+        RecalcVisibleRange();
+    }
+
+    private async Task DebouncedApplyFilters()
+    {
+        _filterDebounce?.Cancel();
+        _filterDebounce = new CancellationTokenSource();
+        var token = _filterDebounce.Token;
+
+        try
+        {
+            await Task.Delay(300, token);
+            ApplyFilters();
+            StateHasChanged();
+        }
+        catch (TaskCanceledException) { }
+    }
+
+    private void ClearFilters()
+    {
+        filterLevel = "";
+        filterSubsystem = "";
+        filterProcess = "";
+        filterText = "";
+        ApplyFilters();
+    }
+
+    private static string GetLevelChar(SimulatorLogLevel level) => level switch
+    {
+        SimulatorLogLevel.Default => "D",
+        SimulatorLogLevel.Info => "I",
+        SimulatorLogLevel.Debug => "G",
+        SimulatorLogLevel.Error => "E",
+        SimulatorLogLevel.Fault => "F",
+        _ => "?"
+    };
+
+    private static string GetLevelBadgeClass(SimulatorLogLevel level) => level switch
+    {
+        SimulatorLogLevel.Default => "level-default",
+        SimulatorLogLevel.Info => "level-info",
+        SimulatorLogLevel.Debug => "level-debug",
+        SimulatorLogLevel.Error => "level-error",
+        SimulatorLogLevel.Fault => "level-fault",
+        _ => "level-default"
+    };
+
+    private static string GetLevelClass(SimulatorLogLevel level) => level switch
+    {
+        SimulatorLogLevel.Default => "row-default",
+        SimulatorLogLevel.Info => "row-info",
+        SimulatorLogLevel.Debug => "row-debug",
+        SimulatorLogLevel.Error => "row-error",
+        SimulatorLogLevel.Fault => "row-fault",
+        _ => ""
+    };
+
+    // Timestamp: "2026-02-07 13:15:16.048162-0500" → "13:15:16.048"
+    private static string FormatTimestamp(string ts)
+    {
+        // Find the space between date and time
+        var spaceIdx = ts.IndexOf(' ');
+        if (spaceIdx < 0) return ts;
+        var timePart = ts[(spaceIdx + 1)..];
+        // Take HH:MM:SS.mmm (12 chars) — truncate microseconds and timezone
+        return timePart.Length >= 12 ? timePart[..12] : timePart;
+    }
+
+    // Column resize
+    private async void StartColResize(PointerEventArgs e, int colIndex)
+    {
+        isColResizing = true;
+        resizeColIndex = colIndex;
+        colResizeStartX = e.ClientX;
+        colResizeStartWidth = colWidths[colIndex];
+        if (colResizeSelfRef != null)
+            await JS.InvokeVoidAsync("window.__simlogColResize.start", colResizeSelfRef);
+    }
+
+    [JSInvokable]
+    public void OnColResizeMoveJS(double clientX)
+    {
+        if (!isColResizing) return;
+        var delta = clientX - colResizeStartX;
+        var newWidth = Math.Max(24, colResizeStartWidth + delta);
+        colWidths[resizeColIndex] = newWidth;
+        InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public void OnColResizeUpJS()
+    {
+        isColResizing = false;
+        InvokeAsync(StateHasChanged);
+    }
+
+    // Simulator selector
+    private async Task FocusDeviceSelect()
+    {
+        await JS.InvokeVoidAsync("eval", "(function(){ var el = document.querySelector('.simlog-toolbar .device-select'); if(el){ el.blur(); el.focus(); el.click(); } })()");
+    }
+
+    private async Task OnDeviceChanged(ChangeEventArgs e)
+    {
+        var newUdid = e.Value?.ToString();
+        if (string.IsNullOrEmpty(newUdid) || newUdid == Udid) return;
+        PanelService.SwitchDevice(newUdid, bootedSimulators.FirstOrDefault(s => s.Udid == newUdid)?.Name);
+    }
+
+    private void OnDeviceSwitched(string newUdid)
+    {
+        _ = InvokeAsync(async () =>
+        {
+            // Stop current stream and clean up
+            _streamCts?.Cancel();
+            LogService.Stop();
+            LogService.Clear();
+
+            // Reset UI state
+            Udid = newUdid;
+            filteredEntries.Clear();
+            filteredCount = 0;
+            totalCount = 0;
+            scrollTop = 0;
+            isPaused = false;
+            autoScroll = true;
+            RecalcVisibleRange();
+            StateHasChanged();
+
+            // Refresh simulator list and start new stream
+            await RefreshBootedSimulators();
+            await StartLog();
+        });
+    }
+
+    public void Dispose()
+    {
+        _streamCts?.Cancel();
+        _streamCts?.Dispose();
+        LogService.OnCleared -= OnLogCleared;
+        PanelService.DeviceChanged -= OnDeviceSwitched;
+        _filterDebounce?.Dispose();
+        colResizeSelfRef?.Dispose();
+        LogService.Stop();
+    }
+}

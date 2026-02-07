@@ -78,6 +78,9 @@ public static class MauiProgram
         builder.Services.AddSingleton<IAppleConnectService, AppleConnectService>();
         builder.Services.AddSingleton<IAppleRootCertService, AppleRootCertService>();
         builder.Services.AddSingleton<ILocalCertificateService, LocalCertificateService>();
+        builder.Services.AddSingleton<ISimulatorService, MauiSherpa.Core.Services.SimulatorService>();
+        builder.Services.AddSingleton<ISimulatorLogService, SimulatorLogService>();
+        builder.Services.AddSingleton<SimLogPanelService>();
         
         // Cloud Secrets Storage services
         builder.Services.AddSingleton<ICloudSecretsProviderFactory, CloudSecretsProviderFactory>();
@@ -134,6 +137,10 @@ public static class MauiProgram
         builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Publisher.ListPublisherRepositoriesHandler>();
         builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Apple.TrackBundleIdUsageHandler>();
         builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Apple.GetRecentBundleIdsHandler>();
+        builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Apple.GetSimulatorsHandler>();
+        builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Apple.GetSimulatorDeviceTypesHandler>();
+        builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Apple.GetSimulatorRuntimesHandler>();
+        builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Apple.GetSimulatorAppsHandler>();
 
 #if DEBUG
         builder.Services.AddBlazorWebViewDeveloperTools();

@@ -1,0 +1,452 @@
+@using MauiSherpa.Services
+@inject SimLogPanelService PanelService
+@inject IJSRuntime JS
+@implements IDisposable
+
+@if (PanelService.IsOpen)
+{
+    @if (PanelService.IsMinimized)
+    {
+        <div class="simlog-collapsed" @onclick="PanelService.Restore">
+            <i class="fab fa-apple collapsed-icon"></i>
+            <span class="collapsed-label">iOS Logs</span>
+            <span class="collapsed-serial">@PanelService.ActiveSimName</span>
+            <i class="fas fa-chevron-up collapsed-expand"></i>
+        </div>
+    }
+    else
+    {
+        <div class="simlog-dialog @(isMaximized ? "maximized" : "")" @ref="dialogRef"
+             style="left:@(posX)px;top:@(posY)px;width:@(width)px;height:@(height)px;">
+            @if (!isMaximized)
+            {
+                <!-- Resize handles -->
+                <div class="resize-handle resize-n" @onpointerdown="@(e => StartResize(e, ResizeEdge.N))"></div>
+                <div class="resize-handle resize-s" @onpointerdown="@(e => StartResize(e, ResizeEdge.S))"></div>
+                <div class="resize-handle resize-e" @onpointerdown="@(e => StartResize(e, ResizeEdge.E))"></div>
+                <div class="resize-handle resize-w" @onpointerdown="@(e => StartResize(e, ResizeEdge.W))"></div>
+                <div class="resize-handle resize-ne" @onpointerdown="@(e => StartResize(e, ResizeEdge.NE))"></div>
+                <div class="resize-handle resize-nw" @onpointerdown="@(e => StartResize(e, ResizeEdge.NW))"></div>
+                <div class="resize-handle resize-se" @onpointerdown="@(e => StartResize(e, ResizeEdge.SE))"></div>
+                <div class="resize-handle resize-sw" @onpointerdown="@(e => StartResize(e, ResizeEdge.SW))"></div>
+            }
+
+            <div class="dialog-titlebar" @onpointerdown="StartDrag">
+                <div class="dialog-title">
+                    <i class="fab fa-apple title-apple-icon"></i>
+                    <span class="title-text">iOS Logs</span>
+                </div>
+                <div class="dialog-actions" @onpointerdown:stopPropagation="true">
+                    <button class="dialog-btn" @onclick="PanelService.Minimize" @onclick:stopPropagation="true" title="Minimize">
+                        <i class="fas fa-minus"></i>
+                    </button>
+                    <button class="dialog-btn" @onclick="ToggleMaximize" @onclick:stopPropagation="true" title="@(isMaximized ? "Restore" : "Maximize")">
+                        <i class="fas @(isMaximized ? "fa-compress" : "fa-expand")"></i>
+                    </button>
+                    <button class="dialog-btn dialog-btn-close" @onclick="OnClose" @onclick:stopPropagation="true" title="Close">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="dialog-body">
+                <SimLogContent Udid="@(PanelService.ActiveUdid!)" />
+            </div>
+        </div>
+    }
+}
+
+<style>
+    /* ── Floating dialog ── */
+    .simlog-dialog {
+        position: fixed;
+        min-width: 520px;
+        min-height: 300px;
+        background: var(--bg-secondary, #ffffff);
+        border: 1px solid var(--border-color, #e2e8f0);
+        border-radius: 10px;
+        display: flex;
+        flex-direction: column;
+        z-index: 10002;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.18), 0 2px 8px rgba(0,0,0,0.08);
+        animation: simlogDialogIn 0.2s ease-out;
+    }
+
+    .simlog-dialog.maximized {
+        border-radius: 0;
+        box-shadow: none;
+    }
+    .simlog-dialog.maximized .dialog-titlebar {
+        border-radius: 0;
+    }
+    .simlog-dialog.maximized .dialog-body {
+        border-radius: 0;
+    }
+
+    @@keyframes simlogDialogIn {
+        from { opacity: 0; transform: scale(0.95) translateY(12px); }
+        to   { opacity: 1; transform: scale(1) translateY(0); }
+    }
+
+    /* ── Titlebar ── */
+    .simlog-dialog .dialog-titlebar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 7px 10px 7px 14px;
+        background: var(--bg-tertiary, #edf2f7);
+        border-bottom: 1px solid var(--border-color, #e2e8f0);
+        flex-shrink: 0;
+        cursor: grab;
+        user-select: none;
+        border-radius: 10px 10px 0 0;
+        overflow: hidden;
+    }
+    .simlog-dialog .dialog-titlebar:active { cursor: grabbing; }
+
+    .simlog-dialog .dialog-title {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text-primary);
+        overflow: hidden;
+    }
+    .title-apple-icon {
+        color: var(--text-secondary);
+        font-size: 15px;
+        flex-shrink: 0;
+    }
+    .simlog-dialog .title-text {
+        flex-shrink: 0;
+    }
+
+    .simlog-dialog .dialog-actions {
+        display: flex;
+        gap: 2px;
+        flex-shrink: 0;
+    }
+    .simlog-dialog .dialog-btn {
+        background: none;
+        border: none;
+        color: var(--text-secondary);
+        cursor: pointer;
+        padding: 4px 8px;
+        border-radius: 5px;
+        font-size: 12px;
+        transition: all 0.12s;
+        line-height: 1;
+    }
+    .simlog-dialog .dialog-btn:hover {
+        background: var(--bg-secondary);
+        color: var(--text-primary);
+    }
+    .simlog-dialog .dialog-btn-close:hover {
+        background: #f56565;
+        color: white;
+    }
+
+    /* ── Body ── */
+    .simlog-dialog .dialog-body {
+        flex: 1;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        padding: 0 !important;
+        border-radius: 0 0 10px 10px;
+    }
+    .simlog-dialog .dialog-body .simlog-page {
+        height: 100% !important;
+    }
+
+    /* ── Resize handles ── */
+    .simlog-dialog .resize-handle { position: absolute; z-index: 10; touch-action: none; }
+    .simlog-dialog .resize-handle:hover { background: var(--accent-primary, #4299e1); opacity: 0.35; }
+    .simlog-dialog .resize-n  { top: 0;     left: 14px;  right: 14px; height: 5px; cursor: n-resize; }
+    .simlog-dialog .resize-s  { bottom: 0;  left: 14px;  right: 14px; height: 5px; cursor: s-resize; }
+    .simlog-dialog .resize-e  { top: 14px;  right: 0;    bottom: 14px; width: 5px; cursor: e-resize; }
+    .simlog-dialog .resize-w  { top: 14px;  left: 0;     bottom: 14px; width: 5px; cursor: w-resize; }
+    .simlog-dialog .resize-ne { top: 0;     right: 0;    width: 14px; height: 14px; cursor: ne-resize; }
+    .simlog-dialog .resize-nw { top: 0;     left: 0;     width: 14px; height: 14px; cursor: nw-resize; }
+    .simlog-dialog .resize-se { bottom: 0;  right: 0;    width: 14px; height: 14px; cursor: se-resize; }
+    .simlog-dialog .resize-sw { bottom: 0;  left: 0;     width: 14px; height: 14px; cursor: sw-resize; }
+    .simlog-dialog .resize-se::after {
+        content: '';
+        position: absolute;
+        bottom: 3px;
+        right: 3px;
+        width: 8px;
+        height: 8px;
+        border-right: 2px solid var(--text-muted, #888);
+        border-bottom: 2px solid var(--text-muted, #888);
+        opacity: 0.5;
+    }
+
+    /* ── Collapsed bar ── */
+    .simlog-collapsed {
+        position: fixed;
+        bottom: 0;
+        left: 250px; /* sidebar width */
+        right: 0;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        background: var(--bg-tertiary, #edf2f7);
+        border-top: 1px solid var(--border-color, #e2e8f0);
+        padding: 6px 16px;
+        cursor: pointer;
+        z-index: 10002;
+        user-select: none;
+        transition: background 0.15s;
+    }
+    .simlog-collapsed:hover {
+        background: var(--bg-secondary, #ffffff);
+    }
+    .collapsed-icon {
+        color: var(--text-secondary);
+        font-size: 15px;
+    }
+    .collapsed-label {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text-primary);
+    }
+    .collapsed-serial {
+        font-family: 'Consolas', 'Monaco', monospace;
+        font-size: 12px;
+        color: var(--text-muted);
+        flex: 1;
+    }
+    .collapsed-expand {
+        color: var(--text-secondary);
+        font-size: 11px;
+        transition: transform 0.15s;
+    }
+    .simlog-collapsed:hover .collapsed-expand {
+        transform: translateY(-2px);
+        color: var(--accent-primary);
+    }
+</style>
+
+@code {
+    private ElementReference dialogRef;
+
+    // Position & size
+    private double posX = 280;
+    private double posY = 120;
+    private double width = 800;
+    private double height = 480;
+
+    private const double MinWidth = 520;
+    private const double MinHeight = 300;
+
+    // Maximize state
+    private bool isMaximized;
+    private double restorePosX, restorePosY, restoreWidth, restoreHeight;
+    private const double SidebarWidth = 250;
+
+    // Drag state
+    private bool isDragging;
+    private double dragStartMouseX, dragStartMouseY;
+    private double dragStartPosX, dragStartPosY;
+
+    // Resize state
+    private bool isResizing;
+    private ResizeEdge resizeEdge;
+    private double resizeStartMouseX, resizeStartMouseY;
+    private double resizeStartX, resizeStartY, resizeStartW, resizeStartH;
+
+    private DotNetObjectReference<SimLogPanel>? selfRef;
+
+    private enum ResizeEdge { N, S, E, W, NE, NW, SE, SW }
+
+    protected override void OnInitialized()
+    {
+        PanelService.StateChanged += OnStateChanged;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            selfRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("eval", @"
+                window.__simlogDrag = {
+                    ref: null,
+                    onMove: null,
+                    onUp: null,
+                    start: function(dotnetRef) {
+                        this.ref = dotnetRef;
+                        this.onMove = (e) => { e.preventDefault(); dotnetRef.invokeMethodAsync('OnPointerMoveJS', e.clientX, e.clientY); };
+                        this.onUp = (e) => { dotnetRef.invokeMethodAsync('OnPointerUpJS'); window.__simlogDrag.stop(); };
+                        document.addEventListener('pointermove', this.onMove);
+                        document.addEventListener('pointerup', this.onUp);
+                    },
+                    stop: function() {
+                        if (this.onMove) document.removeEventListener('pointermove', this.onMove);
+                        if (this.onUp) document.removeEventListener('pointerup', this.onUp);
+                        this.onMove = null; this.onUp = null;
+                    }
+                };
+            ");
+        }
+    }
+
+    private async void StartDrag(PointerEventArgs e)
+    {
+        if (isMaximized)
+        {
+            posX = e.ClientX - restoreWidth / 2;
+            posY = e.ClientY - 15;
+            width = restoreWidth;
+            height = restoreHeight;
+            isMaximized = false;
+        }
+        isDragging = true;
+        isResizing = false;
+        dragStartMouseX = e.ClientX;
+        dragStartMouseY = e.ClientY;
+        dragStartPosX = posX;
+        dragStartPosY = posY;
+        if (selfRef != null)
+            await JS.InvokeVoidAsync("window.__simlogDrag.start", selfRef);
+    }
+
+    private async void StartResize(PointerEventArgs e, ResizeEdge edge)
+    {
+        isResizing = true;
+        isDragging = false;
+        resizeEdge = edge;
+        resizeStartMouseX = e.ClientX;
+        resizeStartMouseY = e.ClientY;
+        resizeStartX = posX;
+        resizeStartY = posY;
+        resizeStartW = width;
+        resizeStartH = height;
+        if (selfRef != null)
+            await JS.InvokeVoidAsync("window.__simlogDrag.start", selfRef);
+    }
+
+    [JSInvokable]
+    public void OnPointerMoveJS(double clientX, double clientY)
+    {
+        if (isDragging)
+        {
+            posX = dragStartPosX + (clientX - dragStartMouseX);
+            posY = dragStartPosY + (clientY - dragStartMouseY);
+            posX = Math.Max(-width + 100, posX);
+            posY = Math.Max(0, posY);
+            InvokeAsync(StateHasChanged);
+        }
+        else if (isResizing)
+        {
+            double dx = clientX - resizeStartMouseX;
+            double dy = clientY - resizeStartMouseY;
+            ApplyResize(dx, dy);
+            InvokeAsync(StateHasChanged);
+        }
+    }
+
+    [JSInvokable]
+    public void OnPointerUpJS()
+    {
+        isDragging = false;
+        isResizing = false;
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void ApplyResize(double dx, double dy)
+    {
+        switch (resizeEdge)
+        {
+            case ResizeEdge.SE:
+                width = Math.Max(MinWidth, resizeStartW + dx);
+                height = Math.Max(MinHeight, resizeStartH + dy);
+                break;
+            case ResizeEdge.S:
+                height = Math.Max(MinHeight, resizeStartH + dy);
+                break;
+            case ResizeEdge.E:
+                width = Math.Max(MinWidth, resizeStartW + dx);
+                break;
+            case ResizeEdge.NE:
+                width = Math.Max(MinWidth, resizeStartW + dx);
+                var newH_ne = resizeStartH - dy;
+                if (newH_ne >= MinHeight) { height = newH_ne; posY = resizeStartY + dy; }
+                break;
+            case ResizeEdge.N:
+                var newH_n = resizeStartH - dy;
+                if (newH_n >= MinHeight) { height = newH_n; posY = resizeStartY + dy; }
+                break;
+            case ResizeEdge.NW:
+                var newW_nw = resizeStartW - dx;
+                var newH_nw = resizeStartH - dy;
+                if (newW_nw >= MinWidth) { width = newW_nw; posX = resizeStartX + dx; }
+                if (newH_nw >= MinHeight) { height = newH_nw; posY = resizeStartY + dy; }
+                break;
+            case ResizeEdge.W:
+                var newW_w = resizeStartW - dx;
+                if (newW_w >= MinWidth) { width = newW_w; posX = resizeStartX + dx; }
+                break;
+            case ResizeEdge.SW:
+                var newW_sw = resizeStartW - dx;
+                if (newW_sw >= MinWidth) { width = newW_sw; posX = resizeStartX + dx; }
+                height = Math.Max(MinHeight, resizeStartH + dy);
+                break;
+        }
+    }
+
+    private void OnClose()
+    {
+        isMaximized = false;
+        PanelService.Close();
+    }
+
+    private async Task ToggleMaximize()
+    {
+        if (isMaximized)
+        {
+            posX = restorePosX;
+            posY = restorePosY;
+            width = restoreWidth;
+            height = restoreHeight;
+            isMaximized = false;
+        }
+        else
+        {
+            restorePosX = posX;
+            restorePosY = posY;
+            restoreWidth = width;
+            restoreHeight = height;
+
+            try
+            {
+                var vpWidth = await JS.InvokeAsync<double>("eval", "window.innerWidth");
+                var vpHeight = await JS.InvokeAsync<double>("eval", "window.innerHeight");
+                posX = SidebarWidth;
+                posY = 0;
+                width = vpWidth - SidebarWidth;
+                height = vpHeight;
+            }
+            catch
+            {
+                posX = SidebarWidth;
+                posY = 0;
+                width = 1200;
+                height = 800;
+            }
+            isMaximized = true;
+        }
+    }
+
+    private void OnStateChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        PanelService.StateChanged -= OnStateChanged;
+        selfRef?.Dispose();
+    }
+}
