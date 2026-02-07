@@ -158,31 +158,32 @@
                         </div>
                     </div>
                     <div class="profile-actions">
-                        <button class="btn btn-secondary btn-sm" @onclick="@(() => ShowEditDialog(profile))" disabled="@isLoading" title="Edit profile certificates and devices">
-                            <i class="fas fa-edit"></i> Edit
+                        <button class="btn btn-secondary btn-icon" @onclick="@(() => ShowEditDialog(profile))" disabled="@isLoading" title="Edit">
+                            <i class="fas fa-edit"></i>
                         </button>
-                        <div class="btn-group">
-                            <button class="btn btn-secondary btn-sm" @onclick="@(() => DownloadProfile(profile))" disabled="@isLoading" title="Download to Downloads folder">
-                                <i class="fas fa-download"></i> Download
-                            </button>
-                            <button class="btn btn-secondary btn-sm btn-dropdown" @onclick="@(() => ToggleDropdown(profile.Id))">
-                                ▼
+                        <button class="btn btn-secondary btn-icon" @onclick="@(() => DownloadProfile(profile))" disabled="@isLoading" title="Download">
+                            <i class="fas fa-download"></i>
+                        </button>
+                        <div class="prof-dropdown">
+                            <button class="btn btn-secondary btn-icon prof-dropdown-toggle" @onclick="@(() => ToggleDropdown(profile.Id))" @onclick:stopPropagation="true" title="More actions">
+                                <i class="fas fa-ellipsis-v"></i>
                             </button>
                             @if (openDropdown == profile.Id)
                             {
-                                <div class="dropdown-menu">
-                                    <button class="dropdown-item" @onclick="@(() => DownloadProfileTo(profile))">
+                                <div class="prof-dropdown-menu">
+                                    <button class="prof-dropdown-item" @onclick="@(() => { openDropdown = null; DownloadProfileTo(profile); })">
                                         <i class="fas fa-folder-open"></i> Download to...
                                     </button>
-                                    <button class="dropdown-item" @onclick="@(() => InstallProfile(profile))">
+                                    <button class="prof-dropdown-item" @onclick="@(() => { openDropdown = null; InstallProfile(profile); })">
                                         <i class="fas fa-folder-plus"></i> Install to System
+                                    </button>
+                                    <div class="prof-dropdown-divider"></div>
+                                    <button class="prof-dropdown-item danger" @onclick="@(() => { openDropdown = null; DeleteProfile(profile); })" disabled="@isLoading">
+                                        <i class="fas fa-trash"></i> Delete
                                     </button>
                                 </div>
                             }
                         </div>
-                        <button class="btn btn-danger btn-sm" @onclick="@(() => DeleteProfile(profile))" disabled="@isLoading">
-                            <i class="fas fa-trash"></i> Delete
-                        </button>
                     </div>
                 </div>
             }
@@ -339,6 +340,12 @@
         gap: 6px;
     }
     .btn i { font-size: 12px; }
+    .btn-icon {
+        width: 32px; height: 32px; padding: 0;
+        display: inline-flex; align-items: center; justify-content: center;
+        border-radius: 6px; font-size: 13px;
+    }
+    .btn-icon i { font-size: 13px; margin: 0; }
     .btn-primary { background-color: var(--accent-primary); color: white; }
     .btn-primary:hover:not(:disabled) { background-color: var(--accent-primary-hover); }
     .btn-secondary { background-color: #a0aec0; color: white; }
@@ -350,65 +357,27 @@
     .btn-sm { padding: 6px 12px; font-size: 12px; }
     .btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
-    .btn-group {
-        position: relative;
-        display: inline-flex;
+    /* ── Dropdown ── */
+    .prof-dropdown { position: relative; }
+    .prof-dropdown-menu {
+        position: absolute; right: 0; top: 100%; margin-top: 4px;
+        min-width: 160px; background: var(--card-bg);
+        border: 1px solid var(--border-color); border-radius: 8px;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.15); z-index: 100; padding: 4px 0;
     }
-
-    .btn-group .btn {
-        border-radius: 0;
+    .prof-dropdown-item {
+        display: flex; align-items: center; gap: 8px;
+        width: 100%; padding: 7px 14px;
+        border: none; background: none;
+        color: var(--text-primary); font-size: 13px;
+        cursor: pointer; text-align: left; transition: background 0.1s;
     }
-
-    .btn-group .btn:first-child {
-        border-top-left-radius: 6px;
-        border-bottom-left-radius: 6px;
-        border-top-right-radius: 0;
-        border-bottom-right-radius: 0;
-    }
-
-    .btn-group .btn:last-of-type {
-        border-top-right-radius: 6px;
-        border-bottom-right-radius: 6px;
-        border-top-left-radius: 0;
-        border-bottom-left-radius: 0;
-    }
-
-    .btn-dropdown {
-        padding: 6px 8px;
-        border-left: 1px solid rgba(255,255,255,0.2);
-        margin-left: -1px;
-    }
-
-    .dropdown-menu {
-        position: absolute;
-        top: 100%;
-        right: 0;
-        margin-top: 4px;
-        background: var(--card-bg);
-        border-radius: 6px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-        z-index: 100;
-        min-width: 160px;
-        overflow: hidden;
-    }
-
-    .dropdown-item {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        width: 100%;
-        padding: 10px 14px;
-        border: none;
-        background: none;
-        text-align: left;
-        cursor: pointer;
-        font-size: 13px;
-        color: var(--text-primary);
-    }
-
-    .dropdown-item:hover {
-        background: var(--bg-hover);
-    }
+    .prof-dropdown-item:hover:not(:disabled) { background: var(--bg-tertiary); }
+    .prof-dropdown-item:disabled { opacity: 0.4; cursor: not-allowed; }
+    .prof-dropdown-item i { font-size: 12px; width: 14px; text-align: center; color: var(--text-secondary); }
+    .prof-dropdown-item.danger { color: var(--accent-danger, #e53e3e); }
+    .prof-dropdown-item.danger i { color: var(--accent-danger, #e53e3e); }
+    .prof-dropdown-divider { height: 1px; background: var(--border-color); margin: 4px 0; }
 
     .profile-list { display: flex; flex-direction: column; gap: 12px; }
 
@@ -442,7 +411,7 @@
     .profile-expiry { font-size: 13px; color: var(--text-muted); margin-top: 8px; }
     .profile-badges { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 
-    .profile-actions { display: flex; gap: 8px; }
+    .profile-actions { display: flex; gap: 4px; align-items: center; }
 
     .btn-copy {
         background: none;

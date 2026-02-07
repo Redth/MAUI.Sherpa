@@ -1,0 +1,1103 @@
+@page "/apple-simulators"
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Core.Requests.Apple
+@using MauiSherpa.Services
+@using Shiny.Mediator
+@inject IMediator Mediator
+@inject ISimulatorService SimulatorService
+@inject IAlertService AlertService
+@inject IDialogService DialogService
+@inject IFileSystemService FileSystem
+@inject OperationModalService OperationModal
+@inject BlazorToastService ToastService
+@inject SimInspectorService SimInspector
+@inject IPhysicalDeviceService PhysicalDeviceService
+
+<h1><i class="fas fa-tablet-screen-button"></i> iOS Devices</h1>
+
+<!-- Physical Devices Section -->
+<div class="section-label"><i class="fas fa-mobile-alt"></i> Physical Devices</div>
+@if (isLoadingDevices)
+{
+    <div class="loading-indicator"><i class="fas fa-spinner fa-spin"></i> Scanning for devices...</div>
+}
+else if (physicalDevices.Count == 0)
+{
+    <div class="empty-hint">No physical iOS devices detected. Connect a device via USB or ensure it's on the same network.</div>
+}
+else
+{
+    <div class="simulator-list">
+        @foreach (var device in physicalDevices)
+        {
+            <div class="simulator-card running">
+                <div class="simulator-icon">
+                    <span><i class="fas fa-mobile-alt"></i></span>
+                </div>
+                <div class="simulator-details">
+                    <div class="simulator-name">@device.Name</div>
+                    <div class="simulator-info">
+                        <span>@device.Model</span>
+                        <span>• iOS @device.OsVersion</span>
+                    </div>
+                    <div class="simulator-udid">
+                        @device.Udid
+                        <button class="btn-copy" @onclick="@(() => CopyToClipboard(device.Udid))" title="Copy UDID">
+                            <i class="fas fa-copy"></i>
+                        </button>
+                    </div>
+                    <div class="simulator-badges">
+                        <span class="badge badge-success">Connected</span>
+                        <span class="badge badge-transport">
+                            <i class="fas fa-@(device.TransportType == "wired" ? "usb" : "wifi")"></i> @device.TransportType
+                        </span>
+                    </div>
+                </div>
+                <div class="simulator-actions">
+                    <button class="btn btn-secondary btn-icon" @onclick="@(() => InstallAppOnDevice(device))" title="Install App">
+                        <i class="fas fa-download"></i>
+                    </button>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+<!-- Simulators Section -->
+<div class="section-label"><i class="fas fa-desktop"></i> Simulators</div>
+
+<div class="toolbar">
+    <button class="btn btn-primary" @onclick="() => RefreshSimulators(forceRefresh: true)" disabled="@isLoading">
+        <i class="fas @(isLoading ? "fa-spinner fa-spin" : "fa-sync-alt")"></i> Refresh
+    </button>
+    <button class="btn btn-success" @onclick="ShowCreateDialog" disabled="@isLoading">
+        <i class="fas fa-plus"></i> Create Simulator
+    </button>
+</div>
+
+<!-- Filters -->
+@if (simulators.Count > 0)
+{
+    <div class="filter-bar">
+        <div class="filter-group">
+            <input type="text" placeholder="Search by name..." @bind="searchQuery" @bind:event="oninput" class="filter-input" />
+        </div>
+        <div class="filter-group">
+            <select @bind="filterState" class="filter-select">
+                <option value="">All States</option>
+                <option value="Booted">Booted</option>
+                <option value="Shutdown">Shutdown</option>
+            </select>
+        </div>
+        <div class="filter-group">
+            <select @bind="filterFamily" class="filter-select">
+                <option value="">All Devices</option>
+                @foreach (var family in productFamilies)
+                {
+                    <option value="@family">@family</option>
+                }
+            </select>
+        </div>
+        <div class="filter-group">
+            <select @bind="filterRuntime" class="filter-select">
+                <option value="">All Runtimes</option>
+                @foreach (var rt in runtimeNames)
+                {
+                    <option value="@rt">@rt</option>
+                }
+            </select>
+        </div>
+    </div>
+}
+
+<div class="simulator-list">
+    @if (isLoading && simulators.Count == 0)
+    {
+        <div class="loading-state">
+            <div class="loading-spinner">
+                <i class="fas fa-tablet-screen-button"></i>
+            </div>
+            <div class="loading-title">Loading Simulators</div>
+            <div class="loading-description">Discovering iOS Simulators...</div>
+        </div>
+    }
+    else if (simulators.Count == 0)
+    {
+        <div class="empty-state">
+            <div class="empty-icon"><i class="fas fa-tablet-screen-button"></i></div>
+            <div class="empty-title">No simulators found</div>
+            <div class="empty-description">Click "Create Simulator" to set up a new iOS Simulator</div>
+        </div>
+    }
+    else if (!FilteredSimulators.Any())
+    {
+        <div class="empty-state">
+            <div class="empty-icon"><i class="fas fa-filter"></i></div>
+            <div class="empty-title">No matching simulators</div>
+            <div class="empty-description">Try adjusting your search or filters</div>
+        </div>
+    }
+    else
+    {
+        @foreach (var sim in FilteredSimulators)
+        {
+            var isBooted = sim.State == "Booted";
+            var isBooting = bootingSimulators.Contains(sim.Udid);
+            <div class="simulator-card @(isBooted ? "running" : "") @(isBooting ? "starting" : "")">
+                <div class="simulator-icon">
+                    @if (isBooting)
+                    {
+                        <span class="spinner-large"></span>
+                    }
+                    else
+                    {
+                        <span><i class="fas @GetDeviceIcon(sim.ProductFamily)"></i></span>
+                    }
+                </div>
+                <div class="simulator-details">
+                    <div class="simulator-name">@sim.Name</div>
+                    <div class="simulator-info">
+                        @if (!string.IsNullOrEmpty(sim.Runtime))
+                        {
+                            <span>@sim.Runtime</span>
+                        }
+                        @if (!string.IsNullOrEmpty(sim.ProductFamily))
+                        {
+                            <span>• @sim.ProductFamily</span>
+                        }
+                    </div>
+                    <div class="simulator-udid">
+                        @sim.Udid
+                        <button class="btn-copy" @onclick="@(() => CopyToClipboard(sim.Udid))" title="Copy UDID">
+                            <i class="fas fa-copy"></i>
+                        </button>
+                    </div>
+                    <div class="simulator-badges">
+                        @if (isBooting)
+                        {
+                            <span class="badge badge-starting">Booting...</span>
+                        }
+                        else if (isBooted)
+                        {
+                            <span class="badge badge-success">Booted</span>
+                        }
+                        else
+                        {
+                            <span class="badge badge-shutdown">Shutdown</span>
+                        }
+                        @if (!sim.IsAvailable)
+                        {
+                            <span class="badge badge-warning">Unavailable</span>
+                        }
+                    </div>
+                </div>
+                <div class="simulator-actions">
+                    @if (isBooting)
+                    {
+                        <button class="btn btn-secondary btn-icon" disabled>
+                            <i class="fas fa-spinner fa-spin"></i>
+                        </button>
+                    }
+                    else if (isBooted)
+                    {
+                        <button class="btn btn-info btn-icon" @onclick="@(() => SimInspector.Open(sim.Udid, sim.Name))" title="Logs">
+                            <i class="fas fa-scroll"></i>
+                        </button>
+                        <button class="btn btn-secondary btn-icon" @onclick="@(() => SimInspector.Open(sim.Udid, sim.Name, SimInspectorTab.Apps))" title="Inspect">
+                            <i class="fas fa-search"></i>
+                        </button>
+                        <button class="btn btn-warning btn-icon" @onclick="@(() => ShutdownSimulator(sim))" disabled="@isLoading" title="Shutdown">
+                            <i class="fas fa-stop"></i>
+                        </button>
+                    }
+                    else
+                    {
+                        <button class="btn btn-success btn-icon" @onclick="@(() => BootSimulator(sim))" disabled="@isLoading" title="Boot">
+                            <i class="fas fa-play"></i>
+                        </button>
+                    }
+                    <div class="sim-dropdown">
+                        <button class="btn btn-secondary btn-icon sim-dropdown-toggle" @onclick="@(() => ToggleDropdown(sim.Udid))" @onclick:stopPropagation="true" title="More actions">
+                            <i class="fas fa-ellipsis-v"></i>
+                        </button>
+                        @if (openDropdownId == sim.Udid)
+                        {
+                            <div class="sim-dropdown-menu">
+                                <button class="sim-dropdown-item" @onclick="@(() => { CloseDropdown(); CloneSimulator(sim); })" disabled="@(isLoading || isBooting)">
+                                    <i class="fas fa-clone"></i> Clone
+                                </button>
+                                <button class="sim-dropdown-item" @onclick="@(() => { CloseDropdown(); EraseSimulator(sim); })" disabled="@(isLoading || isBooted || isBooting)">
+                                    <i class="fas fa-rotate-left"></i> Reset
+                                </button>
+                                <div class="sim-dropdown-divider"></div>
+                                <button class="sim-dropdown-item danger" @onclick="@(() => { CloseDropdown(); DeleteSimulator(sim); })" disabled="@(isLoading || isBooted || isBooting)">
+                                    <i class="fas fa-trash"></i> Delete
+                                </button>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+    }
+</div>
+
+@if (showCreateDialog)
+{
+    <div class="modal-overlay">
+        <div class="modal" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h2>Create New Simulator</h2>
+                <button class="close-btn" @onclick="CloseCreateDialog">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Simulator Name</label>
+                    <input type="text" @bind="newSimulatorName" placeholder="My iPhone Simulator" disabled="@isCreating" />
+                </div>
+                <div class="form-group">
+                    <label>Runtime</label>
+                    <select @bind="selectedRuntime" @bind:after="OnRuntimeChanged" disabled="@isCreating">
+                        <option value="">Select a runtime...</option>
+                        @foreach (var runtime in availableRuntimes.Where(r => r.IsAvailable))
+                        {
+                            <option value="@runtime.Identifier">@runtime.Name</option>
+                        }
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Device Type</label>
+                    <select @bind="selectedDeviceType" disabled="@(isCreating || string.IsNullOrEmpty(selectedRuntime))">
+                        <option value="">Select a device type...</option>
+                        @foreach (var dt in FilteredDeviceTypes)
+                        {
+                            <option value="@dt.Identifier">@dt.Name</option>
+                        }
+                    </select>
+                    @if (string.IsNullOrEmpty(selectedRuntime))
+                    {
+                        <div class="help-text info">Select a runtime first to see compatible device types</div>
+                    }
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" @onclick="CloseCreateDialog" disabled="@isCreating">
+                    <i class="fas fa-times"></i> Cancel
+                </button>
+                <button class="btn btn-primary" @onclick="CreateSimulator" disabled="@(string.IsNullOrEmpty(newSimulatorName) || string.IsNullOrEmpty(selectedRuntime) || string.IsNullOrEmpty(selectedDeviceType) || isCreating)">
+                    @if (isCreating)
+                    {
+                        <span><i class="fas fa-spinner fa-spin"></i> Creating...</span>
+                    }
+                    else
+                    {
+                        <span><i class="fas fa-plus"></i> Create</span>
+                    }
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    h1 {
+        margin-bottom: 20px;
+        font-size: 28px;
+        color: var(--text-primary);
+    }
+
+    .toolbar {
+        margin-bottom: 20px;
+        display: flex;
+        gap: 12px;
+    }
+
+    .filter-bar {
+        display: flex;
+        gap: 12px;
+        margin-bottom: 20px;
+        flex-wrap: wrap;
+        padding: 12px 16px;
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        background: var(--card-bg);
+    }
+
+    .filter-input, .filter-select {
+        padding: 8px 12px;
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        font-size: 14px;
+        background: var(--card-bg);
+        color: var(--text-primary);
+        min-width: 160px;
+    }
+
+    .filter-input:focus, .filter-select:focus {
+        outline: none;
+        border-color: var(--accent-primary);
+        box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.1);
+    }
+
+    .btn {
+        padding: 10px 20px;
+        border: none;
+        border-radius: 6px;
+        font-size: 14px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .btn i { font-size: 12px; }
+    .btn-primary { background-color: var(--accent-primary); color: var(--card-bg); }
+    .btn-primary:hover:not(:disabled) { background-color: var(--accent-primary-hover); }
+    .btn-success { background-color: var(--accent-success); color: var(--card-bg); }
+    .btn-success:hover:not(:disabled) { background-color: var(--accent-success-hover); }
+    .btn-warning { background-color: var(--accent-warning); color: var(--card-bg); }
+    .btn-warning:hover:not(:disabled) { background-color: var(--accent-warning-hover); }
+    .btn-danger { background-color: var(--accent-danger); color: var(--card-bg); }
+    .btn-danger:hover:not(:disabled) { background-color: var(--accent-danger-hover); }
+    .btn-secondary { background-color: var(--text-secondary); color: var(--card-bg); }
+    .btn-secondary:hover:not(:disabled) { background-color: var(--text-muted); }
+    .btn-sm { padding: 6px 12px; font-size: 12px; }
+    .btn-info { background-color: var(--accent-primary); color: var(--card-bg); }
+    .btn-info:hover:not(:disabled) { background-color: var(--accent-primary-hover); }
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+    .spinner-large {
+        display: inline-block;
+        width: 32px;
+        height: 32px;
+        border: 3px solid var(--border-color);
+        border-top-color: var(--accent-success);
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+    }
+
+    @@keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+
+    .simulator-list {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .simulator-card {
+        background: var(--card-bg);
+        border-radius: 8px;
+        padding: 20px;
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        box-shadow: var(--card-shadow);
+        border-left: 4px solid transparent;
+    }
+
+    .simulator-card.running {
+        border-left-color: var(--accent-success);
+    }
+
+    .simulator-card.starting {
+        border-left-color: var(--accent-warning);
+        background: var(--status-warning-bg);
+    }
+
+    .simulator-icon {
+        font-size: 36px;
+        width: 40px;
+        height: 40px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--accent-primary);
+    }
+
+    .simulator-icon i { font-size: 32px; }
+
+    .simulator-details {
+        flex: 1;
+    }
+
+    .simulator-name {
+        font-weight: 600;
+        font-size: 16px;
+        color: var(--text-primary);
+    }
+
+    .simulator-info {
+        font-size: 13px;
+        color: var(--text-muted);
+        margin-top: 4px;
+    }
+
+    .simulator-info span {
+        margin-right: 8px;
+    }
+
+    .simulator-udid {
+        font-family: 'Consolas', 'Monaco', monospace;
+        font-size: 11px;
+        color: var(--text-muted);
+        margin-top: 2px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .btn-copy {
+        background: none;
+        border: none;
+        color: var(--text-secondary);
+        cursor: pointer;
+        padding: 2px 6px;
+        font-size: 11px;
+        border-radius: 4px;
+        transition: all 0.15s;
+        flex-shrink: 0;
+    }
+    .btn-copy:hover {
+        color: var(--accent-primary);
+        background: var(--bg-tertiary);
+    }
+
+    .simulator-badges {
+        display: flex;
+        gap: 8px;
+        margin-top: 8px;
+    }
+
+    .simulator-actions, .sim-actions {
+        display: flex;
+        gap: 4px;
+        align-items: center;
+    }
+
+    .btn.btn-icon {
+        width: 32px;
+        height: 32px;
+        padding: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 6px;
+        font-size: 13px;
+    }
+    .btn.btn-icon i { font-size: 13px; margin: 0; }
+
+    /* ── Dropdown ── */
+    .sim-dropdown {
+        position: relative;
+    }
+    .sim-dropdown-toggle {
+        color: var(--text-secondary);
+    }
+    .sim-dropdown-menu {
+        position: absolute;
+        right: 0;
+        top: 100%;
+        margin-top: 4px;
+        min-width: 140px;
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+        z-index: 100;
+        padding: 4px 0;
+        animation: dropdownIn 0.12s ease-out;
+    }
+    @@keyframes dropdownIn {
+        from { opacity: 0; transform: translateY(-4px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    .sim-dropdown-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        padding: 7px 14px;
+        border: none;
+        background: none;
+        color: var(--text-primary);
+        font-size: 13px;
+        cursor: pointer;
+        text-align: left;
+        transition: background 0.1s;
+    }
+    .sim-dropdown-item:hover:not(:disabled) { background: var(--bg-tertiary); }
+    .sim-dropdown-item:disabled { opacity: 0.4; cursor: not-allowed; }
+    .sim-dropdown-item i { font-size: 12px; width: 14px; text-align: center; color: var(--text-secondary); }
+    .sim-dropdown-item.danger { color: var(--accent-danger, #e53e3e); }
+    .sim-dropdown-item.danger i { color: var(--accent-danger, #e53e3e); }
+    .sim-dropdown-divider {
+        height: 1px;
+        background: var(--border-color);
+        margin: 4px 0;
+    }
+
+    .badge {
+        padding: 2px 10px;
+        border-radius: 12px;
+        font-size: 12px;
+        font-weight: 500;
+    }
+
+    .badge-success { background: var(--status-success-bg); color: var(--status-success-text); }
+    .badge-starting { background: var(--status-warning-bg); color: var(--status-warning-text); }
+    .badge-shutdown { background: var(--bg-tertiary); color: var(--text-secondary); }
+    .badge-warning { background: var(--status-warning-bg); color: var(--status-warning-text); }
+
+    .empty-state, .loading-state {
+        background: var(--card-bg);
+        border-radius: 8px;
+        padding: 60px 40px;
+        text-align: center;
+        box-shadow: var(--card-shadow);
+    }
+
+    .empty-icon, .loading-spinner { font-size: 48px; margin-bottom: 16px; color: var(--text-secondary); }
+    .empty-icon i, .loading-spinner i { font-size: 48px; }
+    .empty-title, .loading-title { font-size: 18px; font-weight: 600; color: var(--text-primary); margin-bottom: 8px; }
+    .empty-description, .loading-description { color: var(--text-muted); font-size: 14px; }
+
+    .loading-spinner {
+        animation: pulse 2s ease-in-out infinite;
+    }
+
+    @@keyframes pulse {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50% { opacity: 0.5; transform: scale(1.1); }
+    }
+
+    /* Section labels */
+    .section-label {
+        font-size: 11px; font-weight: 600;
+        text-transform: uppercase; letter-spacing: 0.05em;
+        margin-top: 20px; margin-bottom: 8px;
+        display: flex; align-items: center; gap: 6px;
+        color: var(--text-muted);
+    }
+    .section-label i { font-size: 11px; }
+    .loading-indicator { color: var(--text-muted); font-size: 13px; padding: 12px; display: flex; align-items: center; gap: 8px; }
+    .empty-hint {
+        color: var(--text-muted); font-size: 13px; padding: 16px;
+        background: var(--card-bg); border-radius: 8px;
+        border: 1px dashed var(--border-color); text-align: center;
+    }
+    .badge-transport { background: var(--bg-tertiary); color: var(--text-secondary); display: inline-flex; align-items: center; gap: 4px; }
+    .badge-transport i { font-size: 10px; }
+
+    .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+    }
+
+    .modal {
+        background: var(--card-bg);
+        border-radius: 12px;
+        width: 90%;
+        max-width: 500px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    }
+
+    .modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 20px 24px;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .modal-header h2 {
+        margin: 0;
+        font-size: 18px;
+        color: var(--text-primary);
+    }
+
+    .close-btn {
+        background: none;
+        border: none;
+        font-size: 24px;
+        cursor: pointer;
+        color: var(--text-secondary);
+    }
+
+    .modal-body {
+        padding: 24px;
+    }
+
+    .modal-footer {
+        padding: 16px 24px;
+        border-top: 1px solid var(--border-color);
+        display: flex;
+        justify-content: flex-end;
+        gap: 12px;
+    }
+
+    .form-group {
+        margin-bottom: 20px;
+    }
+
+    .form-group label {
+        display: block;
+        margin-bottom: 8px;
+        font-weight: 500;
+        color: var(--text-secondary);
+    }
+
+    .form-group input,
+    .form-group select {
+        width: 100%;
+        padding: 10px 12px;
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        font-size: 14px;
+        background: var(--card-bg);
+        color: var(--text-primary);
+    }
+
+    .form-group input:focus,
+    .form-group select:focus {
+        outline: none;
+        border-color: var(--accent-primary);
+        box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.1);
+    }
+
+    .help-text {
+        margin-top: 8px;
+        font-size: 12px;
+        color: var(--accent-warning);
+    }
+
+    .help-text.info {
+        color: var(--accent-primary);
+    }
+</style>
+
+@code {
+    private List<SimulatorDevice> simulators = new();
+    private List<SimulatorRuntime> availableRuntimes = new();
+    private List<SimulatorDeviceType> availableDeviceTypes = new();
+    private List<PhysicalDevice> physicalDevices = new();
+    private HashSet<string> bootingSimulators = new();
+    private bool isLoading = false;
+    private bool isLoadingDevices = false;
+    private string? openDropdownId;
+
+    // Filters
+    private string searchQuery = "";
+    private string filterState = "";
+    private string filterFamily = "";
+    private string filterRuntime = "";
+
+    // Create dialog
+    private bool showCreateDialog = false;
+    private bool isCreating = false;
+    private string newSimulatorName = "";
+    private string selectedRuntime = "";
+    private string selectedDeviceType = "";
+
+    private IEnumerable<string> productFamilies => simulators
+        .Where(s => !string.IsNullOrEmpty(s.ProductFamily))
+        .Select(s => s.ProductFamily!)
+        .Distinct()
+        .OrderBy(f => f);
+
+    private IEnumerable<string> runtimeNames => simulators
+        .Where(s => !string.IsNullOrEmpty(s.Runtime))
+        .Select(s => s.Runtime!)
+        .Distinct()
+        .OrderBy(r => r);
+
+    private IEnumerable<SimulatorDevice> FilteredSimulators => simulators
+        .Where(s => string.IsNullOrEmpty(searchQuery) ||
+                    s.Name.Contains(searchQuery, StringComparison.OrdinalIgnoreCase))
+        .Where(s => string.IsNullOrEmpty(filterState) ||
+                    s.State.Equals(filterState, StringComparison.OrdinalIgnoreCase))
+        .Where(s => string.IsNullOrEmpty(filterFamily) ||
+                    (s.ProductFamily?.Equals(filterFamily, StringComparison.OrdinalIgnoreCase) ?? false))
+        .Where(s => string.IsNullOrEmpty(filterRuntime) ||
+                    (s.Runtime?.Equals(filterRuntime, StringComparison.OrdinalIgnoreCase) ?? false))
+        .OrderByDescending(s => s.State == "Booted")
+        .ThenBy(s => s.Name);
+
+    private IEnumerable<SimulatorDeviceType> FilteredDeviceTypes
+    {
+        get
+        {
+            if (string.IsNullOrEmpty(selectedRuntime))
+                return availableDeviceTypes;
+
+            var runtime = availableRuntimes.FirstOrDefault(r => r.Identifier == selectedRuntime);
+            if (runtime?.SupportedDeviceTypes != null)
+                return runtime.SupportedDeviceTypes;
+
+            return availableDeviceTypes;
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Task.WhenAll(
+            RefreshSimulators(forceRefresh: false),
+            RefreshPhysicalDevices()
+        );
+    }
+
+    private async Task RefreshSimulators(bool forceRefresh = false)
+    {
+        isLoading = true;
+        StateHasChanged();
+
+        ToastMessage? toast = null;
+        if (forceRefresh)
+        {
+            toast = ToastService.Show("Refreshing simulators...", ToastType.Info);
+        }
+
+        try
+        {
+            if (forceRefresh)
+            {
+                await Mediator.FlushStores("apple:simulators");
+                await Mediator.FlushStores("apple:simulator:devicetypes");
+                await Mediator.FlushStores("apple:simulator:runtimes");
+            }
+
+            var simTask = Mediator.Request(new GetSimulatorsRequest());
+            var dtTask = Mediator.Request(new GetSimulatorDeviceTypesRequest());
+            var rtTask = Mediator.Request(new GetSimulatorRuntimesRequest());
+
+            await Task.WhenAll(simTask, dtTask, rtTask);
+
+            var (_, simResult) = await simTask;
+            simulators = simResult?.Where(s => s.IsAvailable).ToList() ?? new();
+
+            var (_, dtResult) = await dtTask;
+            availableDeviceTypes = dtResult?.ToList() ?? new();
+
+            var (_, rtResult) = await rtTask;
+            availableRuntimes = rtResult?.ToList() ?? new();
+        }
+        catch (Exception ex)
+        {
+            await AlertService.ShowToastAsync($"Error loading simulators: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+            if (toast != null) ToastService.Dismiss(toast);
+            StateHasChanged();
+        }
+    }
+
+    private void ShowCreateDialog()
+    {
+        newSimulatorName = "";
+        selectedRuntime = "";
+        selectedDeviceType = "";
+        isCreating = false;
+        showCreateDialog = true;
+    }
+
+    private void CloseCreateDialog()
+    {
+        if (!isCreating)
+        {
+            showCreateDialog = false;
+        }
+    }
+
+    private void OnRuntimeChanged()
+    {
+        selectedDeviceType = "";
+    }
+
+    private async Task CreateSimulator()
+    {
+        if (string.IsNullOrWhiteSpace(newSimulatorName) || string.IsNullOrEmpty(selectedRuntime) || string.IsNullOrEmpty(selectedDeviceType))
+            return;
+
+        showCreateDialog = false;
+        var name = newSimulatorName.Trim();
+        var deviceType = selectedDeviceType;
+        var runtime = selectedRuntime;
+
+        var dtName = availableDeviceTypes.FirstOrDefault(d => d.Identifier == deviceType)?.Name ?? deviceType;
+        var rtName = availableRuntimes.FirstOrDefault(r => r.Identifier == runtime)?.Name ?? runtime;
+
+        var result = await OperationModal.RunAsync(
+            "Create Simulator",
+            $"Creating simulator '{name}'...",
+            async ctx =>
+            {
+                ctx.LogInfo($"Name: {name}");
+                ctx.LogInfo($"Device type: {dtName}");
+                ctx.LogInfo($"Runtime: {rtName}");
+                ctx.SetStatus("Creating simulator...");
+
+                var success = await SimulatorService.CreateSimulatorAsync(name, deviceType, runtime,
+                    new Progress<string>(msg =>
+                    {
+                        ctx.LogInfo(msg);
+                        ctx.SetStatus(msg);
+                    }));
+
+                if (success)
+                {
+                    ctx.LogSuccess($"Simulator '{name}' created successfully");
+                }
+                return success;
+            });
+
+        if (result.Success)
+        {
+            await RefreshSimulators(forceRefresh: true);
+        }
+    }
+
+    private async Task BootSimulator(SimulatorDevice sim)
+    {
+        bootingSimulators.Add(sim.Udid);
+        StateHasChanged();
+
+        var result = await OperationModal.RunAsync(
+            "Boot Simulator",
+            $"Booting {sim.Name}...",
+            async ctx =>
+            {
+                ctx.LogInfo($"Simulator: {sim.Name}");
+                ctx.LogInfo($"UDID: {sim.Udid}");
+                ctx.SetStatus("Booting simulator...");
+
+                var success = await SimulatorService.BootSimulatorAsync(sim.Udid,
+                    new Progress<string>(msg =>
+                    {
+                        ctx.LogInfo(msg);
+                        ctx.SetStatus(msg);
+                    }));
+
+                if (success)
+                {
+                    ctx.LogSuccess($"Simulator '{sim.Name}' is now booted");
+                }
+                return success;
+            });
+
+        bootingSimulators.Remove(sim.Udid);
+        await RefreshSimulators(forceRefresh: true);
+    }
+
+    private async Task ShutdownSimulator(SimulatorDevice sim)
+    {
+        var result = await OperationModal.RunAsync(
+            "Shutdown Simulator",
+            $"Shutting down {sim.Name}...",
+            async ctx =>
+            {
+                ctx.LogInfo($"Simulator: {sim.Name}");
+                ctx.LogInfo($"UDID: {sim.Udid}");
+                ctx.SetStatus("Sending shutdown command...");
+
+                var success = await SimulatorService.ShutdownSimulatorAsync(sim.Udid,
+                    new Progress<string>(msg =>
+                    {
+                        ctx.LogInfo(msg);
+                        ctx.SetStatus(msg);
+                    }));
+
+                if (success)
+                {
+                    ctx.LogSuccess($"Simulator '{sim.Name}' shut down");
+                }
+                return success;
+            },
+            canCancel: false);
+
+        await RefreshSimulators(forceRefresh: true);
+    }
+
+    private async Task EraseSimulator(SimulatorDevice sim)
+    {
+        var confirm = await AlertService.ShowConfirmAsync(
+            "Reset Simulator",
+            $"Are you sure you want to erase all content and settings for '{sim.Name}'? This cannot be undone.");
+
+        if (!confirm) return;
+
+        var result = await OperationModal.RunAsync(
+            "Reset Simulator",
+            $"Erasing '{sim.Name}'...",
+            async ctx =>
+            {
+                ctx.LogInfo($"Simulator: {sim.Name}");
+                ctx.LogInfo($"UDID: {sim.Udid}");
+                ctx.SetStatus("Erasing content and settings...");
+
+                var success = await SimulatorService.EraseSimulatorAsync(sim.Udid,
+                    new Progress<string>(msg =>
+                    {
+                        ctx.LogInfo(msg);
+                        ctx.SetStatus(msg);
+                    }));
+
+                if (success)
+                {
+                    ctx.LogSuccess($"Simulator '{sim.Name}' has been reset");
+                }
+                return success;
+            },
+            canCancel: false);
+    }
+
+    private async Task DeleteSimulator(SimulatorDevice sim)
+    {
+        var confirm = await AlertService.ShowConfirmAsync(
+            "Delete Simulator",
+            $"Are you sure you want to delete '{sim.Name}'? This cannot be undone.");
+
+        if (!confirm) return;
+
+        var result = await OperationModal.RunAsync(
+            "Delete Simulator",
+            $"Deleting '{sim.Name}'...",
+            async ctx =>
+            {
+                ctx.LogInfo($"Simulator: {sim.Name}");
+                ctx.LogInfo($"UDID: {sim.Udid}");
+                ctx.SetStatus("Deleting simulator...");
+
+                var success = await SimulatorService.DeleteSimulatorAsync(sim.Udid,
+                    new Progress<string>(msg =>
+                    {
+                        ctx.LogInfo(msg);
+                        ctx.SetStatus(msg);
+                    }));
+
+                if (success)
+                {
+                    ctx.LogSuccess($"Simulator '{sim.Name}' deleted");
+                }
+                return success;
+            },
+            canCancel: false);
+
+        if (result.Success)
+        {
+            simulators.RemoveAll(s => s.Udid == sim.Udid);
+            StateHasChanged();
+            await RefreshSimulators(forceRefresh: true);
+        }
+    }
+
+    private static string GetDeviceIcon(string? productFamily) => productFamily?.ToLowerInvariant() switch
+    {
+        "iphone" => "fa-mobile-screen",
+        "ipad" => "fa-tablet-screen-button",
+        "apple tv" => "fa-tv",
+        "apple watch" => "fa-clock",
+        "apple vision" => "fa-vr-cardboard",
+        _ => "fa-mobile-screen"
+    };
+
+    private async Task CloneSimulator(SimulatorDevice sim)
+    {
+        var newName = await DialogService.ShowInputDialogAsync(
+            "Clone Simulator",
+            $"Enter a name for the cloned simulator:",
+            $"{sim.Name} (Clone)");
+
+        if (string.IsNullOrWhiteSpace(newName)) return;
+
+        var result = await OperationModal.RunAsync(
+            "Clone Simulator",
+            $"Cloning '{sim.Name}' as '{newName}'...",
+            async ctx =>
+            {
+                ctx.LogInfo($"Source: {sim.Name} ({sim.Udid})");
+                ctx.SetStatus("Cloning simulator...");
+
+                var success = await SimulatorService.CloneSimulatorAsync(sim.Udid, newName,
+                    new Progress<string>(msg =>
+                    {
+                        ctx.LogInfo(msg);
+                        ctx.SetStatus(msg);
+                    }));
+
+                if (success)
+                {
+                    ctx.LogSuccess($"Simulator cloned as '{newName}'");
+                }
+                return success;
+            });
+
+        if (result.Success)
+        {
+            await RefreshSimulators(forceRefresh: true);
+        }
+    }
+
+    private async Task CopyToClipboard(string text)
+    {
+        await DialogService.CopyToClipboardAsync(text);
+        await AlertService.ShowToastAsync("Copied to clipboard");
+    }
+
+    private void ToggleDropdown(string udid)
+    {
+        openDropdownId = openDropdownId == udid ? null : udid;
+    }
+
+    private void CloseDropdown()
+    {
+        openDropdownId = null;
+    }
+
+    // Physical devices
+    private async Task RefreshPhysicalDevices()
+    {
+        isLoadingDevices = true;
+        try
+        {
+            var devices = await PhysicalDeviceService.GetDevicesAsync();
+            physicalDevices = devices.ToList();
+        }
+        catch { }
+        finally
+        {
+            isLoadingDevices = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task InstallAppOnDevice(PhysicalDevice device)
+    {
+        var appPath = await DialogService.PickOpenFileAsync("Select App Bundle", new[] { "app", "ipa" });
+        if (string.IsNullOrEmpty(appPath)) return;
+
+        await OperationModal.RunAsync(
+            $"Installing app on {device.Name}",
+            "Installing application...",
+            async (ctx) =>
+            {
+                ctx.SetStatus("Installing...");
+                var success = await PhysicalDeviceService.InstallAppAsync(device.Identifier, appPath,
+                    new Progress<string>(msg => { ctx.LogInfo(msg); ctx.SetStatus(msg); }));
+                if (success) ctx.LogSuccess("App installed successfully");
+                return success;
+            }
+        );
+    }
+}

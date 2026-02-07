@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using MauiSherpa.Core.Interfaces;
+using MauiSherpa.Core.Services;
 
 namespace MauiSherpa.Services;
 
@@ -22,7 +23,7 @@ public class LoggingService : ILoggingService
         // Set up file logging
         try
         {
-            var logDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MauiSherpa", "logs");
+            var logDir = Path.Combine(AppDataPath.GetAppDataDirectory(), "logs");
             Directory.CreateDirectory(logDir);
             
             _logFilePath = Path.Combine(logDir, $"maui-sherpa-{DateTime.Now:yyyy-MM-dd}.log");

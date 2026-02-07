@@ -42,8 +42,7 @@ public class CloudSecretsService : ICloudSecretsService
         _logger = logger;
         _providerFactory = providerFactory;
         _settingsPath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "MauiSherpa",
+            AppDataPath.GetAppDataDirectory(),
             "cloud-secrets-providers.json");
     }
 
@@ -303,8 +302,7 @@ public class CloudSecretsService : ICloudSecretsService
 
     private string GetNonSecretSettingsPath(string providerId) =>
         Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "MauiSherpa",
+            AppDataPath.GetAppDataDirectory(),
             $"cloud-secrets-{providerId}.json");
 
     private async Task<CloudSecretsProviderConfig?> LoadProviderConfigAsync(CloudSecretsProviderMetadata metadata)

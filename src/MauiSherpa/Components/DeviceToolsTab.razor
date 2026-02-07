@@ -1,0 +1,502 @@
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Core.Services
+@using MauiSherpa.Services
+@inject IAndroidDeviceToolsService ToolsService
+@inject DeviceInspectorService Inspector
+@inject IAlertService AlertService
+@inject IDialogService DialogService
+@implements IDisposable
+
+<div class="device-tools-tab">
+    <!-- Location Simulation -->
+    <div class="tool-section">
+        <div class="tool-header">
+            <i class="fas fa-map-marker-alt"></i>
+            <span>Location Simulation</span>
+        </div>
+        <div class="tool-body">
+            <div class="tool-row-inline">
+                <div class="tool-field">
+                    <label>Latitude</label>
+                    <input type="number" step="0.000001" class="tool-input" @bind="locationLat" placeholder="37.3349" />
+                </div>
+                <div class="tool-field">
+                    <label>Longitude</label>
+                    <input type="number" step="0.000001" class="tool-input" @bind="locationLon" placeholder="-122.0090" />
+                </div>
+            </div>
+            <div class="tool-presets">
+                <button class="btn btn-sm btn-ghost" @onclick='@(() => SetPresetLocation("Cupertino", 37.3349, -122.0090))'>Cupertino</button>
+                <button class="btn btn-sm btn-ghost" @onclick='@(() => SetPresetLocation("New York", 40.7128, -74.0060))'>New York</button>
+                <button class="btn btn-sm btn-ghost" @onclick='@(() => SetPresetLocation("London", 51.5074, -0.1278))'>London</button>
+                <button class="btn btn-sm btn-ghost" @onclick='@(() => SetPresetLocation("Tokyo", 35.6762, 139.6503))'>Tokyo</button>
+                <button class="btn btn-sm btn-ghost" @onclick='@(() => SetPresetLocation("Sydney", -33.8688, 151.2093))'>Sydney</button>
+            </div>
+            <div class="tool-actions">
+                <button class="btn btn-sm btn-primary" @onclick="SetLocation" disabled="@isSettingLocation">
+                    <i class="fas @(isSettingLocation ? "fa-spinner fa-spin" : "fa-location-arrow")"></i> Set
+                </button>
+                <button class="btn btn-sm btn-secondary" @onclick="ClearLocation" disabled="@isSettingLocation">
+                    <i class="fas fa-times"></i> Clear
+                </button>
+            </div>
+
+            <!-- KML/GPX Route Playback -->
+            <div class="tool-divider"></div>
+            <div class="tool-row">
+                <label>Route Playback (KML/GPX)</label>
+                <div class="tool-route-row">
+                    <button class="btn btn-sm btn-secondary" @onclick="PickRouteFile" disabled="@ToolsService.IsPlayingRoute">
+                        <i class="fas fa-file-upload"></i> Load File
+                    </button>
+                    @if (routeFileName != null)
+                    {
+                        <span class="route-file-name" title="@routeFileName">@routeFileName (@routeWaypoints?.Count pts)</span>
+                    }
+                </div>
+            </div>
+            @if (routeWaypoints?.Count > 0)
+            {
+                <div class="tool-row-inline">
+                    <div class="tool-field">
+                        <label>Speed (m/s)</label>
+                        <input type="number" min="1" max="500" class="tool-input" @bind="routeSpeed" />
+                    </div>
+                    <div class="tool-field route-actions">
+                        <label>&nbsp;</label>
+                        @if (ToolsService.IsPlayingRoute)
+                        {
+                            <button class="btn btn-sm btn-danger" @onclick="StopRoute">
+                                <i class="fas fa-stop"></i> Stop
+                            </button>
+                        }
+                        else
+                        {
+                            <button class="btn btn-sm btn-success" @onclick="PlayRoute">
+                                <i class="fas fa-play"></i> Play
+                            </button>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+
+    <!-- Battery Simulation -->
+    <div class="tool-section">
+        <div class="tool-header">
+            <i class="fas fa-battery-half"></i>
+            <span>Battery Simulation</span>
+        </div>
+        <div class="tool-body">
+            <div class="tool-row-inline">
+                <div class="tool-field">
+                    <label>Level (%)</label>
+                    <input type="number" min="0" max="100" class="tool-input" @bind="batteryLevel" />
+                </div>
+                <div class="tool-field">
+                    <label>Status</label>
+                    <select class="tool-input" @bind="batteryStatus">
+                        <option value="">Default</option>
+                        <option value="charging">Charging</option>
+                        <option value="discharging">Discharging</option>
+                        <option value="not-charging">Not Charging</option>
+                        <option value="full">Full</option>
+                    </select>
+                </div>
+            </div>
+            <div class="tool-actions">
+                <button class="btn btn-sm btn-primary" @onclick="ApplyBattery" disabled="@isApplyingBattery">
+                    <i class="fas @(isApplyingBattery ? "fa-spinner fa-spin" : "fa-check")"></i> Apply
+                </button>
+                <button class="btn btn-sm btn-secondary" @onclick="ResetBattery" disabled="@isApplyingBattery">
+                    <i class="fas fa-undo"></i> Reset
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Demo Mode (Status Bar) -->
+    <div class="tool-section">
+        <div class="tool-header">
+            <i class="fas fa-signal"></i>
+            <span>Demo Mode (Status Bar)</span>
+        </div>
+        <div class="tool-body">
+            <div class="tool-row-inline">
+                <div class="tool-field">
+                    <label>Time (hhmm)</label>
+                    <input type="text" class="tool-input" @bind="demoTime" placeholder="1200" maxlength="4" />
+                </div>
+                <div class="tool-field">
+                    <label>Mobile Type</label>
+                    <select class="tool-input" @bind="demoMobileType">
+                        <option value="">Default</option>
+                        <option value="lte">LTE</option>
+                        <option value="4g">4G</option>
+                        <option value="4g+">4G+</option>
+                        <option value="5g">5G</option>
+                        <option value="5ge">5Ge</option>
+                    </select>
+                </div>
+            </div>
+            <div class="tool-row-inline">
+                <div class="tool-field">
+                    <label>WiFi Level</label>
+                    <select class="tool-input" @bind="demoWifiLevel">
+                        <option value="">Default</option>
+                        <option value="0">0</option>
+                        <option value="1">1</option>
+                        <option value="2">2</option>
+                        <option value="3">3</option>
+                        <option value="4">4</option>
+                    </select>
+                </div>
+                <div class="tool-field">
+                    <label>Mobile Level</label>
+                    <select class="tool-input" @bind="demoMobileLevel">
+                        <option value="">Default</option>
+                        <option value="0">0</option>
+                        <option value="1">1</option>
+                        <option value="2">2</option>
+                        <option value="3">3</option>
+                        <option value="4">4</option>
+                    </select>
+                </div>
+            </div>
+            <div class="tool-row-inline">
+                <div class="tool-field">
+                    <label>Battery %</label>
+                    <input type="number" min="0" max="100" class="tool-input" @bind="demoBattery" placeholder="100" />
+                </div>
+                <div class="tool-field">
+                    <label>Options</label>
+                    <div class="tool-checkbox-row">
+                        <label class="tool-checkbox"><input type="checkbox" @bind="demoBatteryPlugged" /> Plugged</label>
+                        <label class="tool-checkbox"><input type="checkbox" @bind="demoHideNotifs" /> Hide Notifs</label>
+                    </div>
+                </div>
+            </div>
+            <div class="tool-actions">
+                <button class="btn btn-sm btn-primary" @onclick="ApplyDemoMode" disabled="@isApplyingDemo">
+                    <i class="fas @(isApplyingDemo ? "fa-spinner fa-spin" : "fa-check")"></i> Apply
+                </button>
+                <button class="btn btn-sm btn-secondary" @onclick="DisableDemoMode" disabled="@isApplyingDemo">
+                    <i class="fas fa-times"></i> Exit Demo
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Deep Links -->
+    <div class="tool-section">
+        <div class="tool-header">
+            <i class="fas fa-external-link-alt"></i>
+            <span>Deep Links</span>
+        </div>
+        <div class="tool-body">
+            <div class="tool-row">
+                <label>URL / Scheme</label>
+                <input type="text" class="tool-input" @bind="deepLinkUrl" placeholder="https://example.com or myapp://path" />
+            </div>
+            <div class="tool-actions">
+                <button class="btn btn-sm btn-primary" @onclick="OpenDeepLink"
+                        disabled="@(isOpeningLink || string.IsNullOrWhiteSpace(deepLinkUrl))">
+                    <i class="fas @(isOpeningLink ? "fa-spinner fa-spin" : "fa-rocket")"></i> Launch
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .device-tools-tab {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        overflow-y: auto;
+        padding: 8px;
+        gap: 8px;
+    }
+    .device-tools-tab .tool-section { flex-shrink: 0; }
+    .device-tools-tab .btn { padding: 6px 14px; border: none; border-radius: 5px; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; transition: all 0.15s; }
+    .device-tools-tab .btn i { font-size: 11px; }
+    .device-tools-tab .btn-sm { padding: 4px 8px; font-size: 11px; }
+    .device-tools-tab .btn-primary { background: var(--accent-primary); color: white; }
+    .device-tools-tab .btn-secondary { background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border-color); }
+    .device-tools-tab .btn-success { background: #22c55e; color: white; }
+    .device-tools-tab .btn-danger { background: #ef4444; color: white; }
+    .device-tools-tab .btn-ghost { background: transparent; color: var(--accent-primary); border: 1px solid var(--border-color); font-size: 10px; padding: 2px 6px; }
+    .device-tools-tab .btn-ghost:hover { background: var(--bg-tertiary); }
+    .device-tools-tab .btn:hover:not(:disabled) { filter: brightness(1.1); }
+    .device-tools-tab .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .tool-section {
+        background: var(--bg-secondary, #fff);
+        border: 1px solid var(--border-color, #e2e8f0);
+        border-radius: 8px;
+        overflow: hidden;
+    }
+    .tool-header {
+        display: flex; align-items: center; gap: 6px;
+        padding: 6px 10px;
+        background: var(--bg-tertiary, #edf2f7);
+        font-size: 12px; font-weight: 600;
+        color: var(--text-primary);
+        border-bottom: 1px solid var(--border-color, #e2e8f0);
+    }
+    .tool-header i { font-size: 11px; color: var(--text-secondary); }
+    .tool-body { padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
+
+    .tool-row { display: flex; flex-direction: column; gap: 2px; }
+    .tool-row label { font-size: 11px; color: var(--text-secondary); font-weight: 500; }
+
+    .tool-row-inline { display: flex; gap: 8px; }
+    .tool-field { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+    .tool-field label { font-size: 11px; color: var(--text-secondary); font-weight: 500; }
+
+    .tool-input {
+        padding: 4px 8px; font-size: 12px;
+        border: 1px solid var(--border-color); border-radius: 4px;
+        background: var(--bg-primary, #fff); color: var(--text-primary);
+        outline: none; width: 100%; box-sizing: border-box;
+    }
+    .tool-input:focus { border-color: var(--accent-primary); }
+
+    .tool-actions { display: flex; gap: 4px; margin-top: 2px; }
+    .tool-presets { display: flex; flex-wrap: wrap; gap: 4px; }
+    .tool-divider { border-top: 1px solid var(--border-color); margin: 4px 0; }
+
+    .tool-route-row { display: flex; align-items: center; gap: 8px; }
+    .route-file-name { font-size: 11px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 180px; }
+    .route-actions { display: flex; align-items: flex-end; }
+
+    .tool-checkbox-row { display: flex; gap: 10px; align-items: center; height: 28px; }
+    .tool-checkbox { font-size: 11px; color: var(--text-secondary); display: flex; align-items: center; gap: 4px; cursor: pointer; }
+    .tool-checkbox input { margin: 0; }
+</style>
+
+@code {
+    [Parameter] public string Serial { get; set; } = "";
+
+    // Location
+    private double locationLat = 37.3349;
+    private double locationLon = -122.0090;
+    private bool isSettingLocation;
+
+    // Route
+    private string? routeFileName;
+    private IReadOnlyList<RouteWaypoint>? routeWaypoints;
+    private double routeSpeed = 20;
+
+    // Battery
+    private int batteryLevel = 100;
+    private string batteryStatus = "";
+    private bool isApplyingBattery;
+
+    // Demo mode
+    private string demoTime = "";
+    private string demoWifiLevel = "";
+    private string demoMobileLevel = "";
+    private string demoMobileType = "";
+    private int? demoBattery;
+    private bool demoBatteryPlugged;
+    private bool demoHideNotifs;
+    private bool isApplyingDemo;
+
+    // Deep links
+    private string deepLinkUrl = "";
+    private bool isOpeningLink;
+
+    protected override void OnInitialized()
+    {
+        Inspector.DeviceChanged += OnDeviceChanged;
+        ToolsService.RoutePlaybackStateChanged += OnRouteStateChanged;
+    }
+
+    private void OnDeviceChanged(string serial)
+    {
+        Serial = serial;
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void OnRouteStateChanged() => InvokeAsync(StateHasChanged);
+
+    // ── Location ──
+
+    private void SetPresetLocation(string name, double lat, double lon)
+    {
+        locationLat = lat;
+        locationLon = lon;
+        StateHasChanged();
+    }
+
+    private async Task SetLocation()
+    {
+        if (string.IsNullOrWhiteSpace(Serial)) return;
+        isSettingLocation = true;
+        StateHasChanged();
+        try
+        {
+            var ok = await ToolsService.SetLocationAsync(Serial, locationLat, locationLon);
+            await AlertService.ShowToastAsync(ok ? $"Location set to {locationLat}, {locationLon}" : "Failed to set location");
+        }
+        finally
+        {
+            isSettingLocation = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ClearLocation()
+    {
+        if (string.IsNullOrWhiteSpace(Serial)) return;
+        isSettingLocation = true;
+        StateHasChanged();
+        try
+        {
+            var ok = await ToolsService.ClearLocationAsync(Serial);
+            await AlertService.ShowToastAsync(ok ? "Location cleared" : "Failed to clear location");
+        }
+        finally
+        {
+            isSettingLocation = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task PickRouteFile()
+    {
+        var path = await DialogService.PickOpenFileAsync("Select KML or GPX file", new[] { ".kml", ".gpx" });
+        if (string.IsNullOrEmpty(path)) return;
+        try
+        {
+            routeWaypoints = KmlRouteParser.ParseFile(path);
+            routeFileName = Path.GetFileName(path);
+            await AlertService.ShowToastAsync($"Loaded {routeWaypoints.Count} waypoints from {routeFileName}");
+        }
+        catch (Exception ex)
+        {
+            await AlertService.ShowToastAsync($"Failed to parse file: {ex.Message}");
+        }
+        StateHasChanged();
+    }
+
+    private async Task PlayRoute()
+    {
+        if (string.IsNullOrWhiteSpace(Serial) || routeWaypoints == null) return;
+        var ok = await ToolsService.StartRoutePlaybackAsync(Serial, routeWaypoints, routeSpeed);
+        if (!ok) await AlertService.ShowToastAsync("Failed to start route playback");
+    }
+
+    private void StopRoute() => ToolsService.StopRoutePlayback();
+
+    // ── Battery ──
+
+    private async Task ApplyBattery()
+    {
+        if (string.IsNullOrWhiteSpace(Serial)) return;
+        isApplyingBattery = true;
+        StateHasChanged();
+        try
+        {
+            await ToolsService.SetBatteryLevelAsync(Serial, batteryLevel);
+            if (!string.IsNullOrEmpty(batteryStatus))
+                await ToolsService.SetBatteryStatusAsync(Serial, batteryStatus);
+            await AlertService.ShowToastAsync("Battery settings applied");
+        }
+        finally
+        {
+            isApplyingBattery = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ResetBattery()
+    {
+        if (string.IsNullOrWhiteSpace(Serial)) return;
+        isApplyingBattery = true;
+        StateHasChanged();
+        try
+        {
+            var ok = await ToolsService.ResetBatteryAsync(Serial);
+            await AlertService.ShowToastAsync(ok ? "Battery reset to real values" : "Failed to reset battery");
+        }
+        finally
+        {
+            isApplyingBattery = false;
+            StateHasChanged();
+        }
+    }
+
+    // ── Demo Mode ──
+
+    private async Task ApplyDemoMode()
+    {
+        if (string.IsNullOrWhiteSpace(Serial)) return;
+        isApplyingDemo = true;
+        StateHasChanged();
+        try
+        {
+            await ToolsService.EnableDemoModeAsync(Serial);
+            var status = new AndroidDemoStatus(
+                Time: string.IsNullOrWhiteSpace(demoTime) ? null : demoTime,
+                WifiLevel: int.TryParse(demoWifiLevel, out var wl) ? wl : null,
+                MobileLevel: int.TryParse(demoMobileLevel, out var ml) ? ml : null,
+                MobileDataType: string.IsNullOrWhiteSpace(demoMobileType) ? null : demoMobileType,
+                BatteryLevel: demoBattery,
+                BatteryPlugged: demoBatteryPlugged ? true : null,
+                HideNotifications: demoHideNotifs ? true : null
+            );
+            var ok = await ToolsService.SetDemoStatusAsync(Serial, status);
+            await AlertService.ShowToastAsync(ok ? "Demo mode applied" : "Failed to apply demo mode");
+        }
+        finally
+        {
+            isApplyingDemo = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task DisableDemoMode()
+    {
+        if (string.IsNullOrWhiteSpace(Serial)) return;
+        isApplyingDemo = true;
+        StateHasChanged();
+        try
+        {
+            var ok = await ToolsService.DisableDemoModeAsync(Serial);
+            await AlertService.ShowToastAsync(ok ? "Demo mode disabled" : "Failed to disable demo mode");
+        }
+        finally
+        {
+            isApplyingDemo = false;
+            StateHasChanged();
+        }
+    }
+
+    // ── Deep Links ──
+
+    private async Task OpenDeepLink()
+    {
+        if (string.IsNullOrWhiteSpace(Serial) || string.IsNullOrWhiteSpace(deepLinkUrl)) return;
+        isOpeningLink = true;
+        StateHasChanged();
+        try
+        {
+            var ok = await ToolsService.OpenDeepLinkAsync(Serial, deepLinkUrl);
+            await AlertService.ShowToastAsync(ok ? "Deep link opened" : "Failed to open deep link");
+        }
+        finally
+        {
+            isOpeningLink = false;
+            StateHasChanged();
+        }
+    }
+
+    public void Dispose()
+    {
+        Inspector.DeviceChanged -= OnDeviceChanged;
+        ToolsService.RoutePlaybackStateChanged -= OnRouteStateChanged;
+    }
+}

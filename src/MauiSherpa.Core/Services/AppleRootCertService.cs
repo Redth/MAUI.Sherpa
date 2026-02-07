@@ -58,8 +58,7 @@ public class AppleRootCertService : IAppleRootCertService
         _httpClient = new HttpClient();
         
         // Cache in app's local data folder
-        var appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        _cacheDir = Path.Combine(appData, "MauiSherpa", "AppleCerts");
+        _cacheDir = Path.Combine(AppDataPath.GetAppDataDirectory(), "AppleCerts");
         
         // Start caching immediately in the background (only on macOS)
         if (IsSupported)

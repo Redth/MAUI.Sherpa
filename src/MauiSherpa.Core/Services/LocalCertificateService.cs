@@ -30,8 +30,7 @@ public partial class LocalCertificateService : ILocalCertificateService
         
         // Set up persistent cache path
         var cacheDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "MauiSherpa", "cache");
+            AppDataPath.GetAppDataDirectory(), "cache");
         Directory.CreateDirectory(cacheDir);
         _serialCachePath = Path.Combine(cacheDir, "cert-serials.json");
     }

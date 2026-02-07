@@ -1,9 +1,9 @@
 @using MauiSherpa.Services
 @using MauiSherpa.Core.Interfaces
-@inject DeviceInspectorService PanelService
-@inject IAdbDeviceWatcherService DeviceWatcher
-@inject SimInspectorService AppleInspector
+@inject SimInspectorService PanelService
+@inject DeviceInspectorService AndroidInspector
 @inject InspectorCoordinator Coordinator
+@inject ISimulatorService SimulatorService
 @inject IJSRuntime JS
 @implements IDisposable
 
@@ -11,18 +11,18 @@
 {
     @if (PanelService.IsMinimized)
     {
-        var slot = Coordinator.GetCollapsedSlot("android", true, AppleInspector.IsOpen && AppleInspector.IsMinimized);
-        <div class="logcat-collapsed" style="bottom:@(slot * 34)px" @onclick="OnRestore">
-            <i class="fab fa-android collapsed-icon"></i>
-            <span class="collapsed-label">@(PanelService.ActiveDeviceName ?? "Device")</span>
-            <span class="collapsed-serial">@PanelService.ActiveSerial</span>
+        var slot = Coordinator.GetCollapsedSlot("apple", AndroidInspector.IsOpen && AndroidInspector.IsMinimized, true);
+        <div class="simlog-collapsed" style="bottom:@(slot * 34)px" @onclick="OnRestore">
+            <i class="fab fa-apple collapsed-icon"></i>
+            <span class="collapsed-label">@(PanelService.ActiveSimName ?? "Simulator")</span>
+            <span class="collapsed-serial">@PanelService.ActiveUdid</span>
             <i class="fas fa-chevron-up collapsed-expand"></i>
         </div>
     }
     else
     {
-        <div class="logcat-dialog @(isMaximized ? "maximized" : "")" @ref="dialogRef"
-             style="left:@(posX)px;top:@(posY)px;width:@(width)px;height:@(height)px;z-index:@(Coordinator.GetZIndex("android"))"
+        <div class="simlog-dialog @(isMaximized ? "maximized" : "")" @ref="dialogRef"
+             style="left:@(posX)px;top:@(posY)px;width:@(width)px;height:@(height)px;z-index:@(Coordinator.GetZIndex("apple"))"
              @onpointerdown="OnFocus">
             @if (!isMaximized)
             {
@@ -39,8 +39,8 @@
 
             <div class="dialog-titlebar" @onpointerdown="StartDrag">
                 <div class="dialog-title">
-                    <i class="fab fa-android title-android-icon"></i>
-                    <span class="title-text">Device Inspector</span>
+                    <i class="fab fa-apple title-apple-icon"></i>
+                    <span class="title-text">Simulator Inspector</span>
                 </div>
                 <div class="dialog-actions" @onpointerdown:stopPropagation="true">
                     <button class="dialog-btn" @onclick="PanelService.Minimize" @onclick:stopPropagation="true" title="Minimize">
@@ -55,35 +55,31 @@
                 </div>
             </div>
 
-            <div class="inspector-tabstrip">
-                <div class="inspector-tabs">
-                    <button class="inspector-tab @(PanelService.ActiveTab == InspectorTab.Logcat ? "active" : "")"
-                            @onclick="@(() => PanelService.SetTab(InspectorTab.Logcat))">
-                        <i class="fas fa-scroll"></i> Logcat
+            <div class="sim-inspector-tabstrip">
+                <div class="sim-inspector-tabs">
+                    <button class="sim-inspector-tab @(PanelService.ActiveTab == SimInspectorTab.Logs ? "active" : "")"
+                            @onclick="@(() => PanelService.SetTab(SimInspectorTab.Logs))">
+                        <i class="fas fa-scroll"></i> Logs
                     </button>
-                    <button class="inspector-tab @(PanelService.ActiveTab == InspectorTab.Files ? "active" : "")"
-                            @onclick="@(() => PanelService.SetTab(InspectorTab.Files))">
-                        <i class="fas fa-folder-open"></i> Files
+                    <button class="sim-inspector-tab @(PanelService.ActiveTab == SimInspectorTab.Apps ? "active" : "")"
+                            @onclick="@(() => PanelService.SetTab(SimInspectorTab.Apps))">
+                        <i class="fas fa-th-large"></i> Apps
                     </button>
-                    <button class="inspector-tab @(PanelService.ActiveTab == InspectorTab.Shell ? "active" : "")"
-                            @onclick="@(() => PanelService.SetTab(InspectorTab.Shell))">
-                        <i class="fas fa-terminal"></i> Shell
-                    </button>
-                    <button class="inspector-tab @(PanelService.ActiveTab == InspectorTab.Capture ? "active" : "")"
-                            @onclick="@(() => PanelService.SetTab(InspectorTab.Capture))">
+                    <button class="sim-inspector-tab @(PanelService.ActiveTab == SimInspectorTab.Capture ? "active" : "")"
+                            @onclick="@(() => PanelService.SetTab(SimInspectorTab.Capture))">
                         <i class="fas fa-camera"></i> Capture
                     </button>
-                    <button class="inspector-tab @(PanelService.ActiveTab == InspectorTab.Tools ? "active" : "")"
-                            @onclick="@(() => PanelService.SetTab(InspectorTab.Tools))">
+                    <button class="inspector-tab @(PanelService.ActiveTab == SimInspectorTab.Tools ? "active" : "")"
+                            @onclick="@(() => PanelService.SetTab(SimInspectorTab.Tools))">
                         <i class="fas fa-wrench"></i> Tools
                     </button>
                 </div>
-                <div class="inspector-device-selector">
-                    <i class="fab fa-android inspector-device-icon"></i>
-                    <select class="inspector-device-select" @ref="deviceSelectRef" value="@PanelService.ActiveSerial" @onchange="OnDeviceChanged">
-                        @foreach (var d in connectedDevices)
+                <div class="sim-inspector-device-selector">
+                    <i class="fab fa-apple sim-inspector-device-icon"></i>
+                    <select class="sim-inspector-device-select" @ref="deviceSelectRef" value="@PanelService.ActiveUdid" @onchange="OnDeviceChanged">
+                        @foreach (var s in bootedSimulators)
                         {
-                            <option value="@d.Serial" selected="@(d.Serial == PanelService.ActiveSerial)">@(d.Model ?? d.Serial)</option>
+                            <option value="@s.Udid" selected="@(s.Udid == PanelService.ActiveUdid)">@s.Name</option>
                         }
                     </select>
                 </div>
@@ -92,20 +88,17 @@
             <div class="dialog-body">
                 @switch (PanelService.ActiveTab)
                 {
-                    case InspectorTab.Logcat:
-                        <LogcatContent Serial="@(PanelService.ActiveSerial!)" />
+                    case SimInspectorTab.Logs:
+                        <SimLogContent Udid="@(PanelService.ActiveUdid!)" />
                         break;
-                    case InspectorTab.Files:
-                        <FileExplorerTab Serial="@(PanelService.ActiveSerial!)" />
+                    case SimInspectorTab.Apps:
+                        <SimAppsTab Udid="@(PanelService.ActiveUdid!)" />
                         break;
-                    case InspectorTab.Shell:
-                        <ShellTab Serial="@(PanelService.ActiveSerial!)" />
+                    case SimInspectorTab.Capture:
+                        <SimCaptureTab Udid="@(PanelService.ActiveUdid!)" />
                         break;
-                    case InspectorTab.Capture:
-                        <ScreenCaptureTab Serial="@(PanelService.ActiveSerial!)" />
-                        break;
-                    case InspectorTab.Tools:
-                        <DeviceToolsTab Serial="@(PanelService.ActiveSerial!)" />
+                    case SimInspectorTab.Tools:
+                        <SimToolsTab Udid="@(PanelService.ActiveUdid!)" />
                         break;
                 }
             </div>
@@ -115,7 +108,7 @@
 
 <style>
     /* ── Floating dialog ── */
-    .logcat-dialog {
+    .simlog-dialog {
         position: fixed;
         min-width: 520px;
         min-height: 300px;
@@ -126,27 +119,27 @@
         flex-direction: column;
         /* z-index set via inline style for focus ordering */
         box-shadow: 0 8px 32px rgba(0,0,0,0.18), 0 2px 8px rgba(0,0,0,0.08);
-        animation: dialogIn 0.2s ease-out;
+        animation: simlogDialogIn 0.2s ease-out;
     }
 
-    .logcat-dialog.maximized {
+    .simlog-dialog.maximized {
         border-radius: 0;
         box-shadow: none;
     }
-    .logcat-dialog.maximized .dialog-titlebar {
+    .simlog-dialog.maximized .dialog-titlebar {
         border-radius: 0;
     }
-    .logcat-dialog.maximized .dialog-body {
+    .simlog-dialog.maximized .dialog-body {
         border-radius: 0;
     }
 
-    @@keyframes dialogIn {
+    @@keyframes simlogDialogIn {
         from { opacity: 0; transform: scale(0.95) translateY(12px); }
         to   { opacity: 1; transform: scale(1) translateY(0); }
     }
 
     /* ── Titlebar ── */
-    .dialog-titlebar {
+    .simlog-dialog .dialog-titlebar {
         display: flex;
         align-items: center;
         justify-content: space-between;
@@ -159,9 +152,9 @@
         border-radius: 10px 10px 0 0;
         overflow: hidden;
     }
-    .dialog-titlebar:active { cursor: grabbing; }
+    .simlog-dialog .dialog-titlebar:active { cursor: grabbing; }
 
-    .dialog-title {
+    .simlog-dialog .dialog-title {
         display: flex;
         align-items: center;
         gap: 8px;
@@ -170,30 +163,21 @@
         color: var(--text-primary);
         overflow: hidden;
     }
-    .title-android-icon {
-        color: #3ddc84;
+    .title-apple-icon {
+        color: var(--text-secondary);
         font-size: 15px;
         flex-shrink: 0;
     }
-    .title-text {
+    .simlog-dialog .title-text {
         flex-shrink: 0;
     }
-    .title-serial {
-        font-family: 'Consolas', 'Monaco', monospace;
-        font-size: 11px;
-        font-weight: 400;
-        color: var(--text-muted);
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
 
-    .dialog-actions {
+    .simlog-dialog .dialog-actions {
         display: flex;
         gap: 2px;
         flex-shrink: 0;
     }
-    .dialog-btn {
+    .simlog-dialog .dialog-btn {
         background: none;
         border: none;
         color: var(--text-secondary);
@@ -204,31 +188,17 @@
         transition: all 0.12s;
         line-height: 1;
     }
-    .dialog-btn:hover {
+    .simlog-dialog .dialog-btn:hover {
         background: var(--bg-secondary);
         color: var(--text-primary);
     }
-    .dialog-btn-close:hover {
+    .simlog-dialog .dialog-btn-close:hover {
         background: #f56565;
         color: white;
     }
 
-    /* ── Body ── */
-    .logcat-dialog .dialog-body {
-        flex: 1;
-        min-height: 0;
-        overflow: hidden;
-        display: flex;
-        flex-direction: column;
-        padding: 0 !important;
-        border-radius: 0 0 10px 10px;
-    }
-    .logcat-dialog .dialog-body .logcat-page {
-        height: 100% !important;
-    }
-
     /* ── Tab strip ── */
-    .inspector-tabstrip {
+    .sim-inspector-tabstrip {
         display: flex;
         align-items: center;
         justify-content: space-between;
@@ -238,13 +208,13 @@
         flex-shrink: 0;
         gap: 8px;
     }
-    .inspector-tabs {
+    .sim-inspector-tabs {
         display: flex;
         gap: 0;
         position: relative;
         z-index: 1;
     }
-    .inspector-tab {
+    .sim-inspector-tab {
         background: none;
         border: none;
         padding: 6px 12px;
@@ -259,21 +229,21 @@
         gap: 5px;
         white-space: nowrap;
     }
-    .inspector-tab:hover {
+    .sim-inspector-tab:hover {
         color: var(--text-primary);
         background: var(--bg-secondary);
     }
-    .inspector-tab.active {
+    .sim-inspector-tab.active {
         color: var(--accent-primary, #4299e1);
         border-bottom-color: var(--accent-primary, #4299e1);
         font-weight: 600;
     }
-    .inspector-tab i {
+    .sim-inspector-tab i {
         font-size: 11px;
     }
 
     /* ── Panel-level device selector ── */
-    .inspector-device-selector {
+    .sim-inspector-device-selector {
         display: flex;
         align-items: center;
         gap: 4px;
@@ -287,19 +257,19 @@
         overflow: hidden;
         flex-shrink: 0;
     }
-    .inspector-device-selector:hover {
+    .sim-inspector-device-selector:hover {
         border-color: var(--accent-primary, #4299e1);
     }
-    .inspector-device-selector:focus-within {
+    .sim-inspector-device-selector:focus-within {
         border-color: var(--accent-primary, #4299e1);
         box-shadow: 0 0 0 2px rgba(66, 153, 225, 0.3);
     }
-    .inspector-device-icon {
-        color: #3ddc84;
+    .sim-inspector-device-icon {
+        color: var(--text-secondary);
         font-size: 12px;
         flex-shrink: 0;
     }
-    .inspector-device-select {
+    .sim-inspector-device-select {
         border: none;
         outline: none !important;
         -webkit-focus-ring-color: transparent;
@@ -313,23 +283,37 @@
         padding-right: 2px;
         max-width: 180px;
     }
-    .inspector-device-select:focus {
+    .sim-inspector-device-select:focus {
         outline: none !important;
         box-shadow: none !important;
     }
 
+    /* ── Body ── */
+    .simlog-dialog .dialog-body {
+        flex: 1;
+        min-height: 0;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        padding: 0 !important;
+        border-radius: 0 0 10px 10px;
+    }
+    .simlog-dialog .dialog-body .simlog-page {
+        height: 100% !important;
+    }
+
     /* ── Resize handles ── */
-    .resize-handle { position: absolute; z-index: 10; touch-action: none; }
-    .resize-handle:hover { background: var(--accent-primary, #4299e1); opacity: 0.35; }
-    .resize-n  { top: 0;     left: 14px;  right: 14px; height: 5px; cursor: n-resize; border-radius: 3px; }
-    .resize-s  { bottom: 0;  left: 14px;  right: 14px; height: 5px; cursor: s-resize; border-radius: 3px; }
-    .resize-e  { top: 14px;  right: 0;    bottom: 14px; width: 5px; cursor: e-resize; border-radius: 3px; }
-    .resize-w  { top: 14px;  left: 0;     bottom: 14px; width: 5px; cursor: w-resize; border-radius: 3px; }
-    .resize-ne { top: 0;     right: 0;    width: 14px; height: 14px; cursor: ne-resize; border-radius: 0 6px 0 6px; }
-    .resize-nw { top: 0;     left: 0;     width: 14px; height: 14px; cursor: nw-resize; border-radius: 6px 0 6px 0; }
-    .resize-se { bottom: 0;  right: 0;    width: 14px; height: 14px; cursor: se-resize; border-radius: 6px 0 6px 0; }
-    .resize-sw { bottom: 0;  left: 0;     width: 14px; height: 14px; cursor: sw-resize; border-radius: 0 6px 0 6px; }
-    .resize-se::after {
+    .simlog-dialog .resize-handle { position: absolute; z-index: 10; touch-action: none; }
+    .simlog-dialog .resize-handle:hover { background: var(--accent-primary, #4299e1); opacity: 0.35; }
+    .simlog-dialog .resize-n  { top: 0;     left: 14px;  right: 14px; height: 5px; cursor: n-resize; }
+    .simlog-dialog .resize-s  { bottom: 0;  left: 14px;  right: 14px; height: 5px; cursor: s-resize; }
+    .simlog-dialog .resize-e  { top: 14px;  right: 0;    bottom: 14px; width: 5px; cursor: e-resize; }
+    .simlog-dialog .resize-w  { top: 14px;  left: 0;     bottom: 14px; width: 5px; cursor: w-resize; }
+    .simlog-dialog .resize-ne { top: 0;     right: 0;    width: 14px; height: 14px; cursor: ne-resize; }
+    .simlog-dialog .resize-nw { top: 0;     left: 0;     width: 14px; height: 14px; cursor: nw-resize; }
+    .simlog-dialog .resize-se { bottom: 0;  right: 0;    width: 14px; height: 14px; cursor: se-resize; }
+    .simlog-dialog .resize-sw { bottom: 0;  left: 0;     width: 14px; height: 14px; cursor: sw-resize; }
+    .simlog-dialog .resize-se::after {
         content: '';
         position: absolute;
         bottom: 3px;
@@ -342,7 +326,7 @@
     }
 
     /* ── Collapsed bar ── */
-    .logcat-collapsed {
+    .simlog-collapsed {
         position: fixed;
         /* bottom set via inline style for stacking */
         left: 250px; /* sidebar width */
@@ -359,11 +343,11 @@
         user-select: none;
         transition: background 0.15s, bottom 0.15s;
     }
-    .logcat-collapsed:hover {
+    .simlog-collapsed:hover {
         background: var(--bg-secondary, #ffffff);
     }
     .collapsed-icon {
-        color: #3ddc84;
+        color: var(--text-secondary);
         font-size: 15px;
     }
     .collapsed-label {
@@ -382,7 +366,7 @@
         font-size: 11px;
         transition: transform 0.15s;
     }
-    .logcat-collapsed:hover .collapsed-expand {
+    .simlog-collapsed:hover .collapsed-expand {
         transform: translateY(-2px);
         color: var(--accent-primary);
     }
@@ -391,7 +375,7 @@
 @code {
     private ElementReference dialogRef;
     private ElementReference deviceSelectRef;
-    private List<DeviceInfo> connectedDevices = new();
+    private List<SimulatorDevice> bootedSimulators = new();
 
     // Position & size
     private double posX = 280;
@@ -418,16 +402,15 @@
     private double resizeStartMouseX, resizeStartMouseY;
     private double resizeStartX, resizeStartY, resizeStartW, resizeStartH;
 
-    private DotNetObjectReference<LogcatPanel>? selfRef;
+    private DotNetObjectReference<SimLogPanel>? selfRef;
 
     private enum ResizeEdge { N, S, E, W, NE, NW, SE, SW }
 
     protected override void OnInitialized()
     {
         PanelService.StateChanged += OnStateChanged;
-        DeviceWatcher.DevicesChanged += OnWatcherDevicesChanged;
         Coordinator.StateChanged += OnCoordinatorChanged;
-        connectedDevices = DeviceWatcher.Devices.ToList();
+        _ = RefreshBootedSimulators();
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -436,14 +419,14 @@
         {
             selfRef = DotNetObjectReference.Create(this);
             await JS.InvokeVoidAsync("eval", @"
-                window.__logcatDrag = {
+                window.__simlogDrag = {
                     ref: null,
                     onMove: null,
                     onUp: null,
                     start: function(dotnetRef) {
                         this.ref = dotnetRef;
                         this.onMove = (e) => { e.preventDefault(); dotnetRef.invokeMethodAsync('OnPointerMoveJS', e.clientX, e.clientY); };
-                        this.onUp = (e) => { dotnetRef.invokeMethodAsync('OnPointerUpJS'); window.__logcatDrag.stop(); };
+                        this.onUp = (e) => { dotnetRef.invokeMethodAsync('OnPointerUpJS'); window.__simlogDrag.stop(); };
                         document.addEventListener('pointermove', this.onMove);
                         document.addEventListener('pointerup', this.onUp);
                     },
@@ -461,7 +444,6 @@
     {
         if (isMaximized)
         {
-            // Un-maximize on drag, position dialog so cursor is centered on restored titlebar
             posX = e.ClientX - restoreWidth / 2;
             posY = e.ClientY - 15;
             width = restoreWidth;
@@ -475,7 +457,7 @@
         dragStartPosX = posX;
         dragStartPosY = posY;
         if (selfRef != null)
-            await JS.InvokeVoidAsync("window.__logcatDrag.start", selfRef);
+            await JS.InvokeVoidAsync("window.__simlogDrag.start", selfRef);
     }
 
     private async void StartResize(PointerEventArgs e, ResizeEdge edge)
@@ -490,7 +472,7 @@
         resizeStartW = width;
         resizeStartH = height;
         if (selfRef != null)
-            await JS.InvokeVoidAsync("window.__logcatDrag.start", selfRef);
+            await JS.InvokeVoidAsync("window.__simlogDrag.start", selfRef);
     }
 
     [JSInvokable]
@@ -500,7 +482,6 @@
         {
             posX = dragStartPosX + (clientX - dragStartMouseX);
             posY = dragStartPosY + (clientY - dragStartMouseY);
-            // Clamp so titlebar stays on screen
             posX = Math.Max(-width + 100, posX);
             posY = Math.Max(0, posY);
             InvokeAsync(StateHasChanged);
@@ -603,17 +584,21 @@
                 height = 800;
             }
             isMaximized = true;
-            Coordinator.BringToFront("android");
+            Coordinator.BringToFront("apple");
 
             // Collapse the other inspector if it's open and not minimized
-            if (AppleInspector.IsOpen && !AppleInspector.IsMinimized)
-                AppleInspector.Minimize();
+            if (AndroidInspector.IsOpen && !AndroidInspector.IsMinimized)
+                AndroidInspector.Minimize();
         }
     }
 
     private void OnStateChanged()
     {
-        InvokeAsync(StateHasChanged);
+        _ = InvokeAsync(async () =>
+        {
+            await RefreshBootedSimulators();
+            StateHasChanged();
+        });
     }
 
     private void OnCoordinatorChanged()
@@ -623,43 +608,38 @@
 
     private void OnFocus()
     {
-        Coordinator.BringToFront("android");
+        Coordinator.BringToFront("apple");
     }
 
     private void OnRestore()
     {
-        Coordinator.BringToFront("android");
-        // If the other inspector is maximized, collapse it and un-maximize
-        if (AppleInspector.IsOpen && !AppleInspector.IsMinimized)
-            AppleInspector.Minimize();
+        Coordinator.BringToFront("apple");
+        // If the other inspector is maximized, collapse it
+        if (AndroidInspector.IsOpen && !AndroidInspector.IsMinimized)
+            AndroidInspector.Minimize();
         PanelService.Restore();
     }
 
-    private void OnWatcherDevicesChanged(IReadOnlyList<DeviceInfo> newDevices)
+    private async Task RefreshBootedSimulators()
     {
-        InvokeAsync(() =>
+        try
         {
-            connectedDevices = newDevices.ToList();
-            StateHasChanged();
-        });
+            var allSims = await SimulatorService.GetSimulatorsAsync();
+            bootedSimulators = allSims.Where(s => s.State == "Booted").ToList();
+        }
+        catch { /* ignore */ }
     }
 
     private void OnDeviceChanged(ChangeEventArgs e)
     {
-        var newSerial = e.Value?.ToString();
-        if (string.IsNullOrEmpty(newSerial) || newSerial == PanelService.ActiveSerial) return;
-        PanelService.SwitchDevice(newSerial, connectedDevices.FirstOrDefault(d => d.Serial == newSerial)?.Model);
-    }
-
-    private async Task FocusDeviceSelect()
-    {
-        await JS.InvokeVoidAsync("eval", "(function(){ var el = document.querySelector('.inspector-device-select'); if(el){ el.blur(); el.focus(); el.click(); } })()");
+        var newUdid = e.Value?.ToString();
+        if (string.IsNullOrEmpty(newUdid) || newUdid == PanelService.ActiveUdid) return;
+        PanelService.SwitchDevice(newUdid, bootedSimulators.FirstOrDefault(s => s.Udid == newUdid)?.Name);
     }
 
     public void Dispose()
     {
         PanelService.StateChanged -= OnStateChanged;
-        DeviceWatcher.DevicesChanged -= OnWatcherDevicesChanged;
         Coordinator.StateChanged -= OnCoordinatorChanged;
         selfRef?.Dispose();
     }

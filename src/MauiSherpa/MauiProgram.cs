@@ -66,6 +66,7 @@ public static class MauiProgram
         builder.Services.AddSingleton<IDeviceFileService, DeviceFileService>();
         builder.Services.AddSingleton<IDeviceShellService, DeviceShellService>();
         builder.Services.AddSingleton<IScreenCaptureService, ScreenCaptureService>();
+        builder.Services.AddSingleton<IAndroidDeviceToolsService, AndroidDeviceToolsService>();
         builder.Services.AddSingleton<DeviceInspectorService>();
         builder.Services.AddSingleton<IDoctorService, DoctorService>();
         builder.Services.AddSingleton<ICopilotToolsService, CopilotToolsService>();
@@ -78,6 +79,11 @@ public static class MauiProgram
         builder.Services.AddSingleton<IAppleConnectService, AppleConnectService>();
         builder.Services.AddSingleton<IAppleRootCertService, AppleRootCertService>();
         builder.Services.AddSingleton<ILocalCertificateService, LocalCertificateService>();
+        builder.Services.AddSingleton<ISimulatorService, MauiSherpa.Core.Services.SimulatorService>();
+        builder.Services.AddSingleton<ISimulatorLogService, SimulatorLogService>();
+        builder.Services.AddSingleton<IPhysicalDeviceService, MauiSherpa.Core.Services.PhysicalDeviceService>();
+        builder.Services.AddSingleton<SimInspectorService>();
+        builder.Services.AddSingleton<InspectorCoordinator>();
         
         // Cloud Secrets Storage services
         builder.Services.AddSingleton<ICloudSecretsProviderFactory, CloudSecretsProviderFactory>();
@@ -134,6 +140,10 @@ public static class MauiProgram
         builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Publisher.ListPublisherRepositoriesHandler>();
         builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Apple.TrackBundleIdUsageHandler>();
         builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Apple.GetRecentBundleIdsHandler>();
+        builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Apple.GetSimulatorsHandler>();
+        builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Apple.GetSimulatorDeviceTypesHandler>();
+        builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Apple.GetSimulatorRuntimesHandler>();
+        builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Apple.GetSimulatorAppsHandler>();
 
 #if DEBUG
         builder.Services.AddBlazorWebViewDeveloperTools();
@@ -146,39 +156,54 @@ public static class MauiProgram
     }
 
     /// <summary>
-    /// One-time migration from ~/.maui-sherpa/ to ~/Library/Application Support/MauiSherpa/
-    /// Avoids TCC permission dialogs caused by accessing dotfiles in the home directory root.
+    /// One-time migration from old data locations to ~/Library/Application Support/MauiSherpa/
+    /// Migrates from: ~/.maui-sherpa/ and ~/Documents/.config/MauiSherpa/ (wrong ApplicationData path)
     /// </summary>
     static void MigrateAppData()
     {
         try
         {
-            var oldDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".maui-sherpa");
-            var newDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MauiSherpa");
+            var newDir = AppDataPath.GetAppDataDirectory();
+            var markerFile = Path.Combine(newDir, ".migration-checked");
 
-            if (!Directory.Exists(oldDir))
-                return;
-
-            // Already migrated
-            if (Directory.Exists(newDir) && Directory.GetFiles(newDir, "*", SearchOption.AllDirectories).Length > 0)
+            if (File.Exists(markerFile))
                 return;
 
             Directory.CreateDirectory(newDir);
 
-            // Copy all files preserving directory structure
-            foreach (var file in Directory.GetFiles(oldDir, "*", SearchOption.AllDirectories))
+            // Migrate from old locations (oldest first so newer files overwrite)
+            var oldDirs = new[]
             {
-                var relativePath = Path.GetRelativePath(oldDir, file);
-                var destPath = Path.Combine(newDir, relativePath);
-                var destDir = Path.GetDirectoryName(destPath);
-                if (!string.IsNullOrEmpty(destDir))
-                    Directory.CreateDirectory(destDir);
-                File.Copy(file, destPath, overwrite: false);
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".maui-sherpa"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Documents", ".config", "MauiSherpa")
+            };
+
+            foreach (var oldDir in oldDirs)
+            {
+                try
+                {
+                    if (!Directory.Exists(oldDir)) continue;
+                    foreach (var file in Directory.GetFiles(oldDir, "*", SearchOption.AllDirectories))
+                    {
+                        var relativePath = Path.GetRelativePath(oldDir, file);
+                        if (relativePath == ".migration-checked") continue;
+                        var destPath = Path.Combine(newDir, relativePath);
+                        var destDir = Path.GetDirectoryName(destPath);
+                        if (!string.IsNullOrEmpty(destDir))
+                            Directory.CreateDirectory(destDir);
+                        // Copy if dest doesn't exist, or if source is newer
+                        if (!File.Exists(destPath) || File.GetLastWriteTimeUtc(file) > File.GetLastWriteTimeUtc(destPath))
+                            File.Copy(file, destPath, overwrite: true);
+                    }
+                }
+                catch { /* Best-effort per source */ }
             }
+
+            File.WriteAllText(markerFile, "migrated");
         }
         catch
         {
-            // Migration is best-effort — don't block app startup
+            // Don't block app startup
         }
     }
 }

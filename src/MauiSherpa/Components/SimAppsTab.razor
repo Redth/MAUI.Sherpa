@@ -1,0 +1,339 @@
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Core.Requests.Apple
+@using MauiSherpa.Services
+@using Shiny.Mediator
+@inject IMediator Mediator
+@inject ISimulatorService SimulatorService
+@inject SimInspectorService Inspector
+@inject IAlertService AlertService
+@inject IDialogService DialogService
+@inject IFileSystemService FileSystem
+@inject OperationModalService OperationModal
+@inject BlazorToastService ToastService
+@implements IDisposable
+
+<div class="sim-apps-tab">
+    <div class="sim-apps-toolbar">
+        <input type="text" placeholder="Search apps..." @bind="searchQuery" @bind:event="oninput" class="sim-apps-search" />
+        <div class="sim-apps-filter">
+            <select @bind="filterType">
+                <option value="">All Types</option>
+                <option value="User">User</option>
+                <option value="System">System</option>
+            </select>
+        </div>
+        <button class="btn btn-success btn-sm" @onclick="InstallApp" disabled="@isLoading">
+            <i class="fas fa-plus"></i> Install .app
+        </button>
+        <button class="btn btn-primary btn-sm" @onclick="() => LoadApps(forceRefresh: true)" disabled="@isLoading">
+            <i class="fas @(isLoading ? "fa-spinner fa-spin" : "fa-sync-alt")"></i>
+        </button>
+    </div>
+
+    <div class="sim-apps-list">
+        @if (isLoading && apps.Count == 0)
+        {
+            <div class="sim-apps-empty">
+                <i class="fas fa-spinner fa-spin"></i> Loading installed apps...
+            </div>
+        }
+        else if (!FilteredApps.Any())
+        {
+            <div class="sim-apps-empty">
+                <i class="fas fa-box-open"></i>
+                <span>No apps found</span>
+            </div>
+        }
+        else
+        {
+            @foreach (var app in FilteredApps)
+            {
+                var isUserApp = app.ApplicationType != "System";
+                <div class="sim-app-row @(isUserApp ? "user-app" : "")">
+                    <div class="sim-app-icon">
+                        <i class="fas @(isUserApp ? "fa-cube" : "fa-mobile-screen")"></i>
+                    </div>
+                    <div class="sim-app-details">
+                        <div class="sim-app-name">@app.Name</div>
+                        <div class="sim-app-bundle-id">
+                            @app.BundleId
+                            <button class="btn-copy-inline" @onclick="@(() => CopyToClipboard(app.BundleId))" title="Copy Bundle ID">
+                                <i class="fas fa-copy"></i>
+                            </button>
+                        </div>
+                        @if (!string.IsNullOrEmpty(app.Version))
+                        {
+                            <span class="sim-app-version">v@(app.Version)</span>
+                        }
+                    </div>
+                    <div class="sim-app-type-badge">
+                        <span class="badge @(isUserApp ? "badge-user" : "badge-system")">@app.ApplicationType</span>
+                    </div>
+                    <div class="sim-app-actions">
+                        <button class="btn btn-sm btn-secondary" @onclick="@(() => LaunchApp(app))" title="Launch">
+                            <i class="fas fa-play"></i>
+                        </button>
+                        <button class="btn btn-sm btn-secondary" @onclick="@(() => TerminateApp(app))" title="Terminate">
+                            <i class="fas fa-stop"></i>
+                        </button>
+                        @if (!string.IsNullOrEmpty(app.DataContainerPath))
+                        {
+                            <button class="btn btn-sm btn-secondary" @onclick="@(() => RevealContainer(app))" title="Reveal data container in Finder">
+                                <i class="fas fa-folder-open"></i>
+                            </button>
+                        }
+                        @if (isUserApp)
+                        {
+                            <button class="btn btn-sm btn-danger" @onclick="@(() => UninstallApp(app))" title="Uninstall">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        }
+                    </div>
+                </div>
+            }
+        }
+    </div>
+</div>
+
+<style>
+    .sim-apps-tab {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+    }
+
+    .sim-apps-toolbar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border-bottom: 1px solid var(--border-color);
+        flex-shrink: 0;
+    }
+    .sim-apps-search {
+        flex: 1;
+        padding: 5px 10px;
+        border: 1px solid var(--border-color);
+        border-radius: 5px;
+        font-size: 12px;
+        background: var(--bg-tertiary);
+        color: var(--text-primary);
+    }
+    .sim-apps-search:focus { outline: none; border-color: var(--accent-primary); }
+    .sim-apps-filter select {
+        padding: 5px 8px;
+        border: 1px solid var(--border-color);
+        border-radius: 5px;
+        font-size: 12px;
+        background: var(--bg-tertiary);
+        color: var(--text-primary);
+    }
+
+    .sim-apps-list {
+        flex: 1;
+        overflow-y: auto;
+        padding: 4px 0;
+    }
+
+    .sim-app-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 6px 12px;
+        transition: background 0.1s;
+    }
+    .sim-app-row:hover { background: var(--bg-tertiary); }
+    .sim-app-row.user-app { border-left: 3px solid var(--accent-primary); }
+
+    .sim-app-icon { font-size: 16px; color: var(--text-secondary); width: 24px; text-align: center; }
+    .user-app .sim-app-icon { color: var(--accent-primary); }
+
+    .sim-app-details { flex: 1; min-width: 0; }
+    .sim-app-name { font-weight: 600; font-size: 12px; color: var(--text-primary); }
+    .sim-app-bundle-id {
+        font-family: 'Consolas', 'Monaco', monospace;
+        font-size: 10px;
+        color: var(--text-muted);
+        display: flex;
+        align-items: center;
+        gap: 4px;
+    }
+    .sim-app-version { font-size: 10px; color: var(--text-muted); }
+
+    .btn-copy-inline {
+        background: none; border: none; color: var(--text-secondary);
+        cursor: pointer; padding: 1px 4px; font-size: 9px;
+        border-radius: 3px; transition: all 0.15s;
+    }
+    .btn-copy-inline:hover { color: var(--accent-primary); background: var(--bg-tertiary); }
+
+    .sim-app-type-badge { flex-shrink: 0; }
+    .badge { padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 500; }
+    .badge-user { background: var(--status-success-bg); color: var(--status-success-text); }
+    .badge-system { background: var(--bg-tertiary); color: var(--text-secondary); }
+
+    .sim-app-actions { display: flex; gap: 4px; flex-shrink: 0; }
+
+    .sim-apps-empty {
+        text-align: center; padding: 40px 20px;
+        color: var(--text-muted); font-size: 13px;
+        display: flex; flex-direction: column; align-items: center; gap: 12px;
+    }
+    .sim-apps-empty i { font-size: 28px; }
+
+    .sim-apps-tab .btn { padding: 6px 14px; border: none; border-radius: 5px; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; transition: all 0.15s; }
+    .sim-apps-tab .btn i { font-size: 11px; }
+    .sim-apps-tab .btn-sm { padding: 4px 8px; font-size: 11px; }
+    .sim-apps-tab .btn-primary { background: var(--accent-primary); color: white; }
+    .sim-apps-tab .btn-success { background: var(--accent-success, #48bb78); color: white; }
+    .sim-apps-tab .btn-secondary { background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border-color); }
+    .sim-apps-tab .btn-danger { background: var(--accent-danger, #f56565); color: white; }
+    .sim-apps-tab .btn:hover:not(:disabled) { filter: brightness(1.1); }
+    .sim-apps-tab .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+</style>
+
+@code {
+    [Parameter] public string Udid { get; set; } = "";
+
+    private bool isLoading;
+    private string searchQuery = "";
+    private string filterType = "";
+    private List<SimulatorApp> apps = new();
+
+    private IEnumerable<SimulatorApp> FilteredApps => apps
+        .Where(a => string.IsNullOrEmpty(searchQuery) ||
+                    a.Name.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) ||
+                    a.BundleId.Contains(searchQuery, StringComparison.OrdinalIgnoreCase))
+        .Where(a => string.IsNullOrEmpty(filterType) ||
+                    a.ApplicationType.Equals(filterType, StringComparison.OrdinalIgnoreCase));
+
+    protected override async Task OnInitializedAsync()
+    {
+        Inspector.DeviceChanged += OnDeviceSwitched;
+        await LoadApps(forceRefresh: false);
+    }
+
+    private async Task LoadApps(bool forceRefresh)
+    {
+        isLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            if (forceRefresh)
+                await Mediator.FlushStores($"apple:simulator:apps:{Udid}");
+
+            var (_, result) = await Mediator.Request(new GetSimulatorAppsRequest(Udid));
+            apps = result?.ToList() ?? new();
+        }
+        catch (Exception ex)
+        {
+            await AlertService.ShowToastAsync($"Error loading apps: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task LaunchApp(SimulatorApp app)
+    {
+        var success = await SimulatorService.LaunchAppAsync(Udid, app.BundleId);
+        if (success)
+            await AlertService.ShowToastAsync($"Launched {app.Name}");
+        else
+            await AlertService.ShowToastAsync($"Failed to launch {app.Name}");
+    }
+
+    private async Task TerminateApp(SimulatorApp app)
+    {
+        var success = await SimulatorService.TerminateAppAsync(Udid, app.BundleId);
+        if (success)
+            await AlertService.ShowToastAsync($"Terminated {app.Name}");
+        else
+            await AlertService.ShowToastAsync($"Failed to terminate {app.Name}");
+    }
+
+    private void RevealContainer(SimulatorApp app)
+    {
+        if (!string.IsNullOrEmpty(app.DataContainerPath))
+            FileSystem.RevealInFileManager(app.DataContainerPath);
+    }
+
+    private async Task UninstallApp(SimulatorApp app)
+    {
+        var confirm = await AlertService.ShowConfirmAsync(
+            "Uninstall App",
+            $"Are you sure you want to uninstall '{app.Name}' ({app.BundleId})?");
+
+        if (!confirm) return;
+
+        var result = await OperationModal.RunAsync(
+            "Uninstall App",
+            $"Uninstalling {app.Name}...",
+            async ctx =>
+            {
+                ctx.LogInfo($"Bundle ID: {app.BundleId}");
+                ctx.SetStatus("Uninstalling...");
+
+                var success = await SimulatorService.UninstallAppAsync(Udid, app.BundleId,
+                    new Progress<string>(msg => { ctx.LogInfo(msg); ctx.SetStatus(msg); }));
+
+                if (success) ctx.LogSuccess($"Uninstalled {app.Name}");
+                return success;
+            },
+            canCancel: false);
+
+        if (result.Success)
+            await LoadApps(forceRefresh: true);
+    }
+
+    private async Task InstallApp()
+    {
+        var appPath = await DialogService.PickOpenFileAsync("Select .app bundle", new[] { "app" });
+        if (string.IsNullOrEmpty(appPath)) return;
+
+        var result = await OperationModal.RunAsync(
+            "Install App",
+            $"Installing {Path.GetFileName(appPath)}...",
+            async ctx =>
+            {
+                ctx.LogInfo($"Path: {appPath}");
+                ctx.SetStatus("Installing...");
+
+                var success = await SimulatorService.InstallAppAsync(Udid, appPath,
+                    new Progress<string>(msg => { ctx.LogInfo(msg); ctx.SetStatus(msg); }));
+
+                if (success) ctx.LogSuccess("App installed successfully");
+                return success;
+            });
+
+        if (result.Success)
+            await LoadApps(forceRefresh: true);
+    }
+
+    private async Task CopyToClipboard(string text)
+    {
+        await DialogService.CopyToClipboardAsync(text);
+        await AlertService.ShowToastAsync("Copied to clipboard");
+    }
+
+    private void OnDeviceSwitched(string newUdid)
+    {
+        _ = InvokeAsync(async () =>
+        {
+            Udid = newUdid;
+            apps.Clear();
+            searchQuery = "";
+            filterType = "";
+            StateHasChanged();
+            await LoadApps(forceRefresh: false);
+        });
+    }
+
+    public void Dispose()
+    {
+        Inspector.DeviceChanged -= OnDeviceSwitched;
+    }
+}

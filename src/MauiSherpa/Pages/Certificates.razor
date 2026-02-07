@@ -172,53 +172,50 @@
                         </div>
                     </div>
                     <div class="cert-actions">
-                        @* Sync actions dropdown - only show if cloud provider is configured *@
                         @if (CloudSecretsService.ActiveProvider != null)
                         {
                             var currentCertId = cert.Id;
                             var currentSyncStatus = syncStatus;
-                            <div class="dropdown">
-                                <button class="btn btn-secondary btn-sm dropdown-toggle" @onclick="@(() => ToggleSyncMenu(currentCertId))" @onclick:stopPropagation="true">
-                                    <i class="fas fa-cloud"></i> Sync
-                                </button>
-                                @if (openSyncMenuCertId == currentCertId)
-                                {
-                                    <div class="dropdown-menu show">
-                                        @if (currentSyncStatus == SecretLocation.LocalOnly || currentSyncStatus == SecretLocation.Both)
-                                        {
-                                            <button type="button" class="dropdown-item" @onclick="@(() => HandleUploadClick(currentCertId))">
-                                                <i class="fas fa-cloud-upload-alt"></i> Upload to Cloud
-                                            </button>
-                                            <button type="button" class="dropdown-item text-danger" @onclick="@(() => DeleteLocalCertificate(cert))">
-                                                <i class="fas fa-trash-alt"></i> Delete from Keychain
-                                            </button>
-                                        }
-                                        @if (currentSyncStatus == SecretLocation.CloudOnly || currentSyncStatus == SecretLocation.Both)
-                                        {
-                                            <button type="button" class="dropdown-item" @onclick="@(() => HandleInstallClick(currentCertId))">
-                                                <i class="fas fa-download"></i> Install Locally
-                                            </button>
-                                            <button type="button" class="dropdown-item text-danger" @onclick="@(() => DeleteFromCloud(cert))">
-                                                <i class="fas fa-cloud"></i> Delete from Cloud
-                                            </button>
-                                        }
-                                        @if (currentSyncStatus == SecretLocation.None)
-                                        {
-                                            <div class="dropdown-item disabled">
-                                                <i class="fas fa-exclamation-circle"></i> No private key available
-                                            </div>
-                                        }
-                                    </div>
-                                }
-                            </div>
+                            <button class="btn btn-secondary btn-icon" @onclick="@(() => ToggleSyncMenu(currentCertId))" @onclick:stopPropagation="true" title="Sync">
+                                <i class="fas fa-cloud"></i>
+                            </button>
+                            @if (openSyncMenuCertId == currentCertId)
+                            {
+                                <div class="cert-dropdown-menu">
+                                    @if (currentSyncStatus == SecretLocation.LocalOnly || currentSyncStatus == SecretLocation.Both)
+                                    {
+                                        <button type="button" class="cert-dropdown-item" @onclick="@(() => HandleUploadClick(currentCertId))">
+                                            <i class="fas fa-cloud-upload-alt"></i> Upload to Cloud
+                                        </button>
+                                        <button type="button" class="cert-dropdown-item danger" @onclick="@(() => DeleteLocalCertificate(cert))">
+                                            <i class="fas fa-trash-alt"></i> Delete from Keychain
+                                        </button>
+                                    }
+                                    @if (currentSyncStatus == SecretLocation.CloudOnly || currentSyncStatus == SecretLocation.Both)
+                                    {
+                                        <button type="button" class="cert-dropdown-item" @onclick="@(() => HandleInstallClick(currentCertId))">
+                                            <i class="fas fa-download"></i> Install Locally
+                                        </button>
+                                        <button type="button" class="cert-dropdown-item danger" @onclick="@(() => DeleteFromCloud(cert))">
+                                            <i class="fas fa-cloud"></i> Delete from Cloud
+                                        </button>
+                                    }
+                                    @if (currentSyncStatus == SecretLocation.None)
+                                    {
+                                        <div class="cert-dropdown-item disabled">
+                                            <i class="fas fa-exclamation-circle"></i> No private key
+                                        </div>
+                                    }
+                                </div>
+                            }
                         }
-                        <button class="btn btn-secondary btn-sm" @onclick="@(() => ShowExportDialog(cert))" 
-                                disabled="@isLoading" title="Export certificate">
-                            <i class="fas fa-file-export"></i> Export
+                        <button class="btn btn-secondary btn-icon" @onclick="@(() => ShowExportDialog(cert))" 
+                                disabled="@isLoading" title="Export">
+                            <i class="fas fa-file-export"></i>
                         </button>
-                        <button class="btn btn-danger btn-sm" @onclick="@(() => RevokeCertificate(cert))" 
-                                disabled="@isLoading" title="Revoke certificate">
-                            <i class="fas fa-ban"></i> Revoke
+                        <button class="btn btn-danger btn-icon" @onclick="@(() => RevokeCertificate(cert))" 
+                                disabled="@isLoading" title="Revoke">
+                            <i class="fas fa-ban"></i>
                         </button>
                     </div>
                 </div>
@@ -535,6 +532,12 @@
         gap: 6px;
     }
     .btn i { font-size: 12px; }
+    .btn-icon {
+        width: 32px; height: 32px; padding: 0;
+        display: inline-flex; align-items: center; justify-content: center;
+        border-radius: 6px; font-size: 13px;
+    }
+    .btn-icon i { font-size: 13px; margin: 0; }
     .btn-primary { background-color: var(--accent-primary); color: white; }
     .btn-primary:hover:not(:disabled) { background-color: var(--accent-primary-hover); }
     .btn-success { background-color: var(--accent-success); color: white; }
@@ -577,7 +580,7 @@
     }
     .cert-expiry { font-size: 13px; color: var(--text-muted); margin-top: 8px; }
     .cert-badges { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
-    .cert-actions { display: flex; gap: 8px; align-items: center; }
+    .cert-actions { display: flex; gap: 4px; align-items: center; position: relative; }
 
     .btn-copy {
         background: none;
@@ -608,42 +611,33 @@
     .badge-sync-cloud { background: #fefcbf; color: #744210; }
     .badge-sync-none { background: #e2e8f0; color: #4a5568; }
     
-    /* Dropdown menu */
-    .dropdown { position: relative; display: inline-block; }
-    .dropdown-toggle::after { content: ''; display: inline-block; margin-left: 6px; vertical-align: middle; border-top: 4px solid; border-right: 4px solid transparent; border-left: 4px solid transparent; }
-    .dropdown-menu {
+    /* Sync dropdown menu */
+    .cert-dropdown-menu {
         position: absolute;
-        top: 100%;
         right: 0;
-        z-index: 1000;
-        min-width: 180px;
-        padding: 6px 0;
+        top: 100%;
         margin-top: 4px;
+        min-width: 180px;
         background: var(--card-bg);
         border: 1px solid var(--border-color);
-        border-radius: 6px;
-        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+        border-radius: 8px;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+        z-index: 100;
+        padding: 4px 0;
     }
-    .dropdown-menu.show { display: block; }
-    .dropdown-item {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        width: 100%;
-        padding: 8px 16px;
-        background: none;
-        border: none;
-        text-align: left;
-        font-size: 14px;
-        color: var(--text-primary);
-        cursor: pointer;
-        transition: background 0.15s;
+    .cert-dropdown-item {
+        display: flex; align-items: center; gap: 8px;
+        width: 100%; padding: 7px 14px;
+        border: none; background: none;
+        color: var(--text-primary); font-size: 13px;
+        cursor: pointer; text-align: left;
+        transition: background 0.1s;
     }
-    .dropdown-item:hover:not(.disabled) { background: var(--bg-hover); }
-    .dropdown-item.disabled { color: var(--text-muted); cursor: default; }
-    .dropdown-item i { font-size: 14px; width: 16px; text-align: center; }
-    .dropdown-item.text-danger { color: #e53e3e; }
-    .dropdown-item.text-danger:hover { background: #fed7d7; }
+    .cert-dropdown-item:hover:not(.disabled) { background: var(--bg-tertiary); }
+    .cert-dropdown-item.disabled { color: var(--text-muted); cursor: default; opacity: 0.5; }
+    .cert-dropdown-item i { font-size: 12px; width: 14px; text-align: center; color: var(--text-secondary); }
+    .cert-dropdown-item.danger { color: var(--accent-danger, #e53e3e); }
+    .cert-dropdown-item.danger i { color: var(--accent-danger, #e53e3e); }
 
     .empty-state { background: var(--card-bg); border-radius: 8px; padding: 60px 40px; text-align: center; box-shadow: var(--card-shadow); }
     .empty-icon { font-size: 48px; margin-bottom: 16px; color: #a0aec0; }

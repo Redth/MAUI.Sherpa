@@ -126,38 +126,42 @@
                 <div class="emulator-actions">
                     @if (isStarting)
                     {
-                        <button class="btn btn-secondary btn-sm" disabled>
-                            <i class="fas fa-spinner fa-spin"></i> Starting...
+                        <button class="btn btn-secondary btn-icon" disabled>
+                            <i class="fas fa-spinner fa-spin"></i>
                         </button>
                     }
                     else if (isRunning)
                     {
-                        <button class="btn btn-warning btn-sm" @onclick="@(() => StopEmulator(emulator.Name))" disabled="@isLoading">
-                            <i class="fas fa-stop"></i> Stop
+                        <button class="btn btn-warning btn-icon" @onclick="@(() => StopEmulator(emulator.Name))" disabled="@isLoading" title="Stop">
+                            <i class="fas fa-stop"></i>
                         </button>
                     }
                     else
                     {
-                        <div class="btn-group">
-                            <button class="btn btn-success btn-sm" @onclick="@(() => StartEmulator(emulator.Name, false))" disabled="@isLoading">
-                                <i class="fas fa-play"></i> Start
-                            </button>
-                            <button class="btn btn-success btn-sm btn-dropdown" @onclick="@(() => ToggleDropdown(emulator.Name))">
-                                ▼
-                            </button>
-                            @if (openDropdown == emulator.Name)
-                            {
-                                <div class="dropdown-menu">
-                                    <button class="dropdown-item" @onclick="@(() => StartEmulator(emulator.Name, true))">
+                        <button class="btn btn-success btn-icon" @onclick="@(() => StartEmulator(emulator.Name, false))" disabled="@isLoading" title="Start">
+                            <i class="fas fa-play"></i>
+                        </button>
+                    }
+                    <div class="emu-dropdown">
+                        <button class="btn btn-secondary btn-icon emu-dropdown-toggle" @onclick="@(() => ToggleDropdown(emulator.Name))" @onclick:stopPropagation="true" title="More actions">
+                            <i class="fas fa-ellipsis-v"></i>
+                        </button>
+                        @if (openDropdown == emulator.Name)
+                        {
+                            <div class="emu-dropdown-menu">
+                                @if (!isRunning && !isStarting)
+                                {
+                                    <button class="emu-dropdown-item" @onclick="@(() => { openDropdown = null; StartEmulator(emulator.Name, true); })">
                                         <i class="fas fa-sync-alt"></i> Cold Boot
                                     </button>
-                                </div>
-                            }
-                        </div>
-                    }
-                    <button class="btn btn-danger btn-sm" @onclick="@(() => DeleteEmulator(emulator.Name))" disabled="@(isLoading || isRunning || isStarting)">
-                        <i class="fas fa-trash"></i> Delete
-                    </button>
+                                    <div class="emu-dropdown-divider"></div>
+                                }
+                                <button class="emu-dropdown-item danger" @onclick="@(() => { openDropdown = null; DeleteEmulator(emulator.Name); })" disabled="@(isLoading || isRunning || isStarting)">
+                                    <i class="fas fa-trash"></i> Delete
+                                </button>
+                            </div>
+                        }
+                    </div>
                 </div>
             </div>
         }
@@ -431,56 +435,6 @@
     .btn-sm { padding: 6px 12px; font-size: 12px; }
     .btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
-    .btn-group {
-        position: relative;
-        display: inline-flex;
-    }
-
-    .btn-group .btn:first-child {
-        border-top-right-radius: 0;
-        border-bottom-right-radius: 0;
-    }
-
-    .btn-group .btn-dropdown {
-        border-top-left-radius: 0;
-        border-bottom-left-radius: 0;
-        border-top-right-radius: 6px;
-        border-bottom-right-radius: 6px;
-        padding: 6px 8px;
-        border-left: 1px solid rgba(255,255,255,0.3);
-    }
-
-    .dropdown-menu {
-        position: absolute;
-        top: 100%;
-        right: 0;
-        margin-top: 4px;
-        background: var(--card-bg);
-        border-radius: 6px;
-        box-shadow: var(--card-shadow);
-        z-index: 100;
-        min-width: 140px;
-        overflow: hidden;
-    }
-
-    .dropdown-item {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        width: 100%;
-        padding: 10px 14px;
-        border: none;
-        background: none;
-        text-align: left;
-        cursor: pointer;
-        font-size: 13px;
-        color: var(--text-primary);
-    }
-
-    .dropdown-item:hover {
-        background: var(--bg-hover);
-    }
-
     .emulator-list {
         display: flex;
         flex-direction: column;
@@ -547,9 +501,57 @@
 
     .emulator-actions {
         display: flex;
-        gap: 8px;
+        gap: 4px;
         align-items: center;
     }
+
+    .btn-icon {
+        width: 32px;
+        height: 32px;
+        padding: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 6px;
+        font-size: 13px;
+    }
+    .btn-icon i { font-size: 13px; margin: 0; }
+
+    /* ── Dropdown ── */
+    .emu-dropdown { position: relative; }
+    .emu-dropdown-menu {
+        position: absolute;
+        right: 0;
+        top: 100%;
+        margin-top: 4px;
+        min-width: 140px;
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+        z-index: 100;
+        padding: 4px 0;
+    }
+    .emu-dropdown-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        padding: 7px 14px;
+        border: none;
+        background: none;
+        color: var(--text-primary);
+        font-size: 13px;
+        cursor: pointer;
+        text-align: left;
+        transition: background 0.1s;
+    }
+    .emu-dropdown-item:hover:not(:disabled) { background: var(--bg-tertiary); }
+    .emu-dropdown-item:disabled { opacity: 0.4; cursor: not-allowed; }
+    .emu-dropdown-item i { font-size: 12px; width: 14px; text-align: center; color: var(--text-secondary); }
+    .emu-dropdown-item.danger { color: var(--accent-danger, #e53e3e); }
+    .emu-dropdown-item.danger i { color: var(--accent-danger, #e53e3e); }
+    .emu-dropdown-divider { height: 1px; background: var(--border-color); margin: 4px 0; }
 
     .badge {
         padding: 2px 10px;

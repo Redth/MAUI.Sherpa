@@ -1,6 +1,6 @@
 namespace MauiSherpa.Services;
 
-public enum InspectorTab { Logcat, Files, Shell, Capture }
+public enum InspectorTab { Logcat, Files, Shell, Capture, Tools }
 
 public class DeviceInspectorService
 {
