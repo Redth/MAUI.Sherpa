@@ -2,6 +2,7 @@
 @using MauiSherpa.Core.Interfaces
 @inject IUpdateService UpdateService
 @inject ILoggingService Logger
+@implements IDisposable
 
 <Router AppAssembly="@typeof(App).Assembly">
     <Found Context="routeData">
@@ -25,34 +26,32 @@
 @code {
     private UpdateCheckResult? _updateCheckResult;
     private bool _showUpdateModal;
+    private CancellationTokenSource _cts = new();
 
     protected override async Task OnInitializedAsync()
     {
         await base.OnInitializedAsync();
-        
-        // Check for updates after a short delay to not block app startup
-        // Run on background thread to avoid blocking UI
         _ = CheckForUpdatesWithDelayAsync();
     }
 
     private async Task CheckForUpdatesWithDelayAsync()
     {
-        await Task.Delay(2000); // Wait 2 seconds after app starts
-        await CheckForUpdatesAsync();
-    }
-
-    private async Task CheckForUpdatesAsync()
-    {
         try
         {
-            _updateCheckResult = await UpdateService.CheckForUpdateAsync();
-            
-            if (_updateCheckResult.UpdateAvailable)
+            await Task.Delay(3000, _cts.Token);
+            var result = await UpdateService.CheckForUpdateAsync(_cts.Token);
+
+            if (result.UpdateAvailable && result.LatestRelease != null)
             {
-                _showUpdateModal = true;
-                await InvokeAsync(StateHasChanged);
+                await InvokeAsync(() =>
+                {
+                    _updateCheckResult = result;
+                    _showUpdateModal = true;
+                    StateHasChanged();
+                });
             }
         }
+        catch (OperationCanceledException) { }
         catch (Exception ex)
         {
             Logger.LogError("Failed to check for updates", ex);
@@ -61,27 +60,32 @@
 
     private async Task HandleUpdateAccept()
     {
-        if (_updateCheckResult?.LatestRelease?.HtmlUrl != null)
+        if (_updateCheckResult?.LatestRelease?.HtmlUrl is { Length: > 0 } url)
         {
-            // Open the release page in the default browser
             try
             {
-                await Launcher.OpenAsync(new Uri(_updateCheckResult.LatestRelease.HtmlUrl));
+                await Launcher.OpenAsync(new Uri(url));
             }
             catch (Exception ex)
             {
                 Logger.LogError("Failed to open release URL", ex);
             }
         }
-        
+
         _showUpdateModal = false;
-        await InvokeAsync(StateHasChanged);
+        StateHasChanged();
     }
 
-    private async Task HandleUpdateDecline()
+    private Task HandleUpdateDecline()
     {
         _showUpdateModal = false;
-        await InvokeAsync(StateHasChanged);
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
     }
 }
-

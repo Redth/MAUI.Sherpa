@@ -90,8 +90,14 @@ public static class MauiProgram
         builder.Services.AddSingleton<IBackupService, BackupService>();
         builder.Services.AddSingleton<ISettingsMigrationService, SettingsMigrationService>();
 
-        // Update service with HttpClient
-        builder.Services.AddHttpClient<IUpdateService, UpdateService>();
+        // Update service
+        builder.Services.AddSingleton<IUpdateService>(sp =>
+        {
+            var httpClient = new HttpClient();
+            httpClient.DefaultRequestHeaders.Add("User-Agent", "MauiSherpa");
+            var logger = sp.GetRequiredService<ILoggingService>();
+            return new UpdateService(httpClient, logger, AppInfo.VersionString);
+        });
 
         // ViewModels
         builder.Services.AddSingleton<DashboardViewModel>();

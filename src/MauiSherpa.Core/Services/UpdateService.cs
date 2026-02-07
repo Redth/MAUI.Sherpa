@@ -8,55 +8,62 @@ public class UpdateService : IUpdateService
 {
     private readonly HttpClient _httpClient;
     private readonly ILoggingService _logger;
-    private const string GitHubApiUrl = "https://api.github.com/repos/redth/MAUI.Sherpa/releases";
+    private readonly string _currentVersion;
+    private readonly string _gitHubApiUrl;
+    private DateTimeOffset _lastCheckTime = DateTimeOffset.MinValue;
+    private UpdateCheckResult? _cachedResult;
+    private static readonly TimeSpan CacheDuration = TimeSpan.FromHours(1);
 
-    public UpdateService(HttpClient httpClient, ILoggingService logger)
+    public UpdateService(HttpClient httpClient, ILoggingService logger, string currentVersion, string repoOwner = "Redth", string repoName = "MAUI.Sherpa")
     {
         _httpClient = httpClient;
         _logger = logger;
-        
-        // GitHub API requires User-Agent header
-        if (!_httpClient.DefaultRequestHeaders.Contains("User-Agent"))
-        {
-            _httpClient.DefaultRequestHeaders.Add("User-Agent", "MauiSherpa");
-        }
+        _currentVersion = currentVersion;
+        _gitHubApiUrl = $"https://api.github.com/repos/{repoOwner}/{repoName}/releases";
     }
 
-    public string GetCurrentVersion() => AppInfo.VersionString;
+    public string GetCurrentVersion() => _currentVersion;
 
     public async Task<UpdateCheckResult> CheckForUpdateAsync(CancellationToken cancellationToken = default)
     {
         try
         {
+            // Return cached result if still fresh
+            if (_cachedResult != null && DateTimeOffset.UtcNow - _lastCheckTime < CacheDuration)
+            {
+                return _cachedResult;
+            }
+
             var currentVersion = GetCurrentVersion();
             _logger.LogInformation("Checking for updates...");
-            
+
             var releases = await GetAllReleasesAsync(cancellationToken);
-            
-            // Find the latest non-prerelease, non-draft release
+
             var latestRelease = releases
                 .Where(r => !r.IsPrerelease && !r.IsDraft)
                 .OrderByDescending(r => r.PublishedAt)
                 .FirstOrDefault();
-            
+
             if (latestRelease == null)
             {
                 _logger.LogWarning("No releases found");
-                return new UpdateCheckResult(false, currentVersion, null);
+                var noRelease = new UpdateCheckResult(false, currentVersion, null);
+                _cachedResult = noRelease;
+                _lastCheckTime = DateTimeOffset.UtcNow;
+                return noRelease;
             }
-            
+
             var updateAvailable = IsNewerVersion(latestRelease.TagName, currentVersion);
-            
+
             if (updateAvailable)
-            {
                 _logger.LogInformation($"Update available: {latestRelease.TagName}");
-            }
             else
-            {
                 _logger.LogInformation($"Already on latest version: {currentVersion}");
-            }
-            
-            return new UpdateCheckResult(updateAvailable, currentVersion, latestRelease);
+
+            var result = new UpdateCheckResult(updateAvailable, currentVersion, latestRelease);
+            _cachedResult = result;
+            _lastCheckTime = DateTimeOffset.UtcNow;
+            return result;
         }
         catch (Exception ex)
         {
@@ -69,22 +76,20 @@ public class UpdateService : IUpdateService
     {
         try
         {
-            var response = await _httpClient.GetAsync(GitHubApiUrl, cancellationToken);
+            var response = await _httpClient.GetAsync(_gitHubApiUrl, cancellationToken);
             response.EnsureSuccessStatusCode();
-            
+
             var jsonOptions = new JsonSerializerOptions
             {
                 PropertyNameCaseInsensitive = true,
                 PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
             };
-            
+
             var releases = await response.Content.ReadFromJsonAsync<List<GitHubReleaseDto>>(jsonOptions, cancellationToken);
-            
+
             if (releases == null)
-            {
                 return Array.Empty<GitHubRelease>();
-            }
-            
+
             return releases.Select(r => new GitHubRelease(
                 TagName: r.TagName ?? "",
                 Name: r.Name ?? r.TagName ?? "Unnamed Release",
@@ -102,63 +107,56 @@ public class UpdateService : IUpdateService
         }
     }
 
-    private static bool IsNewerVersion(string remoteVersion, string currentVersion)
+    internal static bool IsNewerVersion(string remoteVersion, string currentVersion)
     {
-        // Remove 'v' prefix if present
         var remote = remoteVersion.TrimStart('v');
         var current = currentVersion.TrimStart('v');
-        
+
         try
         {
-            // Split by '-' to handle pre-release versions (e.g., "1.0.0-beta")
-            // We only compare the main version part
             var remoteParts = remote.Split('-')[0].Split('.');
             var currentParts = current.Split('-')[0].Split('.');
-            
-            // Parse numeric parts, stopping at first non-numeric
+
             var remoteNumbers = new List<int>();
             var currentNumbers = new List<int>();
-            
+
             foreach (var part in remoteParts)
             {
                 if (int.TryParse(part, out var num))
                     remoteNumbers.Add(num);
                 else
-                    break; // Stop at first non-numeric part
+                    break;
             }
-            
+
             foreach (var part in currentParts)
             {
                 if (int.TryParse(part, out var num))
                     currentNumbers.Add(num);
                 else
-                    break; // Stop at first non-numeric part
+                    break;
             }
-            
-            // Compare each version component
+
             var maxLength = Math.Max(remoteNumbers.Count, currentNumbers.Count);
             for (int i = 0; i < maxLength; i++)
             {
                 var remotePart = i < remoteNumbers.Count ? remoteNumbers[i] : 0;
                 var currentPart = i < currentNumbers.Count ? currentNumbers[i] : 0;
-                
+
                 if (remotePart > currentPart)
                     return true;
                 if (remotePart < currentPart)
                     return false;
             }
-            
-            return false; // Versions are equal
+
+            return false;
         }
         catch
         {
-            // If version parsing fails, do string comparison as fallback
             return string.Compare(remote, current, StringComparison.OrdinalIgnoreCase) > 0;
         }
     }
 }
 
-// DTO for deserializing GitHub API response
 internal class GitHubReleaseDto
 {
     public string? TagName { get; set; }
