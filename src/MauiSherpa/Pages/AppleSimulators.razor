@@ -13,7 +13,58 @@
 @inject SimInspectorService SimInspector
 @inject IPhysicalDeviceService PhysicalDeviceService
 
-<h1><i class="fas fa-tablet-screen-button"></i> iOS Simulators</h1>
+<h1><i class="fas fa-tablet-screen-button"></i> iOS Devices</h1>
+
+<!-- Physical Devices Section -->
+<div class="section-label"><i class="fas fa-mobile-alt"></i> Physical Devices</div>
+@if (isLoadingDevices)
+{
+    <div class="loading-indicator"><i class="fas fa-spinner fa-spin"></i> Scanning for devices...</div>
+}
+else if (physicalDevices.Count == 0)
+{
+    <div class="empty-hint">No physical iOS devices detected. Connect a device via USB or ensure it's on the same network.</div>
+}
+else
+{
+    <div class="simulator-list">
+        @foreach (var device in physicalDevices)
+        {
+            <div class="simulator-card running">
+                <div class="simulator-icon">
+                    <span><i class="fas fa-mobile-alt"></i></span>
+                </div>
+                <div class="simulator-details">
+                    <div class="simulator-name">@device.Name</div>
+                    <div class="simulator-info">
+                        <span>@device.Model</span>
+                        <span>• iOS @device.OsVersion</span>
+                    </div>
+                    <div class="simulator-udid">
+                        @device.Udid
+                        <button class="btn-copy" @onclick="@(() => CopyToClipboard(device.Udid))" title="Copy UDID">
+                            <i class="fas fa-copy"></i>
+                        </button>
+                    </div>
+                    <div class="simulator-badges">
+                        <span class="badge badge-success">Connected</span>
+                        <span class="badge badge-transport">
+                            <i class="fas fa-@(device.TransportType == "wired" ? "usb" : "wifi")"></i> @device.TransportType
+                        </span>
+                    </div>
+                </div>
+                <div class="simulator-actions">
+                    <button class="btn btn-secondary btn-icon" @onclick="@(() => InstallAppOnDevice(device))" title="Install App">
+                        <i class="fas fa-download"></i>
+                    </button>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+<!-- Simulators Section -->
+<div class="section-label"><i class="fas fa-desktop"></i> Simulators</div>
 
 <div class="toolbar">
     <button class="btn btn-primary" @onclick="() => RefreshSimulators(forceRefresh: true)" disabled="@isLoading">
@@ -190,48 +241,6 @@
         }
     }
 </div>
-
-<!-- Physical Devices Section -->
-<h2 class="section-header"><i class="fas fa-mobile-alt"></i> Physical Devices</h2>
-@if (isLoadingDevices)
-{
-    <div class="loading-indicator"><i class="fas fa-spinner fa-spin"></i> Scanning for devices...</div>
-}
-else if (physicalDevices.Count == 0)
-{
-    <div class="empty-hint">No physical iOS devices detected. Connect a device via USB or ensure it's on the same network.</div>
-}
-else
-{
-    <div class="device-list">
-        @foreach (var device in physicalDevices)
-        {
-            <div class="sim-card">
-                <div class="sim-info">
-                    <div class="sim-header">
-                        <span class="sim-name">@device.Name</span>
-                        <span class="badge badge-booted">Connected</span>
-                    </div>
-                    <div class="sim-details">
-                        <span class="detail-item"><i class="fas fa-microchip"></i> @device.Model</span>
-                        <span class="detail-item"><i class="fab fa-apple"></i> iOS @device.OsVersion</span>
-                        <span class="detail-item"><i class="fas fa-@(device.TransportType == "wired" ? "usb" : "wifi")"></i> @device.TransportType</span>
-                    </div>
-                    <div class="sim-details">
-                        <span class="detail-item udid-display" @onclick="@(() => CopyToClipboard(device.Udid))" title="Click to copy UDID">
-                            <i class="fas fa-fingerprint"></i> @device.Udid
-                        </span>
-                    </div>
-                </div>
-                <div class="sim-actions">
-                    <button class="btn btn-secondary btn-icon" @onclick="@(() => InstallAppOnDevice(device))" title="Install App">
-                        <i class="fas fa-download"></i>
-                    </button>
-                </div>
-            </div>
-        }
-    </div>
-}
 
 @if (showCreateDialog)
 {
@@ -462,13 +471,13 @@ else
         margin-top: 8px;
     }
 
-    .simulator-actions {
+    .simulator-actions, .sim-actions {
         display: flex;
         gap: 4px;
         align-items: center;
     }
 
-    .btn-icon {
+    .btn.btn-icon {
         width: 32px;
         height: 32px;
         padding: 0;
@@ -478,7 +487,7 @@ else
         border-radius: 6px;
         font-size: 13px;
     }
-    .btn-icon i { font-size: 13px; margin: 0; }
+    .btn.btn-icon i { font-size: 13px; margin: 0; }
 
     /* ── Dropdown ── */
     .sim-dropdown {
@@ -564,19 +573,23 @@ else
         50% { opacity: 0.5; transform: scale(1.1); }
     }
 
-    /* Physical Devices section */
-    .section-header {
-        font-size: 18px; font-weight: 600;
-        margin-top: 24px; margin-bottom: 12px;
-        display: flex; align-items: center; gap: 8px;
-        color: var(--text-primary);
+    /* Section labels */
+    .section-label {
+        font-size: 11px; font-weight: 600;
+        text-transform: uppercase; letter-spacing: 0.05em;
+        margin-top: 20px; margin-bottom: 8px;
+        display: flex; align-items: center; gap: 6px;
+        color: var(--text-muted);
     }
-    .section-header i { font-size: 16px; color: var(--text-secondary); }
+    .section-label i { font-size: 11px; }
     .loading-indicator { color: var(--text-muted); font-size: 13px; padding: 12px; display: flex; align-items: center; gap: 8px; }
-    .empty-hint { color: var(--text-muted); font-size: 13px; padding: 12px 0; }
-    .device-list { display: flex; flex-direction: column; gap: 8px; }
-    .udid-display { cursor: pointer; font-family: 'Consolas', 'Monaco', monospace; font-size: 11px; }
-    .udid-display:hover { color: var(--accent-primary); }
+    .empty-hint {
+        color: var(--text-muted); font-size: 13px; padding: 16px;
+        background: var(--card-bg); border-radius: 8px;
+        border: 1px dashed var(--border-color); text-align: center;
+    }
+    .badge-transport { background: var(--bg-tertiary); color: var(--text-secondary); display: inline-flex; align-items: center; gap: 4px; }
+    .badge-transport i { font-size: 10px; }
 
     .modal-overlay {
         position: fixed;
