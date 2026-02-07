@@ -11,6 +11,9 @@ public static class MauiProgram
 {
     public static MauiApp CreateMauiApp()
     {
+        // Migrate data from old ~/.maui-sherpa/ to ~/Library/Application Support/MauiSherpa/
+        MigrateAppData();
+
         var builder = MauiApp.CreateBuilder();
         builder
             .UseMauiApp<App>()
@@ -121,5 +124,42 @@ public static class MauiProgram
 #endif
 
         return builder.Build();
+    }
+
+    /// <summary>
+    /// One-time migration from ~/.maui-sherpa/ to ~/Library/Application Support/MauiSherpa/
+    /// Avoids TCC permission dialogs caused by accessing dotfiles in the home directory root.
+    /// </summary>
+    static void MigrateAppData()
+    {
+        try
+        {
+            var oldDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".maui-sherpa");
+            var newDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MauiSherpa");
+
+            if (!Directory.Exists(oldDir))
+                return;
+
+            // Already migrated
+            if (Directory.Exists(newDir) && Directory.GetFiles(newDir, "*", SearchOption.AllDirectories).Length > 0)
+                return;
+
+            Directory.CreateDirectory(newDir);
+
+            // Copy all files preserving directory structure
+            foreach (var file in Directory.GetFiles(oldDir, "*", SearchOption.AllDirectories))
+            {
+                var relativePath = Path.GetRelativePath(oldDir, file);
+                var destPath = Path.Combine(newDir, relativePath);
+                var destDir = Path.GetDirectoryName(destPath);
+                if (!string.IsNullOrEmpty(destDir))
+                    Directory.CreateDirectory(destDir);
+                File.Copy(file, destPath, overwrite: false);
+            }
+        }
+        catch
+        {
+            // Migration is best-effort — don't block app startup
+        }
     }
 }

@@ -939,6 +939,19 @@ public class DoctorService : IDoctorService
                     packageId = resolved;
                     progress?.Report($"Resolved system image package: {packageId}");
                 }
+                else if (string.Equals(packageId, "build-tools", StringComparison.OrdinalIgnoreCase))
+                {
+                    var resolved = await ResolveBuildToolsPackageAsync(progress);
+                    if (string.IsNullOrEmpty(resolved))
+                    {
+                        _logger.LogWarning("No build-tools package could be resolved for installation");
+                        progress?.Report("No compatible build-tools package found");
+                        return false;
+                    }
+
+                    packageId = resolved;
+                    progress?.Report($"Resolved build-tools package: {packageId}");
+                }
 
                 progress?.Report($"Installing Android package: {packageId}");
                 return await _androidSdkService.InstallPackageAsync(packageId, progress);
@@ -1026,6 +1039,46 @@ public class DoctorService : IDoctorService
         }
     }
     
+    private async Task<string?> ResolveBuildToolsPackageAsync(IProgress<string>? progress)
+    {
+        try
+        {
+            progress?.Report("Finding latest build-tools version...");
+            var available = await _androidSdkService.GetAvailablePackagesAsync();
+            var candidates = available
+                .Where(p => !string.IsNullOrEmpty(p.Path) && p.Path.StartsWith("build-tools;", StringComparison.OrdinalIgnoreCase))
+                .Select(p => p.Path!)
+                .ToList();
+
+            if (candidates.Count == 0)
+            {
+                _logger.LogWarning("No available build-tools packages found");
+                return null;
+            }
+
+            // Pick the highest version
+            var selected = candidates
+                .OrderByDescending(p =>
+                {
+                    var versionStr = p.Split(';').LastOrDefault() ?? "";
+                    return Version.TryParse(versionStr, out var v) ? v : new Version(0, 0);
+                })
+                .FirstOrDefault();
+
+            if (!string.IsNullOrEmpty(selected))
+            {
+                _logger.LogInformation("Selected build-tools package: {Package}", selected);
+            }
+
+            return selected;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError("Failed to resolve build-tools package: {Message}", ex.Message);
+            return null;
+        }
+    }
+
     public async Task<bool> UpdateWorkloadsAsync(string workloadSetVersion, IProgress<string>? progress = null)
     {
         try

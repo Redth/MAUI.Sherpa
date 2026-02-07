@@ -4,6 +4,7 @@
 @inject ISplashService SplashService
 @inject ISettingsMigrationService MigrationService
 @inject ILoggingService Logger
+@inject IJSRuntime JS
 @implements IDisposable
 
 <div class="main-layout @ThemeClass">
@@ -94,6 +95,9 @@
             // Notify MAUI that Blazor is ready - splash can be hidden
             SplashService.NotifyBlazorReady();
             
+            // Sync theme class to body for modals rendered outside layout
+            _ = SyncBodyThemeAsync();
+            
             // Run settings migration in background
             _ = RunMigrationAsync();
         }
@@ -115,9 +119,23 @@
         }
     }
 
-    private void OnThemeChanged()
+    private async void OnThemeChanged()
     {
-        InvokeAsync(StateHasChanged);
+        await InvokeAsync(async () =>
+        {
+            StateHasChanged();
+            await SyncBodyThemeAsync();
+        });
+    }
+
+    private async Task SyncBodyThemeAsync()
+    {
+        try
+        {
+            var cls = ThemeService.IsDarkMode ? "theme-dark" : "theme-light";
+            await JS.InvokeVoidAsync("eval", $"document.body.className = '{cls}'");
+        }
+        catch { }
     }
 
     public void Dispose()

@@ -181,32 +181,31 @@ jobs:
             codesign -dvv "$APP_PATH"
           fi
 
-      # Notarization (disabled for now - uncomment when ready)
-      # - name: Notarize Mac Catalyst App
-      #   if: env.APPLE_CERTIFICATE_P12 != '' && env.APPLE_NOTARIZATION_APPLE_ID != ''
-      #   env:
-      #     APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
-      #     APPLE_NOTARIZATION_APPLE_ID: ${{ secrets.APPLE_NOTARIZATION_APPLE_ID }}
-      #     APPLE_NOTARIZATION_PASSWORD: ${{ secrets.APPLE_NOTARIZATION_PASSWORD }}
-      #     APPLE_NOTARIZATION_TEAM_ID: ${{ secrets.APPLE_NOTARIZATION_TEAM_ID }}
-      #   run: |
-      #     APP_PATH=$(find ./artifacts/maccatalyst -name "*.app" -type d | head -1)
-      #     if [ -n "$APP_PATH" ]; then
-      #       # Create zip for notarization
-      #       ditto -c -k --keepParent "$APP_PATH" ./artifacts/notarize.zip
-      #       
-      #       # Submit for notarization
-      #       xcrun notarytool submit ./artifacts/notarize.zip \
-      #         --apple-id "$APPLE_NOTARIZATION_APPLE_ID" \
-      #         --password "$APPLE_NOTARIZATION_PASSWORD" \
-      #         --team-id "$APPLE_NOTARIZATION_TEAM_ID" \
-      #         --wait
-      #       
-      #       # Staple the ticket to the app
-      #       xcrun stapler staple "$APP_PATH"
-      #       
-      #       rm ./artifacts/notarize.zip
-      #     fi
+      - name: Notarize Mac Catalyst App
+        if: startsWith(github.ref, 'refs/tags/v') && env.APPLE_CERTIFICATE_P12 != '' && env.APPLE_NOTARIZATION_APPLE_ID != ''
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_NOTARIZATION_APPLE_ID: ${{ secrets.APPLE_NOTARIZATION_APPLE_ID }}
+          APPLE_NOTARIZATION_PASSWORD: ${{ secrets.APPLE_NOTARIZATION_PASSWORD }}
+          APPLE_NOTARIZATION_TEAM_ID: ${{ secrets.APPLE_NOTARIZATION_TEAM_ID }}
+        run: |
+          APP_PATH=$(find ./artifacts/maccatalyst -name "*.app" -type d | head -1)
+          if [ -n "$APP_PATH" ]; then
+            # Create zip for notarization
+            ditto -c -k --keepParent "$APP_PATH" ./artifacts/notarize.zip
+            
+            # Submit for notarization
+            xcrun notarytool submit ./artifacts/notarize.zip \
+              --apple-id "$APPLE_NOTARIZATION_APPLE_ID" \
+              --password "$APPLE_NOTARIZATION_PASSWORD" \
+              --team-id "$APPLE_NOTARIZATION_TEAM_ID" \
+              --wait
+            
+            # Staple the ticket to the app
+            xcrun stapler staple "$APP_PATH"
+            
+            rm ./artifacts/notarize.zip
+          fi
 
       - name: Create ZIP archive
         run: |
