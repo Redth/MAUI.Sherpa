@@ -171,7 +171,7 @@ public static class MauiProgram
 
             Directory.CreateDirectory(newDir);
 
-            // Migrate from old locations
+            // Migrate from old locations (oldest first so newer files overwrite)
             var oldDirs = new[]
             {
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".maui-sherpa"),
@@ -191,8 +191,9 @@ public static class MauiProgram
                         var destDir = Path.GetDirectoryName(destPath);
                         if (!string.IsNullOrEmpty(destDir))
                             Directory.CreateDirectory(destDir);
-                        if (!File.Exists(destPath))
-                            File.Copy(file, destPath);
+                        // Copy if dest doesn't exist, or if source is newer
+                        if (!File.Exists(destPath) || File.GetLastWriteTimeUtc(file) > File.GetLastWriteTimeUtc(destPath))
+                            File.Copy(file, destPath, overwrite: true);
                     }
                 }
                 catch { /* Best-effort per source */ }
