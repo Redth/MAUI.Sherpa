@@ -427,12 +427,12 @@
             <div class="modal-body">
                 <div class="form-group">
                     <label>Password</label>
-                    <input type="password" @bind="exportPassword" placeholder="Enter a secure password" />
+                    <input type="password" @bind="exportPassword" @bind:event="oninput" placeholder="Enter a secure password" tabindex="1" />
                     <div class="help-text">This password will be required to import the backup</div>
                 </div>
                 <div class="form-group">
                     <label>Confirm Password</label>
-                    <input type="password" @bind="exportPasswordConfirm" placeholder="Confirm password" />
+                    <input type="password" @bind="exportPasswordConfirm" @bind:event="oninput" placeholder="Confirm password" tabindex="2" />
                 </div>
                 @if (!string.IsNullOrEmpty(exportError))
                 {
@@ -440,8 +440,8 @@
                 }
             </div>
             <div class="modal-footer">
-                <button class="btn btn-secondary" @onclick="CloseExportDialog">Cancel</button>
-                <button class="btn btn-primary" @onclick="ExportSettings" 
+                <button class="btn btn-secondary" @onclick="CloseExportDialog" tabindex="4">Cancel</button>
+                <button class="btn btn-primary" @onclick="ExportSettings" tabindex="3"
                         disabled="@(string.IsNullOrEmpty(exportPassword) || exportPassword != exportPasswordConfirm)">
                     <i class="fas fa-download"></i> Export
                 </button>
@@ -470,7 +470,7 @@
                 </div>
                 <div class="form-group">
                     <label>Password</label>
-                    <input type="password" @bind="importPassword" placeholder="Enter backup password" />
+                    <input type="password" @bind="importPassword" @bind:event="oninput" placeholder="Enter backup password" />
                 </div>
                 @if (!string.IsNullOrEmpty(importError))
                 {
@@ -1872,13 +1872,23 @@
             var encrypted = await BackupService.ExportSettingsAsync(exportPassword);
             var timestamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
             var suggestedName = $"maui-sherpa-backup-{timestamp}.mss";
-            
+
+            // Write encrypted data to temp file first, then let the picker move it.
+            // PickSaveFileAsync uses MoveToService which moves the temp file to the
+            // destination — writing after the move fails under the macOS sandbox.
+            var tempPath = Path.Combine(Path.GetTempPath(), suggestedName);
+            await File.WriteAllBytesAsync(tempPath, encrypted);
+
             var savePath = await DialogService.PickSaveFileAsync("Save Backup", suggestedName, "mss");
             if (!string.IsNullOrEmpty(savePath))
             {
-                await File.WriteAllBytesAsync(savePath, encrypted);
-                await AlertService.ShowToastAsync("Settings exported successfully!");
                 CloseExportDialog();
+                await AlertService.ShowToastAsync($"Settings exported to {savePath}");
+            }
+            else
+            {
+                // User cancelled — clean up temp file
+                try { File.Delete(tempPath); } catch { }
             }
         }
         catch (Exception ex)
