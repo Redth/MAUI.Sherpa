@@ -85,6 +85,9 @@ public static class MauiProgram
         builder.Services.AddSingleton<IBackupService, BackupService>();
         builder.Services.AddSingleton<ISettingsMigrationService, SettingsMigrationService>();
 
+        // Update service with HttpClient
+        builder.Services.AddHttpClient<IUpdateService, UpdateService>();
+
         // ViewModels
         builder.Services.AddSingleton<DashboardViewModel>();
         builder.Services.AddSingleton<AndroidSdkViewModel>();
