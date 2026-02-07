@@ -1,0 +1,340 @@
+@using MauiSherpa.Core.Interfaces
+@using Markdig
+
+@if (IsVisible && UpdateResult?.LatestRelease != null)
+{
+    <div class="modal-backdrop" @onclick="OnDecline">
+        <div class="modal-content" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h2>
+                    <i class="fas fa-arrow-up"></i>
+                    Update Available
+                </h2>
+                <button class="close-btn" @onclick="OnDecline">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            
+            <div class="modal-body">
+                <div class="version-info">
+                    <div class="version-badge current">
+                        <span class="label">Current Version</span>
+                        <span class="version">v@(UpdateResult.CurrentVersion)</span>
+                    </div>
+                    <i class="fas fa-arrow-right"></i>
+                    <div class="version-badge new">
+                        <span class="label">New Version</span>
+                        <span class="version">@(UpdateResult.LatestRelease.TagName)</span>
+                    </div>
+                </div>
+                
+                <div class="release-info">
+                    <h3>@UpdateResult.LatestRelease.Name</h3>
+                    <p class="release-date">
+                        <i class="far fa-calendar"></i>
+                        Released @UpdateResult.LatestRelease.PublishedAt.ToString("MMM dd, yyyy")
+                    </p>
+                </div>
+                
+                <div class="release-notes">
+                    <h4>What's New</h4>
+                    <div class="notes-content">
+                        @((MarkupString)ConvertMarkdownToHtml(UpdateResult.LatestRelease.Body))
+                    </div>
+                </div>
+            </div>
+            
+            <div class="modal-footer">
+                <button class="btn btn-secondary" @onclick="OnDecline">
+                    <i class="fas fa-times"></i>
+                    Not Now
+                </button>
+                <button class="btn btn-primary" @onclick="OnAccept">
+                    <i class="fas fa-external-link-alt"></i>
+                    Download Update
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public UpdateCheckResult? UpdateResult { get; set; }
+    
+    [Parameter]
+    public EventCallback OnAccept { get; set; }
+    
+    [Parameter]
+    public EventCallback OnDecline { get; set; }
+    
+    [Parameter]
+    public bool IsVisible { get; set; }
+    
+    private string ConvertMarkdownToHtml(string markdown)
+    {
+        if (string.IsNullOrWhiteSpace(markdown))
+            return "<p>No release notes available.</p>";
+        
+        var pipeline = new Markdig.MarkdownPipelineBuilder()
+            .UseAdvancedExtensions()
+            .Build();
+        
+        return Markdig.Markdown.ToHtml(markdown, pipeline);
+    }
+}
+
+<style>
+    .modal-backdrop {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.7);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 9999;
+        animation: fadeIn 0.2s ease;
+    }
+
+    .modal-content {
+        background: var(--card-bg);
+        border-radius: 12px;
+        width: 90%;
+        max-width: 600px;
+        max-height: 80vh;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+        animation: slideUp 0.3s ease;
+    }
+
+    .modal-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 24px;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .modal-header h2 {
+        margin: 0;
+        font-size: 24px;
+        color: var(--text-primary);
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+
+    .modal-header h2 i {
+        color: var(--accent-purple);
+    }
+
+    .close-btn {
+        background: none;
+        border: none;
+        color: var(--text-muted);
+        font-size: 20px;
+        cursor: pointer;
+        padding: 4px 8px;
+        border-radius: 4px;
+        transition: all 0.2s ease;
+    }
+
+    .close-btn:hover {
+        background: var(--bg-hover);
+        color: var(--text-primary);
+    }
+
+    .modal-body {
+        padding: 24px;
+        overflow-y: auto;
+        flex: 1;
+    }
+
+    .version-info {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 20px;
+        margin-bottom: 24px;
+        padding: 20px;
+        background: var(--bg-tertiary);
+        border-radius: 8px;
+    }
+
+    .version-badge {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+    }
+
+    .version-badge .label {
+        font-size: 12px;
+        text-transform: uppercase;
+        color: var(--text-muted);
+        font-weight: 600;
+    }
+
+    .version-badge .version {
+        font-size: 20px;
+        font-weight: bold;
+        color: var(--text-primary);
+    }
+
+    .version-badge.new .version {
+        color: var(--accent-success);
+    }
+
+    .version-info > i {
+        color: var(--text-muted);
+        font-size: 16px;
+    }
+
+    .release-info {
+        margin-bottom: 20px;
+    }
+
+    .release-info h3 {
+        margin: 0 0 8px 0;
+        font-size: 18px;
+        color: var(--text-primary);
+    }
+
+    .release-date {
+        margin: 0;
+        font-size: 14px;
+        color: var(--text-muted);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .release-notes {
+        margin-top: 20px;
+    }
+
+    .release-notes h4 {
+        margin: 0 0 12px 0;
+        font-size: 16px;
+        color: var(--text-primary);
+        font-weight: 600;
+    }
+
+    .notes-content {
+        padding: 16px;
+        background: var(--bg-tertiary);
+        border-radius: 8px;
+        max-height: 300px;
+        overflow-y: auto;
+        font-size: 14px;
+        line-height: 1.6;
+        color: var(--text-secondary);
+    }
+
+    .notes-content :deep(h1),
+    .notes-content :deep(h2),
+    .notes-content :deep(h3) {
+        color: var(--text-primary);
+        margin-top: 16px;
+        margin-bottom: 8px;
+    }
+
+    .notes-content :deep(h1) { font-size: 20px; }
+    .notes-content :deep(h2) { font-size: 18px; }
+    .notes-content :deep(h3) { font-size: 16px; }
+
+    .notes-content :deep(ul),
+    .notes-content :deep(ol) {
+        margin: 8px 0;
+        padding-left: 24px;
+    }
+
+    .notes-content :deep(li) {
+        margin: 4px 0;
+    }
+
+    .notes-content :deep(code) {
+        background: var(--bg-primary);
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-family: 'Courier New', monospace;
+        font-size: 13px;
+    }
+
+    .notes-content :deep(pre) {
+        background: var(--bg-primary);
+        padding: 12px;
+        border-radius: 4px;
+        overflow-x: auto;
+        margin: 12px 0;
+    }
+
+    .notes-content :deep(a) {
+        color: var(--accent-purple);
+        text-decoration: none;
+    }
+
+    .notes-content :deep(a:hover) {
+        text-decoration: underline;
+    }
+
+    .modal-footer {
+        display: flex;
+        justify-content: flex-end;
+        gap: 12px;
+        padding: 24px;
+        border-top: 1px solid var(--border-color);
+    }
+
+    .btn {
+        padding: 10px 20px;
+        border-radius: 8px;
+        font-weight: 500;
+        font-size: 14px;
+        cursor: pointer;
+        border: none;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        transition: all 0.2s ease;
+    }
+
+    .btn-secondary {
+        background: var(--bg-tertiary);
+        color: var(--text-primary);
+    }
+
+    .btn-secondary:hover {
+        background: var(--bg-hover);
+    }
+
+    .btn-primary {
+        background: var(--accent-purple);
+        color: white;
+    }
+
+    .btn-primary:hover {
+        background: var(--accent-indigo);
+        transform: translateY(-1px);
+    }
+
+    @@keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+    }
+
+    @@keyframes slideUp {
+        from {
+            opacity: 0;
+            transform: translateY(20px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+</style>

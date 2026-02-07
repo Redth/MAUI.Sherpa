@@ -2027,3 +2027,46 @@ public interface ISettingsMigrationService
     Task<bool> NeedsMigrationAsync();
     Task MigrateAsync();
 }
+
+/// <summary>
+/// GitHub release information
+/// </summary>
+public record GitHubRelease(
+    string TagName,
+    string Name,
+    string Body,
+    bool IsPrerelease,
+    bool IsDraft,
+    DateTime PublishedAt,
+    string HtmlUrl
+);
+
+/// <summary>
+/// Update check result
+/// </summary>
+public record UpdateCheckResult(
+    bool UpdateAvailable,
+    string? CurrentVersion,
+    GitHubRelease? LatestRelease
+);
+
+/// <summary>
+/// Service for checking application updates from GitHub releases
+/// </summary>
+public interface IUpdateService
+{
+    /// <summary>
+    /// Check if an update is available by comparing current version with latest GitHub release
+    /// </summary>
+    Task<UpdateCheckResult> CheckForUpdateAsync(CancellationToken cancellationToken = default);
+    
+    /// <summary>
+    /// Get all releases from the repository
+    /// </summary>
+    Task<IReadOnlyList<GitHubRelease>> GetAllReleasesAsync(CancellationToken cancellationToken = default);
+    
+    /// <summary>
+    /// Get the current application version
+    /// </summary>
+    string GetCurrentVersion();
+}
