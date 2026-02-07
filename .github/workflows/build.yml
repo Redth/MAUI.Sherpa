@@ -149,12 +149,26 @@ jobs:
             -c Release \
             -p:CreatePackage=false \
             -p:EnableCodeSigning=true \
-            -p:EnableHardenedRuntime=true \
             -p:CodesignKey="$APPLE_CODESIGN_IDENTITY"
           
           # Copy the universal app bundle to artifacts
           mkdir -p ./artifacts/maccatalyst
           cp -R "src/MauiSherpa/bin/Release/net10.0-maccatalyst/MAUI Sherpa.app" ./artifacts/maccatalyst/
+
+      - name: Re-sign with Hardened Runtime
+        if: env.APPLE_CERTIFICATE_P12 != ''
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_CODESIGN_IDENTITY: ${{ secrets.APPLE_CODESIGN_IDENTITY }}
+        run: |
+          APP_PATH=$(find ./artifacts/maccatalyst -name "*.app" -type d | head -1)
+          if [ -n "$APP_PATH" ]; then
+            echo "Re-signing with hardened runtime: $APP_PATH"
+            codesign --force --options runtime --timestamp \
+              --entitlements src/MauiSherpa/Platforms/MacCatalyst/Entitlements.plist \
+              --sign "$APPLE_CODESIGN_IDENTITY" \
+              "$APP_PATH"
+          fi
 
       - name: Publish Mac Catalyst App (Unsigned)
         if: env.APPLE_CERTIFICATE_P12 == ''
