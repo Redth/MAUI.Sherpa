@@ -12,6 +12,7 @@
 @inject BlazorToastService ToastService
 @inject SimInspectorService SimInspector
 @inject IPhysicalDeviceService PhysicalDeviceService
+@inject IPlatformService Platform
 
 <h1><i class="fas fa-tablet-screen-button"></i> iOS Devices</h1>
 
@@ -223,6 +224,10 @@ else
                         @if (openDropdownId == sim.Udid)
                         {
                             <div class="sim-dropdown-menu">
+                                <button class="sim-dropdown-item" @onclick="@(() => { CloseDropdown(); OpenSimulatorDirectory(sim); })">
+                                    <i class="fas fa-folder-open"></i> Open in @(Platform.IsMacCatalyst ? "Finder" : "Explorer")
+                                </button>
+                                <div class="sim-dropdown-divider"></div>
                                 <button class="sim-dropdown-item" @onclick="@(() => { CloseDropdown(); CloneSimulator(sim); })" disabled="@(isLoading || isBooting)">
                                     <i class="fas fa-clone"></i> Clone
                                 </button>
@@ -1053,6 +1058,12 @@ else
     {
         await DialogService.CopyToClipboardAsync(text);
         await AlertService.ShowToastAsync("Copied to clipboard");
+    }
+
+    private void OpenSimulatorDirectory(SimulatorDevice sim)
+    {
+        var path = SimulatorService.GetSimulatorDataPath(sim.Udid);
+        FileSystem.RevealInFileManager(path);
     }
 
     private void ToggleDropdown(string udid)
