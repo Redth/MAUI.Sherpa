@@ -22,7 +22,7 @@ public class LoggingService : ILoggingService
         // Set up file logging
         try
         {
-            var logDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".maui-sherpa", "logs");
+            var logDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MauiSherpa", "logs");
             Directory.CreateDirectory(logDir);
             
             _logFilePath = Path.Combine(logDir, $"maui-sherpa-{DateTime.Now:yyyy-MM-dd}.log");
