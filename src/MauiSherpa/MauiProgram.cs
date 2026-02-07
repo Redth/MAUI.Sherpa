@@ -156,45 +156,53 @@ public static class MauiProgram
     }
 
     /// <summary>
-    /// One-time migration from ~/.maui-sherpa/ to ~/Library/Application Support/MauiSherpa/
-    /// Avoids TCC permission dialogs caused by accessing dotfiles in the home directory root.
-    /// Uses a marker file in ApplicationData to avoid probing UserProfile on subsequent launches.
+    /// One-time migration from old data locations to ~/Library/Application Support/MauiSherpa/
+    /// Migrates from: ~/.maui-sherpa/ and ~/Documents/.config/MauiSherpa/ (wrong ApplicationData path)
     /// </summary>
     static void MigrateAppData()
     {
         try
         {
-            var newDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MauiSherpa");
+            var newDir = AppDataPath.GetAppDataDirectory();
             var markerFile = Path.Combine(newDir, ".migration-checked");
 
-            // If we've already checked, skip entirely (avoids TCC probe on UserProfile)
             if (File.Exists(markerFile))
                 return;
 
             Directory.CreateDirectory(newDir);
 
-            var oldDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".maui-sherpa");
-
-            if (Directory.Exists(oldDir))
+            // Migrate from old locations
+            var oldDirs = new[]
             {
-                // Copy all files preserving directory structure
-                foreach (var file in Directory.GetFiles(oldDir, "*", SearchOption.AllDirectories))
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".maui-sherpa"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Documents", ".config", "MauiSherpa")
+            };
+
+            foreach (var oldDir in oldDirs)
+            {
+                try
                 {
-                    var relativePath = Path.GetRelativePath(oldDir, file);
-                    var destPath = Path.Combine(newDir, relativePath);
-                    var destDir = Path.GetDirectoryName(destPath);
-                    if (!string.IsNullOrEmpty(destDir))
-                        Directory.CreateDirectory(destDir);
-                    File.Copy(file, destPath, overwrite: false);
+                    if (!Directory.Exists(oldDir)) continue;
+                    foreach (var file in Directory.GetFiles(oldDir, "*", SearchOption.AllDirectories))
+                    {
+                        var relativePath = Path.GetRelativePath(oldDir, file);
+                        if (relativePath == ".migration-checked") continue;
+                        var destPath = Path.Combine(newDir, relativePath);
+                        var destDir = Path.GetDirectoryName(destPath);
+                        if (!string.IsNullOrEmpty(destDir))
+                            Directory.CreateDirectory(destDir);
+                        if (!File.Exists(destPath))
+                            File.Copy(file, destPath);
+                    }
                 }
+                catch { /* Best-effort per source */ }
             }
 
-            // Write marker so we never probe UserProfile again
             File.WriteAllText(markerFile, "migrated");
         }
         catch
         {
-            // Migration is best-effort — don't block app startup
+            // Don't block app startup
         }
     }
 }

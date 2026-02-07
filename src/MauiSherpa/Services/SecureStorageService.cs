@@ -16,8 +16,7 @@ public class SecureStorageService : ISecureStorageService
     public SecureStorageService()
     {
         _fallbackPath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "MauiSherpa",
+            MauiSherpa.Core.Services.AppDataPath.GetAppDataDirectory(),
             ".secure-fallback.json");
     }
 

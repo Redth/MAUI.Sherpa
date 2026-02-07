@@ -26,8 +26,7 @@ public class AppleIdentityService : IAppleIdentityService
         _fileSystem = fileSystem;
         _logger = logger;
         _settingsPath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "MauiSherpa",
+            AppDataPath.GetAppDataDirectory(),
             "apple-identities.json");
     }
 

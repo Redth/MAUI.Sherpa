@@ -627,7 +627,7 @@ public class CopilotToolsService : ICopilotToolsService
             }
 
             var data = await _appleService.DownloadProfileAsync(profile.Id);
-            var downloadsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MauiSherpa", "exports");
+            var downloadsPath = Path.Combine(AppDataPath.GetAppDataDirectory(), "exports");
             var fileName = $"{profile.Name.Replace(" ", "_")}.mobileprovision";
             var filePath = Path.Combine(downloadsPath, fileName);
             await File.WriteAllBytesAsync(filePath, data);

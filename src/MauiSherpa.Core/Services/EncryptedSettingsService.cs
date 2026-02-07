@@ -29,8 +29,7 @@ public class EncryptedSettingsService : IEncryptedSettingsService
         _fileSystem = fileSystem;
         _secureStorage = secureStorage;
         _settingsPath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "MauiSherpa",
+            AppDataPath.GetAppDataDirectory(),
             SettingsFileName);
     }
 
