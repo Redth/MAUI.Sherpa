@@ -582,6 +582,13 @@ public interface ISimulatorService
     // Status bar overrides
     Task<bool> OverrideStatusBarAsync(string udid, StatusBarOverride overrides, IProgress<string>? progress = null);
     Task<bool> ClearStatusBarAsync(string udid, IProgress<string>? progress = null);
+
+    // Route playback
+    Task<bool> StartRoutePlaybackAsync(string udid, IReadOnlyList<Services.RouteWaypoint> waypoints,
+        double speedMps = 20, CancellationToken ct = default);
+    void StopRoutePlayback();
+    bool IsPlayingRoute { get; }
+    event Action? RoutePlaybackStateChanged;
 }
 
 /// <summary>
@@ -596,6 +603,49 @@ public record StatusBarOverride(
     int? BatteryLevel = null,
     string? BatteryState = null  // charging, charged, discharging
 );
+
+// ============================================================================
+// Android Device Tools (location, battery, demo mode, deep links)
+// ============================================================================
+
+/// <summary>
+/// Android demo mode status bar overrides
+/// </summary>
+public record AndroidDemoStatus(
+    string? Time = null,           // hhmm format e.g. "1200"
+    int? WifiLevel = null,         // 0-4
+    int? MobileLevel = null,       // 0-4
+    string? MobileDataType = null, // 1x, 3g, 4g, 4g+, 5g, 5ge, lte, lte+
+    int? BatteryLevel = null,      // 0-100
+    bool? BatteryPlugged = null,
+    bool? HideNotifications = null
+);
+
+public interface IAndroidDeviceToolsService
+{
+    // Location simulation
+    Task<bool> SetLocationAsync(string serial, double latitude, double longitude);
+    Task<bool> ClearLocationAsync(string serial);
+    Task<bool> StartRoutePlaybackAsync(string serial, IReadOnlyList<Services.RouteWaypoint> waypoints,
+        double speedMps = 20, CancellationToken ct = default);
+    void StopRoutePlayback();
+
+    // Battery simulation
+    Task<bool> SetBatteryLevelAsync(string serial, int level);
+    Task<bool> SetBatteryStatusAsync(string serial, string status); // charging, discharging, not-charging, full
+    Task<bool> ResetBatteryAsync(string serial);
+
+    // Demo mode (status bar overrides)
+    Task<bool> EnableDemoModeAsync(string serial);
+    Task<bool> SetDemoStatusAsync(string serial, AndroidDemoStatus status);
+    Task<bool> DisableDemoModeAsync(string serial);
+
+    // Deep links
+    Task<bool> OpenDeepLinkAsync(string serial, string url);
+
+    bool IsPlayingRoute { get; }
+    event Action? RoutePlaybackStateChanged;
+}
 
 // ============================================================================
 // Physical iOS Device Management (via xcrun devicectl)

@@ -617,6 +617,56 @@ public class SimulatorService : ISimulatorService
         }
     }
 
+    // Route playback
+    private CancellationTokenSource? _routeCts;
+    public bool IsPlayingRoute { get; private set; }
+    public event Action? RoutePlaybackStateChanged;
+
+    public async Task<bool> StartRoutePlaybackAsync(string udid, IReadOnlyList<RouteWaypoint> waypoints,
+        double speedMps = 20, CancellationToken ct = default)
+    {
+        if (waypoints.Count < 2) return false;
+        StopRoutePlayback();
+
+        _routeCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        IsPlayingRoute = true;
+        RoutePlaybackStateChanged?.Invoke();
+
+        try
+        {
+            // xcrun simctl location start supports native waypoint sequences
+            var args = $"location {udid} start --speed={speedMps.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
+            foreach (var wp in waypoints)
+            {
+                args += $" {wp.Latitude.ToString(System.Globalization.CultureInfo.InvariantCulture)},{wp.Longitude.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
+            }
+            await RunSimctlAsync(args);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Failed to start route playback: {ex.Message}", ex);
+            return false;
+        }
+        finally
+        {
+            IsPlayingRoute = false;
+            RoutePlaybackStateChanged?.Invoke();
+        }
+    }
+
+    public void StopRoutePlayback()
+    {
+        _routeCts?.Cancel();
+        _routeCts?.Dispose();
+        _routeCts = null;
+        if (IsPlayingRoute)
+        {
+            IsPlayingRoute = false;
+            RoutePlaybackStateChanged?.Invoke();
+        }
+    }
+
     private static string? GetOptionalString(JsonElement element, string propertyName)
     {
         return element.TryGetProperty(propertyName, out var prop) && prop.ValueKind == JsonValueKind.String
