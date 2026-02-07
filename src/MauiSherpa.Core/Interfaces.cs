@@ -571,6 +571,60 @@ public interface ISimulatorService
     Task<bool> OpenUrlAsync(string udid, string url, IProgress<string>? progress = null);
     string GetSimulatorDataPath(string udid);
     Task<bool> CloneSimulatorAsync(string udid, string newName, IProgress<string>? progress = null);
+
+    // Push notifications
+    Task<bool> SendPushNotificationAsync(string udid, string bundleId, string payloadJson, IProgress<string>? progress = null);
+
+    // Location simulation
+    Task<bool> SetLocationAsync(string udid, double latitude, double longitude, IProgress<string>? progress = null);
+    Task<bool> ClearLocationAsync(string udid, IProgress<string>? progress = null);
+
+    // Status bar overrides
+    Task<bool> OverrideStatusBarAsync(string udid, StatusBarOverride overrides, IProgress<string>? progress = null);
+    Task<bool> ClearStatusBarAsync(string udid, IProgress<string>? progress = null);
+}
+
+/// <summary>
+/// Status bar override options for simulator
+/// </summary>
+public record StatusBarOverride(
+    string? Time = null,
+    string? DataNetwork = null,  // hide, wifi, 3g, 4g, lte, lte-a, lte+, 5g, 5g+, 5g-uwb, 5g-uc
+    string? WifiMode = null,
+    int? WifiBars = null,
+    int? CellularBars = null,
+    int? BatteryLevel = null,
+    string? BatteryState = null  // charging, charged, discharging
+);
+
+// ============================================================================
+// Physical iOS Device Management (via xcrun devicectl)
+// ============================================================================
+
+/// <summary>
+/// Represents a physical iOS device connected via USB or network
+/// </summary>
+public record PhysicalDevice(
+    string Identifier,
+    string Udid,
+    string Name,
+    string Model,
+    string Platform,
+    string DeviceType,
+    string OsVersion,
+    string TransportType,
+    string ConnectionState,
+    string TunnelState
+);
+
+/// <summary>
+/// Service for managing physical iOS devices via xcrun devicectl
+/// </summary>
+public interface IPhysicalDeviceService
+{
+    Task<IReadOnlyList<PhysicalDevice>> GetDevicesAsync();
+    Task<bool> InstallAppAsync(string identifier, string appPath, IProgress<string>? progress = null);
+    Task<bool> LaunchAppAsync(string identifier, string bundleId, IProgress<string>? progress = null);
 }
 
 /// <summary>

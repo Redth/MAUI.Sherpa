@@ -503,6 +503,120 @@ public class SimulatorService : ISimulatorService
         }
     }
 
+    // Push notifications
+    public async Task<bool> SendPushNotificationAsync(string udid, string bundleId, string payloadJson, IProgress<string>? progress = null)
+    {
+        try
+        {
+            progress?.Report("Sending push notification...");
+            // Write payload to temp file since simctl push reads from file or stdin
+            var tempFile = Path.GetTempFileName();
+            try
+            {
+                await File.WriteAllTextAsync(tempFile, payloadJson);
+                var result = await RunSimctlAsync($"push {udid} {bundleId} \"{tempFile}\"");
+                progress?.Report("Push notification sent");
+                _logger.LogInformation($"Sent push notification to {bundleId} on {udid}");
+                return true;
+            }
+            finally
+            {
+                File.Delete(tempFile);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Failed to send push notification: {ex.Message}", ex);
+            progress?.Report($"Failed: {ex.Message}");
+            return false;
+        }
+    }
+
+    // Location simulation
+    public async Task<bool> SetLocationAsync(string udid, double latitude, double longitude, IProgress<string>? progress = null)
+    {
+        try
+        {
+            progress?.Report($"Setting location to {latitude}, {longitude}...");
+            await RunSimctlAsync($"location {udid} set {latitude.ToString(System.Globalization.CultureInfo.InvariantCulture)},{longitude.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
+            progress?.Report("Location set");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Failed to set location: {ex.Message}", ex);
+            progress?.Report($"Failed: {ex.Message}");
+            return false;
+        }
+    }
+
+    public async Task<bool> ClearLocationAsync(string udid, IProgress<string>? progress = null)
+    {
+        try
+        {
+            progress?.Report("Clearing simulated location...");
+            await RunSimctlAsync($"location {udid} clear");
+            progress?.Report("Location cleared");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Failed to clear location: {ex.Message}", ex);
+            progress?.Report($"Failed: {ex.Message}");
+            return false;
+        }
+    }
+
+    // Status bar overrides
+    public async Task<bool> OverrideStatusBarAsync(string udid, StatusBarOverride overrides, IProgress<string>? progress = null)
+    {
+        try
+        {
+            var args = new List<string>();
+            if (overrides.Time != null) args.AddRange(["--time", $"\"{overrides.Time}\""]);
+            if (overrides.DataNetwork != null) args.AddRange(["--dataNetwork", overrides.DataNetwork]);
+            if (overrides.WifiMode != null) args.AddRange(["--wifiMode", overrides.WifiMode]);
+            if (overrides.WifiBars != null) args.AddRange(["--wifiBars", overrides.WifiBars.Value.ToString()]);
+            if (overrides.CellularBars != null) args.AddRange(["--cellularBars", overrides.CellularBars.Value.ToString()]);
+            if (overrides.BatteryLevel != null) args.AddRange(["--batteryLevel", overrides.BatteryLevel.Value.ToString()]);
+            if (overrides.BatteryState != null) args.AddRange(["--batteryState", overrides.BatteryState]);
+
+            if (args.Count == 0)
+            {
+                progress?.Report("No overrides specified");
+                return false;
+            }
+
+            progress?.Report("Setting status bar overrides...");
+            await RunSimctlAsync($"status_bar {udid} override {string.Join(" ", args)}");
+            progress?.Report("Status bar updated");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Failed to override status bar: {ex.Message}", ex);
+            progress?.Report($"Failed: {ex.Message}");
+            return false;
+        }
+    }
+
+    public async Task<bool> ClearStatusBarAsync(string udid, IProgress<string>? progress = null)
+    {
+        try
+        {
+            progress?.Report("Clearing status bar overrides...");
+            await RunSimctlAsync($"status_bar {udid} clear");
+            progress?.Report("Status bar cleared");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Failed to clear status bar: {ex.Message}", ex);
+            progress?.Report($"Failed: {ex.Message}");
+            return false;
+        }
+    }
+
     private static string? GetOptionalString(JsonElement element, string propertyName)
     {
         return element.TryGetProperty(propertyName, out var prop) && prop.ValueKind == JsonValueKind.String
