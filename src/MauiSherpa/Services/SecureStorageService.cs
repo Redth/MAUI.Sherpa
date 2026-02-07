@@ -11,13 +11,19 @@ public class SecureStorageService : ISecureStorageService
 {
     private readonly string _fallbackPath;
     private Dictionary<string, string>? _fallbackCache;
-    private bool _usesFallback = false;
+    private bool _usesFallback;
 
     public SecureStorageService()
     {
         _fallbackPath = Path.Combine(
             MauiSherpa.Core.Services.AppDataPath.GetAppDataDirectory(),
             ".secure-fallback.json");
+
+#if DEBUG
+        // Debug builds use ad-hoc signing with a different code signature each build,
+        // so macOS Keychain entries become inaccessible after rebuild. Always use fallback.
+        _usesFallback = true;
+#endif
     }
 
     public async Task<string?> GetAsync(string key)
