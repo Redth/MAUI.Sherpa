@@ -1,0 +1,171 @@
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Services
+@inject IDeviceShellService ShellService
+@inject DeviceInspectorService Inspector
+@inject IJSRuntime JS
+@implements IDisposable
+
+<div class="shell-tab">
+    <div class="shell-toolbar">
+        <button class="btn btn-sm btn-secondary" @onclick="ClearTerminal" title="Clear">
+            <i class="fas fa-trash-alt"></i> Clear
+        </button>
+        <button class="btn btn-sm btn-secondary" @onclick="RestartShell" title="Restart shell">
+            <i class="fas fa-redo"></i> Restart
+        </button>
+        @if (!ShellService.IsRunning)
+        {
+            <span class="shell-status disconnected"><i class="fas fa-circle"></i> Disconnected</span>
+        }
+        else
+        {
+            <span class="shell-status connected"><i class="fas fa-circle"></i> Connected</span>
+        }
+    </div>
+    <div id="@terminalId" class="shell-terminal-container"></div>
+</div>
+
+<style>
+    .shell-tab {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+    }
+    .shell-toolbar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 4px 8px;
+        background: var(--bg-tertiary, #edf2f7);
+        border-bottom: 1px solid var(--border-color, #e2e8f0);
+        flex-shrink: 0;
+    }
+    .shell-status {
+        font-size: 11px;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        margin-left: auto;
+    }
+    .shell-status.connected { color: #3ddc84; }
+    .shell-status.connected i { font-size: 7px; }
+    .shell-status.disconnected { color: #f56565; }
+    .shell-status.disconnected i { font-size: 7px; }
+    .shell-terminal-container {
+        flex: 1;
+        overflow: hidden;
+        background: #1a1a2e;
+        padding: 8px;
+    }
+</style>
+
+@code {
+    [Parameter] public string Serial { get; set; } = "";
+
+    private string terminalId = $"shell-term-{Guid.NewGuid():N}";
+    private DotNetObjectReference<ShellTab>? selfRef;
+    private CancellationTokenSource? _streamCts;
+    private bool _initialized;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            selfRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("terminalInterop.initializeInteractive", terminalId, selfRef);
+            _initialized = true;
+            Inspector.DeviceChanged += OnDeviceChanged;
+            await StartShellAsync();
+        }
+    }
+
+    private async Task StartShellAsync()
+    {
+        if (string.IsNullOrEmpty(Serial)) return;
+
+        _streamCts?.Cancel();
+        ShellService.Stop();
+
+        try
+        {
+            await ShellService.StartAsync(Serial);
+            StateHasChanged();
+            _streamCts = new CancellationTokenSource();
+            _ = ConsumeOutputAsync(_streamCts.Token);
+        }
+        catch (Exception ex)
+        {
+            if (_initialized)
+                await JS.InvokeVoidAsync("terminalInterop.writeRaw", terminalId, $"\x1b[31mError: {ex.Message}\x1b[0m\r\n");
+            StateHasChanged();
+        }
+    }
+
+    private async Task ConsumeOutputAsync(CancellationToken ct)
+    {
+        try
+        {
+            await foreach (var chunk in ShellService.OutputStreamAsync(ct))
+            {
+                await JS.InvokeVoidAsync("terminalInterop.writeRaw", terminalId, chunk);
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            try { await JS.InvokeVoidAsync("terminalInterop.writeRaw", terminalId, $"\r\n\x1b[31mShell disconnected: {ex.Message}\x1b[0m\r\n"); }
+            catch { }
+        }
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public async Task OnTerminalData(string command)
+    {
+        if (!ShellService.IsRunning) return;
+
+        try
+        {
+            await ShellService.SendCommandAsync(command);
+            // Small delay to let output arrive, then write prompt
+            await Task.Delay(150);
+            if (_initialized)
+                await JS.InvokeVoidAsync("terminalInterop.writePrompt", terminalId);
+        }
+        catch { }
+    }
+
+    private async Task ClearTerminal()
+    {
+        if (_initialized)
+            await JS.InvokeVoidAsync("terminalInterop.clear", terminalId);
+    }
+
+    private async Task RestartShell()
+    {
+        if (_initialized)
+            await JS.InvokeVoidAsync("terminalInterop.clear", terminalId);
+        await StartShellAsync();
+    }
+
+    private void OnDeviceChanged(string newSerial)
+    {
+        InvokeAsync(async () =>
+        {
+            if (_initialized)
+                await JS.InvokeVoidAsync("terminalInterop.clear", terminalId);
+            await StartShellAsync();
+        });
+    }
+
+    public void Dispose()
+    {
+        Inspector.DeviceChanged -= OnDeviceChanged;
+        _streamCts?.Cancel();
+        _streamCts?.Dispose();
+        ShellService.Stop();
+        try { JS.InvokeVoidAsync("terminalInterop.dispose", terminalId); } catch { }
+        selfRef?.Dispose();
+    }
+}

@@ -126,6 +126,40 @@ public interface IAdbDeviceWatcherService : IDisposable
     event Action<IReadOnlyList<DeviceInfo>>? DevicesChanged;
 }
 
+public record DeviceFileEntry(
+    string Name,
+    string FullPath,
+    bool IsDirectory,
+    long Size,
+    string? Permissions,
+    DateTimeOffset? Modified);
+
+public interface IDeviceFileService
+{
+    Task<IReadOnlyList<DeviceFileEntry>> ListAsync(string serial, string path, CancellationToken ct = default);
+    Task PullAsync(string serial, string remotePath, string localPath, IProgress<string>? progress = null, CancellationToken ct = default);
+    Task PushAsync(string serial, string localPath, string remotePath, IProgress<string>? progress = null, CancellationToken ct = default);
+    Task DeleteAsync(string serial, string remotePath, CancellationToken ct = default);
+}
+
+public interface IDeviceShellService : IDisposable
+{
+    bool IsRunning { get; }
+    string? ActiveSerial { get; }
+    Task StartAsync(string serial, CancellationToken ct = default);
+    Task SendCommandAsync(string command, CancellationToken ct = default);
+    void Stop();
+    IAsyncEnumerable<string> OutputStreamAsync(CancellationToken ct = default);
+}
+
+public interface IScreenCaptureService
+{
+    bool IsRecording { get; }
+    Task<byte[]> CaptureScreenshotAsync(string serial, CancellationToken ct = default);
+    Task StartRecordingAsync(string serial, int maxSeconds = 180, CancellationToken ct = default);
+    Task<byte[]?> StopRecordingAsync(CancellationToken ct = default);
+}
+
 
 
 public interface IAndroidSdkSettingsService

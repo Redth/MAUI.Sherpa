@@ -1,5 +1,7 @@
 @using MauiSherpa.Services
-@inject LogcatPanelService PanelService
+@using MauiSherpa.Core.Interfaces
+@inject DeviceInspectorService PanelService
+@inject IAdbDeviceWatcherService DeviceWatcher
 @inject IJSRuntime JS
 @implements IDisposable
 
@@ -9,7 +11,7 @@
     {
         <div class="logcat-collapsed" @onclick="PanelService.Restore">
             <i class="fab fa-android collapsed-icon"></i>
-            <span class="collapsed-label">Logcat</span>
+            <span class="collapsed-label">@(PanelService.ActiveDeviceName ?? "Device")</span>
             <span class="collapsed-serial">@PanelService.ActiveSerial</span>
             <i class="fas fa-chevron-up collapsed-expand"></i>
         </div>
@@ -34,7 +36,7 @@
             <div class="dialog-titlebar" @onpointerdown="StartDrag">
                 <div class="dialog-title">
                     <i class="fab fa-android title-android-icon"></i>
-                    <span class="title-text">Logcat</span>
+                    <span class="title-text">Device Inspector</span>
                 </div>
                 <div class="dialog-actions" @onpointerdown:stopPropagation="true">
                     <button class="dialog-btn" @onclick="PanelService.Minimize" @onclick:stopPropagation="true" title="Minimize">
@@ -48,8 +50,53 @@
                     </button>
                 </div>
             </div>
+
+            <div class="inspector-tabstrip">
+                <div class="inspector-tabs">
+                    <button class="inspector-tab @(PanelService.ActiveTab == InspectorTab.Logcat ? "active" : "")"
+                            @onclick="@(() => PanelService.SetTab(InspectorTab.Logcat))">
+                        <i class="fas fa-scroll"></i> Logcat
+                    </button>
+                    <button class="inspector-tab @(PanelService.ActiveTab == InspectorTab.Files ? "active" : "")"
+                            @onclick="@(() => PanelService.SetTab(InspectorTab.Files))">
+                        <i class="fas fa-folder-open"></i> Files
+                    </button>
+                    <button class="inspector-tab @(PanelService.ActiveTab == InspectorTab.Shell ? "active" : "")"
+                            @onclick="@(() => PanelService.SetTab(InspectorTab.Shell))">
+                        <i class="fas fa-terminal"></i> Shell
+                    </button>
+                    <button class="inspector-tab @(PanelService.ActiveTab == InspectorTab.Capture ? "active" : "")"
+                            @onclick="@(() => PanelService.SetTab(InspectorTab.Capture))">
+                        <i class="fas fa-camera"></i> Capture
+                    </button>
+                </div>
+                <div class="inspector-device-selector">
+                    <i class="fab fa-android inspector-device-icon"></i>
+                    <select class="inspector-device-select" @ref="deviceSelectRef" value="@PanelService.ActiveSerial" @onchange="OnDeviceChanged">
+                        @foreach (var d in connectedDevices)
+                        {
+                            <option value="@d.Serial" selected="@(d.Serial == PanelService.ActiveSerial)">@(d.Model ?? d.Serial)</option>
+                        }
+                    </select>
+                </div>
+            </div>
+
             <div class="dialog-body">
-                <LogcatContent Serial="@(PanelService.ActiveSerial!)" />
+                @switch (PanelService.ActiveTab)
+                {
+                    case InspectorTab.Logcat:
+                        <LogcatContent Serial="@(PanelService.ActiveSerial!)" />
+                        break;
+                    case InspectorTab.Files:
+                        <FileExplorerTab Serial="@(PanelService.ActiveSerial!)" />
+                        break;
+                    case InspectorTab.Shell:
+                        <ShellTab Serial="@(PanelService.ActiveSerial!)" />
+                        break;
+                    case InspectorTab.Capture:
+                        <ScreenCaptureTab Serial="@(PanelService.ActiveSerial!)" />
+                        break;
+                }
             </div>
         </div>
     }
@@ -168,17 +215,108 @@
         height: 100% !important;
     }
 
+    /* ── Tab strip ── */
+    .inspector-tabstrip {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 8px;
+        background: var(--bg-tertiary, #edf2f7);
+        border-bottom: 1px solid var(--border-color, #e2e8f0);
+        flex-shrink: 0;
+        gap: 8px;
+    }
+    .inspector-tabs {
+        display: flex;
+        gap: 0;
+        position: relative;
+        z-index: 1;
+    }
+    .inspector-tab {
+        background: none;
+        border: none;
+        padding: 6px 12px;
+        font-size: 12px;
+        font-weight: 500;
+        color: var(--text-secondary);
+        cursor: pointer;
+        border-bottom: 2px solid transparent;
+        transition: all 0.15s;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        white-space: nowrap;
+    }
+    .inspector-tab:hover {
+        color: var(--text-primary);
+        background: var(--bg-secondary);
+    }
+    .inspector-tab.active {
+        color: var(--accent-primary, #4299e1);
+        border-bottom-color: var(--accent-primary, #4299e1);
+        font-weight: 600;
+    }
+    .inspector-tab i {
+        font-size: 11px;
+    }
+
+    /* ── Panel-level device selector ── */
+    .inspector-device-selector {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 3px 8px;
+        border-radius: 6px;
+        border: 1px solid var(--border-color, #e2e8f0);
+        background: var(--bg-secondary, #fff);
+        cursor: pointer;
+        transition: border-color 0.15s, box-shadow 0.15s;
+        position: relative;
+        overflow: hidden;
+        flex-shrink: 0;
+    }
+    .inspector-device-selector:hover {
+        border-color: var(--accent-primary, #4299e1);
+    }
+    .inspector-device-selector:focus-within {
+        border-color: var(--accent-primary, #4299e1);
+        box-shadow: 0 0 0 2px rgba(66, 153, 225, 0.3);
+    }
+    .inspector-device-icon {
+        color: #3ddc84;
+        font-size: 12px;
+        flex-shrink: 0;
+    }
+    .inspector-device-select {
+        border: none;
+        outline: none !important;
+        -webkit-focus-ring-color: transparent;
+        background: transparent;
+        font-size: 12px;
+        font-family: 'Consolas', 'Monaco', monospace;
+        color: var(--text-primary);
+        cursor: pointer;
+        -webkit-appearance: none;
+        appearance: none;
+        padding-right: 2px;
+        max-width: 180px;
+    }
+    .inspector-device-select:focus {
+        outline: none !important;
+        box-shadow: none !important;
+    }
+
     /* ── Resize handles ── */
     .resize-handle { position: absolute; z-index: 10; touch-action: none; }
     .resize-handle:hover { background: var(--accent-primary, #4299e1); opacity: 0.35; }
-    .resize-n  { top: 0;     left: 14px;  right: 14px; height: 5px; cursor: n-resize; }
-    .resize-s  { bottom: 0;  left: 14px;  right: 14px; height: 5px; cursor: s-resize; }
-    .resize-e  { top: 14px;  right: 0;    bottom: 14px; width: 5px; cursor: e-resize; }
-    .resize-w  { top: 14px;  left: 0;     bottom: 14px; width: 5px; cursor: w-resize; }
-    .resize-ne { top: 0;     right: 0;    width: 14px; height: 14px; cursor: ne-resize; }
-    .resize-nw { top: 0;     left: 0;     width: 14px; height: 14px; cursor: nw-resize; }
-    .resize-se { bottom: 0;  right: 0;    width: 14px; height: 14px; cursor: se-resize; }
-    .resize-sw { bottom: 0;  left: 0;     width: 14px; height: 14px; cursor: sw-resize; }
+    .resize-n  { top: 0;     left: 14px;  right: 14px; height: 5px; cursor: n-resize; border-radius: 3px; }
+    .resize-s  { bottom: 0;  left: 14px;  right: 14px; height: 5px; cursor: s-resize; border-radius: 3px; }
+    .resize-e  { top: 14px;  right: 0;    bottom: 14px; width: 5px; cursor: e-resize; border-radius: 3px; }
+    .resize-w  { top: 14px;  left: 0;     bottom: 14px; width: 5px; cursor: w-resize; border-radius: 3px; }
+    .resize-ne { top: 0;     right: 0;    width: 14px; height: 14px; cursor: ne-resize; border-radius: 0 6px 0 6px; }
+    .resize-nw { top: 0;     left: 0;     width: 14px; height: 14px; cursor: nw-resize; border-radius: 6px 0 6px 0; }
+    .resize-se { bottom: 0;  right: 0;    width: 14px; height: 14px; cursor: se-resize; border-radius: 6px 0 6px 0; }
+    .resize-sw { bottom: 0;  left: 0;     width: 14px; height: 14px; cursor: sw-resize; border-radius: 0 6px 0 6px; }
     .resize-se::after {
         content: '';
         position: absolute;
@@ -239,6 +377,8 @@
 
 @code {
     private ElementReference dialogRef;
+    private ElementReference deviceSelectRef;
+    private List<DeviceInfo> connectedDevices = new();
 
     // Position & size
     private double posX = 280;
@@ -272,6 +412,8 @@
     protected override void OnInitialized()
     {
         PanelService.StateChanged += OnStateChanged;
+        DeviceWatcher.DevicesChanged += OnWatcherDevicesChanged;
+        connectedDevices = DeviceWatcher.Devices.ToList();
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -455,9 +597,31 @@
         InvokeAsync(StateHasChanged);
     }
 
+    private void OnWatcherDevicesChanged(IReadOnlyList<DeviceInfo> newDevices)
+    {
+        InvokeAsync(() =>
+        {
+            connectedDevices = newDevices.ToList();
+            StateHasChanged();
+        });
+    }
+
+    private void OnDeviceChanged(ChangeEventArgs e)
+    {
+        var newSerial = e.Value?.ToString();
+        if (string.IsNullOrEmpty(newSerial) || newSerial == PanelService.ActiveSerial) return;
+        PanelService.SwitchDevice(newSerial, connectedDevices.FirstOrDefault(d => d.Serial == newSerial)?.Model);
+    }
+
+    private async Task FocusDeviceSelect()
+    {
+        await JS.InvokeVoidAsync("eval", "(function(){ var el = document.querySelector('.inspector-device-select'); if(el){ el.blur(); el.focus(); el.click(); } })()");
+    }
+
     public void Dispose()
     {
         PanelService.StateChanged -= OnStateChanged;
+        DeviceWatcher.DevicesChanged -= OnWatcherDevicesChanged;
         selfRef?.Dispose();
     }
 }

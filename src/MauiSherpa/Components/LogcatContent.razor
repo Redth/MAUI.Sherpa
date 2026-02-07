@@ -3,7 +3,7 @@
 @using MauiSherpa.Services
 @inject ILogcatService LogcatService
 @inject IAdbDeviceWatcherService DeviceWatcher
-@inject LogcatPanelService PanelService
+@inject DeviceInspectorService PanelService
 @inject IAlertService AlertService
 @inject ILoggingService Logger
 @inject IJSRuntime JS
@@ -12,15 +12,6 @@
 <div class="logcat-page">
     <div class="logcat-toolbar">
         <div class="toolbar-left">
-            <div class="device-selector" @onclick="FocusDeviceSelect">
-                <i class="fab fa-android device-selector-icon"></i>
-                <select class="device-select" @ref="deviceSelectRef" value="@Serial" @onchange="OnDeviceChanged">
-                    @foreach (var d in connectedDevices)
-                    {
-                        <option value="@d.Serial" selected="@(d.Serial == Serial)">@(d.Model ?? d.Serial)</option>
-                    }
-                </select>
-            </div>
             @if (LogcatService.IsRunning)
             {
                 <button class="btn btn-sm btn-danger" @onclick="StopLogcat">

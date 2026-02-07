@@ -1,0 +1,331 @@
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Services
+@inject IDeviceFileService FileService
+@inject DeviceInspectorService Inspector
+@inject IDialogService DialogService
+@inject IJSRuntime JS
+@implements IDisposable
+
+<div class="file-explorer">
+    <div class="file-toolbar">
+        <div class="breadcrumb">
+            @foreach (var crumb in GetBreadcrumbs())
+            {
+                <button class="breadcrumb-item" @onclick="@(() => NavigateTo(crumb.Path))">@crumb.Name</button>
+                @if (crumb.Path != currentPath)
+                {
+                    <span class="breadcrumb-separator">/</span>
+                }
+            }
+        </div>
+        <div class="file-toolbar-actions">
+            <button class="btn btn-sm btn-secondary" @onclick="UploadFileAsync" disabled="@isLoading" title="Upload file to current folder">
+                <i class="fas fa-upload"></i>
+            </button>
+            <button class="btn btn-sm btn-secondary" @onclick="RefreshAsync" disabled="@isLoading">
+                <i class="fas fa-sync-alt @(isLoading ? "fa-spin" : "")"></i>
+            </button>
+            <button class="btn btn-sm btn-secondary" @onclick="NavigateUp" disabled="@(currentPath == "/")">
+                <i class="fas fa-level-up-alt"></i>
+            </button>
+        </div>
+    </div>
+
+    <div class="file-list">
+        @if (isLoading)
+        {
+            <div class="file-loading">
+                <i class="fas fa-spinner fa-spin"></i> Loading...
+            </div>
+        }
+        else if (entries.Count == 0)
+        {
+            <div class="file-empty">
+                <i class="fas fa-folder-open"></i>
+                <span>Empty directory</span>
+            </div>
+        }
+        else
+        {
+            <div class="file-header">
+                <span class="file-col-icon"></span>
+                <span class="file-col-name">Name</span>
+                <span class="file-col-size">Size</span>
+                <span class="file-col-perms">Permissions</span>
+                <span class="file-col-date">Modified</span>
+                <span class="file-col-actions"></span>
+            </div>
+            <div class="file-scroll">
+                @foreach (var entry in entries)
+                {
+                    <div class="file-row @(entry.IsDirectory ? "file-row-dir" : "")" @ondblclick="@(() => { if (entry.IsDirectory) NavigateTo(entry.FullPath); })">
+                        <span class="file-col-icon">
+                            <i class="fas @(entry.IsDirectory ? "fa-folder" : GetFileIcon(entry.Name))"></i>
+                        </span>
+                        <span class="file-col-name" title="@entry.FullPath">
+                            @if (entry.IsDirectory)
+                            {
+                                <a href="javascript:void(0)" @onclick="@(() => NavigateTo(entry.FullPath))">@entry.Name</a>
+                            }
+                            else
+                            {
+                                @entry.Name
+                            }
+                        </span>
+                        <span class="file-col-size">@(entry.IsDirectory ? "—" : FormatSize(entry.Size))</span>
+                        <span class="file-col-perms">@entry.Permissions</span>
+                        <span class="file-col-date">@(entry.Modified?.ToString("MM-dd HH:mm") ?? "—")</span>
+                        <span class="file-col-actions">
+                            @if (!entry.IsDirectory)
+                            {
+                                <button class="btn-file-action" @onclick="@(() => DownloadFileAsync(entry))" title="Download">
+                                    <i class="fas fa-download"></i>
+                                </button>
+                            }
+                            <button class="btn-file-action btn-file-delete" @onclick="@(() => DeleteAsync(entry))" title="Delete">
+                                <i class="fas fa-trash-alt"></i>
+                            </button>
+                        </span>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+<style>
+    .file-explorer {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        font-size: 12px;
+    }
+    .file-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 4px 8px;
+        background: var(--bg-tertiary, #edf2f7);
+        border-bottom: 1px solid var(--border-color, #e2e8f0);
+        gap: 8px;
+        flex-shrink: 0;
+    }
+    .breadcrumb {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        overflow-x: auto;
+        flex: 1;
+    }
+    .breadcrumb-item {
+        background: none;
+        border: none;
+        padding: 2px 4px;
+        border-radius: 4px;
+        color: var(--accent-primary, #4299e1);
+        cursor: pointer;
+        font-size: 12px;
+        font-family: 'Consolas', 'Monaco', monospace;
+        white-space: nowrap;
+    }
+    .breadcrumb-item:hover { background: var(--bg-secondary); }
+    .breadcrumb-separator { color: var(--text-muted); font-size: 10px; }
+    .file-toolbar-actions { display: flex; gap: 4px; flex-shrink: 0; }
+
+    .file-list { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+    .file-header {
+        display: flex;
+        align-items: center;
+        padding: 4px 8px;
+        font-weight: 600;
+        font-size: 11px;
+        color: var(--text-secondary);
+        border-bottom: 1px solid var(--border-color, #e2e8f0);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        flex-shrink: 0;
+    }
+    .file-scroll { flex: 1; overflow-y: auto; }
+    .file-row {
+        display: flex;
+        align-items: center;
+        padding: 3px 8px;
+        border-bottom: 1px solid var(--border-subtle, rgba(0,0,0,0.04));
+        transition: background 0.1s;
+    }
+    .file-row:hover { background: var(--bg-tertiary, #f7fafc); }
+    .file-row-dir { font-weight: 500; }
+    .file-col-icon { width: 28px; text-align: center; flex-shrink: 0; }
+    .file-row-dir .file-col-icon { color: #eab308; }
+    .file-col-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .file-col-name a { color: var(--accent-primary, #4299e1); text-decoration: none; }
+    .file-col-name a:hover { text-decoration: underline; }
+    .file-col-size { width: 70px; text-align: right; color: var(--text-muted); flex-shrink: 0; padding-right: 12px; }
+    .file-col-perms { width: 90px; font-family: 'Consolas', 'Monaco', monospace; font-size: 11px; color: var(--text-muted); flex-shrink: 0; }
+    .file-col-date { width: 90px; color: var(--text-muted); flex-shrink: 0; }
+    .file-col-actions { width: 56px; display: flex; gap: 4px; justify-content: flex-end; flex-shrink: 0; }
+    .btn-file-action {
+        background: none; border: none; color: var(--text-muted); cursor: pointer;
+        padding: 2px 4px; border-radius: 4px; font-size: 11px;
+    }
+    .btn-file-action:hover { background: var(--bg-secondary); color: var(--text-primary); }
+    .btn-file-delete:hover { color: #f56565; }
+
+    .file-loading, .file-empty {
+        display: flex; align-items: center; justify-content: center; gap: 8px;
+        padding: 32px; color: var(--text-muted); font-size: 13px;
+    }
+</style>
+
+@code {
+    [Parameter] public string Serial { get; set; } = "";
+
+    private string currentPath = "/sdcard";
+    private List<DeviceFileEntry> entries = new();
+    private bool isLoading;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Inspector.DeviceChanged += OnDeviceChanged;
+        await RefreshAsync();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!string.IsNullOrEmpty(Serial))
+            await RefreshAsync();
+    }
+
+    private async Task RefreshAsync()
+    {
+        if (string.IsNullOrEmpty(Serial)) return;
+        isLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            var result = await FileService.ListAsync(Serial, currentPath);
+            entries = result.ToList();
+        }
+        catch
+        {
+            entries = new();
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async void NavigateTo(string path)
+    {
+        currentPath = path;
+        await RefreshAsync();
+    }
+
+    private async void NavigateUp()
+    {
+        if (currentPath == "/") return;
+        var parent = currentPath.LastIndexOf('/');
+        currentPath = parent <= 0 ? "/" : currentPath[..parent];
+        await RefreshAsync();
+    }
+
+    private record Breadcrumb(string Name, string Path);
+
+    private List<Breadcrumb> GetBreadcrumbs()
+    {
+        var crumbs = new List<Breadcrumb> { new("/", "/") };
+        if (currentPath == "/") return crumbs;
+
+        var parts = currentPath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        var path = "";
+        foreach (var part in parts)
+        {
+            path += "/" + part;
+            crumbs.Add(new(part, path));
+        }
+        return crumbs;
+    }
+
+    private async Task DownloadFileAsync(DeviceFileEntry entry)
+    {
+        var ext = System.IO.Path.GetExtension(entry.Name)?.TrimStart('.') ?? "";
+        var savePath = await DialogService.PickSaveFileAsync("Save File", entry.Name, ext);
+        if (string.IsNullOrEmpty(savePath)) return;
+        await FileService.PullAsync(Serial, entry.FullPath, savePath);
+    }
+
+    private async Task DeleteAsync(DeviceFileEntry entry)
+    {
+        // Simple confirmation via alert service
+        await FileService.DeleteAsync(Serial, entry.FullPath);
+        await RefreshAsync();
+    }
+
+    private async Task UploadFileAsync()
+    {
+        if (string.IsNullOrEmpty(Serial)) return;
+
+        var localPath = await DialogService.PickOpenFileAsync("Select file to upload");
+        if (string.IsNullOrEmpty(localPath)) return;
+
+        var fileName = System.IO.Path.GetFileName(localPath);
+        var remotePath = currentPath.TrimEnd('/') + "/" + fileName;
+
+        isLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            await FileService.PushAsync(Serial, localPath, remotePath);
+            await RefreshAsync();
+        }
+        catch
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void OnDeviceChanged(string newSerial)
+    {
+        InvokeAsync(() =>
+        {
+            currentPath = "/sdcard";
+            _ = RefreshAsync();
+        });
+    }
+
+    private static string FormatSize(long bytes)
+    {
+        if (bytes < 1024) return $"{bytes} B";
+        if (bytes < 1024 * 1024) return $"{bytes / 1024.0:F1} KB";
+        if (bytes < 1024 * 1024 * 1024) return $"{bytes / (1024.0 * 1024):F1} MB";
+        return $"{bytes / (1024.0 * 1024 * 1024):F1} GB";
+    }
+
+    private static string GetFileIcon(string name)
+    {
+        var ext = System.IO.Path.GetExtension(name)?.ToLowerInvariant();
+        return ext switch
+        {
+            ".apk" => "fa-cube",
+            ".jpg" or ".jpeg" or ".png" or ".gif" or ".webp" or ".bmp" => "fa-image",
+            ".mp4" or ".mkv" or ".avi" or ".mov" => "fa-film",
+            ".mp3" or ".wav" or ".ogg" or ".flac" => "fa-music",
+            ".txt" or ".log" or ".md" => "fa-file-alt",
+            ".xml" or ".json" or ".yaml" or ".yml" => "fa-file-code",
+            ".zip" or ".tar" or ".gz" or ".7z" => "fa-file-archive",
+            ".pdf" => "fa-file-pdf",
+            ".db" or ".sqlite" => "fa-database",
+            _ => "fa-file"
+        };
+    }
+
+    public void Dispose()
+    {
+        Inspector.DeviceChanged -= OnDeviceChanged;
+    }
+}

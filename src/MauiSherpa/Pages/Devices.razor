@@ -10,7 +10,7 @@
 @inject IAlertService AlertService
 @inject IDialogService DialogService
 @inject IFileSystemService FileSystem
-@inject LogcatPanelService LogcatPanel
+@inject DeviceInspectorService DeviceInspector
 @inject BlazorToastService ToastService
 @implements IDisposable
 
@@ -91,8 +91,11 @@
                     </div>
                 </div>
                 <div class="device-actions">
-                    <button class="btn btn-info btn-sm" @onclick="@(() => LogcatPanel.Open(device.Serial, device.Model ?? device.Serial))">
+                    <button class="btn btn-info btn-sm" @onclick="@(() => DeviceInspector.Open(device.Serial, device.Model ?? device.Serial))">
                         <i class="fas fa-scroll"></i> Logcat
+                    </button>
+                    <button class="btn btn-secondary btn-sm" @onclick="@(() => DeviceInspector.Open(device.Serial, device.Model ?? device.Serial, InspectorTab.Files))">
+                        <i class="fas fa-folder-open"></i> Inspect
                     </button>
                     @if (device.IsEmulator)
                     {

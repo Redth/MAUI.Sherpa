@@ -1,0 +1,254 @@
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Services
+@inject IScreenCaptureService CaptureService
+@inject DeviceInspectorService Inspector
+@inject IDialogService DialogService
+@implements IDisposable
+
+<div class="capture-tab">
+    <div class="capture-toolbar">
+        <button class="btn btn-sm btn-primary" @onclick="TakeScreenshot" disabled="@isCapturing">
+            <i class="fas @(isCapturing ? "fa-spinner fa-spin" : "fa-camera")"></i> Screenshot
+        </button>
+        @if (CaptureService.IsRecording)
+        {
+            <button class="btn btn-sm btn-danger" @onclick="StopRecording">
+                <i class="fas fa-stop"></i> Stop Recording (@FormatDuration(recordingElapsed))
+            </button>
+        }
+        else
+        {
+            <button class="btn btn-sm btn-secondary" @onclick="StartRecording" disabled="@isCapturing">
+                <i class="fas fa-video"></i> Record
+            </button>
+        }
+    </div>
+
+    <div class="capture-content">
+        @if (captures.Count == 0 && !isCapturing)
+        {
+            <div class="capture-empty">
+                <i class="fas fa-camera-retro"></i>
+                <span>Take a screenshot or start recording</span>
+            </div>
+        }
+        else
+        {
+            <div class="capture-gallery">
+                @foreach (var capture in captures.AsEnumerable().Reverse())
+                {
+                    <div class="capture-card">
+                        <div class="capture-preview">
+                            @if (capture.IsVideo)
+                            {
+                                <div class="capture-video-placeholder">
+                                    <i class="fas fa-film"></i>
+                                    <span>Video (@FormatSize(capture.Data.Length))</span>
+                                </div>
+                            }
+                            else
+                            {
+                                <img src="data:image/png;base64,@Convert.ToBase64String(capture.Data)" alt="Screenshot" />
+                            }
+                        </div>
+                        <div class="capture-info">
+                            <span class="capture-time">@capture.Timestamp.ToString("HH:mm:ss")</span>
+                            <span class="capture-size">@FormatSize(capture.Data.Length)</span>
+                            <button class="btn-capture-save" @onclick="@(() => SaveCaptureAsync(capture))" title="Save">
+                                <i class="fas fa-download"></i>
+                            </button>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+<style>
+    .capture-tab {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        font-size: 12px;
+    }
+    .capture-toolbar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 8px;
+        background: var(--bg-tertiary, #edf2f7);
+        border-bottom: 1px solid var(--border-color, #e2e8f0);
+        flex-shrink: 0;
+    }
+    .capture-content { flex: 1; overflow-y: auto; padding: 8px; }
+    .capture-empty {
+        display: flex; flex-direction: column; align-items: center;
+        justify-content: center; gap: 12px; padding: 48px;
+        color: var(--text-muted); font-size: 14px;
+    }
+    .capture-empty i { font-size: 36px; opacity: 0.4; }
+
+    .capture-gallery {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+    .capture-card {
+        border: 1px solid var(--border-color, #e2e8f0);
+        border-radius: 8px;
+        overflow: hidden;
+        background: var(--bg-secondary, #fff);
+    }
+    .capture-preview {
+        max-height: 300px;
+        overflow: hidden;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #f0f0f0;
+    }
+    .capture-preview img {
+        max-width: 100%;
+        max-height: 300px;
+        object-fit: contain;
+    }
+    .capture-video-placeholder {
+        padding: 24px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+        color: var(--text-muted);
+    }
+    .capture-video-placeholder i { font-size: 28px; }
+    .capture-info {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 8px;
+        font-size: 11px;
+        color: var(--text-secondary);
+    }
+    .capture-time { font-family: 'Consolas', monospace; }
+    .capture-size { flex: 1; }
+    .btn-capture-save {
+        background: none; border: none; color: var(--text-muted);
+        cursor: pointer; padding: 2px 6px; border-radius: 4px;
+    }
+    .btn-capture-save:hover { background: var(--bg-tertiary); color: var(--accent-primary); }
+</style>
+
+@code {
+    [Parameter] public string Serial { get; set; } = "";
+
+    private bool isCapturing;
+    private TimeSpan recordingElapsed;
+    private System.Threading.Timer? _recordTimer;
+    private DateTimeOffset _recordStart;
+    private List<CaptureItem> captures = new();
+
+    private record CaptureItem(byte[] Data, bool IsVideo, DateTimeOffset Timestamp);
+
+    protected override void OnInitialized()
+    {
+        Inspector.DeviceChanged += OnDeviceChanged;
+    }
+
+    private async Task TakeScreenshot()
+    {
+        if (string.IsNullOrEmpty(Serial)) return;
+        isCapturing = true;
+        StateHasChanged();
+
+        try
+        {
+            var data = await CaptureService.CaptureScreenshotAsync(Serial);
+            if (data.Length > 0)
+                captures.Add(new CaptureItem(data, false, DateTimeOffset.Now));
+        }
+        catch { }
+        finally
+        {
+            isCapturing = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task StartRecording()
+    {
+        if (string.IsNullOrEmpty(Serial)) return;
+        isCapturing = true;
+        StateHasChanged();
+
+        try
+        {
+            await CaptureService.StartRecordingAsync(Serial);
+            _recordStart = DateTimeOffset.Now;
+            _recordTimer = new System.Threading.Timer(_ =>
+            {
+                recordingElapsed = DateTimeOffset.Now - _recordStart;
+                InvokeAsync(StateHasChanged);
+            }, null, 0, 1000);
+        }
+        catch { }
+        finally
+        {
+            isCapturing = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task StopRecording()
+    {
+        _recordTimer?.Dispose();
+        _recordTimer = null;
+
+        try
+        {
+            var data = await CaptureService.StopRecordingAsync();
+            if (data != null && data.Length > 0)
+                captures.Add(new CaptureItem(data, true, DateTimeOffset.Now));
+        }
+        catch { }
+        finally
+        {
+            recordingElapsed = TimeSpan.Zero;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SaveCaptureAsync(CaptureItem capture)
+    {
+        var ext = capture.IsVideo ? "mp4" : "png";
+        var name = $"capture-{capture.Timestamp:yyyyMMdd-HHmmss}.{ext}";
+        var savePath = await DialogService.PickSaveFileAsync("Save Capture", name, ext);
+        if (string.IsNullOrEmpty(savePath)) return;
+        await System.IO.File.WriteAllBytesAsync(savePath, capture.Data);
+    }
+
+    private void OnDeviceChanged(string newSerial)
+    {
+        InvokeAsync(() =>
+        {
+            captures.Clear();
+            StateHasChanged();
+        });
+    }
+
+    private static string FormatDuration(TimeSpan ts) =>
+        ts.Hours > 0 ? ts.ToString(@"h\:mm\:ss") : ts.ToString(@"m\:ss");
+
+    private static string FormatSize(long bytes)
+    {
+        if (bytes < 1024) return $"{bytes} B";
+        if (bytes < 1024 * 1024) return $"{bytes / 1024.0:F1} KB";
+        return $"{bytes / (1024.0 * 1024):F1} MB";
+    }
+
+    public void Dispose()
+    {
+        Inspector.DeviceChanged -= OnDeviceChanged;
+        _recordTimer?.Dispose();
+    }
+}

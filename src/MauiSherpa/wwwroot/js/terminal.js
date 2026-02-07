@@ -221,6 +221,234 @@ window.terminalInterop = {
     },
 
     /**
+     * Initialize an interactive terminal with local line editing and command forwarding
+     */
+    initializeInteractive: function (containerId, dotnetRef, options) {
+        const container = document.getElementById(containerId);
+        if (!container) {
+            console.error('Terminal container not found:', containerId);
+            return false;
+        }
+
+        const termOptions = {
+            cursorBlink: true,
+            disableStdin: false,
+            fontSize: 13,
+            fontFamily: '"SF Mono", Menlo, Monaco, "Courier New", monospace',
+            theme: {
+                background: '#1a1a2e',
+                foreground: '#e0e0e0',
+                cursor: '#3ddc84',
+                cursorAccent: '#1a1a2e',
+                selectionBackground: 'rgba(66, 153, 225, 0.3)',
+                black: '#1a1a2e',
+                red: '#f44747',
+                green: '#3ddc84',
+                yellow: '#dcdcaa',
+                blue: '#569cd6',
+                magenta: '#c586c0',
+                cyan: '#4ec9b0',
+                white: '#e0e0e0',
+                brightBlack: '#808080',
+                brightRed: '#f44747',
+                brightGreen: '#3ddc84',
+                brightYellow: '#dcdcaa',
+                brightBlue: '#569cd6',
+                brightMagenta: '#c586c0',
+                brightCyan: '#4ec9b0',
+                brightWhite: '#ffffff'
+            },
+            scrollback: 10000,
+            convertEol: true,
+            ...options
+        };
+
+        const terminal = new Terminal(termOptions);
+        const fitAddon = new FitAddon.FitAddon();
+        terminal.loadAddon(fitAddon);
+
+        terminal.open(container);
+        fitAddon.fit();
+
+        const state = {
+            terminal: terminal,
+            fitAddon: fitAddon,
+            autoScroll: true,
+            dotnetRef: dotnetRef,
+            currentLine: '',
+            cursorPos: 0,
+            history: [],
+            historyIndex: -1,
+            promptWritten: false
+        };
+
+        this.terminals[containerId] = state;
+
+        // Local line editing — we handle echo, backspace, arrows, etc.
+        terminal.onData(data => {
+            const s = this.terminals[containerId];
+            if (!s) return;
+
+            for (let i = 0; i < data.length; i++) {
+                const ch = data[i];
+                const code = ch.charCodeAt(0);
+
+                if (ch === '\r') {
+                    // Enter — send command
+                    terminal.write('\r\n');
+                    const cmd = s.currentLine;
+                    s.currentLine = '';
+                    s.cursorPos = 0;
+                    if (cmd.trim().length > 0) {
+                        s.history.push(cmd);
+                        if (s.history.length > 200) s.history.shift();
+                    }
+                    s.historyIndex = s.history.length;
+                    s.promptWritten = false;
+                    dotnetRef.invokeMethodAsync('OnTerminalData', cmd);
+                } else if (code === 127 || code === 8) {
+                    // Backspace
+                    if (s.cursorPos > 0) {
+                        const before = s.currentLine.slice(0, s.cursorPos - 1);
+                        const after = s.currentLine.slice(s.cursorPos);
+                        s.currentLine = before + after;
+                        s.cursorPos--;
+                        // Move cursor back, rewrite rest of line, clear trailing char
+                        terminal.write('\b' + after + ' ' + '\b'.repeat(after.length + 1));
+                    }
+                } else if (ch === '\x1b' && data[i+1] === '[') {
+                    // Arrow key sequences
+                    const arrow = data[i+2];
+                    i += 2;
+                    if (arrow === 'A') {
+                        // Up — history back
+                        if (s.historyIndex > 0) {
+                            this._clearInput(s);
+                            s.historyIndex--;
+                            s.currentLine = s.history[s.historyIndex];
+                            s.cursorPos = s.currentLine.length;
+                            terminal.write(s.currentLine);
+                        }
+                    } else if (arrow === 'B') {
+                        // Down — history forward
+                        this._clearInput(s);
+                        if (s.historyIndex < s.history.length - 1) {
+                            s.historyIndex++;
+                            s.currentLine = s.history[s.historyIndex];
+                        } else {
+                            s.historyIndex = s.history.length;
+                            s.currentLine = '';
+                        }
+                        s.cursorPos = s.currentLine.length;
+                        terminal.write(s.currentLine);
+                    } else if (arrow === 'C') {
+                        // Right
+                        if (s.cursorPos < s.currentLine.length) {
+                            s.cursorPos++;
+                            terminal.write('\x1b[C');
+                        }
+                    } else if (arrow === 'D') {
+                        // Left
+                        if (s.cursorPos > 0) {
+                            s.cursorPos--;
+                            terminal.write('\x1b[D');
+                        }
+                    }
+                } else if (code === 3) {
+                    // Ctrl+C — cancel current line
+                    terminal.write('^C\r\n');
+                    s.currentLine = '';
+                    s.cursorPos = 0;
+                    s.promptWritten = false;
+                    this._writePrompt(s);
+                } else if (code === 21) {
+                    // Ctrl+U — clear line
+                    this._clearInput(s);
+                    s.currentLine = '';
+                    s.cursorPos = 0;
+                } else if (code >= 32) {
+                    // Printable character
+                    const before = s.currentLine.slice(0, s.cursorPos);
+                    const after = s.currentLine.slice(s.cursorPos);
+                    s.currentLine = before + ch + after;
+                    s.cursorPos++;
+                    terminal.write(ch + after);
+                    if (after.length > 0) {
+                        terminal.write('\b'.repeat(after.length));
+                    }
+                }
+            }
+        });
+
+        const resizeObserver = new ResizeObserver(() => {
+            try { fitAddon.fit(); } catch (e) { }
+        });
+        resizeObserver.observe(container);
+
+        // Focus terminal and write initial prompt
+        terminal.focus();
+        this._writePrompt(state);
+
+        return true;
+    },
+
+    /** Write the shell prompt */
+    _writePrompt: function (state) {
+        if (state.promptWritten) return;
+        state.terminal.write('\x1b[36m❯\x1b[0m ');
+        state.promptWritten = true;
+    },
+
+    /** Clear the current input text from the terminal display */
+    _clearInput: function (state) {
+        // Move cursor to start of input, overwrite with spaces, move back
+        if (state.cursorPos > 0) {
+            state.terminal.write('\b'.repeat(state.cursorPos));
+        }
+        state.terminal.write(' '.repeat(state.currentLine.length));
+        state.terminal.write('\b'.repeat(state.currentLine.length));
+    },
+
+    /**
+     * Write raw data to the terminal (for command output), then show prompt
+     */
+    writeRaw: function (containerId, data) {
+        const t = this.terminals[containerId];
+        if (!t) return;
+        t.terminal.write(data);
+    },
+
+    /**
+     * Write output and show prompt when command is done
+     */
+    writeOutput: function (containerId, data) {
+        const t = this.terminals[containerId];
+        if (!t) return;
+        t.terminal.write(data);
+        t.promptWritten = false;
+        this._writePrompt(t);
+    },
+
+    /**
+     * Focus the terminal
+     */
+    focus: function (containerId) {
+        const t = this.terminals[containerId];
+        if (!t) return;
+        t.terminal.focus();
+    },
+
+    /**
+     * Write the prompt if not already shown
+     */
+    writePrompt: function (containerId) {
+        const t = this.terminals[containerId];
+        if (!t) return;
+        t.promptWritten = false;
+        this._writePrompt(t);
+    },
+
+    /**
      * Dispose of the terminal
      */
     dispose: function (containerId) {
