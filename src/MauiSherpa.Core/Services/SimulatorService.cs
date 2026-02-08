@@ -324,7 +324,7 @@ public class SimulatorService : ISimulatorService
                 apps.Add(new SimulatorApp(bundleId, name, version, appType, dataContainer, bundlePath));
             }
 
-            return apps.OrderBy(a => a.ApplicationType).ThenBy(a => a.Name).ToList();
+            return apps.OrderBy(a => a.ApplicationType == "System" ? 1 : 0).ThenBy(a => a.Name).ToList();
         }
         catch (Exception ex)
         {
