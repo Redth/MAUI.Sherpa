@@ -7,13 +7,15 @@
 @inject IAlertService AlertService
 @inject ILoggingService Logger
 @inject IMediator Mediator
+@inject IJSRuntime JS
+@implements IDisposable
 
 @if (IsVisible)
 {
-    <div class="dialog-overlay" @onclick="HandleOverlayClick">
-        <div class="dialog" @onclick:stopPropagation="true">
+    <div class="dialog-overlay" @onclick="HandleOverlayClick" id="create-profile-modal">
+        <div class="dialog" @onclick:stopPropagation="true" role="dialog" aria-modal="true" aria-labelledby="create-profile-modal-title">
             <div class="dialog-header">
-                <h2><i class="fas fa-plus-circle"></i> Create Provisioning Profile</h2>
+                <h2 id="create-profile-modal-title"><i class="fas fa-plus-circle"></i> Create Provisioning Profile</h2>
                 <button class="close-btn" @onclick="Close"><i class="fas fa-times"></i></button>
             </div>
 
@@ -962,6 +964,9 @@
     [Parameter] public EventCallback<bool> IsVisibleChanged { get; set; }
     [Parameter] public EventCallback<AppleProfile> OnProfileCreated { get; set; }
 
+    private DotNetObjectReference<CreateProfileDialog>? _dotNetRef;
+    private bool _modalInitialized;
+
     // Wizard state
     private int currentStep = 1;
     private bool isLoadingData = false;
@@ -1056,6 +1061,30 @@
         {
             await LoadDataAsync();
         }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+            _dotNetRef = DotNetObjectReference.Create(this);
+
+        if (IsVisible && !_modalInitialized)
+        {
+            _modalInitialized = true;
+            await JS.InvokeVoidAsync("modalInterop.initialize", "create-profile-modal", _dotNetRef);
+        }
+        else if (!IsVisible && _modalInitialized)
+        {
+            _modalInitialized = false;
+            await JS.InvokeVoidAsync("modalInterop.dispose", "create-profile-modal");
+        }
+    }
+
+    [JSInvokable]
+    public void OnEscapePressed()
+    {
+        if (!isCreating)
+            _ = Close();
     }
 
     private async Task LoadDataAsync()
@@ -1222,7 +1251,7 @@
         return $"{bundle.Name} {suffix}";
     }
 
-    private void NextStep()
+    private async Task NextStep()
     {
         if (CanProceed && currentStep < TotalSteps)
         {
@@ -1232,13 +1261,19 @@
             {
                 profileName = suggestedName;
             }
+            StateHasChanged();
+            await JS.InvokeVoidAsync("modalInterop.focusFirst", "create-profile-modal");
         }
     }
 
-    private void PreviousStep()
+    private async Task PreviousStep()
     {
         if (currentStep > 1)
+        {
             currentStep--;
+            StateHasChanged();
+            await JS.InvokeVoidAsync("modalInterop.focusFirst", "create-profile-modal");
+        }
     }
 
     private async Task CreateProfile()
@@ -1362,4 +1397,11 @@
     // Helper types
     private record ProfileTypeGroup(string Platform, string Icon, ProfileTypeInfo[] Types);
     private record ProfileTypeInfo(string Value, string Name, string Description);
+
+    public void Dispose()
+    {
+        if (_modalInitialized)
+            _ = JS.InvokeVoidAsync("modalInterop.dispose", "create-profile-modal");
+        _dotNetRef?.Dispose();
+    }
 }

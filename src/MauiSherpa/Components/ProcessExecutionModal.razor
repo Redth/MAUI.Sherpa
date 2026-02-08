@@ -9,10 +9,10 @@
 
 @if (IsVisible)
 {
-    <div class="process-modal-overlay">
-        <div class="process-modal @(CurrentView == ModalView.Running ? "expanded" : "")">
+    <div class="process-modal-overlay" id="process-modal">
+        <div class="process-modal @(CurrentView == ModalView.Running ? "expanded" : "")" role="dialog" aria-modal="true" aria-labelledby="process-modal-title">
             <div class="modal-header">
-                <h2>@GetTitle()</h2>
+                <h2 id="process-modal-title">@GetTitle()</h2>
                 @if (CurrentView != ModalView.Running)
                 {
                     <button class="close-btn" @onclick="HandleClose">×</button>
@@ -452,6 +452,8 @@
     private DateTime _startTime;
     private bool _terminalInitialized;
     private CancellationTokenSource? _cts;
+    private DotNetObjectReference<ProcessExecutionModal>? _dotNetRef;
+    private bool _modalInitialized;
 
     private bool CanCancel => ProcessService.CurrentState == ProcessState.Running;
     private bool CanKill => ProcessService.CurrentState == ProcessState.Running || 
@@ -462,6 +464,30 @@
         ModalService.OnShowRequested += HandleShowRequested;
         ProcessService.OutputReceived += HandleOutputReceived;
         ProcessService.StateChanged += HandleStateChanged;
+        _dotNetRef = DotNetObjectReference.Create(this);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (IsVisible && !_modalInitialized)
+        {
+            _modalInitialized = true;
+            await JS.InvokeVoidAsync("modalInterop.initialize", "process-modal", _dotNetRef);
+        }
+        else if (!IsVisible && _modalInitialized)
+        {
+            _modalInitialized = false;
+            await JS.InvokeVoidAsync("modalInterop.dispose", "process-modal");
+        }
+    }
+
+    [JSInvokable]
+    public void OnEscapePressed()
+    {
+        if (CurrentView == ModalView.Confirmation)
+            HandleCancelBeforeExecution();
+        else if (CurrentView == ModalView.Completed)
+            HandleClose();
     }
 
     private void HandleShowRequested(ProcessRequest request)
@@ -659,5 +685,8 @@
         ProcessService.StateChanged -= HandleStateChanged;
         _elapsedTimer?.Dispose();
         _cts?.Dispose();
+        if (_modalInitialized)
+            _ = JS.InvokeVoidAsync("modalInterop.dispose", "process-modal");
+        _dotNetRef?.Dispose();
     }
 }

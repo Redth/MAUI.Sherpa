@@ -3,14 +3,15 @@
 @using MauiSherpa.Services
 @inject MultiOperationModalService ModalService
 @inject ICopilotContextService CopilotContext
+@inject IJSRuntime JS
 @implements IDisposable
 
 @if (ModalService.IsVisible)
 {
-    <div class="multi-op-modal-overlay">
-        <div class="multi-op-modal">
+    <div class="multi-op-modal-overlay" id="multi-op-modal">
+        <div class="multi-op-modal" role="dialog" aria-modal="true" aria-labelledby="multi-op-modal-title">
             <div class="modal-header">
-                <h2>
+                <h2 id="multi-op-modal-title">
                     @if (ModalService.IsRunning)
                     {
                         <i class="fas fa-cog fa-spin"></i>
@@ -517,6 +518,8 @@
     private HashSet<string> expandedOperations = new();
     private System.Timers.Timer? _elapsedTimer;
     private DateTime _startTime;
+    private DotNetObjectReference<MultiOperationModal>? _dotNetRef;
+    private bool _modalInitialized;
     private string ElapsedTime { get; set; } = "00:00";
 
     private int EnabledCount => ModalService.Operations.Count(o => o.IsEnabled);
@@ -539,6 +542,30 @@
         ModalService.OnLogEntry += HandleLogEntry;
         ModalService.OnExecutionStarted += HandleExecutionStarted;
         ModalService.OnExecutionCompleted += HandleExecutionCompleted;
+        _dotNetRef = DotNetObjectReference.Create(this);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (ModalService.IsVisible && !_modalInitialized)
+        {
+            _modalInitialized = true;
+            await JS.InvokeVoidAsync("modalInterop.initialize", "multi-op-modal", _dotNetRef);
+        }
+        else if (!ModalService.IsVisible && _modalInitialized)
+        {
+            _modalInitialized = false;
+            await JS.InvokeVoidAsync("modalInterop.dispose", "multi-op-modal");
+        }
+    }
+
+    [JSInvokable]
+    public void OnEscapePressed()
+    {
+        if (ModalService.IsConfirming && !ModalService.IsRunning)
+            HandleCancel();
+        else if (!ModalService.IsRunning)
+            HandleClose();
     }
 
     private void HandleShowRequested(string title, string description)
@@ -704,5 +731,8 @@
         ModalService.OnExecutionStarted -= HandleExecutionStarted;
         ModalService.OnExecutionCompleted -= HandleExecutionCompleted;
         _elapsedTimer?.Dispose();
+        if (_modalInitialized)
+            _ = JS.InvokeVoidAsync("modalInterop.dispose", "multi-op-modal");
+        _dotNetRef?.Dispose();
     }
 }

@@ -19,6 +19,7 @@
 @inject ISecretsPublisherFactory SecretsPublisherFactory
 @inject IBackupService BackupService
 @implements IDisposable
+@inject IJSRuntime JS
 
 <h1><i class="fas fa-cog"></i> @ViewModel.Title</h1>
 
@@ -418,10 +419,10 @@
 
 @if (showExportDialog)
 {
-    <div class="modal-overlay" @onclick="CloseExportDialog">
-        <div class="modal modal-sm" @onclick:stopPropagation="true">
+    <div class="modal-overlay" id="export-settings-modal" @onclick="CloseExportDialog">
+        <div class="modal modal-sm" role="dialog" aria-modal="true" aria-labelledby="export-settings-title" @onclick:stopPropagation="true">
             <div class="modal-header">
-                <h2>Export Settings</h2>
+                <h2 id="export-settings-title">Export Settings</h2>
                 <button class="close-btn" @onclick="CloseExportDialog">×</button>
             </div>
             <div class="modal-body">
@@ -452,10 +453,10 @@
 
 @if (showImportDialog)
 {
-    <div class="modal-overlay" @onclick="CloseImportDialog">
-        <div class="modal modal-sm" @onclick:stopPropagation="true">
+    <div class="modal-overlay" id="import-settings-modal" @onclick="CloseImportDialog">
+        <div class="modal modal-sm" role="dialog" aria-modal="true" aria-labelledby="import-settings-title" @onclick:stopPropagation="true">
             <div class="modal-header">
-                <h2>Import Settings</h2>
+                <h2 id="import-settings-title">Import Settings</h2>
                 <button class="close-btn" @onclick="CloseImportDialog">×</button>
             </div>
             <div class="modal-body">
@@ -490,10 +491,10 @@
 
 @if (showIdentityDialog)
 {
-    <div class="modal-overlay">
-        <div class="modal" @onclick:stopPropagation="true">
+    <div class="modal-overlay" id="identity-modal">
+        <div class="modal" role="dialog" aria-modal="true" aria-labelledby="identity-title" @onclick:stopPropagation="true">
             <div class="modal-header">
-                <h2>@(editingIdentity == null ? "Add" : "Edit") Apple Identity</h2>
+                <h2 id="identity-title">@(editingIdentity == null ? "Add" : "Edit") Apple Identity</h2>
                 <button class="close-btn" @onclick="CloseIdentityDialog">×</button>
             </div>
             <div class="modal-body">
@@ -563,10 +564,10 @@
 
 @if (showProviderDialog)
 {
-    <div class="modal-overlay">
-        <div class="modal" @onclick:stopPropagation="true">
+    <div class="modal-overlay" id="cloud-provider-modal">
+        <div class="modal" role="dialog" aria-modal="true" aria-labelledby="cloud-provider-title" @onclick:stopPropagation="true">
             <div class="modal-header">
-                <h2>@(editingProvider == null ? "Add" : "Edit") Cloud Provider</h2>
+                <h2 id="cloud-provider-title">@(editingProvider == null ? "Add" : "Edit") Cloud Provider</h2>
                 <button class="close-btn" @onclick="CloseProviderDialog">×</button>
             </div>
             <div class="modal-body">
@@ -640,10 +641,10 @@
 
 @if (showPublisherDialog)
 {
-    <div class="modal-overlay">
-        <div class="modal" @onclick:stopPropagation="true">
+    <div class="modal-overlay" id="publisher-modal">
+        <div class="modal" role="dialog" aria-modal="true" aria-labelledby="publisher-title" @onclick:stopPropagation="true">
             <div class="modal-header">
-                <h2>@(editingPublisher == null ? "Add" : "Edit") CI/CD Publisher</h2>
+                <h2 id="publisher-title">@(editingPublisher == null ? "Add" : "Edit") CI/CD Publisher</h2>
                 <button class="close-btn" @onclick="ClosePublisherDialog">×</button>
             </div>
             <div class="modal-body">
@@ -1350,6 +1351,9 @@
         SdkSettings.SdkPathChanged -= OnSdkPathChanged;
         CloudSecretsService.OnActiveProviderChanged -= OnCloudProviderChanged;
         SecretsPublisherService.OnPublishersChanged -= OnPublishersChanged;
+        foreach (var id in _activeModals)
+            try { JS.InvokeVoidAsync("modalInterop.dispose", id); } catch { }
+        _dotNetRef?.Dispose();
     }
 
     private async Task LoadAppleIdentities()
@@ -1410,6 +1414,7 @@
         identityP8Content = "";
         p8InputMode = "file";
         showIdentityDialog = true;
+        _ = InitModalAsync("identity-modal");
     }
 
     private async Task ChangeSdkPath()
@@ -1478,11 +1483,13 @@
         // If we have content but no path, default to text mode
         p8InputMode = string.IsNullOrEmpty(identity.P8KeyPath) && !string.IsNullOrEmpty(identity.P8KeyContent) ? "text" : "file";
         showIdentityDialog = true;
+        _ = InitModalAsync("identity-modal");
     }
 
     private void CloseIdentityDialog()
     {
         showIdentityDialog = false;
+        _ = DisposeModalAsync("identity-modal");
         editingIdentity = null;
     }
 
@@ -1647,6 +1654,7 @@
         }
         
         showProviderDialog = true;
+        _ = InitModalAsync("cloud-provider-modal");
     }
     
     private void EditProvider(CloudSecretsProviderConfig provider)
@@ -1656,11 +1664,13 @@
         providerType = provider.ProviderType;
         providerSettings = new Dictionary<string, string>(provider.Settings);
         showProviderDialog = true;
+        _ = InitModalAsync("cloud-provider-modal");
     }
     
     private void CloseProviderDialog()
     {
         showProviderDialog = false;
+        _ = DisposeModalAsync("cloud-provider-modal");
         editingProvider = null;
     }
     
@@ -1740,6 +1750,7 @@
         publisherProviderId = "github";
         publisherSettings = new Dictionary<string, string>();
         showPublisherDialog = true;
+        _ = InitModalAsync("publisher-modal");
     }
 
     private void EditPublisher(SecretsPublisherConfig publisher)
@@ -1749,11 +1760,13 @@
         publisherProviderId = publisher.ProviderId;
         publisherSettings = new Dictionary<string, string>(publisher.Settings);
         showPublisherDialog = true;
+        _ = InitModalAsync("publisher-modal");
     }
 
     private void ClosePublisherDialog()
     {
         showPublisherDialog = false;
+        _ = DisposeModalAsync("publisher-modal");
         editingPublisher = null;
     }
 
@@ -1813,11 +1826,13 @@
         exportPasswordConfirm = "";
         exportError = "";
         showExportDialog = true;
+        _ = InitModalAsync("export-settings-modal");
     }
 
     private void CloseExportDialog()
     {
         showExportDialog = false;
+        _ = DisposeModalAsync("export-settings-modal");
         exportPassword = "";
         exportPasswordConfirm = "";
         exportError = "";
@@ -1829,11 +1844,13 @@
         importPassword = "";
         importError = "";
         showImportDialog = true;
+        _ = InitModalAsync("import-settings-modal");
     }
 
     private void CloseImportDialog()
     {
         showImportDialog = false;
+        _ = DisposeModalAsync("import-settings-modal");
         importFilePath = "";
         importPassword = "";
         importError = "";
@@ -1949,5 +1966,33 @@
             isImporting = false;
             StateHasChanged();
         }
+    }
+
+    private DotNetObjectReference<Settings>? _dotNetRef;
+    private readonly HashSet<string> _activeModals = new();
+
+    private async Task InitModalAsync(string modalId)
+    {
+        await Task.Yield();
+        _dotNetRef ??= DotNetObjectReference.Create(this);
+        _activeModals.Add(modalId);
+        await JS.InvokeVoidAsync("modalInterop.initialize", modalId, _dotNetRef);
+    }
+
+    private async Task DisposeModalAsync(string modalId)
+    {
+        _activeModals.Remove(modalId);
+        try { await JS.InvokeVoidAsync("modalInterop.dispose", modalId); } catch { }
+    }
+
+    [JSInvokable]
+    public void OnEscapePressed()
+    {
+        if (showPublisherDialog) ClosePublisherDialog();
+        else if (showProviderDialog) CloseProviderDialog();
+        else if (showIdentityDialog) CloseIdentityDialog();
+        else if (showImportDialog) CloseImportDialog();
+        else if (showExportDialog) CloseExportDialog();
+        InvokeAsync(StateHasChanged);
     }
 }

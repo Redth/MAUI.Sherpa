@@ -11,6 +11,7 @@
 @inject OperationModalService OperationModal
 @inject BlazorToastService ToastService
 @implements IDisposable
+@inject IJSRuntime JS
 
 <h1><i class="fas fa-fingerprint"></i> Bundle IDs</h1>
 
@@ -134,10 +135,10 @@
 
 @if (showCreateDialog)
 {
-    <div class="modal-overlay">
-        <div class="modal" @onclick:stopPropagation="true">
+    <div class="modal-overlay" id="register-bundle-modal">
+        <div class="modal" role="dialog" aria-modal="true" aria-labelledby="register-bundle-title" @onclick:stopPropagation="true">
             <div class="modal-header">
-                <h2>Register Bundle ID</h2>
+                <h2 id="register-bundle-title">Register Bundle ID</h2>
                 <button class="close-btn" @onclick="CloseCreateDialog">×</button>
             </div>
             <div class="modal-body">
@@ -173,10 +174,10 @@
 
 @if (showCapabilitiesDialog && selectedBundleForCapabilities != null)
 {
-    <div class="modal-overlay">
-        <div class="modal modal-lg" @onclick:stopPropagation="true">
+    <div class="modal-overlay" id="manage-caps-modal">
+        <div class="modal modal-lg" role="dialog" aria-modal="true" aria-labelledby="manage-caps-title" @onclick:stopPropagation="true">
             <div class="modal-header">
-                <h2><i class="fas fa-puzzle-piece"></i> Capabilities</h2>
+                <h2 id="manage-caps-title"><i class="fas fa-puzzle-piece"></i> Capabilities</h2>
                 <button class="close-btn" @onclick="CloseCapabilitiesDialog">×</button>
             </div>
             <div class="modal-subheader">
@@ -620,6 +621,9 @@
     public void Dispose()
     {
         IdentityState.OnSelectionChanged -= OnIdentityChanged;
+        foreach (var id in _activeModals)
+            try { JS.InvokeVoidAsync("modalInterop.dispose", id); } catch { }
+        _dotNetRef?.Dispose();
     }
 
     private async Task RefreshData(bool forceRefresh = false)
@@ -675,9 +679,14 @@
         newName = "";
         newPlatform = "UNIVERSAL";
         showCreateDialog = true;
+        _ = InitModalAsync("register-bundle-modal");
     }
 
-    private void CloseCreateDialog() => showCreateDialog = false;
+    private void CloseCreateDialog()
+    {
+        showCreateDialog = false;
+        _ = DisposeModalAsync("register-bundle-modal");
+    }
 
     private async Task CreateBundle()
     {
@@ -754,6 +763,7 @@
     {
         selectedBundleForCapabilities = bundle;
         showCapabilitiesDialog = true;
+        _ = InitModalAsync("manage-caps-modal");
         isLoadingCapabilities = true;
         currentCapabilities.Clear();
         StateHasChanged();
@@ -785,6 +795,7 @@
     private void CloseCapabilitiesDialog()
     {
         showCapabilitiesDialog = false;
+        _ = DisposeModalAsync("manage-caps-modal");
         selectedBundleForCapabilities = null;
         currentCapabilities.Clear();
     }
@@ -857,5 +868,37 @@
             "UNIVERSAL" => "Universal",
             _ => platform
         };
+    }
+
+    private DotNetObjectReference<BundleIds>? _dotNetRef;
+    private readonly HashSet<string> _activeModals = new();
+
+    private async Task InitModalAsync(string modalId)
+    {
+        await Task.Yield();
+        _dotNetRef ??= DotNetObjectReference.Create(this);
+        _activeModals.Add(modalId);
+        await JS.InvokeVoidAsync("modalInterop.initialize", modalId, _dotNetRef);
+    }
+
+    private async Task DisposeModalAsync(string modalId)
+    {
+        _activeModals.Remove(modalId);
+        try { await JS.InvokeVoidAsync("modalInterop.dispose", modalId); } catch { }
+    }
+
+    [JSInvokable]
+    public void OnEscapePressed()
+    {
+        // Close whichever modal is open
+        if (showCapabilitiesDialog)
+        {
+            CloseCapabilitiesDialog();
+        }
+        else if (showCreateDialog)
+        {
+            CloseCreateDialog();
+        }
+        InvokeAsync(StateHasChanged);
     }
 }

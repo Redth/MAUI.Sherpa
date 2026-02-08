@@ -16,6 +16,7 @@
 @inject BlazorToastService ToastService
 @inject ILoggingService Logger
 @implements IDisposable
+@inject IJSRuntime JS
 
 <h1><i class="fas fa-certificate"></i> Certificates</h1>
 
@@ -226,10 +227,10 @@
 
 @if (showCreateDialog)
 {
-    <div class="modal-overlay">
-        <div class="modal" @onclick:stopPropagation="true">
+    <div class="modal-overlay" id="create-cert-modal">
+        <div class="modal" @onclick:stopPropagation="true" role="dialog" aria-modal="true" aria-labelledby="create-cert-title">
             <div class="modal-header">
-                <h2>Create Certificate</h2>
+                <h2 id="create-cert-title">Create Certificate</h2>
                 <button class="close-btn" @onclick="CloseCreateDialog">×</button>
             </div>
             <div class="modal-body">
@@ -272,10 +273,10 @@
 
 @if (showExportDialog && exportCertificate != null)
 {
-    <div class="modal-overlay">
-        <div class="modal" @onclick:stopPropagation="true">
+    <div class="modal-overlay" id="export-cert-modal">
+        <div class="modal" @onclick:stopPropagation="true" role="dialog" aria-modal="true" aria-labelledby="export-cert-title">
             <div class="modal-header">
-                <h2>Export Certificate</h2>
+                <h2 id="export-cert-title">Export Certificate</h2>
                 <button class="close-btn" @onclick="CloseExportDialog">×</button>
             </div>
             <div class="modal-body">
@@ -905,6 +906,9 @@
     public void Dispose()
     {
         IdentityState.OnSelectionChanged -= OnIdentityChanged;
+        foreach (var id in _activeModals)
+            try { JS.InvokeVoidAsync("modalInterop.dispose", id); } catch { }
+        _dotNetRef?.Dispose();
     }
 
     private async Task RefreshData(bool forceRefresh = false)
@@ -979,11 +983,13 @@
         newCertCommonName = "";
         newCertPassphrase = "";
         showCreateDialog = true;
+        _ = InitModalAsync("create-cert-modal");
     }
 
     private void CloseCreateDialog()
     {
         showCreateDialog = false;
+        _ = DisposeModalAsync("create-cert-modal");
     }
     
     private async Task ShowExportDialog(AppleCertificate cert)
@@ -1001,12 +1007,14 @@
         }
         
         showExportDialog = true;
+        _ = InitModalAsync("export-cert-modal");
     }
     
     private void CloseExportDialog()
     {
         showExportDialog = false;
         exportCertificate = null;
+        _ = DisposeModalAsync("export-cert-modal");
     }
     
     private async Task ExportCertificate()
@@ -1074,6 +1082,7 @@
     private async Task CreateCertificate()
     {
         showCreateDialog = false;
+        _ = DisposeModalAsync("create-cert-modal");
         
         var commonName = string.IsNullOrWhiteSpace(newCertCommonName) ? null : newCertCommonName;
         var passphrase = string.IsNullOrWhiteSpace(newCertPassphrase) ? null : newCertPassphrase;
@@ -1621,5 +1630,32 @@
             await LoadSyncStatuses();
             StateHasChanged();
         }
+    }
+
+    private DotNetObjectReference<Certificates>? _dotNetRef;
+    private readonly HashSet<string> _activeModals = new();
+
+    private async Task InitModalAsync(string modalId)
+    {
+        await Task.Yield();
+        _dotNetRef ??= DotNetObjectReference.Create(this);
+        _activeModals.Add(modalId);
+        await JS.InvokeVoidAsync("modalInterop.initialize", modalId, _dotNetRef);
+    }
+
+    private async Task DisposeModalAsync(string modalId)
+    {
+        _activeModals.Remove(modalId);
+        try { await JS.InvokeVoidAsync("modalInterop.dispose", modalId); } catch { }
+    }
+
+    [JSInvokable]
+    public void OnEscapePressed()
+    {
+        if (showExportDialog)
+            CloseExportDialog();
+        else if (showCreateDialog)
+            CloseCreateDialog();
+        InvokeAsync(StateHasChanged);
     }
 }
