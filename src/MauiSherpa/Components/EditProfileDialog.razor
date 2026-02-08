@@ -7,13 +7,15 @@
 @inject IAlertService AlertService
 @inject ILoggingService Logger
 @inject IMediator Mediator
+@inject IJSRuntime JS
+@implements IDisposable
 
 @if (IsVisible && Profile != null)
 {
-    <div class="dialog-overlay" @onclick="HandleOverlayClick">
-        <div class="dialog" @onclick:stopPropagation="true">
+    <div class="dialog-overlay" @onclick="HandleOverlayClick" id="edit-profile-modal">
+        <div class="dialog" @onclick:stopPropagation="true" role="dialog" aria-modal="true" aria-labelledby="edit-profile-modal-title">
             <div class="dialog-header">
-                <h2><i class="fas fa-edit"></i> Edit Profile</h2>
+                <h2 id="edit-profile-modal-title"><i class="fas fa-edit"></i> Edit Profile</h2>
                 <button class="close-btn" @onclick="Close"><i class="fas fa-times"></i></button>
             </div>
 
@@ -515,6 +517,9 @@
     [Parameter] public AppleProfile? Profile { get; set; }
     [Parameter] public EventCallback<AppleProfile> OnProfileRegenerated { get; set; }
 
+    private DotNetObjectReference<EditProfileDialog>? _dotNetRef;
+    private bool _modalInitialized;
+
     // State
     private bool isLoading = false;
     private bool isRegenerating = false;
@@ -557,6 +562,30 @@
         {
             await LoadDataAsync();
         }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+            _dotNetRef = DotNetObjectReference.Create(this);
+
+        if (IsVisible && !_modalInitialized)
+        {
+            _modalInitialized = true;
+            await JS.InvokeVoidAsync("modalInterop.initialize", "edit-profile-modal", _dotNetRef);
+        }
+        else if (!IsVisible && _modalInitialized)
+        {
+            _modalInitialized = false;
+            await JS.InvokeVoidAsync("modalInterop.dispose", "edit-profile-modal");
+        }
+    }
+
+    [JSInvokable]
+    public void OnEscapePressed()
+    {
+        if (!isRegenerating)
+            _ = Close();
     }
 
     private async Task LoadDataAsync()
@@ -746,5 +775,12 @@
         {
             _ = Close();
         }
+    }
+
+    public void Dispose()
+    {
+        if (_modalInitialized)
+            _ = JS.InvokeVoidAsync("modalInterop.dispose", "edit-profile-modal");
+        _dotNetRef?.Dispose();
     }
 }

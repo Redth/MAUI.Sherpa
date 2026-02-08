@@ -387,11 +387,11 @@ else
 @* Permission Dialog Modal *@
 @if (_showPermissionDialog && _pendingPermissionRequest != null)
 {
-    <div class="modal-overlay" @onclick="DenyPermission">
-        <div class="permission-modal" @onclick:stopPropagation="true">
+    <div class="modal-overlay" @onclick="DenyPermission" id="copilot-permission-modal">
+        <div class="permission-modal" @onclick:stopPropagation="true" role="dialog" aria-modal="true" aria-labelledby="copilot-perm-title">
             <div class="permission-header">
                 <i class="fas fa-shield-alt"></i>
-                <h3>Permission Required</h3>
+                <h3 id="copilot-perm-title">Permission Required</h3>
             </div>
             <div class="permission-content">
                 <p>Copilot wants to execute the following tool:</p>
@@ -2129,6 +2129,9 @@ else
         CopilotService.OnSessionError -= OnSessionError;
         _logger.OnLogAdded -= OnLogAdded;
         CopilotService.PermissionHandler = null;
+        foreach (var id in _activeCopilotModals)
+            try { JSRuntime.InvokeVoidAsync("modalInterop.dispose", id); } catch { }
+        _copilotDotNetRef?.Dispose();
     }
 
     private async Task CheckAvailability()
@@ -2487,6 +2490,7 @@ else
         _pendingPermissionRequest = request;
         _permissionTcs = new TaskCompletionSource<ToolPermissionResult>();
         _showPermissionDialog = true;
+        _ = InitCopilotModalAsync("copilot-permission-modal");
         await InvokeAsync(StateHasChanged);
         
         return await _permissionTcs.Task;
@@ -2496,6 +2500,7 @@ else
     {
         _logger.LogDebug($"AllowPermission called, _permissionTcs is {(_permissionTcs == null ? "null" : "set")}");
         _showPermissionDialog = false;
+        _ = DisposeCopilotModalAsync("copilot-permission-modal");
         var setResult = _permissionTcs?.TrySetResult(new ToolPermissionResult(true));
         _logger.LogDebug($"AllowPermission: TrySetResult returned {setResult}");
         _pendingPermissionRequest = null;
@@ -2506,6 +2511,7 @@ else
     {
         _logger.LogDebug($"DenyPermission called, _permissionTcs is {(_permissionTcs == null ? "null" : "set")}");
         _showPermissionDialog = false;
+        _ = DisposeCopilotModalAsync("copilot-permission-modal");
         var setResult = _permissionTcs?.TrySetResult(new ToolPermissionResult(false, "User denied permission"));
         _logger.LogDebug($"DenyPermission: TrySetResult returned {setResult}");
         _pendingPermissionRequest = null;
@@ -2707,5 +2713,29 @@ else
         {
             _logger.LogError("Failed to copy logs", ex);
         }
+    }
+
+    private DotNetObjectReference<Copilot>? _copilotDotNetRef;
+    private readonly HashSet<string> _activeCopilotModals = new();
+
+    private async Task InitCopilotModalAsync(string modalId)
+    {
+        await Task.Yield();
+        _copilotDotNetRef ??= DotNetObjectReference.Create(this);
+        _activeCopilotModals.Add(modalId);
+        await JSRuntime.InvokeVoidAsync("modalInterop.initialize", modalId, _copilotDotNetRef);
+    }
+
+    private async Task DisposeCopilotModalAsync(string modalId)
+    {
+        _activeCopilotModals.Remove(modalId);
+        try { await JSRuntime.InvokeVoidAsync("modalInterop.dispose", modalId); } catch { }
+    }
+
+    [JSInvokable]
+    public void OnEscapePressed()
+    {
+        DenyPermission();
+        InvokeAsync(StateHasChanged);
     }
 }

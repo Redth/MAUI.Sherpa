@@ -9,6 +9,7 @@
 @inject IAlertService AlertService
 @inject BlazorToastService ToastService
 @implements IDisposable
+@inject IJSRuntime JS
 
 <h1><i class="fas fa-mobile-alt"></i> Registered Devices</h1>
 
@@ -123,10 +124,10 @@
 
 @if (showRegisterDialog)
 {
-    <div class="modal-overlay">
-        <div class="modal" @onclick:stopPropagation="true">
+    <div class="modal-overlay" id="register-device-modal">
+        <div class="modal" @onclick:stopPropagation="true" role="dialog" aria-modal="true" aria-labelledby="register-device-title">
             <div class="modal-header">
-                <h2>Register Device</h2>
+                <h2 id="register-device-title">Register Device</h2>
                 <button class="close-btn" @onclick="CloseRegisterDialog">×</button>
             </div>
             <div class="modal-body">
@@ -394,6 +395,9 @@
     public void Dispose()
     {
         IdentityState.OnSelectionChanged -= OnIdentityChanged;
+        foreach (var id in _activeModals)
+            try { JS.InvokeVoidAsync("modalInterop.dispose", id); } catch { }
+        _dotNetRef?.Dispose();
     }
 
     private string GetDeviceIcon(string deviceClass) => deviceClass.ToUpperInvariant() switch
@@ -449,9 +453,14 @@
         newDeviceName = "";
         newPlatform = "IOS";
         showRegisterDialog = true;
+        _ = InitModalAsync("register-device-modal");
     }
 
-    private void CloseRegisterDialog() => showRegisterDialog = false;
+    private void CloseRegisterDialog()
+    {
+        showRegisterDialog = false;
+        _ = DisposeModalAsync("register-device-modal");
+    }
 
     private async Task RegisterDevice()
     {
@@ -490,5 +499,29 @@
         {
             isLoading = false;
         }
+    }
+
+    private DotNetObjectReference<AppleDevices>? _dotNetRef;
+    private readonly HashSet<string> _activeModals = new();
+
+    private async Task InitModalAsync(string modalId)
+    {
+        await Task.Yield();
+        _dotNetRef ??= DotNetObjectReference.Create(this);
+        _activeModals.Add(modalId);
+        await JS.InvokeVoidAsync("modalInterop.initialize", modalId, _dotNetRef);
+    }
+
+    private async Task DisposeModalAsync(string modalId)
+    {
+        _activeModals.Remove(modalId);
+        try { await JS.InvokeVoidAsync("modalInterop.dispose", modalId); } catch { }
+    }
+
+    [JSInvokable]
+    public void OnEscapePressed()
+    {
+        CloseRegisterDialog();
+        InvokeAsync(StateHasChanged);
     }
 }

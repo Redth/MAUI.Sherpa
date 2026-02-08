@@ -1,12 +1,14 @@
 @using MauiSherpa.Core.Interfaces
 @using Markdig
+@inject IJSRuntime JS
+@implements IDisposable
 
 @if (IsVisible && UpdateResult?.LatestRelease != null)
 {
-    <div class="modal-backdrop" @onclick="OnDecline">
-        <div class="modal-content" @onclick:stopPropagation="true">
+    <div class="modal-backdrop" @onclick="OnDecline" id="update-modal">
+        <div class="modal-content" @onclick:stopPropagation="true" role="dialog" aria-modal="true" aria-labelledby="update-modal-title">
             <div class="modal-header">
-                <h2>
+                <h2 id="update-modal-title">
                     <i class="fas fa-arrow-up"></i>
                     Update Available
                 </h2>
@@ -70,6 +72,34 @@
     
     [Parameter]
     public bool IsVisible { get; set; }
+
+    private DotNetObjectReference<UpdateAvailableModal>? _dotNetRef;
+    private bool _modalInitialized;
+
+    protected override void OnInitialized()
+    {
+        _dotNetRef = DotNetObjectReference.Create(this);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (IsVisible && !_modalInitialized)
+        {
+            _modalInitialized = true;
+            await JS.InvokeVoidAsync("modalInterop.initialize", "update-modal", _dotNetRef);
+        }
+        else if (!IsVisible && _modalInitialized)
+        {
+            _modalInitialized = false;
+            await JS.InvokeVoidAsync("modalInterop.dispose", "update-modal");
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnEscapePressed()
+    {
+        await OnDecline.InvokeAsync();
+    }
     
     private string ConvertMarkdownToHtml(string markdown)
     {
@@ -82,6 +112,13 @@
             .Build();
         
         return Markdig.Markdown.ToHtml(markdown, pipeline);
+    }
+
+    public void Dispose()
+    {
+        if (_modalInitialized)
+            _ = JS.InvokeVoidAsync("modalInterop.dispose", "update-modal");
+        _dotNetRef?.Dispose();
     }
 }
 

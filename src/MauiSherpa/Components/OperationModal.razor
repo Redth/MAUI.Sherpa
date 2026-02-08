@@ -3,14 +3,15 @@
 @using MauiSherpa.Services
 @inject OperationModalService ModalService
 @inject ICopilotContextService CopilotContext
+@inject IJSRuntime JS
 @implements IDisposable
 
 @if (ModalService.IsVisible)
 {
-    <div class="operation-modal-overlay">
-        <div class="operation-modal @(ModalService.IsRunning ? "" : "completed")">
+    <div class="operation-modal-overlay" id="operation-modal">
+        <div class="operation-modal @(ModalService.IsRunning ? "" : "completed")" role="dialog" aria-modal="true" aria-labelledby="operation-modal-title">
             <div class="modal-header">
-                <h2>
+                <h2 id="operation-modal-title">
                     @if (ModalService.IsRunning)
                     {
                         <i class="fas fa-spinner fa-spin"></i>
@@ -434,6 +435,8 @@
     private ElementReference _logContainer;
     private System.Timers.Timer? _elapsedTimer;
     private DateTime _startTime;
+    private DotNetObjectReference<OperationModal>? _dotNetRef;
+    private bool _modalInitialized;
     private string ElapsedTime { get; set; } = "00:00";
     private string Duration { get; set; } = "00:00";
 
@@ -444,6 +447,28 @@
         ModalService.OnStateChanged += HandleStateChanged;
         ModalService.OnStatusChanged += HandleStatusChanged;
         ModalService.OnProgressChanged += HandleProgressChanged;
+        _dotNetRef = DotNetObjectReference.Create(this);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (ModalService.IsVisible && !_modalInitialized)
+        {
+            _modalInitialized = true;
+            await JS.InvokeVoidAsync("modalInterop.initialize", "operation-modal", _dotNetRef);
+        }
+        else if (!ModalService.IsVisible && _modalInitialized)
+        {
+            _modalInitialized = false;
+            await JS.InvokeVoidAsync("modalInterop.dispose", "operation-modal");
+        }
+    }
+
+    [JSInvokable]
+    public void OnEscapePressed()
+    {
+        if (!ModalService.IsRunning)
+            HandleClose();
     }
 
     private void HandleShowRequested(string title, string description, bool canCancel)
@@ -483,7 +508,12 @@
             _elapsedTimer = null;
             Duration = (DateTime.Now - _startTime).ToString(@"mm\:ss\.fff");
         }
-        InvokeAsync(StateHasChanged);
+        InvokeAsync(async () =>
+        {
+            StateHasChanged();
+            if (state != OperationState.Running)
+                await JS.InvokeVoidAsync("modalInterop.focusFirst", "operation-modal");
+        });
     }
 
     private void HandleStatusChanged(string status)
@@ -600,5 +630,8 @@
         ModalService.OnStatusChanged -= HandleStatusChanged;
         ModalService.OnProgressChanged -= HandleProgressChanged;
         _elapsedTimer?.Dispose();
+        if (_modalInitialized)
+            _ = JS.InvokeVoidAsync("modalInterop.dispose", "operation-modal");
+        _dotNetRef?.Dispose();
     }
 }

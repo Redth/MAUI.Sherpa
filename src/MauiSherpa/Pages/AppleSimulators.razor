@@ -12,7 +12,12 @@
 @inject BlazorToastService ToastService
 @inject SimInspectorService SimInspector
 @inject IPhysicalDeviceService PhysicalDeviceService
+<<<<<<< Updated upstream
 @inject IPlatformService Platform
+=======
+@inject IJSRuntime JS
+@implements IDisposable
+>>>>>>> Stashed changes
 
 <h1><i class="fas fa-tablet-screen-button"></i> iOS Devices</h1>
 
@@ -249,10 +254,10 @@ else
 
 @if (showCreateDialog)
 {
-    <div class="modal-overlay">
-        <div class="modal" @onclick:stopPropagation="true">
+    <div class="modal-overlay" id="create-sim-modal">
+        <div class="modal" @onclick:stopPropagation="true" role="dialog" aria-modal="true" aria-labelledby="create-sim-title">
             <div class="modal-header">
-                <h2>Create New Simulator</h2>
+                <h2 id="create-sim-title">Create New Simulator</h2>
                 <button class="close-btn" @onclick="CloseCreateDialog">×</button>
             </div>
             <div class="modal-body">
@@ -815,6 +820,7 @@ else
         selectedDeviceType = "";
         isCreating = false;
         showCreateDialog = true;
+        _ = InitModalAsync("create-sim-modal");
     }
 
     private void CloseCreateDialog()
@@ -822,6 +828,7 @@ else
         if (!isCreating)
         {
             showCreateDialog = false;
+            _ = DisposeModalAsync("create-sim-modal");
         }
     }
 
@@ -836,6 +843,7 @@ else
             return;
 
         showCreateDialog = false;
+        _ = DisposeModalAsync("create-sim-modal");
         var name = newSimulatorName.Trim();
         var deviceType = selectedDeviceType;
         var runtime = selectedRuntime;
@@ -1110,5 +1118,36 @@ else
                 return success;
             }
         );
+    }
+
+    private DotNetObjectReference<AppleSimulators>? _dotNetRef;
+    private readonly HashSet<string> _activeModals = new();
+
+    private async Task InitModalAsync(string modalId)
+    {
+        await Task.Yield();
+        _dotNetRef ??= DotNetObjectReference.Create(this);
+        _activeModals.Add(modalId);
+        await JS.InvokeVoidAsync("modalInterop.initialize", modalId, _dotNetRef);
+    }
+
+    private async Task DisposeModalAsync(string modalId)
+    {
+        _activeModals.Remove(modalId);
+        try { await JS.InvokeVoidAsync("modalInterop.dispose", modalId); } catch { }
+    }
+
+    [JSInvokable]
+    public void OnEscapePressed()
+    {
+        CloseCreateDialog();
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        foreach (var id in _activeModals)
+            try { JS.InvokeVoidAsync("modalInterop.dispose", id); } catch { }
+        _dotNetRef?.Dispose();
     }
 }
