@@ -112,20 +112,21 @@ public class AppleConnectService : IAppleConnectService
         try
         {
             var client = await GetClientAsync();
-            var platformEnum = platform.ToUpperInvariant() switch
+            var platformValue = platform.ToUpperInvariant() switch
             {
-                "IOS" => Platform.IOS,
-                "MACOS" or "MAC_OS" => Platform.MAC_OS,
-                _ => Platform.UNIVERSAL
+                "IOS" => "IOS",
+                "MACOS" or "MAC_OS" => "MAC_OS",
+                _ => "UNIVERSAL"
             };
             
             var attributes = new BundleIdAttributes
             {
                 Identifier = identifier,
                 Name = name,
-                Platform = platformEnum,
-                SeedId = seedId
+                PlatformValue = platformValue,
             };
+            if (!string.IsNullOrEmpty(seedId))
+                attributes.SeedId = seedId;
             
             var response = await client.CreateBundleIdAsync(attributes, default);
             
