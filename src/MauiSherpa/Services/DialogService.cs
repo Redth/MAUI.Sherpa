@@ -201,9 +201,9 @@ public class DialogService : IDialogService
             var picker = new UIDocumentPickerViewController(new[] { tempUrl }, UIDocumentPickerMode.MoveToService);
             #pragma warning restore CA1422
             
-            picker.DidPickDocument += (sender, e) =>
+            picker.DidPickDocumentAtUrls += (sender, e) =>
             {
-                var url = e.Url;
+                var url = e.Urls?.FirstOrDefault();
                 if (url != null)
                 {
                     url.StartAccessingSecurityScopedResource();
