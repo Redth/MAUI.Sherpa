@@ -1,3 +1,4 @@
+using System.Reflection;
 using AppleAppStoreConnect;
 using MauiSherpa.Core.Interfaces;
 
@@ -128,7 +129,24 @@ public class AppleConnectService : IAppleConnectService
             if (!string.IsNullOrEmpty(seedId))
                 attributes.SeedId = seedId;
             
-            var response = await client.CreateBundleIdAsync(attributes, default);
+            // Workaround: upstream CreateBundleIdAsync uses wrong PostAsync overload
+            // that doesn't wrap in JSON:API format. Use reflection to call PostJsonAsync
+            // with proper Request<T> wrapper until upstream PR #25 is merged.
+            var request = new Request<BundleIdAttributes>
+            {
+                Data = new RequestData<BundleIdAttributes>
+                {
+                    Type = "bundleIds",
+                    Attributes = attributes
+                }
+            };
+            var postMethod = client.GetType()
+                .GetMethod("PostJsonAsync", BindingFlags.NonPublic | BindingFlags.Instance)!
+                .MakeGenericMethod(typeof(BundleId), typeof(BundleIdAttributes), typeof(Request<BundleIdAttributes>));
+            var task = (Task)postMethod.Invoke(client, new object[] { "bundleIds", request, default(CancellationToken) })!;
+            await task.ConfigureAwait(false);
+            var resultProp = task.GetType().GetProperty("Result")!;
+            dynamic response = resultProp.GetValue(task)!;
             
             return new AppleBundleId(
                 response.Data.Id,
