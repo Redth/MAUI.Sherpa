@@ -15,6 +15,7 @@
 @inject ILocalCertificateService LocalCertificateService
 @inject BlazorToastService ToastService
 @inject ILoggingService Logger
+@inject IEncryptedSettingsService SettingsService
 @implements IDisposable
 @inject IJSRuntime JS
 
@@ -133,7 +134,7 @@
                     <div class="cert-details">
                         <div class="cert-name">@cert.Name</div>
                         <div class="cert-serial">
-                            Serial: @cert.SerialNumber
+                            Serial: <span class="@(demoMode ? "demo-blur" : "")">@cert.SerialNumber</span>
                             <button class="btn-copy" @onclick="@(() => CopyToClipboard(cert.SerialNumber))" title="Copy to clipboard">
                                 <i class="fas fa-copy"></i>
                             </button>
@@ -607,10 +608,10 @@
     .badge-expired { background: var(--status-error-bg); color: var(--status-error-text); }
     
     /* Sync status badges */
-    .badge-sync-both { background: #c6f6d5; color: #22543d; }
-    .badge-sync-local { background: #bee3f8; color: #2c5282; }
-    .badge-sync-cloud { background: #fefcbf; color: #744210; }
-    .badge-sync-none { background: #e2e8f0; color: #4a5568; }
+    .badge-sync-both { background: var(--sync-synced-bg); color: var(--sync-synced-text); }
+    .badge-sync-local { background: var(--sync-local-bg); color: var(--sync-local-text); }
+    .badge-sync-cloud { background: var(--sync-cloud-bg); color: var(--sync-cloud-text); }
+    .badge-sync-none { background: var(--sync-none-bg); color: var(--sync-none-text); }
     
     /* Sync dropdown menu */
     .cert-dropdown-menu {
@@ -799,6 +800,7 @@
     private List<AppleCertificate> certificates = new();
     private bool isLoading = false;
     private bool isCreating = false;
+    private bool demoMode = false;
     private string errorMessage = "";
     
     // Filter state
@@ -872,6 +874,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        try { var settings = await SettingsService.GetSettingsAsync(); demoMode = settings.Preferences.DemoMode; } catch { }
         IdentityState.OnSelectionChanged += OnIdentityChanged;
         
         // Load sync hint dismissed preference

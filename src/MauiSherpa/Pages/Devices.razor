@@ -12,6 +12,7 @@
 @inject IFileSystemService FileSystem
 @inject DeviceInspectorService DeviceInspector
 @inject BlazorToastService ToastService
+@inject IEncryptedSettingsService SettingsService
 @implements IDisposable
 
 <h1><i class="fas fa-mobile-alt"></i> Android Devices</h1>
@@ -75,7 +76,7 @@
                 <div class="device-details">
                     <div class="device-name">@(device.Model ?? "Unknown Device")</div>
                     <div class="device-serial">
-                        @device.Serial
+                        <span class="@(demoMode ? "demo-blur" : "")">@device.Serial</span>
                         <button class="btn-copy" @onclick="@(() => CopyToClipboard(device.Serial))" title="Copy to clipboard">
                             <i class="fas fa-copy"></i>
                         </button>
@@ -354,9 +355,11 @@
 @code {
     private List<DeviceInfo> devices = new();
     private bool isLoading = false;
+    private bool demoMode = false;
 
     protected override async Task OnInitializedAsync()
     {
+        try { var settings = await SettingsService.GetSettingsAsync(); demoMode = settings.Preferences.DemoMode; } catch { }
         // Subscribe to SDK path changes from Settings
         SdkService.SdkPathChanged += OnSdkPathChanged;
         DeviceWatcher.DevicesChanged += OnDevicesChanged;

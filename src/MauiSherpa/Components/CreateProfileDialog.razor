@@ -8,6 +8,7 @@
 @inject ILoggingService Logger
 @inject IMediator Mediator
 @inject IJSRuntime JS
+@inject IEncryptedSettingsService SettingsService
 @implements IDisposable
 
 @if (IsVisible)
@@ -218,7 +219,7 @@
                     <div class="item-content">
                         <div class="item-name">@cert.Name</div>
                         <div class="item-detail">
-                            <span>@cert.SerialNumber</span>
+                            <span class="@(demoMode ? "demo-blur" : "")">@cert.SerialNumber</span>
                             <span>Expires: @cert.ExpirationDate.ToString("MMM dd, yyyy")</span>
                         </div>
                         <span class="badge">@FormatCertType(cert.CertificateType)</span>
@@ -279,7 +280,7 @@
                             <i class="@GetDeviceIcon(device.DeviceClass)"></i>
                             @device.Name
                         </div>
-                        <div class="item-detail">@device.Udid</div>
+                        <div class="item-detail"><span class="@(demoMode ? "demo-blur" : "")">@device.Udid</span></div>
                         @if (isDisabled)
                         {
                             <span class="badge badge-warning">Disabled</span>
@@ -966,6 +967,7 @@
 
     private DotNetObjectReference<CreateProfileDialog>? _dotNetRef;
     private bool _modalInitialized;
+    private bool demoMode = false;
 
     // Wizard state
     private int currentStep = 1;
@@ -1061,6 +1063,7 @@
         {
             await LoadDataAsync();
         }
+        try { var settings = await SettingsService.GetSettingsAsync(); demoMode = settings.Preferences.DemoMode; } catch { }
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)

@@ -14,6 +14,7 @@
 @inject IPhysicalDeviceService PhysicalDeviceService
 @inject IPlatformService Platform
 @inject IJSRuntime JS
+@inject IEncryptedSettingsService SettingsService
 @implements IDisposable
 
 <h1><i class="fas fa-tablet-screen-button"></i> iOS Devices</h1>
@@ -44,7 +45,7 @@ else
                         <span>• iOS @device.OsVersion</span>
                     </div>
                     <div class="simulator-udid">
-                        @device.Udid
+                        <span class="@(demoMode ? "demo-blur" : "")">@device.Udid</span>
                         <button class="btn-copy" @onclick="@(() => CopyToClipboard(device.Udid))" title="Copy UDID">
                             <i class="fas fa-copy"></i>
                         </button>
@@ -170,7 +171,7 @@ else
                         }
                     </div>
                     <div class="simulator-udid">
-                        @sim.Udid
+                        <span class="@(demoMode ? "demo-blur" : "")">@sim.Udid</span>
                         <button class="btn-copy" @onclick="@(() => CopyToClipboard(sim.Udid))" title="Copy UDID">
                             <i class="fas fa-copy"></i>
                         </button>
@@ -701,6 +702,7 @@ else
     private HashSet<string> bootingSimulators = new();
     private bool isLoading = false;
     private bool isLoadingDevices = false;
+    private bool demoMode = false;
     private string? openDropdownId;
 
     // Filters
@@ -757,6 +759,7 @@ else
 
     protected override async Task OnInitializedAsync()
     {
+        try { var settings = await SettingsService.GetSettingsAsync(); demoMode = settings.Preferences.DemoMode; } catch { }
         await Task.WhenAll(
             RefreshSimulators(forceRefresh: false),
             RefreshPhysicalDevices()

@@ -11,6 +11,7 @@
 @inject IFileSystemService FileSystem
 @inject OperationModalService OperationModal
 @inject BlazorToastService ToastService
+@inject IEncryptedSettingsService SettingsService
 @implements IDisposable
 
 <h1><i class="fas fa-id-card"></i> Provisioning Profiles</h1>
@@ -125,7 +126,7 @@
                     <div class="profile-details">
                         <div class="profile-name">@profile.Name</div>
                         <div class="profile-uuid">
-                            @profile.Uuid
+                            <span class="@(demoMode ? "demo-blur" : "")">@profile.Uuid</span>
                             <button class="btn-copy" @onclick="@(() => CopyToClipboard(profile.Uuid))" title="Copy to clipboard">
                                 <i class="fas fa-copy"></i>
                             </button>
@@ -448,6 +449,7 @@
 @code {
     private List<AppleProfile> profiles = new();
     private bool isLoading = false;
+    private bool demoMode = false;
     private string errorMessage = "";
     private string? openDropdown = null;
     private bool showCreateDialog = false;
@@ -529,6 +531,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        try { var settings = await SettingsService.GetSettingsAsync(); demoMode = settings.Preferences.DemoMode; } catch { }
         IdentityState.OnSelectionChanged += OnIdentityChanged;
         if (IdentityState.SelectedIdentity != null)
             await RefreshData();

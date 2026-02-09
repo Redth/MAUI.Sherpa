@@ -10,6 +10,7 @@
 @inject IDialogService DialogService
 @inject OperationModalService OperationModal
 @inject BlazorToastService ToastService
+@inject IEncryptedSettingsService SettingsService
 @implements IDisposable
 @inject IJSRuntime JS
 
@@ -90,7 +91,7 @@
                 <div class="bundle-card">
                     <div class="bundle-details">
                         <div class="bundle-identifier">
-                            @bundle.Identifier
+                            <span class="@(demoMode ? "demo-blur" : "")">@bundle.Identifier</span>
                             <button class="btn-copy" @onclick="@(() => CopyToClipboard(bundle.Identifier))" title="Copy to clipboard">
                                 <i class="fas fa-copy"></i>
                             </button>
@@ -100,7 +101,7 @@
                             <span class="badge badge-platform">@FormatPlatform(bundle.Platform)</span>
                             @if (!string.IsNullOrEmpty(bundle.SeedId))
                             {
-                                <span class="badge badge-seed">@bundle.SeedId</span>
+                                <span class="badge badge-seed @(demoMode ? "demo-blur" : "")">@bundle.SeedId</span>
                             }
                         </div>
                         @if (capabilities.Any())
@@ -180,7 +181,7 @@
                 <button class="close-btn" @onclick="CloseCapabilitiesDialog">×</button>
             </div>
             <div class="modal-subheader">
-                <span class="bundle-id-label">@selectedBundleForCapabilities.Identifier</span>
+                <span class="bundle-id-label"><span class="@(demoMode ? "demo-blur" : "")">@selectedBundleForCapabilities.Identifier</span></span>
             </div>
             <div class="modal-body capabilities-body">
                 @if (isLoadingCapabilities)
@@ -563,6 +564,7 @@
     private List<AppleBundleId> bundleIds = new();
     private bool isRefreshing = false;
     private bool isBackgroundRefreshing = false;
+    private bool demoMode = false;
     private string errorMessage = "";
 
     // Filter state
@@ -603,6 +605,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        try { var settings = await SettingsService.GetSettingsAsync(); demoMode = settings.Preferences.DemoMode; } catch { }
         IdentityState.OnSelectionChanged += OnIdentityChanged;
         if (IdentityState.SelectedIdentity != null)
             await RefreshData(forceRefresh: false); // Use cache on initial load

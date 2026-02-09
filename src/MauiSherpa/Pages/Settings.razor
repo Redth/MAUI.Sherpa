@@ -9,6 +9,7 @@
 @inject IAppleIdentityService AppleIdentityService
 @inject IAndroidSdkService SdkService
 @inject IAndroidSdkSettingsService SdkSettings
+@inject IOpenJdkSettingsService JdkSettings
 @inject IAlertService AlertService
 @inject IDialogService DialogService
 @inject IFileSystemService FileSystem
@@ -18,6 +19,7 @@
 @inject ISecretsPublisherService SecretsPublisherService
 @inject ISecretsPublisherFactory SecretsPublisherFactory
 @inject IBackupService BackupService
+@inject IEncryptedSettingsService SettingsService
 @implements IDisposable
 @inject IJSRuntime JS
 
@@ -34,6 +36,16 @@
                     <option value="Light">Light</option>
                     <option value="Dark">Dark</option>
                 </select>
+            </div>
+            <div class="setting-item">
+                <label class="setting-label">Demo Mode</label>
+                <div class="setting-toggle-row">
+                    <label class="toggle-switch">
+                        <input type="checkbox" checked="@demoMode" @onchange="OnDemoModeChanged" />
+                        <span class="toggle-slider"></span>
+                    </label>
+                    <span class="setting-description">Blur sensitive values (IDs, UDIDs, serials) for presentations</span>
+                </div>
             </div>
         </div>
 
@@ -103,6 +115,60 @@
 </div>
 
 <div class="settings-section">
+    <h2><i class="fab fa-java"></i> OpenJDK</h2>
+    <p class="section-description">
+        Configure the OpenJDK location used for keystore management and PEPK exports.
+    </p>
+
+    <div class="settings-container">
+        <div class="sdk-path-setting">
+            <div class="sdk-path-info">
+                <div class="detail-item">
+                    <span class="detail-label">JDK PATH</span>
+                    <span class="detail-value mono copyable">
+                        @if (isLoadingJdk)
+                        {
+                            <span class="detecting"><i class="fas fa-spinner fa-spin"></i> Detecting...</span>
+                        }
+                        else if (!string.IsNullOrEmpty(effectiveJdkPath))
+                        {
+                            @effectiveJdkPath
+                            <button class="btn-copy" @onclick="@(() => CopyToClipboard(effectiveJdkPath!))" title="Copy to clipboard">
+                                <i class="fas fa-copy"></i>
+                            </button>
+                            <button class="btn-reveal" @onclick="@(() => FileSystem.RevealInFileManager(effectiveJdkPath!))" title="Reveal in Finder">
+                                <i class="fas fa-external-link-alt"></i>
+                            </button>
+                        }
+                        else
+                        {
+                            <span class="no-sdk">No JDK detected</span>
+                        }
+                    </span>
+                </div>
+                @if (!string.IsNullOrEmpty(JdkSettings.CustomJdkPath))
+                {
+                    <div class="custom-path-badge">
+                        <i class="fas fa-user-edit"></i> Custom path
+                    </div>
+                }
+            </div>
+            <div class="sdk-path-actions">
+                <button class="btn btn-secondary btn-sm" @onclick="ChangeJdkPath" disabled="@isLoadingJdk">
+                    <i class="fas fa-folder-open"></i> Change
+                </button>
+                @if (!string.IsNullOrEmpty(JdkSettings.CustomJdkPath))
+                {
+                    <button class="btn btn-secondary btn-sm" @onclick="ResetJdkPath" disabled="@isLoadingJdk">
+                        <i class="fas fa-undo"></i> Reset to Default
+                    </button>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="settings-section">
     <h2><i class="fab fa-apple"></i> Apple Identities</h2>
     <p class="section-description">
         Configure App Store Connect API credentials for managing Apple Developer resources.
@@ -143,7 +209,7 @@
                             <div class="detail-item">
                                 <span class="detail-label">KEY ID</span>
                                 <span class="detail-value mono copyable">
-                                    @identity.KeyId
+                                    <span class="@(demoMode ? "demo-blur" : "")">@identity.KeyId</span>
                                     <button class="btn-copy" @onclick="@(() => CopyToClipboard(identity.KeyId))" title="Copy to clipboard">
                                         <i class="fas fa-copy"></i>
                                     </button>
@@ -152,7 +218,7 @@
                             <div class="detail-item">
                                 <span class="detail-label">ISSUER ID</span>
                                 <span class="detail-value mono copyable">
-                                    @identity.IssuerId
+                                    <span class="@(demoMode ? "demo-blur" : "")">@identity.IssuerId</span>
                                     <button class="btn-copy" @onclick="@(() => CopyToClipboard(identity.IssuerId))" title="Copy to clipboard">
                                         <i class="fas fa-copy"></i>
                                     </button>
@@ -236,32 +302,32 @@
                             {
                                 <div class="detail-item">
                                     <span class="detail-label">SITE</span>
-                                    <span class="detail-value mono">@provider.Settings.GetValueOrDefault("SiteUrl", "https://app.infisical.com")</span>
+                                    <span class="detail-value mono"><span class="@(demoMode ? "demo-blur" : "")">@provider.Settings.GetValueOrDefault("SiteUrl", "https://app.infisical.com")</span></span>
                                 </div>
                                 <div class="detail-item">
                                     <span class="detail-label">PROJECT</span>
-                                    <span class="detail-value mono">@provider.Settings.GetValueOrDefault("ProjectId", "")</span>
+                                    <span class="detail-value mono"><span class="@(demoMode ? "demo-blur" : "")">@provider.Settings.GetValueOrDefault("ProjectId", "")</span></span>
                                 </div>
                             }
                             @if (provider.ProviderType == CloudSecretsProviderType.AzureKeyVault)
                             {
                                 <div class="detail-item">
                                     <span class="detail-label">VAULT</span>
-                                    <span class="detail-value mono">@provider.Settings.GetValueOrDefault("VaultUrl", "")</span>
+                                    <span class="detail-value mono"><span class="@(demoMode ? "demo-blur" : "")">@provider.Settings.GetValueOrDefault("VaultUrl", "")</span></span>
                                 </div>
                             }
                             @if (provider.ProviderType == CloudSecretsProviderType.AwsSecretsManager)
                             {
                                 <div class="detail-item">
                                     <span class="detail-label">REGION</span>
-                                    <span class="detail-value mono">@provider.Settings.GetValueOrDefault("Region", "us-east-1")</span>
+                                    <span class="detail-value mono"><span class="@(demoMode ? "demo-blur" : "")">@provider.Settings.GetValueOrDefault("Region", "us-east-1")</span></span>
                                 </div>
                             }
                             @if (provider.ProviderType == CloudSecretsProviderType.GoogleSecretManager)
                             {
                                 <div class="detail-item">
                                     <span class="detail-label">PROJECT</span>
-                                    <span class="detail-value mono">@provider.Settings.GetValueOrDefault("ProjectId", "")</span>
+                                    <span class="detail-value mono"><span class="@(demoMode ? "demo-blur" : "")">@provider.Settings.GetValueOrDefault("ProjectId", "")</span></span>
                                 </div>
                             }
                         </div>
@@ -754,6 +820,24 @@
     .setting-label { font-size: 16px; color: var(--text-primary); font-weight: 500; }
     .setting-item input[type="checkbox"] { width: 20px; height: 20px; cursor: pointer; }
 
+    .setting-toggle-row { display: flex; align-items: center; gap: 12px; }
+    .setting-description { font-size: 13px; color: var(--text-muted); }
+
+    .toggle-switch { position: relative; display: inline-block; width: 44px; height: 24px; flex-shrink: 0; }
+    .toggle-switch input { opacity: 0; width: 0; height: 0; }
+    .toggle-slider {
+        position: absolute; cursor: pointer; inset: 0;
+        background-color: var(--bg-tertiary); border-radius: 24px;
+        transition: background-color 0.2s;
+    }
+    .toggle-slider::before {
+        content: ""; position: absolute; height: 18px; width: 18px;
+        left: 3px; bottom: 3px; background: white; border-radius: 50%;
+        transition: transform 0.2s;
+    }
+    .toggle-switch input:checked + .toggle-slider { background-color: var(--accent-primary); }
+    .toggle-switch input:checked + .toggle-slider::before { transform: translateX(20px); }
+
     .setting-item select {
         padding: 8px 12px;
         border: 1px solid var(--border-color);
@@ -1232,6 +1316,7 @@
         await Launcher.Default.OpenAsync(new Uri(url));
     }
     
+    private bool demoMode = false;
     private bool showIdentityDialog = false;
     private AppleIdentity? editingIdentity = null;
     private string identityName = "";
@@ -1242,6 +1327,8 @@
     private string p8InputMode = "file"; // "file" or "text"
     
     private bool isLoadingSdk = true;
+    private bool isLoadingJdk = true;
+    private string? effectiveJdkPath;
     
     // Cloud provider state
     private List<CloudSecretsProviderConfig> cloudProviders = new();
@@ -1304,6 +1391,7 @@
         
         // Subscribe to SDK path changes
         SdkSettings.SdkPathChanged += OnSdkPathChanged;
+        JdkSettings.JdkPathChanged += OnJdkPathChanged;
         
         // Subscribe to cloud provider changes
         CloudSecretsService.OnActiveProviderChanged += OnCloudProviderChanged;
@@ -1315,6 +1403,18 @@
         await LoadCloudProviders();
         await LoadSecretsPublishers();
         await InitializeSdk();
+        await InitializeJdk();
+        await LoadDemoMode();
+    }
+
+    private async Task LoadDemoMode()
+    {
+        try
+        {
+            var settings = await SettingsService.GetSettingsAsync();
+            demoMode = settings.Preferences.DemoMode;
+        }
+        catch { }
     }
 
     private async Task InitializeSdk()
@@ -1340,6 +1440,32 @@
     {
         InvokeAsync(StateHasChanged);
     }
+
+    private void OnJdkPathChanged()
+    {
+        InvokeAsync(async () =>
+        {
+            effectiveJdkPath = await JdkSettings.GetEffectiveJdkPathAsync();
+            StateHasChanged();
+        });
+    }
+
+    private async Task InitializeJdk()
+    {
+        isLoadingJdk = true;
+        StateHasChanged();
+
+        try
+        {
+            await JdkSettings.InitializeAsync();
+            effectiveJdkPath = await JdkSettings.GetEffectiveJdkPathAsync();
+        }
+        finally
+        {
+            isLoadingJdk = false;
+            StateHasChanged();
+        }
+    }
     
     private void OnCloudProviderChanged()
     {
@@ -1349,6 +1475,7 @@
     public void Dispose()
     {
         SdkSettings.SdkPathChanged -= OnSdkPathChanged;
+        JdkSettings.JdkPathChanged -= OnJdkPathChanged;
         CloudSecretsService.OnActiveProviderChanged -= OnCloudProviderChanged;
         SecretsPublisherService.OnPublishersChanged -= OnPublishersChanged;
         foreach (var id in _activeModals)
@@ -1391,6 +1518,15 @@
         var theme = e.Value?.ToString() ?? "System";
         ViewModel.Theme = theme;
         ThemeService.SetTheme(theme);
+    }
+
+    private async Task OnDemoModeChanged(ChangeEventArgs e)
+    {
+        demoMode = e.Value is true;
+        await SettingsService.UpdateSettingsAsync(s => s with
+        {
+            Preferences = s.Preferences with { DemoMode = demoMode }
+        });
     }
 
     private async Task SaveSettings()
@@ -1468,6 +1604,61 @@
         finally
         {
             isLoadingSdk = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ChangeJdkPath()
+    {
+        var path = await DialogService.PickFolderAsync("Select OpenJDK Location");
+        if (string.IsNullOrEmpty(path)) return;
+
+        isLoadingJdk = true;
+        StateHasChanged();
+
+        try
+        {
+            await JdkSettings.SetCustomJdkPathAsync(path);
+            await Mediator.FlushStores("android:jdkpath");
+            effectiveJdkPath = await JdkSettings.GetEffectiveJdkPathAsync();
+            await AlertService.ShowToastAsync("JDK path updated");
+        }
+        catch (Exception ex)
+        {
+            await AlertService.ShowAlertAsync("Error", $"Failed to set JDK path: {ex.Message}");
+        }
+        finally
+        {
+            isLoadingJdk = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ResetJdkPath()
+    {
+        var confirm = await AlertService.ShowConfirmAsync(
+            "Reset JDK Path",
+            "Reset to the default auto-detected JDK path?");
+
+        if (!confirm) return;
+
+        isLoadingJdk = true;
+        StateHasChanged();
+
+        try
+        {
+            await JdkSettings.ResetToDefaultAsync();
+            await Mediator.FlushStores("android:jdkpath");
+            effectiveJdkPath = await JdkSettings.GetEffectiveJdkPathAsync();
+            await AlertService.ShowToastAsync("JDK path reset to default");
+        }
+        catch (Exception ex)
+        {
+            await AlertService.ShowAlertAsync("Error", $"Failed to reset JDK path: {ex.Message}");
+        }
+        finally
+        {
+            isLoadingJdk = false;
             StateHasChanged();
         }
     }

@@ -172,6 +172,16 @@ public interface IAndroidSdkSettingsService
     event Action? SdkPathChanged;
 }
 
+public interface IOpenJdkSettingsService
+{
+    string? CustomJdkPath { get; }
+    Task<string?> GetEffectiveJdkPathAsync();
+    Task SetCustomJdkPathAsync(string? path);
+    Task ResetToDefaultAsync();
+    Task InitializeAsync();
+    event Action? JdkPathChanged;
+}
+
 public record SdkPackageInfo(
     string Path,
     string Description,
@@ -2283,6 +2293,7 @@ public record AppPreferences
     public string Theme { get; init; } = "System";
     public string? AndroidSdkPath { get; init; }
     public bool AutoBackupEnabled { get; init; } = true;
+    public bool DemoMode { get; init; } = false;
 }
 
 /// <summary>
@@ -2358,3 +2369,74 @@ public interface IUpdateService
     /// </summary>
     string GetCurrentVersion();
 }
+
+// =============================================
+// Android Keystore Management
+// =============================================
+
+public record AndroidKeystore(
+    string Id,
+    string Alias,
+    string FilePath,
+    string KeystoreType,
+    DateTime CreatedDate,
+    string? Notes = null
+);
+
+public record KeystoreSignatureInfo(
+    string Alias,
+    string? MD5Hex,
+    string? SHA1Hex,
+    string? SHA256Hex,
+    string? SHA1Base64,
+    string? SHA256Base64
+);
+
+public interface IKeystoreService
+{
+    Task<AndroidKeystore> CreateKeystoreAsync(
+        string outputPath,
+        string alias,
+        string keyPassword,
+        string keystorePassword,
+        string cn, string ou, string o, string l, string st, string c,
+        int validityDays = 10000,
+        string keyAlg = "RSA",
+        int keySize = 2048,
+        string keystoreType = "PKCS12");
+
+    Task<KeystoreSignatureInfo> GetSignatureHashesAsync(string keystorePath, string alias, string password);
+
+    Task ExportPepkAsync(
+        string keystorePath,
+        string alias,
+        string keystorePassword,
+        string keyPassword,
+        string encryptionKey,
+        string outputPath);
+
+    Task<IReadOnlyList<AndroidKeystore>> ListKeystoresAsync();
+    Task AddKeystoreAsync(AndroidKeystore keystore);
+    Task RemoveKeystoreAsync(string id);
+    Task<string?> GetKeytoolPathAsync();
+}
+
+public interface IKeystoreSyncService
+{
+    Task<IReadOnlyList<KeystoreSyncStatus>> GetKeystoreStatusesAsync(CancellationToken ct = default);
+    Task UploadKeystoreToCloudAsync(string keystoreId, string password, CancellationToken ct = default);
+    Task UploadKeystoreFileAsync(string keystoreId, CancellationToken ct = default);
+    Task UploadKeystorePasswordAsync(string keystoreId, string password, CancellationToken ct = default);
+    Task UploadKeystoreMetadataAsync(string keystoreId, CancellationToken ct = default);
+    Task DownloadKeystoreFromCloudAsync(string cloudKey, CancellationToken ct = default);
+    Task DeleteKeystoreFromCloudAsync(string cloudKey, CancellationToken ct = default);
+}
+
+public record KeystoreSyncStatus(
+    string? LocalId,
+    string Alias,
+    string? LocalPath,
+    string? CloudKey,
+    bool HasLocal,
+    bool HasCloud
+);

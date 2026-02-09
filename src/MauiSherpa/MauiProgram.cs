@@ -61,6 +61,9 @@ public static class MauiProgram
         // Core services
         builder.Services.AddSingleton<IAndroidSdkService, AndroidSdkService>();
         builder.Services.AddSingleton<IAndroidSdkSettingsService, AndroidSdkSettingsService>();
+        builder.Services.AddSingleton<IOpenJdkSettingsService, OpenJdkSettingsService>();
+        builder.Services.AddSingleton<IKeystoreService, KeystoreService>();
+        builder.Services.AddSingleton<IKeystoreSyncService, KeystoreSyncService>();
         builder.Services.AddSingleton<ILogcatService, LogcatService>();
         builder.Services.AddSingleton<IAdbDeviceWatcherService, AdbDeviceWatcherService>();
         builder.Services.AddSingleton<IDeviceFileService, DeviceFileService>();
@@ -125,6 +128,9 @@ public static class MauiProgram
         
         // Register handlers from Core assembly
         builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Android.GetSdkPathHandler>();
+        builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Android.GetJdkPathHandler>();
+        builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Android.GetKeystoresHandler>();
+        builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Android.GetKeystoreSignaturesHandler>();
         builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Android.GetInstalledPackagesHandler>();
         builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Android.GetAvailablePackagesHandler>();
         builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Android.GetEmulatorsHandler>();

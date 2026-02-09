@@ -398,6 +398,7 @@
     private double posY = 120;
     private double width = 800;
     private double height = 480;
+    private bool needsCentering = true;
 
     private const double MinWidth = 520;
     private const double MinHeight = 300;
@@ -454,6 +455,21 @@
                     }
                 };
             ");
+        }
+
+        if (PanelService.IsOpen && !PanelService.IsMinimized && needsCentering)
+        {
+            needsCentering = false;
+            try
+            {
+                var dims = await JS.InvokeAsync<double[]>("eval", "([window.innerWidth, window.innerHeight])");
+                posX = SidebarWidth + (dims[0] - SidebarWidth - width) / 2;
+                posY = (dims[1] - height) / 2;
+                if (posX < SidebarWidth) posX = SidebarWidth;
+                if (posY < 0) posY = 0;
+                StateHasChanged();
+            }
+            catch { }
         }
     }
 
