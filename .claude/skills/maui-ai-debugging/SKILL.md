@@ -31,6 +31,58 @@ and `dotnet tool install --global appledev.tools` (iOS/Mac).
 of a new session) to download the latest version of this skill from GitHub. The skill evolves
 alongside the CLI — outdated skill files may reference removed options or miss new commands.
 
+## Checking for Updates
+
+**At the start of each session** (or periodically during long sessions), check whether the
+MauiDevFlow CLI, skill, and NuGet packages are up to date. Outdated components can cause
+confusing failures or missing features.
+
+### 1. Check CLI version
+
+```bash
+# Check installed version
+maui-devflow --version
+
+# Check latest available on NuGet
+dotnet tool search Redth.MauiDevFlow.CLI | head -5
+```
+
+If a newer version is available, suggest the user update:
+```bash
+dotnet tool update --global Redth.MauiDevFlow.CLI
+```
+
+### 2. Update the skill
+
+After updating the CLI, always pull the latest skill files to stay in sync:
+```bash
+maui-devflow update-skill
+```
+
+This downloads the latest `maui-ai-debugging` skill files from the MauiDevFlow GitHub repo.
+The skill and CLI evolve together — a newer CLI may have commands not documented in an older
+skill, and vice versa.
+
+### 3. Check NuGet packages in the project
+
+Verify the project's MauiDevFlow NuGet packages match the CLI version:
+```bash
+# Check current package versions in the project
+grep -i 'Redth.MauiDevFlow' *.csproj Directory.Build.props Directory.Packages.props 2>/dev/null
+```
+
+If packages are outdated, suggest updating them:
+```bash
+dotnet add package Redth.MauiDevFlow.Agent
+dotnet add package Redth.MauiDevFlow.Blazor    # only if Blazor Hybrid
+```
+
+### 4. Re-run setup verification
+
+After any updates, walk through the setup checklist in [references/setup.md](references/setup.md)
+to ensure everything is still properly configured (NuGet packages, MauiProgram.cs registration,
+Blazor script tags, entitlements, etc.). A CLI update may introduce new setup requirements.
+
 ## Integrating MauiDevFlow into a MAUI App
 
 For complete setup instructions including NuGet packages, MauiProgram.cs registration,
@@ -232,10 +284,19 @@ to rotating log files on the device. This means any `ILogger<T>` calls in the ap
 maui-devflow MAUI logs                   # fetch 100 most recent log entries
 maui-devflow MAUI logs --limit 50        # fetch 50 entries
 maui-devflow MAUI logs --skip 100        # skip newest 100, get next batch
+maui-devflow MAUI logs --source webview  # only WebView/Blazor console logs
+maui-devflow MAUI logs --source native   # only native ILogger logs
 ```
 
 Output is color-coded by level (red=Critical/Error, yellow=Warning, green=Info, gray=Debug/Trace).
 Each entry includes timestamp, log level, category (logger name), and message.
+WebView logs are tagged with `[WebView]` and use category `WebView.Console`.
+
+**WebView console log capture (Blazor Hybrid apps):**
+When `AddMauiBlazorDevFlowTools()` is registered, all `console.log/warn/error/info/debug`
+calls from Blazor WebView JavaScript are automatically captured and routed through to the
+log stream. Unhandled errors and promise rejections are also captured. Use `--source webview`
+to filter to only WebView logs.
 
 **Debugging workflow with logs:**
 1. Reproduce the issue (tap a button, navigate, etc.)
@@ -252,7 +313,8 @@ Each entry includes timestamp, log level, category (logger name), and message.
 - `MaxLogFileSize` (default: 1 MB) — max size per log file before rotation
 - `MaxLogFiles` (default: 5) — number of rotated files to keep
 
-The agent also exposes logs via REST: `GET /api/logs?limit=N&skip=N` returns a JSON array.
+The agent also exposes logs via REST: `GET /api/logs?limit=N&skip=N&source=S` returns a JSON array.
+Each entry has fields: `t` (timestamp), `l` (level), `c` (category), `m` (message), `e` (exception), `s` (source: "native" or "webview").
 
 ### 7. Live Preview Before Rebuilding
 
@@ -308,7 +370,7 @@ Global options: `--agent-host` (default localhost), `--agent-port` (default 9223
 | `MAUI set-property <elementId> <prop> <value>` | Set property (live editing — colors, text, sizes, etc.) |
 | `MAUI element <elementId>` | Full element JSON (type, bounds, children, etc.) |
 | `MAUI navigate <route>` | Shell navigation (e.g. `//native`, `//blazor`) |
-| `MAUI logs [--limit N] [--skip N]` | Fetch application logs (newest first) |
+| `MAUI logs [--limit N] [--skip N] [--source S]` | Fetch application logs (newest first). Source: native, webview, or omit for all |
 
 Element IDs come from `MAUI tree` or `MAUI query`. AutomationId-based elements use their
 AutomationId directly. Others use generated hex IDs. When multiple elements share the same
@@ -353,7 +415,7 @@ The agent exposes JSON endpoints on port 9223 (configurable via `-p:MauiDevFlowP
 | `/api/screenshot` | GET | — (returns PNG) |
 | `/api/property/{id}/{name}` | GET | — |
 | `/api/property/{id}/{name}` | POST | `{"value":"..."}` (set property — live editing) |
-| `/api/logs?limit=N&skip=N` | GET | — (returns JSON array of log entries) |
+| `/api/logs?limit=N&skip=N&source=S` | GET | — (returns JSON array of log entries. source: native, webview, or omit for all) |
 | `/api/cdp` | POST | CDP command JSON (e.g. `{"id":1,"method":"Runtime.evaluate","params":{...}}`) |
 
 ## Platform Details
