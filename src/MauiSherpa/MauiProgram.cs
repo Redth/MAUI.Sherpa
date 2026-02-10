@@ -158,6 +158,20 @@ public static class MauiProgram
         builder.Logging.AddDebug();
 #endif
 
+        Microsoft.Maui.Handlers.PageHandler.PlatformViewFactory = (handler) =>
+		{
+			if (handler.ViewController == null)
+				handler.ViewController = new SafeAreaAwarePageViewController(handler.VirtualView, handler.MauiContext);
+
+			if (handler.ViewController is Microsoft.Maui.Platform.PageViewController pc && pc.CurrentPlatformView is Microsoft.Maui.Platform.ContentView pv)
+				return pv;
+
+			if (handler.ViewController.View is Microsoft.Maui.Platform.ContentView cv)
+				return cv;
+
+			throw new Exception("Can't Create Page Handler");
+		};
+
         return builder.Build();
     }
 
