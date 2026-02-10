@@ -11,6 +11,7 @@
 
 <div class="main-layout @ThemeClass">
     <nav class="sidebar">
+        <div class="sidebar-drag-region"></div>
         <div class="sidebar-menu">
             <NavLink class="nav-item" href="" Match="NavLinkMatch.All">
                 <i class="fas fa-home nav-icon"></i>
@@ -80,6 +81,7 @@
         </div>
     </nav>
     <main class="content">
+        <div class="content-drag-region"></div>
         @Body
     </main>
 </div>
@@ -198,6 +200,7 @@
         display: flex;
         height: 100vh;
         width: 100vw;
+        --titlebar-height: 28px;
     }
 
     .sidebar {
@@ -207,6 +210,12 @@
         display: flex;
         flex-direction: column;
         box-shadow: 2px 0 5px rgba(0, 0, 0, 0.1);
+    }
+
+    .sidebar-drag-region {
+        height: var(--titlebar-height);
+        -webkit-app-region: drag;
+        flex-shrink: 0;
     }
 
     .sidebar-menu {
@@ -271,9 +280,20 @@
     .content {
         flex: 1;
         padding: 30px;
+        padding-top: calc(var(--titlebar-height) + 10px);
         overflow-y: auto;
         background-color: var(--bg-primary);
         color: var(--text-primary);
+        position: relative;
+    }
+
+    .content-drag-region {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: var(--titlebar-height);
+        -webkit-app-region: drag;
     }
 
     /* Light theme (default) */

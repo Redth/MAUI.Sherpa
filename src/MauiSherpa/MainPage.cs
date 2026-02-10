@@ -31,6 +31,11 @@ public class MainPage : ContentPage
         container.Children.Add(_splashOverlay);
         
         Content = container;
+
+#if MACCATALYST
+        // Extend content into the hidden titlebar area  
+        Microsoft.Maui.Controls.PlatformConfiguration.iOSSpecific.Page.SetUseSafeArea(this, false);
+#endif
         
         // Subscribe to Blazor ready event
         _splashService.OnBlazorReady += OnBlazorReady;
