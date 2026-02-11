@@ -1985,6 +1985,7 @@ else
     // Track if pending was already processed
     private string? _lastProcessedMessage;
     private CopilotContext? _lastProcessedContext;
+    private bool _disposed;
     
     // Markdig pipeline for markdown rendering
     private static readonly MarkdownPipeline MarkdownPipeline = new MarkdownPipelineBuilder()
@@ -2121,6 +2122,7 @@ else
 
     public void Dispose()
     {
+        _disposed = true;
         CopilotService.OnAssistantDelta -= OnAssistantDelta;
         CopilotService.OnAssistantMessage -= OnAssistantMessage;
         CopilotService.OnSessionIdle -= OnSessionIdle;
@@ -2152,7 +2154,14 @@ else
             // Auto-connect if Copilot is available and authenticated
             if (availability.IsInstalled && availability.IsAuthenticated && !CopilotService.IsConnected)
             {
-                await Connect();
+                try
+                {
+                    await Connect();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError($"Auto-connect failed: {ex.Message}", ex);
+                }
             }
             StateHasChanged();
             return;
@@ -2168,7 +2177,14 @@ else
             // Auto-connect if Copilot is available and authenticated
             if (availability.IsInstalled && availability.IsAuthenticated && !CopilotService.IsConnected)
             {
-                await Connect();
+                try
+                {
+                    await Connect();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError($"Auto-connect failed: {ex.Message}", ex);
+                }
             }
         }
         finally
@@ -2200,7 +2216,15 @@ else
         }
         catch (Exception ex)
         {
-            await AlertService.ShowAlertAsync("Connection Failed", ex.Message);
+            _logger.LogError($"Connection failed: {ex.Message}", ex);
+            try
+            {
+                await AlertService.ShowAlertAsync("Connection Failed", ex.Message);
+            }
+            catch (Exception alertEx)
+            {
+                _logger.LogError($"Failed to show alert: {alertEx.Message}", alertEx);
+            }
         }
         finally
         {
@@ -2219,7 +2243,12 @@ else
         }
         catch (Exception ex)
         {
-            await AlertService.ShowAlertAsync("Error", ex.Message);
+            _logger.LogError($"Disconnect failed: {ex.Message}", ex);
+            try
+            {
+                await AlertService.ShowAlertAsync("Error", ex.Message);
+            }
+            catch { }
         }
         StateHasChanged();
     }
@@ -2289,7 +2318,7 @@ else
 
     private void OnAssistantDelta(string delta)
     {
-        if (string.IsNullOrEmpty(delta)) return;
+        if (string.IsNullOrEmpty(delta) || _disposed) return;
         currentResponse += delta;
         InvokeAsync(async () => 
         {
@@ -2300,6 +2329,7 @@ else
 
     private void OnAssistantMessage(string message)
     {
+        if (_disposed) return;
         // Final message - replace streaming content
         if (!string.IsNullOrEmpty(message))
         {
@@ -2314,6 +2344,7 @@ else
 
     private void OnSessionIdle()
     {
+        if (_disposed) return;
         if (!string.IsNullOrEmpty(currentResponse))
         {
             CopilotService.AddAssistantMessage(currentResponse);
@@ -2331,6 +2362,7 @@ else
 
     private void OnCopilotError(string error)
     {
+        if (_disposed) return;
         CopilotService.AddAssistantMessage($"Error: {error}");
         isBusy = false;
         currentTool = "";
@@ -2344,6 +2376,7 @@ else
 
     private void OnToolStart(string toolName, string toolCallId)
     {
+        if (_disposed) return;
         currentTool = toolName;
         currentToolCallId = toolCallId;
         _logger.LogDebug($"UI: OnToolStart - {toolName}, callId={toolCallId}");
@@ -2357,6 +2390,7 @@ else
 
     private void OnToolComplete(string toolCallId, string result)
     {
+        if (_disposed) return;
         _logger.LogDebug($"UI: OnToolComplete - callId={toolCallId}, currentTool={currentTool}, currentCallId={currentToolCallId}, resultLen={result?.Length ?? 0}");
         // Use stored callId/name if event doesn't have it
         var completedCallId = !string.IsNullOrEmpty(toolCallId) ? toolCallId : currentToolCallId;
@@ -2372,6 +2406,7 @@ else
     
     private void OnReasoningStart(string reasoningId)
     {
+        if (_disposed) return;
         // Complete any previous reasoning
         if (currentReasoningId != null)
         {
@@ -2388,6 +2423,7 @@ else
     
     private void OnReasoningDelta(string reasoningId, string content)
     {
+        if (_disposed) return;
         if (!string.IsNullOrEmpty(content))
         {
             CopilotService.UpdateReasoningMessage(reasoningId, content);
@@ -2462,6 +2498,7 @@ else
     
     private void OnSessionError(CopilotSessionError error)
     {
+        if (_disposed) return;
         _logger.LogError($"Session error: {error.Message} (Code: {error.Code})");
         
         // Add error message to chat
@@ -2656,6 +2693,7 @@ else
     // Debug overlay methods
     private void OnLogAdded()
     {
+        if (_disposed) return;
         InvokeAsync(async () =>
         {
             StateHasChanged();
