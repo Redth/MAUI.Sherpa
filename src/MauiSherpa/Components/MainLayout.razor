@@ -8,9 +8,10 @@
 @inject ILoggingService Logger
 @inject IEncryptedSettingsService SettingsService
 @inject IJSRuntime JS
+@inject IPlatformService PlatformInfo
 @implements IDisposable
 
-<div class="main-layout @ThemeClass">
+<div class="main-layout @ThemeClass @PlatformClass">
     <nav class="sidebar">
         <div class="sidebar-drag-region"></div>
         <div class="sidebar-menu">
@@ -110,6 +111,7 @@
 
 @code {
     private string ThemeClass => ThemeService.IsDarkMode ? "theme-dark" : "theme-light";
+    private string PlatformClass => PlatformInfo.IsWindows ? "platform-windows" : "platform-mac";
     private bool isDemoMode;
 
 #if DEBUG
@@ -404,6 +406,10 @@
 
     .theme-dark .sidebar {
         background-color: #171923;
+    }
+
+    .platform-windows {
+        --titlebar-height: 0px;
     }
 
     .theme-dark .nav-section {

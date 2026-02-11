@@ -561,6 +561,7 @@ public record SimulatorRuntime(
 /// </summary>
 public interface ISimulatorService
 {
+    bool IsSupported { get; }
     Task<IReadOnlyList<SimulatorDevice>> GetSimulatorsAsync();
     Task<IReadOnlyList<SimulatorDeviceType>> GetDeviceTypesAsync();
     Task<IReadOnlyList<SimulatorRuntime>> GetRuntimesAsync();
@@ -684,6 +685,7 @@ public record PhysicalDevice(
 /// </summary>
 public interface IPhysicalDeviceService
 {
+    bool IsSupported { get; }
     Task<IReadOnlyList<PhysicalDevice>> GetDevicesAsync();
     Task<bool> InstallAppAsync(string identifier, string appPath, IProgress<string>? progress = null);
     Task<bool> LaunchAppAsync(string identifier, string bundleId, IProgress<string>? progress = null);
@@ -737,6 +739,7 @@ public record SimulatorLogEntry(
 /// </summary>
 public interface ISimulatorLogService : IDisposable
 {
+    bool IsSupported { get; }
     bool IsRunning { get; }
     IReadOnlyList<SimulatorLogEntry> Entries { get; }
     Task StartAsync(string udid, CancellationToken ct = default);

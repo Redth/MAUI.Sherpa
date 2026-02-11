@@ -1,6 +1,6 @@
 using Microsoft.UI.Xaml;
 
-namespace MauiSherpa.WinUI;
+namespace MauiSherpa.Platform.WinUI;
 
 public partial class App : MauiWinUIApplication
 {

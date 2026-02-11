@@ -156,6 +156,88 @@ Key subcommands beyond the basics:
   name (e.g. `MauiTodo.app` vs `SampleMauiApp`). Check the `ApplicationTitle` in .csproj.
   Find the bundle: `find bin/Debug/net10.0-maccatalyst -name "*.app" -maxdepth 3`
 
+## Permission & Dialog Handling
+
+### Pre-grant permissions (prevents dialogs from appearing)
+```bash
+# Grant specific permission before the app requests it
+xcrun simctl privacy <UDID> grant location com.company.appid
+xcrun simctl privacy <UDID> grant camera com.company.appid
+xcrun simctl privacy <UDID> grant photos com.company.appid
+xcrun simctl privacy <UDID> grant contacts com.company.appid
+xcrun simctl privacy <UDID> grant microphone com.company.appid
+
+# Grant all permissions at once
+xcrun simctl privacy <UDID> grant all com.company.appid
+
+# Revoke (deny) a permission
+xcrun simctl privacy <UDID> revoke location com.company.appid
+
+# Reset (next request will show dialog again)
+xcrun simctl privacy <UDID> reset all com.company.appid
+
+# Via apple CLI
+apple simulator privacy grant <UDID> location com.company.appid
+```
+
+Available services: `all`, `calendar`, `contacts`, `contacts-limited`, `location`, `location-always`, `photos`, `photos-add`, `media-library`, `microphone`, `motion`, `reminders`, `siri`.
+
+### Using MauiDevFlow.Driver for permissions
+```csharp
+var driver = new iOSSimulatorAppDriver();
+driver.DeviceUdid = "<UDID>";
+driver.BundleId = "com.company.appid";
+
+// Pre-grant before running the app
+await driver.GrantPermissionAsync(PermissionService.Location);
+await driver.GrantPermissionAsync(PermissionService.Camera);
+
+// Reset to test the dialog flow
+await driver.ResetPermissionAsync(PermissionService.Location);
+```
+
+### Detecting and dismissing alerts (accessibility tree + HID tap)
+When a dialog appears unexpectedly (permission prompt, app alert, action sheet), the driver can
+detect it via the iOS accessibility tree and tap a button to dismiss it:
+
+```csharp
+// Check if an alert is currently showing
+var alert = await driver.DetectAlertAsync();
+if (alert is not null)
+{
+    Console.WriteLine($"Alert: {alert.Title}");
+    foreach (var btn in alert.Buttons)
+        Console.WriteLine($"  Button: {btn.Label} at ({btn.CenterX},{btn.CenterY})");
+}
+
+// Dismiss by tapping the first "accept" button (Allow, OK, etc.)
+await driver.DismissAlertAsync();
+
+// Dismiss by tapping a specific button
+await driver.DismissAlertAsync("Don't Allow");
+
+// Convenience: detect + dismiss if present, no-op if not
+await driver.HandleAlertIfPresentAsync();
+```
+
+### Example workflow: permission dialog handling
+```
+1. App requests location → system shows "Allow location?" dialog
+2. Agent detects dialog via DetectAlertAsync()
+3. Agent sees buttons: ["Allow While Using App", "Allow Once", "Don't Allow"]
+4. Agent taps "Allow While Using App" via DismissAlertAsync("Allow While Using App")
+5. App receives permission grant, continues normal flow
+```
+
+### Dialog test page in SampleMauiApp
+The SampleMauiApp includes a **Dialogs** tab with buttons that trigger:
+- **Permission dialogs**: Location, Camera, Photos, Contacts, Microphone, Notifications
+- **App alerts**: OK-only, OK/Cancel, custom buttons (Delete/Keep)
+- **Action sheets**: Multiple options with cancel/destructive
+- **Prompt dialogs**: Text input with OK/Cancel
+
+Use these to test and validate dialog detection and dismissal workflows.
+
 ## Dark Mode Testing
 
 ### Toggle dark mode

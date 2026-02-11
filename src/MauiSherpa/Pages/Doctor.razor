@@ -748,7 +748,7 @@ else
                 InvokeAsync(StateHasChanged);
             });
 
-            report = await DoctorService.RunDoctorAsync(progress: progress);
+            report = await Task.Run(() => DoctorService.RunDoctorAsync(progress: progress));
             Logger.LogInformation("Doctor complete. WorkloadSet: {Version}", report?.InstalledWorkloadSetVersion ?? "NULL");
             Logger.LogInformation("Available versions: {Versions}", string.Join(", ", report?.AvailableWorkloadSetVersions ?? []));
         }

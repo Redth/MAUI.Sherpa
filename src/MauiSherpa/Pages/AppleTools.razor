@@ -1,9 +1,21 @@
 @page "/apple-tools"
+@using MauiSherpa.Core.Interfaces
 @using MauiSherpa.Core.ViewModels
 @inject AppleToolsViewModel ViewModel
+@inject IPlatformService Platform
 
 <h1><i class="fab fa-apple"></i> @ViewModel.Title</h1>
 
+@if (!Platform.IsMacCatalyst)
+{
+    <div class="not-supported">
+        <div class="warning-icon"><i class="fas fa-exclamation-triangle"></i></div>
+        <h2>macOS Only</h2>
+        <p>Apple development tools management requires macOS with Xcode installed.</p>
+    </div>
+}
+else
+{
 <div class="status-bar">
     <span class="status-label">Status:</span>
     <span class="status-text">@ViewModel.StatusMessage</span>
@@ -14,8 +26,22 @@
         @(ViewModel.IsLoading ? "Loading..." : "Load Tools Information")
     </button>
 </div>
+}
 
 <style>
+    .not-supported {
+        text-align: center;
+        padding: 3.75rem 1.25rem;
+        background: var(--status-error-bg);
+        border-radius: 0.75rem;
+        border: 1px solid var(--accent-danger);
+    }
+
+    .not-supported .warning-icon { font-size: 48px; margin-bottom: 1rem; color: var(--accent-warning); }
+    .not-supported .warning-icon i { font-size: 48px; }
+    .not-supported h2 { color: var(--accent-danger); margin-bottom: 0.5rem; }
+    .not-supported p { color: var(--text-muted); }
+
     h1 {
         margin-bottom: 1.25rem;
         font-size: 2rem;

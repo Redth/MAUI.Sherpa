@@ -7,8 +7,9 @@ description: >
   UI (visual tree, element tapping, filling text, screenshots, property queries), (4) Debugging Blazor WebView
   content inside a MAUI app via CDP, (5) Managing iOS simulators or Android emulators (create, boot, list, install),
   (6) Setting up the MauiDevFlow agent and CLI in a MAUI project, (7) Completing a build-deploy-inspect-fix feedback
-  loop for MAUI app development. Covers: maui-devflow CLI, androidsdk.tool (android), appledev.tools (apple),
-  adb, xcrun simctl, and dotnet build/run for all MAUI target platforms.
+  loop for MAUI app development, (8) Handling iOS permission dialogs, system alerts, and app-level alerts via
+  simctl privacy or accessibility tree detection. Covers: maui-devflow CLI, androidsdk.tool (android),
+  appledev.tools (apple), adb, xcrun simctl, and dotnet build/run for all MAUI target platforms.
 ---
 
 # MAUI AI Debugging
@@ -93,7 +94,7 @@ Blazor script tag, Mac Catalyst entitlements, and Android port forwarding, see
 1. Add NuGet packages (`Redth.MauiDevFlow.Agent`, and `Redth.MauiDevFlow.Blazor` for Blazor Hybrid)
 2. Register in `MauiProgram.cs` inside `#if DEBUG`
 3. Create `.mauidevflow` with a random port (see below)
-4. For Blazor Hybrid: add `<script src="chobitsu.js"></script>` to `wwwroot/index.html`
+4. For Blazor Hybrid: chobitsu.js is auto-injected (no manual script tag needed)
 5. For Mac Catalyst: ensure `network.server` entitlement
 6. For Android: run `adb reverse` for the configured port
 
@@ -499,7 +500,7 @@ profiles via `apple appstoreconnect profiles list`.
 
 If `maui-devflow cdp status` fails but `MAUI status` works:
 
-1. **Missing script tag?** Ensure `<script src="chobitsu.js"></script>` is in `wwwroot/index.html`
+1. **Chobitsu not loading?** Check logs for `[BlazorDevFlow]` messages. If auto-injection failed, add `<script src="chobitsu.js"></script>` manually to `wwwroot/index.html`
 2. **Blazor not initialized?** Navigate to a Blazor page first, then retry
 3. Check app logs: `maui-devflow MAUI logs --limit 20` — look for `[BlazorDevFlow]` errors
 

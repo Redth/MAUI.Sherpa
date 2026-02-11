@@ -75,48 +75,28 @@ source control so all developers and CI agents use the same port.
 - `EnableWebViewInspection` — Enable WebView inspection (default: true)
 - `EnableLogging` — Log debug messages (default: true in DEBUG)
 
-## 4. Blazor Hybrid: Add Script Tag to index.html
+## 4. Blazor Hybrid: Chobitsu Auto-Injection
 
-**This step is required for Blazor Hybrid apps.** The `Redth.MauiDevFlow.Blazor` NuGet package
-delivers `chobitsu.js` automatically as a static web asset — no file copying or manual downloads
-needed. You just need to add one script tag to `wwwroot/index.html`.
+**No manual setup needed for Blazor Hybrid apps.** The `Redth.MauiDevFlow.Blazor` NuGet package
+automatically injects `chobitsu.js` (the CDP implementation) via a Blazor JS initializer.
+Just add the NuGet package and register in `MauiProgram.cs` — that's it.
 
-Add this line before `</body>`:
+### Fallback: Manual Script Tag
+
+If auto-injection doesn't work in your setup (e.g., older .NET versions), add this line
+before `</body>` in `wwwroot/index.html`:
 
 ```html
 <script src="chobitsu.js"></script>
 ```
 
-Example:
-```html
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="utf-8" />
-    <title>My App</title>
-    <base href="/" />
-    <link rel="stylesheet" href="css/app.css" />
-</head>
-<body>
-    <div id="app"></div>
-    <script src="_framework/blazor.webview.js"></script>
-    <script src="chobitsu.js"></script>  <!-- ADD THIS LINE -->
-</body>
-</html>
+The library detects both approaches — manual script tags take priority over auto-injection.
+
+### What if it's not working?
+
+The library checks at runtime and logs a message:
 ```
-
-### Why is this needed?
-
-MAUI's `app://` URL scheme blocks dynamic `<script>` tag loading, and `chobitsu.js` uses
-`eval`/`new Function` internally which Content Security Policy blocks when injected via
-`EvaluateJavaScriptAsync`. A static `<script>` tag in the HTML is the only reliable approach.
-
-### What if I forget?
-
-The library checks at runtime and logs a clear error message:
-```
-[BlazorDevFlow] ❌ Missing required script tag in wwwroot/index.html.
-[BlazorDevFlow] Add this before </body>:  <script src="chobitsu.js"></script>
+[BlazorDevFlow] ⚠️ No chobitsu script tag found. Auto-injection via JS initializer may not have run.
 ```
 
 ### How the file gets there
@@ -219,6 +199,6 @@ For an AI agent setting up MauiDevFlow in a new project:
 2. [ ] `Redth.MauiDevFlow.Blazor` NuGet package added (Blazor Hybrid only)
 3. [ ] `builder.AddMauiDevFlowAgent(...)` in MauiProgram.cs inside `#if DEBUG`
 4. [ ] `builder.AddMauiBlazorDevFlowTools(...)` in MauiProgram.cs (Blazor Hybrid only)
-5. [ ] `<script src="chobitsu.js"></script>` in index.html (Blazor Hybrid only)
+5. [ ] Chobitsu auto-injected via JS initializer (Blazor Hybrid — no manual step needed)
 6. [ ] Mac Catalyst entitlements include `network.server` (Mac Catalyst only)
 7. [ ] `adb reverse` port forwarding (Android only)

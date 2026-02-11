@@ -9,12 +9,14 @@ public class SimulatorLogService : ISimulatorLogService
     private const int MaxEntries = 50_000;
 
     private readonly ILoggingService _logger;
+    private readonly IPlatformService _platform;
     private readonly List<SimulatorLogEntry> _entries = new();
     private readonly object _lock = new();
     private Process? _process;
     private CancellationTokenSource? _cts;
     private Channel<SimulatorLogEntry>? _channel;
 
+    public bool IsSupported => _platform.IsMacCatalyst;
     public bool IsRunning => _process is { HasExited: false };
     public IReadOnlyList<SimulatorLogEntry> Entries
     {
@@ -23,13 +25,16 @@ public class SimulatorLogService : ISimulatorLogService
 
     public event Action? OnCleared;
 
-    public SimulatorLogService(ILoggingService logger)
+    public SimulatorLogService(ILoggingService logger, IPlatformService platform)
     {
         _logger = logger;
+        _platform = platform;
     }
 
     public Task StartAsync(string udid, CancellationToken ct = default)
     {
+        if (!IsSupported) return Task.CompletedTask;
+
         if (IsRunning)
             Stop();
 

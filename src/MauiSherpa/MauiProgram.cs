@@ -162,6 +162,7 @@ public static class MauiProgram
         builder.Logging.AddDebug();
 #endif
 
+#if MACCATALYST
         Microsoft.Maui.Handlers.PageHandler.PlatformViewFactory = (handler) =>
 		{
 			if (handler.ViewController == null)
@@ -175,6 +176,7 @@ public static class MauiProgram
 
 			throw new Exception("Can't Create Page Handler");
 		};
+#endif
 
         return builder.Build();
     }

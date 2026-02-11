@@ -350,6 +350,12 @@ public class CertificateSyncService : ICertificateSyncService
         string password,
         CancellationToken cancellationToken)
     {
+        if (!_localCertificateService.IsSupported)
+        {
+            _logger.LogWarning("Cannot import P12 to keychain: not supported on this platform");
+            return false;
+        }
+
         // Write P12 to temp file
         var tempFile = Path.GetTempFileName() + ".p12";
         try

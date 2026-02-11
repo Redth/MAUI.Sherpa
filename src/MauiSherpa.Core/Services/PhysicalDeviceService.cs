@@ -7,14 +7,19 @@ namespace MauiSherpa.Core.Services;
 public class PhysicalDeviceService : IPhysicalDeviceService
 {
     private readonly ILoggingService _logger;
+    private readonly IPlatformService _platform;
 
-    public PhysicalDeviceService(ILoggingService logger)
+    public PhysicalDeviceService(ILoggingService logger, IPlatformService platform)
     {
         _logger = logger;
+        _platform = platform;
     }
+
+    public bool IsSupported => _platform.IsMacCatalyst;
 
     public async Task<IReadOnlyList<PhysicalDevice>> GetDevicesAsync()
     {
+        if (!IsSupported) return [];
         try
         {
             var tempFile = Path.GetTempFileName();
@@ -56,6 +61,7 @@ public class PhysicalDeviceService : IPhysicalDeviceService
 
     public async Task<bool> InstallAppAsync(string identifier, string appPath, IProgress<string>? progress = null)
     {
+        if (!IsSupported) return false;
         try
         {
             progress?.Report($"Installing app on device...");
@@ -99,6 +105,7 @@ public class PhysicalDeviceService : IPhysicalDeviceService
 
     public async Task<bool> LaunchAppAsync(string identifier, string bundleId, IProgress<string>? progress = null)
     {
+        if (!IsSupported) return false;
         try
         {
             progress?.Report($"Launching {bundleId}...");

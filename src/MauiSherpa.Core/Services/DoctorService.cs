@@ -17,6 +17,7 @@ public class DoctorService : IDoctorService
 {
     private readonly IAndroidSdkService _androidSdkService;
     private readonly ILoggingService _loggingService;
+    private readonly IOpenJdkSettingsService _jdkSettingsService;
     private readonly ILogger<DoctorService> _logger;
     private readonly ILoggerFactory _loggerFactory;
     
@@ -28,10 +29,11 @@ public class DoctorService : IDoctorService
     private WorkloadManifestService? _manifestService;
     private SdkVersionService? _sdkVersionService;
     
-    public DoctorService(IAndroidSdkService androidSdkService, ILoggingService loggingService, ILoggerFactory? loggerFactory = null)
+    public DoctorService(IAndroidSdkService androidSdkService, ILoggingService loggingService, IOpenJdkSettingsService jdkSettingsService, ILoggerFactory? loggerFactory = null)
     {
         _androidSdkService = androidSdkService;
         _loggingService = loggingService;
+        _jdkSettingsService = jdkSettingsService;
         _loggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
         _logger = _loggerFactory.CreateLogger<DoctorService>();
     }
@@ -371,25 +373,11 @@ public class DoctorService : IDoctorService
         
         string? installedVersion = null;
         
-        // Try to find JDK using JAVA_HOME or common paths
-        var javaHome = Environment.GetEnvironmentVariable("JAVA_HOME");
-        if (!string.IsNullOrEmpty(javaHome))
+        // Delegate JDK discovery to OpenJdkSettingsService (single source of truth)
+        var jdkPath = await _jdkSettingsService.GetEffectiveJdkPathAsync();
+        if (!string.IsNullOrEmpty(jdkPath))
         {
-            installedVersion = await GetJdkVersionAsync(javaHome);
-        }
-        
-        // Try common JDK locations if JAVA_HOME not set
-        if (installedVersion == null)
-        {
-            var commonPaths = GetCommonJdkPaths();
-            foreach (var path in commonPaths)
-            {
-                if (Directory.Exists(path))
-                {
-                    installedVersion = await GetJdkVersionAsync(path);
-                    if (installedVersion != null) break;
-                }
-            }
+            installedVersion = await GetJdkVersionAsync(jdkPath);
         }
         
         var status = installedVersion != null ? DependencyStatusType.Ok : DependencyStatusType.Error;
@@ -448,53 +436,6 @@ public class DoctorService : IDoctorService
         }
         
         return null;
-    }
-    
-    private IEnumerable<string> GetCommonJdkPaths()
-    {
-        if (IsMacPlatform)
-        {
-            // Microsoft OpenJDK locations
-            yield return "/Library/Java/JavaVirtualMachines/microsoft-17.jdk/Contents/Home";
-            yield return "/Library/Java/JavaVirtualMachines/microsoft-21.jdk/Contents/Home";
-            
-            // Check all JVMs
-            var jvmDir = "/Library/Java/JavaVirtualMachines";
-            if (Directory.Exists(jvmDir))
-            {
-                foreach (var dir in Directory.GetDirectories(jvmDir))
-                {
-                    yield return Path.Combine(dir, "Contents", "Home");
-                }
-            }
-            
-            // Homebrew
-            yield return "/opt/homebrew/opt/openjdk/libexec/openjdk.jdk/Contents/Home";
-            yield return "/usr/local/opt/openjdk/libexec/openjdk.jdk/Contents/Home";
-        }
-        else if (OperatingSystem.IsWindows())
-        {
-            var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
-            
-            // Microsoft OpenJDK
-            yield return Path.Combine(programFiles, "Microsoft", "jdk-17.0.1.12-hotspot");
-            yield return Path.Combine(programFiles, "Microsoft", "jdk-21.0.1.12-hotspot");
-            
-            // Check Java directory
-            var javaDir = Path.Combine(programFiles, "Java");
-            if (Directory.Exists(javaDir))
-            {
-                foreach (var dir in Directory.GetDirectories(javaDir))
-                {
-                    yield return dir;
-                }
-            }
-        }
-        else // Linux
-        {
-            yield return "/usr/lib/jvm/java-17-openjdk";
-            yield return "/usr/lib/jvm/java-21-openjdk";
-        }
     }
     
     private async Task CheckAndroidSdkAsync(AndroidSdkDependency androidDep, List<DependencyStatus> dependencies)

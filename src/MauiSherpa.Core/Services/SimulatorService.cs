@@ -10,14 +10,19 @@ namespace MauiSherpa.Core.Services;
 public class SimulatorService : ISimulatorService
 {
     private readonly ILoggingService _logger;
+    private readonly IPlatformService _platform;
 
-    public SimulatorService(ILoggingService logger)
+    public SimulatorService(ILoggingService logger, IPlatformService platform)
     {
         _logger = logger;
+        _platform = platform;
     }
+
+    public bool IsSupported => _platform.IsMacCatalyst;
 
     public async Task<IReadOnlyList<SimulatorDevice>> GetSimulatorsAsync()
     {
+        if (!IsSupported) return Array.Empty<SimulatorDevice>();
         try
         {
             var json = await RunSimctlAsync("list devices -j");
@@ -104,6 +109,7 @@ public class SimulatorService : ISimulatorService
 
     public async Task<IReadOnlyList<SimulatorDeviceType>> GetDeviceTypesAsync()
     {
+        if (!IsSupported) return Array.Empty<SimulatorDeviceType>();
         try
         {
             var json = await RunSimctlAsync("list devicetypes -j");
@@ -135,6 +141,7 @@ public class SimulatorService : ISimulatorService
 
     public async Task<IReadOnlyList<SimulatorRuntime>> GetRuntimesAsync()
     {
+        if (!IsSupported) return Array.Empty<SimulatorRuntime>();
         try
         {
             var json = await RunSimctlAsync("list runtimes -j");
@@ -183,6 +190,7 @@ public class SimulatorService : ISimulatorService
 
     public async Task<bool> CreateSimulatorAsync(string name, string deviceTypeId, string runtimeId, IProgress<string>? progress = null)
     {
+        if (!IsSupported) return false;
         try
         {
             progress?.Report($"Creating simulator '{name}'...");
@@ -208,6 +216,7 @@ public class SimulatorService : ISimulatorService
 
     public async Task<bool> DeleteSimulatorAsync(string udid, IProgress<string>? progress = null)
     {
+        if (!IsSupported) return false;
         try
         {
             progress?.Report($"Deleting simulator {udid}...");
@@ -229,6 +238,7 @@ public class SimulatorService : ISimulatorService
 
     public async Task<bool> BootSimulatorAsync(string udid, IProgress<string>? progress = null)
     {
+        if (!IsSupported) return false;
         try
         {
             progress?.Report($"Booting simulator {udid}...");
@@ -250,6 +260,7 @@ public class SimulatorService : ISimulatorService
 
     public async Task<bool> ShutdownSimulatorAsync(string udid, IProgress<string>? progress = null)
     {
+        if (!IsSupported) return false;
         try
         {
             progress?.Report($"Shutting down simulator {udid}...");
@@ -271,6 +282,7 @@ public class SimulatorService : ISimulatorService
 
     public async Task<bool> EraseSimulatorAsync(string udid, IProgress<string>? progress = null)
     {
+        if (!IsSupported) return false;
         try
         {
             progress?.Report($"Erasing simulator {udid}...");
@@ -292,6 +304,7 @@ public class SimulatorService : ISimulatorService
 
     public async Task<IReadOnlyList<SimulatorApp>> GetInstalledAppsAsync(string udid)
     {
+        if (!IsSupported) return Array.Empty<SimulatorApp>();
         try
         {
             // listapps returns plist format; convert to JSON via plutil
@@ -335,6 +348,7 @@ public class SimulatorService : ISimulatorService
 
     public async Task<bool> InstallAppAsync(string udid, string appPath, IProgress<string>? progress = null)
     {
+        if (!IsSupported) return false;
         try
         {
             progress?.Report($"Installing app from {Path.GetFileName(appPath)}...");
@@ -356,6 +370,7 @@ public class SimulatorService : ISimulatorService
 
     public async Task<bool> UninstallAppAsync(string udid, string bundleId, IProgress<string>? progress = null)
     {
+        if (!IsSupported) return false;
         try
         {
             progress?.Report($"Uninstalling {bundleId}...");
@@ -377,6 +392,7 @@ public class SimulatorService : ISimulatorService
 
     public async Task<bool> LaunchAppAsync(string udid, string bundleId, IProgress<string>? progress = null)
     {
+        if (!IsSupported) return false;
         try
         {
             progress?.Report($"Launching {bundleId}...");
@@ -398,6 +414,7 @@ public class SimulatorService : ISimulatorService
 
     public async Task<bool> TerminateAppAsync(string udid, string bundleId, IProgress<string>? progress = null)
     {
+        if (!IsSupported) return false;
         try
         {
             progress?.Report($"Terminating {bundleId}...");
@@ -419,6 +436,7 @@ public class SimulatorService : ISimulatorService
 
     public async Task<bool> TakeScreenshotAsync(string udid, string outputPath, IProgress<string>? progress = null)
     {
+        if (!IsSupported) return false;
         try
         {
             progress?.Report("Capturing screenshot...");
@@ -440,6 +458,7 @@ public class SimulatorService : ISimulatorService
 
     public async Task<string?> GetAppContainerPathAsync(string udid, string bundleId, string containerType = "data")
     {
+        if (!IsSupported) return null;
         try
         {
             var result = await RunSimctlAsync($"get_app_container {udid} {bundleId} {containerType}");
@@ -454,6 +473,7 @@ public class SimulatorService : ISimulatorService
 
     public async Task<bool> OpenUrlAsync(string udid, string url, IProgress<string>? progress = null)
     {
+        if (!IsSupported) return false;
         try
         {
             progress?.Report($"Opening {url}...");
@@ -475,12 +495,14 @@ public class SimulatorService : ISimulatorService
 
     public string GetSimulatorDataPath(string udid)
     {
+        if (!IsSupported) return string.Empty;
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         return Path.Combine(home, "Library", "Developer", "CoreSimulator", "Devices", udid, "data");
     }
 
     public async Task<bool> CloneSimulatorAsync(string udid, string newName, IProgress<string>? progress = null)
     {
+        if (!IsSupported) return false;
         try
         {
             progress?.Report($"Cloning simulator as '{newName}'...");
@@ -506,6 +528,7 @@ public class SimulatorService : ISimulatorService
     // Push notifications
     public async Task<bool> SendPushNotificationAsync(string udid, string bundleId, string payloadJson, IProgress<string>? progress = null)
     {
+        if (!IsSupported) return false;
         try
         {
             progress?.Report("Sending push notification...");
@@ -535,6 +558,7 @@ public class SimulatorService : ISimulatorService
     // Location simulation
     public async Task<bool> SetLocationAsync(string udid, double latitude, double longitude, IProgress<string>? progress = null)
     {
+        if (!IsSupported) return false;
         try
         {
             progress?.Report($"Setting location to {latitude}, {longitude}...");
@@ -552,6 +576,7 @@ public class SimulatorService : ISimulatorService
 
     public async Task<bool> ClearLocationAsync(string udid, IProgress<string>? progress = null)
     {
+        if (!IsSupported) return false;
         try
         {
             progress?.Report("Clearing simulated location...");
@@ -570,6 +595,7 @@ public class SimulatorService : ISimulatorService
     // Status bar overrides
     public async Task<bool> OverrideStatusBarAsync(string udid, StatusBarOverride overrides, IProgress<string>? progress = null)
     {
+        if (!IsSupported) return false;
         try
         {
             var args = new List<string>();
@@ -602,6 +628,7 @@ public class SimulatorService : ISimulatorService
 
     public async Task<bool> ClearStatusBarAsync(string udid, IProgress<string>? progress = null)
     {
+        if (!IsSupported) return false;
         try
         {
             progress?.Report("Clearing status bar overrides...");
@@ -625,7 +652,7 @@ public class SimulatorService : ISimulatorService
     public async Task<bool> StartRoutePlaybackAsync(string udid, IReadOnlyList<RouteWaypoint> waypoints,
         double speedMps = 20, CancellationToken ct = default)
     {
-        if (waypoints.Count < 2) return false;
+        if (!IsSupported || waypoints.Count < 2) return false;
         StopRoutePlayback();
 
         _routeCts = CancellationTokenSource.CreateLinkedTokenSource(ct);

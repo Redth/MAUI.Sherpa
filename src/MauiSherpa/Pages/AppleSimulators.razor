@@ -19,6 +19,16 @@
 
 <h1><i class="fas fa-tablet-screen-button"></i> Apple Devices</h1>
 
+@if (!SimulatorService.IsSupported)
+{
+    <div class="not-supported">
+        <div class="warning-icon"><i class="fas fa-exclamation-triangle"></i></div>
+        <h2>macOS Only</h2>
+        <p>Apple simulator and device management requires macOS with Xcode installed.</p>
+    </div>
+}
+else
+{
 <!-- Physical Devices Section -->
 <div class="section-label"><i class="fas fa-mobile-alt"></i> Physical Devices</div>
 @if (isLoadingDevices)
@@ -306,8 +316,22 @@ else
         </div>
     </div>
 }
+} @* end else IsSupported *@
 
 <style>
+    .not-supported {
+        text-align: center;
+        padding: 3.75rem 1.25rem;
+        background: var(--status-error-bg);
+        border-radius: 0.75rem;
+        border: 1px solid var(--accent-danger);
+    }
+
+    .not-supported .warning-icon { font-size: 48px; margin-bottom: 1rem; color: var(--accent-warning); }
+    .not-supported .warning-icon i { font-size: 48px; }
+    .not-supported h2 { color: var(--accent-danger); margin-bottom: 0.5rem; }
+    .not-supported p { color: var(--text-muted); }
+
     h1 {
         margin-bottom: 1.25rem;
         font-size: 1.75rem;
@@ -759,6 +783,7 @@ else
 
     protected override async Task OnInitializedAsync()
     {
+        if (!SimulatorService.IsSupported) return;
         try { var settings = await SettingsService.GetSettingsAsync(); demoMode = settings.Preferences.DemoMode; } catch { }
         await Task.WhenAll(
             RefreshSimulators(forceRefresh: false),
