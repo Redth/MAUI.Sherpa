@@ -1125,8 +1125,9 @@
     private void SelectProfileType(string type)
     {
         selectedProfileType = type;
-        // Clear certificate selection when type changes (compatibility may change)
+        // Clear selections when type changes (compatibility may change)
         selectedCertificateIds.Clear();
+        selectedDeviceIds.Clear();
     }
 
     private void SelectBundleId(AppleBundleId bundle)
@@ -1287,12 +1288,19 @@
         errorMessage = "";
         try
         {
+            // Filter to only compatible device IDs (safety against stale selections)
+            var compatibleDeviceIds = RequiresDevices
+                ? selectedDeviceIds
+                    .Where(id => devices.Any(d => d.Id == id && IsDeviceCompatible(d.Platform, d.DeviceClass)))
+                    .ToList()
+                : null;
+            
             var request = new AppleProfileCreateRequest(
                 profileName,
                 selectedProfileType!,
                 selectedBundleId!,
                 selectedCertificateIds.ToList(),
-                RequiresDevices ? selectedDeviceIds.ToList() : null
+                compatibleDeviceIds
             );
 
             var profile = await AppleService.CreateProfileAsync(request);
