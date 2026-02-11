@@ -148,7 +148,7 @@ public class OpenJdkSettingsService : IOpenJdkSettingsService
 
     private static IEnumerable<string> GetCommonJdkPaths()
     {
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+        if (OperatingSystem.IsMacOS() || OperatingSystem.IsMacCatalyst())
         {
             // Microsoft OpenJDK (installed by dotnet workloads)
             var jvmDir = "/Library/Java/JavaVirtualMachines";

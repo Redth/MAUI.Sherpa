@@ -366,7 +366,7 @@ public class LocalSdkService : ILocalSdkService
             if (!string.IsNullOrEmpty(localAppData))
                 yield return Path.Combine(localAppData, "Microsoft", "dotnet");
         }
-        else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+        else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX) || OperatingSystem.IsMacCatalyst())
         {
             yield return "/usr/local/share/dotnet";
             // x64-on-arm64 via Rosetta (the .pkg installer registers this in install_location)
