@@ -346,17 +346,32 @@ public class AppleConnectService : IAppleConnectService
                 filterId: null, filterDisplayName: null, filterSerialNumber: null,
                 filterCertificateType: null,
                 sort: null, limit: 100,
-                fieldsCertificates: null,
+                fieldsCertificates: new[] { "displayName", "name", "certificateType", "platform", "serialNumber", "certificateContent" },
                 cancellationToken: default);
 
             var certs = response.Data
-                .Select(c => new AppleCertificate(
-                    c.Id,
-                    c.Attributes?.DisplayName ?? c.Attributes?.Name ?? "",
-                    c.Attributes?.CertificateTypeValue ?? c.Attributes?.CertificateType.ToString() ?? "DEVELOPMENT",
-                    c.Attributes?.PlatformValue ?? c.Attributes?.Platform.ToString() ?? "",
-                    DateTime.UtcNow.AddYears(1), // CertificateAttributes doesn't have ExpirationDate directly
-                    c.Attributes?.SerialNumber ?? ""))
+                .Select(c =>
+                {
+                    var expirationDate = DateTime.UtcNow.AddYears(1); // fallback
+                    try
+                    {
+                        if (!string.IsNullOrEmpty(c.Attributes?.CertificateContent))
+                        {
+                            using var x509 = new System.Security.Cryptography.X509Certificates.X509Certificate2(
+                                Convert.FromBase64String(c.Attributes.CertificateContent));
+                            expirationDate = x509.NotAfter;
+                        }
+                    }
+                    catch { }
+
+                    return new AppleCertificate(
+                        c.Id,
+                        c.Attributes?.DisplayName ?? c.Attributes?.Name ?? "",
+                        c.Attributes?.CertificateTypeValue ?? c.Attributes?.CertificateType.ToString() ?? "DEVELOPMENT",
+                        c.Attributes?.PlatformValue ?? c.Attributes?.Platform.ToString() ?? "",
+                        expirationDate,
+                        c.Attributes?.SerialNumber ?? "");
+                })
                 .ToList();
             
             foreach (var cert in certs)
