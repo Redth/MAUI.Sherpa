@@ -21,7 +21,7 @@
                 <div class="version-info">
                     <div class="version-badge current">
                         <span class="label">Current Version</span>
-                        <span class="version">v@(UpdateResult.CurrentVersion)</span>
+                        <span class="version">v@(TruncateVersion(UpdateResult.CurrentVersion))</span>
                     </div>
                     <i class="fas fa-arrow-right"></i>
                     <div class="version-badge new">
@@ -101,6 +101,14 @@
         await OnDecline.InvokeAsync();
     }
     
+    private static string TruncateVersion(string version)
+    {
+        var plusIndex = version.IndexOf('+');
+        if (plusIndex >= 0 && version.Length > plusIndex + 8)
+            return version[..(plusIndex + 9)];
+        return version;
+    }
+
     private string ConvertMarkdownToHtml(string markdown)
     {
         if (string.IsNullOrWhiteSpace(markdown))
@@ -288,11 +296,14 @@
     .notes-content :deep(ul),
     .notes-content :deep(ol) {
         margin: 0.5rem 0;
-        padding-left: 1.5rem;
+        padding-left: 1.25rem;
+        list-style-position: inside;
     }
 
     .notes-content :deep(li) {
-        margin: 0.25rem 0;
+        margin: 0.375rem 0;
+        padding-left: 0;
+        text-indent: -0.25rem;
     }
 
     .notes-content :deep(code) {

@@ -7,6 +7,7 @@
 @inject IAlertService AlertService
 @inject IDialogService DialogService
 @inject BlazorToastService ToastService
+@inject IUpdateService UpdateService
 
 <div class="page-header">
     <div class="page-title-row">
@@ -156,7 +157,26 @@
         </div>
     </div>
 
+    <!-- Update Available Modal -->
+    <div class="debug-section">
+        <h2><i class="fa-solid fa-arrow-up"></i> Update Available Modal</h2>
+        <p class="section-description">Test the update available dialog with mock data.</p>
+        <div class="debug-card">
+            <div class="button-grid">
+                <button class="btn btn-primary" @onclick="ShowUpdateModal">
+                    <i class="fa-solid fa-arrow-up"></i> Show Update Modal
+                </button>
+            </div>
+        </div>
+    </div>
+
 </div>
+
+<UpdateAvailableModal
+    UpdateResult="@mockUpdateResult"
+    IsVisible="@showUpdateModal"
+    OnAccept="@(() => { showUpdateModal = false; })"
+    OnDecline="@(() => { showUpdateModal = false; })" />
 
 <style>
     .debug-sections {
@@ -251,6 +271,28 @@
 @code {
     private bool? lastConfirmResult;
     private string? lastInputResult;
+    private bool showUpdateModal;
+    private UpdateCheckResult? mockUpdateResult;
+
+    // === Update Available Modal ===
+
+    private void ShowUpdateModal()
+    {
+        mockUpdateResult = new UpdateCheckResult(
+            UpdateAvailable: true,
+            CurrentVersion: "0.2.3+dev",
+            LatestRelease: new GitHubRelease(
+                TagName: "v0.2.4",
+                Name: "v0.2.4 — \"Tightening the Harness\"",
+                Body: "## 🏔️ v0.2.4 — \"Tightening the Harness\"\n\nStill on the same stretch of trail, but a couple of clips were loose. This patch tightens things up so nothing snags when you pick up the pace.\n\n### 🐛 Bug Fixes\n\n- **Provisioning Profile Device Mismatch** — Creating a provisioning profile could send iPhone device IDs to a Mac Catalyst profile (or vice versa), triggering an \"Invalid deviceClass\" error from Apple. Device selections now clear when switching profile types and are filtered for compatibility before hitting the API.\n- **AOT Crash in Release Builds** — The signed Mac Catalyst release was crashing with a JIT error on Apple API calls that use `dynamic`. Enabled the mono interpreter as a fallback so AOT builds gracefully handle reflection-heavy code paths.\n\n---\n\n*Harness checked, clips secured — ready to keep moving.* 🪢",
+                IsPrerelease: false,
+                IsDraft: false,
+                PublishedAt: DateTime.Now.AddHours(-2),
+                HtmlUrl: "https://github.com/Redth/MAUI.Sherpa/releases/tag/v0.2.4"
+            )
+        );
+        showUpdateModal = true;
+    }
 
     // === Process Execution Modal ===
 

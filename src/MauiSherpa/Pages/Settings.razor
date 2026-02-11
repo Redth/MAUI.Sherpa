@@ -1494,7 +1494,15 @@
         await InitializeJdk();
         await LoadDemoMode();
         
-        appVersion = UpdateService.GetCurrentVersion();
+        appVersion = TruncateVersion(UpdateService.GetCurrentVersion());
+    }
+
+    private static string TruncateVersion(string version)
+    {
+        var plusIndex = version.IndexOf('+');
+        if (plusIndex >= 0 && version.Length > plusIndex + 8)
+            return version[..(plusIndex + 9)];
+        return version;
     }
 
     private async Task LoadDemoMode()
