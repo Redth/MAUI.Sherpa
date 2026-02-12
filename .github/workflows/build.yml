@@ -229,19 +229,19 @@ jobs:
           APP_PATH=$(find ./artifacts/maccatalyst -name "*.app" -type d | head -1)
           if [ -n "$APP_PATH" ]; then
             # Use ditto to preserve code signature and extended attributes
-            ditto -c -k --keepParent "$APP_PATH" ./artifacts/MAUI-Sherpa.zip
-            echo "Created archive: ./artifacts/MAUI-Sherpa.zip"
-            ls -lh ./artifacts/MAUI-Sherpa.zip
+            ditto -c -k --keepParent "$APP_PATH" ./artifacts/MAUI-Sherpa.mac.zip
+            echo "Created archive: ./artifacts/MAUI-Sherpa.mac.zip"
+            ls -lh ./artifacts/MAUI-Sherpa.mac.zip
           else
             echo "No .app bundle found, creating archive of all artifacts"
-            cd ./artifacts/maccatalyst && zip -r ../MAUI-Sherpa.zip .
+            cd ./artifacts/maccatalyst && zip -r ../MAUI-Sherpa.mac.zip .
           fi
 
       - name: Upload Mac Catalyst App
         uses: actions/upload-artifact@v4
         with:
-          name: MAUI-Sherpa.app
-          path: ./artifacts/MAUI-Sherpa.zip
+          name: MAUI-Sherpa.mac
+          path: ./artifacts/MAUI-Sherpa.mac.zip
           retention-days: 30
 
       - name: Set commit status with artifact link
@@ -250,7 +250,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           ARTIFACT_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          if [ -f "./artifacts/MAUI-Sherpa.zip" ]; then
+          if [ -f "./artifacts/MAUI-Sherpa.mac.zip" ]; then
             STATE="success"
             DESC="MAUI Sherpa.app built successfully"
           else
@@ -323,15 +323,15 @@ jobs:
             $publishDir = Get-ChildItem -Path "src/MauiSherpa/bin/Release" -Filter "publish" -Recurse -Directory | Select-Object -First 1 -ExpandProperty FullName
           }
           New-Item -ItemType Directory -Force -Path ./artifacts | Out-Null
-          Compress-Archive -Path "$publishDir/*" -DestinationPath ./artifacts/MAUI-Sherpa-win.zip
-          Write-Host "Created archive: ./artifacts/MAUI-Sherpa-win.zip"
-          Get-Item ./artifacts/MAUI-Sherpa-win.zip | Format-List Name, Length
+          Compress-Archive -Path "$publishDir/*" -DestinationPath ./artifacts/MAUI-Sherpa.win.zip
+          Write-Host "Created archive: ./artifacts/MAUI-Sherpa.win.zip"
+          Get-Item ./artifacts/MAUI-Sherpa.win.zip | Format-List Name, Length
 
       - name: Upload Windows App
         uses: actions/upload-artifact@v4
         with:
-          name: MAUI-Sherpa-win
-          path: ./artifacts/MAUI-Sherpa-win.zip
+          name: MAUI-Sherpa.win
+          path: ./artifacts/MAUI-Sherpa.win.zip
           retention-days: 30
 
       - name: Set commit status with artifact link
@@ -341,7 +341,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           ARTIFACT_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          if [ -f "./artifacts/MAUI-Sherpa-win.zip" ]; then
+          if [ -f "./artifacts/MAUI-Sherpa.win.zip" ]; then
             STATE="success"
             DESC="MAUI Sherpa Windows built successfully"
           else
@@ -364,7 +364,7 @@ jobs:
       - name: Download Mac Catalyst artifact
         uses: actions/download-artifact@v4
         with:
-          name: MAUI-Sherpa.app
+          name: MAUI-Sherpa.mac
           path: ./artifacts
 
       - name: Notarize with retry
@@ -375,7 +375,7 @@ jobs:
         run: |
           # Extract the app bundle from the published ZIP
           mkdir -p ./artifacts/maccatalyst
-          ditto -x -k ./artifacts/MAUI-Sherpa.zip ./artifacts/maccatalyst
+          ditto -x -k ./artifacts/MAUI-Sherpa.mac.zip ./artifacts/maccatalyst
 
           APP_PATH=$(find ./artifacts/maccatalyst -name "*.app" -type d | head -1)
           if [ -z "$APP_PATH" ]; then
@@ -415,16 +415,16 @@ jobs:
           xcrun stapler staple "$APP_PATH"
 
           # Re-create the final ZIP with the stapled app
-          rm ./artifacts/MAUI-Sherpa.zip
-          ditto -c -k --keepParent "$APP_PATH" ./artifacts/MAUI-Sherpa.zip
+          rm ./artifacts/MAUI-Sherpa.mac.zip
+          ditto -c -k --keepParent "$APP_PATH" ./artifacts/MAUI-Sherpa.mac.zip
           echo "Created notarized archive"
-          ls -lh ./artifacts/MAUI-Sherpa.zip
+          ls -lh ./artifacts/MAUI-Sherpa.mac.zip
 
       - name: Upload notarized Mac Catalyst App
         uses: actions/upload-artifact@v4
         with:
-          name: MAUI-Sherpa.app
-          path: ./artifacts/MAUI-Sherpa.zip
+          name: MAUI-Sherpa.mac
+          path: ./artifacts/MAUI-Sherpa.mac.zip
           overwrite: true
           retention-days: 30
 
@@ -440,21 +440,21 @@ jobs:
       - name: Download Mac Catalyst artifact
         uses: actions/download-artifact@v4
         with:
-          name: MAUI-Sherpa.app
+          name: MAUI-Sherpa.mac
           path: ./release
 
       - name: Download Windows artifact
         uses: actions/download-artifact@v4
         with:
-          name: MAUI-Sherpa-win
+          name: MAUI-Sherpa.win
           path: ./release
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            ./release/MAUI-Sherpa.zip
-            ./release/MAUI-Sherpa-win.zip
+            ./release/MAUI-Sherpa.mac.zip
+            ./release/MAUI-Sherpa.win.zip
           generate_release_notes: false
           draft: false
           prerelease: ${{ contains(github.ref, '-') }}
@@ -471,9 +471,9 @@ jobs:
 
       - name: Download release asset and compute SHA256
         run: |
-          curl -fSL -o MAUI-Sherpa.zip \
-            "https://github.com/Redth/MAUI.Sherpa/releases/download/v${VERSION}/MAUI-Sherpa.zip"
-          SHA256=$(shasum -a 256 MAUI-Sherpa.zip | awk '{print $1}')
+          curl -fSL -o MAUI-Sherpa.mac.zip \
+            "https://github.com/Redth/MAUI.Sherpa/releases/download/v${VERSION}/MAUI-Sherpa.mac.zip"
+          SHA256=$(shasum -a 256 MAUI-Sherpa.mac.zip | awk '{print $1}')
           echo "SHA256=$SHA256" >> $GITHUB_ENV
 
       - name: Update cask in tap repo
@@ -488,7 +488,7 @@ jobs:
             version "${VERSION}"
             sha256 "${SHA256}"
 
-            url "https://github.com/Redth/MAUI.Sherpa/releases/download/v#{version}/MAUI-Sherpa.zip"
+            url "https://github.com/Redth/MAUI.Sherpa/releases/download/v#{version}/MAUI-Sherpa.mac.zip"
             name "MAUI Sherpa"
             desc "Desktop app for managing .NET MAUI developer tools"
             homepage "https://github.com/Redth/MAUI.Sherpa"
