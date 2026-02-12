@@ -271,45 +271,89 @@ jobs:
           fi
 
 
-  # publish-windows:
-  #   name: Publish Windows App
-  #   runs-on: windows-latest
-  #   needs: build-test
-  #   if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-  #
-  #   steps:
-  #     - name: Checkout
-  #       uses: actions/checkout@v4
-  #
-  #     - name: Setup .NET
-  #       uses: actions/setup-dotnet@v4
-  #       with:
-  #         global-json-file: global.json
-  #
-  #     - name: Install MAUI workload
-  #       run: dotnet workload install maui
-  #
-  #     - name: Publish Windows App
-  #       run: |
-  #         dotnet publish src/MauiSherpa/MauiSherpa.csproj `
-  #           -f net10.0-windows10.0.19041.0 `
-  #           -c Release `
-  #           -p:WindowsPackageType=None `
-  #           -p:PublishSingleFile=false `
-  #           -p:SelfContained=true `
-  #           -p:PublishTrimmed=false `
-  #           -o ./artifacts/windows
-  #
-  #     - name: Create ZIP archive
-  #       run: |
-  #         Compress-Archive -Path ./artifacts/windows/* -DestinationPath ./artifacts/MauiSherpa-Windows.zip
-  #
-  #     - name: Upload Windows App
-  #       uses: actions/upload-artifact@v4
-  #       with:
-  #         name: MauiSherpa-Windows
-  #         path: ./artifacts/MauiSherpa-Windows.zip
-  #         retention-days: 30
+  publish-windows:
+    name: Publish Windows App
+    runs-on: windows-latest
+    needs: build-test
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    permissions:
+      statuses: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Install MAUI workload
+        run: dotnet workload install maui --version 10.0.102
+
+      - name: Determine version
+        id: version
+        shell: bash
+        run: |
+          SHA="${GITHUB_SHA::8}"
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            VER="${GITHUB_REF#refs/tags/v}"
+          else
+            VER=$(grep '<AppVersion>' Directory.Build.props | sed 's/.*<AppVersion>\(.*\)<\/AppVersion>.*/\1/')
+          fi
+          echo "app_version=$VER" >> $GITHUB_OUTPUT
+          echo "commit_sha=$SHA" >> $GITHUB_OUTPUT
+          echo "Version: $VER+$SHA"
+
+      - name: Publish Windows App
+        run: |
+          dotnet publish src/MauiSherpa/MauiSherpa.csproj `
+            -f net10.0-windows10.0.19041.0 `
+            -c Release `
+            -p:WindowsPackageType=None `
+            -p:SelfContained=true `
+            -p:PublishTrimmed=false `
+            -p:AppVersion=${{ steps.version.outputs.app_version }} `
+            -p:AppCommitSha=${{ steps.version.outputs.commit_sha }}
+
+      - name: Create ZIP archive
+        run: |
+          $publishDir = "src/MauiSherpa/bin/Release/net10.0-windows10.0.19041.0/win10-x64/publish"
+          if (-not (Test-Path $publishDir)) {
+            # Fallback: find the publish output
+            $publishDir = Get-ChildItem -Path "src/MauiSherpa/bin/Release" -Filter "publish" -Recurse -Directory | Select-Object -First 1 -ExpandProperty FullName
+          }
+          New-Item -ItemType Directory -Force -Path ./artifacts | Out-Null
+          Compress-Archive -Path "$publishDir/*" -DestinationPath ./artifacts/MAUI-Sherpa-win.zip
+          Write-Host "Created archive: ./artifacts/MAUI-Sherpa-win.zip"
+          Get-Item ./artifacts/MAUI-Sherpa-win.zip | Format-List Name, Length
+
+      - name: Upload Windows App
+        uses: actions/upload-artifact@v4
+        with:
+          name: MAUI-Sherpa-win
+          path: ./artifacts/MAUI-Sherpa-win.zip
+          retention-days: 30
+
+      - name: Set commit status with artifact link
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ARTIFACT_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          if [ -f "./artifacts/MAUI-Sherpa-win.zip" ]; then
+            STATE="success"
+            DESC="MAUI Sherpa Windows built successfully"
+          else
+            STATE="failure"
+            DESC="MAUI Sherpa Windows build failed"
+          fi
+          gh api repos/${{ github.repository }}/statuses/${{ github.sha }} \
+            -f state="$STATE" \
+            -f target_url="$ARTIFACT_URL" \
+            -f description="$DESC" \
+            -f context="MAUI Sherpa / Download Windows App"
 
   notarize-maccatalyst:
     name: Notarize Mac Catalyst App
@@ -388,7 +432,7 @@ jobs:
   create-release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
-    needs: [notarize-maccatalyst]
+    needs: [notarize-maccatalyst, publish-windows]
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
@@ -400,17 +444,18 @@ jobs:
           name: MAUI-Sherpa.app
           path: ./release
 
-      # - name: Download Windows artifact
-      #   uses: actions/download-artifact@v4
-      #   with:
-      #     name: MauiSherpa-Windows
-      #     path: ./release
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: MAUI-Sherpa-win
+          path: ./release
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           files: |
             ./release/MAUI-Sherpa.zip
+            ./release/MAUI-Sherpa-win.zip
           generate_release_notes: false
           draft: false
           prerelease: ${{ contains(github.ref, '-') }}
