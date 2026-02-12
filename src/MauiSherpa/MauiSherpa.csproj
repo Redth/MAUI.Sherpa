@@ -34,6 +34,11 @@
     <CodeSignEntitlements>Platforms/MacCatalyst/Entitlements.Debug.plist</CodeSignEntitlements>
   </PropertyGroup>
 
+  <!-- Workaround for WindowsAppSDK Issue #3337 -->
+  <PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows' and '$(RuntimeIdentifierOverride)' != ''">
+    <RuntimeIdentifier>$(RuntimeIdentifierOverride)</RuntimeIdentifier>
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="Blazorise.Icons.FontAwesome" Version="1.7.2" />
     <PackageReference Include="Microsoft.AspNetCore.Components.QuickGrid" Version="10.0.1" />

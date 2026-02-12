@@ -310,17 +310,16 @@ jobs:
           dotnet publish src/MauiSherpa/MauiSherpa.csproj `
             -f net10.0-windows10.0.19041.0 `
             -c Release `
+            -p:RuntimeIdentifierOverride=win-x64 `
             -p:WindowsPackageType=None `
-            -p:SelfContained=true `
-            -p:PublishTrimmed=false `
+            -p:WindowsAppSDKSelfContained=true `
             -p:AppVersion=${{ steps.version.outputs.app_version }} `
             -p:AppCommitSha=${{ steps.version.outputs.commit_sha }}
 
       - name: Create ZIP archive
         run: |
-          $publishDir = "src/MauiSherpa/bin/Release/net10.0-windows10.0.19041.0/win10-x64/publish"
+          $publishDir = "src/MauiSherpa/bin/Release/net10.0-windows10.0.19041.0/win-x64/publish"
           if (-not (Test-Path $publishDir)) {
-            # Fallback: find the publish output
             $publishDir = Get-ChildItem -Path "src/MauiSherpa/bin/Release" -Filter "publish" -Recurse -Directory | Select-Object -First 1 -ExpandProperty FullName
           }
           New-Item -ItemType Directory -Force -Path ./artifacts | Out-Null
