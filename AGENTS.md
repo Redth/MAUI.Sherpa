@@ -228,7 +228,7 @@ Use `@bind:event="oninput"` on inputs for this to work (requires `input` events,
 
 ## MauiDevFlow (AI Debugging)
 
-The project uses [MauiDevFlow](https://github.com/nicoleeldridge/MauiDevFlow) for AI-assisted debugging. Port **9231** is configured in `.mauidevflow` and `Directory.Build.props`.
+The project uses [MauiDevFlow](https://github.com/nicoleeldridge/MauiDevFlow) for AI-assisted debugging. Broker discovery is preferred; no `.mauidevflow` file is committed in this repo.
 
 ```bash
 # Always run CLI commands from src/MauiSherpa/ for auto port detection
