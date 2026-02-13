@@ -76,6 +76,8 @@ public class DoctorService : IDoctorService
         
         // Determine effective feature band
         string? featureBand = null;
+        bool isPreviewSdk = false;
+        string? activeSdkVersion = null;
         if (sdkPath != null)
         {
             var sdks = localSdkService.GetInstalledSdkVersions();
@@ -86,11 +88,15 @@ public class DoctorService : IDoctorService
                 {
                     var pinned = sdks.FirstOrDefault(s => s.Version == globalJson.SdkVersion);
                     featureBand = pinned?.FeatureBand ?? sdks[0].FeatureBand;
+                    isPreviewSdk = pinned?.IsPreview ?? sdks[0].IsPreview;
+                    activeSdkVersion = pinned?.Version ?? sdks[0].Version;
                 }
                 else
                 {
                     // Use the newest SDK's feature band
                     featureBand = sdks[0].FeatureBand;
+                    isPreviewSdk = sdks[0].IsPreview;
+                    activeSdkVersion = sdks[0].Version;
                 }
             }
         }
@@ -101,7 +107,9 @@ public class DoctorService : IDoctorService
             GlobalJsonPath: globalJson?.Path,
             PinnedSdkVersion: globalJson?.SdkVersion,
             PinnedWorkloadSetVersion: globalJson?.WorkloadSetVersion,
-            EffectiveFeatureBand: featureBand
+            EffectiveFeatureBand: featureBand,
+            IsPreviewSdk: isPreviewSdk,
+            ActiveSdkVersion: activeSdkVersion
         );
     }
     
@@ -126,9 +134,20 @@ public class DoctorService : IDoctorService
         {
             progress?.Report("Checking available SDK versions...");
             var sdkVersionService = GetSdkVersionService();
-            var available = await sdkVersionService.GetAvailableSdkVersionsAsync(includePreview: false);
+            
+            // Determine which major versions have preview SDKs installed
+            var previewMajorVersions = new HashSet<int>(
+                sdkVersions.Where(s => s.IsPreview).Select(s => s.Major));
+            
+            // Fetch all versions including previews, then filter:
+            // - Always include stable versions
+            // - Include preview versions only for major versions where user has a preview installed
+            var available = await sdkVersionService.GetAvailableSdkVersionsAsync(
+                includePreview: previewMajorVersions.Count > 0);
+            
             availableSdkVersions = available
-                .Take(10) // Top 10 latest versions
+                .Where(s => !s.IsPreview || previewMajorVersions.Contains(s.Major))
+                .Take(10)
                 .Select(s => new SdkVersionInfo(s.Version, s.FeatureBand, s.Major, s.Minor, s.IsPreview))
                 .ToList();
         }
@@ -152,21 +171,48 @@ public class DoctorService : IDoctorService
         else
         {
             var latestSdk = sdkVersions[0];
-            var latestAvailable = availableSdkVersions?.FirstOrDefault();
-            var isLatest = latestAvailable == null || latestSdk.Version == latestAvailable.Version;
             
-            dependencies.Add(new DependencyStatus(
-                ".NET SDK",
-                DependencyCategory.DotNetSdk,
-                null,
-                latestAvailable?.Version,
-                latestSdk.Version,
-                isLatest ? DependencyStatusType.Ok : DependencyStatusType.Warning,
-                isLatest 
-                    ? $"{sdkVersions.Count} SDK(s) installed, using {latestSdk.Version}"
-                    : $"Update available: {latestAvailable?.Version}",
-                IsFixable: false
-            ));
+            if (latestSdk.IsPreview)
+            {
+                // Active SDK is a preview — find the latest available for the SAME major version
+                var latestAvailableForMajor = availableSdkVersions?
+                    .FirstOrDefault(s => s.Major == latestSdk.Major);
+                var isLatestForMajor = latestAvailableForMajor == null 
+                    || latestSdk.Version == latestAvailableForMajor.Version;
+                
+                // Add an informational status about being on a preview SDK
+                dependencies.Add(new DependencyStatus(
+                    ".NET SDK",
+                    DependencyCategory.DotNetSdk,
+                    null,
+                    isLatestForMajor ? null : latestAvailableForMajor?.Version,
+                    latestSdk.Version,
+                    isLatestForMajor ? DependencyStatusType.Info : DependencyStatusType.Warning,
+                    isLatestForMajor
+                        ? $"Preview SDK ({latestSdk.Version})"
+                        : $"Update available: {latestAvailableForMajor?.Version}",
+                    IsFixable: false
+                ));
+            }
+            else
+            {
+                var latestAvailable = availableSdkVersions?
+                    .FirstOrDefault(s => !s.IsPreview);
+                var isLatest = latestAvailable == null || latestSdk.Version == latestAvailable.Version;
+                
+                dependencies.Add(new DependencyStatus(
+                    ".NET SDK",
+                    DependencyCategory.DotNetSdk,
+                    null,
+                    latestAvailable?.Version,
+                    latestSdk.Version,
+                    isLatest ? DependencyStatusType.Ok : DependencyStatusType.Warning,
+                    isLatest 
+                        ? $"{sdkVersions.Count} SDK(s) installed, using {latestSdk.Version}"
+                        : $"Update available: {latestAvailable?.Version}",
+                    IsFixable: false
+                ));
+            }
         }
         
         // Get workload set and manifests
@@ -184,10 +230,12 @@ public class DoctorService : IDoctorService
             _logger.LogInformation("Got workload set version: {Version}", workloadSetVersion ?? "NULL");
             
             // Get available workload set versions
+            // Auto-enable prerelease when active SDK is a preview
             try
             {
                 progress?.Report("Checking available workload updates...");
-                availableWorkloadSets = await GetAvailableWorkloadSetVersionsAsync(context.EffectiveFeatureBand, false);
+                availableWorkloadSets = await GetAvailableWorkloadSetVersionsAsync(
+                    context.EffectiveFeatureBand, context.IsPreviewSdk);
             }
             catch (Exception ex)
             {

@@ -147,11 +147,15 @@
             <i class="fas @(sdksExpanded ? "fa-chevron-down" : "fa-chevron-right") section-icon"></i>
             <span class="section-title">.NET SDKs</span>
             <span class="badge badge-count">@report.InstalledSdks.Count installed</span>
-            @if (report.AvailableSdkVersions?.Count > 0)
+            @if (report.Context.IsPreviewSdk)
             {
-                var latestAvailable = report.AvailableSdkVersions[0].Version;
+                <span class="badge badge-info"><i class="fas fa-flask"></i> Preview</span>
+            }
+            else if (report.AvailableSdkVersions?.Count > 0)
+            {
+                var latestAvailableStable = report.AvailableSdkVersions.FirstOrDefault(s => !s.IsPreview)?.Version;
                 var latestInstalled = report.InstalledSdks.FirstOrDefault()?.Version;
-                if (latestInstalled != latestAvailable)
+                if (latestAvailableStable != null && latestInstalled != latestAvailableStable)
                 {
                     <span class="badge badge-warning"><i class="fas fa-arrow-up"></i> Update available</span>
                 }
@@ -160,6 +164,13 @@
         @if (sdksExpanded)
         {
             <div class="section-content">
+                @if (report.Context.IsPreviewSdk)
+                {
+                    <div class="preview-info-bubble">
+                        <i class="fas fa-info-circle"></i>
+                        <span>You are using a preview .NET SDK (@report.Context.ActiveSdkVersion)</span>
+                    </div>
+                }
                 @if (report.InstalledSdks.Count == 0)
                 {
                     <div class="empty-message">No .NET SDKs found</div>
@@ -180,7 +191,7 @@
                                 }
                                 @if (sdk.IsPreview)
                                 {
-                                    <span class="badge badge-warning">Preview</span>
+                                    <span class="badge badge-info">Preview</span>
                                 }
                             </div>
                             isFirst = false;
@@ -210,7 +221,7 @@
                                 }
                                 @if (sdk.IsPreview)
                                 {
-                                    <span class="badge badge-warning">Preview</span>
+                                    <span class="badge badge-info">Preview</span>
                                 }
                             </div>
                         }
@@ -554,6 +565,7 @@ else
     }
     .dep-item:last-child { margin-bottom: 0; }
     .dep-item.status-ok { background: var(--status-success-bg); color: var(--status-success-text); }
+    .dep-item.status-info { background: var(--status-info-bg); color: var(--status-info-text); }
     .dep-item.status-warning { background: var(--status-warning-bg); color: var(--status-warning-text); }
     .dep-item.status-error { background: var(--status-error-bg); color: var(--status-error-text); }
     .dep-item.status-unknown { background: var(--bg-tertiary); }
@@ -563,6 +575,18 @@ else
     .dep-name { font-weight: 600; }
     .dep-version { font-size: 0.8125rem; font-family: monospace; }
     .dep-message { font-size: 0.8125rem; }
+
+    .preview-info-bubble {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.625rem 0.875rem;
+        background: var(--status-info-bg);
+        color: var(--status-info-text);
+        border-radius: 0.375rem;
+        font-size: 0.875rem;
+        margin-bottom: 0.75rem;
+    }
 
     .timestamp { text-align: right; font-size: 0.75rem; color: var(--text-muted); margin-top: 1.25rem; }
 
@@ -1029,6 +1053,7 @@ else
     private string GetStatusIconClass(DependencyStatusType status) => status switch
     {
         DependencyStatusType.Ok => "fas fa-check-circle text-success",
+        DependencyStatusType.Info => "fas fa-info-circle",
         DependencyStatusType.Warning => "fas fa-exclamation-triangle text-warning",
         DependencyStatusType.Error => "fas fa-times-circle text-error",
         _ => "fas fa-question-circle text-muted"
@@ -1037,6 +1062,7 @@ else
     private string GetDepStatusClass(DependencyStatusType status) => status switch
     {
         DependencyStatusType.Ok => "status-ok",
+        DependencyStatusType.Info => "status-info",
         DependencyStatusType.Warning => "status-warning",
         DependencyStatusType.Error => "status-error",
         _ => "status-unknown"

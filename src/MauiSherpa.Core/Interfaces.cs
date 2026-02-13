@@ -886,7 +886,9 @@ public record DoctorContext(
     string? GlobalJsonPath,
     string? PinnedSdkVersion,
     string? PinnedWorkloadSetVersion,
-    string? EffectiveFeatureBand
+    string? EffectiveFeatureBand,
+    bool IsPreviewSdk = false,
+    string? ActiveSdkVersion = null
 );
 
 /// <summary>
@@ -895,6 +897,7 @@ public record DoctorContext(
 public enum DependencyStatusType
 {
     Ok,
+    Info,
     Warning,
     Error,
     Unknown
@@ -969,7 +972,7 @@ public record DoctorReport(
 {
     public bool HasErrors => Dependencies.Any(d => d.Status == DependencyStatusType.Error);
     public bool HasWarnings => Dependencies.Any(d => d.Status == DependencyStatusType.Warning);
-    public int OkCount => Dependencies.Count(d => d.Status == DependencyStatusType.Ok);
+    public int OkCount => Dependencies.Count(d => d.Status == DependencyStatusType.Ok || d.Status == DependencyStatusType.Info);
     public int WarningCount => Dependencies.Count(d => d.Status == DependencyStatusType.Warning);
     public int ErrorCount => Dependencies.Count(d => d.Status == DependencyStatusType.Error);
 }
