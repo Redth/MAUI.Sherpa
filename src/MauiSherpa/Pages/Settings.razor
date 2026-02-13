@@ -95,26 +95,29 @@
             <div class="sdk-path-info">
                 <div class="detail-item">
                     <span class="detail-label">SDK PATH</span>
-                    <span class="detail-value mono copyable">
+                    <div class="path-input-group">
                         @if (isLoadingSdk)
                         {
                             <span class="detecting"><i class="fas fa-spinner fa-spin"></i> Detecting...</span>
                         }
-                        else if (!string.IsNullOrEmpty(SdkService.SdkPath))
-                        {
-                            @SdkService.SdkPath
-                            <button class="btn-copy" @onclick="@(() => CopyToClipboard(SdkService.SdkPath!))" title="Copy to clipboard">
-                                <i class="fas fa-copy"></i>
-                            </button>
-                            <button class="btn-reveal" @onclick="@(() => FileSystem.RevealInFileManager(SdkService.SdkPath!))" title="Reveal in Finder">
-                                <i class="fas fa-external-link-alt"></i>
-                            </button>
-                        }
                         else
                         {
-                            <span class="no-sdk">No SDK detected</span>
+                            <input type="text" 
+                                   class="path-input mono" 
+                                   @bind="editableSdkPath" 
+                                   @bind:event="oninput"
+                                   placeholder="Enter Android SDK path or use Browse button"
+                                   disabled="@isLoadingSdk" />
+                            <div class="path-actions">
+                                <button class="btn-icon-action" @onclick="@(() => CopyToClipboard(editableSdkPath))" title="Copy to clipboard" disabled="@(string.IsNullOrEmpty(editableSdkPath))">
+                                    <i class="fas fa-copy"></i>
+                                </button>
+                                <button class="btn-icon-action" @onclick="@(() => FileSystem.RevealInFileManager(editableSdkPath))" title="Reveal in Finder" disabled="@(string.IsNullOrEmpty(editableSdkPath))">
+                                    <i class="fas fa-external-link-alt"></i>
+                                </button>
+                            </div>
                         }
-                    </span>
+                    </div>
                 </div>
                 @if (!string.IsNullOrEmpty(SdkSettings.CustomSdkPath))
                 {
@@ -124,8 +127,11 @@
                 }
             </div>
             <div class="sdk-path-actions">
+                <button class="btn btn-secondary btn-sm" @onclick="ApplySdkPath" disabled="@(isLoadingSdk || !HasSdkPathChanged)">
+                    <i class="fas fa-check"></i> Apply
+                </button>
                 <button class="btn btn-secondary btn-sm" @onclick="ChangeSdkPath" disabled="@isLoadingSdk">
-                    <i class="fas fa-folder-open"></i> Change
+                    <i class="fas fa-folder-open"></i> Browse
                 </button>
                 @if (!string.IsNullOrEmpty(SdkSettings.CustomSdkPath))
                 {
@@ -149,26 +155,29 @@
             <div class="sdk-path-info">
                 <div class="detail-item">
                     <span class="detail-label">JDK PATH</span>
-                    <span class="detail-value mono copyable">
+                    <div class="path-input-group">
                         @if (isLoadingJdk)
                         {
                             <span class="detecting"><i class="fas fa-spinner fa-spin"></i> Detecting...</span>
                         }
-                        else if (!string.IsNullOrEmpty(effectiveJdkPath))
-                        {
-                            @effectiveJdkPath
-                            <button class="btn-copy" @onclick="@(() => CopyToClipboard(effectiveJdkPath!))" title="Copy to clipboard">
-                                <i class="fas fa-copy"></i>
-                            </button>
-                            <button class="btn-reveal" @onclick="@(() => FileSystem.RevealInFileManager(effectiveJdkPath!))" title="Reveal in Finder">
-                                <i class="fas fa-external-link-alt"></i>
-                            </button>
-                        }
                         else
                         {
-                            <span class="no-sdk">No JDK detected</span>
+                            <input type="text" 
+                                   class="path-input mono" 
+                                   @bind="editableJdkPath" 
+                                   @bind:event="oninput"
+                                   placeholder="Enter OpenJDK path or use Browse button"
+                                   disabled="@isLoadingJdk" />
+                            <div class="path-actions">
+                                <button class="btn-icon-action" @onclick="@(() => CopyToClipboard(editableJdkPath))" title="Copy to clipboard" disabled="@(string.IsNullOrEmpty(editableJdkPath))">
+                                    <i class="fas fa-copy"></i>
+                                </button>
+                                <button class="btn-icon-action" @onclick="@(() => FileSystem.RevealInFileManager(editableJdkPath))" title="Reveal in Finder" disabled="@(string.IsNullOrEmpty(editableJdkPath))">
+                                    <i class="fas fa-external-link-alt"></i>
+                                </button>
+                            </div>
                         }
-                    </span>
+                    </div>
                 </div>
                 @if (!string.IsNullOrEmpty(JdkSettings.CustomJdkPath))
                 {
@@ -178,8 +187,11 @@
                 }
             </div>
             <div class="sdk-path-actions">
+                <button class="btn btn-secondary btn-sm" @onclick="ApplyJdkPath" disabled="@(isLoadingJdk || !HasJdkPathChanged)">
+                    <i class="fas fa-check"></i> Apply
+                </button>
                 <button class="btn btn-secondary btn-sm" @onclick="ChangeJdkPath" disabled="@isLoadingJdk">
-                    <i class="fas fa-folder-open"></i> Change
+                    <i class="fas fa-folder-open"></i> Browse
                 </button>
                 @if (!string.IsNullOrEmpty(JdkSettings.CustomJdkPath))
                 {
@@ -1102,6 +1114,66 @@
         font-weight: 500;
     }
 
+    .path-input-group {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-top: 0.25rem;
+    }
+
+    .path-input {
+        flex: 1;
+        padding: 0.625rem 0.75rem;
+        border: 1px solid var(--border-color);
+        border-radius: 0.375rem;
+        font-size: 0.875rem;
+        box-sizing: border-box;
+        background: var(--bg-tertiary);
+        color: var(--text-primary);
+    }
+
+    .path-input:focus {
+        outline: none;
+        border-color: var(--accent-primary);
+        box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.1);
+    }
+
+    .path-input:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+
+    .path-actions {
+        display: flex;
+        gap: 0.25rem;
+        flex-shrink: 0;
+    }
+
+    .btn-icon-action {
+        background: none;
+        border: none;
+        color: #a0aec0;
+        cursor: pointer;
+        padding: 0.375rem 0.5rem;
+        font-size: 0.875rem;
+        border-radius: 0.25rem;
+        transition: all 0.15s;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .btn-icon-action:hover:not(:disabled) {
+        color: var(--accent-primary);
+        background: var(--bg-tertiary);
+    }
+
+    .btn-icon-action:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+    }
+
     .empty-identities { padding: 1.25rem; text-align: center; color: var(--text-muted); }
     .add-identity { margin-top: 1rem; }
 
@@ -1417,6 +1489,14 @@
     private bool isLoadingJdk = true;
     private string? effectiveJdkPath;
     
+    // Editable path fields
+    private string editableSdkPath = "";
+    private string editableJdkPath = "";
+    
+    // Computed properties for change detection
+    private bool HasSdkPathChanged => editableSdkPath != (SdkService.SdkPath ?? "");
+    private bool HasJdkPathChanged => editableJdkPath != (effectiveJdkPath ?? "");
+    
     // Cloud provider state
     private List<CloudSecretsProviderConfig> cloudProviders = new();
     private bool showProviderDialog = false;
@@ -1526,6 +1606,7 @@
             {
                 await settingsService.InitializeAsync();
             }
+            editableSdkPath = SdkService.SdkPath ?? "";
         }
         finally
         {
@@ -1536,7 +1617,11 @@
 
     private void OnSdkPathChanged()
     {
-        InvokeAsync(StateHasChanged);
+        InvokeAsync(() =>
+        {
+            editableSdkPath = SdkService.SdkPath ?? "";
+            StateHasChanged();
+        });
     }
 
     private void OnJdkPathChanged()
@@ -1544,6 +1629,7 @@
         InvokeAsync(async () =>
         {
             effectiveJdkPath = await JdkSettings.GetEffectiveJdkPathAsync();
+            editableJdkPath = effectiveJdkPath ?? "";
             StateHasChanged();
         });
     }
@@ -1557,6 +1643,7 @@
         {
             await JdkSettings.InitializeAsync();
             effectiveJdkPath = await JdkSettings.GetEffectiveJdkPathAsync();
+            editableJdkPath = effectiveJdkPath ?? "";
         }
         finally
         {
@@ -1690,11 +1777,50 @@
         _ = InitModalAsync("identity-modal");
     }
 
+    private async Task ApplySdkPath()
+    {
+        if (string.IsNullOrWhiteSpace(editableSdkPath))
+        {
+            await AlertService.ShowAlertAsync("Invalid Path", "Please enter a valid Android SDK path.");
+            return;
+        }
+
+        if (!Directory.Exists(editableSdkPath))
+        {
+            var confirm = await AlertService.ShowConfirmAsync(
+                "Path Not Found",
+                $"The path '{editableSdkPath}' does not exist. Apply anyway?");
+            
+            if (!confirm) return;
+        }
+
+        isLoadingSdk = true;
+        StateHasChanged();
+
+        try
+        {
+            await SdkSettings.SetCustomSdkPathAsync(editableSdkPath);
+            // Invalidate SDK path cache
+            await Mediator.FlushStores("android:sdkpath");
+            await AlertService.ShowToastAsync("SDK path updated");
+        }
+        catch (Exception ex)
+        {
+            await AlertService.ShowAlertAsync("Error", $"Failed to set SDK path: {ex.Message}");
+        }
+        finally
+        {
+            isLoadingSdk = false;
+            StateHasChanged();
+        }
+    }
+
     private async Task ChangeSdkPath()
     {
         var path = await DialogService.PickFolderAsync("Select Android SDK Location");
         if (string.IsNullOrEmpty(path)) return;
 
+        editableSdkPath = path;
         isLoadingSdk = true;
         StateHasChanged();
 
@@ -1745,11 +1871,51 @@
         }
     }
 
+    private async Task ApplyJdkPath()
+    {
+        if (string.IsNullOrWhiteSpace(editableJdkPath))
+        {
+            await AlertService.ShowAlertAsync("Invalid Path", "Please enter a valid OpenJDK path.");
+            return;
+        }
+
+        if (!Directory.Exists(editableJdkPath))
+        {
+            var confirm = await AlertService.ShowConfirmAsync(
+                "Path Not Found",
+                $"The path '{editableJdkPath}' does not exist. Apply anyway?");
+            
+            if (!confirm) return;
+        }
+
+        isLoadingJdk = true;
+        StateHasChanged();
+
+        try
+        {
+            await JdkSettings.SetCustomJdkPathAsync(editableJdkPath);
+            await Mediator.FlushStores("android:jdkpath");
+            effectiveJdkPath = await JdkSettings.GetEffectiveJdkPathAsync();
+            editableJdkPath = effectiveJdkPath ?? "";
+            await AlertService.ShowToastAsync("JDK path updated");
+        }
+        catch (Exception ex)
+        {
+            await AlertService.ShowAlertAsync("Error", $"Failed to set JDK path: {ex.Message}");
+        }
+        finally
+        {
+            isLoadingJdk = false;
+            StateHasChanged();
+        }
+    }
+
     private async Task ChangeJdkPath()
     {
         var path = await DialogService.PickFolderAsync("Select OpenJDK Location");
         if (string.IsNullOrEmpty(path)) return;
 
+        editableJdkPath = path;
         isLoadingJdk = true;
         StateHasChanged();
 
@@ -1758,6 +1924,7 @@
             await JdkSettings.SetCustomJdkPathAsync(path);
             await Mediator.FlushStores("android:jdkpath");
             effectiveJdkPath = await JdkSettings.GetEffectiveJdkPathAsync();
+            editableJdkPath = effectiveJdkPath ?? "";
             await AlertService.ShowToastAsync("JDK path updated");
         }
         catch (Exception ex)
@@ -1787,6 +1954,7 @@
             await JdkSettings.ResetToDefaultAsync();
             await Mediator.FlushStores("android:jdkpath");
             effectiveJdkPath = await JdkSettings.GetEffectiveJdkPathAsync();
+            editableJdkPath = effectiveJdkPath ?? "";
             await AlertService.ShowToastAsync("JDK path reset to default");
         }
         catch (Exception ex)

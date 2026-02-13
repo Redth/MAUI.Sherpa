@@ -298,8 +298,10 @@
 
     private async Task ProcessSuccess()
     {
+        var (exe, args) = GetShellCommand("echo Initializing... && ping -n 2 127.0.0.1 >nul && echo Loading configuration... && ping -n 2 127.0.0.1 >nul && echo Processing data... && ping -n 2 127.0.0.1 >nul && echo Done!",
+            "echo 'Initializing...'; sleep 1; echo 'Loading configuration...'; sleep 1; echo 'Processing data...'; sleep 1; echo 'Done!'");
         await ProcessModal.ShowProcessAsync(new ProcessRequest(
-            "bash", ["-c", "echo 'Initializing...'; sleep 1; echo 'Loading configuration...'; sleep 1; echo 'Processing data...'; sleep 1; echo 'Done!'"],
+            exe, args,
             Title: "Simulated Process",
             Description: "A short process that completes successfully."
         ));
@@ -307,8 +309,10 @@
 
     private async Task ProcessFailure()
     {
+        var (exe, args) = GetShellCommand("echo Starting process... && ping -n 2 127.0.0.1 >nul && echo Processing data... && ping -n 2 127.0.0.1 >nul && echo ERROR: Something went wrong! >&2 && exit 1",
+            "echo 'Starting process...'; sleep 1; echo 'Processing data...'; sleep 1; echo 'ERROR: Something went wrong!' >&2; exit 1");
         await ProcessModal.ShowProcessAsync(new ProcessRequest(
-            "bash", ["-c", "echo 'Starting process...'; sleep 1; echo 'Processing data...'; sleep 1; echo 'ERROR: Something went wrong!' >&2; exit 1"],
+            exe, args,
             Title: "Failing Process",
             Description: "A process that outputs text then exits with an error."
         ));
@@ -316,8 +320,10 @@
 
     private async Task ProcessLongRunning()
     {
+        var (exe, args) = GetShellCommand("for /L %i in (1,1,10) do @(echo [Step %i/10] Processing batch %i... && ping -n 2 127.0.0.1 >nul) && echo All batches complete!",
+            "for i in $(seq 1 10); do echo \"[Step $i/10] Processing batch $i...\"; sleep 1; done; echo 'All batches complete!'");
         await ProcessModal.ShowProcessAsync(new ProcessRequest(
-            "bash", ["-c", "for i in $(seq 1 10); do echo \"[Step $i/10] Processing batch $i...\"; sleep 1; done; echo 'All batches complete!'"],
+            exe, args,
             Title: "Long-Running Process",
             Description: "A process that streams output over 10 seconds."
         ));
@@ -325,11 +331,20 @@
 
     private async Task ProcessCancellable()
     {
+        var (exe, args) = GetShellCommand("echo Starting long operation... && echo Press Cancel to stop. && ping -n 31 127.0.0.1 >nul && echo Done!",
+            "echo 'Starting long operation...'; echo 'Press Cancel to stop.'; sleep 30; echo 'Done!'");
         await ProcessModal.ShowProcessAsync(new ProcessRequest(
-            "bash", ["-c", "echo 'Starting long operation...'; echo 'Press Cancel to stop.'; sleep 30; echo 'Done!'"],
+            exe, args,
             Title: "Cancellable Process",
             Description: "A long-running process you can cancel."
         ));
+    }
+
+    private static (string exe, string[] args) GetShellCommand(string windowsCmd, string unixCmd)
+    {
+        if (OperatingSystem.IsWindows())
+            return ("cmd", ["/c", windowsCmd]);
+        return ("bash", ["-c", unixCmd]);
     }
 
     // === Operation Modal ===

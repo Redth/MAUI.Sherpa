@@ -99,32 +99,7 @@ public class OpenJdkSettingsService : IOpenJdkSettingsService
     private static string? DetectJdkPath()
     {
         var locator = new JdkLocator();
-        
-        // Pass Android\openjdk as additional search path until upstream adds it
-        var additionalPaths = GetAdditionalJdkPaths();
-        var jdks = locator.LocateJdk(specificHome: null, additionalPossibleDirectories: additionalPaths);
-        
+        var jdks = locator.LocateJdk();
         return jdks.FirstOrDefault()?.Home?.FullName;
-    }
-
-    private static string[] GetAdditionalJdkPaths()
-    {
-        var paths = new List<string>();
-
-        if (OperatingSystem.IsWindows())
-        {
-            // Android OpenJDK (installed by Android Studio or MAUI workload)
-            // Not yet in upstream JdkLocator — searches Android\Jdk but not Android\openjdk
-            var androidJdkDir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
-                "Android", "openjdk");
-            if (Directory.Exists(androidJdkDir))
-            {
-                foreach (var dir in Directory.GetDirectories(androidJdkDir))
-                    paths.Add(dir);
-            }
-        }
-
-        return paths.ToArray();
     }
 }
