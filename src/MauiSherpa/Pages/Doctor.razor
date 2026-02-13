@@ -122,7 +122,14 @@
                     {
                         <div class="context-item">
                             <span class="context-label">Pinned SDK Version</span>
-                            <span class="context-value"><i class="fas fa-thumbtack"></i> @report.Context.PinnedSdkVersion</span>
+                            <span class="context-value">
+                                <i class="fas fa-thumbtack"></i> @report.Context.PinnedSdkVersion
+                                @if (report.Context.ResolvedSdkVersion != null && report.Context.ResolvedSdkVersion != report.Context.PinnedSdkVersion)
+                                {
+                                    <i class="fas fa-arrow-right" style="margin: 0 0.25rem; font-size: 0.75rem; opacity: 0.6;"></i>
+                                    <span class="badge badge-secondary" title="Resolved via rollForward: @(report.Context.RollForwardPolicy ?? "latestPatch")">@report.Context.ResolvedSdkVersion</span>
+                                }
+                            </span>
                         </div>
                     }
                     @if (report.Context.PinnedWorkloadSetVersion != null)

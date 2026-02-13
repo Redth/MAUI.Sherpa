@@ -888,7 +888,9 @@ public record DoctorContext(
     string? PinnedWorkloadSetVersion,
     string? EffectiveFeatureBand,
     bool IsPreviewSdk = false,
-    string? ActiveSdkVersion = null
+    string? ActiveSdkVersion = null,
+    string? RollForwardPolicy = null,
+    string? ResolvedSdkVersion = null
 );
 
 /// <summary>

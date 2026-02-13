@@ -43,6 +43,50 @@ public class DoctorPreviewSdkTests
 
         context.IsPreviewSdk.Should().BeFalse();
         context.ActiveSdkVersion.Should().BeNull();
+        context.RollForwardPolicy.Should().BeNull();
+        context.ResolvedSdkVersion.Should().BeNull();
+    }
+
+    [Fact]
+    public void DoctorContext_WithRollForward_StoresResolvedVersion()
+    {
+        var context = new DoctorContext(
+            WorkingDirectory: "/test",
+            DotNetSdkPath: "/usr/local/share/dotnet",
+            GlobalJsonPath: "/test/global.json",
+            PinnedSdkVersion: "10.0.100",
+            PinnedWorkloadSetVersion: null,
+            EffectiveFeatureBand: "10.0.100",
+            IsPreviewSdk: false,
+            ActiveSdkVersion: "10.0.103",
+            RollForwardPolicy: "latestPatch",
+            ResolvedSdkVersion: "10.0.103"
+        );
+
+        context.PinnedSdkVersion.Should().Be("10.0.100");
+        context.ResolvedSdkVersion.Should().Be("10.0.103");
+        context.RollForwardPolicy.Should().Be("latestPatch");
+        context.ActiveSdkVersion.Should().Be("10.0.103");
+    }
+
+    [Fact]
+    public void DoctorContext_WithExactPinnedMatch_ResolvedVersionMatchesPinned()
+    {
+        // When the exact pinned version is installed, resolved == pinned
+        var context = new DoctorContext(
+            WorkingDirectory: "/test",
+            DotNetSdkPath: "/usr/local/share/dotnet",
+            GlobalJsonPath: "/test/global.json",
+            PinnedSdkVersion: "10.0.103",
+            PinnedWorkloadSetVersion: null,
+            EffectiveFeatureBand: "10.0.100",
+            IsPreviewSdk: false,
+            ActiveSdkVersion: "10.0.103",
+            RollForwardPolicy: "latestPatch",
+            ResolvedSdkVersion: "10.0.103"
+        );
+
+        context.ResolvedSdkVersion.Should().Be(context.PinnedSdkVersion);
     }
 
     [Fact]
