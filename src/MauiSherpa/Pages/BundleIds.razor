@@ -202,15 +202,22 @@
                                 {
                                     var isEnabled = IsCapabilityEnabled(capType);
                                     var capId = GetCapabilityId(capType);
-                                    <div class="capability-item @(isEnabled ? "enabled" : "")">
+                                    var isToggleable = CapabilityCategories.IsToggleable(capType);
+                                    <div class="capability-item @(isEnabled ? "enabled" : "") @(!isToggleable ? "read-only" : "")">
                                         <div class="capability-info">
                                             <i class="fas @CapabilityCategories.GetIcon(capType)"></i>
                                             <span class="capability-name">@CapabilityCategories.GetDisplayName(capType)</span>
+                                            @if (!isToggleable)
+                                            {
+                                                <span class="capability-readonly-badge" title="This capability cannot be toggled via the API. Use the Apple Developer Portal or Xcode.">
+                                                    <i class="fas fa-lock"></i> Read-only
+                                                </span>
+                                            }
                                         </div>
                                         <label class="toggle-switch">
                                             <input type="checkbox" 
                                                    checked="@isEnabled" 
-                                                   disabled="@isTogglingCapability"
+                                                   disabled="@(isTogglingCapability || !isToggleable)"
                                                    @onchange="@(e => ToggleCapability(capType, capId, (bool)(e.Value ?? false)))" />
                                             <span class="toggle-slider"></span>
                                         </label>
@@ -511,6 +518,20 @@
     }
     .capability-item.enabled .capability-info i {
         color: #38a169;
+    }
+    .capability-item.read-only {
+        opacity: 0.65;
+    }
+    .capability-readonly-badge {
+        font-size: 0.7rem;
+        color: #a0aec0;
+        background: var(--bg-hover);
+        padding: 0.1rem 0.4rem;
+        border-radius: 0.25rem;
+        white-space: nowrap;
+    }
+    .capability-readonly-badge i {
+        font-size: 0.6rem;
     }
     .capability-name {
         font-size: 0.875rem;
