@@ -58,16 +58,11 @@ public class DialogService : IDialogService
 
     public async Task<string?> ShowFileDialogAsync(string title, bool isSave = false, string[]? filters = null, string? defaultFileName = null)
     {
-#if MACCATALYST
         if (isSave)
         {
-            // For save, we use a folder picker and then append the filename
-            var folder = await PickFolderAsync(title);
-            if (folder != null && !string.IsNullOrEmpty(defaultFileName))
-            {
-                return Path.Combine(folder, defaultFileName);
-            }
-            return folder;
+            var ext = filters?.FirstOrDefault()?.TrimStart('*', '.') ?? "";
+            var fileName = defaultFileName ?? $"file.{ext}";
+            return await PickSaveFileAsync(title, fileName, ext);
         }
         else
         {
@@ -76,9 +71,6 @@ public class DialogService : IDialogService
                 .ToArray();
             return await PickOpenFileAsync(title, extensions);
         }
-#else
-        return await Task.FromResult<string?>(null);
-#endif
     }
 
     public async Task<string?> PickFolderAsync(string title)
@@ -117,6 +109,19 @@ public class DialogService : IDialogService
         });
 
         return await tcs.Task;
+#elif WINDOWS
+        return await MainThread.InvokeOnMainThreadAsync(async () =>
+        {
+            var folderPicker = new Windows.Storage.Pickers.FolderPicker();
+            folderPicker.SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.DocumentsLibrary;
+            folderPicker.FileTypeFilter.Add("*");
+
+            var hwnd = GetWindowHandle();
+            WinRT.Interop.InitializeWithWindow.Initialize(folderPicker, hwnd);
+
+            var folder = await folderPicker.PickSingleFolderAsync();
+            return folder?.Path;
+        });
 #else
         return await Task.FromResult<string?>(null);
 #endif
@@ -178,7 +183,22 @@ public class DialogService : IDialogService
 
         return await tcs.Task;
 #else
-        return await Task.FromResult<string?>(null);
+        var fileTypes = new Dictionary<DevicePlatform, IEnumerable<string>>();
+        if (extensions != null && extensions.Length > 0)
+        {
+            fileTypes[DevicePlatform.WinUI] = extensions.Select(e => "." + e.TrimStart('.'));
+        }
+
+        var options = new PickOptions
+        {
+            PickerTitle = title,
+            FileTypes = extensions != null && extensions.Length > 0
+                ? new FilePickerFileType(fileTypes)
+                : null
+        };
+
+        var result = await FilePicker.PickAsync(options);
+        return result?.FullPath;
 #endif
     }
 
@@ -227,8 +247,32 @@ public class DialogService : IDialogService
         });
 
         return await tcs.Task;
+#elif WINDOWS
+        return await MainThread.InvokeOnMainThreadAsync(async () =>
+        {
+            var savePicker = new Windows.Storage.Pickers.FileSavePicker();
+            savePicker.SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.DocumentsLibrary;
+            savePicker.SuggestedFileName = suggestedName;
+            
+            var cleanExt = "." + extension.TrimStart('.');
+            savePicker.FileTypeChoices.Add(title, new List<string> { cleanExt });
+
+            var hwnd = GetWindowHandle();
+            WinRT.Interop.InitializeWithWindow.Initialize(savePicker, hwnd);
+
+            var file = await savePicker.PickSaveFileAsync();
+            return file?.Path;
+        });
 #else
         return await Task.FromResult<string?>(null);
 #endif
     }
+
+#if WINDOWS
+    private static nint GetWindowHandle()
+    {
+        var window = Application.Current!.Windows[0].Handler!.PlatformView as Microsoft.UI.Xaml.Window;
+        return WinRT.Interop.WindowNative.GetWindowHandle(window);
+    }
+#endif
 }
