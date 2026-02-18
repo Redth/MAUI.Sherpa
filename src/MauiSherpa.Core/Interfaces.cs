@@ -2390,10 +2390,24 @@ public interface IEncryptedSettingsService
 /// </summary>
 public interface IBackupService
 {
-    Task<byte[]> ExportSettingsAsync(string password);
+    Task<byte[]> ExportSettingsAsync(string password, BackupExportSelection? selection = null);
+    Task<BackupImportResult> ImportBackupAsync(byte[] encryptedData, string password);
     Task<MauiSherpaSettings> ImportSettingsAsync(byte[] encryptedData, string password);
     Task<bool> ValidateBackupAsync(byte[] data);
 }
+
+public record BackupExportSelection
+{
+    public bool IncludePreferences { get; init; } = true;
+    public List<string> AppleIdentityIds { get; init; } = new();
+    public List<string> CloudProviderIds { get; init; } = new();
+    public List<string> SecretsPublisherIds { get; init; } = new();
+}
+
+public record BackupImportResult(
+    MauiSherpaSettings Settings,
+    BackupExportSelection Selection
+);
 
 /// <summary>
 /// Service for migrating settings from legacy storage
