@@ -132,7 +132,22 @@ else
         // Restore selection or select first
         if (IdentityState.SelectedIdentity != null)
         {
-            selectedIdentityId = IdentityState.SelectedIdentity.Id;
+            var selected = identities.FirstOrDefault(i => i.Id == IdentityState.SelectedIdentity.Id);
+            if (selected != null)
+            {
+                selectedIdentityId = selected.Id;
+                IdentityState.SetSelectedIdentity(selected);
+            }
+            else if (identities.Count > 0)
+            {
+                selectedIdentityId = identities[0].Id;
+                IdentityState.SetSelectedIdentity(identities[0]);
+            }
+            else
+            {
+                selectedIdentityId = "";
+                IdentityState.SetSelectedIdentity(null);
+            }
         }
         else if (identities.Count > 0)
         {

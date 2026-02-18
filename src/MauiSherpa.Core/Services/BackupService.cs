@@ -16,54 +16,54 @@ public class BackupService : IBackupService
     private const int TagSize = 16;
     private const int KeySize = 32;
     private const int Iterations = 100_000;
+    private const int BackupPayloadVersion = 2;
     private static readonly byte[] MagicHeader = "MSSBAK01"u8.ToArray();
     
     private readonly IEncryptedSettingsService _settingsService;
     private readonly IAppleIdentityService? _appleIdentityService;
+    private readonly ICloudSecretsService? _cloudSecretsService;
+    private readonly ISecretsPublisherService? _secretsPublisherService;
+
+    private record BackupPayload(
+        int Version,
+        MauiSherpaSettings Settings,
+        BackupExportSelection Selection
+    );
 
     public BackupService(
         IEncryptedSettingsService settingsService,
-        IAppleIdentityService? appleIdentityService = null)
+        IAppleIdentityService? appleIdentityService = null,
+        ICloudSecretsService? cloudSecretsService = null,
+        ISecretsPublisherService? secretsPublisherService = null)
     {
         _settingsService = settingsService;
         _appleIdentityService = appleIdentityService;
+        _cloudSecretsService = cloudSecretsService;
+        _secretsPublisherService = secretsPublisherService;
     }
 
-    public async Task<byte[]> ExportSettingsAsync(string password)
+    public async Task<byte[]> ExportSettingsAsync(string password, BackupExportSelection? selection = null)
     {
         if (string.IsNullOrEmpty(password))
             throw new ArgumentException("Password is required", nameof(password));
 
-        var settings = await _settingsService.GetSettingsAsync();
-        if (_appleIdentityService is not null)
+        var settings = await BuildCurrentSettingsSnapshotAsync();
+        var resolvedSelection = ResolveSelection(selection, settings);
+        if (!resolvedSelection.IncludePreferences &&
+            resolvedSelection.AppleIdentityIds.Count == 0 &&
+            resolvedSelection.CloudProviderIds.Count == 0 &&
+            resolvedSelection.SecretsPublisherIds.Count == 0)
         {
-            var identities = await _appleIdentityService.GetIdentitiesAsync();
-            if (identities.Count > 0)
-            {
-                var createdAtById = new Dictionary<string, DateTime>();
-                foreach (var identity in settings.AppleIdentities)
-                {
-                    createdAtById[identity.Id] = identity.CreatedAt;
-                }
-
-                settings = settings with
-                {
-                    AppleIdentities = identities
-                        .Select(identity => new AppleIdentityData(
-                            Id: identity.Id,
-                            Name: identity.Name,
-                            KeyId: identity.KeyId,
-                            IssuerId: identity.IssuerId,
-                            P8Content: identity.P8KeyContent ?? string.Empty,
-                            CreatedAt: createdAtById.TryGetValue(identity.Id, out var createdAt)
-                                ? createdAt
-                                : DateTime.UtcNow))
-                        .ToList()
-                };
-            }
+            throw new InvalidOperationException("At least one setting item must be selected for export.");
         }
 
-        var json = JsonSerializer.Serialize(settings);
+        var selectedSettings = ApplySelection(settings, resolvedSelection);
+        var payload = new BackupPayload(
+            Version: BackupPayloadVersion,
+            Settings: selectedSettings,
+            Selection: resolvedSelection);
+
+        var json = JsonSerializer.Serialize(payload);
         var plaintext = Encoding.UTF8.GetBytes(json);
 
         // Generate salt and derive key
@@ -99,7 +99,7 @@ public class BackupService : IBackupService
         return result;
     }
 
-    public async Task<MauiSherpaSettings> ImportSettingsAsync(byte[] encryptedData, string password)
+    public async Task<BackupImportResult> ImportBackupAsync(byte[] encryptedData, string password)
     {
         if (string.IsNullOrEmpty(password))
             throw new ArgumentException("Password is required", nameof(password));
@@ -136,10 +136,31 @@ public class BackupService : IBackupService
         aes.Decrypt(nonce, ciphertext, tag, plaintext);
 
         var json = Encoding.UTF8.GetString(plaintext);
+        var payload = JsonSerializer.Deserialize<BackupPayload>(json);
+        if (payload?.Settings != null && payload.Selection != null)
+        {
+            var resolvedSelection = ResolveSelection(payload.Selection, payload.Settings);
+            var selectedSettings = ApplySelection(payload.Settings, resolvedSelection);
+            return new BackupImportResult(selectedSettings, resolvedSelection);
+        }
+
         var settings = JsonSerializer.Deserialize<MauiSherpaSettings>(json) 
             ?? throw new InvalidOperationException("Failed to deserialize settings");
+        var legacySelection = new BackupExportSelection
+        {
+            IncludePreferences = true,
+            AppleIdentityIds = settings.AppleIdentities.Select(i => i.Id).ToList(),
+            CloudProviderIds = settings.CloudProviders.Select(p => p.Id).ToList(),
+            SecretsPublisherIds = settings.SecretsPublishers.Select(p => p.Id).ToList()
+        };
 
-        return settings;
+        return new BackupImportResult(settings, legacySelection);
+    }
+
+    public async Task<MauiSherpaSettings> ImportSettingsAsync(byte[] encryptedData, string password)
+    {
+        var importResult = await ImportBackupAsync(encryptedData, password);
+        return importResult.Settings;
     }
 
     public Task<bool> ValidateBackupAsync(byte[] data)
@@ -164,5 +185,160 @@ public class BackupService : IBackupService
             Iterations, 
             HashAlgorithmName.SHA256);
         return pbkdf2.GetBytes(KeySize);
+    }
+
+    private async Task<MauiSherpaSettings> BuildCurrentSettingsSnapshotAsync()
+    {
+        var settings = await _settingsService.GetSettingsAsync();
+        settings = await HydrateAppleIdentitiesAsync(settings);
+        settings = await HydrateCloudProvidersAsync(settings);
+        settings = await HydrateSecretsPublishersAsync(settings);
+        return settings;
+    }
+
+    private async Task<MauiSherpaSettings> HydrateAppleIdentitiesAsync(MauiSherpaSettings settings)
+    {
+        if (_appleIdentityService is null)
+            return settings;
+
+        var identities = await _appleIdentityService.GetIdentitiesAsync();
+        if (identities.Count == 0)
+            return settings;
+
+        var createdAtById = settings.AppleIdentities
+            .GroupBy(i => i.Id)
+            .ToDictionary(g => g.Key, g => g.First().CreatedAt);
+
+        return settings with
+        {
+            AppleIdentities = identities
+                .Select(identity => new AppleIdentityData(
+                    Id: identity.Id,
+                    Name: identity.Name,
+                    KeyId: identity.KeyId,
+                    IssuerId: identity.IssuerId,
+                    P8Content: identity.P8KeyContent ?? string.Empty,
+                    CreatedAt: createdAtById.TryGetValue(identity.Id, out var createdAt)
+                        ? createdAt
+                        : DateTime.UtcNow))
+                .ToList()
+        };
+    }
+
+    private async Task<MauiSherpaSettings> HydrateCloudProvidersAsync(MauiSherpaSettings settings)
+    {
+        if (_cloudSecretsService is null)
+            return settings;
+
+        await _cloudSecretsService.InitializeAsync();
+        var providers = await _cloudSecretsService.GetProvidersAsync();
+        if (providers.Count == 0)
+            return settings;
+
+        var activeProviderId = _cloudSecretsService.ActiveProvider?.Id;
+        return settings with
+        {
+            CloudProviders = providers
+                .Select(provider => new CloudProviderData(
+                    Id: provider.Id,
+                    Name: provider.Name,
+                    ProviderType: provider.ProviderType,
+                    Settings: new Dictionary<string, string>(provider.Settings),
+                    IsActive: provider.Id == activeProviderId))
+                .ToList(),
+            ActiveCloudProviderId = activeProviderId
+        };
+    }
+
+    private async Task<MauiSherpaSettings> HydrateSecretsPublishersAsync(MauiSherpaSettings settings)
+    {
+        if (_secretsPublisherService is null)
+            return settings;
+
+        var publishers = await _secretsPublisherService.GetPublishersAsync();
+        if (publishers.Count == 0)
+            return settings;
+
+        return settings with
+        {
+            SecretsPublishers = publishers
+                .Select(publisher => new SecretsPublisherData(
+                    Id: publisher.Id,
+                    ProviderId: publisher.ProviderId,
+                    Name: publisher.Name,
+                    Settings: new Dictionary<string, string>(publisher.Settings)))
+                .ToList()
+        };
+    }
+
+    private static BackupExportSelection ResolveSelection(BackupExportSelection? selection, MauiSherpaSettings settings)
+    {
+        var availableIdentityIds = settings.AppleIdentities.Select(i => i.Id).ToHashSet(StringComparer.Ordinal);
+        var availableProviderIds = settings.CloudProviders.Select(p => p.Id).ToHashSet(StringComparer.Ordinal);
+        var availablePublisherIds = settings.SecretsPublishers.Select(p => p.Id).ToHashSet(StringComparer.Ordinal);
+
+        if (selection is null)
+        {
+            return new BackupExportSelection
+            {
+                IncludePreferences = true,
+                AppleIdentityIds = availableIdentityIds.ToList(),
+                CloudProviderIds = availableProviderIds.ToList(),
+                SecretsPublisherIds = availablePublisherIds.ToList()
+            };
+        }
+
+        var selectedIdentityIds = selection.AppleIdentityIds ?? new List<string>();
+        var selectedProviderIds = selection.CloudProviderIds ?? new List<string>();
+        var selectedPublisherIds = selection.SecretsPublisherIds ?? new List<string>();
+
+        return new BackupExportSelection
+        {
+            IncludePreferences = selection.IncludePreferences,
+            AppleIdentityIds = selectedIdentityIds
+                .Where(id => availableIdentityIds.Contains(id))
+                .Distinct(StringComparer.Ordinal)
+                .ToList(),
+            CloudProviderIds = selectedProviderIds
+                .Where(id => availableProviderIds.Contains(id))
+                .Distinct(StringComparer.Ordinal)
+                .ToList(),
+            SecretsPublisherIds = selectedPublisherIds
+                .Where(id => availablePublisherIds.Contains(id))
+                .Distinct(StringComparer.Ordinal)
+                .ToList()
+        };
+    }
+
+    private static MauiSherpaSettings ApplySelection(MauiSherpaSettings settings, BackupExportSelection selection)
+    {
+        var selectedIdentityIds = selection.AppleIdentityIds.ToHashSet(StringComparer.Ordinal);
+        var selectedProviderIds = selection.CloudProviderIds.ToHashSet(StringComparer.Ordinal);
+        var selectedPublisherIds = selection.SecretsPublisherIds.ToHashSet(StringComparer.Ordinal);
+
+        var cloudProviders = settings.CloudProviders
+            .Where(provider => selectedProviderIds.Contains(provider.Id))
+            .ToList();
+        var activeCloudProviderId = !string.IsNullOrEmpty(settings.ActiveCloudProviderId) &&
+                                    selectedProviderIds.Contains(settings.ActiveCloudProviderId)
+            ? settings.ActiveCloudProviderId
+            : null;
+
+        cloudProviders = cloudProviders
+            .Select(provider => provider with { IsActive = provider.Id == activeCloudProviderId })
+            .ToList();
+
+        return settings with
+        {
+            Preferences = selection.IncludePreferences ? settings.Preferences : new AppPreferences(),
+            AppleIdentities = settings.AppleIdentities
+                .Where(identity => selectedIdentityIds.Contains(identity.Id))
+                .ToList(),
+            CloudProviders = cloudProviders,
+            ActiveCloudProviderId = activeCloudProviderId,
+            SecretsPublishers = settings.SecretsPublishers
+                .Where(publisher => selectedPublisherIds.Contains(publisher.Id))
+                .ToList()
+        };
     }
 }

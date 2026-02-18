@@ -12,7 +12,7 @@ public class AppleIdentityStateService : IAppleIdentityStateService
 
     public void SetSelectedIdentity(AppleIdentity? identity)
     {
-        if (_selectedIdentity?.Id != identity?.Id)
+        if (_selectedIdentity != identity)
         {
             _selectedIdentity = identity;
             OnSelectionChanged?.Invoke();

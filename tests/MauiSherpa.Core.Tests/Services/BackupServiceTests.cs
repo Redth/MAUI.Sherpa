@@ -10,17 +10,38 @@ public class BackupServiceTests
 {
     private readonly Mock<IEncryptedSettingsService> _mockSettingsService;
     private readonly Mock<IAppleIdentityService> _mockAppleIdentityService;
+    private readonly Mock<ICloudSecretsService> _mockCloudSecretsService;
+    private readonly Mock<ISecretsPublisherService> _mockSecretsPublisherService;
     private readonly BackupService _service;
 
     public BackupServiceTests()
     {
         _mockSettingsService = new Mock<IEncryptedSettingsService>();
         _mockAppleIdentityService = new Mock<IAppleIdentityService>();
+        _mockCloudSecretsService = new Mock<ICloudSecretsService>();
+        _mockSecretsPublisherService = new Mock<ISecretsPublisherService>();
+
         _mockAppleIdentityService
             .Setup(x => x.GetIdentitiesAsync())
             .ReturnsAsync(Array.Empty<AppleIdentity>());
+        _mockCloudSecretsService
+            .Setup(x => x.InitializeAsync())
+            .Returns(Task.CompletedTask);
+        _mockCloudSecretsService
+            .Setup(x => x.GetProvidersAsync())
+            .ReturnsAsync(Array.Empty<CloudSecretsProviderConfig>());
+        _mockCloudSecretsService
+            .SetupGet(x => x.ActiveProvider)
+            .Returns((CloudSecretsProviderConfig?)null);
+        _mockSecretsPublisherService
+            .Setup(x => x.GetPublishersAsync())
+            .ReturnsAsync(Array.Empty<SecretsPublisherConfig>());
 
-        _service = new BackupService(_mockSettingsService.Object, _mockAppleIdentityService.Object);
+        _service = new BackupService(
+            _mockSettingsService.Object,
+            _mockAppleIdentityService.Object,
+            _mockCloudSecretsService.Object,
+            _mockSecretsPublisherService.Object);
     }
 
     [Fact]
@@ -112,6 +133,181 @@ public class BackupServiceTests
         imported.AppleIdentities[0].Name.Should().Be("Identity 1");
         imported.AppleIdentities[0].KeyId.Should().Be("KEY1");
         imported.AppleIdentities[0].P8Content.Should().Contain("BEGIN PRIVATE KEY");
+    }
+
+    [Fact]
+    public async Task ExportSettingsAsync_UsesCloudProvidersAndPublishersFromServices()
+    {
+        _mockSettingsService.Setup(x => x.GetSettingsAsync()).ReturnsAsync(new MauiSherpaSettings());
+
+        var provider = new CloudSecretsProviderConfig(
+            "cp1",
+            "Infisical Team",
+            CloudSecretsProviderType.Infisical,
+            new Dictionary<string, string>
+            {
+                ["ClientId"] = "client",
+                ["ClientSecret"] = "secret"
+            });
+        _mockCloudSecretsService.Setup(x => x.GetProvidersAsync()).ReturnsAsync(new List<CloudSecretsProviderConfig> { provider });
+        _mockCloudSecretsService.SetupGet(x => x.ActiveProvider).Returns(provider);
+
+        _mockSecretsPublisherService.Setup(x => x.GetPublishersAsync()).ReturnsAsync(new List<SecretsPublisherConfig>
+        {
+            new("sp1", "github", "GitHub Actions", new Dictionary<string, string> { ["PersonalAccessToken"] = "pat" })
+        });
+
+        var encrypted = await _service.ExportSettingsAsync("password123");
+        var imported = await _service.ImportSettingsAsync(encrypted, "password123");
+
+        imported.CloudProviders.Should().ContainSingle();
+        imported.CloudProviders[0].Id.Should().Be("cp1");
+        imported.ActiveCloudProviderId.Should().Be("cp1");
+        imported.SecretsPublishers.Should().ContainSingle();
+        imported.SecretsPublishers[0].Id.Should().Be("sp1");
+    }
+
+    [Fact]
+    public async Task ExportSettingsAsync_WithSelection_ExportsOnlySelectedItems()
+    {
+        _mockSettingsService.Setup(x => x.GetSettingsAsync()).ReturnsAsync(new MauiSherpaSettings
+        {
+            Preferences = new AppPreferences { Theme = "Dark", DemoMode = true }
+        });
+        _mockAppleIdentityService.Setup(x => x.GetIdentitiesAsync()).ReturnsAsync(new List<AppleIdentity>
+        {
+            new("id1", "Identity 1", "KEY1", "ISS1", null, "P8-1"),
+            new("id2", "Identity 2", "KEY2", "ISS2", null, "P8-2")
+        });
+        _mockCloudSecretsService.Setup(x => x.GetProvidersAsync()).ReturnsAsync(new List<CloudSecretsProviderConfig>
+        {
+            new("cp1", "Provider 1", CloudSecretsProviderType.Infisical, new Dictionary<string, string> { ["ClientId"] = "one" }),
+            new("cp2", "Provider 2", CloudSecretsProviderType.Infisical, new Dictionary<string, string> { ["ClientId"] = "two" })
+        });
+        _mockCloudSecretsService.SetupGet(x => x.ActiveProvider).Returns(new CloudSecretsProviderConfig(
+            "cp2",
+            "Provider 2",
+            CloudSecretsProviderType.Infisical,
+            new Dictionary<string, string> { ["ClientId"] = "two" }));
+        _mockSecretsPublisherService.Setup(x => x.GetPublishersAsync()).ReturnsAsync(new List<SecretsPublisherConfig>
+        {
+            new("sp1", "github", "GitHub 1", new Dictionary<string, string> { ["PersonalAccessToken"] = "pat1" }),
+            new("sp2", "gitlab", "GitLab 1", new Dictionary<string, string> { ["PersonalAccessToken"] = "pat2" })
+        });
+
+        var encrypted = await _service.ExportSettingsAsync("password123", new BackupExportSelection
+        {
+            IncludePreferences = false,
+            AppleIdentityIds = new List<string> { "id2" },
+            CloudProviderIds = new List<string> { "cp2" },
+            SecretsPublisherIds = new List<string> { "sp1" }
+        });
+        var importResult = await _service.ImportBackupAsync(encrypted, "password123");
+
+        importResult.Selection.IncludePreferences.Should().BeFalse();
+        importResult.Settings.Preferences.Theme.Should().Be("System");
+        importResult.Settings.AppleIdentities.Select(i => i.Id).Should().Equal("id2");
+        importResult.Settings.CloudProviders.Select(p => p.Id).Should().Equal("cp2");
+        importResult.Settings.ActiveCloudProviderId.Should().Be("cp2");
+        importResult.Settings.SecretsPublishers.Select(p => p.Id).Should().Equal("sp1");
+    }
+
+    [Fact]
+    public async Task ExportSettingsAsync_WithNoSelectedItems_Throws()
+    {
+        _mockSettingsService.Setup(x => x.GetSettingsAsync()).ReturnsAsync(new MauiSherpaSettings());
+
+        var act = () => _service.ExportSettingsAsync("password123", new BackupExportSelection
+        {
+            IncludePreferences = false,
+            AppleIdentityIds = new List<string>(),
+            CloudProviderIds = new List<string>(),
+            SecretsPublisherIds = new List<string>()
+        });
+
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*At least one setting item must be selected*");
+    }
+
+    [Fact]
+    public async Task ExportSettingsAsync_DefaultSelection_TracksAllExportedItems()
+    {
+        _mockSettingsService.Setup(x => x.GetSettingsAsync()).ReturnsAsync(new MauiSherpaSettings
+        {
+            Preferences = new AppPreferences { Theme = "Dark", DemoMode = true }
+        });
+        _mockAppleIdentityService.Setup(x => x.GetIdentitiesAsync()).ReturnsAsync(new List<AppleIdentity>
+        {
+            new("id1", "Identity 1", "KEY1", "ISS1", null, "P8-1"),
+            new("id2", "Identity 2", "KEY2", "ISS2", null, "P8-2")
+        });
+        _mockCloudSecretsService.Setup(x => x.GetProvidersAsync()).ReturnsAsync(new List<CloudSecretsProviderConfig>
+        {
+            new("cp1", "Provider 1", CloudSecretsProviderType.Infisical, new Dictionary<string, string> { ["ClientId"] = "one" })
+        });
+        _mockCloudSecretsService.SetupGet(x => x.ActiveProvider).Returns(new CloudSecretsProviderConfig(
+            "cp1",
+            "Provider 1",
+            CloudSecretsProviderType.Infisical,
+            new Dictionary<string, string> { ["ClientId"] = "one" }));
+        _mockSecretsPublisherService.Setup(x => x.GetPublishersAsync()).ReturnsAsync(new List<SecretsPublisherConfig>
+        {
+            new("sp1", "github", "GitHub 1", new Dictionary<string, string> { ["PersonalAccessToken"] = "pat1" })
+        });
+
+        var encrypted = await _service.ExportSettingsAsync("password123");
+        var importResult = await _service.ImportBackupAsync(encrypted, "password123");
+
+        importResult.Selection.IncludePreferences.Should().BeTrue();
+        importResult.Selection.AppleIdentityIds.Should().BeEquivalentTo(new[] { "id1", "id2" });
+        importResult.Selection.CloudProviderIds.Should().BeEquivalentTo(new[] { "cp1" });
+        importResult.Selection.SecretsPublisherIds.Should().BeEquivalentTo(new[] { "sp1" });
+    }
+
+    [Fact]
+    public async Task ExportImport_PreservesExactSensitiveContent()
+    {
+        var p8 = "-----BEGIN PRIVATE KEY-----\r\nabcDEF123+/=\r\n-----END PRIVATE KEY-----\r\n";
+        var provider = new CloudSecretsProviderConfig(
+            "cp1",
+            "Infisical Team",
+            CloudSecretsProviderType.Infisical,
+            new Dictionary<string, string>
+            {
+                ["ClientId"] = "client-id",
+                ["ClientSecret"] = "super$ecret!= token"
+            });
+        var publisher = new SecretsPublisherConfig(
+            "sp1",
+            "github",
+            "GitHub Actions",
+            new Dictionary<string, string>
+            {
+                ["PersonalAccessToken"] = "ghp_exampleToken+/=",
+                ["Owner"] = "owner-name"
+            });
+
+        _mockSettingsService.Setup(x => x.GetSettingsAsync()).ReturnsAsync(new MauiSherpaSettings
+        {
+            Preferences = new AppPreferences { Theme = "Dark" }
+        });
+        _mockAppleIdentityService.Setup(x => x.GetIdentitiesAsync()).ReturnsAsync(new List<AppleIdentity>
+        {
+            new("id1", "Identity 1", "KEY1", "ISS1", null, p8)
+        });
+        _mockCloudSecretsService.Setup(x => x.GetProvidersAsync()).ReturnsAsync(new List<CloudSecretsProviderConfig> { provider });
+        _mockCloudSecretsService.SetupGet(x => x.ActiveProvider).Returns(provider);
+        _mockSecretsPublisherService.Setup(x => x.GetPublishersAsync()).ReturnsAsync(new List<SecretsPublisherConfig> { publisher });
+
+        var encrypted = await _service.ExportSettingsAsync("password123");
+        var imported = await _service.ImportSettingsAsync(encrypted, "password123");
+
+        imported.AppleIdentities.Should().ContainSingle();
+        imported.AppleIdentities[0].P8Content.Should().Be(p8);
+        imported.CloudProviders.Should().ContainSingle();
+        imported.CloudProviders[0].Settings["ClientSecret"].Should().Be("super$ecret!= token");
+        imported.SecretsPublishers.Should().ContainSingle();
+        imported.SecretsPublishers[0].Settings["PersonalAccessToken"].Should().Be("ghp_exampleToken+/=");
     }
 
     [Fact]

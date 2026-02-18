@@ -7,6 +7,7 @@
 @inject SettingsViewModel ViewModel
 @inject IMediator Mediator
 @inject IAppleIdentityService AppleIdentityService
+@inject IAppleIdentityStateService IdentityState
 @inject IAndroidSdkService SdkService
 @inject IAndroidSdkSettingsService SdkSettings
 @inject IOpenJdkSettingsService JdkSettings
@@ -478,7 +479,7 @@
                 </div>
                 <div class="backup-info">
                     <h3>Export Settings</h3>
-                    <p>Create a password-protected backup of all your settings including Apple identities, cloud providers, and CI/CD publishers.</p>
+                    <p>Create a password-protected backup and choose exactly which settings, identities, providers, and CI/CD publishers to include.</p>
                 </div>
                 <button class="btn btn-primary" @onclick="ShowExportDialog" disabled="@isExporting">
                     @if (isExporting)
@@ -537,6 +538,82 @@
                     <label>Confirm Password</label>
                     <input type="password" @bind="exportPasswordConfirm" @bind:event="oninput" placeholder="Confirm password" tabindex="2" />
                 </div>
+                <div class="form-group">
+                    <label>Include in Backup</label>
+                    <div class="backup-selection">
+                        <label class="backup-selection-item">
+                            <input type="checkbox" @bind="exportIncludePreferences" />
+                            <span>General Settings</span>
+                        </label>
+
+                        <div class="backup-selection-group">
+                            <label class="backup-selection-item">
+                                <input type="checkbox" @bind="exportIncludeAppleIdentities" />
+                                <span>Apple Identities (@selectedExportAppleIdentityIds.Count/@appleIdentities.Count)</span>
+                            </label>
+                            @if (exportIncludeAppleIdentities && appleIdentities.Count > 0)
+                            {
+                                <div class="backup-selection-children">
+                                    @foreach (var identity in appleIdentities)
+                                    {
+                                        <label class="backup-selection-item child">
+                                            <input type="checkbox"
+                                                   checked="@selectedExportAppleIdentityIds.Contains(identity.Id)"
+                                                   @onchange="e => SetExportAppleIdentitySelection(identity.Id, e.Value is bool isChecked && isChecked)" />
+                                            <span>@identity.Name</span>
+                                        </label>
+                                    }
+                                </div>
+                            }
+                        </div>
+
+                        <div class="backup-selection-group">
+                            <label class="backup-selection-item">
+                                <input type="checkbox" @bind="exportIncludeCloudProviders" />
+                                <span>Cloud Secret Providers (@selectedExportCloudProviderIds.Count/@cloudProviders.Count)</span>
+                            </label>
+                            @if (exportIncludeCloudProviders && cloudProviders.Count > 0)
+                            {
+                                <div class="backup-selection-children">
+                                    @foreach (var provider in cloudProviders)
+                                    {
+                                        <label class="backup-selection-item child">
+                                            <input type="checkbox"
+                                                   checked="@selectedExportCloudProviderIds.Contains(provider.Id)"
+                                                   @onchange="e => SetExportCloudProviderSelection(provider.Id, e.Value is bool isChecked && isChecked)" />
+                                            <span>@provider.Name</span>
+                                        </label>
+                                    }
+                                </div>
+                            }
+                        </div>
+
+                        <div class="backup-selection-group">
+                            <label class="backup-selection-item">
+                                <input type="checkbox" @bind="exportIncludeSecretsPublishers" />
+                                <span>CI/CD Publishers (@selectedExportPublisherIds.Count/@secretsPublishers.Count)</span>
+                            </label>
+                            @if (exportIncludeSecretsPublishers && secretsPublishers.Count > 0)
+                            {
+                                <div class="backup-selection-children">
+                                    @foreach (var publisher in secretsPublishers)
+                                    {
+                                        <label class="backup-selection-item child">
+                                            <input type="checkbox"
+                                                   checked="@selectedExportPublisherIds.Contains(publisher.Id)"
+                                                   @onchange="e => SetExportPublisherSelection(publisher.Id, e.Value is bool isChecked && isChecked)" />
+                                            <span>@publisher.Name</span>
+                                        </label>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </div>
+                    @if (!CanExportSelection)
+                    {
+                        <div class="help-text">Select at least one item to export.</div>
+                    }
+                </div>
                 @if (!string.IsNullOrEmpty(exportError))
                 {
                     <div class="error-message">@exportError</div>
@@ -545,7 +622,7 @@
             <div class="modal-footer">
                 <button class="btn btn-secondary" @onclick="CloseExportDialog" tabindex="4">Cancel</button>
                 <button class="btn btn-primary" @onclick="ExportSettings" tabindex="3"
-                        disabled="@(string.IsNullOrEmpty(exportPassword) || exportPassword != exportPasswordConfirm)">
+                        disabled="@(string.IsNullOrEmpty(exportPassword) || exportPassword != exportPasswordConfirm || !CanExportSelection)">
                     <i class="fas fa-download"></i> Export
                 </button>
             </div>
@@ -1398,6 +1475,44 @@
         gap: 1rem;
     }
 
+    .backup-selection {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .backup-selection-group {
+        display: flex;
+        flex-direction: column;
+        gap: 0.375rem;
+    }
+
+    .backup-selection-children {
+        margin-left: 1.5rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+    }
+
+    .backup-selection-item {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.875rem;
+        color: var(--text-primary);
+    }
+
+    .backup-selection-item.child {
+        font-size: 0.8125rem;
+        color: var(--text-secondary);
+    }
+
+    .backup-selection-item input[type="checkbox"] {
+        width: 1rem;
+        height: 1rem;
+        margin: 0;
+    }
+
     .backup-action-card {
         display: flex;
         align-items: center;
@@ -1519,11 +1634,24 @@
     private string exportPassword = "";
     private string exportPasswordConfirm = "";
     private string exportError = "";
+    private bool exportIncludePreferences = true;
+    private bool exportIncludeAppleIdentities = true;
+    private bool exportIncludeCloudProviders = true;
+    private bool exportIncludeSecretsPublishers = true;
+    private HashSet<string> selectedExportAppleIdentityIds = new(StringComparer.Ordinal);
+    private HashSet<string> selectedExportCloudProviderIds = new(StringComparer.Ordinal);
+    private HashSet<string> selectedExportPublisherIds = new(StringComparer.Ordinal);
     private string importFilePath = "";
     private string importPassword = "";
     private string importError = "";
     private bool isExporting = false;
     private bool isImporting = false;
+
+    private bool CanExportSelection =>
+        exportIncludePreferences ||
+        (exportIncludeAppleIdentities && selectedExportAppleIdentityIds.Count > 0) ||
+        (exportIncludeCloudProviders && selectedExportCloudProviderIds.Count > 0) ||
+        (exportIncludeSecretsPublishers && selectedExportPublisherIds.Count > 0);
 
     private bool CanSaveIdentity => 
         !string.IsNullOrWhiteSpace(identityName) &&
@@ -2316,11 +2444,47 @@
     }
 
     // Backup & Restore methods
+    private void InitializeExportSelection()
+    {
+        exportIncludePreferences = true;
+        exportIncludeAppleIdentities = appleIdentities.Count > 0;
+        exportIncludeCloudProviders = cloudProviders.Count > 0;
+        exportIncludeSecretsPublishers = secretsPublishers.Count > 0;
+        selectedExportAppleIdentityIds = appleIdentities.Select(identity => identity.Id).ToHashSet(StringComparer.Ordinal);
+        selectedExportCloudProviderIds = cloudProviders.Select(provider => provider.Id).ToHashSet(StringComparer.Ordinal);
+        selectedExportPublisherIds = secretsPublishers.Select(publisher => publisher.Id).ToHashSet(StringComparer.Ordinal);
+    }
+
+    private void SetExportAppleIdentitySelection(string id, bool isSelected)
+    {
+        if (isSelected)
+            selectedExportAppleIdentityIds.Add(id);
+        else
+            selectedExportAppleIdentityIds.Remove(id);
+    }
+
+    private void SetExportCloudProviderSelection(string id, bool isSelected)
+    {
+        if (isSelected)
+            selectedExportCloudProviderIds.Add(id);
+        else
+            selectedExportCloudProviderIds.Remove(id);
+    }
+
+    private void SetExportPublisherSelection(string id, bool isSelected)
+    {
+        if (isSelected)
+            selectedExportPublisherIds.Add(id);
+        else
+            selectedExportPublisherIds.Remove(id);
+    }
+
     private void ShowExportDialog()
     {
         exportPassword = "";
         exportPasswordConfirm = "";
         exportError = "";
+        InitializeExportSelection();
         showExportDialog = true;
         _ = InitModalAsync("export-settings-modal");
     }
@@ -2376,13 +2540,32 @@
             return;
         }
 
+        if (!CanExportSelection)
+        {
+            exportError = "Select at least one item to export";
+            return;
+        }
+
         isExporting = true;
         exportError = "";
         StateHasChanged();
 
         try
         {
-            var encrypted = await BackupService.ExportSettingsAsync(exportPassword);
+            var exportSelection = new BackupExportSelection
+            {
+                IncludePreferences = exportIncludePreferences,
+                AppleIdentityIds = exportIncludeAppleIdentities
+                    ? selectedExportAppleIdentityIds.ToList()
+                    : new List<string>(),
+                CloudProviderIds = exportIncludeCloudProviders
+                    ? selectedExportCloudProviderIds.ToList()
+                    : new List<string>(),
+                SecretsPublisherIds = exportIncludeSecretsPublishers
+                    ? selectedExportPublisherIds.ToList()
+                    : new List<string>()
+            };
+            var encrypted = await BackupService.ExportSettingsAsync(exportPassword, exportSelection);
             var timestamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
             var suggestedName = $"maui-sherpa-backup-{timestamp}.mss";
 
@@ -2415,6 +2598,72 @@
         }
     }
 
+    private async Task ApplyImportedBackupAsync(BackupImportResult importResult)
+    {
+        var settings = importResult.Settings;
+        var selection = importResult.Selection;
+
+        if (selection.IncludePreferences)
+        {
+            await EncryptedSettings.UpdateSettingsAsync(existing => existing with
+            {
+                Preferences = settings.Preferences
+            });
+
+            ViewModel.Theme = settings.Preferences.Theme;
+            ViewModel.FontScale = settings.Preferences.FontScale;
+            demoMode = settings.Preferences.DemoMode;
+            ThemeService.SetTheme(ViewModel.Theme);
+            ThemeService.SetFontScale(ViewModel.FontScale);
+        }
+
+        foreach (var identity in settings.AppleIdentities)
+        {
+            await AppleIdentityService.SaveIdentityAsync(new AppleIdentity(
+                Id: identity.Id,
+                Name: identity.Name,
+                KeyId: identity.KeyId,
+                IssuerId: identity.IssuerId,
+                P8KeyPath: null,
+                P8KeyContent: identity.P8Content));
+        }
+
+        var selectedIdentityId = IdentityState.SelectedIdentity?.Id;
+        if (!string.IsNullOrEmpty(selectedIdentityId))
+        {
+            var refreshedIdentity = await AppleIdentityService.GetIdentityAsync(selectedIdentityId);
+            IdentityState.SetSelectedIdentity(refreshedIdentity);
+        }
+
+        if (settings.CloudProviders.Count > 0)
+        {
+            await CloudSecretsService.InitializeAsync();
+            foreach (var provider in settings.CloudProviders)
+            {
+                await CloudSecretsService.SaveProviderAsync(new CloudSecretsProviderConfig(
+                    provider.Id,
+                    provider.Name,
+                    provider.ProviderType,
+                    new Dictionary<string, string>(provider.Settings)));
+            }
+
+            if (!string.IsNullOrEmpty(settings.ActiveCloudProviderId) &&
+                settings.CloudProviders.Any(provider => provider.Id == settings.ActiveCloudProviderId))
+            {
+                await CloudSecretsService.SetActiveProviderAsync(settings.ActiveCloudProviderId);
+            }
+        }
+
+        foreach (var publisher in settings.SecretsPublishers)
+        {
+            await SecretsPublisherService.SavePublisherAsync(new SecretsPublisherConfig(
+                publisher.Id,
+                publisher.ProviderId,
+                publisher.Name,
+                new Dictionary<string, string>(publisher.Settings)));
+        }
+    }
+
     private async Task ImportSettings()
     {
         if (string.IsNullOrEmpty(importFilePath) || !File.Exists(importFilePath))
@@ -2439,7 +2688,8 @@
                 return;
             }
 
-            var settings = await BackupService.ImportSettingsAsync(encrypted, importPassword);
+            var importResult = await BackupService.ImportBackupAsync(encrypted, importPassword);
+            await ApplyImportedBackupAsync(importResult);
             
             // Reload all data
             await LoadAppleIdentities();
