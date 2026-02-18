@@ -8,15 +8,17 @@ public class MainPage : ContentPage
     private readonly Grid _splashOverlay;
     private readonly ISplashService _splashService;
     
+    private readonly BlazorWebView _blazorWebView;
+
     public MainPage(ISplashService splashService)
     {
         _splashService = splashService;
         
-        var blazorWebView = new BlazorWebView
+        _blazorWebView = new BlazorWebView
         {
             HostPage = "wwwroot/index.html"
         };
-        blazorWebView.RootComponents.Add(new RootComponent
+        _blazorWebView.RootComponents.Add(new RootComponent
         {
             Selector = "#app",
             ComponentType = typeof(Components.App)
@@ -27,7 +29,7 @@ public class MainPage : ContentPage
         
         // Use a Grid to layer the BlazorWebView and splash
         var container = new Grid();
-        container.Children.Add(blazorWebView);
+        container.Children.Add(_blazorWebView);
         container.Children.Add(_splashOverlay);
         
         Content = container;
@@ -135,8 +137,20 @@ public class MainPage : ContentPage
         // Fade out animation
         await _splashOverlay.FadeToAsync(0, 400, Easing.CubicOut);
         _splashOverlay.IsVisible = false;
+        // Remove from tree so it can't intercept input (WinUI hidden views can block scroll)
+        ((Grid)Content).Children.Remove(_splashOverlay);
+        
+        // Focus the BlazorWebView so it receives trackpad/scroll input on Windows
+        _blazorWebView.Focus();
     }
     
+    protected override void OnAppearing()
+    {
+        base.OnAppearing();
+        // Ensure WebView has focus for trackpad/scroll input on Windows
+        _blazorWebView.Focus();
+    }
+
     protected override void OnDisappearing()
     {
         base.OnDisappearing();

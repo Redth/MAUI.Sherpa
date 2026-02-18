@@ -82,7 +82,16 @@ public static class MauiProgram
         builder.Services.AddSingleton<IAppleIdentityStateService, AppleIdentityStateService>();
         builder.Services.AddSingleton<IAppleConnectService, AppleConnectService>();
         builder.Services.AddSingleton<IAppleRootCertService, AppleRootCertService>();
-        builder.Services.AddSingleton<ILocalCertificateService, LocalCertificateService>();
+        builder.Services.AddSingleton<ILocalCertificateService>(sp =>
+        {
+            var logger = sp.GetRequiredService<ILoggingService>();
+#if WINDOWS
+            return new WindowsCertificateService(logger);
+#else
+            var platform = sp.GetRequiredService<IPlatformService>();
+            return new LocalCertificateService(logger, platform);
+#endif
+        });
         builder.Services.AddSingleton<ISimulatorService, MauiSherpa.Core.Services.SimulatorService>();
         builder.Services.AddSingleton<ISimulatorLogService, SimulatorLogService>();
         builder.Services.AddSingleton<IPhysicalDeviceService, MauiSherpa.Core.Services.PhysicalDeviceService>();

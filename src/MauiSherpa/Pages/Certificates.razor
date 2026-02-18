@@ -885,6 +885,8 @@
         
         if (IdentityState.SelectedIdentity != null)
             await RefreshData();
+        
+        _initialLoadComplete = true;
     }
 
     private void DismissSyncHint()
@@ -894,10 +896,13 @@
         StateHasChanged();
     }
 
+    private bool _initialLoadComplete;
+    
     private void OnIdentityChanged()
     {
         InvokeAsync(async () =>
         {
+            if (!_initialLoadComplete) return; // Skip during initial load (OnInitializedAsync handles it)
             await RefreshData();
             StateHasChanged();
         });
@@ -944,6 +949,22 @@
             
             // Load sync statuses if cloud provider is configured
             await LoadSyncStatuses();
+        }
+        catch (IOException)
+        {
+            // Shiny.Mediator OfflineAvailable middleware can throw IOException on Windows
+            // when concurrent requests write to the same cache file. Retry once.
+            try
+            {
+                var request = new GetCertificatesRequest(IdentityState.SelectedIdentity.Id);
+                var (_, result) = await Mediator.Request(request);
+                certificates = result.ToList();
+                await LoadSyncStatuses();
+            }
+            catch (Exception ex2)
+            {
+                errorMessage = $"Failed to load certificates: {ex2.Message}";
+            }
         }
         catch (Exception ex)
         {

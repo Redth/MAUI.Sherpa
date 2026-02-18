@@ -356,13 +356,17 @@ public class CertificateSyncService : ICertificateSyncService
             return false;
         }
 
-        // Write P12 to temp file
+        if (OperatingSystem.IsWindows())
+        {
+            return ImportP12ToWindowsStore(p12Data, password);
+        }
+
+        // macOS: use security CLI to import into login keychain
         var tempFile = Path.GetTempFileName() + ".p12";
         try
         {
             await File.WriteAllBytesAsync(tempFile, p12Data, cancellationToken);
 
-            // Use security command to import
             var loginKeychain = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
                 "Library/Keychains/login.keychain-db");
@@ -397,8 +401,42 @@ public class CertificateSyncService : ICertificateSyncService
         }
         finally
         {
-            // Clean up temp file
             try { File.Delete(tempFile); } catch { }
+        }
+    }
+
+    private bool ImportP12ToWindowsStore(byte[] p12Data, string password)
+    {
+        try
+        {
+            using var store = new System.Security.Cryptography.X509Certificates.X509Store(
+                System.Security.Cryptography.X509Certificates.StoreName.My,
+                System.Security.Cryptography.X509Certificates.StoreLocation.CurrentUser);
+            store.Open(System.Security.Cryptography.X509Certificates.OpenFlags.ReadWrite);
+
+            // Import using X509Certificate2Collection to properly persist the cert + private key.
+            // Loading X509Certificate2 from bytes and calling store.Add() can lose the private key
+            // on Windows because the ephemeral key container is cleaned up on dispose.
+            var collection = new System.Security.Cryptography.X509Certificates.X509Certificate2Collection();
+            collection.Import(p12Data, password,
+                System.Security.Cryptography.X509Certificates.X509KeyStorageFlags.PersistKeySet
+                | System.Security.Cryptography.X509Certificates.X509KeyStorageFlags.UserKeySet
+                | System.Security.Cryptography.X509Certificates.X509KeyStorageFlags.Exportable);
+
+            foreach (var cert in collection)
+            {
+                store.Add(cert);
+                _logger.LogInformation($"Imported certificate: {cert.Subject} (serial: {cert.SerialNumber}, hasKey: {cert.HasPrivateKey})");
+                cert.Dispose();
+            }
+
+            _logger.LogInformation("Successfully imported certificate to Windows certificate store");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Failed to import P12 to Windows store: {ex.Message}", ex);
+            return false;
         }
     }
 
