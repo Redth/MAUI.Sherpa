@@ -20,7 +20,8 @@ public class CloudSecretsProviderFactory : ICloudSecretsProviderFactory
         CloudSecretsProviderType.AzureKeyVault,
         CloudSecretsProviderType.AwsSecretsManager,
         CloudSecretsProviderType.GoogleSecretManager,
-        CloudSecretsProviderType.OnePassword
+        CloudSecretsProviderType.OnePassword,
+        CloudSecretsProviderType.Vaultwarden
     };
 
     public ICloudSecretsProvider CreateProvider(CloudSecretsProviderConfig config)
@@ -32,6 +33,7 @@ public class CloudSecretsProviderFactory : ICloudSecretsProviderFactory
             CloudSecretsProviderType.AwsSecretsManager => new AwsSecretsManagerProvider(config, _logger),
             CloudSecretsProviderType.GoogleSecretManager => new GoogleSecretManagerProvider(config, _logger),
             CloudSecretsProviderType.OnePassword => new OnePasswordProvider(config, _logger),
+            CloudSecretsProviderType.Vaultwarden => new VaultwardenProvider(config, _logger),
             _ => throw new NotSupportedException($"Provider type {config.ProviderType} is not supported")
         };
     }
@@ -45,6 +47,7 @@ public class CloudSecretsProviderFactory : ICloudSecretsProviderFactory
             CloudSecretsProviderType.AwsSecretsManager => GetAwsSecretsManagerSettings(),
             CloudSecretsProviderType.GoogleSecretManager => GetGoogleSecretManagerSettings(),
             CloudSecretsProviderType.OnePassword => GetOnePasswordSettings(),
+            CloudSecretsProviderType.Vaultwarden => GetVaultwardenSettings(),
             _ => Array.Empty<CloudProviderSettingInfo>()
         };
     }
@@ -58,6 +61,7 @@ public class CloudSecretsProviderFactory : ICloudSecretsProviderFactory
             CloudSecretsProviderType.AwsSecretsManager => "AWS Secrets Manager",
             CloudSecretsProviderType.GoogleSecretManager => "Google Secret Manager",
             CloudSecretsProviderType.OnePassword => "1Password",
+            CloudSecretsProviderType.Vaultwarden => "Vaultwarden / Bitwarden",
             CloudSecretsProviderType.None => "None",
             _ => providerType.ToString()
         };
@@ -212,5 +216,51 @@ public class CloudSecretsProviderFactory : ICloudSecretsProviderFactory
             IsRequired: false,
             IsSecret: true,
             Placeholder: "ops_...")
+    };
+
+    private static IReadOnlyList<CloudProviderSettingInfo> GetVaultwardenSettings() => new[]
+    {
+        new CloudProviderSettingInfo(
+            "ServerUrl",
+            "Server URL",
+            "The Vaultwarden or Bitwarden server URL",
+            IsRequired: true,
+            IsSecret: false,
+            Placeholder: "https://vault.example.com"),
+        new CloudProviderSettingInfo(
+            "Email",
+            "Email",
+            "The account email address",
+            IsRequired: true,
+            IsSecret: false,
+            Placeholder: "user@example.com"),
+        new CloudProviderSettingInfo(
+            "ClientId",
+            "API Key Client ID",
+            "API key client ID from your vault settings (Settings → Security → Keys → API Key)",
+            IsRequired: true,
+            IsSecret: false,
+            Placeholder: "user.xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"),
+        new CloudProviderSettingInfo(
+            "ClientSecret",
+            "API Key Client Secret",
+            "API key client secret from your vault settings",
+            IsRequired: true,
+            IsSecret: true,
+            Placeholder: "xxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
+        new CloudProviderSettingInfo(
+            "MasterPassword",
+            "Master Password",
+            "Your vault master password (required for client-side decryption)",
+            IsRequired: true,
+            IsSecret: true),
+        new CloudProviderSettingInfo(
+            "ItemName",
+            "Item Name",
+            "The name of the Secure Note item in your vault (defaults to MAUI.Sherpa)",
+            IsRequired: false,
+            IsSecret: false,
+            DefaultValue: "MAUI.Sherpa",
+            Placeholder: "MAUI.Sherpa")
     };
 }
