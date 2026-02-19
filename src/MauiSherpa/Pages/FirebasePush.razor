@@ -1,0 +1,736 @@
+@page "/firebase-push"
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Services
+@inject IFirebasePushService PushService
+@inject IAlertService AlertService
+@inject IDialogService DialogService
+@inject IFileSystemService FileSystem
+@inject BlazorToastService ToastService
+
+<h1><i class="fas fa-paper-plane"></i> Firebase Push Testing</h1>
+<p class="page-description">Send test push notifications via Firebase Cloud Messaging to Android devices.</p>
+
+<!-- Credentials Section -->
+<div class="section">
+    <div class="section-header">
+        <h2><i class="fas fa-shield-alt"></i> Credentials</h2>
+        @if (hasCredentials)
+        {
+            <button class="btn btn-sm btn-danger" @onclick="ClearCredentials">
+                <i class="fas fa-trash"></i> Clear
+            </button>
+        }
+    </div>
+
+    <div class="credential-card">
+        @if (hasCredentials && !string.IsNullOrEmpty(projectId))
+        {
+            <div class="credential-status success">
+                <i class="fas fa-check-circle"></i>
+                <span>Service account configured for project: <strong>@projectId</strong></span>
+            </div>
+        }
+        else
+        {
+            <div class="credential-status warning">
+                <i class="fas fa-exclamation-triangle"></i>
+                <span>No service account configured</span>
+            </div>
+        }
+        <button class="btn btn-primary" @onclick="PickServiceAccountFile">
+            <i class="fas fa-upload"></i> @(hasCredentials ? "Replace" : "Upload") Service Account JSON
+        </button>
+        <p class="help-text">Download from Firebase Console → Project Settings → Service Accounts → Generate New Private Key</p>
+    </div>
+</div>
+
+<!-- Compose Section -->
+<div class="section">
+    <div class="section-header">
+        <h2><i class="fas fa-edit"></i> Compose Message</h2>
+        <div class="target-toggle">
+            <button class="toggle-btn small @(!rawJsonMode ? "active" : "")" @onclick="() => rawJsonMode = false">
+                <i class="fas fa-list-alt"></i> Form
+            </button>
+            <button class="toggle-btn small @(rawJsonMode ? "active" : "")" @onclick="() => rawJsonMode = true">
+                <i class="fas fa-code"></i> JSON
+            </button>
+        </div>
+    </div>
+
+    <div class="compose-card">
+        @if (rawJsonMode)
+        {
+            <div class="form-group">
+                <label>Message JSON</label>
+                <textarea class="form-input mono json-editor" rows="16" placeholder="@jsonPlaceholder"
+                          @bind="rawJson" @bind:event="oninput"></textarea>
+                <p class="help-text">Enter the FCM v1 <code>message</code> object. The <code>{"{"}"message": ...{"}"}</code> wrapper is added automatically if omitted.</p>
+            </div>
+
+            <div class="send-bar">
+                <button class="btn btn-primary btn-lg" @onclick="SendRawJson"
+                        disabled="@(!hasCredentials || string.IsNullOrWhiteSpace(rawJson) || isSending)">
+                    @if (isSending)
+                    {
+                        <i class="fas fa-spinner fa-spin"></i>
+                        <span>Sending...</span>
+                    }
+                    else
+                    {
+                        <i class="fas fa-paper-plane"></i>
+                        <span>Send Push</span>
+                    }
+                </button>
+            </div>
+        }
+        else
+        {
+        <div class="form-group">
+            <label>Target</label>
+            <div class="target-toggle">
+                <button class="toggle-btn small @(useToken ? "active" : "")" @onclick="() => useToken = true">
+                    <i class="fas fa-mobile-alt"></i> Device Token
+                </button>
+                <button class="toggle-btn small @(!useToken ? "active" : "")" @onclick="() => useToken = false">
+                    <i class="fas fa-hashtag"></i> Topic
+                </button>
+            </div>
+        </div>
+
+        @if (useToken)
+        {
+            <div class="form-group">
+                <label>Device Token</label>
+                <input type="text" class="form-input mono" placeholder="FCM registration token"
+                       @bind="deviceToken" @bind:event="oninput" />
+            </div>
+        }
+        else
+        {
+            <div class="form-group">
+                <label>Topic</label>
+                <input type="text" class="form-input" placeholder="e.g. news, updates"
+                       @bind="topic" @bind:event="oninput" />
+            </div>
+        }
+
+        <div class="form-row">
+            <div class="form-group flex-1">
+                <label>Title</label>
+                <input type="text" class="form-input" placeholder="Notification title"
+                       @bind="title" @bind:event="oninput" />
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label>Body</label>
+            <textarea class="form-input" rows="3" placeholder="Notification body text"
+                      @bind="body" @bind:event="oninput"></textarea>
+        </div>
+
+        <div class="form-group">
+            <label>Image URL <span class="optional">(optional)</span></label>
+            <input type="text" class="form-input" placeholder="https://example.com/image.png"
+                   @bind="imageUrl" @bind:event="oninput" />
+        </div>
+
+        <!-- Data Payload -->
+        <div class="form-group">
+            <label>
+                Data Payload <span class="optional">(optional)</span>
+                <button class="btn btn-sm btn-ghost" @onclick="AddDataEntry">
+                    <i class="fas fa-plus"></i> Add
+                </button>
+            </label>
+            @if (dataEntries.Count > 0)
+            {
+                <div class="data-entries">
+                    @for (var i = 0; i < dataEntries.Count; i++)
+                    {
+                        var index = i;
+                        <div class="data-entry">
+                            <input type="text" class="form-input" placeholder="Key"
+                                   value="@dataEntries[index].Key"
+                                   @oninput="e => UpdateDataKey(index, e.Value?.ToString())" />
+                            <input type="text" class="form-input" placeholder="Value"
+                                   value="@dataEntries[index].Value"
+                                   @oninput="e => UpdateDataValue(index, e.Value?.ToString())" />
+                            <button class="btn btn-sm btn-icon btn-danger" @onclick="() => RemoveDataEntry(index)">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+
+        <div class="send-bar">
+            <button class="btn btn-primary btn-lg" @onclick="SendPush"
+                    disabled="@(!CanSend || isSending)">
+                @if (isSending)
+                {
+                    <i class="fas fa-spinner fa-spin"></i>
+                    <span>Sending...</span>
+                }
+                else
+                {
+                    <i class="fas fa-paper-plane"></i>
+                    <span>Send Push</span>
+                }
+            </button>
+        </div>
+        }
+    </div>
+</div>
+@if (history.Count > 0)
+{
+    <div class="section">
+        <div class="section-header">
+            <h2><i class="fas fa-history"></i> Recent Sends</h2>
+            <button class="btn btn-sm btn-ghost" @onclick="() => history.Clear()">
+                <i class="fas fa-eraser"></i> Clear
+            </button>
+        </div>
+
+        <div class="history-list">
+            @foreach (var entry in history)
+            {
+                <div class="history-card @(entry.Response.Success ? "success" : "error")">
+                    <div class="history-status">
+                        <i class="fas @(entry.Response.Success ? "fa-check-circle text-success" : "fa-times-circle text-danger")"></i>
+                        <span class="history-time">@entry.Response.Timestamp.ToLocalTime().ToString("HH:mm:ss")</span>
+                        @if (entry.Response.StatusCode.HasValue)
+                        {
+                            <span class="badge @(entry.Response.Success ? "badge-success" : "badge-danger")">@entry.Response.StatusCode</span>
+                        }
+                    </div>
+                    <div class="history-details">
+                        <div class="history-target mono">
+                            @if (!string.IsNullOrEmpty(entry.Request.Topic))
+                            {
+                                <span><i class="fas fa-hashtag"></i> @entry.Request.Topic</span>
+                            }
+                            else
+                            {
+                                <span><i class="fas fa-mobile-alt"></i> @TruncateToken(entry.Request.DeviceToken)</span>
+                            }
+                        </div>
+                        @if (!string.IsNullOrEmpty(entry.Request.Title))
+                        {
+                            <div class="history-title">@entry.Request.Title</div>
+                        }
+                        @if (entry.Response.Success && !string.IsNullOrEmpty(entry.Response.MessageId))
+                        {
+                            <div class="history-message-id mono">@entry.Response.MessageId</div>
+                        }
+                        @if (!entry.Response.Success && !string.IsNullOrEmpty(entry.Response.Error))
+                        {
+                            <div class="history-error">@entry.Response.Error</div>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+<style>
+    h1 {
+        margin-bottom: 0.25rem;
+        font-size: 1.75rem;
+        color: var(--text-primary);
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .page-description {
+        color: var(--text-muted);
+        font-size: 0.875rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .section {
+        margin-bottom: 1.5rem;
+    }
+
+    .section-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 0.75rem;
+    }
+
+    .section-header h2 {
+        font-size: 1.125rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin: 0;
+    }
+
+    .target-toggle {
+        display: flex;
+        gap: 0;
+        margin-bottom: 1rem;
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        overflow: hidden;
+        width: fit-content;
+    }
+
+    .toggle-btn {
+        padding: 0.5rem 1rem;
+        background: var(--bg-secondary);
+        color: var(--text-secondary);
+        border: none;
+        cursor: pointer;
+        font-size: 0.8125rem;
+        font-weight: 500;
+        display: flex;
+        align-items: center;
+        gap: 0.375rem;
+        transition: all 0.15s ease;
+    }
+
+    .toggle-btn:not(:last-child) {
+        border-right: 1px solid var(--border-color);
+    }
+
+    .toggle-btn.active {
+        background: var(--accent-primary);
+        color: white;
+    }
+
+    .toggle-btn.small {
+        padding: 0.375rem 0.75rem;
+        font-size: 0.75rem;
+    }
+
+    .credential-card, .compose-card {
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 10px;
+        padding: 1.25rem;
+        box-shadow: var(--card-shadow);
+    }
+
+    .credential-status {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.625rem 0.875rem;
+        border-radius: 8px;
+        margin-bottom: 1rem;
+        font-size: 0.8125rem;
+    }
+
+    .credential-status.success {
+        background: rgba(34, 197, 94, 0.1);
+        color: var(--success, #22c55e);
+    }
+
+    .credential-status.warning {
+        background: rgba(234, 179, 8, 0.1);
+        color: var(--warning, #eab308);
+    }
+
+    .form-group {
+        margin-bottom: 0.875rem;
+    }
+
+    .form-group label {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.8125rem;
+        font-weight: 600;
+        color: var(--text-secondary);
+        margin-bottom: 0.375rem;
+    }
+
+    .optional {
+        font-weight: 400;
+        color: var(--text-muted);
+        font-size: 0.75rem;
+    }
+
+    .form-input {
+        width: 100%;
+        padding: 0.5rem 0.75rem;
+        border: 1px solid var(--input-border, var(--border-color));
+        border-radius: 6px;
+        background: var(--input-bg, var(--bg-primary));
+        color: var(--text-primary);
+        font-size: 0.8125rem;
+        transition: border-color 0.15s ease;
+        box-sizing: border-box;
+    }
+
+    .form-input:focus {
+        outline: none;
+        border-color: var(--accent-primary);
+    }
+
+    .form-input.mono {
+        font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+        font-size: 0.75rem;
+    }
+
+    textarea.form-input {
+        resize: vertical;
+        min-height: 60px;
+    }
+
+    .form-row {
+        display: flex;
+        gap: 0.75rem;
+    }
+
+    .flex-1 {
+        flex: 1;
+    }
+
+    .data-entries {
+        display: flex;
+        flex-direction: column;
+        gap: 0.375rem;
+    }
+
+    .data-entry {
+        display: flex;
+        gap: 0.375rem;
+        align-items: center;
+    }
+
+    .data-entry .form-input {
+        flex: 1;
+    }
+
+    .send-bar {
+        margin-top: 1rem;
+        display: flex;
+        justify-content: flex-end;
+    }
+
+    .btn {
+        padding: 0.5rem 1rem;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.375rem;
+        font-size: 0.8125rem;
+        font-weight: 500;
+        transition: all 0.15s ease;
+    }
+
+    .btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    .btn-primary {
+        background: var(--accent-primary);
+        color: white;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+        filter: brightness(1.1);
+    }
+
+    .btn-danger {
+        background: var(--danger, #ef4444);
+        color: white;
+    }
+
+    .btn-ghost {
+        background: transparent;
+        color: var(--accent-primary);
+        padding: 0.25rem 0.5rem;
+    }
+
+    .btn-ghost:hover {
+        background: var(--bg-tertiary);
+    }
+
+    .btn-sm {
+        padding: 0.25rem 0.625rem;
+        font-size: 0.75rem;
+    }
+
+    .btn-lg {
+        padding: 0.625rem 1.5rem;
+        font-size: 0.875rem;
+    }
+
+    .btn-icon {
+        padding: 0.25rem 0.375rem;
+    }
+
+    .help-text {
+        font-size: 0.75rem;
+        color: var(--text-muted);
+        margin-top: 0.625rem;
+        margin-bottom: 0;
+    }
+
+    /* History */
+    .history-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .history-card {
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        padding: 0.75rem 1rem;
+        display: flex;
+        gap: 0.75rem;
+        align-items: flex-start;
+    }
+
+    .history-card.success {
+        border-left: 3px solid var(--success, #22c55e);
+    }
+
+    .history-card.error {
+        border-left: 3px solid var(--danger, #ef4444);
+    }
+
+    .history-status {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        flex-shrink: 0;
+    }
+
+    .history-time {
+        font-size: 0.75rem;
+        color: var(--text-muted);
+        font-family: 'SF Mono', monospace;
+    }
+
+    .history-details {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .history-target {
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        margin-bottom: 0.25rem;
+    }
+
+    .history-title {
+        font-size: 0.8125rem;
+        font-weight: 500;
+        color: var(--text-primary);
+    }
+
+    .history-message-id {
+        font-size: 0.6875rem;
+        color: var(--text-muted);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .history-error {
+        font-size: 0.75rem;
+        color: var(--danger, #ef4444);
+        word-break: break-word;
+        max-height: 60px;
+        overflow-y: auto;
+    }
+
+    .badge {
+        padding: 0.125rem 0.375rem;
+        border-radius: 4px;
+        font-size: 0.6875rem;
+        font-weight: 600;
+    }
+
+    .badge-success {
+        background: rgba(34, 197, 94, 0.15);
+        color: var(--success, #22c55e);
+    }
+
+    .badge-danger {
+        background: rgba(239, 68, 68, 0.15);
+        color: var(--danger, #ef4444);
+    }
+
+    .text-success { color: var(--success, #22c55e); }
+    .text-danger { color: var(--danger, #ef4444); }
+    .mono { font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace; }
+
+    .json-editor {
+        min-height: 280px;
+        line-height: 1.5;
+        tab-size: 2;
+        white-space: pre;
+    }
+
+    code {
+        background: var(--bg-tertiary);
+        padding: 0.125rem 0.375rem;
+        border-radius: 3px;
+        font-size: 0.75rem;
+    }
+</style>
+
+@code {
+    bool hasCredentials;
+    string? projectId;
+
+    // Compose - Form mode
+    bool useToken = true;
+    string deviceToken = "";
+    string topic = "";
+    string title = "";
+    string body = "";
+    string imageUrl = "";
+    List<DataEntry> dataEntries = new();
+    bool isSending;
+
+    // Compose - JSON mode
+    bool rawJsonMode;
+    string rawJson = "";
+    const string jsonPlaceholder = "{\n  \"token\": \"DEVICE_TOKEN\",\n  \"notification\": {\n    \"title\": \"Test\",\n    \"body\": \"Hello from Sherpa!\"\n  },\n  \"android\": {\n    \"priority\": \"high\",\n    \"notification\": {\n      \"channel_id\": \"default\"\n    }\n  },\n  \"data\": {\n    \"key\": \"value\"\n  }\n}";
+
+    // History
+    List<HistoryEntry> history = new();
+
+    bool CanSend => hasCredentials
+        && ((useToken && !string.IsNullOrWhiteSpace(deviceToken))
+            || (!useToken && !string.IsNullOrWhiteSpace(topic)))
+        && (!string.IsNullOrWhiteSpace(title) || !string.IsNullOrWhiteSpace(body) || dataEntries.Any(d => !string.IsNullOrWhiteSpace(d.Key)));
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshCredentialStatus();
+    }
+
+    async Task RefreshCredentialStatus()
+    {
+        hasCredentials = await PushService.HasCredentialsAsync();
+        if (hasCredentials)
+            projectId = await PushService.GetProjectIdAsync();
+        else
+            projectId = null;
+    }
+
+    async Task PickServiceAccountFile()
+    {
+        try
+        {
+            var path = await DialogService.PickOpenFileAsync("Select Service Account JSON", new[] { ".json" });
+            if (string.IsNullOrEmpty(path)) return;
+
+            var json = await File.ReadAllTextAsync(path);
+            await PushService.SaveServiceAccountAsync(json);
+            await RefreshCredentialStatus();
+            ToastService.Show("Service account saved", ToastType.Success);
+        }
+        catch (Exception ex)
+        {
+            await AlertService.ShowAlertAsync("Error", $"Failed to load service account: {ex.Message}");
+        }
+    }
+
+    async Task ClearCredentials()
+    {
+        if (!await AlertService.ShowConfirmAsync("Clear Credentials", "Remove all stored FCM credentials?"))
+            return;
+
+        await PushService.ClearCredentialsAsync();
+        await RefreshCredentialStatus();
+        ToastService.Show("Credentials cleared", ToastType.Info);
+    }
+
+    async Task SendPush()
+    {
+        if (!CanSend) return;
+        isSending = true;
+
+        try
+        {
+            var data = dataEntries
+                .Where(d => !string.IsNullOrWhiteSpace(d.Key))
+                .ToDictionary(d => d.Key, d => d.Value ?? "");
+
+            var request = new FcmPushRequest(
+                DeviceToken: useToken ? deviceToken.Trim() : "",
+                Title: string.IsNullOrWhiteSpace(title) ? null : title,
+                Body: string.IsNullOrWhiteSpace(body) ? null : body,
+                Data: data.Count > 0 ? data : null,
+                Topic: !useToken ? topic.Trim() : null,
+                ImageUrl: string.IsNullOrWhiteSpace(imageUrl) ? null : imageUrl.Trim()
+            );
+
+            var response = await PushService.SendPushAsync(request);
+            history.Insert(0, new HistoryEntry(request, response));
+
+            if (response.Success)
+                ToastService.Show("Push sent successfully!", ToastType.Success);
+            else
+                ToastService.Show($"Push failed: {response.Error}", ToastType.Error);
+        }
+        catch (Exception ex)
+        {
+            ToastService.Show($"Error: {ex.Message}", ToastType.Error);
+        }
+        finally
+        {
+            isSending = false;
+        }
+    }
+
+    async Task SendRawJson()
+    {
+        if (!hasCredentials || string.IsNullOrWhiteSpace(rawJson)) return;
+        isSending = true;
+
+        try
+        {
+            var response = await PushService.SendRawJsonAsync(rawJson);
+            history.Insert(0, new HistoryEntry(new FcmPushRequest("raw-json", "Raw JSON", null), response));
+
+            if (response.Success)
+                ToastService.Show("Push sent successfully!", ToastType.Success);
+            else
+                ToastService.Show($"Push failed: {response.Error}", ToastType.Error);
+        }
+        catch (Exception ex)
+        {
+            ToastService.Show($"Error: {ex.Message}", ToastType.Error);
+        }
+        finally
+        {
+            isSending = false;
+        }
+    }
+
+    void AddDataEntry() => dataEntries.Add(new DataEntry());
+    void RemoveDataEntry(int index) => dataEntries.RemoveAt(index);
+    void UpdateDataKey(int index, string? value) => dataEntries[index].Key = value ?? "";
+    void UpdateDataValue(int index, string? value) => dataEntries[index].Value = value ?? "";
+
+    static string TruncateToken(string token) =>
+        token.Length > 24 ? $"{token[..12]}...{token[^8..]}" : token;
+
+    class DataEntry
+    {
+        public string Key { get; set; } = "";
+        public string Value { get; set; } = "";
+    }
+
+    record HistoryEntry(FcmPushRequest Request, FcmPushResponse Response);
+}

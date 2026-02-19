@@ -71,6 +71,7 @@ public static class MauiProgram
         builder.Services.AddSingleton<IDeviceShellService, DeviceShellService>();
         builder.Services.AddSingleton<IScreenCaptureService, ScreenCaptureService>();
         builder.Services.AddSingleton<IAndroidDeviceToolsService, AndroidDeviceToolsService>();
+        builder.Services.AddSingleton<IFirebasePushService, FirebasePushService>();
         builder.Services.AddSingleton<DeviceInspectorService>();
         builder.Services.AddSingleton<IDoctorService, DoctorService>();
         builder.Services.AddSingleton<ICopilotToolsService, CopilotToolsService>();
