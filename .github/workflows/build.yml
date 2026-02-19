@@ -305,7 +305,7 @@ jobs:
           echo "commit_sha=$SHA" >> $GITHUB_OUTPUT
           echo "Version: $VER+$SHA"
 
-      - name: Publish Windows App
+      - name: Publish Windows App (x64)
         run: |
           dotnet publish src/MauiSherpa/MauiSherpa.csproj `
             -f net10.0-windows10.0.19041.0 `
@@ -313,25 +313,56 @@ jobs:
             -p:RuntimeIdentifierOverride=win-x64 `
             -p:WindowsPackageType=None `
             -p:WindowsAppSDKSelfContained=true `
+            --self-contained true `
             -p:AppVersion=${{ steps.version.outputs.app_version }} `
             -p:AppCommitSha=${{ steps.version.outputs.commit_sha }}
 
-      - name: Create ZIP archive
+      - name: Publish Windows App (arm64)
         run: |
-          $publishDir = "src/MauiSherpa/bin/Release/net10.0-windows10.0.19041.0/win-x64/publish"
-          if (-not (Test-Path $publishDir)) {
-            $publishDir = Get-ChildItem -Path "src/MauiSherpa/bin/Release" -Filter "publish" -Recurse -Directory | Select-Object -First 1 -ExpandProperty FullName
-          }
-          New-Item -ItemType Directory -Force -Path ./artifacts | Out-Null
-          Compress-Archive -Path "$publishDir/*" -DestinationPath ./artifacts/MAUI-Sherpa.win.zip
-          Write-Host "Created archive: ./artifacts/MAUI-Sherpa.win.zip"
-          Get-Item ./artifacts/MAUI-Sherpa.win.zip | Format-List Name, Length
+          dotnet publish src/MauiSherpa/MauiSherpa.csproj `
+            -f net10.0-windows10.0.19041.0 `
+            -c Release `
+            -p:RuntimeIdentifierOverride=win-arm64 `
+            -p:WindowsPackageType=None `
+            -p:WindowsAppSDKSelfContained=true `
+            --self-contained true `
+            -p:AppVersion=${{ steps.version.outputs.app_version }} `
+            -p:AppCommitSha=${{ steps.version.outputs.commit_sha }}
 
-      - name: Upload Windows App
+      - name: Create ZIP archives
+        run: |
+          New-Item -ItemType Directory -Force -Path ./artifacts | Out-Null
+
+          $x64Dir = "src/MauiSherpa/bin/Release/net10.0-windows10.0.19041.0/win-x64/publish"
+          if (-not (Test-Path $x64Dir)) {
+            $x64Dir = Get-ChildItem -Path "src/MauiSherpa/bin/Release" -Filter "publish" -Recurse -Directory |
+              Where-Object { $_.FullName -like "*win-x64*" } | Select-Object -First 1 -ExpandProperty FullName
+          }
+          Compress-Archive -Path "$x64Dir/*" -DestinationPath ./artifacts/MAUI-Sherpa.win-x64.zip
+          Write-Host "Created: MAUI-Sherpa.win-x64.zip"
+          Get-Item ./artifacts/MAUI-Sherpa.win-x64.zip | Format-List Name, Length
+
+          $arm64Dir = "src/MauiSherpa/bin/Release/net10.0-windows10.0.19041.0/win-arm64/publish"
+          if (-not (Test-Path $arm64Dir)) {
+            $arm64Dir = Get-ChildItem -Path "src/MauiSherpa/bin/Release" -Filter "publish" -Recurse -Directory |
+              Where-Object { $_.FullName -like "*win-arm64*" } | Select-Object -First 1 -ExpandProperty FullName
+          }
+          Compress-Archive -Path "$arm64Dir/*" -DestinationPath ./artifacts/MAUI-Sherpa.win-arm64.zip
+          Write-Host "Created: MAUI-Sherpa.win-arm64.zip"
+          Get-Item ./artifacts/MAUI-Sherpa.win-arm64.zip | Format-List Name, Length
+
+      - name: Upload Windows App (x64)
         uses: actions/upload-artifact@v4
         with:
-          name: MAUI-Sherpa.win
-          path: ./artifacts/MAUI-Sherpa.win.zip
+          name: MAUI-Sherpa.win-x64
+          path: ./artifacts/MAUI-Sherpa.win-x64.zip
+          retention-days: 30
+
+      - name: Upload Windows App (arm64)
+        uses: actions/upload-artifact@v4
+        with:
+          name: MAUI-Sherpa.win-arm64
+          path: ./artifacts/MAUI-Sherpa.win-arm64.zip
           retention-days: 30
 
       - name: Set commit status with artifact link
@@ -341,9 +372,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           ARTIFACT_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          if [ -f "./artifacts/MAUI-Sherpa.win.zip" ]; then
+          if [ -f "./artifacts/MAUI-Sherpa.win-x64.zip" ]; then
             STATE="success"
-            DESC="MAUI Sherpa Windows built successfully"
+            DESC="MAUI Sherpa Windows built successfully (x64 + arm64)"
           else
             STATE="failure"
             DESC="MAUI Sherpa Windows build failed"
@@ -443,10 +474,16 @@ jobs:
           name: MAUI-Sherpa.mac
           path: ./release
 
-      - name: Download Windows artifact
+      - name: Download Windows artifact (x64)
         uses: actions/download-artifact@v4
         with:
-          name: MAUI-Sherpa.win
+          name: MAUI-Sherpa.win-x64
+          path: ./release
+
+      - name: Download Windows artifact (arm64)
+        uses: actions/download-artifact@v4
+        with:
+          name: MAUI-Sherpa.win-arm64
           path: ./release
 
       - name: Create Release
@@ -454,7 +491,8 @@ jobs:
         with:
           files: |
             ./release/MAUI-Sherpa.mac.zip
-            ./release/MAUI-Sherpa.win.zip
+            ./release/MAUI-Sherpa.win-x64.zip
+            ./release/MAUI-Sherpa.win-arm64.zip
           generate_release_notes: false
           draft: false
           prerelease: ${{ contains(github.ref, '-') }}
