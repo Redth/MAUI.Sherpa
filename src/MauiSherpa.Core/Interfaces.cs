@@ -1821,7 +1821,8 @@ public enum CloudSecretsProviderType
     AzureKeyVault,
     AwsSecretsManager,
     GoogleSecretManager,
-    Infisical
+    Infisical,
+    OnePassword
 }
 
 /// <summary>

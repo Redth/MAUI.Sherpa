@@ -19,7 +19,8 @@ public class CloudSecretsProviderFactory : ICloudSecretsProviderFactory
         CloudSecretsProviderType.Infisical,
         CloudSecretsProviderType.AzureKeyVault,
         CloudSecretsProviderType.AwsSecretsManager,
-        CloudSecretsProviderType.GoogleSecretManager
+        CloudSecretsProviderType.GoogleSecretManager,
+        CloudSecretsProviderType.OnePassword
     };
 
     public ICloudSecretsProvider CreateProvider(CloudSecretsProviderConfig config)
@@ -30,6 +31,7 @@ public class CloudSecretsProviderFactory : ICloudSecretsProviderFactory
             CloudSecretsProviderType.AzureKeyVault => new AzureKeyVaultProvider(config, _logger),
             CloudSecretsProviderType.AwsSecretsManager => new AwsSecretsManagerProvider(config, _logger),
             CloudSecretsProviderType.GoogleSecretManager => new GoogleSecretManagerProvider(config, _logger),
+            CloudSecretsProviderType.OnePassword => new OnePasswordProvider(config, _logger),
             _ => throw new NotSupportedException($"Provider type {config.ProviderType} is not supported")
         };
     }
@@ -42,6 +44,7 @@ public class CloudSecretsProviderFactory : ICloudSecretsProviderFactory
             CloudSecretsProviderType.AzureKeyVault => GetAzureKeyVaultSettings(),
             CloudSecretsProviderType.AwsSecretsManager => GetAwsSecretsManagerSettings(),
             CloudSecretsProviderType.GoogleSecretManager => GetGoogleSecretManagerSettings(),
+            CloudSecretsProviderType.OnePassword => GetOnePasswordSettings(),
             _ => Array.Empty<CloudProviderSettingInfo>()
         };
     }
@@ -54,6 +57,7 @@ public class CloudSecretsProviderFactory : ICloudSecretsProviderFactory
             CloudSecretsProviderType.AzureKeyVault => "Azure Key Vault",
             CloudSecretsProviderType.AwsSecretsManager => "AWS Secrets Manager",
             CloudSecretsProviderType.GoogleSecretManager => "Google Secret Manager",
+            CloudSecretsProviderType.OnePassword => "1Password",
             CloudSecretsProviderType.None => "None",
             _ => providerType.ToString()
         };
@@ -182,5 +186,31 @@ public class CloudSecretsProviderFactory : ICloudSecretsProviderFactory
             IsRequired: true,
             IsSecret: true,
             Placeholder: "{\"type\": \"service_account\", ...}")
+    };
+
+    private static IReadOnlyList<CloudProviderSettingInfo> GetOnePasswordSettings() => new[]
+    {
+        new CloudProviderSettingInfo(
+            "Vault",
+            "Vault",
+            "The 1Password vault to store secrets in",
+            IsRequired: true,
+            IsSecret: false,
+            Placeholder: "Private"),
+        new CloudProviderSettingInfo(
+            "ItemTitle",
+            "Item Title",
+            "The name of the Secure Note item in your vault (defaults to MAUI.Sherpa)",
+            IsRequired: false,
+            IsSecret: false,
+            DefaultValue: "MAUI.Sherpa",
+            Placeholder: "MAUI.Sherpa"),
+        new CloudProviderSettingInfo(
+            "ServiceAccountToken",
+            "Service Account Token",
+            "Optional 1Password service account token for headless/CI use. Leave blank for interactive authentication via the 1Password desktop app.",
+            IsRequired: false,
+            IsSecret: true,
+            Placeholder: "ops_...")
     };
 }
