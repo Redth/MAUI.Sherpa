@@ -88,6 +88,43 @@ public class CopilotService : ICopilotService, IAsyncDisposable
         return skillsPath;
     }
 
+    /// <summary>
+    /// Resolves the Copilot CLI binary path. Checks the bundled runtimes path first,
+    /// then falls back to finding 'copilot' on the system PATH.
+    /// </summary>
+    private static string? ResolveCopilotCliPath()
+    {
+        var rid = System.Runtime.InteropServices.RuntimeInformation.RuntimeIdentifier;
+        var binaryName = System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(
+            System.Runtime.InteropServices.OSPlatform.Windows) ? "copilot.exe" : "copilot";
+
+        // Check bundled path (runtimes/{rid}/native/copilot)
+        var bundledPath = Path.Combine(AppContext.BaseDirectory, "runtimes", rid, "native", binaryName);
+        if (File.Exists(bundledPath))
+            return bundledPath;
+
+        // On Mac Catalyst, also check osx-arm64/osx-x64 in case the RID mapping wasn't applied
+        if (rid.StartsWith("maccatalyst-", StringComparison.OrdinalIgnoreCase))
+        {
+            var osxRid = rid.Replace("maccatalyst-", "osx-");
+            var osxPath = Path.Combine(AppContext.BaseDirectory, "runtimes", osxRid, "native", binaryName);
+            if (File.Exists(osxPath))
+                return osxPath;
+        }
+
+        // Fallback: find on system PATH
+        var pathEnv = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
+        var pathDirs = pathEnv.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries);
+        foreach (var dir in pathDirs)
+        {
+            var candidate = Path.Combine(dir, binaryName);
+            if (File.Exists(candidate))
+                return candidate;
+        }
+
+        return null;
+    }
+
     public async Task<CopilotAvailability> CheckAvailabilityAsync(bool forceRefresh = false)
     {
         // Return cached result if available and not forcing refresh
@@ -102,11 +139,16 @@ public class CopilotService : ICopilotService, IAsyncDisposable
         {
             _logger.LogInformation("Checking Copilot availability via SDK...");
             
+            var cliPath = ResolveCopilotCliPath();
+            if (cliPath != null)
+                _logger.LogInformation($"Resolved Copilot CLI path: {cliPath}");
+
             // Create a temporary client to check status
             var options = new CopilotClientOptions
             {
                 AutoStart = true,
-                AutoRestart = false
+                AutoRestart = false,
+                CliPath = cliPath
             };
             
             tempClient = new CopilotClient(options);
@@ -186,13 +228,18 @@ public class CopilotService : ICopilotService, IAsyncDisposable
         {
             _logger.LogInformation("Connecting to Copilot CLI...");
             
+            var cliPath = ResolveCopilotCliPath();
+            if (cliPath != null)
+                _logger.LogInformation($"Resolved Copilot CLI path: {cliPath}");
+
             var options = new CopilotClientOptions
             {
                 AutoStart = true,
                 AutoRestart = true,
                 UseStdio = true,
                 Cwd = _skillsPath, // Set working directory to skills folder
-                LogLevel = "info"
+                LogLevel = "info",
+                CliPath = cliPath
             };
 
             _client = new CopilotClient(options);

@@ -66,4 +66,25 @@
     <MauiAsset Include="Resources/Raw/**" LogicalName="%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 
+  <!-- Bundle Copilot CLI binary into the Mac Catalyst app.
+       The GitHub.Copilot.SDK targets download the binary under osx-arm64/osx-x64,
+       but at runtime on Mac Catalyst, RuntimeInformation.RuntimeIdentifier returns
+       maccatalyst-arm64/maccatalyst-x64. We copy the downloaded binary directly
+       into the app bundle at the path the SDK expects at runtime. -->
+  <Target Name="_BundleCopilotCliForMacCatalyst" AfterTargets="Build"
+          Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">
+    <PropertyGroup>
+      <_CopilotMacCatRid Condition="'$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)' == 'Arm64'">maccatalyst-arm64</_CopilotMacCatRid>
+      <_CopilotMacCatRid Condition="'$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)' == 'X64'">maccatalyst-x64</_CopilotMacCatRid>
+      <_CopilotOsxRid Condition="'$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)' == 'Arm64'">osx-arm64</_CopilotOsxRid>
+      <_CopilotOsxRid Condition="'$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)' == 'X64'">osx-x64</_CopilotOsxRid>
+      <_CopilotSourceBinary>$(OutDir)runtimes/$(_CopilotOsxRid)/native/copilot</_CopilotSourceBinary>
+      <_CopilotAppBundle>$(OutDir)$(ApplicationTitle).app/Contents/MonoBundle/runtimes/$(_CopilotMacCatRid)/native</_CopilotAppBundle>
+    </PropertyGroup>
+    <MakeDir Directories="$(_CopilotAppBundle)" Condition="Exists('$(_CopilotSourceBinary)')" />
+    <Copy SourceFiles="$(_CopilotSourceBinary)" DestinationFolder="$(_CopilotAppBundle)" SkipUnchangedFiles="true"
+          Condition="Exists('$(_CopilotSourceBinary)')" />
+    <Exec Command="chmod +x &quot;$(_CopilotAppBundle)/copilot&quot;" Condition="Exists('$(_CopilotSourceBinary)')" />
+  </Target>
+
 </Project>
