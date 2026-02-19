@@ -224,6 +224,57 @@ public record EmulatorCreateOptions(
     int? InternalStorageMb = null
 );
 
+// ============================================================================
+// Firebase Cloud Messaging - Push Notification Testing
+// ============================================================================
+
+/// <summary>
+/// Request to send an FCM push notification
+/// </summary>
+public record FcmPushRequest(
+    string DeviceToken,
+    string? Title,
+    string? Body,
+    Dictionary<string, string>? Data = null,
+    string? Topic = null,
+    string? ImageUrl = null
+);
+
+/// <summary>
+/// Response from sending an FCM push notification
+/// </summary>
+public record FcmPushResponse(
+    bool Success,
+    string? MessageId,
+    string? Error,
+    int? StatusCode,
+    DateTime Timestamp
+);
+
+/// <summary>
+/// Service for sending Firebase Cloud Messaging push notifications for testing
+/// </summary>
+public interface IFirebasePushService
+{
+    /// <summary>Whether a service account is configured</summary>
+    Task<bool> HasCredentialsAsync();
+
+    /// <summary>Gets the Firebase project ID from the stored service account</summary>
+    Task<string?> GetProjectIdAsync();
+
+    /// <summary>Saves a service account JSON for FCM v1 API</summary>
+    Task SaveServiceAccountAsync(string json);
+
+    /// <summary>Clears all stored credentials</summary>
+    Task ClearCredentialsAsync();
+
+    /// <summary>Sends a push notification via FCM v1 API using structured fields</summary>
+    Task<FcmPushResponse> SendPushAsync(FcmPushRequest request);
+
+    /// <summary>Sends a push notification using a raw JSON message body</summary>
+    Task<FcmPushResponse> SendRawJsonAsync(string messageJson);
+}
+
 // Apple Identity & App Store Connect
 public record AppleIdentity(
     string Id,
