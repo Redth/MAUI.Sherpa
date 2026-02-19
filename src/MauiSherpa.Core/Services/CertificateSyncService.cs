@@ -168,15 +168,45 @@ public class CertificateSyncService : ICertificateSyncService
             return false;
         }
 
-        // We need to find the serial number from certificate ID
-        // For now, we'll need this to be passed differently or stored in metadata
-        _logger.LogWarning("DownloadAndInstallAsync not yet implemented - needs serial number lookup");
-        return false;
-        
-        // TODO: Implement full flow:
-        // 1. Get P12 data from cloud
-        // 2. Get password from cloud
-        // 3. Import into local keychain using security import command
+        if (string.IsNullOrWhiteSpace(certificateId))
+        {
+            _logger.LogWarning("DownloadAndInstallAsync called with empty certificate ID");
+            return false;
+        }
+
+        try
+        {
+            // Resolve certificate ID to serial number via metadata records.
+            var keys = await _cloudSecretsService.ListSecretsAsync($"{SecretPrefix}_", cancellationToken);
+            var metadataKeys = keys
+                .Where(k => k.EndsWith("_META", StringComparison.OrdinalIgnoreCase))
+                .Distinct(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var metadataKey in metadataKeys)
+            {
+                var serial = TryExtractSerialFromMetadataKey(metadataKey);
+                if (string.IsNullOrEmpty(serial))
+                    continue;
+
+                var metadata = await GetCertificateMetadataAsync(serial, cancellationToken);
+                if (metadata == null)
+                    continue;
+
+                if (!string.Equals(metadata.CertificateId, certificateId, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                _logger.LogInformation($"Resolved certificate ID {certificateId} to serial {metadata.SerialNumber}");
+                return await DownloadAndInstallBySerialAsync(metadata.SerialNumber, cancellationToken);
+            }
+
+            _logger.LogWarning($"Could not resolve certificate ID {certificateId} to cloud metadata");
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Failed to resolve certificate ID {certificateId}: {ex.Message}", ex);
+            return false;
+        }
     }
 
     /// <summary>
@@ -343,6 +373,22 @@ public class CertificateSyncService : ICertificateSyncService
         }
         // Strip leading zeros — local keychain may include them but API may not
         return sb.ToString().TrimStart('0');
+    }
+
+    private static string? TryExtractSerialFromMetadataKey(string key)
+    {
+        // Expected format: CERT_<SERIAL>_META
+        var parts = key.Split('_');
+        if (parts.Length != 3)
+            return null;
+
+        if (!parts[0].Equals(SecretPrefix, StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        if (!parts[2].Equals("META", StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        return parts[1];
     }
 
     private async Task<bool> ImportP12ToKeychainAsync(
