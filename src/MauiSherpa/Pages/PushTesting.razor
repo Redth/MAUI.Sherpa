@@ -1,0 +1,612 @@
+@page "/push-testing"
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Services
+@inject IAppleIdentityService IdentityService
+@inject IApnsPushService PushService
+@inject IDialogService DialogService
+@inject IEncryptedSettingsService SettingsService
+@inject BlazorToastService ToastService
+@inject ILoggingService Logger
+@implements IDisposable
+
+<h1><i class="fas fa-paper-plane"></i> Push Testing</h1>
+
+<div class="push-layout">
+    <div class="push-section">
+        <div class="section-header"><i class="fas fa-key"></i> Authentication</div>
+        <div class="section-body">
+            <div class="form-group">
+                <label>Auth Method</label>
+                <select @bind="authMode" @bind:after="OnAuthModeChanged">
+                    <option value="identity">Stored Apple Identity</option>
+                    <option value="p8file">.p8 File from Filesystem</option>
+                </select>
+            </div>
+
+            @if (authMode == "identity")
+            {
+                <div class="form-group">
+                    <label>Apple Identity</label>
+                    @if (identities.Count == 0)
+                    {
+                        <div class="empty-state">No Apple identities configured. Add one in Settings.</div>
+                    }
+                    else
+                    {
+                        <select @bind="selectedIdentityId" @bind:after="OnIdentityChanged">
+                            <option value="">-- Select Identity --</option>
+                            @foreach (var identity in identities)
+                            {
+                                <option value="@identity.Id">@identity.Name (Key: @identity.KeyId)</option>
+                            }
+                        </select>
+                    }
+                </div>
+                <div class="form-group">
+                    <label>Team ID</label>
+                    <input type="text" @bind="teamId" @bind:after="SaveSettings" placeholder="e.g. ABC1234DEF" />
+                </div>
+            }
+            else
+            {
+                <div class="form-group">
+                    <label>.p8 Key File</label>
+                    <div class="file-picker">
+                        <input type="text" value="@p8FilePath" readonly placeholder="No file selected" />
+                        <button class="btn btn-secondary" @onclick="PickP8File">
+                            <i class="fas fa-folder-open"></i> Browse
+                        </button>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Team ID</label>
+                    <input type="text" @bind="teamId" @bind:after="SaveSettings" placeholder="e.g. ABC1234DEF" />
+                </div>
+                <div class="form-group">
+                    <label>Key ID</label>
+                    <input type="text" @bind="p8KeyId" @bind:after="SaveSettings" placeholder="e.g. ABCDE12345" />
+                </div>
+            }
+        </div>
+    </div>
+
+    <div class="push-section">
+        <div class="section-header"><i class="fas fa-sliders-h"></i> Push Configuration</div>
+        <div class="section-body">
+            <div class="form-row">
+                <div class="form-group flex-1">
+                    <label>Push Type</label>
+                    <select @bind="pushType" @bind:after="SaveSettings">
+                        <option value="alert">Alert</option>
+                        <option value="background">Background</option>
+                        <option value="voip">VoIP</option>
+                        <option value="complication">Complication</option>
+                        <option value="fileprovider">File Provider</option>
+                        <option value="mdm">MDM</option>
+                        <option value="liveactivity">Live Activity</option>
+                        <option value="pushtotalk">Push to Talk</option>
+                        <option value="location">Location</option>
+                    </select>
+                </div>
+                <div class="form-group flex-1">
+                    <label>Priority</label>
+                    <select @bind="priority" @bind:after="SaveSettings">
+                        <option value="5">Normal (5)</option>
+                        <option value="10">Immediate (10)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group flex-1">
+                    <label>Collapse ID <span class="optional">(optional)</span></label>
+                    <input type="text" @bind="collapseId" @bind:after="SaveSettings" placeholder="Collapse identifier" />
+                </div>
+                <div class="form-group flex-1">
+                    <label>Notification ID <span class="optional">(optional)</span></label>
+                    <input type="text" @bind="notificationId" @bind:after="SaveSettings" placeholder="UUID format" />
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group flex-1">
+                    <label>Expiration <span class="optional">(seconds, optional)</span></label>
+                    <input type="number" @bind="expirationSeconds" @bind:after="SaveSettings" placeholder="0 = immediate expiry" />
+                </div>
+                <div class="form-group flex-1">
+                    <label>Environment</label>
+                    <select @bind="useSandbox" @bind:after="SaveSettings">
+                        <option value="true">Sandbox</option>
+                        <option value="false">Production</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="push-section">
+        <div class="section-header"><i class="fas fa-envelope"></i> Payload</div>
+        <div class="section-body">
+            <div class="form-row">
+                <div class="form-group flex-1">
+                    <label>Bundle ID</label>
+                    <input type="text" @bind="bundleId" @bind:after="SaveSettings" placeholder="e.g. com.example.myapp" />
+                </div>
+                <div class="form-group flex-1">
+                    <label>Device Token</label>
+                    <input type="text" @bind="deviceToken" @bind:after="SaveSettings" placeholder="Hex device token" />
+                </div>
+            </div>
+            <div class="form-group">
+                <label>JSON Body</label>
+                <textarea class="json-editor" @bind="jsonPayload" @bind:after="SaveSettings" rows="12" spellcheck="false"></textarea>
+            </div>
+        </div>
+    </div>
+
+    <div class="action-bar">
+        <button class="btn btn-primary btn-lg" @onclick="SendPush" disabled="@(isSending || !IsValid)">
+            <i class="fas @(isSending ? "fa-spinner fa-spin" : "fa-paper-plane")"></i>
+            @(isSending ? "Sending..." : "Send Push Notification")
+        </button>
+    </div>
+
+    @if (lastResult != null)
+    {
+        <div class="push-section result-section @(lastResult.Success ? "result-success" : "result-error")">
+            <div class="section-header">
+                <i class="fas @(lastResult.Success ? "fa-check-circle" : "fa-times-circle")"></i>
+                Result — HTTP @lastResult.StatusCode
+            </div>
+            <div class="section-body">
+                @if (lastResult.Success)
+                {
+                    <div class="result-row"><strong>Status:</strong> Success</div>
+                    @if (!string.IsNullOrEmpty(lastResult.ApnsId))
+                    {
+                        <div class="result-row"><strong>apns-id:</strong> <code>@lastResult.ApnsId</code></div>
+                    }
+                }
+                else
+                {
+                    <div class="result-row"><strong>Status:</strong> Failed</div>
+                    @if (!string.IsNullOrEmpty(lastResult.ErrorReason))
+                    {
+                        <div class="result-row"><strong>Reason:</strong> <code>@lastResult.ErrorReason</code></div>
+                    }
+                    @if (!string.IsNullOrEmpty(lastResult.ErrorDescription))
+                    {
+                        <div class="result-row"><strong>Response:</strong> <pre class="error-detail">@lastResult.ErrorDescription</pre></div>
+                    }
+                }
+            </div>
+        </div>
+    }
+</div>
+
+<style>
+    .push-layout {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        max-width: 800px;
+        padding-bottom: 40px;
+    }
+
+    .push-section {
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 10px;
+        overflow: hidden;
+    }
+
+    .section-header {
+        padding: 12px 20px;
+        font-weight: 600;
+        font-size: 14px;
+        color: var(--text-primary);
+        background: var(--bg-secondary);
+        border-bottom: 1px solid var(--border-color);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .section-body {
+        padding: 16px 20px;
+    }
+
+    .form-group {
+        margin-bottom: 12px;
+    }
+
+    .form-group:last-child {
+        margin-bottom: 0;
+    }
+
+    .form-group label {
+        display: block;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text-secondary);
+        margin-bottom: 4px;
+    }
+
+    .optional {
+        font-weight: 400;
+        color: var(--text-tertiary);
+    }
+
+    .form-group input,
+    .form-group select,
+    .form-group textarea {
+        width: 100%;
+        padding: 8px 12px;
+        border: 1px solid var(--input-border);
+        border-radius: 6px;
+        background: var(--input-bg);
+        color: var(--text-primary);
+        font-size: 14px;
+        box-sizing: border-box;
+    }
+
+    .form-group input:focus,
+    .form-group select:focus,
+    .form-group textarea:focus {
+        outline: none;
+        border-color: var(--accent-primary);
+        box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.1);
+    }
+
+    .form-row {
+        display: flex;
+        gap: 12px;
+    }
+
+    .flex-1 {
+        flex: 1;
+    }
+
+    .file-picker {
+        display: flex;
+        gap: 8px;
+    }
+
+    .file-picker input {
+        flex: 1;
+    }
+
+    .json-editor {
+        font-family: 'SF Mono', 'Menlo', 'Monaco', 'Consolas', monospace;
+        font-size: 13px;
+        line-height: 1.5;
+        resize: vertical;
+        min-height: 200px;
+        tab-size: 2;
+    }
+
+    .action-bar {
+        display: flex;
+        justify-content: flex-end;
+    }
+
+    .btn {
+        padding: 10px 20px;
+        border: none;
+        border-radius: 6px;
+        font-size: 14px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .btn-primary {
+        background-color: var(--accent-primary);
+        color: white;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+        background-color: var(--accent-primary-hover);
+    }
+
+    .btn-secondary {
+        background-color: var(--bg-hover);
+        color: var(--text-secondary);
+    }
+
+    .btn-lg {
+        padding: 12px 28px;
+        font-size: 15px;
+        font-weight: 600;
+    }
+
+    .btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+
+    .empty-state {
+        color: var(--text-tertiary);
+        font-size: 13px;
+        padding: 8px 0;
+    }
+
+    .result-section {
+        border-width: 2px;
+    }
+
+    .result-success {
+        border-color: var(--success-color, #48bb78);
+    }
+
+    .result-success .section-header {
+        color: var(--success-color, #48bb78);
+    }
+
+    .result-error {
+        border-color: var(--danger-color, #f56565);
+    }
+
+    .result-error .section-header {
+        color: var(--danger-color, #f56565);
+    }
+
+    .result-row {
+        padding: 4px 0;
+        font-size: 14px;
+        color: var(--text-primary);
+    }
+
+    .result-row code {
+        background: var(--bg-tertiary);
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 13px;
+        user-select: text;
+    }
+
+    .error-detail {
+        background: var(--bg-tertiary);
+        padding: 8px 12px;
+        border-radius: 6px;
+        font-size: 12px;
+        margin-top: 4px;
+        overflow-x: auto;
+        white-space: pre-wrap;
+        user-select: text;
+    }
+</style>
+
+@code {
+    List<AppleIdentity> identities = new();
+
+    // Auth
+    string authMode = "identity";
+    string selectedIdentityId = "";
+    string p8FilePath = "";
+    string p8KeyId = "";
+    string teamId = "";
+
+    // Config
+    string pushType = "alert";
+    int priority = 5;
+    string collapseId = "";
+    string notificationId = "";
+    int? expirationSeconds;
+    bool useSandbox = true;
+
+    // Payload
+    string bundleId = "";
+    string deviceToken = "";
+    string jsonPayload = "{\n  \"aps\": {\n    \"alert\": {\n      \"title\": \"Test\",\n      \"body\": \"Hello from MauiSherpa!\"\n    },\n    \"sound\": \"default\"\n  }\n}";
+
+    // State
+    bool isSending;
+    ApnsPushResult? lastResult;
+    bool settingsLoaded;
+
+    bool IsValid
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(bundleId) || string.IsNullOrWhiteSpace(deviceToken) || string.IsNullOrWhiteSpace(jsonPayload))
+                return false;
+
+            if (authMode == "identity")
+            {
+                if (string.IsNullOrWhiteSpace(selectedIdentityId) || string.IsNullOrWhiteSpace(teamId))
+                    return false;
+            }
+            else
+            {
+                if (string.IsNullOrWhiteSpace(p8FilePath) || string.IsNullOrWhiteSpace(teamId) || string.IsNullOrWhiteSpace(p8KeyId))
+                    return false;
+            }
+
+            return true;
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        identities = (await IdentityService.GetIdentitiesAsync()).ToList();
+        await LoadSettings();
+        SettingsService.OnSettingsChanged += OnSettingsChanged;
+    }
+
+    async Task LoadSettings()
+    {
+        try
+        {
+            var settings = await SettingsService.GetSettingsAsync();
+            var ps = settings.PushTesting;
+
+            authMode = ps.AuthMode ?? "identity";
+            selectedIdentityId = ps.SelectedIdentityId ?? "";
+            p8FilePath = ps.P8FilePath ?? "";
+            p8KeyId = ps.P8KeyId ?? "";
+            teamId = ps.TeamId ?? "";
+            pushType = ps.PushType;
+            priority = ps.Priority;
+            collapseId = ps.CollapseId ?? "";
+            notificationId = ps.NotificationId ?? "";
+            expirationSeconds = ps.ExpirationSeconds;
+            bundleId = ps.BundleId ?? "";
+            deviceToken = ps.DeviceToken ?? "";
+            jsonPayload = ps.JsonPayload;
+            useSandbox = ps.UseSandbox;
+            settingsLoaded = true;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError($"Failed to load push testing settings: {ex.Message}", ex);
+            settingsLoaded = true;
+        }
+    }
+
+    async Task SaveSettings()
+    {
+        if (!settingsLoaded) return;
+
+        try
+        {
+            await SettingsService.UpdateSettingsAsync(s => s with
+            {
+                PushTesting = new PushTestingSettings
+                {
+                    AuthMode = authMode,
+                    SelectedIdentityId = string.IsNullOrEmpty(selectedIdentityId) ? null : selectedIdentityId,
+                    P8FilePath = string.IsNullOrEmpty(p8FilePath) ? null : p8FilePath,
+                    P8KeyId = string.IsNullOrEmpty(p8KeyId) ? null : p8KeyId,
+                    TeamId = string.IsNullOrEmpty(teamId) ? null : teamId,
+                    PushType = pushType,
+                    Priority = priority,
+                    CollapseId = string.IsNullOrEmpty(collapseId) ? null : collapseId,
+                    NotificationId = string.IsNullOrEmpty(notificationId) ? null : notificationId,
+                    ExpirationSeconds = expirationSeconds,
+                    BundleId = string.IsNullOrEmpty(bundleId) ? null : bundleId,
+                    DeviceToken = string.IsNullOrEmpty(deviceToken) ? null : deviceToken,
+                    JsonPayload = jsonPayload,
+                    UseSandbox = useSandbox
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError($"Failed to save push testing settings: {ex.Message}", ex);
+        }
+    }
+
+    async Task OnAuthModeChanged()
+    {
+        await SaveSettings();
+    }
+
+    async Task OnIdentityChanged()
+    {
+        await SaveSettings();
+    }
+
+    async Task PickP8File()
+    {
+        var path = await DialogService.PickOpenFileAsync("Select .p8 Key File", new[] { ".p8" });
+        if (!string.IsNullOrEmpty(path))
+        {
+            p8FilePath = path;
+            await SaveSettings();
+        }
+    }
+
+    async Task SendPush()
+    {
+        if (!IsValid) return;
+
+        isSending = true;
+        lastResult = null;
+        StateHasChanged();
+
+        try
+        {
+            string p8Key;
+            string keyId;
+
+            if (authMode == "identity")
+            {
+                var identity = identities.FirstOrDefault(i => i.Id == selectedIdentityId);
+                if (identity == null)
+                {
+                    ToastService.ShowError("Selected identity not found.");
+                    return;
+                }
+
+                if (string.IsNullOrEmpty(identity.P8KeyContent))
+                {
+                    ToastService.ShowError("Selected identity has no P8 key content.");
+                    return;
+                }
+
+                p8Key = identity.P8KeyContent;
+                keyId = identity.KeyId;
+            }
+            else
+            {
+                if (!File.Exists(p8FilePath))
+                {
+                    ToastService.ShowError("P8 file not found.");
+                    return;
+                }
+
+                p8Key = await File.ReadAllTextAsync(p8FilePath);
+                keyId = p8KeyId;
+            }
+
+            var request = new ApnsPushRequest(
+                P8Key: p8Key,
+                KeyId: keyId,
+                TeamId: teamId,
+                BundleId: bundleId,
+                DeviceToken: deviceToken,
+                JsonPayload: jsonPayload,
+                PushType: pushType,
+                Priority: priority,
+                CollapseId: string.IsNullOrWhiteSpace(collapseId) ? null : collapseId,
+                NotificationId: string.IsNullOrWhiteSpace(notificationId) ? null : notificationId,
+                ExpirationSeconds: expirationSeconds,
+                UseSandbox: useSandbox
+            );
+
+            lastResult = await PushService.SendPushAsync(request);
+
+            if (lastResult.Success)
+                ToastService.ShowSuccess("Push notification sent successfully!");
+            else
+                ToastService.ShowError($"Push failed: {lastResult.ErrorReason ?? "Unknown error"}");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError($"Push send error: {ex.Message}", ex);
+            ToastService.ShowError($"Error: {ex.Message}");
+        }
+        finally
+        {
+            isSending = false;
+            StateHasChanged();
+        }
+    }
+
+    void OnSettingsChanged()
+    {
+        InvokeAsync(async () =>
+        {
+            await LoadSettings();
+            StateHasChanged();
+        });
+    }
+
+    public void Dispose()
+    {
+        SettingsService.OnSettingsChanged -= OnSettingsChanged;
+    }
+}

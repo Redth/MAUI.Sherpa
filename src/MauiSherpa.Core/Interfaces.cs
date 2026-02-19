@@ -2337,6 +2337,7 @@ public record MauiSherpaSettings
     public string? ActiveCloudProviderId { get; init; }
     public List<SecretsPublisherData> SecretsPublishers { get; init; } = new();
     public AppPreferences Preferences { get; init; } = new();
+    public PushTestingSettings PushTesting { get; init; } = new();
     public DateTime LastModified { get; init; } = DateTime.UtcNow;
 }
 
@@ -2371,6 +2372,24 @@ public record AppPreferences
     public string? AndroidSdkPath { get; init; }
     public bool AutoBackupEnabled { get; init; } = true;
     public bool DemoMode { get; init; } = false;
+}
+
+public record PushTestingSettings
+{
+    public string? AuthMode { get; init; } = "identity"; // "identity" or "p8file"
+    public string? SelectedIdentityId { get; init; }
+    public string? P8FilePath { get; init; }
+    public string? P8KeyId { get; init; }
+    public string? TeamId { get; init; }
+    public string PushType { get; init; } = "alert";
+    public int Priority { get; init; } = 5;
+    public string? CollapseId { get; init; }
+    public string? NotificationId { get; init; }
+    public int? ExpirationSeconds { get; init; }
+    public string? BundleId { get; init; }
+    public string? DeviceToken { get; init; }
+    public string JsonPayload { get; init; } = "{\n  \"aps\": {\n    \"alert\": {\n      \"title\": \"Test\",\n      \"body\": \"Hello from MauiSherpa!\"\n    },\n    \"sound\": \"default\"\n  }\n}";
+    public bool UseSandbox { get; init; } = true;
 }
 
 /// <summary>
@@ -2530,4 +2549,36 @@ public record KeystoreSyncStatus(
     string? CloudKey,
     bool HasLocal,
     bool HasCloud
+);
+
+// ============================================================================
+// APNs Push Testing
+// ============================================================================
+
+public interface IApnsPushService
+{
+    Task<ApnsPushResult> SendPushAsync(ApnsPushRequest request, CancellationToken ct = default);
+}
+
+public record ApnsPushRequest(
+    string P8Key,
+    string KeyId,
+    string TeamId,
+    string BundleId,
+    string DeviceToken,
+    string JsonPayload,
+    string PushType = "alert",
+    int Priority = 10,
+    string? CollapseId = null,
+    string? NotificationId = null,
+    int? ExpirationSeconds = null,
+    bool UseSandbox = true
+);
+
+public record ApnsPushResult(
+    bool Success,
+    int StatusCode,
+    string? ApnsId,
+    string? ErrorReason,
+    string? ErrorDescription
 );
