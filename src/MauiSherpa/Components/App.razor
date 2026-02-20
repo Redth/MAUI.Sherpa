@@ -46,10 +46,12 @@
 
             if (result.UpdateAvailable && result.LatestRelease != null)
             {
+                var isDismissed = UpdateService.DismissedVersion == result.LatestRelease.TagName;
+
                 await InvokeAsync(() =>
                 {
                     _updateCheckResult = result;
-                    _showUpdateModal = true;
+                    _showUpdateModal = !isDismissed;
                     StateHasChanged();
                 });
             }
@@ -81,6 +83,9 @@
 
     private Task HandleUpdateDecline()
     {
+        if (_updateCheckResult?.LatestRelease != null)
+            UpdateService.DismissVersion(_updateCheckResult.LatestRelease.TagName);
+
         _showUpdateModal = false;
         StateHasChanged();
         return Task.CompletedTask;

@@ -13,7 +13,13 @@ public class UpdateService : IUpdateService
     private readonly string _gitHubApiUrl;
     private DateTimeOffset _lastCheckTime = DateTimeOffset.MinValue;
     private UpdateCheckResult? _cachedResult;
+    private string? _dismissedVersion;
     private static readonly TimeSpan CacheDuration = TimeSpan.FromHours(1);
+
+    public UpdateCheckResult? CachedResult => _cachedResult;
+    public string? DismissedVersion => _dismissedVersion;
+
+    public void DismissVersion(string version) => _dismissedVersion = version;
 
     public UpdateService(HttpClient httpClient, ILoggingService logger, string currentVersion, string repoOwner = "Redth", string repoName = "MAUI.Sherpa")
     {

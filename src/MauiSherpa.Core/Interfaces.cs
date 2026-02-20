@@ -2571,6 +2571,22 @@ public interface IUpdateService
     /// currently running .app bundle and relaunch. macOS only.
     /// </summary>
     Task DownloadAndApplyUpdateAsync(GitHubRelease release, IProgress<(double Percent, string Message)>? progress = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Gets the dismissed update version (the version the user chose "Not Now" for).
+    /// Returns null if no version has been dismissed.
+    /// </summary>
+    string? DismissedVersion { get; }
+
+    /// <summary>
+    /// Remember that the user dismissed the update for a specific version.
+    /// </summary>
+    void DismissVersion(string version);
+
+    /// <summary>
+    /// Gets the cached update check result, if any.
+    /// </summary>
+    UpdateCheckResult? CachedResult { get; }
 }
 
 // =============================================
