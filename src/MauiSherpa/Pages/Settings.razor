@@ -80,7 +80,16 @@
         <div class="setting-group" style="margin-top: 1.5rem;">
             <div class="setting-item">
                 <label class="setting-label">Version</label>
-                <span class="mono text-selectable">@appVersion</span>
+                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                    <span class="mono text-selectable">@appVersion</span>
+                    @if (updateResult?.UpdateAvailable == true && updateResult.LatestRelease != null)
+                    {
+                        <button class="btn btn-sm btn-update-available" @onclick="ShowUpdateDialog">
+                            <i class="fas fa-arrow-circle-up"></i>
+                            @(updateResult.LatestRelease.TagName) available
+                        </button>
+                    }
+                </div>
             </div>
         </div>
     </div>
@@ -1046,6 +1055,14 @@
     </div>
 }
 
+<UpdateAvailableModal
+    @ref="updateModal"
+    UpdateResult="@updateResult"
+    IsVisible="@showUpdateDialog"
+    OnAccept="@HandleSettingsUpdateAccept"
+    OnDecline="@HandleSettingsUpdateDecline"
+    OnAutoUpdate="@HandleSettingsAutoUpdate" />
+
 <style>
     h1 { margin-bottom: 1.25rem; font-size: 1.75rem; color: var(--text-primary); font-weight: 600; }
     h2 { margin: 0 0 1rem 0; font-size: 1.125rem; color: var(--text-primary); font-weight: 600; display: flex; align-items: center; gap: 0.625rem; }
@@ -1054,6 +1071,25 @@
     .settings-section { margin-bottom: 2rem; }
     .section-description { color: var(--text-muted); margin-bottom: 1rem; font-size: 0.875rem; }
     .section-description a { color: var(--accent-primary); }
+
+    .btn-update-available {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.375rem;
+        padding: 0.25rem 0.625rem;
+        font-size: 0.75rem;
+        font-weight: 600;
+        background: rgba(52, 211, 153, 0.15);
+        color: var(--accent-success, #34d399);
+        border: 1px solid rgba(52, 211, 153, 0.3);
+        border-radius: 0.375rem;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+    .btn-update-available:hover {
+        background: rgba(52, 211, 153, 0.25);
+        border-color: rgba(52, 211, 153, 0.5);
+    }
 
     .settings-container {
         background: var(--card-bg);
@@ -1737,6 +1773,9 @@
     
     private bool demoMode = false;
     private string appVersion = "";
+    private UpdateCheckResult? updateResult;
+    private bool showUpdateDialog = false;
+    private UpdateAvailableModal? updateModal;
     private bool showIdentityDialog = false;
     private AppleIdentity? editingIdentity = null;
     private string identityName = "";
@@ -1866,6 +1905,7 @@
         await LoadDemoMode();
         
         appVersion = TruncateVersion(UpdateService.GetCurrentVersion());
+        updateResult = UpdateService.CachedResult;
     }
 
     private static string TruncateVersion(string version)
@@ -3021,5 +3061,47 @@
         else if (showImportDialog) CloseImportDialog();
         else if (showExportDialog) CloseExportDialog();
         InvokeAsync(StateHasChanged);
+    }
+
+    // === Update Dialog ===
+
+    private void ShowUpdateDialog()
+    {
+        showUpdateDialog = true;
+    }
+
+    private async Task HandleSettingsUpdateAccept()
+    {
+        if (updateResult?.LatestRelease?.HtmlUrl is { Length: > 0 } url)
+        {
+            try { await Launcher.Default.OpenAsync(new Uri(url)); } catch { }
+        }
+        showUpdateDialog = false;
+    }
+
+    private Task HandleSettingsUpdateDecline()
+    {
+        showUpdateDialog = false;
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    private async Task HandleSettingsAutoUpdate()
+    {
+        if (updateResult?.LatestRelease == null) return;
+        try
+        {
+            var progress = new Progress<(double Percent, string Message)>(update =>
+            {
+                updateModal?.UpdateProgress(update.Percent, update.Message);
+            });
+            await UpdateService.DownloadAndApplyUpdateAsync(updateResult.LatestRelease, progress);
+        }
+        catch (Exception ex)
+        {
+            await AlertService.ShowAlertAsync("Update Failed", ex.Message);
+            showUpdateDialog = false;
+            StateHasChanged();
+        }
     }
 }

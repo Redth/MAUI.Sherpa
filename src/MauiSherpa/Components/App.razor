@@ -18,15 +18,18 @@
 </Router>
 
 <UpdateAvailableModal 
+    @ref="_updateModal"
     UpdateResult="@_updateCheckResult" 
     IsVisible="@_showUpdateModal"
     OnAccept="@HandleUpdateAccept"
-    OnDecline="@HandleUpdateDecline" />
+    OnDecline="@HandleUpdateDecline"
+    OnAutoUpdate="@HandleAutoUpdate" />
 
 @code {
     private UpdateCheckResult? _updateCheckResult;
     private bool _showUpdateModal;
     private CancellationTokenSource _cts = new();
+    private UpdateAvailableModal? _updateModal;
 
     protected override async Task OnInitializedAsync()
     {
@@ -43,10 +46,12 @@
 
             if (result.UpdateAvailable && result.LatestRelease != null)
             {
+                var isDismissed = UpdateService.DismissedVersion == result.LatestRelease.TagName;
+
                 await InvokeAsync(() =>
                 {
                     _updateCheckResult = result;
-                    _showUpdateModal = true;
+                    _showUpdateModal = !isDismissed;
                     StateHasChanged();
                 });
             }
@@ -78,9 +83,33 @@
 
     private Task HandleUpdateDecline()
     {
+        if (_updateCheckResult?.LatestRelease != null)
+            UpdateService.DismissVersion(_updateCheckResult.LatestRelease.TagName);
+
         _showUpdateModal = false;
         StateHasChanged();
         return Task.CompletedTask;
+    }
+
+    private async Task HandleAutoUpdate()
+    {
+        if (_updateCheckResult?.LatestRelease == null) return;
+
+        try
+        {
+            var progress = new Progress<(double Percent, string Message)>(update =>
+            {
+                _updateModal?.UpdateProgress(update.Percent, update.Message);
+            });
+
+            await UpdateService.DownloadAndApplyUpdateAsync(_updateCheckResult.LatestRelease, progress, _cts.Token);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError("Auto-update failed", ex);
+            _showUpdateModal = false;
+            StateHasChanged();
+        }
     }
 
     public void Dispose()
