@@ -885,10 +885,11 @@ else
 
         if (dep.Category == DependencyCategory.Workload && !string.IsNullOrEmpty(dep.FixAction))
         {
-            // e.g., "dotnet workload install maui"
+            // e.g., "dotnet workload install maui" — resolve full dotnet path for GUI apps
             var parts = dep.FixAction.Split(' ', 2);
+            var command = parts[0] == "dotnet" ? DoctorService.GetDotNetExecutablePath() : parts[0];
             request = new ProcessRequest(
-                Command: parts[0],
+                Command: command,
                 Arguments: parts.Length > 1 ? parts[1].Split(' ') : Array.Empty<string>(),
                 RequiresElevation: true,
                 ElevationPrompt: $"Install {dep.Name}",
@@ -1010,9 +1011,10 @@ else
     {
         if (version == report?.InstalledWorkloadSetVersion) return;
 
-        // Build the workload update command
+        // Build the workload update command using full path (GUI apps may not have dotnet on PATH)
+        var dotnetPath = DoctorService.GetDotNetExecutablePath();
         var request = new ProcessRequest(
-            Command: "dotnet",
+            Command: dotnetPath,
             Arguments: new[] { "workload", "update", "--version", version },
             RequiresElevation: true,
             ElevationPrompt: "Install .NET Workloads",

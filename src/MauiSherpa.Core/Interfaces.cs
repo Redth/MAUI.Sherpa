@@ -1085,6 +1085,12 @@ public interface IDoctorService
     /// Installs or updates workloads to a specific workload set version.
     /// </summary>
     Task<bool> UpdateWorkloadsAsync(string workloadSetVersion, IProgress<string>? progress = null);
+
+    /// <summary>
+    /// Resolves the full path to the dotnet executable.
+    /// GUI apps on macOS don't inherit the user's shell PATH, so bare "dotnet" won't resolve.
+    /// </summary>
+    string GetDotNetExecutablePath();
 }
 
 // ============================================================================
