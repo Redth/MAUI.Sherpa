@@ -43,6 +43,24 @@ public class DoctorService : IDoctorService
     private NuGetClient GetNuGetClient() => _nugetClient ??= new NuGetClient();
     private WorkloadSetService GetWorkloadSetService() => _workloadSetService ??= new WorkloadSetService(GetNuGetClient());
     private WorkloadManifestService GetManifestService() => _manifestService ??= new WorkloadManifestService(GetNuGetClient());
+
+    /// <summary>
+    /// Resolves the full path to the dotnet executable.
+    /// GUI apps on macOS don't inherit the user's shell PATH, so bare "dotnet" won't resolve.
+    /// </summary>
+    private string ResolveDotNetExecutable()
+    {
+        var sdkPath = GetLocalSdkService().GetDotNetSdkPath();
+        if (!string.IsNullOrEmpty(sdkPath))
+        {
+            var exeName = OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet";
+            var fullPath = Path.Combine(sdkPath, exeName);
+            if (File.Exists(fullPath))
+                return fullPath;
+        }
+        // Fallback to bare name (works if dotnet is on PATH)
+        return "dotnet";
+    }
     private SdkVersionService GetSdkVersionService() => _sdkVersionService ??= new SdkVersionService();
     
     // Mac Catalyst doesn't return true for RuntimeInformation.IsOSPlatform(OSPlatform.OSX)
@@ -1133,6 +1151,8 @@ public class DoctorService : IDoctorService
         }
     }
 
+    public string GetDotNetExecutablePath() => ResolveDotNetExecutable();
+
     public async Task<bool> UpdateWorkloadsAsync(string workloadSetVersion, IProgress<string>? progress = null)
     {
         try
@@ -1141,7 +1161,7 @@ public class DoctorService : IDoctorService
             
             var psi = new ProcessStartInfo
             {
-                FileName = "dotnet",
+                FileName = ResolveDotNetExecutable(),
                 Arguments = $"workload update --version {workloadSetVersion}",
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
