@@ -47,14 +47,33 @@
             </div>
             
             <div class="modal-footer">
-                <button class="btn btn-secondary" @onclick="OnDecline">
-                    <i class="fas fa-times"></i>
-                    Not Now
-                </button>
-                <button class="btn btn-primary" @onclick="OnAccept">
-                    <i class="fas fa-external-link-alt"></i>
-                    Download Update
-                </button>
+                @if (isUpdating)
+                {
+                    <div class="update-progress">
+                        <div class="progress-bar-container">
+                            <div class="progress-bar-fill" style="width: @progressPercent.ToString("F0")%"></div>
+                        </div>
+                        <span class="progress-text">@progressMessage</span>
+                    </div>
+                }
+                else
+                {
+                    <button class="btn btn-secondary" @onclick="OnDecline">
+                        <i class="fas fa-times"></i>
+                        Not Now
+                    </button>
+                    <button class="btn btn-secondary" @onclick="OnAccept">
+                        <i class="fas fa-external-link-alt"></i>
+                        Download
+                    </button>
+                    @if (OperatingSystem.IsMacCatalyst() || OperatingSystem.IsMacOS())
+                    {
+                        <button class="btn btn-primary" @onclick="HandleAutoUpdate">
+                            <i class="fas fa-download"></i>
+                            Download &amp; Install
+                        </button>
+                    }
+                }
             </div>
         </div>
     </div>
@@ -73,8 +92,14 @@
     [Parameter]
     public bool IsVisible { get; set; }
 
+    [Parameter]
+    public EventCallback OnAutoUpdate { get; set; }
+
     private DotNetObjectReference<UpdateAvailableModal>? _dotNetRef;
     private bool _modalInitialized;
+    private bool isUpdating;
+    private double progressPercent;
+    private string progressMessage = "";
 
     protected override void OnInitialized()
     {
@@ -120,6 +145,22 @@
             .Build();
         
         return Markdig.Markdown.ToHtml(markdown, pipeline);
+    }
+
+    private async Task HandleAutoUpdate()
+    {
+        isUpdating = true;
+        progressPercent = 0;
+        progressMessage = "Preparing...";
+        StateHasChanged();
+        await OnAutoUpdate.InvokeAsync();
+    }
+
+    public void UpdateProgress(double percent, string message)
+    {
+        progressPercent = percent;
+        progressMessage = message;
+        InvokeAsync(StateHasChanged);
     }
 
     public void Dispose()
@@ -369,6 +410,34 @@
     .btn-primary:hover {
         background: var(--accent-indigo);
         transform: translateY(-1px);
+    }
+
+    .update-progress {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        width: 100%;
+    }
+
+    .progress-bar-container {
+        width: 100%;
+        height: 6px;
+        background: var(--bg-tertiary);
+        border-radius: 3px;
+        overflow: hidden;
+    }
+
+    .progress-bar-fill {
+        height: 100%;
+        background: linear-gradient(90deg, var(--accent-purple), var(--accent-success));
+        border-radius: 3px;
+        transition: width 0.3s ease;
+    }
+
+    .progress-text {
+        font-size: 0.8125rem;
+        color: var(--text-muted);
+        text-align: center;
     }
 
     @@keyframes fadeIn {

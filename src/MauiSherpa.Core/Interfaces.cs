@@ -2515,6 +2515,15 @@ public interface ISettingsMigrationService
 }
 
 /// <summary>
+/// GitHub release asset (downloadable file)
+/// </summary>
+public record GitHubReleaseAsset(
+    string Name,
+    string DownloadUrl,
+    long Size
+);
+
+/// <summary>
 /// GitHub release information
 /// </summary>
 public record GitHubRelease(
@@ -2524,7 +2533,8 @@ public record GitHubRelease(
     bool IsPrerelease,
     bool IsDraft,
     DateTime PublishedAt,
-    string HtmlUrl
+    string HtmlUrl,
+    IReadOnlyList<GitHubReleaseAsset> Assets
 );
 
 /// <summary>
@@ -2555,6 +2565,12 @@ public interface IUpdateService
     /// Get the current application version
     /// </summary>
     string GetCurrentVersion();
+
+    /// <summary>
+    /// Downloads the update zip, extracts it, and launches a shell script to replace the
+    /// currently running .app bundle and relaunch. macOS only.
+    /// </summary>
+    Task DownloadAndApplyUpdateAsync(GitHubRelease release, IProgress<(double Percent, string Message)>? progress = null, CancellationToken cancellationToken = default);
 }
 
 // =============================================
