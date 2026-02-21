@@ -668,6 +668,50 @@ jobs:
             echo "Created: MAUI-Sherpa.linux-arm64.tar.gz ($(du -h ./artifacts/MAUI-Sherpa.linux-arm64.tar.gz | cut -f1))"
           fi
 
+      - name: Create .deb packages
+        run: |
+          VER="${{ steps.version.outputs.app_version }}"
+          LINUX_DIR="src/MauiSherpa.LinuxGtk/linux"
+
+          for RID_ARCH in "linux-x64:amd64" "linux-arm64:arm64"; do
+            RID="${RID_ARCH%%:*}"
+            DEB_ARCH="${RID_ARCH##*:}"
+            PUBLISH_DIR=$(find src/MauiSherpa.LinuxGtk/bin/Release -type d -name publish | grep "$RID" | head -1)
+            [ -z "$PUBLISH_DIR" ] && continue
+
+            PKG_DIR="./deb-build/maui-sherpa_${VER}_${DEB_ARCH}"
+            rm -rf "$PKG_DIR"
+
+            # Application files
+            mkdir -p "$PKG_DIR/opt/maui-sherpa"
+            cp -r "$PUBLISH_DIR"/* "$PKG_DIR/opt/maui-sherpa/"
+            chmod +x "$PKG_DIR/opt/maui-sherpa/MauiSherpa.LinuxGtk"
+
+            # Symlink
+            mkdir -p "$PKG_DIR/usr/local/bin"
+            ln -sf /opt/maui-sherpa/MauiSherpa.LinuxGtk "$PKG_DIR/usr/local/bin/maui-sherpa"
+
+            # Desktop entry
+            mkdir -p "$PKG_DIR/usr/share/applications"
+            sed "s|Exec=maui-sherpa|Exec=/opt/maui-sherpa/MauiSherpa.LinuxGtk|g" \
+              "$LINUX_DIR/maui-sherpa.desktop" > "$PKG_DIR/usr/share/applications/maui-sherpa.desktop"
+
+            # Icon
+            mkdir -p "$PKG_DIR/usr/share/icons/hicolor/512x512/apps"
+            cp "$LINUX_DIR/maui-sherpa.png" "$PKG_DIR/usr/share/icons/hicolor/512x512/apps/maui-sherpa.png"
+
+            # DEBIAN control
+            mkdir -p "$PKG_DIR/DEBIAN"
+            sed -e "s/{{VERSION}}/$VER/g" -e "s/{{ARCH}}/$DEB_ARCH/g" \
+              "$LINUX_DIR/debian/control" > "$PKG_DIR/DEBIAN/control"
+            cp "$LINUX_DIR/debian/postinst" "$PKG_DIR/DEBIAN/postinst"
+            cp "$LINUX_DIR/debian/postrm" "$PKG_DIR/DEBIAN/postrm"
+            chmod 755 "$PKG_DIR/DEBIAN/postinst" "$PKG_DIR/DEBIAN/postrm"
+
+            dpkg-deb --build --root-owner-group "$PKG_DIR" "./artifacts/maui-sherpa_${VER}_${DEB_ARCH}.deb"
+            echo "Created: maui-sherpa_${VER}_${DEB_ARCH}.deb ($(du -h ./artifacts/maui-sherpa_${VER}_${DEB_ARCH}.deb | cut -f1))"
+          done
+
       - name: Upload Linux App (x64)
         uses: actions/upload-artifact@v4
         with:
@@ -680,6 +724,20 @@ jobs:
         with:
           name: MAUI-Sherpa.linux-arm64
           path: ./artifacts/MAUI-Sherpa.linux-arm64.tar.gz
+          retention-days: 30
+
+      - name: Upload Linux .deb (x64)
+        uses: actions/upload-artifact@v4
+        with:
+          name: MAUI-Sherpa.linux-x64-deb
+          path: ./artifacts/maui-sherpa_*_amd64.deb
+          retention-days: 30
+
+      - name: Upload Linux .deb (arm64)
+        uses: actions/upload-artifact@v4
+        with:
+          name: MAUI-Sherpa.linux-arm64-deb
+          path: ./artifacts/maui-sherpa_*_arm64.deb
           retention-days: 30
 
       - name: Set commit status with artifact link
@@ -926,6 +984,18 @@ jobs:
           name: MAUI-Sherpa.linux-arm64
           path: ./release
 
+      - name: Download Linux .deb (x64)
+        uses: actions/download-artifact@v4
+        with:
+          name: MAUI-Sherpa.linux-x64-deb
+          path: ./release
+
+      - name: Download Linux .deb (arm64)
+        uses: actions/download-artifact@v4
+        with:
+          name: MAUI-Sherpa.linux-arm64-deb
+          path: ./release
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
@@ -936,6 +1006,7 @@ jobs:
             ./release/MAUI-Sherpa.win-arm64.zip
             ./release/MAUI-Sherpa.linux-x64.tar.gz
             ./release/MAUI-Sherpa.linux-arm64.tar.gz
+            ./release/maui-sherpa_*.deb
           generate_release_notes: false
           draft: false
           prerelease: ${{ contains(github.ref, '-') }}
