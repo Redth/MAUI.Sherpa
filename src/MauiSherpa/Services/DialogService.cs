@@ -4,17 +4,20 @@ using Foundation;
 using UIKit;
 using UniformTypeIdentifiers;
 #endif
+using Microsoft.Extensions.DependencyInjection;
 
 namespace MauiSherpa.Services;
 
 public class DialogService : IDialogService
 {
     private readonly IClipboard _clipboard;
+    private readonly IFilePicker? _filePicker;
     private IDispatcher Dispatcher => Application.Current!.Dispatcher;
 
-    public DialogService(IClipboard clipboard)
+    public DialogService(IClipboard clipboard, IServiceProvider serviceProvider)
     {
         _clipboard = clipboard;
+        _filePicker = serviceProvider.GetService<IFilePicker>();
     }
 
     public Task ShowLoadingAsync(string message)
@@ -191,22 +194,28 @@ public class DialogService : IDialogService
 
         return await tcs.Task;
 #else
-        var fileTypes = new Dictionary<DevicePlatform, IEnumerable<string>>();
-        if (extensions != null && extensions.Length > 0)
+        try
         {
-            fileTypes[DevicePlatform.WinUI] = extensions.Select(e => "." + e.TrimStart('.'));
+            var fileTypes = new Dictionary<DevicePlatform, IEnumerable<string>>();
+            if (extensions != null && extensions.Length > 0)
+            {
+                fileTypes[DevicePlatform.WinUI] = extensions.Select(e => "." + e.TrimStart('.'));
+            }
+
+            var picker = _filePicker ?? FilePicker.Default;
+            var result = await picker.PickAsync(new PickOptions
+            {
+                PickerTitle = title,
+                FileTypes = extensions != null && extensions.Length > 0
+                    ? new FilePickerFileType(fileTypes)
+                    : null
+            });
+            return result?.FullPath;
         }
-
-        var options = new PickOptions
+        catch (Exception ex) when (ex.GetType().Name == "NotImplementedInReferenceAssemblyException")
         {
-            PickerTitle = title,
-            FileTypes = extensions != null && extensions.Length > 0
-                ? new FilePickerFileType(fileTypes)
-                : null
-        };
-
-        var result = await FilePicker.PickAsync(options);
-        return result?.FullPath;
+            return null;
+        }
 #endif
     }
 

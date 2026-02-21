@@ -1,0 +1,58 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>MauiSherpa</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <EnableDefaultCssItems>false</EnableDefaultCssItems>
+    <LinuxGtkHeadBuild>true</LinuxGtkHeadBuild>
+    <DefineConstants>$(DefineConstants);LINUXGTK</DefineConstants>
+    <LocalGtkNugetSource>$(MSBuildThisFileDirectory)..\..\.nuget\local-packages</LocalGtkNugetSource>
+    <RestoreSources>$(RestoreSources);https://api.nuget.org/v3/index.json</RestoreSources>
+    <RestoreSources Condition="Exists('$(LocalGtkNugetSource)')">$(RestoreSources);$(LocalGtkNugetSource)</RestoreSources>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Blazorise.Icons.FontAwesome" Version="1.7.2" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.QuickGrid" Version="10.0.1" />
+    <PackageReference Include="Markdig" Version="0.44.0" />
+    <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.0" />
+    <ProjectReference Include="/home/parallels/code/Maui.Gtk/src/Platform.Maui.Linux.Gtk4/Platform.Maui.Linux.Gtk4.csproj" />
+    <ProjectReference Include="/home/parallels/code/Maui.Gtk/src/Platform.Maui.Linux.Gtk4.BlazorWebView/Platform.Maui.Linux.Gtk4.BlazorWebView.csproj" />
+    <ProjectReference Include="/home/parallels/code/Maui.Gtk/src/Platform.Maui.Linux.Gtk4.Essentials/Platform.Maui.Linux.Gtk4.Essentials.csproj" />
+    <PackageReference Include="Redth.MauiDevFlow.Agent.Gtk" Version="0.8.1" />
+    <PackageReference Include="Redth.MauiDevFlow.Blazor.Gtk" Version="0.8.1" />
+    <PackageReference Include="Shiny.Mediator.Caching.MicrosoftMemoryCache" Version="6.1.1" />
+    <PackageReference Include="Shiny.Mediator.Maui" Version="6.1.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\MauiSherpa.Core\MauiSherpa.Core.csproj" AdditionalProperties="LinuxGtkHeadBuild=true" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\MauiSherpa\**\*.cs" Exclude="..\MauiSherpa\Platforms\**\*.cs;..\MauiSherpa\Services\WindowsTitleBarManager.cs;..\MauiSherpa\Services\WindowsCertificateService.cs" />
+    <RazorComponent Include="..\MauiSherpa\**\*.razor" Link="%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <MauiIcon Include="..\MauiSherpa\Resources\AppIcon\appicon.png" />
+    <MauiSplashScreen Include="..\MauiSherpa\Resources\Splash\splash.svg" Color="#512BD4" BaseSize="128,128" />
+    <MauiImage Include="..\MauiSherpa\Resources\Images\*" />
+    <MauiImage Update="..\MauiSherpa\Resources\Images\dotnet_bot.svg" BaseSize="168,208" />
+    <MauiFont Include="..\MauiSherpa\Resources\Fonts\*" />
+    <MauiAsset Include="..\MauiSherpa\Resources\Raw\**" LogicalName="%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Resources\ghcp-icon-24.png" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Resources\ghcp-icon-white-24.png" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Resources\appicon-24.png" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Resources\fa-stethoscope-24.png" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Resources\fa-stethoscope-white-24.png" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

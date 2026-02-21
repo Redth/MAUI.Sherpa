@@ -28,8 +28,19 @@ public class AppleConnectService : IAppleConnectService
 
     private async Task<AppStoreConnectClient> GetClientAsync()
     {
-        var identity = _identityState.SelectedIdentity 
+        var selectedIdentity = _identityState.SelectedIdentity
             ?? throw new InvalidOperationException("No Apple identity selected");
+
+        // Always rehydrate from persisted storage so we don't use stale in-memory state after imports/edits.
+        var identity = selectedIdentity;
+        if (!string.IsNullOrWhiteSpace(selectedIdentity.Id))
+        {
+            var latestIdentity = await _identityService.GetIdentityAsync(selectedIdentity.Id);
+            if (latestIdentity != null)
+            {
+                identity = latestIdentity;
+            }
+        }
         
         _logger.LogInformation($"Getting client for identity: {identity.Name} (ID: {identity.Id})");
         
@@ -56,23 +67,45 @@ public class AppleConnectService : IAppleConnectService
         // The configuration expects base64-encoded private key
         // The P8 file content is already PEM format, we need to extract and base64 encode
         var privateKeyBase64 = ConvertP8ToBase64(p8Content);
+        var keyId = NormalizeKeyId(identity.KeyId);
+        var issuerId = NormalizeIssuerId(identity.IssuerId);
+        if (string.IsNullOrWhiteSpace(keyId) || string.IsNullOrWhiteSpace(issuerId))
+        {
+            throw new InvalidOperationException("Apple identity key metadata is invalid. Please edit the identity and verify Key ID and Issuer ID.");
+        }
         
         var config = new AppStoreConnectConfiguration(
-            identity.KeyId,
-            identity.IssuerId,
-            privateKeyBase64);
+            keyId,
+            issuerId,
+            privateKeyBase64.Trim());
         
         return new AppStoreConnectClient(config);
     }
 
     private string ConvertP8ToBase64(string p8Content)
     {
+        p8Content = p8Content
+            .Trim()
+            .Trim('"')
+            .Trim()
+            .Replace("\\r", "\r")
+            .Replace("\\n", "\n");
+
         // P8 file is PEM format, need to extract the base64 content
         var lines = p8Content.Split('\n')
             .Select(l => l.Trim())
             .Where(l => !l.StartsWith("-----"))
             .Where(l => !string.IsNullOrEmpty(l));
         return string.Join("", lines);
+    }
+
+    private static string NormalizeKeyId(string keyId) =>
+        new string(keyId.Where(char.IsLetterOrDigit).ToArray()).ToUpperInvariant();
+
+    private static string NormalizeIssuerId(string issuerId)
+    {
+        var sanitized = new string(issuerId.Where(c => char.IsLetterOrDigit(c) || c == '-').ToArray());
+        return Guid.TryParse(sanitized, out var parsed) ? parsed.ToString() : sanitized;
     }
 
     // Bundle IDs

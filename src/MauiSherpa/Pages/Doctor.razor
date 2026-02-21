@@ -14,10 +14,13 @@
 @inject ICopilotContextService CopilotContext
 @inject ILogger<Doctor> Logger
 @inject IToolbarService ToolbarService
+@inject IPlatformService PlatformInfo
 @implements IDisposable
 
 <h1><i class="fas fa-stethoscope"></i> Environment Doctor</h1>
 
+@if (!PlatformInfo.HasNativeToolbar)
+{
 <div class="toolbar">
     <button class="btn btn-primary" @onclick="RunDoctor" disabled="@isLoading">
         @if (isLoading)
@@ -43,6 +46,7 @@
         </button>
     }
 </div>
+}
 
 @if (!string.IsNullOrEmpty(errorMessage))
 {

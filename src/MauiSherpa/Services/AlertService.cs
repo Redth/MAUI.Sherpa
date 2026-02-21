@@ -25,8 +25,12 @@ public class AlertService : MauiSherpa.Core.Interfaces.IAlertService
 
     public Task ShowToastAsync(string message)
     {
-        // Use non-blocking Blazor toast instead of native alert
-        _toastService.ShowSuccess(message);
+        // Avoid MainThread Essentials static API on Linux GTK; use MAUI dispatcher directly.
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher?.IsDispatchRequired ?? false)
+            dispatcher.Dispatch(() => _toastService.ShowSuccess(message));
+        else
+            _toastService.ShowSuccess(message);
         return Task.CompletedTask;
     }
 }

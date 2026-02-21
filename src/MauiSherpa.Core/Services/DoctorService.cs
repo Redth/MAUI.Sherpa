@@ -415,7 +415,8 @@ public class DoctorService : IDoctorService
         // Collect all dependencies from installed manifests
         var manifestIds = localSdkService.GetInstalledWorkloadManifests(context.EffectiveFeatureBand);
         
-        WorkloadDependencies? mauiDeps = null;
+        // Collect dependencies from ALL matching manifests (MAUI, Android, iOS each have their own)
+        var allEntries = new Dictionary<string, WorkloadDependencyEntry>();
         
         foreach (var manifestId in manifestIds)
         {
@@ -429,29 +430,31 @@ public class DoctorService : IDoctorService
             
             try
             {
-                // Try to get dependencies from NuGet package
                 var version = NuGet.Versioning.NuGetVersion.Parse(manifest.Version);
                 var deps = await manifestService.GetDependenciesAsync(manifestId, context.EffectiveFeatureBand, version);
                 if (deps != null && deps.Entries.Count > 0)
                 {
-                    mauiDeps = deps;
-                    break; // Found MAUI dependencies
+                    foreach (var (workloadId, entry) in deps.Entries)
+                    {
+                        if (!allEntries.ContainsKey(workloadId))
+                            allEntries[workloadId] = entry;
+                    }
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogDebug($"Could not get dependencies for {manifestId}: {ex.Message}");
+                _logger.LogDebug("Could not get dependencies for {Id}: {Message}", manifestId, ex.Message);
             }
         }
         
-        if (mauiDeps == null)
+        if (allEntries.Count == 0)
         {
             _logger.LogDebug("No workload dependencies found");
             return;
         }
         
         // Process each dependency entry
-        foreach (var (workloadId, entry) in mauiDeps.Entries)
+        foreach (var (workloadId, entry) in allEntries)
         {
             // JDK check
             if (entry.Jdk != null)

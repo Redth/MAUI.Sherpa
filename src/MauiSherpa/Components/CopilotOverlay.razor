@@ -4,8 +4,8 @@
 @inject IPlatformService PlatformInfo
 @implements IDisposable
 
-@* Floating Copilot Button - hidden when native toolbar has copilot button *@
-<button class="copilot-fab @(isOpen ? "overlay-open" : "") @(PlatformInfo.HasNativeToolbar ? "fab-hidden" : "")" 
+@* Floating Copilot Button - hidden when native toolbar has copilot button (Windows/macOS/Linux) *@
+<button class="copilot-fab @(isOpen ? "overlay-open" : "") @(PlatformInfo.HasNativeToolbar ? "fab-hidden" : "") @(!PlatformInfo.IsMacCatalyst && !PlatformInfo.IsWindows && !PlatformInfo.IsMacOS ? "fab-linux" : "")" 
         @onclick="ToggleOverlay"
         title="@(isOpen ? "Close Copilot" : "Open Copilot")">
     <i class="fas @(isOpen ? "fa-chevron-down" : "fa-robot")"></i>
@@ -69,6 +69,10 @@
     
     .copilot-fab.overlay-open:hover {
         transform: scale(1.1) translateY(2px);
+    }
+
+    .copilot-fab.fab-linux {
+        bottom: 2.5rem;
     }
 
     /* Inline fallback overlay styles */
