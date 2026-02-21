@@ -595,6 +595,112 @@ jobs:
             -f description="$DESC" \
             -f context="MAUI Sherpa / Download Windows App"
 
+  publish-linux:
+    name: Publish Linux App
+    runs-on: ubuntu-24.04
+    needs: build-test
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    permissions:
+      statuses: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Install GTK4 dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev
+
+      - name: Determine version
+        id: version
+        run: |
+          SHA="${GITHUB_SHA::8}"
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            VER="${GITHUB_REF#refs/tags/v}"
+          else
+            VER=$(grep '<AppVersion>' Directory.Build.props | sed 's/.*<AppVersion>\(.*\)<\/AppVersion>.*/\1/')
+          fi
+          echo "app_version=$VER" >> $GITHUB_OUTPUT
+          echo "commit_sha=$SHA" >> $GITHUB_OUTPUT
+          echo "Version: $VER+$SHA"
+
+      - name: Publish Linux App (x64)
+        run: |
+          dotnet publish src/MauiSherpa.LinuxGtk/MauiSherpa.LinuxGtk.csproj \
+            -c Release \
+            -r linux-x64 \
+            --self-contained true \
+            -p:AppVersion=${{ steps.version.outputs.app_version }} \
+            -p:AppCommitSha=${{ steps.version.outputs.commit_sha }}
+
+      - name: Publish Linux App (arm64)
+        run: |
+          dotnet publish src/MauiSherpa.LinuxGtk/MauiSherpa.LinuxGtk.csproj \
+            -c Release \
+            -r linux-arm64 \
+            --self-contained true \
+            -p:AppVersion=${{ steps.version.outputs.app_version }} \
+            -p:AppCommitSha=${{ steps.version.outputs.commit_sha }}
+
+      - name: Create tar.gz archives
+        run: |
+          mkdir -p ./artifacts
+
+          # x64
+          X64_DIR=$(find src/MauiSherpa.LinuxGtk/bin/Release -type d -name publish | grep linux-x64 | head -1)
+          if [ -n "$X64_DIR" ]; then
+            cp -r src/MauiSherpa.LinuxGtk/linux "$X64_DIR/linux"
+            tar -czf ./artifacts/MAUI-Sherpa.linux-x64.tar.gz -C "$X64_DIR" .
+            echo "Created: MAUI-Sherpa.linux-x64.tar.gz ($(du -h ./artifacts/MAUI-Sherpa.linux-x64.tar.gz | cut -f1))"
+          fi
+
+          # arm64
+          ARM64_DIR=$(find src/MauiSherpa.LinuxGtk/bin/Release -type d -name publish | grep linux-arm64 | head -1)
+          if [ -n "$ARM64_DIR" ]; then
+            cp -r src/MauiSherpa.LinuxGtk/linux "$ARM64_DIR/linux"
+            tar -czf ./artifacts/MAUI-Sherpa.linux-arm64.tar.gz -C "$ARM64_DIR" .
+            echo "Created: MAUI-Sherpa.linux-arm64.tar.gz ($(du -h ./artifacts/MAUI-Sherpa.linux-arm64.tar.gz | cut -f1))"
+          fi
+
+      - name: Upload Linux App (x64)
+        uses: actions/upload-artifact@v4
+        with:
+          name: MAUI-Sherpa.linux-x64
+          path: ./artifacts/MAUI-Sherpa.linux-x64.tar.gz
+          retention-days: 30
+
+      - name: Upload Linux App (arm64)
+        uses: actions/upload-artifact@v4
+        with:
+          name: MAUI-Sherpa.linux-arm64
+          path: ./artifacts/MAUI-Sherpa.linux-arm64.tar.gz
+          retention-days: 30
+
+      - name: Set commit status with artifact link
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ARTIFACT_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          if [ -f "./artifacts/MAUI-Sherpa.linux-x64.tar.gz" ]; then
+            STATE="success"
+            DESC="MAUI Sherpa Linux built successfully (x64 + arm64)"
+          else
+            STATE="failure"
+            DESC="MAUI Sherpa Linux build failed"
+          fi
+          gh api repos/${{ github.repository }}/statuses/${{ github.sha }} \
+            -f state="$STATE" \
+            -f target_url="$ARTIFACT_URL" \
+            -f description="$DESC" \
+            -f context="MAUI Sherpa / Download Linux App"
+
   notarize-maccatalyst:
     name: Notarize Mac Catalyst App
     runs-on: macos-26
@@ -778,7 +884,7 @@ jobs:
   create-release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
-    needs: [notarize-maccatalyst, notarize-macos, publish-windows]
+    needs: [notarize-maccatalyst, notarize-macos, publish-windows, publish-linux]
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
@@ -808,6 +914,18 @@ jobs:
           name: MAUI-Sherpa.win-arm64
           path: ./release
 
+      - name: Download Linux artifact (x64)
+        uses: actions/download-artifact@v4
+        with:
+          name: MAUI-Sherpa.linux-x64
+          path: ./release
+
+      - name: Download Linux artifact (arm64)
+        uses: actions/download-artifact@v4
+        with:
+          name: MAUI-Sherpa.linux-arm64
+          path: ./release
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
@@ -816,6 +934,8 @@ jobs:
             ./release/MAUI-Sherpa.macos.zip
             ./release/MAUI-Sherpa.win-x64.zip
             ./release/MAUI-Sherpa.win-arm64.zip
+            ./release/MAUI-Sherpa.linux-x64.tar.gz
+            ./release/MAUI-Sherpa.linux-arm64.tar.gz
           generate_release_notes: false
           draft: false
           prerelease: ${{ contains(github.ref, '-') }}
