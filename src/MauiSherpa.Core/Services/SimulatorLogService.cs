@@ -16,7 +16,7 @@ public class SimulatorLogService : ISimulatorLogService
     private CancellationTokenSource? _cts;
     private Channel<SimulatorLogEntry>? _channel;
 
-    public bool IsSupported => _platform.IsMacCatalyst;
+    public bool IsSupported => _platform.IsMacCatalyst || _platform.IsMacOS;
     public bool IsRunning => _process is { HasExited: false };
     public IReadOnlyList<SimulatorLogEntry> Entries
     {

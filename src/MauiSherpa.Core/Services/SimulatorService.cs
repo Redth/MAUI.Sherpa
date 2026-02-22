@@ -18,7 +18,7 @@ public class SimulatorService : ISimulatorService
         _platform = platform;
     }
 
-    public bool IsSupported => _platform.IsMacCatalyst;
+    public bool IsSupported => _platform.IsMacCatalyst || _platform.IsMacOS;
 
     public async Task<IReadOnlyList<SimulatorDevice>> GetSimulatorsAsync()
     {

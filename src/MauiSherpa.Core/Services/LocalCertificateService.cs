@@ -35,7 +35,7 @@ public partial class LocalCertificateService : ILocalCertificateService
         _serialCachePath = Path.Combine(cacheDir, "cert-serials.json");
     }
 
-    public bool IsSupported => _platform.IsMacCatalyst;
+    public bool IsSupported => _platform.IsMacCatalyst || _platform.IsMacOS;
     
     public void InvalidateCache()
     {
