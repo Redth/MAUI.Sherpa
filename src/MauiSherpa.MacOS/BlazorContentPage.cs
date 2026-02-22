@@ -166,6 +166,13 @@ public class BlazorContentPage : ContentPage
         }
     }
 
+    protected override void OnAppearing()
+    {
+        base.OnAppearing();
+        // Delay to let the toolbar handler create NSToolbar items first
+        Dispatcher.Dispatch(() => Dispatcher.Dispatch(ApplySfSymbolIcons));
+    }
+
     protected override void OnDisappearing()
     {
         base.OnDisappearing();
