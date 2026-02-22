@@ -4,52 +4,61 @@ using MauiSherpa.Services;
 using MauiSherpa.Core.ViewModels;
 using MauiSherpa.Core.Interfaces;
 using MauiSherpa.Core.Services;
-using MauiDevFlow.Agent;
-using MauiDevFlow.Blazor;
+using Microsoft.Maui.Platform.MacOS.Hosting;
+using Microsoft.Maui.Platform.MacOS.Handlers;
+using Microsoft.Maui.Essentials.MacOS;
 using Shiny.Mediator;
 
 namespace MauiSherpa;
 
-public static class MauiProgram
+public static class MacOSMauiProgram
 {
     public static MauiApp CreateMauiApp()
     {
-        // Migrate data from old ~/.maui-sherpa/ to ~/Library/Application Support/MauiSherpa/
+        // Migrate data from old paths
         MigrateAppData();
 
         var builder = MauiApp.CreateBuilder();
         builder
-            .UseMauiApp<App>()
+            .UseMauiAppMacOS<MacOSApp>()
+            .AddMacOSEssentials()
+            .AddMacOSBlazorWebView()
             .ConfigureFonts(fonts =>
             {
                 fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");
                 fonts.AddFont("OpenSans-Semibold.ttf", "OpenSansSemibold");
             });
 
+        // Use native sidebar for FlyoutPage
+        builder.ConfigureMauiHandlers(handlers =>
+        {
+            handlers.AddHandler<FlyoutPage, NativeSidebarFlyoutPageHandler>();
+        });
+
         builder.Services.AddMauiBlazorWebView();
 
-        // Debug logging service (must be registered before logger provider)
+        // Debug logging service
         var debugLogService = new DebugLogService();
         builder.Services.AddSingleton(debugLogService);
-        
-        // Add custom logger provider for debug overlay
         builder.Logging.AddProvider(new DebugOverlayLoggerProvider(debugLogService));
         builder.Logging.SetMinimumLevel(LogLevel.Debug);
 
-        // Splash service (must be registered early as singleton for sharing)
+        // Splash service
         builder.Services.AddSingleton<ISplashService, SplashService>();
-        
+
         // Platform services
         builder.Services.AddSingleton<BlazorToastService>();
         builder.Services.AddSingleton<IAlertService, AlertService>();
         builder.Services.AddSingleton<ILoggingService, LoggingService>();
-        builder.Services.AddSingleton<IPlatformService, PlatformService>();
+        builder.Services.AddSingleton<IPlatformService, MacOSPlatformService>();
         builder.Services.AddScoped<INavigationService, NavigationService>();
         builder.Services.AddSingleton<IDialogService, DialogService>();
         builder.Services.AddSingleton<IFileSystemService, FileSystemService>();
         builder.Services.AddSingleton<ISecureStorageService, SecureStorageService>();
         builder.Services.AddSingleton<IThemeService, ThemeService>();
-        builder.Services.AddSingleton<IToolbarService, MauiSherpa.Core.Services.ToolbarService>();
+
+        // Toolbar service for native macOS toolbar integration
+        builder.Services.AddSingleton<IToolbarService, ToolbarService>();
 
         // Process execution services
         builder.Services.AddSingleton<IProcessExecutionService, ProcessExecutionService>();
@@ -78,7 +87,7 @@ public static class MauiProgram
         builder.Services.AddSingleton<ICopilotToolsService, CopilotToolsService>();
         builder.Services.AddSingleton<ICopilotService, CopilotService>();
         builder.Services.AddSingleton<ICopilotContextService, CopilotContextService>();
-        
+
         // Apple services
         builder.Services.AddSingleton<IAppleIdentityService, AppleIdentityService>();
         builder.Services.AddSingleton<IAppleIdentityStateService, AppleIdentityStateService>();
@@ -90,19 +99,15 @@ public static class MauiProgram
         builder.Services.AddSingleton<ILocalCertificateService>(sp =>
         {
             var logger = sp.GetRequiredService<ILoggingService>();
-#if WINDOWS
-            return new WindowsCertificateService(logger);
-#else
             var platform = sp.GetRequiredService<IPlatformService>();
             return new LocalCertificateService(logger, platform);
-#endif
         });
         builder.Services.AddSingleton<ISimulatorService, MauiSherpa.Core.Services.SimulatorService>();
         builder.Services.AddSingleton<ISimulatorLogService, SimulatorLogService>();
         builder.Services.AddSingleton<IPhysicalDeviceService, MauiSherpa.Core.Services.PhysicalDeviceService>();
         builder.Services.AddSingleton<SimInspectorService>();
         builder.Services.AddSingleton<InspectorCoordinator>();
-        
+
         // Cloud Secrets Storage services
         builder.Services.AddSingleton<ICloudSecretsProviderFactory, CloudSecretsProviderFactory>();
         builder.Services.AddSingleton<ICloudSecretsService, CloudSecretsService>();
@@ -124,7 +129,7 @@ public static class MauiProgram
             var httpClient = new HttpClient();
             httpClient.DefaultRequestHeaders.Add("User-Agent", "MauiSherpa");
             var logger = sp.GetRequiredService<ILoggingService>();
-            var version = typeof(MauiProgram).Assembly
+            var version = typeof(MacOSMauiProgram).Assembly
                 .GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>()
                 ?.InformationalVersion ?? AppInfo.VersionString;
             return new UpdateService(httpClient, logger, version);
@@ -137,14 +142,14 @@ public static class MauiProgram
         builder.Services.AddSingleton<CopilotViewModel>();
         builder.Services.AddSingleton<SettingsViewModel>();
 
-        // Shiny Mediator with caching and offline support
+        // Shiny Mediator with caching
         builder.AddShinyMediator(cfg =>
         {
             cfg.UseMaui();
-            cfg.AddMauiPersistentCache(); // Use persistent cache (includes memory caching)
+            cfg.AddMauiPersistentCache();
             cfg.AddStandardAppSupportMiddleware();
         });
-        
+
         // Register handlers from Core assembly
         builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Android.GetSdkPathHandler>();
         builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Android.GetJdkPathHandler>();
@@ -172,34 +177,12 @@ public static class MauiProgram
 
 #if DEBUG
         builder.Services.AddBlazorWebViewDeveloperTools();
-        builder.AddMauiDevFlowAgent();
-        builder.AddMauiBlazorDevFlowTools();
         builder.Logging.AddDebug();
-#endif
-
-#if MACCATALYST
-        Microsoft.Maui.Handlers.PageHandler.PlatformViewFactory = (handler) =>
-		{
-			if (handler.ViewController == null)
-				handler.ViewController = new SafeAreaAwarePageViewController(handler.VirtualView, handler.MauiContext);
-
-			if (handler.ViewController is Microsoft.Maui.Platform.PageViewController pc && pc.CurrentPlatformView is Microsoft.Maui.Platform.ContentView pv)
-				return pv;
-
-			if (handler.ViewController.View is Microsoft.Maui.Platform.ContentView cv)
-				return cv;
-
-			throw new Exception("Can't Create Page Handler");
-		};
 #endif
 
         return builder.Build();
     }
 
-    /// <summary>
-    /// One-time migration from old data locations to ~/Library/Application Support/MauiSherpa/
-    /// Migrates from: ~/.maui-sherpa/ and ~/Documents/.config/MauiSherpa/ (wrong ApplicationData path)
-    /// </summary>
     static void MigrateAppData()
     {
         try
@@ -212,7 +195,6 @@ public static class MauiProgram
 
             Directory.CreateDirectory(newDir);
 
-            // Migrate from old locations (oldest first so newer files overwrite)
             var oldDirs = new[]
             {
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".maui-sherpa"),
@@ -232,19 +214,15 @@ public static class MauiProgram
                         var destDir = Path.GetDirectoryName(destPath);
                         if (!string.IsNullOrEmpty(destDir))
                             Directory.CreateDirectory(destDir);
-                        // Copy if dest doesn't exist, or if source is newer
                         if (!File.Exists(destPath) || File.GetLastWriteTimeUtc(file) > File.GetLastWriteTimeUtc(destPath))
                             File.Copy(file, destPath, overwrite: true);
                     }
                 }
-                catch { /* Best-effort per source */ }
+                catch { }
             }
 
             File.WriteAllText(markerFile, "migrated");
         }
-        catch
-        {
-            // Don't block app startup
-        }
+        catch { }
     }
 }

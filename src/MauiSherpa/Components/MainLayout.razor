@@ -134,7 +134,7 @@
 
 @code {
     private string ThemeClass => ThemeService.IsDarkMode ? "theme-dark" : "theme-light";
-    private string PlatformClass => PlatformInfo.IsWindows ? "platform-windows" : "platform-mac";
+    private string PlatformClass => PlatformInfo.IsMacOS ? "platform-macos" : PlatformInfo.IsWindows ? "platform-windows" : "platform-mac";
     private bool isDemoMode;
 
 #if DEBUG
@@ -453,5 +453,18 @@
 
     .theme-dark .nav-section {
         color: #a0aec0;
+    }
+
+    /* macOS AppKit: hide Blazor sidebar (native sidebar handles navigation) */
+    .platform-macos .sidebar {
+        display: none;
+    }
+
+    .platform-macos .content {
+        padding-top: 10px;
+    }
+
+    .platform-macos .content-drag-region {
+        display: none;
     }
 </style>

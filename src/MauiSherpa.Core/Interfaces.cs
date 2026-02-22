@@ -76,6 +76,7 @@ public interface IPlatformService
 {
     bool IsWindows { get; }
     bool IsMacCatalyst { get; }
+    bool IsMacOS { get; }
     string PlatformName { get; }
 }
 
@@ -2697,3 +2698,25 @@ public record ApnsPushResult(
     string? ErrorReason,
     string? ErrorDescription
 );
+
+// ──── Toolbar Service ──────────────────────────────────────────────────────
+
+/// <summary>
+/// Represents a toolbar action that can be displayed in the native macOS toolbar.
+/// </summary>
+public record ToolbarAction(string Id, string Label, string SfSymbol, bool IsPrimary = true);
+
+/// <summary>
+/// Service for managing native toolbar items. Blazor pages register their toolbar
+/// actions, and the native macOS host observes changes to update NSToolbar.
+/// On non-macOS platforms this is a no-op.
+/// </summary>
+public interface IToolbarService
+{
+    IReadOnlyList<ToolbarAction> CurrentItems { get; }
+    event Action? ToolbarChanged;
+    event Action<string>? ToolbarItemClicked;
+    void SetItems(params ToolbarAction[] items);
+    void ClearItems();
+    void InvokeToolbarItemClicked(string actionId);
+}
