@@ -1,6 +1,8 @@
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.Platform.MacOS.Controls;
 using MauiSherpa.Core.Interfaces;
+using AppKit;
+using Foundation;
 
 namespace MauiSherpa;
 
@@ -82,7 +84,51 @@ public class BlazorContentPage : ContentPage
                 };
                 ToolbarItems.Add(item);
             }
+
+            // Post-process: add SF Symbol icons to the native NSToolbar buttons
+            Dispatcher.Dispatch(ApplySfSymbolIcons);
         });
+    }
+
+    void ApplySfSymbolIcons()
+    {
+        try
+        {
+            var nsWindow = this.Window?.Handler?.PlatformView as NSWindow;
+            var toolbar = nsWindow?.Toolbar;
+            if (toolbar == null) return;
+
+            var actions = _toolbarService.CurrentItems;
+            int actionIndex = 0;
+
+            foreach (var nsItem in toolbar.Items)
+            {
+                // Skip non-toolbar-item entries (sidebar toggle, title, flexible space, back button)
+                if (!nsItem.Identifier.StartsWith("MauiToolbarItem_"))
+                    continue;
+
+                if (actionIndex < actions.Count)
+                {
+                    var action = actions[actionIndex];
+                    if (nsItem.View is NSButton button && !string.IsNullOrEmpty(action.SfSymbol))
+                    {
+                        var image = NSImage.GetSystemSymbol(action.SfSymbol, null);
+                        if (image != null)
+                        {
+                            button.Image = image;
+                            button.ImagePosition = NSCellImagePosition.ImageOnly;
+                            button.ToolTip = action.Label;
+                            nsItem.Label = action.Label;
+                        }
+                    }
+                    actionIndex++;
+                }
+            }
+        }
+        catch
+        {
+            // Toolbar may not be attached yet
+        }
     }
 
     protected override void OnDisappearing()
