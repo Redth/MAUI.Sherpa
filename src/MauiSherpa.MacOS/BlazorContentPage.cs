@@ -18,7 +18,7 @@ public class BlazorContentPage : ContentPage
 
     public BlazorContentPage(IServiceProvider serviceProvider)
     {
-        Title = "MAUI Sherpa";
+        Title = "";
 
         _toolbarService = serviceProvider.GetRequiredService<IToolbarService>();
         _toolbarService.ToolbarChanged += OnToolbarChanged;
