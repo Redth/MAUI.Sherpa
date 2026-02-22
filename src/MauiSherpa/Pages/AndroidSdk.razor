@@ -10,6 +10,8 @@
 @inject INavigationService Navigation
 @inject OperationModalService OperationModal
 @inject MultiOperationModalService MultiOpModal
+@inject IToolbarService ToolbarService
+@implements IDisposable
 
 <h1><i class="fas fa-cube"></i> Android SDK Packages</h1>
 
@@ -821,6 +823,28 @@
     {
         await ViewModel.InitializeAsync();
         hasInitialized = true;
+
+        ToolbarService.SetItems(
+            new ToolbarAction("refresh", "Refresh", "arrow.clockwise")
+        );
+        ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
+    }
+
+    private void OnToolbarItemClicked(string actionId)
+    {
+        InvokeAsync(async () =>
+        {
+            switch (actionId)
+            {
+                case "refresh": await RefreshData(); break;
+            }
+        });
+    }
+
+    public void Dispose()
+    {
+        ToolbarService.ToolbarItemClicked -= OnToolbarItemClicked;
+        ToolbarService.ClearItems();
     }
 
     private IEnumerable<IGrouping<string, SdkPackageInfo>> GetPackageGroups(IEnumerable<SdkPackageInfo> packages)

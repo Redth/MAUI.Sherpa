@@ -69,7 +69,7 @@ public class BlazorContentPage : ContentPage
 
     void OnToolbarChanged()
     {
-        MainThread.BeginInvokeOnMainThread(() =>
+        Dispatcher.Dispatch(() =>
         {
             ToolbarItems.Clear();
             foreach (var action in _toolbarService.CurrentItems)

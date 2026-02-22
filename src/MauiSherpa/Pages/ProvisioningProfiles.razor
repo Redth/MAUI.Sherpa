@@ -12,6 +12,7 @@
 @inject OperationModalService OperationModal
 @inject BlazorToastService ToastService
 @inject IEncryptedSettingsService SettingsService
+@inject IToolbarService ToolbarService
 @implements IDisposable
 
 <h1><i class="fas fa-id-card"></i> Provisioning Profiles</h1>
@@ -525,6 +526,12 @@
         IdentityState.OnSelectionChanged += OnIdentityChanged;
         if (IdentityState.SelectedIdentity != null)
             await RefreshData();
+
+        ToolbarService.SetItems(
+            new ToolbarAction("refresh", "Refresh", "arrow.clockwise"),
+            new ToolbarAction("create", "Create Profile", "plus")
+        );
+        ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
     }
 
     private void OnIdentityChanged()
@@ -538,7 +545,21 @@
 
     public void Dispose()
     {
+        ToolbarService.ToolbarItemClicked -= OnToolbarItemClicked;
+        ToolbarService.ClearItems();
         IdentityState.OnSelectionChanged -= OnIdentityChanged;
+    }
+
+    private void OnToolbarItemClicked(string actionId)
+    {
+        InvokeAsync(async () =>
+        {
+            switch (actionId)
+            {
+                case "refresh": await RefreshData(forceRefresh: true); break;
+                case "create": ShowCreateDialog(); break;
+            }
+        });
     }
 
     private async Task RefreshData(bool forceRefresh = false)

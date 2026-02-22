@@ -18,6 +18,7 @@
 @inject IEncryptedSettingsService SettingsService
 @implements IDisposable
 @inject IJSRuntime JS
+@inject IToolbarService ToolbarService
 
 <h1><i class="fas fa-certificate"></i> Certificates</h1>
 
@@ -887,6 +888,12 @@
             await RefreshData();
         
         _initialLoadComplete = true;
+
+        ToolbarService.SetItems(
+            new ToolbarAction("refresh", "Refresh", "arrow.clockwise"),
+            new ToolbarAction("create", "Create Certificate", "plus")
+        );
+        ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
     }
 
     private void DismissSyncHint()
@@ -910,10 +917,24 @@
 
     public void Dispose()
     {
+        ToolbarService.ToolbarItemClicked -= OnToolbarItemClicked;
+        ToolbarService.ClearItems();
         IdentityState.OnSelectionChanged -= OnIdentityChanged;
         foreach (var id in _activeModals)
             try { JS.InvokeVoidAsync("modalInterop.dispose", id); } catch { }
         _dotNetRef?.Dispose();
+    }
+
+    private void OnToolbarItemClicked(string actionId)
+    {
+        InvokeAsync(async () =>
+        {
+            switch (actionId)
+            {
+                case "refresh": await RefreshData(forceRefresh: true); break;
+                case "create": ShowCreateDialog(); break;
+            }
+        });
     }
 
     private async Task RefreshData(bool forceRefresh = false)

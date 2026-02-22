@@ -15,6 +15,7 @@
 @inject IPlatformService Platform
 @inject IJSRuntime JS
 @inject IEncryptedSettingsService SettingsService
+@inject IToolbarService ToolbarService
 @implements IDisposable
 
 <h1><i class="fas fa-tablet-screen-button"></i> Apple Devices</h1>
@@ -789,6 +790,12 @@ else
             RefreshSimulators(forceRefresh: false),
             RefreshPhysicalDevices()
         );
+
+        ToolbarService.SetItems(
+            new ToolbarAction("refresh", "Refresh", "arrow.clockwise"),
+            new ToolbarAction("create", "Create Simulator", "plus")
+        );
+        ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
     }
 
     private async Task RefreshSimulators(bool forceRefresh = false)
@@ -1171,8 +1178,22 @@ else
 
     public void Dispose()
     {
+        ToolbarService.ToolbarItemClicked -= OnToolbarItemClicked;
+        ToolbarService.ClearItems();
         foreach (var id in _activeModals)
             try { JS.InvokeVoidAsync("modalInterop.dispose", id); } catch { }
         _dotNetRef?.Dispose();
+    }
+
+    private void OnToolbarItemClicked(string actionId)
+    {
+        InvokeAsync(async () =>
+        {
+            switch (actionId)
+            {
+                case "refresh": await RefreshSimulators(forceRefresh: true); break;
+                case "create": ShowCreateDialog(); break;
+            }
+        });
     }
 }

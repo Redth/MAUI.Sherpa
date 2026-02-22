@@ -13,6 +13,7 @@
 @inject BlazorToastService ToastService
 @implements IDisposable
 @inject IJSRuntime JS
+@inject IToolbarService ToolbarService
 
 <h1><i class="fas fa-desktop"></i> Android Emulators</h1>
 
@@ -757,6 +758,12 @@
         
         // Initial load uses cache (no force refresh)
         await RefreshEmulators(forceRefresh: false);
+
+        ToolbarService.SetItems(
+            new ToolbarAction("refresh", "Refresh", "arrow.clockwise"),
+            new ToolbarAction("create", "Create Emulator", "plus")
+        );
+        ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
     }
 
     private void OnSdkPathChanged()
@@ -1108,11 +1115,25 @@
 
     public void Dispose()
     {
+        ToolbarService.ToolbarItemClicked -= OnToolbarItemClicked;
+        ToolbarService.ClearItems();
         SdkService.SdkPathChanged -= OnSdkPathChanged;
         _pollTimer?.Dispose();
         foreach (var id in _activeModals)
             try { JS.InvokeVoidAsync("modalInterop.dispose", id); } catch { }
         _dotNetRef?.Dispose();
+    }
+
+    private void OnToolbarItemClicked(string actionId)
+    {
+        InvokeAsync(async () =>
+        {
+            switch (actionId)
+            {
+                case "refresh": await RefreshEmulators(forceRefresh: true); break;
+                case "create": ShowCreateDialog(); break;
+            }
+        });
     }
 
     private DotNetObjectReference<Emulators>? _dotNetRef;

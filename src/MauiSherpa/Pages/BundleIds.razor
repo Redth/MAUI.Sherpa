@@ -13,6 +13,7 @@
 @inject IEncryptedSettingsService SettingsService
 @implements IDisposable
 @inject IJSRuntime JS
+@inject IToolbarService ToolbarService
 
 <h1><i class="fas fa-fingerprint"></i> Bundle IDs</h1>
 
@@ -612,6 +613,12 @@
         IdentityState.OnSelectionChanged += OnIdentityChanged;
         if (IdentityState.SelectedIdentity != null)
             await RefreshData(forceRefresh: false); // Use cache on initial load
+
+        ToolbarService.SetItems(
+            new ToolbarAction("refresh", "Refresh", "arrow.clockwise"),
+            new ToolbarAction("create", "Register Bundle ID", "plus")
+        );
+        ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
     }
 
     private void OnIdentityChanged()
@@ -625,10 +632,24 @@
 
     public void Dispose()
     {
+        ToolbarService.ToolbarItemClicked -= OnToolbarItemClicked;
+        ToolbarService.ClearItems();
         IdentityState.OnSelectionChanged -= OnIdentityChanged;
         foreach (var id in _activeModals)
             try { JS.InvokeVoidAsync("modalInterop.dispose", id); } catch { }
         _dotNetRef?.Dispose();
+    }
+
+    private void OnToolbarItemClicked(string actionId)
+    {
+        InvokeAsync(async () =>
+        {
+            switch (actionId)
+            {
+                case "refresh": await RefreshData(forceRefresh: true); break;
+                case "create": ShowCreateDialog(); break;
+            }
+        });
     }
 
     private async Task RefreshData(bool forceRefresh = false)
