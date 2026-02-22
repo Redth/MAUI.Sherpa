@@ -171,6 +171,13 @@ public class BlazorContentPage : ContentPage
         base.OnAppearing();
         // Delay to let the toolbar handler create NSToolbar items first
         Dispatcher.Dispatch(() => Dispatcher.Dispatch(ApplySfSymbolIcons));
+
+        // Disable right-click context menu in the webview
+        Dispatcher.Dispatch(async () =>
+        {
+            try { await EvaluateJavaScriptAsync("document.addEventListener('contextmenu', e => e.preventDefault())"); }
+            catch { }
+        });
     }
 
     protected override void OnDisappearing()

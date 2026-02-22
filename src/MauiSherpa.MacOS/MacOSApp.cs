@@ -133,10 +133,16 @@ class MacOSApp : Application
         // After handler connects, configure the split view for user-resizable sidebar
         flyoutPage.HandlerChanged += (s, e) =>
         {
-            if (flyoutPage.Handler?.PlatformView is NSSplitView splitView)
+            if (flyoutPage.Handler is not NativeSidebarFlyoutPageHandler handler) return;
+            if (handler.PlatformView is not NSSplitView splitView) return;
+
+            splitView.Delegate = new SidebarSplitViewDelegate();
+
+            // Set initial sidebar width to 170px after layout settles
+            NSApplication.SharedApplication.BeginInvokeOnMainThread(() =>
             {
-                splitView.Delegate = new SidebarSplitViewDelegate();
-            }
+                splitView.SetPositionOfDivider(200, 0);
+            });
         };
 
         return flyoutPage;
