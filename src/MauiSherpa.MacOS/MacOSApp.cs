@@ -130,6 +130,15 @@ class MacOSApp : Application
             }
         });
 
+        // After handler connects, configure the split view for user-resizable sidebar
+        flyoutPage.HandlerChanged += (s, e) =>
+        {
+            if (flyoutPage.Handler?.PlatformView is NSSplitView splitView)
+            {
+                splitView.Delegate = new SidebarSplitViewDelegate();
+            }
+        };
+
         return flyoutPage;
     }
 
@@ -213,5 +222,29 @@ class MacOSApp : Application
             }
             catch (TaskCanceledException) { }
         }, token);
+    }
+}
+
+/// <summary>
+/// Split view delegate that constrains sidebar resize to min/max bounds.
+/// </summary>
+class SidebarSplitViewDelegate : NSSplitViewDelegate
+{
+    static readonly nfloat MinSidebarWidth = 150;
+    static readonly nfloat MaxSidebarWidth = 400;
+
+    public override nfloat ConstrainSplitPosition(NSSplitView splitView, nfloat proposedPosition, IntPtr subviewDividerIndex)
+    {
+        return (nfloat)Math.Clamp((double)proposedPosition, (double)MinSidebarWidth, (double)MaxSidebarWidth);
+    }
+
+    public override nfloat SetMinCoordinateOfSubview(NSSplitView splitView, nfloat proposedMinimumPosition, IntPtr dividerIndex)
+    {
+        return MinSidebarWidth;
+    }
+
+    public override nfloat SetMaxCoordinateOfSubview(NSSplitView splitView, nfloat proposedMaximumPosition, IntPtr dividerIndex)
+    {
+        return MaxSidebarWidth;
     }
 }
