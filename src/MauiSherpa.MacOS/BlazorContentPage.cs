@@ -98,12 +98,47 @@ public class BlazorContentPage : ContentPage
             var toolbar = nsWindow?.Toolbar;
             if (toolbar == null) return;
 
+            // Replace the hamburger sidebar toggle with a Copilot button
+            foreach (var nsItem in toolbar.Items)
+            {
+                if (nsItem.Identifier == "MauiSidebarToggle" && nsItem.View is NSButton toggleBtn)
+                {
+                    var copilotImage = NSImage.GetSystemSymbol("sparkles", null);
+                    if (copilotImage != null)
+                    {
+                        toggleBtn.Image = copilotImage;
+                        toggleBtn.ImagePosition = NSCellImagePosition.ImageOnly;
+                        toggleBtn.Title = "";
+                    }
+                    else
+                    {
+                        toggleBtn.Title = "✦";
+                    }
+                    toggleBtn.ToolTip = "Copilot";
+
+                    // Rewire click to toggle Copilot overlay via JS
+                    toggleBtn.Target = null;
+                    toggleBtn.Action = null;
+                    toggleBtn.Activated += (s, e) =>
+                    {
+                        Dispatcher.Dispatch(async () =>
+                        {
+                            try { await EvaluateJavaScriptAsync("document.querySelector('.copilot-fab')?.click()"); }
+                            catch { }
+                        });
+                    };
+                    nsItem.Label = "Copilot";
+                    nsItem.ToolTip = "Open Copilot";
+                    break;
+                }
+            }
+
+            // Apply SF Symbol icons to toolbar action items
             var actions = _toolbarService.CurrentItems;
             int actionIndex = 0;
 
             foreach (var nsItem in toolbar.Items)
             {
-                // Skip non-toolbar-item entries (sidebar toggle, title, flexible space, back button)
                 if (!nsItem.Identifier.StartsWith("MauiToolbarItem_"))
                     continue;
 
