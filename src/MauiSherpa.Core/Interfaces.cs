@@ -2716,7 +2716,9 @@ public interface IToolbarService
     IReadOnlyList<ToolbarAction> CurrentItems { get; }
     event Action? ToolbarChanged;
     event Action<string>? ToolbarItemClicked;
+    event Action<string>? RouteChanged;
     void SetItems(params ToolbarAction[] items);
     void ClearItems();
     void InvokeToolbarItemClicked(string actionId);
+    void NotifyRouteChanged(string route);
 }

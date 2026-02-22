@@ -10,6 +10,8 @@
 @inject IJSRuntime JS
 @inject IPlatformService PlatformInfo
 @inject IUpdateService UpdateService
+@inject IToolbarService ToolbarService
+@inject NavigationManager NavManager
 @implements IDisposable
 
 <div class="main-layout @ThemeClass @PlatformClass">
@@ -169,6 +171,9 @@
 
             // Load demo mode setting
             _ = LoadDemoModeAsync();
+
+            // Notify native sidebar of route changes from Blazor navigation
+            NavManager.LocationChanged += OnLocationChanged;
         }
     }
 
@@ -239,6 +244,15 @@
     public void Dispose()
     {
         ThemeService.ThemeChanged -= OnThemeChanged;
+        NavManager.LocationChanged -= OnLocationChanged;
+    }
+
+    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+    {
+        var uri = new Uri(e.Location);
+        var route = uri.AbsolutePath;
+        if (string.IsNullOrEmpty(route)) route = "/";
+        ToolbarService.NotifyRouteChanged(route);
     }
 }
 

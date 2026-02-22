@@ -15,6 +15,7 @@ public class ToolbarService : IToolbarService
 
     public event Action? ToolbarChanged;
     public event Action<string>? ToolbarItemClicked;
+    public event Action<string>? RouteChanged;
 
     public void SetItems(params ToolbarAction[] items)
     {
@@ -31,5 +32,10 @@ public class ToolbarService : IToolbarService
     public void InvokeToolbarItemClicked(string actionId)
     {
         ToolbarItemClicked?.Invoke(actionId);
+    }
+
+    public void NotifyRouteChanged(string route)
+    {
+        RouteChanged?.Invoke(route);
     }
 }

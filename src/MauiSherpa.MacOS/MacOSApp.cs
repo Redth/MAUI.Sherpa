@@ -1,12 +1,18 @@
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.Platform.MacOS;
+using Microsoft.Maui.Platform.MacOS.Handlers;
 using MauiSherpa.Core.Interfaces;
+using AppKit;
+using Foundation;
 
 namespace MauiSherpa;
 
 class MacOSApp : Application
 {
     private readonly IServiceProvider _serviceProvider;
+    private FlyoutPage? _flyoutPage;
+    private List<MacOSSidebarItem>? _sidebarItems;
+    private bool _suppressSidebarSync;
 
     private const string PrefKeyWidth = "window_width";
     private const string PrefKeyHeight = "window_height";
@@ -18,6 +24,9 @@ class MacOSApp : Application
     public MacOSApp(IServiceProvider serviceProvider)
     {
         _serviceProvider = serviceProvider;
+
+        var toolbarService = serviceProvider.GetRequiredService<IToolbarService>();
+        toolbarService.RouteChanged += OnBlazorRouteChanged;
     }
 
     protected override Window CreateWindow(IActivationState? activationState)
@@ -48,6 +57,7 @@ class MacOSApp : Application
             Flyout = new ContentPage { Title = "MAUI Sherpa" },
             FlyoutLayoutBehavior = FlyoutLayoutBehavior.Split,
         };
+        _flyoutPage = flyoutPage;
 
         var sidebarItems = new List<MacOSSidebarItem>
         {
@@ -110,8 +120,10 @@ class MacOSApp : Application
 #endif
 
         MacOSFlyoutPage.SetSidebarItems(flyoutPage, sidebarItems);
+        _sidebarItems = sidebarItems;
         MacOSFlyoutPage.SetSidebarSelectionChanged(flyoutPage, item =>
         {
+            if (_suppressSidebarSync) return;
             if (item.Tag is string route)
             {
                 blazorPage.NavigateToRoute(route);
@@ -119,6 +131,62 @@ class MacOSApp : Application
         });
 
         return flyoutPage;
+    }
+
+    void OnBlazorRouteChanged(string route)
+    {
+        if (_flyoutPage?.Handler is not NativeSidebarFlyoutPageHandler handler) return;
+        if (_sidebarItems == null) return;
+
+        // Find the matching sidebar item by tag
+        MacOSSidebarItem? target = null;
+        foreach (var group in _sidebarItems)
+        {
+            if (group.Children != null)
+            {
+                foreach (var child in group.Children)
+                {
+                    if (child.Tag is string tag && tag == route)
+                    {
+                        target = child;
+                        break;
+                    }
+                }
+            }
+            if (target != null) break;
+        }
+        if (target == null) return;
+
+        // Access the handler's private _outlineView and _dataSource via reflection
+        var handlerType = handler.GetType();
+        var outlineViewField = handlerType.GetField("_outlineView",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        var dataSourceField = handlerType.GetField("_dataSource",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+
+        if (outlineViewField?.GetValue(handler) is not NSOutlineView outlineView) return;
+        var dataSource = dataSourceField?.GetValue(handler);
+        if (dataSource == null) return;
+
+        // Call dataSource.GetWrapper(target) to get the SidebarItemWrapper
+        var getWrapperMethod = dataSource.GetType().GetMethod("GetWrapper");
+        var wrapper = getWrapperMethod?.Invoke(dataSource, [target]) as NSObject;
+        if (wrapper == null) return;
+
+        NSApplication.SharedApplication.InvokeOnMainThread(() =>
+        {
+            try
+            {
+                var row = outlineView.RowForItem(wrapper);
+                if (row >= 0)
+                {
+                    _suppressSidebarSync = true;
+                    outlineView.SelectRow(row, false);
+                    _suppressSidebarSync = false;
+                }
+            }
+            catch { }
+        });
     }
 
     private static CancellationTokenSource? _saveCts;
