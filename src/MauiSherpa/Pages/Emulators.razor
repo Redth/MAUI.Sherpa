@@ -14,6 +14,7 @@
 @implements IDisposable
 @inject IJSRuntime JS
 @inject IToolbarService ToolbarService
+@inject DeviceInspectorService DeviceInspector
 
 <h1><i class="fas fa-desktop"></i> Android Emulators</h1>
 
@@ -134,6 +135,12 @@
                     }
                     else if (isRunning)
                     {
+                        <button class="btn btn-info btn-icon" @onclick="@(() => DeviceInspector.Open(runningEmulators[emulator.Name], emulator.Name))" title="Logcat">
+                            <i class="fas fa-scroll"></i>
+                        </button>
+                        <button class="btn btn-secondary btn-icon" @onclick="@(() => DeviceInspector.Open(runningEmulators[emulator.Name], emulator.Name, InspectorTab.Files))" title="Inspect">
+                            <i class="fas fa-search"></i>
+                        </button>
                         <button class="btn btn-warning btn-icon" @onclick="@(() => StopEmulator(emulator.Name))" disabled="@isLoading" title="Stop">
                             <i class="fas fa-stop"></i>
                         </button>
