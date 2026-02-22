@@ -15,7 +15,7 @@ public class BlazorContentPage : ContentPage
     private readonly MacOSBlazorWebView _blazorWebView;
     private readonly IToolbarService _toolbarService;
     private readonly ISplashService _splashService;
-    private Grid? _loadingOverlay;
+    private AppKit.NSView? _loadingOverlay;
     private string _pendingRoute = "/";
 
     public BlazorContentPage(IServiceProvider serviceProvider)
@@ -38,50 +38,56 @@ public class BlazorContentPage : ContentPage
             ComponentType = typeof(Components.App),
         });
 
-        // Layer the webview and a loading overlay
-        _loadingOverlay = CreateLoadingOverlay();
-        var container = new Grid();
-        container.Children.Add(_blazorWebView);
-        container.Children.Add(_loadingOverlay);
-        Content = container;
+        Content = _blazorWebView;
 
-        // Safety timeout
+        // Add overlay as soon as the native view is connected
+        _blazorWebView.HandlerChanged += (s, e) =>
+        {
+            if (_blazorWebView.Handler != null)
+                AddNativeLoadingOverlay();
+        };
+
+        // Safety timeout for loading overlay
         Dispatcher.StartTimer(TimeSpan.FromSeconds(15), () =>
         {
-            if (_loadingOverlay?.Opacity > 0)
+            if (_loadingOverlay != null)
                 HideSplash();
             return false;
         });
     }
 
-    private Grid CreateLoadingOverlay()
+    /// <summary>
+    /// Add a native NSView overlay on top of the window content once the handler is connected.
+    /// This avoids wrapping BlazorWebView in a Grid which breaks safe area layout.
+    /// </summary>
+    private void AddNativeLoadingOverlay()
     {
-        // Use a neutral color that matches macOS window background
-        var nsColor = AppKit.NSColor.WindowBackground.UsingColorSpace(AppKit.NSColorSpace.DeviceRGB);
-        Color bgColor;
-        if (nsColor != null)
-            bgColor = Color.FromRgba(nsColor.RedComponent, nsColor.GreenComponent, nsColor.BlueComponent, nsColor.AlphaComponent);
-        else
-            bgColor = Color.FromArgb("#f7fafc"); // light fallback
+        if (_blazorWebView.Handler?.PlatformView is not AppKit.NSView webViewNative) return;
+        var superview = webViewNative.Superview ?? webViewNative;
 
-        var overlay = new Grid
+        var bgColor = AppKit.NSColor.WindowBackground;
+
+        _loadingOverlay = new AppKit.NSView(superview.Bounds)
         {
-            BackgroundColor = bgColor,
-            ZIndex = 1000
+            AutoresizingMask = AppKit.NSViewResizingMask.WidthSizable | AppKit.NSViewResizingMask.HeightSizable,
+            WantsLayer = true,
         };
+        _loadingOverlay.Layer!.BackgroundColor = bgColor.CGColor;
 
-        var spinner = new ActivityIndicator
+        // Add a native spinner
+        var spinner = new AppKit.NSProgressIndicator(new CoreGraphics.CGRect(0, 0, 24, 24))
         {
-            IsRunning = true,
-            Color = Colors.Grey,
-            WidthRequest = 24,
-            HeightRequest = 24,
-            HorizontalOptions = LayoutOptions.Center,
-            VerticalOptions = LayoutOptions.Center
+            Style = AppKit.NSProgressIndicatorStyle.Spinning,
+            IsDisplayedWhenStopped = false,
+            ControlSize = AppKit.NSControlSize.Small,
         };
-        overlay.Children.Add(spinner);
+        spinner.StartAnimation(null);
+        spinner.TranslatesAutoresizingMaskIntoConstraints = false;
+        _loadingOverlay.AddSubview(spinner);
+        spinner.CenterXAnchor.ConstraintEqualTo(_loadingOverlay.CenterXAnchor).Active = true;
+        spinner.CenterYAnchor.ConstraintEqualTo(_loadingOverlay.CenterYAnchor).Active = true;
 
-        return overlay;
+        superview.AddSubview(_loadingOverlay, AppKit.NSWindowOrderingMode.Above, webViewNative);
     }
 
     private void OnBlazorReady()
@@ -89,14 +95,22 @@ public class BlazorContentPage : ContentPage
         Dispatcher.Dispatch(() => HideSplash());
     }
 
-    private async void HideSplash()
+    private void HideSplash()
     {
         if (_loadingOverlay == null) return;
-        await _loadingOverlay.FadeToAsync(0, 300, Easing.CubicOut);
-        _loadingOverlay.IsVisible = false;
-        if (Content is Grid g)
-            g.Children.Remove(_loadingOverlay);
-        _loadingOverlay = null;
+        NSApplication.SharedApplication.BeginInvokeOnMainThread(() =>
+        {
+            // Animate opacity to 0 using CoreAnimation
+            CoreAnimation.CATransaction.Begin();
+            CoreAnimation.CATransaction.AnimationDuration = 0.3;
+            CoreAnimation.CATransaction.CompletionBlock = () =>
+            {
+                _loadingOverlay?.RemoveFromSuperview();
+                _loadingOverlay = null;
+            };
+            _loadingOverlay!.Layer!.Opacity = 0;
+            CoreAnimation.CATransaction.Commit();
+        });
     }
 
     /// <summary>
