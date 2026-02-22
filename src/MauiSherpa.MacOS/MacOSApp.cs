@@ -11,8 +11,10 @@ class MacOSApp : Application
 {
     private readonly IServiceProvider _serviceProvider;
     private FlyoutPage? _flyoutPage;
+    private BlazorContentPage? _blazorPage;
     private List<MacOSSidebarItem>? _sidebarItems;
     private bool _suppressSidebarSync;
+    private readonly List<NSObject> _menuHandlers = new(); // prevent GC of menu action targets
 
     private const string PrefKeyWidth = "window_width";
     private const string PrefKeyHeight = "window_height";
@@ -32,6 +34,7 @@ class MacOSApp : Application
     protected override Window CreateWindow(IActivationState? activationState)
     {
         var blazorPage = new BlazorContentPage(_serviceProvider);
+        _blazorPage = blazorPage;
         var flyoutPage = CreateFlyoutPage(blazorPage);
 
         var savedWidth = Preferences.Default.Get(PrefKeyWidth, DefaultWidth);
@@ -46,7 +49,41 @@ class MacOSApp : Application
         };
 
         window.SizeChanged += OnWindowSizeChanged;
+
+        // Add custom menu items after framework finishes menu bar setup
+        NSApplication.SharedApplication.BeginInvokeOnMainThread(() => AddAppMenuItems(blazorPage));
+
         return window;
+    }
+
+    void AddAppMenuItems(BlazorContentPage blazorPage)
+    {
+        var mainMenu = NSApplication.SharedApplication.MainMenu;
+        if (mainMenu == null || mainMenu.Count == 0) return;
+
+        var appMenu = mainMenu.ItemAt(0)?.Submenu;
+        if (appMenu == null) return;
+
+        // Insert after "About" (index 0) and the separator (index 1)
+        var insertIndex = Math.Min(2, (int)appMenu.Count);
+
+        var sep1 = NSMenuItem.SeparatorItem;
+        appMenu.InsertItem(sep1, insertIndex++);
+
+        var settingsHandler = new MenuActionHandler(() => blazorPage.NavigateToRoute("/settings"));
+        _menuHandlers.Add(settingsHandler);
+        var settingsItem = new NSMenuItem("Settings…", new ObjCRuntime.Selector("menuAction:"), ",");
+        settingsItem.Target = settingsHandler;
+        appMenu.InsertItem(settingsItem, insertIndex++);
+
+        var doctorHandler = new MenuActionHandler(() => blazorPage.NavigateToRoute("/doctor"));
+        _menuHandlers.Add(doctorHandler);
+        var doctorItem = new NSMenuItem("Doctor", new ObjCRuntime.Selector("menuAction:"), "");
+        doctorItem.Target = doctorHandler;
+        appMenu.InsertItem(doctorItem, insertIndex++);
+
+        var sep2 = NSMenuItem.SeparatorItem;
+        appMenu.InsertItem(sep2, insertIndex);
     }
 
     FlyoutPage CreateFlyoutPage(BlazorContentPage blazorPage)
@@ -253,4 +290,17 @@ class SidebarSplitViewDelegate : NSSplitViewDelegate
     {
         return MaxSidebarWidth;
     }
+}
+
+/// <summary>
+/// NSObject target for menu item actions that invokes a callback.
+/// </summary>
+class MenuActionHandler : NSObject
+{
+    readonly Action _action;
+
+    public MenuActionHandler(Action action) => _action = action;
+
+    [Export("menuAction:")]
+    public void MenuAction(NSObject sender) => _action();
 }
