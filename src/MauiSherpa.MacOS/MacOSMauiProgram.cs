@@ -8,6 +8,8 @@ using Microsoft.Maui.Platform.MacOS.Hosting;
 using Microsoft.Maui.Platform.MacOS.Handlers;
 using Microsoft.Maui.Essentials.MacOS;
 using Shiny.Mediator;
+using MauiDevFlow.Agent;
+using MauiDevFlow.Blazor;
 
 namespace MauiSherpa;
 
@@ -177,6 +179,8 @@ public static class MacOSMauiProgram
 
 #if DEBUG
         builder.Services.AddBlazorWebViewDeveloperTools();
+        builder.AddMauiDevFlowAgent();
+        builder.AddMauiBlazorDevFlowTools();
         builder.Logging.AddDebug();
 #endif
 

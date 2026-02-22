@@ -42,14 +42,12 @@ public class BlazorContentPage : ContentPage
     {
         _pendingRoute = route;
 
-        // Use JS interop to navigate the Blazor router
-        // The Blazor NavigationManager handles the client-side routing
-        MainThread.BeginInvokeOnMainThread(async () =>
+        // Use Dispatcher instead of MainThread (Essentials may not be ready during ConnectHandler)
+        Dispatcher.Dispatch(async () =>
         {
             try
             {
                 var js = $"Blazor.navigateTo('{route}')";
-                // MacOSBlazorWebView wraps WKWebView — evaluate JS directly
                 await EvaluateJavaScriptAsync(js);
             }
             catch

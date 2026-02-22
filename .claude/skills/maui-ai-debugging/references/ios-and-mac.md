@@ -42,10 +42,20 @@ xcrun simctl install booted /path/to/App.app
 xcrun simctl launch booted com.company.appid
 ```
 
-### Screenshots (native simctl)
+### Screenshots (iOS Simulator)
 ```bash
 xcrun simctl io booted screenshot output.png
 apple simulator screenshot <UDID> --output output.png
+```
+
+### Screenshots (Mac Catalyst)
+
+**Use `maui-devflow MAUI screenshot`** for Mac Catalyst apps — it captures the UI in-process
+and does NOT require the app to be in the foreground. Never use `osascript` to bring the window
+to the front or `screencapture` for Mac Catalyst screenshots; they are unnecessary and unreliable.
+
+```bash
+maui-devflow MAUI screenshot --output screen.png
 ```
 
 ### Delete / erase
@@ -79,8 +89,9 @@ for r in d['devices'].values():
 dotnet build -f net10.0-ios -t:Run -p:_DeviceName=:v2:udid=$UDID
 ```
 
-The `-t:Run` target uses `--wait-for-exit:true`, keeping the process alive while the app runs.
-Run in background or a separate shell. The app process outputs console logs to stdout.
+The `-t:Run` target keeps the process alive while the app runs — it **blocks until the app exits**.
+Always run in an async/background shell, then poll `maui-devflow MAUI status` to detect when the
+app is ready. Do NOT wait for the process to finish.
 
 ### Determining the correct TFM
 Check the project file for `<TargetFrameworks>`:
@@ -150,8 +161,9 @@ Key subcommands beyond the basics:
 - **"Unable to lookup in current state: Shutdown"**: Simulator not booted. Run `xcrun simctl boot <UDID>`.
 - **Build error NETSDK1005 "Assets file doesn't have a target"**: Wrong TFM. Check
   `<TargetFrameworks>` in .csproj and use matching version (e.g. `net10.0-ios` not `net9.0-ios`).
-- **Agent not connecting after deploy**: Ensure app finished launching. Wait 3-5 seconds after
-  `dotnet build -t:Run` starts before checking `maui-devflow MAUI status`.
+- **Agent not connecting after deploy**: The app may still be launching. Poll
+  `maui-devflow MAUI status` every few seconds. If it hasn't connected after ~60-90s, read the
+  async shell output from `dotnet build -t:Run` for build/launch errors.
 - **Mac Catalyst app name vs binary name**: The `.app` bundle name may differ from the project
   name (e.g. `MauiTodo.app` vs `SampleMauiApp`). Check the `ApplicationTitle` in .csproj.
   Find the bundle: `find bin/Debug/net10.0-maccatalyst -name "*.app" -maxdepth 3`
