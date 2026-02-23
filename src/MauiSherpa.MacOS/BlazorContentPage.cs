@@ -253,6 +253,7 @@ public class BlazorContentPage : ContentPage
         bool hasSearch = _toolbarService.SearchPlaceholder != null;
         bool hasFilter = _toolbarService.CurrentFilters.Count > 0;
         bool hasIdentity = AppleRoutes.Contains(_currentRoute) || GoogleRoutes.Contains(_currentRoute);
+        bool hasPublishWizard = activeIds.Contains("publish-wizard");
 
         // 1. Update action item visibility and commands
         foreach (var (actionId, toolbarItem) in _actionItemMap)
@@ -288,10 +289,12 @@ public class BlazorContentPage : ContentPage
             }
             else if (id.StartsWith("MauiMenu_"))
             {
-                // Menu items — identity is first (MauiMenu_0), filter is second (MauiMenu_1)
+                // Menu order in layout: identity(0), publish(1), filter(2)
                 if (id == "MauiMenu_0")
                     shouldHide = !hasIdentity;
                 else if (id == "MauiMenu_1")
+                    shouldHide = !hasPublishWizard;
+                else if (id == "MauiMenu_2")
                     shouldHide = !hasFilter;
                 else
                     shouldHide = false;
@@ -341,11 +344,11 @@ public class BlazorContentPage : ContentPage
 
         _nativeMenuTargets.Clear();
 
-        // Find filter menu by identifier (MauiMenu_1)
+        // Find filter menu by identifier (MauiMenu_2)
         NSMenuToolbarItem? filterNative = null;
         foreach (var nsItem in toolbar.Items)
         {
-            if (nsItem.Identifier == "MauiMenu_1" && nsItem is NSMenuToolbarItem m)
+            if (nsItem.Identifier == "MauiMenu_2" && nsItem is NSMenuToolbarItem m)
             {
                 filterNative = m;
                 break;
@@ -583,10 +586,9 @@ public class BlazorContentPage : ContentPage
             ToolbarItems.Add(copilotItem);
 
             // Create SUPERSET of all possible action items (hidden ones toggled later)
-            // Order matters for layout: [publish-wizard/create/import] ← flex → [refresh]
+            // Order matters for layout: [create/import] ← flex → [refresh]
             var supersetActions = new[]
             {
-                ("publish-wizard", "Publish to CI/CD", "wand.and.stars"),
                 ("create", "Create", "plus"),
                 ("import", "Import", "square.and.arrow.down"),
                 ("refresh", "Refresh", "arrow.clockwise"),
@@ -662,10 +664,22 @@ public class BlazorContentPage : ContentPage
                 }
             }
 
+            // Publish to CI/CD button (MacOSMenuToolbarItem with ShowsTitle for icon+text)
+            var publishMenu = new MacOSMenuToolbarItem
+            {
+                Icon = "wand.and.stars",
+                Text = "Publish to CI/CD",
+                ShowsTitle = true,
+            };
+            var publishAction = new MacOSMenuItem { Text = "Publish to CI/CD" };
+            publishAction.Clicked += (s, e) => _toolbarService.InvokeToolbarItemClicked("publish-wizard");
+            publishMenu.Items.Add(publishAction);
+
             // Build explicit content layout with ALL items:
-            // [Identity] [Create] [Import] ← FlexibleSpace → [Filter] [Search] [Refresh]
+            // [Identity] [Publish] [Create] [Import] ← FlexibleSpace → [Filter] [Search] [Refresh]
             var layout = new List<MacOSToolbarLayoutItem>();
             layout.Add(MacOSToolbarLayoutItem.Menu(identityMenu));
+            layout.Add(MacOSToolbarLayoutItem.Menu(publishMenu));
             foreach (var item in leadingItems)
                 layout.Add(MacOSToolbarLayoutItem.Item(item));
             layout.Add(MacOSToolbarLayoutItem.FlexibleSpace);
@@ -736,11 +750,11 @@ public class BlazorContentPage : ContentPage
             var toolbar = nsWindow?.Toolbar;
             if (toolbar == null) return;
 
-            // Filter menu is MauiMenu_1 (identity is MauiMenu_0)
+            // Filter menu is MauiMenu_2 (identity=0, publish=1, filter=2)
             NSMenuToolbarItem? filterNative = null;
             foreach (var item in toolbar.Items)
             {
-                if (item.Identifier == "MauiMenu_1" && item is NSMenuToolbarItem m)
+                if (item.Identifier == "MauiMenu_2" && item is NSMenuToolbarItem m)
                 {
                     filterNative = m;
                     break;
