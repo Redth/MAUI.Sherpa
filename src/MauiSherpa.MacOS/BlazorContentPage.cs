@@ -1,4 +1,5 @@
 using Microsoft.Maui.Controls;
+using Microsoft.Maui.Platform.MacOS;
 using Microsoft.Maui.Platform.MacOS.Controls;
 using MauiSherpa.Core.Interfaces;
 using AppKit;
@@ -41,6 +42,9 @@ public class BlazorContentPage : ContentPage
         });
 
         Content = _blazorWebView;
+
+        // Always show the Copilot button in the sidebar (even before any page sets toolbar items)
+        ToolbarItems.Add(CreateCopilotToolbarItem());
 
         // Add overlay as soon as the native view is connected
         _blazorWebView.HandlerChanged += (s, e) =>
@@ -163,11 +167,34 @@ public class BlazorContentPage : ContentPage
         }
     }
 
+    ToolbarItem CreateCopilotToolbarItem()
+    {
+        var copilotItem = new ToolbarItem
+        {
+            Text = "Copilot",
+            IconImageSource = "sparkles",
+            Command = new Command(() =>
+            {
+                Dispatcher.Dispatch(async () =>
+                {
+                    try { await EvaluateJavaScriptAsync("document.querySelector('.copilot-fab')?.click()"); }
+                    catch { }
+                });
+            }),
+        };
+        MacOSToolbarItem.SetPlacement(copilotItem, MacOSToolbarItemPlacement.SidebarTrailing);
+        return copilotItem;
+    }
+
     void OnToolbarChanged()
     {
         Dispatcher.Dispatch(() =>
         {
             ToolbarItems.Clear();
+
+            // Copilot button always present in sidebar trailing area
+            ToolbarItems.Add(CreateCopilotToolbarItem());
+
             foreach (var action in _toolbarService.CurrentItems)
             {
                 var item = new ToolbarItem
@@ -176,66 +203,16 @@ public class BlazorContentPage : ContentPage
                     Order = action.IsPrimary ? ToolbarItemOrder.Primary : ToolbarItemOrder.Secondary,
                     Command = new Command(() => _toolbarService.InvokeToolbarItemClicked(action.Id)),
                 };
-                // Use SF Symbol name as IconImageSource — the toolbar manager handles native rendering
                 if (!string.IsNullOrEmpty(action.SfSymbol))
                     item.IconImageSource = action.SfSymbol;
                 ToolbarItems.Add(item);
             }
-
-            // Rewire the sidebar toggle to Copilot after toolbar rebuilds
-            Dispatcher.Dispatch(RewireSidebarToggleToCopilot);
         });
-    }
-
-    void RewireSidebarToggleToCopilot()
-    {
-        try
-        {
-            var nsWindow = this.Window?.Handler?.PlatformView as NSWindow;
-            var toolbar = nsWindow?.Toolbar;
-            if (toolbar == null) return;
-
-            foreach (var nsItem in toolbar.Items)
-            {
-                if (nsItem.Identifier == "MauiSidebarToggle" && nsItem.View is NSButton toggleBtn)
-                {
-                    var copilotImage = NSImage.GetSystemSymbol("sparkles", null);
-                    if (copilotImage != null)
-                    {
-                        toggleBtn.Image = copilotImage;
-                        toggleBtn.ImagePosition = NSCellImagePosition.ImageOnly;
-                        toggleBtn.Title = "";
-                    }
-                    else
-                    {
-                        toggleBtn.Title = "✦";
-                    }
-                    toggleBtn.ToolTip = "Copilot";
-
-                    toggleBtn.Target = null;
-                    toggleBtn.Action = null;
-                    toggleBtn.Activated += (s, e) =>
-                    {
-                        Dispatcher.Dispatch(async () =>
-                        {
-                            try { await EvaluateJavaScriptAsync("document.querySelector('.copilot-fab')?.click()"); }
-                            catch { }
-                        });
-                    };
-                    nsItem.Label = "Copilot";
-                    nsItem.ToolTip = "Open Copilot";
-                    break;
-                }
-            }
-        }
-        catch { }
     }
 
     protected override void OnAppearing()
     {
         base.OnAppearing();
-        // Delay to let the toolbar handler create NSToolbar items first
-        Dispatcher.Dispatch(() => Dispatcher.Dispatch(RewireSidebarToggleToCopilot));
 
         // Disable right-click context menu in the webview
         Dispatcher.Dispatch(async () =>
