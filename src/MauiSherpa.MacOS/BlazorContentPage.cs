@@ -307,6 +307,10 @@ public class BlazorContentPage : ContentPage
         // 3. Rebuild filter submenus natively if filters are active
         if (hasFilter)
             RebuildFilterMenuNatively();
+
+        // 4. Rebuild identity menu natively if on an Apple page
+        if (hasIdentity)
+            RebuildIdentityMenuNatively();
     }
 
     [System.Runtime.InteropServices.DllImport(ObjCRuntime.Constants.ObjectiveCLibrary, EntryPoint = "objc_msgSend")]
@@ -327,12 +331,15 @@ public class BlazorContentPage : ContentPage
 
         _nativeMenuTargets.Clear();
 
-        // The filter menu is the last NSMenuToolbarItem (identity is first if present)
+        // Find filter menu by identifier (MauiMenu_1)
         NSMenuToolbarItem? filterNative = null;
         foreach (var nsItem in toolbar.Items)
         {
-            if (nsItem is NSMenuToolbarItem menuItem)
-                filterNative = menuItem;
+            if (nsItem.Identifier == "MauiMenu_1" && nsItem is NSMenuToolbarItem m)
+            {
+                filterNative = m;
+                break;
+            }
         }
         if (filterNative?.Menu == null) return;
 
@@ -367,6 +374,86 @@ public class BlazorContentPage : ContentPage
             submenuItem.Submenu = submenu;
             menu.AddItem(submenuItem);
         }
+    }
+
+    /// <summary>
+    /// Rebuild the identity NSMenuToolbarItem's menu natively with current identities.
+    /// </summary>
+    void RebuildIdentityMenuNatively()
+    {
+        if (_cachedIdentities == null || _cachedIdentities.Count == 0)
+        {
+            // Kick off async load if not yet cached
+            Task.Run(async () =>
+            {
+                _cachedIdentities = await _identityService.GetIdentitiesAsync();
+                if (_cachedIdentities?.Count > 0)
+                    Dispatcher.Dispatch(() => UpdateToolbarVisibility());
+            });
+            return;
+        }
+
+        var nsWindow = this.Window?.Handler?.PlatformView as NSWindow;
+        var toolbar = nsWindow?.Toolbar;
+        if (toolbar == null) { Console.WriteLine("[IDENTITY] No toolbar"); return; }
+
+        // Debug: dump all toolbar item types and identifiers
+        foreach (var nsItem in toolbar.Items)
+            Console.WriteLine($"[IDENTITY] Item: {nsItem.Identifier} Type: {nsItem.GetType().Name}");
+
+        // Find identity menu by identifier (MauiMenu_0)
+        NSMenuToolbarItem? identityNative = null;
+        foreach (var nsItem in toolbar.Items)
+        {
+            if (nsItem.Identifier == "MauiMenu_0" && nsItem is NSMenuToolbarItem m)
+            {
+                identityNative = m;
+                break;
+            }
+        }
+        if (identityNative?.Menu == null) { Console.WriteLine("[IDENTITY] Menu not found or null"); return; }
+
+        Console.WriteLine($"[IDENTITY] Found menu, rebuilding with {_cachedIdentities.Count} identities");
+
+        var identities = _cachedIdentities;
+        var selectedId = _identityState.SelectedIdentity?.Id;
+
+        // Auto-select first identity if none selected
+        if (selectedId == null && identities.Count > 0)
+        {
+            _identityState.SetSelectedIdentity(identities[0]);
+            selectedId = identities[0].Id;
+        }
+
+        var selectedName = _identityState.SelectedIdentity?.Name ?? identities[0].Name;
+        identityNative.Title = selectedName;
+        identityNative.Label = selectedName;
+
+        // Create a fresh NSMenu and assign it
+        var newMenu = new NSMenu();
+        for (int i = 0; i < identities.Count; i++)
+        {
+            var identity = identities[i];
+            var menuItem = new NSMenuItem(identity.Name);
+            menuItem.State = identity.Id == selectedId ? NSCellStateValue.On : NSCellStateValue.Off;
+
+            var target = new MenuActionTarget(identity.Id, i, (id, _) =>
+            {
+                var selected = identities.FirstOrDefault(x => x.Id == id);
+                if (selected != null)
+                {
+                    _identityState.SetSelectedIdentity(selected);
+                    Dispatcher.Dispatch(() => UpdateToolbarVisibility());
+                }
+            });
+            menuItem.Target = target;
+            menuItem.Action = new ObjCRuntime.Selector("menuItemClicked:");
+            _nativeMenuTargets.Add(target);
+
+            newMenu.AddItem(menuItem);
+        }
+        identityNative.Menu = newMenu;
+        Console.WriteLine($"[IDENTITY] Menu rebuilt, {newMenu.Count} items, handle={identityNative.Handle}");
     }
 
     void FullRebuildToolbar()
