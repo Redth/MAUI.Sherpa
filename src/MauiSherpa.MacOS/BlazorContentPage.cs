@@ -209,9 +209,10 @@ public class BlazorContentPage : ContentPage
             }
 
             // Native search item
+            MacOSSearchToolbarItem? searchItem = null;
             if (_toolbarService.SearchPlaceholder != null)
             {
-                var searchItem = new MacOSSearchToolbarItem
+                searchItem = new MacOSSearchToolbarItem
                 {
                     Placeholder = _toolbarService.SearchPlaceholder,
                     Text = _toolbarService.SearchText,
@@ -224,30 +225,61 @@ public class BlazorContentPage : ContentPage
                 MacOSToolbar.SetSearchItem(this, null);
             }
 
-            // Native popup filters
+            // Native filter menu — single menu button with submenus per filter category
             var filters = _toolbarService.CurrentFilters;
+            MacOSMenuToolbarItem? filterMenu = null;
             if (filters.Count > 0)
             {
-                var popups = new List<MacOSPopUpToolbarItem>();
-                foreach (var filter in filters)
+                filterMenu = new MacOSMenuToolbarItem
                 {
-                    var popup = new MacOSPopUpToolbarItem
-                    {
-                        SelectedIndex = filter.SelectedIndex,
-                        Width = 140,
-                    };
-                    foreach (var opt in filter.Options)
-                        popup.Items.Add(opt);
+                    Icon = "line.3.horizontal.decrease",
+                    Text = "Filters",
+                    ShowsIndicator = true,
+                };
+                for (int fi = 0; fi < filters.Count; fi++)
+                {
+                    var filter = filters[fi];
                     var filterId = filter.Id;
-                    popup.SelectionChanged += (s, idx) => _toolbarService.NotifyFilterChanged(filterId, idx);
-                    popups.Add(popup);
+                    var submenuItem = new MacOSMenuItem { Text = filter.Label };
+                    for (int oi = 0; oi < filter.Options.Length; oi++)
+                    {
+                        var optIndex = oi;
+                        var option = new MacOSMenuItem
+                        {
+                            Text = filter.Options[oi],
+                            IsChecked = oi == filter.SelectedIndex,
+                        };
+                        option.Clicked += (s, e) => _toolbarService.NotifyFilterChanged(filterId, optIndex);
+                        submenuItem.SubItems.Add(option);
+                    }
+                    if (fi > 0)
+                        filterMenu.Items.Add(new MacOSMenuItem { IsSeparator = true });
+                    filterMenu.Items.Add(submenuItem);
                 }
-                MacOSToolbar.SetPopUpItems(this, popups);
+                MacOSToolbar.SetMenuItems(this, new List<MacOSMenuToolbarItem> { filterMenu });
             }
             else
             {
-                MacOSToolbar.SetPopUpItems(this, null);
+                MacOSToolbar.SetMenuItems(this, null);
             }
+            MacOSToolbar.SetPopUpItems(this, null);
+
+            // Build explicit content layout: [buttons] ← flex → [filter menu] [search]
+            var layout = new List<MacOSToolbarLayoutItem>();
+            foreach (var item in ToolbarItems)
+            {
+                if (MacOSToolbarItem.GetPlacement(item) != MacOSToolbarItemPlacement.SidebarTrailing)
+                    layout.Add(MacOSToolbarLayoutItem.Item(item));
+            }
+            if (filterMenu != null || searchItem != null)
+            {
+                layout.Add(MacOSToolbarLayoutItem.FlexibleSpace);
+                if (filterMenu != null)
+                    layout.Add(MacOSToolbarLayoutItem.Menu(filterMenu));
+                if (searchItem != null)
+                    layout.Add(MacOSToolbarLayoutItem.Search(searchItem));
+            }
+            MacOSToolbar.SetContentLayout(this, layout.Count > 0 ? layout : null);
 
             // Remove the sidebar toggle button (added by platform backend for FlyoutPage)
             // Double-dispatch to run after the toolbar manager finishes rebuilding
