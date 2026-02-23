@@ -531,43 +531,45 @@ public class BlazorContentPage : ContentPage
             var toolbar = nsWindow?.Toolbar;
             if (toolbar == null) return;
 
+            // Filter menu is MauiMenu_1 (identity is MauiMenu_0)
+            NSMenuToolbarItem? filterNative = null;
             foreach (var item in toolbar.Items)
             {
-                if (item is NSMenuToolbarItem menuToolbarItem)
+                if (item.Identifier == "MauiMenu_1" && item is NSMenuToolbarItem m)
                 {
-                    var menu = menuToolbarItem.Menu;
-                    if (menu == null) continue;
-
-                    // Find the submenu matching this filter
-                    var filters = _toolbarService.CurrentFilters;
-                    int filterIndex = -1;
-                    for (int i = 0; i < filters.Count; i++)
-                    {
-                        if (filters[i].Id == filterId) { filterIndex = i; break; }
-                    }
-                    if (filterIndex < 0) continue;
-
-                    // Account for separator items between filter submenus
-                    int menuItemIndex = 0;
-                    for (int i = 0; i < filterIndex; i++)
-                    {
-                        menuItemIndex++; // the submenu item
-                        if (i > 0) menuItemIndex++; // separator before it (skip first)
-                    }
-                    if (filterIndex > 0) menuItemIndex++; // separator before this filter
-
-                    if (menuItemIndex >= menu.Count) return;
-                    var submenu = menu.ItemAt(menuItemIndex)?.Submenu;
-                    if (submenu == null) return;
-
-                    for (int i = 0; i < submenu.Count; i++)
-                    {
-                        var mi = submenu.ItemAt(i);
-                        if (mi != null)
-                            mi.State = i == selectedIndex ? NSCellStateValue.On : NSCellStateValue.Off;
-                    }
-                    return;
+                    filterNative = m;
+                    break;
                 }
+            }
+            if (filterNative?.Menu == null) return;
+
+            var filters = _toolbarService.CurrentFilters;
+            int filterIndex = -1;
+            for (int i = 0; i < filters.Count; i++)
+            {
+                if (filters[i].Id == filterId) { filterIndex = i; break; }
+            }
+            if (filterIndex < 0) return;
+
+            // Account for separator items between filter submenus
+            int menuItemIndex = 0;
+            for (int i = 0; i < filterIndex; i++)
+            {
+                menuItemIndex++; // the submenu item
+                if (i > 0) menuItemIndex++; // separator before it (skip first)
+            }
+            if (filterIndex > 0) menuItemIndex++; // separator before this filter
+
+            var menu = filterNative.Menu;
+            if (menuItemIndex >= menu.Count) return;
+            var submenu = menu.ItemAt(menuItemIndex)?.Submenu;
+            if (submenu == null) return;
+
+            for (int i = 0; i < submenu.Count; i++)
+            {
+                var mi = submenu.ItemAt(i);
+                if (mi != null)
+                    mi.State = i == selectedIndex ? NSCellStateValue.On : NSCellStateValue.Off;
             }
         });
     }
