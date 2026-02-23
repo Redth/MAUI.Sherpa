@@ -5,6 +5,8 @@
 @inject ICopilotToolsService ToolsService
 @inject IJSRuntime JSRuntime
 @inject ILoggingService _logger
+@inject ILauncher AppLauncher
+@inject IClipboard AppClipboard
 @implements IDisposable
 
 <div class="copilot-page @(IsEmbedded ? "embedded" : "")">
@@ -2042,7 +2044,7 @@ else
 
     private async Task OpenUrl(string url)
     {
-        await Launcher.Default.OpenAsync(new Uri(url));
+        await AppLauncher.OpenAsync(new Uri(url));
     }
     [Parameter] public EventCallback OnReady { get; set; }
     
@@ -2297,7 +2299,7 @@ else
     {
         try
         {
-            await Clipboard.Default.SetTextAsync(text);
+            await AppClipboard.SetTextAsync(text);
             await AlertService.ShowToastAsync("Copied to clipboard");
         }
         catch { }

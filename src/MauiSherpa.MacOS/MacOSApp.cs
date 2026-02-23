@@ -10,6 +10,7 @@ namespace MauiSherpa;
 class MacOSApp : Application
 {
     private readonly IServiceProvider _serviceProvider;
+    private readonly IPreferences _preferences;
     private FlyoutPage? _flyoutPage;
     private BlazorContentPage? _blazorPage;
     private List<MacOSSidebarItem>? _sidebarItems;
@@ -26,6 +27,7 @@ class MacOSApp : Application
     public MacOSApp(IServiceProvider serviceProvider)
     {
         _serviceProvider = serviceProvider;
+        _preferences = serviceProvider.GetRequiredService<IPreferences>();
 
         var toolbarService = serviceProvider.GetRequiredService<IToolbarService>();
         toolbarService.RouteChanged += OnBlazorRouteChanged;
@@ -37,8 +39,8 @@ class MacOSApp : Application
         _blazorPage = blazorPage;
         var flyoutPage = CreateFlyoutPage(blazorPage);
 
-        var savedWidth = Preferences.Default.Get(PrefKeyWidth, DefaultWidth);
-        var savedHeight = Preferences.Default.Get(PrefKeyHeight, DefaultHeight);
+        var savedWidth = _preferences.Get(PrefKeyWidth, DefaultWidth);
+        var savedHeight = _preferences.Get(PrefKeyHeight, DefaultHeight);
         savedWidth = Math.Max(MinWidth, savedWidth);
         savedHeight = Math.Max(MinHeight, savedHeight);
 
@@ -241,9 +243,9 @@ class MacOSApp : Application
         });
     }
 
-    private static CancellationTokenSource? _saveCts;
+    private CancellationTokenSource? _saveCts;
 
-    private static void OnWindowSizeChanged(object? sender, EventArgs e)
+    private void OnWindowSizeChanged(object? sender, EventArgs e)
     {
         if (sender is not Window window) return;
 
@@ -260,8 +262,8 @@ class MacOSApp : Application
             try
             {
                 await Task.Delay(500, token);
-                Preferences.Default.Set(PrefKeyWidth, w);
-                Preferences.Default.Set(PrefKeyHeight, h);
+                _preferences.Set(PrefKeyWidth, w);
+                _preferences.Set(PrefKeyHeight, h);
             }
             catch (TaskCanceledException) { }
         }, token);

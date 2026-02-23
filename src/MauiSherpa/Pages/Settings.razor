@@ -25,6 +25,7 @@
 @inject IUpdateService UpdateService
 @implements IDisposable
 @inject IJSRuntime JS
+@inject ILauncher AppLauncher
 
 <h1><i class="fas fa-cog"></i> @ViewModel.Title</h1>
 
@@ -1768,7 +1769,7 @@
     
     private async Task OpenUrl(string url)
     {
-        await Launcher.Default.OpenAsync(new Uri(url));
+        await AppLauncher.OpenAsync(new Uri(url));
     }
     
     private bool demoMode = false;
@@ -3074,7 +3075,7 @@
     {
         if (updateResult?.LatestRelease?.HtmlUrl is { Length: > 0 } url)
         {
-            try { await Launcher.Default.OpenAsync(new Uri(url)); } catch { }
+            try { await AppLauncher.OpenAsync(new Uri(url)); } catch { }
         }
         showUpdateDialog = false;
     }

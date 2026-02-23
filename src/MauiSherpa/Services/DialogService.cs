@@ -9,6 +9,13 @@ namespace MauiSherpa.Services;
 
 public class DialogService : IDialogService
 {
+    private readonly IClipboard _clipboard;
+
+    public DialogService(IClipboard clipboard)
+    {
+        _clipboard = clipboard;
+    }
+
     public Task ShowLoadingAsync(string message)
     {
         return Task.CompletedTask;
@@ -131,7 +138,7 @@ public class DialogService : IDialogService
     {
         if (string.IsNullOrEmpty(text)) return;
         
-        await Clipboard.Default.SetTextAsync(text);
+        await _clipboard.SetTextAsync(text);
     }
 
     public async Task<string?> PickOpenFileAsync(string title, string[]? extensions = null)
