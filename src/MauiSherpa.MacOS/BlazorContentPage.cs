@@ -18,8 +18,17 @@ public class BlazorContentPage : ContentPage
     private readonly MacOSBlazorWebView _blazorWebView;
     private readonly IToolbarService _toolbarService;
     private readonly ISplashService _splashService;
+    private readonly IAppleIdentityService _identityService;
+    private readonly IAppleIdentityStateService _identityState;
     private AppKit.NSView? _loadingOverlay;
     private string _pendingRoute = "/";
+    private string _currentRoute = "/";
+
+    // Routes that show the Apple identity picker
+    static readonly HashSet<string> AppleRoutes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "/certificates", "/profiles", "/apple-devices", "/bundle-ids"
+    };
 
     public BlazorContentPage(IServiceProvider serviceProvider)
     {
@@ -28,6 +37,10 @@ public class BlazorContentPage : ContentPage
         _toolbarService = serviceProvider.GetRequiredService<IToolbarService>();
         _toolbarService.ToolbarChanged += OnToolbarChanged;
         _toolbarService.FilterChanged += OnFilterSelectionChanged;
+
+        _identityService = serviceProvider.GetRequiredService<IAppleIdentityService>();
+        _identityState = serviceProvider.GetRequiredService<IAppleIdentityStateService>();
+        _toolbarService.RouteChanged += route => _currentRoute = route;
 
         _splashService = serviceProvider.GetRequiredService<ISplashService>();
         _splashService.OnBlazorReady += OnBlazorReady;
@@ -264,16 +277,26 @@ public class BlazorContentPage : ContentPage
                         filterMenu.Items.Add(new MacOSMenuItem { IsSeparator = true });
                     filterMenu.Items.Add(submenuItem);
                 }
-                MacOSToolbar.SetMenuItems(this, new List<MacOSMenuToolbarItem> { filterMenu });
-            }
-            else
-            {
-                MacOSToolbar.SetMenuItems(this, null);
             }
             MacOSToolbar.SetPopUpItems(this, null);
 
-            // Build explicit content layout: [buttons] ← flex → [filter menu] [search]
+            // Apple identity menu for Apple pages
+            MacOSMenuToolbarItem? identityMenu = null;
+            if (AppleRoutes.Contains(_currentRoute))
+            {
+                identityMenu = CreateAppleIdentityMenu();
+            }
+
+            // Set menu items: identity menu + filter menu (if both present)
+            var menus = new List<MacOSMenuToolbarItem>();
+            if (identityMenu != null) menus.Add(identityMenu);
+            if (filterMenu != null) menus.Add(filterMenu);
+            MacOSToolbar.SetMenuItems(this, menus.Count > 0 ? menus : null);
+
+            // Build explicit content layout: [identity] [buttons] ← flex → [filter menu] [search]
             var layout = new List<MacOSToolbarLayoutItem>();
+            if (identityMenu != null)
+                layout.Add(MacOSToolbarLayoutItem.Menu(identityMenu));
             foreach (var item in ToolbarItems)
             {
                 if (MacOSToolbarItem.GetPlacement(item) != MacOSToolbarItemPlacement.SidebarTrailing)
@@ -293,6 +316,52 @@ public class BlazorContentPage : ContentPage
             // Double-dispatch to run after the toolbar manager finishes rebuilding
             Dispatcher.Dispatch(() => Dispatcher.Dispatch(RemoveSidebarToggle));
         });
+    }
+
+    private IReadOnlyList<AppleIdentity>? _cachedIdentities;
+
+    MacOSMenuToolbarItem? CreateAppleIdentityMenu()
+    {
+        // Use cached identities — loaded async in background on first Apple page visit
+        if (_cachedIdentities == null || _cachedIdentities.Count == 0)
+        {
+            // Kick off async load, toolbar will rebuild when it completes
+            Task.Run(async () =>
+            {
+                _cachedIdentities = await _identityService.GetIdentitiesAsync();
+                if (_cachedIdentities?.Count > 0)
+                    Dispatcher.Dispatch(OnToolbarChanged);
+            });
+            return null;
+        }
+
+        var identities = _cachedIdentities;
+        var selectedId = _identityState.SelectedIdentity?.Id;
+        var selectedName = _identityState.SelectedIdentity?.Name ?? identities[0].Name;
+
+        var menu = new MacOSMenuToolbarItem
+        {
+            Icon = "apple.logo",
+            Text = selectedName,
+            ShowsIndicator = true,
+        };
+
+        for (int i = 0; i < identities.Count; i++)
+        {
+            var identity = identities[i];
+            var item = new MacOSMenuItem
+            {
+                Text = identity.Name,
+                IsChecked = identity.Id == selectedId,
+            };
+            item.Clicked += (s, e) =>
+            {
+                _identityState.SetSelectedIdentity(identity);
+                OnToolbarChanged();
+            };
+            menu.Items.Add(item);
+        }
+        return menu;
     }
 
     void RemoveSidebarToggle()
