@@ -192,8 +192,15 @@ public class BlazorContentPage : ContentPage
         {
             ToolbarItems.Clear();
 
-            // Copilot button always present in sidebar trailing area
-            ToolbarItems.Add(CreateCopilotToolbarItem());
+            // Copilot button in sidebar trailing area — use sidebar layout instead of
+            // adding to ToolbarItems to avoid it also appearing in the content area
+            var copilotItem = CreateCopilotToolbarItem();
+            ToolbarItems.Add(copilotItem);
+            MacOSToolbar.SetSidebarLayout(this, new MacOSToolbarLayoutItem[]
+            {
+                MacOSToolbarLayoutItem.FlexibleSpace,
+                MacOSToolbarLayoutItem.Item(copilotItem),
+            });
 
             foreach (var action in _toolbarService.CurrentItems)
             {
