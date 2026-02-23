@@ -57,7 +57,7 @@ public static class MacOSMauiProgram
         builder.Services.AddSingleton<IDialogService, DialogService>();
         builder.Services.AddSingleton<IFileSystemService, FileSystemService>();
         builder.Services.AddSingleton<ISecureStorageService, SecureStorageService>();
-        builder.Services.AddSingleton<IThemeService, ThemeService>();
+        builder.Services.AddSingleton<IThemeService, MacOSThemeService>();
 
         // Toolbar service for native macOS toolbar integration
         builder.Services.AddSingleton<IToolbarService, ToolbarService>();
