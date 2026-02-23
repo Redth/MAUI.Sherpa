@@ -208,10 +208,13 @@ public class BlazorContentPage : ContentPage
         {
             ToolbarItems.Clear();
 
-            // Copilot button in sidebar trailing area
+            // Copilot button in sidebar trailing area (convenience mode handles it)
             var copilotItem = CreateCopilotToolbarItem();
             ToolbarItems.Add(copilotItem);
 
+            // Build toolbar items from service, partitioned for layout
+            ToolbarItem? refreshItem = null;
+            var leadingItems = new List<ToolbarItem>();  // add/create buttons
             foreach (var action in _toolbarService.CurrentItems)
             {
                 var item = new ToolbarItem
@@ -223,12 +226,18 @@ public class BlazorContentPage : ContentPage
                 if (!string.IsNullOrEmpty(action.SfSymbol))
                     item.IconImageSource = action.SfSymbol;
                 ToolbarItems.Add(item);
+
+                if (action.Id == "refresh")
+                    refreshItem = item;
+                else
+                    leadingItems.Add(item);
             }
 
             // Native search item
+            MacOSSearchToolbarItem? searchItem = null;
             if (_toolbarService.SearchPlaceholder != null)
             {
-                var searchItem = new MacOSSearchToolbarItem
+                searchItem = new MacOSSearchToolbarItem
                 {
                     Placeholder = _toolbarService.SearchPlaceholder,
                     Text = _toolbarService.SearchText,
@@ -241,21 +250,17 @@ public class BlazorContentPage : ContentPage
                 MacOSToolbar.SetSearchItem(this, null);
             }
 
+            // Apple identity menu for Apple pages
+            MacOSMenuToolbarItem? identityMenu = null;
+            if (AppleRoutes.Contains(_currentRoute))
+                identityMenu = CreateAppleIdentityMenu();
+
             // Native filter menu — single menu button with submenus per filter category
             var filters = _toolbarService.CurrentFilters;
-            var menus = new List<MacOSMenuToolbarItem>();
-
-            // Apple identity menu for Apple pages
-            if (AppleRoutes.Contains(_currentRoute))
-            {
-                var identityMenu = CreateAppleIdentityMenu();
-                if (identityMenu != null)
-                    menus.Add(identityMenu);
-            }
-
+            MacOSMenuToolbarItem? filterMenu = null;
             if (filters.Count > 0)
             {
-                var filterMenu = new MacOSMenuToolbarItem
+                filterMenu = new MacOSMenuToolbarItem
                 {
                     Icon = "line.3.horizontal.decrease",
                     Text = "Filters",
@@ -281,13 +286,27 @@ public class BlazorContentPage : ContentPage
                         filterMenu.Items.Add(new MacOSMenuItem { IsSeparator = true });
                     filterMenu.Items.Add(submenuItem);
                 }
-                menus.Add(filterMenu);
             }
 
-            MacOSToolbar.SetMenuItems(this, menus.Count > 0 ? menus : null);
+            // Build explicit content layout:
+            // [Identity] [Add/Create] ← FlexibleSpace → [Filter] [Search] [Refresh]
+            var layout = new List<MacOSToolbarLayoutItem>();
+            if (identityMenu != null)
+                layout.Add(MacOSToolbarLayoutItem.Menu(identityMenu));
+            foreach (var item in leadingItems)
+                layout.Add(MacOSToolbarLayoutItem.Item(item));
+            layout.Add(MacOSToolbarLayoutItem.FlexibleSpace);
+            if (filterMenu != null)
+                layout.Add(MacOSToolbarLayoutItem.Menu(filterMenu));
+            if (searchItem != null)
+                layout.Add(MacOSToolbarLayoutItem.Search(searchItem));
+            if (refreshItem != null)
+                layout.Add(MacOSToolbarLayoutItem.Item(refreshItem));
+
+            MacOSToolbar.SetMenuItems(this, null);
             MacOSToolbar.SetPopUpItems(this, null);
             MacOSToolbar.SetSidebarLayout(this, null);
-            MacOSToolbar.SetContentLayout(this, null);
+            MacOSToolbar.SetContentLayout(this, layout);
         });
     }
 
