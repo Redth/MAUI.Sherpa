@@ -36,4 +36,14 @@ public static class AppDataPath
         Directory.CreateDirectory(_cachedPath);
         return _cachedPath;
     }
+
+    /// <summary>
+    /// Returns the full path to the adb executable within the given Android SDK directory.
+    /// Appends .exe on Windows.
+    /// </summary>
+    public static string GetAdbPath(string sdkPath)
+    {
+        var exe = OperatingSystem.IsWindows() ? "adb.exe" : "adb";
+        return Path.Combine(sdkPath, "platform-tools", exe);
+    }
 }

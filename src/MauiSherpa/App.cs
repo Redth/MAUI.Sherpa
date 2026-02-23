@@ -36,6 +36,13 @@ public class App : Application
             Height = savedHeight,
         };
 
+#if WINDOWS
+        var toolbarService = _serviceProvider.GetRequiredService<IToolbarService>();
+        var titleBarManager = new MauiSherpa.Services.WindowsTitleBarManager(toolbarService);
+        var titleBar = titleBarManager.CreateTitleBar();
+        window.TitleBar = titleBar;
+#endif
+
         window.SizeChanged += OnWindowSizeChanged;
 
         window.Created += (s, e) =>

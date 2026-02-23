@@ -7,5 +7,6 @@ public class PlatformService : MauiSherpa.Core.Interfaces.IPlatformService
     public bool IsWindows => DeviceInfo.Platform == DevicePlatform.WinUI;
     public bool IsMacCatalyst => DeviceInfo.Platform == DevicePlatform.MacCatalyst;
     public bool IsMacOS => false;
+    public bool HasNativeToolbar => IsWindows;
     public string PlatformName => DeviceInfo.Platform.ToString();
 }

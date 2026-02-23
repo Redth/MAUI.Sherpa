@@ -77,6 +77,7 @@ public interface IPlatformService
     bool IsWindows { get; }
     bool IsMacCatalyst { get; }
     bool IsMacOS { get; }
+    bool HasNativeToolbar { get; }
     string PlatformName { get; }
 }
 

@@ -47,6 +47,10 @@ public static class MauiProgram
         builder.Services.AddScoped<INavigationService, NavigationService>();
         builder.Services.AddSingleton<IDialogService, DialogService>();
         builder.Services.AddSingleton<IFileSystemService, FileSystemService>();
+        builder.Services.AddSingleton<IPreferences>(_ => Preferences.Default);
+        builder.Services.AddSingleton<ILauncher>(_ => Launcher.Default);
+        builder.Services.AddSingleton<IClipboard>(_ => Clipboard.Default);
+        builder.Services.AddSingleton<ISecureStorage>(_ => SecureStorage.Default);
         builder.Services.AddSingleton<ISecureStorageService, SecureStorageService>();
         builder.Services.AddSingleton<IThemeService, ThemeService>();
         builder.Services.AddSingleton<IToolbarService, MauiSherpa.Core.Services.ToolbarService>();

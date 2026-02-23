@@ -146,6 +146,6 @@ public class ScreenCaptureService : IScreenCaptureService
     {
         var sdkPath = _sdkService.SdkPath;
         if (string.IsNullOrEmpty(sdkPath)) return null;
-        return Path.Combine(sdkPath, "platform-tools", "adb");
+        return AppDataPath.GetAdbPath(sdkPath);
     }
 }

@@ -137,7 +137,7 @@ public class DeviceShellService : IDeviceShellService
     {
         var sdkPath = _sdkService.SdkPath;
         if (string.IsNullOrEmpty(sdkPath)) return null;
-        return System.IO.Path.Combine(sdkPath, "platform-tools", "adb");
+        return AppDataPath.GetAdbPath(sdkPath);
     }
 
     public void Dispose()
