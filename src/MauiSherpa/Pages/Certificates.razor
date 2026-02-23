@@ -876,6 +876,12 @@
 
     protected override async Task OnInitializedAsync()
     {
+        ToolbarService.SetItems(
+            new ToolbarAction("refresh", "Refresh", "arrow.clockwise"),
+            new ToolbarAction("create", "Create Certificate", "plus")
+        );
+        ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
+
         try { var settings = await SettingsService.GetSettingsAsync(); demoMode = settings.Preferences.DemoMode; } catch { }
         IdentityState.OnSelectionChanged += OnIdentityChanged;
         
@@ -889,12 +895,6 @@
             await RefreshData();
         
         _initialLoadComplete = true;
-
-        ToolbarService.SetItems(
-            new ToolbarAction("refresh", "Refresh", "arrow.clockwise"),
-            new ToolbarAction("create", "Create Certificate", "plus")
-        );
-        ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
     }
 
     private void DismissSyncHint()

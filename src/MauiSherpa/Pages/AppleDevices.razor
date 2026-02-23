@@ -381,16 +381,16 @@
 
     protected override async Task OnInitializedAsync()
     {
-        try { var settings = await SettingsService.GetSettingsAsync(); demoMode = settings.Preferences.DemoMode; } catch { }
-        IdentityState.OnSelectionChanged += OnIdentityChanged;
-        if (IdentityState.SelectedIdentity != null)
-            await RefreshData(forceRefresh: false); // Use cache on initial load
-
         ToolbarService.SetItems(
             new ToolbarAction("refresh", "Refresh", "arrow.clockwise"),
             new ToolbarAction("create", "Register Device", "plus")
         );
         ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
+
+        try { var settings = await SettingsService.GetSettingsAsync(); demoMode = settings.Preferences.DemoMode; } catch { }
+        IdentityState.OnSelectionChanged += OnIdentityChanged;
+        if (IdentityState.SelectedIdentity != null)
+            await RefreshData(forceRefresh: false); // Use cache on initial load
     }
 
     private void OnIdentityChanged()

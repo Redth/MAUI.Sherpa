@@ -522,16 +522,16 @@
 
     protected override async Task OnInitializedAsync()
     {
-        try { var settings = await SettingsService.GetSettingsAsync(); demoMode = settings.Preferences.DemoMode; } catch { }
-        IdentityState.OnSelectionChanged += OnIdentityChanged;
-        if (IdentityState.SelectedIdentity != null)
-            await RefreshData();
-
         ToolbarService.SetItems(
             new ToolbarAction("refresh", "Refresh", "arrow.clockwise"),
             new ToolbarAction("create", "Create Profile", "plus")
         );
         ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
+
+        try { var settings = await SettingsService.GetSettingsAsync(); demoMode = settings.Preferences.DemoMode; } catch { }
+        IdentityState.OnSelectionChanged += OnIdentityChanged;
+        if (IdentityState.SelectedIdentity != null)
+            await RefreshData();
     }
 
     private void OnIdentityChanged()

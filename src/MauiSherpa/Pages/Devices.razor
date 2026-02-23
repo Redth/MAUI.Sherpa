@@ -360,6 +360,11 @@
 
     protected override async Task OnInitializedAsync()
     {
+        ToolbarService.SetItems(
+            new ToolbarAction("refresh", "Refresh", "arrow.clockwise")
+        );
+        ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
+
         try { var settings = await SettingsService.GetSettingsAsync(); demoMode = settings.Preferences.DemoMode; } catch { }
         // Subscribe to SDK path changes from Settings
         SdkService.SdkPathChanged += OnSdkPathChanged;
@@ -378,11 +383,6 @@
         {
             await RefreshDevices();
         }
-
-        ToolbarService.SetItems(
-            new ToolbarAction("refresh", "Refresh", "arrow.clockwise")
-        );
-        ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
     }
 
     private void OnDevicesChanged(IReadOnlyList<DeviceInfo> newDevices)

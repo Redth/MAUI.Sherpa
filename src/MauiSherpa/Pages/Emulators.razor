@@ -757,6 +757,12 @@
 
     protected override async Task OnInitializedAsync()
     {
+        ToolbarService.SetItems(
+            new ToolbarAction("refresh", "Refresh", "arrow.clockwise"),
+            new ToolbarAction("create", "Create Emulator", "plus")
+        );
+        ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
+
         // Subscribe to SDK path changes from Settings
         SdkService.SdkPathChanged += OnSdkPathChanged;
         
@@ -765,12 +771,6 @@
         
         // Initial load uses cache (no force refresh)
         await RefreshEmulators(forceRefresh: false);
-
-        ToolbarService.SetItems(
-            new ToolbarAction("refresh", "Refresh", "arrow.clockwise"),
-            new ToolbarAction("create", "Create Emulator", "plus")
-        );
-        ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
     }
 
     private void OnSdkPathChanged()

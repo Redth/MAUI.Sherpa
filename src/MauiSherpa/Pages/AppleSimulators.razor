@@ -785,17 +785,18 @@ else
     protected override async Task OnInitializedAsync()
     {
         if (!SimulatorService.IsSupported) return;
-        try { var settings = await SettingsService.GetSettingsAsync(); demoMode = settings.Preferences.DemoMode; } catch { }
-        await Task.WhenAll(
-            RefreshSimulators(forceRefresh: false),
-            RefreshPhysicalDevices()
-        );
 
         ToolbarService.SetItems(
             new ToolbarAction("refresh", "Refresh", "arrow.clockwise"),
             new ToolbarAction("create", "Create Simulator", "plus")
         );
         ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
+
+        try { var settings = await SettingsService.GetSettingsAsync(); demoMode = settings.Preferences.DemoMode; } catch { }
+        await Task.WhenAll(
+            RefreshSimulators(forceRefresh: false),
+            RefreshPhysicalDevices()
+        );
     }
 
     private async Task RefreshSimulators(bool forceRefresh = false)
