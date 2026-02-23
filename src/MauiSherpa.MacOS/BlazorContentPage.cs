@@ -202,78 +202,115 @@ public class BlazorContentPage : ContentPage
         return copilotItem;
     }
 
-    // Toolbar caching: avoid full rebuild when structure hasn't changed
-    string? _lastToolbarSignature;
+    // Toolbar caching: create items once, then show/hide natively
+    bool _toolbarInitialized;
     Dictionary<string, ToolbarItem> _actionItemMap = new();
     List<NSObject> _nativeMenuTargets = new();
 
-    string ComputeToolbarSignature()
-    {
-        var sb = new System.Text.StringBuilder();
-        foreach (var action in _toolbarService.CurrentItems)
-            sb.Append(action.Id).Append(',');
-        sb.Append('|');
-        if (_toolbarService.SearchPlaceholder != null) sb.Append('S');
-        sb.Append('|');
-        if (_toolbarService.CurrentFilters.Count > 0) sb.Append('F');
-        sb.Append('|');
-        if (AppleRoutes.Contains(_currentRoute)) sb.Append('I');
-        return sb.ToString();
-    }
+    // Superset signature for the initial build — includes all possible items
+    static readonly string SupersetSignature = "refresh,create,import,|S|F|I";
 
     void OnToolbarChanged()
     {
         Dispatcher.Dispatch(() =>
         {
-            var signature = ComputeToolbarSignature();
-
-            if (signature == _lastToolbarSignature && _actionItemMap.Count > 0)
+            if (!_toolbarInitialized)
             {
-                // Same toolbar structure — update in place without rebuild
-                UpdateToolbarInPlace();
-                return;
+                // First time: build with all possible items (superset)
+                _toolbarInitialized = true;
+                FullRebuildToolbar();
             }
 
-            _lastToolbarSignature = signature;
-            FullRebuildToolbar();
+            // After initial build: show/hide native items + update commands
+            UpdateToolbarVisibility();
         });
     }
 
     /// <summary>
-    /// Update action commands, search placeholder, and filter submenus
-    /// natively without triggering a full toolbar rebuild.
+    /// Toggle native NSToolbarItem visibility and update action commands,
+    /// search, and filter menus without triggering a full toolbar rebuild.
     /// </summary>
-    void UpdateToolbarInPlace()
+    void UpdateToolbarVisibility()
     {
-        // 1. Update action commands
-        foreach (var action in _toolbarService.CurrentItems)
-        {
-            if (_actionItemMap.TryGetValue(action.Id, out var item))
-            {
-                var actionId = action.Id;
-                item.Command = new Command(() => _toolbarService.InvokeToolbarItemClicked(actionId));
-            }
-        }
-
-        // 2. Update search placeholder and clear text natively
         var nsWindow = this.Window?.Handler?.PlatformView as NSWindow;
         var toolbar = nsWindow?.Toolbar;
-        if (toolbar != null)
+        if (toolbar == null) return;
+
+        var activeIds = new HashSet<string>();
+        foreach (var action in _toolbarService.CurrentItems)
+            activeIds.Add(action.Id);
+
+        bool hasSearch = _toolbarService.SearchPlaceholder != null;
+        bool hasFilter = _toolbarService.CurrentFilters.Count > 0;
+        bool hasIdentity = AppleRoutes.Contains(_currentRoute);
+
+        // 1. Update action item visibility and commands
+        foreach (var (actionId, toolbarItem) in _actionItemMap)
         {
-            foreach (var nsItem in toolbar.Items)
+            bool shouldShow = activeIds.Contains(actionId);
+            toolbarItem.Command = shouldShow
+                ? new Command(() => _toolbarService.InvokeToolbarItemClicked(actionId))
+                : null;
+        }
+
+        // 2. Toggle native NSToolbarItem hidden state
+        var hiddenSelector = new ObjCRuntime.Selector("setHidden:");
+        foreach (var nsItem in toolbar.Items)
+        {
+            if (!nsItem.RespondsToSelector(hiddenSelector))
+                continue;
+
+            var id = nsItem.Identifier;
+            bool shouldHide;
+
+            if (id.StartsWith("MauiToolbarItem_"))
             {
-                if (nsItem is NSSearchToolbarItem searchNative)
+                // Content toolbar items — map back to our action items by index
+                if (int.TryParse(id.Replace("MauiToolbarItem_", ""), out int idx) && idx < _actionItemMap.Count)
+                {
+                    var actionId = _actionItemMap.Keys.ElementAt(idx);
+                    shouldHide = !activeIds.Contains(actionId);
+                }
+                else
+                {
+                    shouldHide = false;
+                }
+            }
+            else if (id.StartsWith("MauiMenu_"))
+            {
+                // Menu items — identity is first (MauiMenu_0), filter is second (MauiMenu_1)
+                if (id == "MauiMenu_0")
+                    shouldHide = !hasIdentity;
+                else if (id == "MauiMenu_1")
+                    shouldHide = !hasFilter;
+                else
+                    shouldHide = false;
+            }
+            else if (id == "MauiSearchItem")
+            {
+                shouldHide = !hasSearch;
+                if (!shouldHide && nsItem is NSSearchToolbarItem searchNative)
                 {
                     searchNative.SearchField.PlaceholderString = _toolbarService.SearchPlaceholder ?? "";
                     searchNative.SearchField.StringValue = "";
-                    break;
                 }
             }
+            else
+            {
+                continue; // don't touch spacers, tracking separators, etc.
+            }
+
+            // Use objc_msgSend to call setHidden:
+            _objc_msgSend_bool(nsItem.Handle, hiddenSelector.Handle, shouldHide);
         }
 
-        // 3. Rebuild filter submenus natively
-        RebuildFilterMenuNatively();
+        // 3. Rebuild filter submenus natively if filters are active
+        if (hasFilter)
+            RebuildFilterMenuNatively();
     }
+
+    [System.Runtime.InteropServices.DllImport(ObjCRuntime.Constants.ObjectiveCLibrary, EntryPoint = "objc_msgSend")]
+    static extern void _objc_msgSend_bool(IntPtr receiver, IntPtr selector, bool arg1);
 
     /// <summary>
     /// Find the filter NSMenuToolbarItem on the native toolbar and rebuild
@@ -341,20 +378,26 @@ public class BlazorContentPage : ContentPage
             var copilotItem = CreateCopilotToolbarItem();
             ToolbarItems.Add(copilotItem);
 
-            // Build toolbar items from service, partitioned for layout
+            // Create SUPERSET of all possible action items (hidden ones toggled later)
+            // Order matters for layout: [create/import] ← flex → [refresh]
+            var supersetActions = new[]
+            {
+                ("create", "Create", "plus"),
+                ("import", "Import", "square.and.arrow.down"),
+                ("refresh", "Refresh", "arrow.clockwise"),
+            };
+
             ToolbarItem? refreshItem = null;
             var leadingItems = new List<ToolbarItem>();
-            foreach (var action in _toolbarService.CurrentItems)
+            foreach (var (id, label, icon) in supersetActions)
             {
-                var actionId = action.Id;
+                var actionId = id;
                 var item = new ToolbarItem
                 {
-                    Text = action.Label,
-                    Order = action.IsPrimary ? ToolbarItemOrder.Primary : ToolbarItemOrder.Secondary,
+                    Text = label,
+                    IconImageSource = icon,
                     Command = new Command(() => _toolbarService.InvokeToolbarItemClicked(actionId)),
                 };
-                if (!string.IsNullOrEmpty(action.SfSymbol))
-                    item.IconImageSource = action.SfSymbol;
                 ToolbarItems.Add(item);
                 _actionItemMap[actionId] = item;
 
@@ -364,39 +407,34 @@ public class BlazorContentPage : ContentPage
                     leadingItems.Add(item);
             }
 
-            // Native search item
-            MacOSSearchToolbarItem? searchItem = null;
-            if (_toolbarService.SearchPlaceholder != null)
+            // Always create search item
+            var searchItem = new MacOSSearchToolbarItem
             {
-                searchItem = new MacOSSearchToolbarItem
-                {
-                    Placeholder = _toolbarService.SearchPlaceholder,
-                    Text = _toolbarService.SearchText,
-                };
-                searchItem.TextChanged += (s, e) => _toolbarService.NotifySearchTextChanged(e.NewTextValue ?? "");
-                MacOSToolbar.SetSearchItem(this, searchItem);
-            }
-            else
+                Placeholder = _toolbarService.SearchPlaceholder ?? "Search...",
+                Text = _toolbarService.SearchText,
+            };
+            searchItem.TextChanged += (s, e) => _toolbarService.NotifySearchTextChanged(e.NewTextValue ?? "");
+            MacOSToolbar.SetSearchItem(this, searchItem);
+
+            // Always create identity menu (hidden on non-Apple pages)
+            var identityMenu = CreateAppleIdentityMenu() ?? new MacOSMenuToolbarItem
             {
-                MacOSToolbar.SetSearchItem(this, null);
-            }
+                Icon = "apple.logo",
+                Text = "Identity",
+                ShowsTitle = true,
+                ShowsIndicator = true,
+            };
 
-            // Apple identity menu for Apple pages
-            MacOSMenuToolbarItem? identityMenu = null;
-            if (AppleRoutes.Contains(_currentRoute))
-                identityMenu = CreateAppleIdentityMenu();
-
-            // Native filter menu
+            // Always create filter menu (hidden when no filters)
+            var filterMenu = new MacOSMenuToolbarItem
+            {
+                Icon = "line.3.horizontal.decrease",
+                Text = "Filters",
+                ShowsIndicator = true,
+            };
             var filters = _toolbarService.CurrentFilters;
-            MacOSMenuToolbarItem? filterMenu = null;
             if (filters.Count > 0)
             {
-                filterMenu = new MacOSMenuToolbarItem
-                {
-                    Icon = "line.3.horizontal.decrease",
-                    Text = "Filters",
-                    ShowsIndicator = true,
-                };
                 for (int fi = 0; fi < filters.Count; fi++)
                 {
                     var filter = filters[fi];
@@ -419,18 +457,15 @@ public class BlazorContentPage : ContentPage
                 }
             }
 
-            // Build explicit content layout:
-            // [Identity] [Add/Create] ← FlexibleSpace → [Filter] [Search] [Refresh]
+            // Build explicit content layout with ALL items:
+            // [Identity] [Create] [Import] ← FlexibleSpace → [Filter] [Search] [Refresh]
             var layout = new List<MacOSToolbarLayoutItem>();
-            if (identityMenu != null)
-                layout.Add(MacOSToolbarLayoutItem.Menu(identityMenu));
+            layout.Add(MacOSToolbarLayoutItem.Menu(identityMenu));
             foreach (var item in leadingItems)
                 layout.Add(MacOSToolbarLayoutItem.Item(item));
             layout.Add(MacOSToolbarLayoutItem.FlexibleSpace);
-            if (filterMenu != null)
-                layout.Add(MacOSToolbarLayoutItem.Menu(filterMenu));
-            if (searchItem != null)
-                layout.Add(MacOSToolbarLayoutItem.Search(searchItem));
+            layout.Add(MacOSToolbarLayoutItem.Menu(filterMenu));
+            layout.Add(MacOSToolbarLayoutItem.Search(searchItem));
             if (refreshItem != null)
                 layout.Add(MacOSToolbarLayoutItem.Item(refreshItem));
 
