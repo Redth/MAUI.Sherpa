@@ -48,6 +48,7 @@ public class BlazorContentPage : ContentPage
         _blazorWebView = new MacOSBlazorWebView
         {
             HostPage = "wwwroot/index.html",
+            ContentInsets = new Thickness(0, 52, 0, 0),
         };
         _blazorWebView.RootComponents.Add(new BlazorRootComponent
         {
@@ -57,8 +58,9 @@ public class BlazorContentPage : ContentPage
 
         Content = _blazorWebView;
 
-        // Always show the Copilot button in the sidebar (even before any page sets toolbar items)
-        ToolbarItems.Add(CreateCopilotToolbarItem());
+        // Always show the Copilot button in the sidebar trailing area
+        var initialCopilot = CreateCopilotToolbarItem();
+        ToolbarItems.Add(initialCopilot);
 
         // Add overlay as soon as the native view is connected
         _blazorWebView.HandlerChanged += (s, e) =>
@@ -206,15 +208,9 @@ public class BlazorContentPage : ContentPage
         {
             ToolbarItems.Clear();
 
-            // Copilot button in sidebar trailing area — use sidebar layout instead of
-            // adding to ToolbarItems to avoid it also appearing in the content area
+            // Copilot button in sidebar trailing area
             var copilotItem = CreateCopilotToolbarItem();
             ToolbarItems.Add(copilotItem);
-            MacOSToolbar.SetSidebarLayout(this, new MacOSToolbarLayoutItem[]
-            {
-                MacOSToolbarLayoutItem.FlexibleSpace,
-                MacOSToolbarLayoutItem.Item(copilotItem),
-            });
 
             foreach (var action in _toolbarService.CurrentItems)
             {
@@ -230,10 +226,9 @@ public class BlazorContentPage : ContentPage
             }
 
             // Native search item
-            MacOSSearchToolbarItem? searchItem = null;
             if (_toolbarService.SearchPlaceholder != null)
             {
-                searchItem = new MacOSSearchToolbarItem
+                var searchItem = new MacOSSearchToolbarItem
                 {
                     Placeholder = _toolbarService.SearchPlaceholder,
                     Text = _toolbarService.SearchText,
@@ -248,10 +243,19 @@ public class BlazorContentPage : ContentPage
 
             // Native filter menu — single menu button with submenus per filter category
             var filters = _toolbarService.CurrentFilters;
-            MacOSMenuToolbarItem? filterMenu = null;
+            var menus = new List<MacOSMenuToolbarItem>();
+
+            // Apple identity menu for Apple pages
+            if (AppleRoutes.Contains(_currentRoute))
+            {
+                var identityMenu = CreateAppleIdentityMenu();
+                if (identityMenu != null)
+                    menus.Add(identityMenu);
+            }
+
             if (filters.Count > 0)
             {
-                filterMenu = new MacOSMenuToolbarItem
+                var filterMenu = new MacOSMenuToolbarItem
                 {
                     Icon = "line.3.horizontal.decrease",
                     Text = "Filters",
@@ -277,44 +281,13 @@ public class BlazorContentPage : ContentPage
                         filterMenu.Items.Add(new MacOSMenuItem { IsSeparator = true });
                     filterMenu.Items.Add(submenuItem);
                 }
-            }
-            MacOSToolbar.SetPopUpItems(this, null);
-
-            // Apple identity menu for Apple pages
-            MacOSMenuToolbarItem? identityMenu = null;
-            if (AppleRoutes.Contains(_currentRoute))
-            {
-                identityMenu = CreateAppleIdentityMenu();
+                menus.Add(filterMenu);
             }
 
-            // Set menu items: identity menu + filter menu (if both present)
-            var menus = new List<MacOSMenuToolbarItem>();
-            if (identityMenu != null) menus.Add(identityMenu);
-            if (filterMenu != null) menus.Add(filterMenu);
             MacOSToolbar.SetMenuItems(this, menus.Count > 0 ? menus : null);
-
-            // Build explicit content layout: [identity] [buttons] ← flex → [filter menu] [search]
-            var layout = new List<MacOSToolbarLayoutItem>();
-            if (identityMenu != null)
-                layout.Add(MacOSToolbarLayoutItem.Menu(identityMenu));
-            foreach (var item in ToolbarItems)
-            {
-                if (MacOSToolbarItem.GetPlacement(item) != MacOSToolbarItemPlacement.SidebarTrailing)
-                    layout.Add(MacOSToolbarLayoutItem.Item(item));
-            }
-            if (filterMenu != null || searchItem != null)
-            {
-                layout.Add(MacOSToolbarLayoutItem.FlexibleSpace);
-                if (filterMenu != null)
-                    layout.Add(MacOSToolbarLayoutItem.Menu(filterMenu));
-                if (searchItem != null)
-                    layout.Add(MacOSToolbarLayoutItem.Search(searchItem));
-            }
-            MacOSToolbar.SetContentLayout(this, layout.Count > 0 ? layout : null);
-
-            // Remove the sidebar toggle button (added by platform backend for FlyoutPage)
-            // Double-dispatch to run after the toolbar manager finishes rebuilding
-            Dispatcher.Dispatch(() => Dispatcher.Dispatch(RemoveSidebarToggle));
+            MacOSToolbar.SetPopUpItems(this, null);
+            MacOSToolbar.SetSidebarLayout(this, null);
+            MacOSToolbar.SetContentLayout(this, null);
         });
     }
 
@@ -343,6 +316,7 @@ public class BlazorContentPage : ContentPage
         {
             Icon = "apple.logo",
             Text = selectedName,
+            ShowsTitle = true,
             ShowsIndicator = true,
         };
 
@@ -362,21 +336,6 @@ public class BlazorContentPage : ContentPage
             menu.Items.Add(item);
         }
         return menu;
-    }
-
-    void RemoveSidebarToggle()
-    {
-        var nsWindow = this.Window?.Handler?.PlatformView as NSWindow;
-        var toolbar = nsWindow?.Toolbar;
-        if (toolbar == null) return;
-        for (int i = 0; i < toolbar.Items.Length; i++)
-        {
-            if (toolbar.Items[i].Identifier == "MauiSidebarToggle")
-            {
-                toolbar.RemoveItem(i);
-                return;
-            }
-        }
     }
 
     void OnFilterSelectionChanged(string filterId, int selectedIndex)
@@ -402,7 +361,7 @@ public class BlazorContentPage : ContentPage
                     {
                         if (filters[i].Id == filterId) { filterIndex = i; break; }
                     }
-                    if (filterIndex < 0) return;
+                    if (filterIndex < 0) continue;
 
                     // Account for separator items between filter submenus
                     int menuItemIndex = 0;
@@ -433,60 +392,12 @@ public class BlazorContentPage : ContentPage
     {
         base.OnAppearing();
 
-        // Poll to remove the sidebar toggle — the toolbar manager adds it automatically
-        // for FlyoutPage and there's no API to disable it yet (upstream issue #20)
-        int attempts = 0;
-        Dispatcher.StartTimer(TimeSpan.FromMilliseconds(50), () =>
-        {
-            RemoveSidebarToggle();
-            return ++attempts < 20; // stop after ~1s
-        });
-
         // Disable right-click context menu in the webview
         Dispatcher.Dispatch(async () =>
         {
             try { await EvaluateJavaScriptAsync("document.addEventListener('contextmenu', e => e.preventDefault())"); }
             catch { }
         });
-
-        // Add a transparent drag overlay so the content titlebar area is draggable.
-        // The WKWebView extends behind the toolbar due to FullSizeContentView and
-        // intercepts mouse events that should initiate window drag.
-        Dispatcher.Dispatch(AddTitlebarDragOverlay);
-    }
-
-    private TitlebarDragView? _dragOverlay;
-
-    void AddTitlebarDragOverlay()
-    {
-        if (_dragOverlay != null) return;
-        if (_blazorWebView.Handler?.PlatformView is not NSView webViewNative) return;
-
-        var nsWindow = this.Window?.Handler?.PlatformView as NSWindow;
-        if (nsWindow == null) return;
-
-        // ContentLayoutRect is the usable area below the toolbar.
-        // Everything above it is titlebar/toolbar space.
-        var contentLayoutRect = nsWindow.ContentLayoutRect;
-        var windowFrame = nsWindow.Frame;
-        var titlebarHeight = windowFrame.Height - (contentLayoutRect.GetMaxY());
-        if (titlebarHeight < 20) titlebarHeight = 52;
-
-        // Place the overlay directly on top of the WebView's container.
-        // This ensures it sits above the WKWebView in the hit-test order.
-        var container = webViewNative.Superview ?? webViewNative;
-        CGRect frame;
-        if (container.IsFlipped)
-            frame = new CGRect(0, 0, container.Bounds.Width, titlebarHeight);
-        else
-            frame = new CGRect(0, container.Bounds.Height - titlebarHeight, container.Bounds.Width, titlebarHeight);
-
-        _dragOverlay = new TitlebarDragView(frame)
-        {
-            AutoresizingMask = NSViewResizingMask.WidthSizable
-                | (container.IsFlipped ? NSViewResizingMask.MaxYMargin : NSViewResizingMask.MinYMargin),
-        };
-        container.AddSubview(_dragOverlay, NSWindowOrderingMode.Above, webViewNative);
     }
 
     protected override void OnDisappearing()
@@ -495,30 +406,4 @@ public class BlazorContentPage : ContentPage
         _toolbarService.ToolbarChanged -= OnToolbarChanged;
         _splashService.OnBlazorReady -= OnBlazorReady;
     }
-}
-
-/// <summary>
-/// Transparent NSView placed over the WebView in the titlebar zone.
-/// Initiates window drag on mouseDown so the user can drag the window
-/// from the empty toolbar space, even though a WKWebView sits underneath.
-/// Overrides hitTest to ensure it captures mouse events before the WebView.
-/// </summary>
-class TitlebarDragView : NSView
-{
-    public TitlebarDragView(CGRect frame) : base(frame) { }
-
-    public override NSView? HitTest(CGPoint point)
-    {
-        // point is in superview coordinates — check if it falls within our frame
-        if (!IsHiddenOrHasHiddenAncestor && Frame.Contains(point))
-            return this;
-        return null;
-    }
-
-    public override void MouseDown(NSEvent theEvent)
-    {
-        Window?.PerformWindowDrag(theEvent);
-    }
-
-    public override bool MouseDownCanMoveWindow => true;
 }
