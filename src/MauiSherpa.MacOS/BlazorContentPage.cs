@@ -202,11 +202,140 @@ public class BlazorContentPage : ContentPage
         return copilotItem;
     }
 
+    // Toolbar caching: avoid full rebuild when structure hasn't changed
+    string? _lastToolbarSignature;
+    Dictionary<string, ToolbarItem> _actionItemMap = new();
+    List<NSObject> _nativeMenuTargets = new();
+
+    string ComputeToolbarSignature()
+    {
+        var sb = new System.Text.StringBuilder();
+        foreach (var action in _toolbarService.CurrentItems)
+            sb.Append(action.Id).Append(',');
+        sb.Append('|');
+        if (_toolbarService.SearchPlaceholder != null) sb.Append('S');
+        sb.Append('|');
+        if (_toolbarService.CurrentFilters.Count > 0) sb.Append('F');
+        sb.Append('|');
+        if (AppleRoutes.Contains(_currentRoute)) sb.Append('I');
+        return sb.ToString();
+    }
+
     void OnToolbarChanged()
     {
         Dispatcher.Dispatch(() =>
         {
+            var signature = ComputeToolbarSignature();
+
+            if (signature == _lastToolbarSignature && _actionItemMap.Count > 0)
+            {
+                // Same toolbar structure — update in place without rebuild
+                UpdateToolbarInPlace();
+                return;
+            }
+
+            _lastToolbarSignature = signature;
+            FullRebuildToolbar();
+        });
+    }
+
+    /// <summary>
+    /// Update action commands, search placeholder, and filter submenus
+    /// natively without triggering a full toolbar rebuild.
+    /// </summary>
+    void UpdateToolbarInPlace()
+    {
+        // 1. Update action commands
+        foreach (var action in _toolbarService.CurrentItems)
+        {
+            if (_actionItemMap.TryGetValue(action.Id, out var item))
+            {
+                var actionId = action.Id;
+                item.Command = new Command(() => _toolbarService.InvokeToolbarItemClicked(actionId));
+            }
+        }
+
+        // 2. Update search placeholder and clear text natively
+        var nsWindow = this.Window?.Handler?.PlatformView as NSWindow;
+        var toolbar = nsWindow?.Toolbar;
+        if (toolbar != null)
+        {
+            foreach (var nsItem in toolbar.Items)
+            {
+                if (nsItem is NSSearchToolbarItem searchNative)
+                {
+                    searchNative.SearchField.PlaceholderString = _toolbarService.SearchPlaceholder ?? "";
+                    searchNative.SearchField.StringValue = "";
+                    break;
+                }
+            }
+        }
+
+        // 3. Rebuild filter submenus natively
+        RebuildFilterMenuNatively();
+    }
+
+    /// <summary>
+    /// Find the filter NSMenuToolbarItem on the native toolbar and rebuild
+    /// its menu items without triggering a full toolbar refresh.
+    /// </summary>
+    void RebuildFilterMenuNatively()
+    {
+        var nsWindow = this.Window?.Handler?.PlatformView as NSWindow;
+        var toolbar = nsWindow?.Toolbar;
+        if (toolbar == null) return;
+
+        var filters = _toolbarService.CurrentFilters;
+        if (filters.Count == 0) return;
+
+        _nativeMenuTargets.Clear();
+
+        // The filter menu is the last NSMenuToolbarItem (identity is first if present)
+        NSMenuToolbarItem? filterNative = null;
+        foreach (var nsItem in toolbar.Items)
+        {
+            if (nsItem is NSMenuToolbarItem menuItem)
+                filterNative = menuItem;
+        }
+        if (filterNative?.Menu == null) return;
+
+        var menu = filterNative.Menu;
+        menu.RemoveAllItems();
+
+        for (int fi = 0; fi < filters.Count; fi++)
+        {
+            var filter = filters[fi];
+            var filterId = filter.Id;
+
+            if (fi > 0)
+                menu.AddItem(NSMenuItem.SeparatorItem);
+
+            var submenuItem = new NSMenuItem(filter.Label);
+            var submenu = new NSMenu(filter.Label);
+
+            for (int oi = 0; oi < filter.Options.Length; oi++)
+            {
+                var optIndex = oi;
+                var optionItem = new NSMenuItem(filter.Options[oi]);
+                optionItem.State = oi == filter.SelectedIndex ? NSCellStateValue.On : NSCellStateValue.Off;
+
+                var target = new MenuActionTarget(filterId, optIndex,
+                    (fid, idx) => _toolbarService.NotifyFilterChanged(fid, idx));
+                optionItem.Target = target;
+                optionItem.Action = new ObjCRuntime.Selector("menuItemClicked:");
+                _nativeMenuTargets.Add(target);
+
+                submenu.AddItem(optionItem);
+            }
+            submenuItem.Submenu = submenu;
+            menu.AddItem(submenuItem);
+        }
+    }
+
+    void FullRebuildToolbar()
+    {
             ToolbarItems.Clear();
+            _actionItemMap.Clear();
 
             // Copilot button in sidebar trailing area (convenience mode handles it)
             var copilotItem = CreateCopilotToolbarItem();
@@ -214,20 +343,22 @@ public class BlazorContentPage : ContentPage
 
             // Build toolbar items from service, partitioned for layout
             ToolbarItem? refreshItem = null;
-            var leadingItems = new List<ToolbarItem>();  // add/create buttons
+            var leadingItems = new List<ToolbarItem>();
             foreach (var action in _toolbarService.CurrentItems)
             {
+                var actionId = action.Id;
                 var item = new ToolbarItem
                 {
                     Text = action.Label,
                     Order = action.IsPrimary ? ToolbarItemOrder.Primary : ToolbarItemOrder.Secondary,
-                    Command = new Command(() => _toolbarService.InvokeToolbarItemClicked(action.Id)),
+                    Command = new Command(() => _toolbarService.InvokeToolbarItemClicked(actionId)),
                 };
                 if (!string.IsNullOrEmpty(action.SfSymbol))
                     item.IconImageSource = action.SfSymbol;
                 ToolbarItems.Add(item);
+                _actionItemMap[actionId] = item;
 
-                if (action.Id == "refresh")
+                if (actionId == "refresh")
                     refreshItem = item;
                 else
                     leadingItems.Add(item);
@@ -255,7 +386,7 @@ public class BlazorContentPage : ContentPage
             if (AppleRoutes.Contains(_currentRoute))
                 identityMenu = CreateAppleIdentityMenu();
 
-            // Native filter menu — single menu button with submenus per filter category
+            // Native filter menu
             var filters = _toolbarService.CurrentFilters;
             MacOSMenuToolbarItem? filterMenu = null;
             if (filters.Count > 0)
@@ -307,7 +438,6 @@ public class BlazorContentPage : ContentPage
             MacOSToolbar.SetPopUpItems(this, null);
             MacOSToolbar.SetSidebarLayout(this, null);
             MacOSToolbar.SetContentLayout(this, layout);
-        });
     }
 
     private IReadOnlyList<AppleIdentity>? _cachedIdentities;
@@ -425,4 +555,26 @@ public class BlazorContentPage : ContentPage
         _toolbarService.ToolbarChanged -= OnToolbarChanged;
         _splashService.OnBlazorReady -= OnBlazorReady;
     }
+}
+
+/// <summary>
+/// NSObject target for native NSMenuItem click actions.
+/// Bridges Obj-C target/action to a C# callback for filter menu items
+/// that are rebuilt natively without going through the MAUI toolbar manager.
+/// </summary>
+sealed class MenuActionTarget : NSObject
+{
+    readonly string _filterId;
+    readonly int _optionIndex;
+    readonly Action<string, int> _callback;
+
+    public MenuActionTarget(string filterId, int optionIndex, Action<string, int> callback)
+    {
+        _filterId = filterId;
+        _optionIndex = optionIndex;
+        _callback = callback;
+    }
+
+    [Export("menuItemClicked:")]
+    void MenuItemClicked(NSObject sender) => _callback(_filterId, _optionIndex);
 }
