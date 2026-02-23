@@ -20,6 +20,8 @@ public class BlazorContentPage : ContentPage
     private readonly ISplashService _splashService;
     private readonly IAppleIdentityService _identityService;
     private readonly IAppleIdentityStateService _identityState;
+    private readonly IGoogleIdentityService _googleIdentityService;
+    private readonly IGoogleIdentityStateService _googleIdentityState;
     private AppKit.NSView? _loadingOverlay;
     private string _pendingRoute = "/";
     private string _currentRoute = "/";
@@ -28,6 +30,12 @@ public class BlazorContentPage : ContentPage
     static readonly HashSet<string> AppleRoutes = new(StringComparer.OrdinalIgnoreCase)
     {
         "/certificates", "/profiles", "/apple-devices", "/bundle-ids", "/apple-simulators"
+    };
+
+    // Routes that show the Google identity picker
+    static readonly HashSet<string> GoogleRoutes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "/firebase-push"
     };
 
     public BlazorContentPage(IServiceProvider serviceProvider)
@@ -40,6 +48,8 @@ public class BlazorContentPage : ContentPage
 
         _identityService = serviceProvider.GetRequiredService<IAppleIdentityService>();
         _identityState = serviceProvider.GetRequiredService<IAppleIdentityStateService>();
+        _googleIdentityService = serviceProvider.GetRequiredService<IGoogleIdentityService>();
+        _googleIdentityState = serviceProvider.GetRequiredService<IGoogleIdentityStateService>();
         _toolbarService.RouteChanged += route => _currentRoute = route;
 
         _splashService = serviceProvider.GetRequiredService<ISplashService>();
@@ -242,7 +252,7 @@ public class BlazorContentPage : ContentPage
 
         bool hasSearch = _toolbarService.SearchPlaceholder != null;
         bool hasFilter = _toolbarService.CurrentFilters.Count > 0;
-        bool hasIdentity = AppleRoutes.Contains(_currentRoute);
+        bool hasIdentity = AppleRoutes.Contains(_currentRoute) || GoogleRoutes.Contains(_currentRoute);
 
         // 1. Update action item visibility and commands
         foreach (var (actionId, toolbarItem) in _actionItemMap)
@@ -377,13 +387,93 @@ public class BlazorContentPage : ContentPage
     }
 
     /// <summary>
-    /// Rebuild the identity NSMenuToolbarItem's menu natively with current identities.
+    /// Rebuild the identity NSMenuToolbarItem's menu natively.
+    /// Shows Apple identities on Apple routes, Google identities on Firebase routes.
     /// </summary>
     void RebuildIdentityMenuNatively()
     {
+        bool isApple = AppleRoutes.Contains(_currentRoute);
+        bool isGoogle = GoogleRoutes.Contains(_currentRoute);
+
+        if (isApple)
+            RebuildAppleIdentityMenu();
+        else if (isGoogle)
+            RebuildGoogleIdentityMenu();
+    }
+
+    private IReadOnlyList<GoogleIdentity>? _cachedGoogleIdentities;
+
+    void RebuildGoogleIdentityMenu()
+    {
+        if (_cachedGoogleIdentities == null || _cachedGoogleIdentities.Count == 0)
+        {
+            Task.Run(async () =>
+            {
+                _cachedGoogleIdentities = await _googleIdentityService.GetIdentitiesAsync();
+                if (_cachedGoogleIdentities?.Count > 0)
+                    Dispatcher.Dispatch(() => UpdateToolbarVisibility());
+            });
+            return;
+        }
+
+        var nsWindow = this.Window?.Handler?.PlatformView as NSWindow;
+        var toolbar = nsWindow?.Toolbar;
+        if (toolbar == null) return;
+
+        NSMenuToolbarItem? identityNative = null;
+        foreach (var nsItem in toolbar.Items)
+        {
+            if (nsItem.Identifier == "MauiMenu_0" && nsItem is NSMenuToolbarItem m)
+            {
+                identityNative = m;
+                break;
+            }
+        }
+        if (identityNative?.Menu == null) return;
+
+        var identities = _cachedGoogleIdentities;
+        var selectedId = _googleIdentityState.SelectedIdentity?.Id;
+
+        if (selectedId == null && identities.Count > 0)
+        {
+            _googleIdentityState.SetSelectedIdentity(identities[0]);
+            selectedId = identities[0].Id;
+        }
+
+        var selectedName = _googleIdentityState.SelectedIdentity?.Name ?? identities[0].Name;
+        identityNative.Image = NSImage.GetSystemSymbol("flame", null);
+        identityNative.Title = selectedName;
+        identityNative.Label = selectedName;
+
+        var newMenu = new NSMenu();
+        for (int i = 0; i < identities.Count; i++)
+        {
+            var identity = identities[i];
+            var menuItem = new NSMenuItem(identity.Name);
+            menuItem.State = identity.Id == selectedId ? NSCellStateValue.On : NSCellStateValue.Off;
+
+            var target = new MenuActionTarget(identity.Id, i, (id, _) =>
+            {
+                var selected = identities.FirstOrDefault(x => x.Id == id);
+                if (selected != null)
+                {
+                    _googleIdentityState.SetSelectedIdentity(selected);
+                    Dispatcher.Dispatch(() => UpdateToolbarVisibility());
+                }
+            });
+            menuItem.Target = target;
+            menuItem.Action = new ObjCRuntime.Selector("menuItemClicked:");
+            _nativeMenuTargets.Add(target);
+
+            newMenu.AddItem(menuItem);
+        }
+        identityNative.Menu = newMenu;
+    }
+
+    void RebuildAppleIdentityMenu()
+    {
         if (_cachedIdentities == null || _cachedIdentities.Count == 0)
         {
-            // Kick off async load if not yet cached
             Task.Run(async () =>
             {
                 _cachedIdentities = await _identityService.GetIdentitiesAsync();
@@ -395,13 +485,8 @@ public class BlazorContentPage : ContentPage
 
         var nsWindow = this.Window?.Handler?.PlatformView as NSWindow;
         var toolbar = nsWindow?.Toolbar;
-        if (toolbar == null) { Console.WriteLine("[IDENTITY] No toolbar"); return; }
+        if (toolbar == null) return;
 
-        // Debug: dump all toolbar item types and identifiers
-        foreach (var nsItem in toolbar.Items)
-            Console.WriteLine($"[IDENTITY] Item: {nsItem.Identifier} Type: {nsItem.GetType().Name}");
-
-        // Find identity menu by identifier (MauiMenu_0)
         NSMenuToolbarItem? identityNative = null;
         foreach (var nsItem in toolbar.Items)
         {
@@ -411,14 +496,11 @@ public class BlazorContentPage : ContentPage
                 break;
             }
         }
-        if (identityNative?.Menu == null) { Console.WriteLine("[IDENTITY] Menu not found or null"); return; }
-
-        Console.WriteLine($"[IDENTITY] Found menu, rebuilding with {_cachedIdentities.Count} identities");
+        if (identityNative?.Menu == null) return;
 
         var identities = _cachedIdentities;
         var selectedId = _identityState.SelectedIdentity?.Id;
 
-        // Auto-select first identity if none selected
         if (selectedId == null && identities.Count > 0)
         {
             _identityState.SetSelectedIdentity(identities[0]);
@@ -426,10 +508,10 @@ public class BlazorContentPage : ContentPage
         }
 
         var selectedName = _identityState.SelectedIdentity?.Name ?? identities[0].Name;
+        identityNative.Image = NSImage.GetSystemSymbol("apple.logo", null);
         identityNative.Title = selectedName;
         identityNative.Label = selectedName;
 
-        // Create a fresh NSMenu and assign it
         var newMenu = new NSMenu();
         for (int i = 0; i < identities.Count; i++)
         {
@@ -453,7 +535,6 @@ public class BlazorContentPage : ContentPage
             newMenu.AddItem(menuItem);
         }
         identityNative.Menu = newMenu;
-        Console.WriteLine($"[IDENTITY] Menu rebuilt, {newMenu.Count} items, handle={identityNative.Handle}");
     }
 
     void FullRebuildToolbar()
