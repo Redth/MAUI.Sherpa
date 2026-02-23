@@ -95,9 +95,9 @@ public class WindowsTitleBarManager
         // Add filter pickers
         foreach (var filter in _toolbarService.CurrentFilters)
         {
-            var picker = CreateFilterPicker(filter);
-            trailing.Children.Add(picker);
-            _titleBar.PassthroughElements.Add(picker);
+            var filterBtn = CreateFilterButton(filter);
+            trailing.Children.Add(filterBtn);
+            _titleBar.PassthroughElements.Add(filterBtn);
         }
 
         // Add separator if we have both filters and actions
@@ -132,52 +132,82 @@ public class WindowsTitleBarManager
         }
     }
 
-    private Picker CreateFilterPicker(ToolbarFilter filter)
+    private Button CreateFilterButton(ToolbarFilter filter)
     {
-        var picker = new Picker
+        var selectedLabel = filter.SelectedIndex >= 0 && filter.SelectedIndex < filter.Options.Length
+            ? filter.Options[filter.SelectedIndex]
+            : filter.Label;
+
+        // Show filter label when on "All" (index 0), otherwise show selected value
+        var displayText = filter.SelectedIndex == 0 ? $"▾ {filter.Label}" : $"▾ {selectedLabel}";
+
+        var btn = new Button
         {
-            Title = filter.Label,
-            HeightRequest = 32,
-            MinimumWidthRequest = 100,
-            VerticalOptions = LayoutOptions.Center,
-            BackgroundColor = BgControl,
-            TextColor = Colors.White,
-            TitleColor = TextMuted,
+            Text = displayText,
             FontSize = 12,
+            HeightRequest = 32,
+            Padding = new Thickness(10, 0),
+            BackgroundColor = BgControl,
+            TextColor = filter.SelectedIndex == 0 ? TextMuted : Colors.White,
+            BorderColor = BorderColor,
+            BorderWidth = 1,
+            CornerRadius = 6,
+            VerticalOptions = LayoutOptions.Center,
         };
+        ToolTipProperties.SetText(btn, filter.Label);
 
-        foreach (var option in filter.Options)
-            picker.Items.Add(option);
-
-        picker.SelectedIndex = filter.SelectedIndex;
-
+        var menuFlyout = new MenuFlyout();
         var filterId = filter.Id;
-        picker.SelectedIndexChanged += (s, e) =>
+        for (int i = 0; i < filter.Options.Length; i++)
         {
-            if (picker.SelectedIndex >= 0)
-                _toolbarService.NotifyFilterChanged(filterId, picker.SelectedIndex);
+            var index = i;
+            var option = filter.Options[i];
+            var item = new MenuFlyoutItem { Text = option };
+            item.Clicked += (s, e) =>
+            {
+                _toolbarService.NotifyFilterChanged(filterId, index);
+                btn.Text = index == 0 ? $"▾ {filter.Label}" : $"▾ {option}";
+                btn.TextColor = index == 0 ? TextMuted : Colors.White;
+            };
+            menuFlyout.Add(item);
+        }
+
+        FlyoutBase.SetContextFlyout(btn, menuFlyout);
+
+        // Open flyout on left-click
+        btn.Clicked += (s, e) =>
+        {
+#if WINDOWS
+            if (btn.Handler?.PlatformView is Microsoft.UI.Xaml.FrameworkElement platformView)
+            {
+                var flyout = platformView.ContextFlyout;
+                flyout?.ShowAt(platformView);
+            }
+#endif
         };
 
-        return picker;
+        return btn;
     }
 
     private Button CreateActionButton(ToolbarAction action)
     {
         var icon = MapSfSymbolToText(action.SfSymbol);
-        var showLabel = action.IsPrimary && action.SfSymbol != "arrow.clockwise";
 
         var btn = new Button
         {
-            Text = showLabel ? $"{icon}  {action.Label}" : icon,
-            FontSize = showLabel ? 13 : 16,
-            HeightRequest = 34,
+            Text = icon,
+            FontSize = 16,
+            HeightRequest = 32,
+            WidthRequest = 36,
             MinimumWidthRequest = 36,
-            Padding = showLabel ? new Thickness(12, 0) : new Thickness(8, 0),
+            Padding = new Thickness(0),
             BackgroundColor = BgControl,
             TextColor = Colors.White,
             BorderColor = BorderColor,
             BorderWidth = 1,
             CornerRadius = 6,
+            VerticalOptions = LayoutOptions.Center,
+            HorizontalOptions = LayoutOptions.Center,
         };
         ToolTipProperties.SetText(btn, action.Label);
 
