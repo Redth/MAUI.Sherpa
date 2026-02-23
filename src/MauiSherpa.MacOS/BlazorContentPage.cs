@@ -265,8 +265,9 @@ public class BlazorContentPage : ContentPage
                 : null;
         }
 
-        // 2. Toggle native NSToolbarItem hidden state
+        // 2. Toggle native NSToolbarItem hidden/enabled state
         var hiddenSelector = new ObjCRuntime.Selector("setHidden:");
+        var enabledSelector = new ObjCRuntime.Selector("setEnabled:");
         foreach (var nsItem in toolbar.Items)
         {
             if (!nsItem.RespondsToSelector(hiddenSelector))
@@ -282,6 +283,10 @@ public class BlazorContentPage : ContentPage
                 {
                     var actionId = _actionItemMap.Keys.ElementAt(idx);
                     shouldHide = !activeIds.Contains(actionId);
+
+                    // Update enabled state
+                    if (!shouldHide && nsItem.RespondsToSelector(enabledSelector))
+                        _objc_msgSend_bool(nsItem.Handle, enabledSelector.Handle, _toolbarService.IsItemEnabled(actionId));
                 }
                 else
                 {

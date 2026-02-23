@@ -2735,4 +2735,8 @@ public interface IToolbarService
     void NotifyRouteChanged(string route);
     void NotifySearchTextChanged(string text);
     void NotifyFilterChanged(string filterId, int selectedIndex);
+    /// <summary>Enable or disable a toolbar item by ID without rebuilding the toolbar.</summary>
+    void SetItemEnabled(string actionId, bool enabled);
+    /// <summary>Check if a toolbar item is currently enabled.</summary>
+    bool IsItemEnabled(string actionId);
 }

@@ -1238,7 +1238,10 @@ else
         {
             switch (actionId)
             {
-                case "refresh": await RefreshSimulators(forceRefresh: true); break;
+                case "refresh":
+                    ToolbarService.SetItemEnabled("refresh", false);
+                    try { await RefreshSimulators(forceRefresh: true); } finally { ToolbarService.SetItemEnabled("refresh", true); }
+                    break;
                 case "create": ShowCreateDialog(); break;
             }
             StateHasChanged();

@@ -13,6 +13,7 @@ public class ToolbarService : IToolbarService
     private ToolbarFilter[] _filters = [];
     private string? _searchPlaceholder;
     private string _searchText = "";
+    private readonly HashSet<string> _disabledItems = new();
 
     public IReadOnlyList<ToolbarAction> CurrentItems => _items;
     public string? SearchPlaceholder => _searchPlaceholder;
@@ -50,6 +51,7 @@ public class ToolbarService : IToolbarService
         _filters = [];
         _searchPlaceholder = null;
         _searchText = "";
+        _disabledItems.Clear();
         ToolbarChanged?.Invoke();
     }
 
@@ -82,4 +84,15 @@ public class ToolbarService : IToolbarService
         }
         FilterChanged?.Invoke(filterId, selectedIndex);
     }
+
+    public void SetItemEnabled(string actionId, bool enabled)
+    {
+        if (enabled)
+            _disabledItems.Remove(actionId);
+        else
+            _disabledItems.Add(actionId);
+        ToolbarChanged?.Invoke();
+    }
+
+    public bool IsItemEnabled(string actionId) => !_disabledItems.Contains(actionId);
 }
