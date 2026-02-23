@@ -51,11 +51,17 @@ class MacOSApp : Application
         };
 
         window.SizeChanged += OnWindowSizeChanged;
+        window.Destroying += OnMainWindowDestroying;
 
         // Add custom menu items after framework finishes menu bar setup
         NSApplication.SharedApplication.BeginInvokeOnMainThread(() => AddAppMenuItems(blazorPage));
 
         return window;
+    }
+
+    private void OnMainWindowDestroying(object? sender, EventArgs e)
+    {
+        NSApplication.SharedApplication.Terminate(NSApplication.SharedApplication);
     }
 
     void AddAppMenuItems(BlazorContentPage blazorPage)
