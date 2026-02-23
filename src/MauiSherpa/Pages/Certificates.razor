@@ -171,7 +171,7 @@
                             @if (CloudSecretsService.ActiveProvider != null)
                             {
                                 <span class="badge @GetSyncBadgeClass(syncStatus)" title="@GetSyncStatusTooltip(syncStatus)">
-                                    @GetSyncStatusIcon(syncStatus) @GetSyncStatusText(syncStatus)
+                                    <i class="@GetSyncStatusIcon(syncStatus)"></i> @GetSyncStatusText(syncStatus)
                                 </span>
                             }
                         </div>
@@ -618,6 +618,10 @@
     .badge-sync-local { background: var(--sync-local-bg); color: var(--sync-local-text); }
     .badge-sync-cloud { background: var(--sync-cloud-bg); color: var(--sync-cloud-text); }
     .badge-sync-none { background: var(--sync-none-bg); color: var(--sync-none-text); }
+    .text-sync-both { color: #22c55e; }
+    .text-sync-local { color: #3b82f6; }
+    .text-sync-cloud { color: #eab308; }
+    .text-sync-none { color: #6b7280; }
     
     /* Sync dropdown menu */
     .cert-dropdown-menu {
@@ -1535,10 +1539,10 @@
     
     private string GetSyncStatusIcon(SecretLocation location) => location switch
     {
-        SecretLocation.Both => "🟢",
-        SecretLocation.LocalOnly => "🔵",
-        SecretLocation.CloudOnly => "🟡",
-        _ => "⚫"
+        SecretLocation.Both => "fas fa-check-circle text-sync-both",
+        SecretLocation.LocalOnly => "fas fa-hdd text-sync-local",
+        SecretLocation.CloudOnly => "fas fa-cloud text-sync-cloud",
+        _ => "fas fa-times-circle text-sync-none"
     };
     
     private string GetSyncStatusText(SecretLocation location) => location switch
