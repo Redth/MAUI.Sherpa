@@ -10,6 +10,7 @@ namespace MauiSherpa.Services;
 public class DialogService : IDialogService
 {
     private readonly IClipboard _clipboard;
+    private IDispatcher Dispatcher => Application.Current!.Dispatcher;
 
     public DialogService(IClipboard clipboard)
     {
@@ -31,7 +32,7 @@ public class DialogService : IDialogService
 #if MACCATALYST
         var tcs = new TaskCompletionSource<string?>();
         
-        await MainThread.InvokeOnMainThreadAsync(() =>
+        await Dispatcher.DispatchAsync(() =>
         {
             var alertController = UIAlertController.Create(title, message, UIAlertControllerStyle.Alert);
             
@@ -85,7 +86,7 @@ public class DialogService : IDialogService
 #if MACCATALYST
         var tcs = new TaskCompletionSource<string?>();
 
-        await MainThread.InvokeOnMainThreadAsync(() =>
+        await Dispatcher.DispatchAsync(() =>
         {
             var picker = new UIDocumentPickerViewController(new[] { UTTypes.Folder }, false);
             picker.DirectoryUrl = NSUrl.FromFilename(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
@@ -117,7 +118,7 @@ public class DialogService : IDialogService
 
         return await tcs.Task;
 #elif WINDOWS
-        return await MainThread.InvokeOnMainThreadAsync(async () =>
+        return await Dispatcher.DispatchAsync(async () =>
         {
             var folderPicker = new Windows.Storage.Pickers.FolderPicker();
             folderPicker.SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.DocumentsLibrary;
@@ -146,7 +147,7 @@ public class DialogService : IDialogService
 #if MACCATALYST
         var tcs = new TaskCompletionSource<string?>();
         
-        await MainThread.InvokeOnMainThreadAsync(() =>
+        await Dispatcher.DispatchAsync(() =>
         {
             var types = new List<UTType>();
             if (extensions != null)
@@ -214,7 +215,7 @@ public class DialogService : IDialogService
 #if MACCATALYST
         var tcs = new TaskCompletionSource<string?>();
         
-        await MainThread.InvokeOnMainThreadAsync(async () =>
+        await Dispatcher.DispatchAsync(async () =>
         {
             // Create temp file with suggested name
             var tempDir = Path.GetTempPath();
@@ -255,7 +256,7 @@ public class DialogService : IDialogService
 
         return await tcs.Task;
 #elif WINDOWS
-        return await MainThread.InvokeOnMainThreadAsync(async () =>
+        return await Dispatcher.DispatchAsync(async () =>
         {
             var savePicker = new Windows.Storage.Pickers.FileSavePicker();
             savePicker.SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.DocumentsLibrary;
