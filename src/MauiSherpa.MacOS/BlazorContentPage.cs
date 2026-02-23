@@ -313,12 +313,13 @@ public class BlazorContentPage : ContentPage
     {
         base.OnAppearing();
 
-        // Poll to remove the sidebar toggle — the toolbar manager re-adds it on rebuilds
+        // Poll to remove the sidebar toggle — the toolbar manager adds it automatically
+        // for FlyoutPage and there's no API to disable it yet (upstream issue #20)
         int attempts = 0;
-        Dispatcher.StartTimer(TimeSpan.FromMilliseconds(100), () =>
+        Dispatcher.StartTimer(TimeSpan.FromMilliseconds(50), () =>
         {
             RemoveSidebarToggle();
-            return ++attempts < 10; // stop after ~1s
+            return ++attempts < 20; // stop after ~1s
         });
 
         // Disable right-click context menu in the webview
