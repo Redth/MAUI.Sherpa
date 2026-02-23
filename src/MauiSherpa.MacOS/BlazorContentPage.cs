@@ -248,12 +248,39 @@ public class BlazorContentPage : ContentPage
             {
                 MacOSToolbar.SetPopUpItems(this, null);
             }
+
+            // Remove the sidebar toggle button (added by platform backend for FlyoutPage)
+            // Double-dispatch to run after the toolbar manager finishes rebuilding
+            Dispatcher.Dispatch(() => Dispatcher.Dispatch(RemoveSidebarToggle));
         });
+    }
+
+    void RemoveSidebarToggle()
+    {
+        var nsWindow = this.Window?.Handler?.PlatformView as NSWindow;
+        var toolbar = nsWindow?.Toolbar;
+        if (toolbar == null) return;
+        for (int i = 0; i < toolbar.Items.Length; i++)
+        {
+            if (toolbar.Items[i].Identifier == "MauiSidebarToggle")
+            {
+                toolbar.RemoveItem(i);
+                return;
+            }
+        }
     }
 
     protected override void OnAppearing()
     {
         base.OnAppearing();
+
+        // Poll to remove the sidebar toggle — the toolbar manager re-adds it on rebuilds
+        int attempts = 0;
+        Dispatcher.StartTimer(TimeSpan.FromMilliseconds(100), () =>
+        {
+            RemoveSidebarToggle();
+            return ++attempts < 10; // stop after ~1s
+        });
 
         // Disable right-click context menu in the webview
         Dispatcher.Dispatch(async () =>
