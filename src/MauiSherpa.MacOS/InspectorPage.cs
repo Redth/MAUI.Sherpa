@@ -1,6 +1,6 @@
 using Microsoft.Maui.Controls;
+using Microsoft.Maui.Platform.MacOS;
 using Microsoft.Maui.Platform.MacOS.Controls;
-using AppKit;
 
 namespace MauiSherpa;
 
@@ -30,12 +30,10 @@ public class InspectorPage : ContentPage
     protected override void OnAppearing()
     {
         base.OnAppearing();
-        // Remove FullSizeContentView so WebView sits below the native titlebar
-        Dispatcher.Dispatch(() =>
+        // Use the MacOSWindow attached property to keep content below the native titlebar
+        if (this.Window is Window window)
         {
-            var nsWindow = NSApplication.SharedApplication.KeyWindow;
-            if (nsWindow == null) return;
-            nsWindow.StyleMask &= ~NSWindowStyle.FullSizeContentView;
-        });
+            MacOSWindow.SetFullSizeContentView(window, false);
+        }
     }
 }

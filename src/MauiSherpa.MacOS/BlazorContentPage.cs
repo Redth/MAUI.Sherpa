@@ -2,6 +2,7 @@ using Microsoft.Maui.Controls;
 using Microsoft.Maui.Platform.MacOS.Controls;
 using MauiSherpa.Core.Interfaces;
 using AppKit;
+using CoreGraphics;
 using Foundation;
 
 namespace MauiSherpa;
@@ -159,15 +160,18 @@ public class BlazorContentPage : ContentPage
                     Order = action.IsPrimary ? ToolbarItemOrder.Primary : ToolbarItemOrder.Secondary,
                     Command = new Command(() => _toolbarService.InvokeToolbarItemClicked(action.Id)),
                 };
+                // Use SF Symbol name as IconImageSource — the toolbar manager handles native rendering
+                if (!string.IsNullOrEmpty(action.SfSymbol))
+                    item.IconImageSource = action.SfSymbol;
                 ToolbarItems.Add(item);
             }
 
-            // Post-process: add SF Symbol icons to the native NSToolbar buttons
-            Dispatcher.Dispatch(ApplySfSymbolIcons);
+            // Rewire the sidebar toggle to Copilot after toolbar rebuilds
+            Dispatcher.Dispatch(RewireSidebarToggleToCopilot);
         });
     }
 
-    void ApplySfSymbolIcons()
+    void RewireSidebarToggleToCopilot()
     {
         try
         {
@@ -175,7 +179,6 @@ public class BlazorContentPage : ContentPage
             var toolbar = nsWindow?.Toolbar;
             if (toolbar == null) return;
 
-            // Replace the hamburger sidebar toggle with a Copilot button
             foreach (var nsItem in toolbar.Items)
             {
                 if (nsItem.Identifier == "MauiSidebarToggle" && nsItem.View is NSButton toggleBtn)
@@ -193,7 +196,6 @@ public class BlazorContentPage : ContentPage
                     }
                     toggleBtn.ToolTip = "Copilot";
 
-                    // Rewire click to toggle Copilot overlay via JS
                     toggleBtn.Target = null;
                     toggleBtn.Action = null;
                     toggleBtn.Activated += (s, e) =>
@@ -209,45 +211,15 @@ public class BlazorContentPage : ContentPage
                     break;
                 }
             }
-
-            // Apply SF Symbol icons to toolbar action items
-            var actions = _toolbarService.CurrentItems;
-            int actionIndex = 0;
-
-            foreach (var nsItem in toolbar.Items)
-            {
-                if (!nsItem.Identifier.StartsWith("MauiToolbarItem_"))
-                    continue;
-
-                if (actionIndex < actions.Count)
-                {
-                    var action = actions[actionIndex];
-                    if (nsItem.View is NSButton button && !string.IsNullOrEmpty(action.SfSymbol))
-                    {
-                        var image = NSImage.GetSystemSymbol(action.SfSymbol, null);
-                        if (image != null)
-                        {
-                            button.Image = image;
-                            button.ImagePosition = NSCellImagePosition.ImageOnly;
-                            button.ToolTip = action.Label;
-                            nsItem.Label = action.Label;
-                        }
-                    }
-                    actionIndex++;
-                }
-            }
         }
-        catch
-        {
-            // Toolbar may not be attached yet
-        }
+        catch { }
     }
 
     protected override void OnAppearing()
     {
         base.OnAppearing();
         // Delay to let the toolbar handler create NSToolbar items first
-        Dispatcher.Dispatch(() => Dispatcher.Dispatch(ApplySfSymbolIcons));
+        Dispatcher.Dispatch(() => Dispatcher.Dispatch(RewireSidebarToggleToCopilot));
 
         // Disable right-click context menu in the webview
         Dispatcher.Dispatch(async () =>
@@ -255,6 +227,45 @@ public class BlazorContentPage : ContentPage
             try { await EvaluateJavaScriptAsync("document.addEventListener('contextmenu', e => e.preventDefault())"); }
             catch { }
         });
+
+        // Add a transparent drag overlay so the content titlebar area is draggable.
+        // The WKWebView extends behind the toolbar due to FullSizeContentView and
+        // intercepts mouse events that should initiate window drag.
+        Dispatcher.Dispatch(AddTitlebarDragOverlay);
+    }
+
+    private TitlebarDragView? _dragOverlay;
+
+    void AddTitlebarDragOverlay()
+    {
+        if (_dragOverlay != null) return;
+        if (_blazorWebView.Handler?.PlatformView is not NSView webViewNative) return;
+
+        var nsWindow = this.Window?.Handler?.PlatformView as NSWindow;
+        if (nsWindow == null) return;
+
+        // ContentLayoutRect is the usable area below the toolbar.
+        // Everything above it is titlebar/toolbar space.
+        var contentLayoutRect = nsWindow.ContentLayoutRect;
+        var windowFrame = nsWindow.Frame;
+        var titlebarHeight = windowFrame.Height - (contentLayoutRect.GetMaxY());
+        if (titlebarHeight < 20) titlebarHeight = 52;
+
+        // Place the overlay directly on top of the WebView's container.
+        // This ensures it sits above the WKWebView in the hit-test order.
+        var container = webViewNative.Superview ?? webViewNative;
+        CGRect frame;
+        if (container.IsFlipped)
+            frame = new CGRect(0, 0, container.Bounds.Width, titlebarHeight);
+        else
+            frame = new CGRect(0, container.Bounds.Height - titlebarHeight, container.Bounds.Width, titlebarHeight);
+
+        _dragOverlay = new TitlebarDragView(frame)
+        {
+            AutoresizingMask = NSViewResizingMask.WidthSizable
+                | (container.IsFlipped ? NSViewResizingMask.MaxYMargin : NSViewResizingMask.MinYMargin),
+        };
+        container.AddSubview(_dragOverlay, NSWindowOrderingMode.Above, webViewNative);
     }
 
     protected override void OnDisappearing()
@@ -263,4 +274,30 @@ public class BlazorContentPage : ContentPage
         _toolbarService.ToolbarChanged -= OnToolbarChanged;
         _splashService.OnBlazorReady -= OnBlazorReady;
     }
+}
+
+/// <summary>
+/// Transparent NSView placed over the WebView in the titlebar zone.
+/// Initiates window drag on mouseDown so the user can drag the window
+/// from the empty toolbar space, even though a WKWebView sits underneath.
+/// Overrides hitTest to ensure it captures mouse events before the WebView.
+/// </summary>
+class TitlebarDragView : NSView
+{
+    public TitlebarDragView(CGRect frame) : base(frame) { }
+
+    public override NSView? HitTest(CGPoint point)
+    {
+        // point is in superview coordinates — check if it falls within our frame
+        if (!IsHiddenOrHasHiddenAncestor && Frame.Contains(point))
+            return this;
+        return null;
+    }
+
+    public override void MouseDown(NSEvent theEvent)
+    {
+        Window?.PerformWindowDrag(theEvent);
+    }
+
+    public override bool MouseDownCanMoveWindow => true;
 }

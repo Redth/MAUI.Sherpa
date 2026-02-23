@@ -1,6 +1,5 @@
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.Platform.MacOS;
-using Microsoft.Maui.Platform.MacOS.Handlers;
 using MauiSherpa.Core.Interfaces;
 using AppKit;
 using Foundation;
@@ -102,6 +101,7 @@ class MacOSApp : Application
             Flyout = new ContentPage { Title = "MAUI Sherpa" },
             FlyoutLayoutBehavior = FlyoutLayoutBehavior.Split,
         };
+        MacOSFlyoutPage.SetUseNativeSidebar(flyoutPage, true);
         _flyoutPage = flyoutPage;
 
         var sidebarItems = new List<MacOSSidebarItem>
@@ -175,78 +175,16 @@ class MacOSApp : Application
             }
         });
 
-        // After handler connects, configure the split view for user-resizable sidebar
-        flyoutPage.HandlerChanged += (s, e) =>
-        {
-            if (flyoutPage.Handler is not NativeSidebarFlyoutPageHandler handler) return;
-            if (handler.PlatformView is not NSSplitView splitView) return;
-
-            splitView.Delegate = new SidebarSplitViewDelegate();
-
-            // Set initial sidebar width to 170px after layout settles
-            NSApplication.SharedApplication.BeginInvokeOnMainThread(() =>
-            {
-                splitView.SetPositionOfDivider(200, 0);
-            });
-        };
-
         return flyoutPage;
     }
 
     void OnBlazorRouteChanged(string route)
     {
-        if (_flyoutPage?.Handler is not NativeSidebarFlyoutPageHandler handler) return;
-        if (_sidebarItems == null) return;
+        if (_flyoutPage == null) return;
 
-        // Find the matching sidebar item by tag
-        MacOSSidebarItem? target = null;
-        foreach (var group in _sidebarItems)
-        {
-            if (group.Children != null)
-            {
-                foreach (var child in group.Children)
-                {
-                    if (child.Tag is string tag && tag == route)
-                    {
-                        target = child;
-                        break;
-                    }
-                }
-            }
-            if (target != null) break;
-        }
-        if (target == null) return;
-
-        // Access the handler's private _outlineView and _dataSource via reflection
-        var handlerType = handler.GetType();
-        var outlineViewField = handlerType.GetField("_outlineView",
-            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-        var dataSourceField = handlerType.GetField("_dataSource",
-            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-
-        if (outlineViewField?.GetValue(handler) is not NSOutlineView outlineView) return;
-        var dataSource = dataSourceField?.GetValue(handler);
-        if (dataSource == null) return;
-
-        // Call dataSource.GetWrapper(target) to get the SidebarItemWrapper
-        var getWrapperMethod = dataSource.GetType().GetMethod("GetWrapper");
-        var wrapper = getWrapperMethod?.Invoke(dataSource, [target]) as NSObject;
-        if (wrapper == null) return;
-
-        NSApplication.SharedApplication.InvokeOnMainThread(() =>
-        {
-            try
-            {
-                var row = outlineView.RowForItem(wrapper);
-                if (row >= 0)
-                {
-                    _suppressSidebarSync = true;
-                    outlineView.SelectRow(row, false);
-                    _suppressSidebarSync = false;
-                }
-            }
-            catch { }
-        });
+        _suppressSidebarSync = true;
+        MacOSFlyoutPage.SelectSidebarItem(_flyoutPage, item => item.Tag is string tag && tag == route);
+        _suppressSidebarSync = false;
     }
 
     private CancellationTokenSource? _saveCts;
@@ -273,30 +211,6 @@ class MacOSApp : Application
             }
             catch (TaskCanceledException) { }
         }, token);
-    }
-}
-
-/// <summary>
-/// Split view delegate that constrains sidebar resize to min/max bounds.
-/// </summary>
-class SidebarSplitViewDelegate : NSSplitViewDelegate
-{
-    static readonly nfloat MinSidebarWidth = 150;
-    static readonly nfloat MaxSidebarWidth = 400;
-
-    public override nfloat ConstrainSplitPosition(NSSplitView splitView, nfloat proposedPosition, IntPtr subviewDividerIndex)
-    {
-        return (nfloat)Math.Clamp((double)proposedPosition, (double)MinSidebarWidth, (double)MaxSidebarWidth);
-    }
-
-    public override nfloat SetMinCoordinateOfSubview(NSSplitView splitView, nfloat proposedMinimumPosition, IntPtr dividerIndex)
-    {
-        return MinSidebarWidth;
-    }
-
-    public override nfloat SetMaxCoordinateOfSubview(NSSplitView splitView, nfloat proposedMaximumPosition, IntPtr dividerIndex)
-    {
-        return MaxSidebarWidth;
     }
 }
 
