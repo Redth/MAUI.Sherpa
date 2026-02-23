@@ -93,6 +93,8 @@ else
 <!-- Filters -->
 @if (simulators.Count > 0)
 {
+    @if (!Platform.IsMacOS)
+    {
     <div class="filter-bar">
         <div class="filter-group">
             <input type="text" placeholder="Search by name..." @bind="searchQuery" @bind:event="oninput" class="filter-input" />
@@ -123,6 +125,7 @@ else
             </select>
         </div>
     </div>
+    }
 }
 
 <div class="simulator-list">
@@ -790,7 +793,15 @@ else
             new ToolbarAction("refresh", "Refresh", "arrow.clockwise"),
             new ToolbarAction("create", "Create Simulator", "plus")
         );
+        ToolbarService.SetSearch("Search by name...");
+        ToolbarService.SetFilters(
+            new ToolbarFilter("state", "State", ["All States", "Booted", "Shutdown"]),
+            new ToolbarFilter("family", "Family", ["All Families"]),
+            new ToolbarFilter("runtime", "Runtime", ["All Runtimes"])
+        );
         ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
+        ToolbarService.SearchTextChanged += OnSearchTextChanged;
+        ToolbarService.FilterChanged += OnFilterChanged;
 
         try { var settings = await SettingsService.GetSettingsAsync(); demoMode = settings.Preferences.DemoMode; } catch { }
         await Task.WhenAll(
@@ -1180,10 +1191,39 @@ else
     public void Dispose()
     {
         ToolbarService.ToolbarItemClicked -= OnToolbarItemClicked;
+        ToolbarService.SearchTextChanged -= OnSearchTextChanged;
+        ToolbarService.FilterChanged -= OnFilterChanged;
         ToolbarService.ClearItems();
         foreach (var id in _activeModals)
             try { JS.InvokeVoidAsync("modalInterop.dispose", id); } catch { }
         _dotNetRef?.Dispose();
+    }
+
+    private void OnSearchTextChanged(string text)
+    {
+        InvokeAsync(() => { searchQuery = text; StateHasChanged(); });
+    }
+
+    private void OnFilterChanged(string filterId, int selectedIndex)
+    {
+        InvokeAsync(() =>
+        {
+            switch (filterId)
+            {
+                case "state":
+                    filterState = selectedIndex switch { 1 => "Booted", 2 => "Shutdown", _ => "" };
+                    break;
+                case "family":
+                    var families = new[] { "" }.Concat(productFamilies).ToArray();
+                    filterFamily = selectedIndex < families.Length ? families[selectedIndex] : "";
+                    break;
+                case "runtime":
+                    var runtimes = new[] { "" }.Concat(runtimeNames).ToArray();
+                    filterRuntime = selectedIndex < runtimes.Length ? runtimes[selectedIndex] : "";
+                    break;
+            }
+            StateHasChanged();
+        });
     }
 
     private void OnToolbarItemClicked(string actionId)

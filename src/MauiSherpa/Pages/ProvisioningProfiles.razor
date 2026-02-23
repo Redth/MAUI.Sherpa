@@ -13,6 +13,7 @@
 @inject BlazorToastService ToastService
 @inject IEncryptedSettingsService SettingsService
 @inject IToolbarService ToolbarService
+@inject IPlatformService PlatformInfo
 @implements IDisposable
 
 <h1><i class="fas fa-id-card"></i> Provisioning Profiles</h1>
@@ -38,6 +39,8 @@
     </div>
 
     <!-- Filter Section -->
+    @if (!PlatformInfo.IsMacOS)
+    {
     <div class="filter-section">
         <div class="search-box">
             <span class="search-icon"><i class="fas fa-search"></i></span>
@@ -70,6 +73,7 @@
             <button class="clear-filters-btn" @onclick="ClearFilters">Clear Filters</button>
         }
     </div>
+    }
 
     @if (!string.IsNullOrEmpty(errorMessage))
     {
@@ -526,7 +530,15 @@
             new ToolbarAction("refresh", "Refresh", "arrow.clockwise"),
             new ToolbarAction("create", "Create Profile", "plus")
         );
+        ToolbarService.SetSearch("Search profiles...");
+        ToolbarService.SetFilters(
+            new ToolbarFilter("state", "State", ["All States", "Active", "Invalid"]),
+            new ToolbarFilter("type", "Type", ["All Types", "Development", "Ad Hoc", "App Store"]),
+            new ToolbarFilter("platform", "Platform", ["All Platforms", "iOS", "macOS"])
+        );
         ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
+        ToolbarService.SearchTextChanged += OnSearchTextChanged;
+        ToolbarService.FilterChanged += OnFilterChanged;
 
         try { var settings = await SettingsService.GetSettingsAsync(); demoMode = settings.Preferences.DemoMode; } catch { }
         IdentityState.OnSelectionChanged += OnIdentityChanged;
@@ -543,9 +555,36 @@
         });
     }
 
+    private void OnSearchTextChanged(string text)
+    {
+        InvokeAsync(() => { searchQuery = text; StateHasChanged(); });
+    }
+
+    private void OnFilterChanged(string filterId, int selectedIndex)
+    {
+        InvokeAsync(() =>
+        {
+            switch (filterId)
+            {
+                case "state":
+                    filterState = selectedIndex switch { 1 => "ACTIVE", 2 => "INVALID", _ => "" };
+                    break;
+                case "type":
+                    filterType = selectedIndex switch { 1 => "DEVELOPMENT", 2 => "ADHOC", 3 => "APPSTORE", _ => "" };
+                    break;
+                case "platform":
+                    filterPlatform = selectedIndex switch { 1 => "IOS", 2 => "MAC_OS", _ => "" };
+                    break;
+            }
+            StateHasChanged();
+        });
+    }
+
     public void Dispose()
     {
         ToolbarService.ToolbarItemClicked -= OnToolbarItemClicked;
+        ToolbarService.SearchTextChanged -= OnSearchTextChanged;
+        ToolbarService.FilterChanged -= OnFilterChanged;
         ToolbarService.ClearItems();
         IdentityState.OnSelectionChanged -= OnIdentityChanged;
     }

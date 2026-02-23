@@ -12,6 +12,7 @@
 @implements IDisposable
 @inject IJSRuntime JS
 @inject IToolbarService ToolbarService
+@inject IPlatformService PlatformInfo
 
 <h1><i class="fas fa-mobile-alt"></i> Registered Devices</h1>
 
@@ -29,6 +30,8 @@
     </div>
 
     <!-- Filter Section -->
+    @if (!PlatformInfo.IsMacOS)
+    {
     <div class="filter-section">
         <div class="search-box">
             <span class="search-icon"><i class="fas fa-search"></i></span>
@@ -55,6 +58,7 @@
             <button class="clear-filters-btn" @onclick="ClearFilters">Clear Filters</button>
         }
     </div>
+    }
 
     @if (!string.IsNullOrEmpty(errorMessage))
     {
@@ -385,7 +389,14 @@
             new ToolbarAction("refresh", "Refresh", "arrow.clockwise"),
             new ToolbarAction("create", "Register Device", "plus")
         );
+        ToolbarService.SetSearch("Search devices...");
+        ToolbarService.SetFilters(
+            new ToolbarFilter("platform", "Platform", ["All Platforms", "iOS", "macOS"]),
+            new ToolbarFilter("status", "Status", ["All Statuses", "Enabled", "Disabled"])
+        );
         ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
+        ToolbarService.SearchTextChanged += OnSearchTextChanged;
+        ToolbarService.FilterChanged += OnFilterChanged;
 
         try { var settings = await SettingsService.GetSettingsAsync(); demoMode = settings.Preferences.DemoMode; } catch { }
         IdentityState.OnSelectionChanged += OnIdentityChanged;
@@ -402,9 +413,33 @@
         });
     }
 
+    private void OnSearchTextChanged(string text)
+    {
+        InvokeAsync(() => { searchQuery = text; StateHasChanged(); });
+    }
+
+    private void OnFilterChanged(string filterId, int selectedIndex)
+    {
+        InvokeAsync(() =>
+        {
+            switch (filterId)
+            {
+                case "platform":
+                    filterPlatform = selectedIndex switch { 1 => "IOS", 2 => "MAC_OS", _ => "" };
+                    break;
+                case "status":
+                    filterStatus = selectedIndex switch { 1 => "ENABLED", 2 => "DISABLED", _ => "" };
+                    break;
+            }
+            StateHasChanged();
+        });
+    }
+
     public void Dispose()
     {
         ToolbarService.ToolbarItemClicked -= OnToolbarItemClicked;
+        ToolbarService.SearchTextChanged -= OnSearchTextChanged;
+        ToolbarService.FilterChanged -= OnFilterChanged;
         ToolbarService.ClearItems();
         IdentityState.OnSelectionChanged -= OnIdentityChanged;
         foreach (var id in _activeModals)

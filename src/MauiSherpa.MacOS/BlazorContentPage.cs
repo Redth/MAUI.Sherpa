@@ -207,6 +207,47 @@ public class BlazorContentPage : ContentPage
                     item.IconImageSource = action.SfSymbol;
                 ToolbarItems.Add(item);
             }
+
+            // Native search item
+            if (_toolbarService.SearchPlaceholder != null)
+            {
+                var searchItem = new MacOSSearchToolbarItem
+                {
+                    Placeholder = _toolbarService.SearchPlaceholder,
+                    Text = _toolbarService.SearchText,
+                };
+                searchItem.TextChanged += (s, e) => _toolbarService.NotifySearchTextChanged(e.NewTextValue ?? "");
+                MacOSToolbar.SetSearchItem(this, searchItem);
+            }
+            else
+            {
+                MacOSToolbar.SetSearchItem(this, null);
+            }
+
+            // Native popup filters
+            var filters = _toolbarService.CurrentFilters;
+            if (filters.Count > 0)
+            {
+                var popups = new List<MacOSPopUpToolbarItem>();
+                foreach (var filter in filters)
+                {
+                    var popup = new MacOSPopUpToolbarItem
+                    {
+                        SelectedIndex = filter.SelectedIndex,
+                        Width = 140,
+                    };
+                    foreach (var opt in filter.Options)
+                        popup.Items.Add(opt);
+                    var filterId = filter.Id;
+                    popup.SelectionChanged += (s, idx) => _toolbarService.NotifyFilterChanged(filterId, idx);
+                    popups.Add(popup);
+                }
+                MacOSToolbar.SetPopUpItems(this, popups);
+            }
+            else
+            {
+                MacOSToolbar.SetPopUpItems(this, null);
+            }
         });
     }
 
