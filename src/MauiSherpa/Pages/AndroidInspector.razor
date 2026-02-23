@@ -1,0 +1,236 @@
+@page "/inspector/android/{Serial}/{TabName?}"
+@layout MauiSherpa.Components.InspectorLayout
+@using MauiSherpa.Services
+@using MauiSherpa.Core.Interfaces
+@inject DeviceInspectorService InspectorService
+@inject IAdbDeviceWatcherService DeviceWatcher
+@implements IDisposable
+
+<div class="inspector-page">
+    <div class="inspector-tabstrip">
+        <div class="inspector-tabs">
+            <button class="inspector-tab @(ActiveTab == InspectorTab.Logcat ? "active" : "")"
+                    @onclick="@(() => SetTab(InspectorTab.Logcat))">
+                <i class="fas fa-scroll"></i> Logcat
+            </button>
+            <button class="inspector-tab @(ActiveTab == InspectorTab.Files ? "active" : "")"
+                    @onclick="@(() => SetTab(InspectorTab.Files))">
+                <i class="fas fa-folder-open"></i> Files
+            </button>
+            <button class="inspector-tab @(ActiveTab == InspectorTab.Shell ? "active" : "")"
+                    @onclick="@(() => SetTab(InspectorTab.Shell))">
+                <i class="fas fa-terminal"></i> Shell
+            </button>
+            <button class="inspector-tab @(ActiveTab == InspectorTab.Capture ? "active" : "")"
+                    @onclick="@(() => SetTab(InspectorTab.Capture))">
+                <i class="fas fa-camera"></i> Capture
+            </button>
+            <button class="inspector-tab @(ActiveTab == InspectorTab.Tools ? "active" : "")"
+                    @onclick="@(() => SetTab(InspectorTab.Tools))">
+                <i class="fas fa-wrench"></i> Tools
+            </button>
+        </div>
+        <div class="inspector-device-selector">
+            <i class="fab fa-android inspector-device-icon"></i>
+            <select class="inspector-device-select" value="@Serial" @onchange="OnDeviceChanged">
+                @foreach (var d in connectedDevices)
+                {
+                    <option value="@d.Serial" selected="@(d.Serial == Serial)">@(d.Model ?? d.Serial)</option>
+                }
+            </select>
+        </div>
+    </div>
+
+    <div class="inspector-body">
+        @switch (ActiveTab)
+        {
+            case InspectorTab.Logcat:
+                <LogcatContent Serial="@Serial" />
+                break;
+            case InspectorTab.Files:
+                <FileExplorerTab Serial="@Serial" />
+                break;
+            case InspectorTab.Shell:
+                <ShellTab Serial="@Serial" />
+                break;
+            case InspectorTab.Capture:
+                <ScreenCaptureTab Serial="@Serial" />
+                break;
+            case InspectorTab.Tools:
+                <DeviceToolsTab Serial="@Serial" />
+                break;
+        }
+    </div>
+</div>
+
+<style>
+    .inspector-page {
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+        background: var(--bg-primary);
+        overflow: hidden;
+    }
+
+    .inspector-tabstrip {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 0.5rem;
+        background: var(--bg-tertiary, #edf2f7);
+        border-bottom: 1px solid var(--border-color, #e2e8f0);
+        flex-shrink: 0;
+        gap: 0.5rem;
+    }
+    .inspector-tabs {
+        display: flex;
+        gap: 0;
+    }
+    .inspector-tab {
+        background: none;
+        border: none;
+        padding: 0.5rem 0.75rem;
+        font-size: 0.8125rem;
+        font-weight: 500;
+        color: var(--text-secondary);
+        cursor: pointer;
+        border-bottom: 2px solid transparent;
+        transition: all 0.15s;
+        display: flex;
+        align-items: center;
+        gap: 0.3125rem;
+        white-space: nowrap;
+    }
+    .inspector-tab:hover {
+        color: var(--text-primary);
+        background: var(--bg-secondary);
+    }
+    .inspector-tab.active {
+        color: var(--accent-primary, #4299e1);
+        border-bottom-color: var(--accent-primary, #4299e1);
+        font-weight: 600;
+    }
+    .inspector-tab i {
+        font-size: 0.75rem;
+    }
+
+    .inspector-device-selector {
+        display: flex;
+        align-items: center;
+        gap: 0.25rem;
+        padding: 3px 0.5rem;
+        border-radius: 0.375rem;
+        border: 1px solid var(--border-color, #e2e8f0);
+        background: var(--bg-secondary, #fff);
+        cursor: pointer;
+        flex-shrink: 0;
+    }
+    .inspector-device-selector:hover {
+        border-color: var(--accent-primary, #4299e1);
+    }
+    .inspector-device-icon {
+        color: #3ddc84;
+        font-size: 0.75rem;
+        flex-shrink: 0;
+    }
+    .inspector-device-select {
+        border: none;
+        outline: none !important;
+        background: transparent;
+        font-size: 0.75rem;
+        font-family: 'Consolas', 'Monaco', monospace;
+        color: var(--text-primary);
+        cursor: pointer;
+        -webkit-appearance: none;
+        appearance: none;
+        max-width: 180px;
+    }
+
+    .inspector-body {
+        flex: 1;
+        min-height: 0;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+    }
+    .inspector-body .logcat-page {
+        height: 100% !important;
+    }
+</style>
+
+@code {
+    [Parameter] public string Serial { get; set; } = "";
+    [Parameter] public string? TabName { get; set; }
+
+    private InspectorTab ActiveTab = InspectorTab.Logcat;
+    private List<DeviceInfo> connectedDevices = new();
+
+    protected override void OnInitialized()
+    {
+        ActiveTab = ParseTab(TabName);
+        InspectorService.ActiveSerial = Serial;
+        InspectorService.ActiveTab = ActiveTab;
+        InspectorService.IsOpen = true;
+        DeviceWatcher.DevicesChanged += OnDevicesChanged;
+        InspectorService.StateChanged += OnServiceStateChanged;
+        connectedDevices = DeviceWatcher.Devices.ToList();
+    }
+
+    protected override void OnParametersSet()
+    {
+        var newTab = ParseTab(TabName);
+        if (newTab != ActiveTab)
+        {
+            ActiveTab = newTab;
+            InspectorService.ActiveTab = ActiveTab;
+        }
+        if (InspectorService.ActiveSerial != Serial)
+        {
+            InspectorService.SwitchDevice(Serial);
+        }
+    }
+
+    private void SetTab(InspectorTab tab)
+    {
+        ActiveTab = tab;
+        InspectorService.SetTab(tab);
+    }
+
+    private void OnDeviceChanged(ChangeEventArgs e)
+    {
+        var newSerial = e.Value?.ToString();
+        if (string.IsNullOrEmpty(newSerial) || newSerial == Serial) return;
+        Serial = newSerial;
+        var device = connectedDevices.FirstOrDefault(d => d.Serial == newSerial);
+        InspectorService.SwitchDevice(newSerial, device?.Model);
+    }
+
+    private void OnDevicesChanged(IReadOnlyList<DeviceInfo> devices)
+    {
+        InvokeAsync(() =>
+        {
+            connectedDevices = devices.ToList();
+            StateHasChanged();
+        });
+    }
+
+    private void OnServiceStateChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    private static InspectorTab ParseTab(string? tabName) => tabName?.ToLowerInvariant() switch
+    {
+        "files" => InspectorTab.Files,
+        "shell" => InspectorTab.Shell,
+        "capture" => InspectorTab.Capture,
+        "tools" => InspectorTab.Tools,
+        _ => InspectorTab.Logcat,
+    };
+
+    public void Dispose()
+    {
+        DeviceWatcher.DevicesChanged -= OnDevicesChanged;
+        InspectorService.StateChanged -= OnServiceStateChanged;
+    }
+}
