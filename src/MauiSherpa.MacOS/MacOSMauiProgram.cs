@@ -23,8 +23,8 @@ public static class MacOSMauiProgram
         var builder = MauiApp.CreateBuilder();
         builder
             .UseMauiAppMacOS<MacOSApp>()
-            .AddMacOSEssentials()
             .AddMacOSBlazorWebView()
+            .AddMacOSEssentials()
             .ConfigureFonts(fonts =>
             {
                 fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");
@@ -59,7 +59,13 @@ public static class MacOSMauiProgram
         builder.Services.AddSingleton<ISecureStorageService, SecureStorageService>();
         builder.Services.AddSingleton<IThemeService, MacOSThemeService>();
 
-        // macOS Essentials are registered by AddMacOSEssentials() above
+        // macOS Essentials — AddMacOSEssentials() sets the .Default statics via reflection,
+        // but MAUI's TryAddSingleton may have already captured the portable stubs.
+        // Re-register with factories that resolve to the updated .Default values at runtime.
+        builder.Services.AddSingleton<IPreferences>(_ => Preferences.Default);
+        builder.Services.AddSingleton<ILauncher>(_ => Launcher.Default);
+        builder.Services.AddSingleton<IClipboard>(_ => Clipboard.Default);
+        builder.Services.AddSingleton<ISecureStorage>(_ => SecureStorage.Default);
 
         // Toolbar service for native macOS toolbar integration
         builder.Services.AddSingleton<IToolbarService, ToolbarService>();
