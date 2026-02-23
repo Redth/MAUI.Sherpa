@@ -467,6 +467,24 @@ public class BlazorContentPage : ContentPage
 
             newMenu.AddItem(menuItem);
         }
+
+        // Separator + Settings…
+        newMenu.AddItem(NSMenuItem.SeparatorItem);
+        var settingsItem = new NSMenuItem("Settings…");
+        var settingsTarget = new MenuActionTarget("__settings__", 0, (_, _) =>
+        {
+            Dispatcher.Dispatch(() => NavigateToRoute("/settings"));
+            Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(500), async () =>
+            {
+                try { await EvaluateJavaScriptAsync("document.getElementById('settings-google-identities')?.scrollIntoView({behavior:'smooth'})"); }
+                catch { }
+            });
+        });
+        settingsItem.Target = settingsTarget;
+        settingsItem.Action = new ObjCRuntime.Selector("menuItemClicked:");
+        _nativeMenuTargets.Add(settingsTarget);
+        newMenu.AddItem(settingsItem);
+
         identityNative.Menu = newMenu;
     }
 
@@ -534,6 +552,24 @@ public class BlazorContentPage : ContentPage
 
             newMenu.AddItem(menuItem);
         }
+
+        // Separator + Settings…
+        newMenu.AddItem(NSMenuItem.SeparatorItem);
+        var settingsItem = new NSMenuItem("Settings…");
+        var settingsTarget = new MenuActionTarget("__settings__", 0, (_, _) =>
+        {
+            Dispatcher.Dispatch(() => NavigateToRoute("/settings"));
+            Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(500), async () =>
+            {
+                try { await EvaluateJavaScriptAsync("document.getElementById('settings-apple-identities')?.scrollIntoView({behavior:'smooth'})"); }
+                catch { }
+            });
+        });
+        settingsItem.Target = settingsTarget;
+        settingsItem.Action = new ObjCRuntime.Selector("menuItemClicked:");
+        _nativeMenuTargets.Add(settingsTarget);
+        newMenu.AddItem(settingsItem);
+
         identityNative.Menu = newMenu;
     }
 
