@@ -23,6 +23,7 @@ public class BlazorContentPage : ContentPage
     private readonly IGoogleIdentityService _googleIdentityService;
     private readonly IGoogleIdentityStateService _googleIdentityState;
     private AppKit.NSView? _loadingOverlay;
+    private NSImage? _copilotIcon;
     private string _pendingRoute = "/";
     private string _currentRoute = "/";
 
@@ -328,10 +329,33 @@ public class BlazorContentPage : ContentPage
         // 5. Update publish menu's "Publish Selected…" enabled state
         if (hasPublishWizard)
             UpdatePublishMenuState(activeIds.Contains("publish-selected"));
+
+        // 6. Set custom Copilot icon on sidebar item (replaces SF Symbol)
+        SetCopilotIcon(toolbar);
     }
 
     [System.Runtime.InteropServices.DllImport(ObjCRuntime.Constants.ObjectiveCLibrary, EntryPoint = "objc_msgSend")]
     static extern void _objc_msgSend_bool(IntPtr receiver, IntPtr selector, bool arg1);
+
+    void SetCopilotIcon(NSToolbar toolbar)
+    {
+        foreach (var nsItem in toolbar.Items)
+        {
+            if (nsItem.Identifier != "MauiSidebarItem_0") continue;
+
+            if (_copilotIcon == null)
+            {
+                var path = NSBundle.MainBundle.PathForResource("copilot-iconTemplate", "png");
+                if (path == null) return;
+                _copilotIcon = new NSImage(path);
+                _copilotIcon.Size = new CGSize(18, 18);
+                _copilotIcon.Template = true;
+            }
+
+            nsItem.Image = _copilotIcon;
+            break;
+        }
+    }
 
     /// <summary>
     /// Update the "Publish Selected…" menu item's enabled state in the publish menu.
