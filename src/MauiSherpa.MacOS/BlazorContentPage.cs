@@ -321,13 +321,39 @@ public class BlazorContentPage : ContentPage
         if (hasFilter)
             RebuildFilterMenuNatively();
 
-        // 4. Rebuild identity menu natively if on an Apple page
+        // 4. Rebuild identity menu natively if on an Apple/Google page
         if (hasIdentity)
             RebuildIdentityMenuNatively();
+
+        // 5. Update publish menu's "Publish Selected…" enabled state
+        if (hasPublishWizard)
+            UpdatePublishMenuState(activeIds.Contains("publish-selected"));
     }
 
     [System.Runtime.InteropServices.DllImport(ObjCRuntime.Constants.ObjectiveCLibrary, EntryPoint = "objc_msgSend")]
     static extern void _objc_msgSend_bool(IntPtr receiver, IntPtr selector, bool arg1);
+
+    /// <summary>
+    /// Update the "Publish Selected…" menu item's enabled state in the publish menu.
+    /// </summary>
+    void UpdatePublishMenuState(bool hasSelection)
+    {
+        var nsWindow = this.Window?.Handler?.PlatformView as NSWindow;
+        var toolbar = nsWindow?.Toolbar;
+        if (toolbar == null) return;
+
+        // Publish menu is MauiMenu_1
+        foreach (var nsItem in toolbar.Items)
+        {
+            if (nsItem.Identifier == "MauiMenu_1" && nsItem is NSMenuToolbarItem menuItem && menuItem.Menu != null)
+            {
+                // "Publish Selected…" is the second item (index 1)
+                if (menuItem.Menu.Count >= 2)
+                    menuItem.Menu.ItemAt(1)!.Enabled = hasSelection;
+                break;
+            }
+        }
+    }
 
     /// <summary>
     /// Find the filter NSMenuToolbarItem on the native toolbar and rebuild
@@ -664,16 +690,29 @@ public class BlazorContentPage : ContentPage
                 }
             }
 
-            // Publish to CI/CD button (MacOSMenuToolbarItem with ShowsTitle for icon+text)
+            // Publish menu (icon+text, with sub-items for wizard and publish selected)
             var publishMenu = new MacOSMenuToolbarItem
             {
-                Icon = "wand.and.stars",
-                Text = "Publish to CI/CD",
+                Icon = "square.and.arrow.up",
+                Text = "Publish",
                 ShowsTitle = true,
+                ShowsIndicator = true,
             };
-            var publishAction = new MacOSMenuItem { Text = "Publish to CI/CD" };
-            publishAction.Clicked += (s, e) => _toolbarService.InvokeToolbarItemClicked("publish-wizard");
-            publishMenu.Items.Add(publishAction);
+            var wizardAction = new MacOSMenuItem
+            {
+                Text = "Publish to CI/CD",
+                Icon = "wand.and.stars",
+            };
+            wizardAction.Clicked += (s, e) => _toolbarService.InvokeToolbarItemClicked("publish-wizard");
+            publishMenu.Items.Add(wizardAction);
+            var publishSelectedAction = new MacOSMenuItem
+            {
+                Text = "Publish Selected…",
+                Icon = "square.and.arrow.up",
+                IsEnabled = false,
+            };
+            publishSelectedAction.Clicked += (s, e) => _toolbarService.InvokeToolbarItemClicked("publish-selected");
+            publishMenu.Items.Add(publishSelectedAction);
 
             // Build explicit content layout with ALL items:
             // [Identity] [Publish] [Create] [Import] ← FlexibleSpace → [Filter] [Search] [Refresh]
