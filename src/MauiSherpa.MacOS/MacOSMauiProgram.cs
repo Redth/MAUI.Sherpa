@@ -59,11 +59,7 @@ public static class MacOSMauiProgram
         builder.Services.AddSingleton<ISecureStorageService, SecureStorageService>();
         builder.Services.AddSingleton<IThemeService, MacOSThemeService>();
 
-        // macOS Essentials implementations (replacing .Default statics)
-        builder.Services.AddSingleton<IPreferences, MacOSPreferences>();
-        builder.Services.AddSingleton<ILauncher, MacOSLauncher>();
-        builder.Services.AddSingleton<IClipboard, MacOSClipboard>();
-        builder.Services.AddSingleton<ISecureStorage, MacOSSecureStorage>();
+        // macOS Essentials are registered by AddMacOSEssentials() above
 
         // Toolbar service for native macOS toolbar integration
         builder.Services.AddSingleton<IToolbarService, ToolbarService>();
