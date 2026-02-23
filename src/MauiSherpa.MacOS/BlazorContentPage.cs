@@ -583,9 +583,10 @@ public class BlazorContentPage : ContentPage
             ToolbarItems.Add(copilotItem);
 
             // Create SUPERSET of all possible action items (hidden ones toggled later)
-            // Order matters for layout: [create/import] ← flex → [refresh]
+            // Order matters for layout: [publish-wizard/create/import] ← flex → [refresh]
             var supersetActions = new[]
             {
+                ("publish-wizard", "Publish to CI/CD", "wand.and.stars"),
                 ("create", "Create", "plus"),
                 ("import", "Import", "square.and.arrow.down"),
                 ("refresh", "Refresh", "arrow.clockwise"),
