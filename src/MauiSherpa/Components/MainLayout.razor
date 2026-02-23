@@ -168,6 +168,10 @@
 
             // Notify native sidebar of route changes from Blazor navigation
             NavManager.LocationChanged += OnLocationChanged;
+
+            // On macOS, make html/body transparent so native window background shows through
+            if (PlatformInfo.IsMacOS)
+                _ = JS.InvokeVoidAsync("eval", "document.documentElement.style.backgroundColor='transparent';document.body.style.backgroundColor='transparent';");
         }
     }
 
@@ -220,7 +224,10 @@
         try
         {
             var cls = ThemeService.IsDarkMode ? "theme-dark" : "theme-light";
-            await JS.InvokeVoidAsync("eval", $"document.body.className = '{cls}'");
+            if (PlatformInfo.IsMacOS)
+                await JS.InvokeVoidAsync("eval", $"document.body.className = '{cls}'; document.body.style.backgroundColor='transparent';");
+            else
+                await JS.InvokeVoidAsync("eval", $"document.body.className = '{cls}'");
         }
         catch { }
     }
@@ -471,19 +478,12 @@
     .platform-macos .content {
         padding-top: 44px;
         margin-left: 0;
+        background-color: transparent;
     }
 
-    /* Gradient fade under titlebar — pseudo-element so it doesn't clip modal overlays */
+    /* No gradient fade on macOS — native window background shows through */
     .platform-macos .content::before {
-        content: '';
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        height: 44px;
-        background: linear-gradient(to bottom, var(--bg-primary) 0px, var(--bg-primary) 20px, transparent 44px);
-        z-index: 50;
-        pointer-events: none;
+        display: none;
     }
 
     .platform-macos .content-drag-region {

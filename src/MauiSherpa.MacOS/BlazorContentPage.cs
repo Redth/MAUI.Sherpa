@@ -4,6 +4,7 @@ using MauiSherpa.Core.Interfaces;
 using AppKit;
 using CoreGraphics;
 using Foundation;
+using WebKit;
 
 namespace MauiSherpa;
 
@@ -45,7 +46,10 @@ public class BlazorContentPage : ContentPage
         _blazorWebView.HandlerChanged += (s, e) =>
         {
             if (_blazorWebView.Handler != null)
+            {
                 AddNativeLoadingOverlay();
+                MakeWebViewTransparent();
+            }
         };
 
         // Safety timeout for loading overlay
@@ -89,6 +93,18 @@ public class BlazorContentPage : ContentPage
         spinner.CenterYAnchor.ConstraintEqualTo(_loadingOverlay.CenterYAnchor).Active = true;
 
         superview.AddSubview(_loadingOverlay, AppKit.NSWindowOrderingMode.Above, webViewNative);
+    }
+
+    /// <summary>
+    /// Make the WKWebView transparent so the native macOS window background shows through.
+    /// </summary>
+    private void MakeWebViewTransparent()
+    {
+        if (_blazorWebView.Handler?.PlatformView is not WebKit.WKWebView webView) return;
+
+        // WKWebView draws an opaque background by default.
+        // Use KVC to disable it so the native window background is visible.
+        webView.SetValueForKey(NSObject.FromObject(false), new NSString("drawsBackground"));
     }
 
     private void OnBlazorReady()
