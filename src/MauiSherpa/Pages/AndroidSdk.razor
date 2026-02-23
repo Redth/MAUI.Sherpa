@@ -991,6 +991,12 @@
     private async Task RefreshData()
     {
         await ViewModel.RefreshPackagesAsync(forceRefresh: true);
+
+        // Update category filter with dynamic values from loaded packages
+        ToolbarService.SetFilters(
+            new ToolbarFilter("category", "Category", ["All Categories", ..GetAllCategories()]),
+            new ToolbarFilter("updates", "Updates", ["All Packages", "Has Updates", "Up to Date"])
+        );
     }
 
     private async Task AcquireSdk()

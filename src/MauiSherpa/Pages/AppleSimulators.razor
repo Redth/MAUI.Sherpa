@@ -844,6 +844,13 @@ else
 
             var (_, rtResult) = await rtTask;
             availableRuntimes = rtResult?.ToList() ?? new();
+
+            // Update filters with dynamic family/runtime values from loaded data
+            ToolbarService.SetFilters(
+                new ToolbarFilter("state", "State", ["All States", "Booted", "Shutdown"]),
+                new ToolbarFilter("family", "Family", ["All Families", ..productFamilies]),
+                new ToolbarFilter("runtime", "Runtime", ["All Runtimes", ..runtimeNames])
+            );
         }
         catch (Exception ex)
         {
