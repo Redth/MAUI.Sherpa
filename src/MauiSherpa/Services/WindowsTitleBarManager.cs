@@ -13,6 +13,13 @@ public class WindowsTitleBarManager
     private TitleBar? _titleBar;
     private SearchBar? _searchBar;
 
+    private static readonly Color BgDark = Color.FromArgb("#1e1a2e");
+    private static readonly Color BgControl = Color.FromArgb("#2a2540");
+    private static readonly Color BgControlHover = Color.FromArgb("#352f50");
+    private static readonly Color BorderColor = Color.FromArgb("#3a3555");
+    private static readonly Color TextMuted = Color.FromArgb("#8888aa");
+    private static readonly Color Accent = Color.FromArgb("#8b5cf6");
+
     public WindowsTitleBarManager(IToolbarService toolbarService)
     {
         _toolbarService = toolbarService;
@@ -23,8 +30,8 @@ public class WindowsTitleBarManager
     {
         _titleBar = new TitleBar
         {
-            Title = "MAUI Sherpa",
-            BackgroundColor = Color.FromArgb("#1e1a2e"),
+            Icon = "sherpalogo.png",
+            BackgroundColor = BgDark,
             ForegroundColor = Colors.White,
             HeightRequest = 48,
         };
@@ -47,6 +54,8 @@ public class WindowsTitleBarManager
     {
         if (_titleBar == null) return;
 
+        _titleBar.PassthroughElements.Clear();
+
         // Content: Search bar (centered)
         if (!string.IsNullOrEmpty(_toolbarService.SearchPlaceholder))
         {
@@ -58,40 +67,50 @@ public class WindowsTitleBarManager
                 HorizontalOptions = LayoutOptions.Fill,
                 VerticalOptions = LayoutOptions.Center,
                 HeightRequest = 32,
-                BackgroundColor = Color.FromArgb("#2a2540"),
+                BackgroundColor = BgControl,
                 TextColor = Colors.White,
-                PlaceholderColor = Color.FromArgb("#8888aa"),
+                PlaceholderColor = TextMuted,
             };
             _searchBar.TextChanged += (s, e) =>
             {
                 _toolbarService.NotifySearchTextChanged(e.NewTextValue ?? "");
             };
             _titleBar.Content = _searchBar;
-
-            // SearchBar needs passthrough so it receives input instead of window drag
-            _titleBar.PassthroughElements.Clear();
             _titleBar.PassthroughElements.Add(_searchBar);
         }
         else
         {
             _searchBar = null;
             _titleBar.Content = null;
-            _titleBar.PassthroughElements.Clear();
         }
 
         // TrailingContent: Filters + Action buttons
         var trailing = new HorizontalStackLayout
         {
-            Spacing = 4,
+            Spacing = 6,
             VerticalOptions = LayoutOptions.Center,
+            Padding = new Thickness(0, 0, 8, 0),
         };
 
-        // Add filter dropdowns
+        // Add filter pickers
         foreach (var filter in _toolbarService.CurrentFilters)
         {
-            var filterBtn = CreateFilterButton(filter);
-            trailing.Children.Add(filterBtn);
-            _titleBar.PassthroughElements.Add(filterBtn);
+            var picker = CreateFilterPicker(filter);
+            trailing.Children.Add(picker);
+            _titleBar.PassthroughElements.Add(picker);
+        }
+
+        // Add separator if we have both filters and actions
+        if (_toolbarService.CurrentFilters.Count > 0 && _toolbarService.CurrentItems.Count > 0)
+        {
+            trailing.Children.Add(new BoxView
+            {
+                WidthRequest = 1,
+                HeightRequest = 24,
+                Color = BorderColor,
+                VerticalOptions = LayoutOptions.Center,
+                Margin = new Thickness(2, 0),
+            });
         }
 
         // Add action buttons
@@ -113,72 +132,54 @@ public class WindowsTitleBarManager
         }
     }
 
-    private Button CreateFilterButton(ToolbarFilter filter)
+    private Picker CreateFilterPicker(ToolbarFilter filter)
     {
-        var selectedLabel = filter.SelectedIndex >= 0 && filter.SelectedIndex < filter.Options.Length
-            ? filter.Options[filter.SelectedIndex]
-            : filter.Label;
-
-        var btn = new Button
+        var picker = new Picker
         {
-            Text = selectedLabel == filter.Options[0] ? filter.Label : selectedLabel,
-            FontSize = 12,
-            HeightRequest = 30,
-            Padding = new Thickness(10, 0),
-            BackgroundColor = Color.FromArgb("#2a2540"),
+            Title = filter.Label,
+            HeightRequest = 32,
+            MinimumWidthRequest = 100,
+            VerticalOptions = LayoutOptions.Center,
+            BackgroundColor = BgControl,
             TextColor = Colors.White,
-            BorderColor = Color.FromArgb("#3a3555"),
-            BorderWidth = 1,
-            CornerRadius = 4,
+            TitleColor = TextMuted,
+            FontSize = 12,
         };
 
-        var menuFlyout = new MenuFlyout();
-        for (int i = 0; i < filter.Options.Length; i++)
+        foreach (var option in filter.Options)
+            picker.Items.Add(option);
+
+        picker.SelectedIndex = filter.SelectedIndex;
+
+        var filterId = filter.Id;
+        picker.SelectedIndexChanged += (s, e) =>
         {
-            var index = i;
-            var option = filter.Options[i];
-            var item = new MenuFlyoutItem
-            {
-                Text = option,
-            };
-            item.Clicked += (s, e) =>
-            {
-                _toolbarService.NotifyFilterChanged(filter.Id, index);
-                // Update button text
-                btn.Text = index == 0 ? filter.Label : option;
-            };
-            menuFlyout.Add(item);
-        }
+            if (picker.SelectedIndex >= 0)
+                _toolbarService.NotifyFilterChanged(filterId, picker.SelectedIndex);
+        };
 
-        FlyoutBase.SetContextFlyout(btn, menuFlyout);
-
-        return btn;
+        return picker;
     }
 
     private Button CreateActionButton(ToolbarAction action)
     {
         var icon = MapSfSymbolToText(action.SfSymbol);
+        var showLabel = action.IsPrimary && action.SfSymbol != "arrow.clockwise";
 
         var btn = new Button
         {
-            Text = icon,
-            FontSize = 14,
-            HeightRequest = 30,
-            WidthRequest = action.IsPrimary ? -1 : 30,
-            MinimumWidthRequest = 30,
-            Padding = action.IsPrimary ? new Thickness(10, 0) : new Thickness(0),
-            BackgroundColor = Colors.Transparent,
+            Text = showLabel ? $"{icon}  {action.Label}" : icon,
+            FontSize = showLabel ? 13 : 16,
+            HeightRequest = 34,
+            MinimumWidthRequest = 36,
+            Padding = showLabel ? new Thickness(12, 0) : new Thickness(8, 0),
+            BackgroundColor = BgControl,
             TextColor = Colors.White,
-            BorderWidth = 0,
-            CornerRadius = 4,
+            BorderColor = BorderColor,
+            BorderWidth = 1,
+            CornerRadius = 6,
         };
         ToolTipProperties.SetText(btn, action.Label);
-
-        // For primary actions, show label too
-        if (action.IsPrimary && !string.IsNullOrEmpty(action.Label) && action.Label != "Refresh")
-        {
-            btn.Text = $"{icon} {action.Label}";
-        }
 
         btn.Clicked += (s, e) =>
         {
@@ -190,7 +191,7 @@ public class WindowsTitleBarManager
 
     private static string MapSfSymbolToText(string sfSymbol) => sfSymbol switch
     {
-        "arrow.clockwise" => "↻",
+        "arrow.clockwise" => "⟳",
         "plus" => "+",
         "plus.circle" => "+",
         "square.and.arrow.down" => "↓",
