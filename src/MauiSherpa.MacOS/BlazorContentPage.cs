@@ -27,6 +27,7 @@ public class BlazorContentPage : ContentPage
 
         _toolbarService = serviceProvider.GetRequiredService<IToolbarService>();
         _toolbarService.ToolbarChanged += OnToolbarChanged;
+        _toolbarService.FilterChanged += OnFilterSelectionChanged;
 
         _splashService = serviceProvider.GetRequiredService<ISplashService>();
         _splashService.OnBlazorReady += OnBlazorReady;
@@ -307,6 +308,56 @@ public class BlazorContentPage : ContentPage
                 return;
             }
         }
+    }
+
+    void OnFilterSelectionChanged(string filterId, int selectedIndex)
+    {
+        // Update native NSMenu checkmarks directly without rebuilding the toolbar
+        Dispatcher.Dispatch(() =>
+        {
+            var nsWindow = this.Window?.Handler?.PlatformView as NSWindow;
+            var toolbar = nsWindow?.Toolbar;
+            if (toolbar == null) return;
+
+            foreach (var item in toolbar.Items)
+            {
+                if (item is NSMenuToolbarItem menuToolbarItem)
+                {
+                    var menu = menuToolbarItem.Menu;
+                    if (menu == null) continue;
+
+                    // Find the submenu matching this filter
+                    var filters = _toolbarService.CurrentFilters;
+                    int filterIndex = -1;
+                    for (int i = 0; i < filters.Count; i++)
+                    {
+                        if (filters[i].Id == filterId) { filterIndex = i; break; }
+                    }
+                    if (filterIndex < 0) return;
+
+                    // Account for separator items between filter submenus
+                    int menuItemIndex = 0;
+                    for (int i = 0; i < filterIndex; i++)
+                    {
+                        menuItemIndex++; // the submenu item
+                        if (i > 0) menuItemIndex++; // separator before it (skip first)
+                    }
+                    if (filterIndex > 0) menuItemIndex++; // separator before this filter
+
+                    if (menuItemIndex >= menu.Count) return;
+                    var submenu = menu.ItemAt(menuItemIndex)?.Submenu;
+                    if (submenu == null) return;
+
+                    for (int i = 0; i < submenu.Count; i++)
+                    {
+                        var mi = submenu.ItemAt(i);
+                        if (mi != null)
+                            mi.State = i == selectedIndex ? NSCellStateValue.On : NSCellStateValue.Off;
+                    }
+                    return;
+                }
+            }
+        });
     }
 
     protected override void OnAppearing()
