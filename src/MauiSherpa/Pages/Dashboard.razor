@@ -2,6 +2,7 @@
 @using MauiSherpa.Core.ViewModels
 @using MauiSherpa.Core.Interfaces
 @using MauiSherpa.Core.Services
+@using MauiSherpa.Services
 @using Markdig
 @implements IDisposable
 @inject DashboardViewModel ViewModel
@@ -14,6 +15,8 @@
 @inject IPhysicalDeviceService PhysicalDeviceService
 @inject IUpdateService UpdateService
 @inject NavigationManager Navigation
+@inject DeviceInspectorService DeviceInspector
+@inject SimInspectorService SimInspector
 
 <h1><i class="fas fa-home"></i> @ViewModel.Title</h1>
 <p class="welcome">@ViewModel.WelcomeMessage</p>
@@ -55,7 +58,7 @@
                     <div class="device-card-name">@(device.Model ?? device.Serial)</div>
                     <div class="device-card-detail">Android Device</div>
                 </div>
-                <button class="device-card-action" @onclick='() => Navigation.NavigateTo($"/devices?serial={device.Serial}")' title="Inspect">
+                <button class="device-card-action" @onclick='() => DeviceInspector.Open(device.Serial, device.Model ?? device.Serial)' title="Inspect">
                     <i class="fas fa-search"></i>
                 </button>
             </div>
@@ -69,7 +72,7 @@
                     <div class="device-card-name">@(emu.Model ?? emu.Serial)</div>
                     <div class="device-card-detail">Android Emulator</div>
                 </div>
-                <button class="device-card-action" @onclick='() => Navigation.NavigateTo($"/devices?serial={emu.Serial}")' title="Inspect">
+                <button class="device-card-action" @onclick='() => DeviceInspector.Open(emu.Serial, emu.Model ?? emu.Serial)' title="Inspect">
                     <i class="fas fa-search"></i>
                 </button>
             </div>
@@ -102,7 +105,7 @@
                         <div class="device-card-name">@sim.Name</div>
                         <div class="device-card-detail">@(sim.Runtime ?? "iOS Simulator")</div>
                     </div>
-                    <button class="device-card-action" @onclick='() => Navigation.NavigateTo($"/apple-simulators?udid={sim.Udid}")' title="Inspect">
+                    <button class="device-card-action" @onclick='() => SimInspector.Open(sim.Udid, sim.Name)' title="Inspect">
                         <i class="fas fa-search"></i>
                     </button>
                 </div>
