@@ -599,7 +599,9 @@ jobs:
     name: Notarize Mac Catalyst App
     runs-on: macos-26
     needs: publish-maccatalyst
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) && github.event_name == 'push'
+    permissions:
+      statuses: write
 
     steps:
       - name: Download Mac Catalyst artifact
@@ -664,11 +666,32 @@ jobs:
           overwrite: true
           retention-days: 30
 
+      - name: Set commit status
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ARTIFACT_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          if [ -f "./artifacts/MAUI-Sherpa.mac.zip" ]; then
+            STATE="success"
+            DESC="Mac Catalyst app notarized"
+          else
+            STATE="failure"
+            DESC="Mac Catalyst notarization failed"
+          fi
+          gh api repos/${{ github.repository }}/statuses/${{ github.sha }} \
+            -f state="$STATE" \
+            -f target_url="$ARTIFACT_URL" \
+            -f description="$DESC" \
+            -f context="MAUI Sherpa / Notarized Mac Catalyst App"
+
   notarize-macos:
     name: Notarize macOS App
     runs-on: macos-26
     needs: publish-macos
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) && github.event_name == 'push'
+    permissions:
+      statuses: write
 
     steps:
       - name: Download macOS artifact
@@ -732,6 +755,25 @@ jobs:
           path: ./artifacts/MAUI-Sherpa.macos.zip
           overwrite: true
           retention-days: 30
+
+      - name: Set commit status
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ARTIFACT_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          if [ -f "./artifacts/MAUI-Sherpa.macos.zip" ]; then
+            STATE="success"
+            DESC="macOS app notarized"
+          else
+            STATE="failure"
+            DESC="macOS notarization failed"
+          fi
+          gh api repos/${{ github.repository }}/statuses/${{ github.sha }} \
+            -f state="$STATE" \
+            -f target_url="$ARTIFACT_URL" \
+            -f description="$DESC" \
+            -f context="MAUI Sherpa / Notarized macOS App"
 
   create-release:
     name: Create GitHub Release
