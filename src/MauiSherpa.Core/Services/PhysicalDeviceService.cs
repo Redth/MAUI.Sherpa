@@ -147,6 +147,126 @@ public class PhysicalDeviceService : IPhysicalDeviceService
         }
     }
 
+    public async Task<IReadOnlyList<PhysicalDeviceApp>> GetInstalledAppsAsync(string identifier)
+    {
+        if (!IsSupported) return [];
+        try
+        {
+            var tempFile = Path.GetTempFileName();
+            try
+            {
+                var psi = new ProcessStartInfo
+                {
+                    FileName = "xcrun",
+                    Arguments = $"devicectl device info apps --device {identifier} --json-output \"{tempFile}\"",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+
+                using var process = Process.Start(psi);
+                if (process == null) return [];
+
+                await process.WaitForExitAsync();
+
+                if (!File.Exists(tempFile))
+                    return [];
+
+                var json = await File.ReadAllTextAsync(tempFile);
+                return ParseApps(json);
+            }
+            finally
+            {
+                if (File.Exists(tempFile))
+                    File.Delete(tempFile);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Failed to list apps on device {identifier}: {ex.Message}", ex);
+            return [];
+        }
+    }
+
+    public async Task<string?> DownloadAppContainerAsync(string identifier, string bundleId, string outputDir, IProgress<string>? progress = null)
+    {
+        if (!IsSupported) return null;
+        try
+        {
+            Directory.CreateDirectory(outputDir);
+            progress?.Report($"Downloading container for {bundleId}...");
+
+            var psi = new ProcessStartInfo
+            {
+                FileName = "xcrun",
+                Arguments = $"devicectl device copy from --device {identifier} --domain-type appDataContainer --domain-identifier {bundleId} --destination-path \"{outputDir}\"",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using var process = Process.Start(psi);
+            if (process == null)
+            {
+                progress?.Report("Failed to start devicectl");
+                return null;
+            }
+
+            var output = await process.StandardOutput.ReadToEndAsync();
+            var error = await process.StandardError.ReadToEndAsync();
+            await process.WaitForExitAsync();
+
+            if (process.ExitCode == 0)
+            {
+                progress?.Report("Container downloaded successfully");
+                return outputDir;
+            }
+
+            progress?.Report($"Failed: {error}");
+            _logger.LogError($"Failed to download container: {error}");
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Failed to download app container: {ex.Message}", ex);
+            progress?.Report($"Failed: {ex.Message}");
+            return null;
+        }
+    }
+
+    private IReadOnlyList<PhysicalDeviceApp> ParseApps(string json)
+    {
+        var apps = new List<PhysicalDeviceApp>();
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+
+            if (!root.TryGetProperty("result", out var result) ||
+                !result.TryGetProperty("apps", out var appsArray))
+                return apps;
+
+            foreach (var app in appsArray.EnumerateArray())
+            {
+                var bundleId = GetStr(app, "bundleIdentifier") ?? "";
+                var name = GetStr(app, "name") ?? GetStr(app, "bundleIdentifier") ?? "Unknown";
+                var version = GetStr(app, "bundleVersion") ?? GetStr(app, "bundleShortVersion");
+                var appType = GetStr(app, "applicationType") ?? "User";
+
+                if (!string.IsNullOrEmpty(bundleId))
+                    apps.Add(new PhysicalDeviceApp(bundleId, name, version, appType));
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Failed to parse device apps output: {ex.Message}", ex);
+        }
+
+        return apps;
+    }
+
     private IReadOnlyList<PhysicalDevice> ParseDevices(string json)
     {
         var devices = new List<PhysicalDevice>();
