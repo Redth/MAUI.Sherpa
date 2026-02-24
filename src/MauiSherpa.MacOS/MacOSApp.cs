@@ -106,16 +106,9 @@ class MacOSApp : Application
 
         var sidebarItems = new List<MacOSSidebarItem>
         {
-            new MacOSSidebarItem
-            {
-                Title = "General",
-                Children = new List<MacOSSidebarItem>
-                {
-                    new() { Title = "Dashboard", SystemImage = "house.fill", Tag = "/" },
-                    new() { Title = "Doctor", SystemImage = "stethoscope", Tag = "/doctor" },
-                    new() { Title = "Settings", SystemImage = "gear", Tag = "/settings" },
-                }
-            },
+            new() { Title = "Dashboard", SystemImage = "house.fill", Tag = "/" },
+            new() { Title = "Doctor", SystemImage = "stethoscope", Tag = "/doctor" },
+            new() { Title = "Settings", SystemImage = "gear", Tag = "/settings" },
             new MacOSSidebarItem
             {
                 Title = "Android",
