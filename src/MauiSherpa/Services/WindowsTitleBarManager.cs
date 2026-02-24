@@ -1,5 +1,6 @@
 using MauiSherpa.Core.Interfaces;
 using MauiIcons.Fluent;
+using MauiIcons.FontAwesome.Brand;
 using System.ComponentModel;
 using System.Reflection;
 
@@ -17,7 +18,7 @@ public class WindowsTitleBarManager
     private readonly IAppleIdentityStateService _appleIdentityState;
     private readonly IGoogleIdentityService _googleIdentityService;
     private readonly IGoogleIdentityStateService _googleIdentityState;
-    private readonly INavigationService _navigationService;
+    private readonly IServiceProvider _serviceProvider;
     private TitleBar? _titleBar;
     private SearchBar? _searchBar;
     private string _currentRoute = "";
@@ -48,14 +49,14 @@ public class WindowsTitleBarManager
         IAppleIdentityStateService appleIdentityState,
         IGoogleIdentityService googleIdentityService,
         IGoogleIdentityStateService googleIdentityState,
-        INavigationService navigationService)
+        IServiceProvider serviceProvider)
     {
         _toolbarService = toolbarService;
         _appleIdentityService = appleIdentityService;
         _appleIdentityState = appleIdentityState;
         _googleIdentityService = googleIdentityService;
         _googleIdentityState = googleIdentityState;
-        _navigationService = navigationService;
+        _serviceProvider = serviceProvider;
 
         _toolbarService.ToolbarChanged += OnToolbarChanged;
         _toolbarService.RouteChanged += OnRouteChanged;
@@ -386,11 +387,13 @@ public class WindowsTitleBarManager
         var settingsItem = new MenuFlyoutItem { Text = "Settings…" };
         settingsItem.Clicked += (s, e) =>
         {
-            _ = _navigationService.NavigateToAsync("/settings");
+            _ = _serviceProvider.GetRequiredService<INavigationService>().NavigateToAsync("/settings");
         };
         menuFlyout.Add(settingsItem);
 
-        return CreateIdentityPickerView(FluentIcons.AppStore24, displayName, menuFlyout);
+        return CreateIdentityPickerView(
+            GetEnumDescription(FontAwesomeBrandIcons.Apple), "FontAwesomeBrandIcons",
+            displayName, menuFlyout);
     }
 
     private View? CreateGoogleIdentityButton()
@@ -430,14 +433,16 @@ public class WindowsTitleBarManager
         var settingsItem = new MenuFlyoutItem { Text = "Settings…" };
         settingsItem.Clicked += (s, e) =>
         {
-            _ = _navigationService.NavigateToAsync("/settings");
+            _ = _serviceProvider.GetRequiredService<INavigationService>().NavigateToAsync("/settings");
         };
         menuFlyout.Add(settingsItem);
 
-        return CreateIdentityPickerView(FluentIcons.Cloud20, displayName, menuFlyout);
+        return CreateIdentityPickerView(
+            GetEnumDescription(FontAwesomeBrandIcons.Google), "FontAwesomeBrandIcons",
+            displayName, menuFlyout);
     }
 
-    private Border CreateIdentityPickerView(FluentIcons icon, string displayName, MenuFlyout menuFlyout)
+    private Border CreateIdentityPickerView(string iconGlyph, string iconFontFamily, string displayName, MenuFlyout menuFlyout)
     {
         var chevronGlyph = GetEnumDescription(FluentIcons.ChevronDown16);
 
@@ -447,12 +452,14 @@ public class WindowsTitleBarManager
             VerticalOptions = LayoutOptions.Center,
         };
 
-        layout.Children.Add(new Image
+        layout.Children.Add(new Label
         {
-            Source = GetFluentIcon(icon, Colors.White, 16),
-            HeightRequest = 16,
-            WidthRequest = 16,
+            Text = iconGlyph,
+            FontFamily = iconFontFamily,
+            FontSize = 16,
+            TextColor = Colors.White,
             VerticalOptions = LayoutOptions.Center,
+            VerticalTextAlignment = TextAlignment.Center,
         });
 
         layout.Children.Add(new Label

@@ -44,7 +44,7 @@ public class App : Application
             _serviceProvider.GetRequiredService<IAppleIdentityStateService>(),
             _serviceProvider.GetRequiredService<IGoogleIdentityService>(),
             _serviceProvider.GetRequiredService<IGoogleIdentityStateService>(),
-            _serviceProvider.GetRequiredService<INavigationService>());
+            _serviceProvider);
         var titleBar = titleBarManager.CreateTitleBar();
         window.TitleBar = titleBar;
 
