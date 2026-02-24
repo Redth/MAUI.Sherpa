@@ -11,6 +11,7 @@
 @inject ILauncher AppLauncher
 @inject IAdbDeviceWatcherService AdbWatcher
 @inject ISimulatorService SimulatorService
+@inject IPhysicalDeviceService PhysicalDeviceService
 @inject IUpdateService UpdateService
 @inject NavigationManager Navigation
 
@@ -40,11 +41,13 @@
     <h2><i class="fas fa-plug"></i> Connected Devices</h2>
     <div class="devices-grid">
         @{
-            var physicalDevices = AdbWatcher.Devices?.Where(d => !d.IsEmulator && d.State == "device").ToList() ?? new();
-            var runningEmulators = AdbWatcher.Devices?.Where(d => d.IsEmulator && d.State == "device").ToList() ?? new();
+            var androidPhysical = AdbWatcher.Devices?.Where(d => !d.IsEmulator && d.State == "device").ToList() ?? new();
+            var androidEmulators = AdbWatcher.Devices?.Where(d => d.IsEmulator && d.State == "device").ToList() ?? new();
+            var hasAny = androidPhysical.Count > 0 || androidEmulators.Count > 0
+                || (bootedSimulators?.Count ?? 0) > 0 || (appleDevices?.Count ?? 0) > 0;
         }
 
-        @foreach (var device in physicalDevices)
+        @foreach (var device in androidPhysical)
         {
             <div class="device-card">
                 <div class="device-card-icon android"><i class="fas fa-mobile-alt"></i></div>
@@ -58,7 +61,7 @@
             </div>
         }
 
-        @foreach (var emu in runningEmulators)
+        @foreach (var emu in androidEmulators)
         {
             <div class="device-card">
                 <div class="device-card-icon emulator"><i class="fas fa-desktop"></i></div>
@@ -72,7 +75,24 @@
             </div>
         }
 
-        @if (SimulatorService.IsSupported && bootedSimulators != null)
+        @if (appleDevices != null)
+        {
+            @foreach (var device in appleDevices)
+            {
+                <div class="device-card">
+                    <div class="device-card-icon apple-device"><i class="fab fa-apple"></i></div>
+                    <div class="device-card-info">
+                        <div class="device-card-name">@device.Name</div>
+                        <div class="device-card-detail">@device.Model — @device.OsVersion</div>
+                    </div>
+                    <button class="device-card-action" @onclick='() => Navigation.NavigateTo("/apple-simulators")' title="View">
+                        <i class="fas fa-search"></i>
+                    </button>
+                </div>
+            }
+        }
+
+        @if (bootedSimulators != null)
         {
             @foreach (var sim in bootedSimulators)
             {
@@ -89,7 +109,7 @@
             }
         }
 
-        @if (physicalDevices.Count == 0 && runningEmulators.Count == 0 && (bootedSimulators == null || bootedSimulators.Count == 0))
+        @if (!hasAny)
         {
             <div class="devices-empty">
                 <i class="fas fa-plug"></i>
@@ -256,6 +276,11 @@
     .device-card-icon.simulator {
         background: rgba(159, 122, 234, 0.12);
         color: var(--accent-purple);
+    }
+
+    .device-card-icon.apple-device {
+        background: rgba(102, 126, 234, 0.12);
+        color: var(--accent-indigo);
     }
 
     .device-card-info {
@@ -487,8 +512,10 @@
 
 @code {
     private List<SimulatorDevice>? bootedSimulators;
+    private List<PhysicalDevice>? appleDevices;
     private IReadOnlyList<GitHubRelease>? releases;
     private HashSet<string> expandedReleases = new();
+    private System.Threading.Timer? _devicePollTimer;
 
     private static readonly string CacheFilePath = Path.Combine(
         AppDataPath.GetAppDataDirectory(), "releases-cache.json");
@@ -501,6 +528,9 @@
         );
         ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
 
+        // Subscribe to Android device changes
+        AdbWatcher.DevicesChanged += OnAndroidDevicesChanged;
+
         LoadCachedReleases();
 
         if (releases?.Count > 0)
@@ -508,6 +538,33 @@
     }
 
     protected override async Task OnInitializedAsync()
+    {
+        // Start ADB watcher if not already watching
+        if (!AdbWatcher.IsWatching)
+        {
+            try { await AdbWatcher.StartAsync(); }
+            catch { }
+        }
+
+        // Load simulators and physical devices
+        await RefreshAppleDevicesAsync();
+
+        // Poll simulators/physical devices every 10 seconds (no watcher available)
+        _devicePollTimer = new System.Threading.Timer(async _ =>
+        {
+            await RefreshAppleDevicesAsync();
+            await InvokeAsync(StateHasChanged);
+        }, null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
+
+        await RefreshReleasesAsync();
+    }
+
+    private void OnAndroidDevicesChanged(IReadOnlyList<DeviceInfo> _)
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    private async Task RefreshAppleDevicesAsync()
     {
         if (SimulatorService.IsSupported)
         {
@@ -518,11 +575,22 @@
             }
             catch
             {
-                bootedSimulators = new List<SimulatorDevice>();
+                bootedSimulators ??= new();
             }
         }
 
-        await RefreshReleasesAsync();
+        if (PhysicalDeviceService.IsSupported)
+        {
+            try
+            {
+                var devices = await PhysicalDeviceService.GetDevicesAsync();
+                appleDevices = devices.Where(d => d.ConnectionState == "connected").ToList();
+            }
+            catch
+            {
+                appleDevices ??= new();
+            }
+        }
     }
 
     private void OnToolbarItemClicked(string actionId)
@@ -607,6 +675,8 @@
     public void Dispose()
     {
         ToolbarService.ToolbarItemClicked -= OnToolbarItemClicked;
+        AdbWatcher.DevicesChanged -= OnAndroidDevicesChanged;
+        _devicePollTimer?.Dispose();
     }
 
     private void OpenCopilot()
