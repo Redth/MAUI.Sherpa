@@ -30,6 +30,8 @@ public class BlazorContentPage : ContentPage
     private MacOSMenuToolbarItem? _backupMenu;
     private MacOSMenuToolbarItem? _filterMenu;
     private MacOSSearchToolbarItem? _searchItem;
+    private NSMenuToolbarItem? _nativeIdentityMenu;
+    private NSMenuToolbarItem? _nativeFilterMenu;
     private string _pendingRoute = "/";
     private string _currentRoute = "/";
 
@@ -333,6 +335,8 @@ public class BlazorContentPage : ContentPage
         var toolbar = nsWindow?.Toolbar;
         if (toolbar == null) return;
 
+        CacheNativeMenuItems(toolbar);
+
         var activeIds = new HashSet<string>();
         foreach (var action in _toolbarService.CurrentItems)
             activeIds.Add(action.Id);
@@ -360,6 +364,10 @@ public class BlazorContentPage : ContentPage
         MacOSToolbarItem.SetIsVisible(_backupMenu, isSettings);
         MacOSToolbarItem.SetIsVisible(_filterMenu, hasFilter);
         MacOSToolbarItem.SetIsVisible(_searchItem, hasSearch);
+
+        // Also directly set native Hidden on cached items (macOS 15+)
+        if (_nativeIdentityMenu != null) _nativeIdentityMenu.Hidden = !hasIdentity;
+        if (_nativeFilterMenu != null) _nativeFilterMenu.Hidden = !hasFilter;
 
         if (hasSearch && _searchItem != null)
         {
@@ -402,6 +410,21 @@ public class BlazorContentPage : ContentPage
             Dispatcher.Dispatch(HookNativeSearchField);
     }
 
+    /// <summary>
+    /// Finds and caches native NSMenuToolbarItem references by MauiMenu_ identifier.
+    /// Menu order: 0=Identity, 1=Publish, 2=Backup, 3=Filter
+    /// </summary>
+    void CacheNativeMenuItems(NSToolbar toolbar)
+    {
+        if (_nativeIdentityMenu != null && _nativeFilterMenu != null) return;
+        foreach (var nsItem in toolbar.Items)
+        {
+            if (nsItem is not NSMenuToolbarItem m) continue;
+            if (nsItem.Identifier == "MauiMenu_0") _nativeIdentityMenu = m;
+            else if (nsItem.Identifier == "MauiMenu_3") _nativeFilterMenu = m;
+        }
+    }
+
     [System.Runtime.InteropServices.DllImport(ObjCRuntime.Constants.ObjectiveCLibrary, EntryPoint = "objc_msgSend")]
     static extern void _objc_msgSend_bool(IntPtr receiver, IntPtr selector, bool arg1);
 
@@ -434,10 +457,10 @@ public class BlazorContentPage : ContentPage
         var toolbar = nsWindow?.Toolbar;
         if (toolbar == null) return;
 
-        // Publish menu is MauiMenu_1
+        // Find Publish menu by label
         foreach (var nsItem in toolbar.Items)
         {
-            if (nsItem.Identifier == "MauiMenu_1" && nsItem is NSMenuToolbarItem menuItem && menuItem.Menu != null)
+            if (nsItem is NSMenuToolbarItem menuItem && nsItem.Label == "Publish" && menuItem.Menu != null)
             {
                 // "Publish Selected…" is the second item (index 1)
                 if (menuItem.Menu.Count >= 2)
@@ -453,25 +476,12 @@ public class BlazorContentPage : ContentPage
     /// </summary>
     void RebuildFilterMenuNatively()
     {
-        var nsWindow = this.Window?.Handler?.PlatformView as NSWindow;
-        var toolbar = nsWindow?.Toolbar;
-        if (toolbar == null) return;
-
         var filters = _toolbarService.CurrentFilters;
         if (filters.Count == 0) return;
 
         _nativeMenuTargets.Clear();
 
-        // Find filter menu by identifier (MauiMenu_2)
-        NSMenuToolbarItem? filterNative = null;
-        foreach (var nsItem in toolbar.Items)
-        {
-            if (nsItem.Identifier == "MauiMenu_2" && nsItem is NSMenuToolbarItem m)
-            {
-                filterNative = m;
-                break;
-            }
-        }
+        var filterNative = _nativeFilterMenu;
         if (filterNative?.Menu == null) return;
 
         var menu = filterNative.Menu;
@@ -537,19 +547,7 @@ public class BlazorContentPage : ContentPage
             return;
         }
 
-        var nsWindow = this.Window?.Handler?.PlatformView as NSWindow;
-        var toolbar = nsWindow?.Toolbar;
-        if (toolbar == null) return;
-
-        NSMenuToolbarItem? identityNative = null;
-        foreach (var nsItem in toolbar.Items)
-        {
-            if (nsItem.Identifier == "MauiMenu_0" && nsItem is NSMenuToolbarItem m)
-            {
-                identityNative = m;
-                break;
-            }
-        }
+        var identityNative = _nativeIdentityMenu;
         if (identityNative?.Menu == null) return;
 
         var identities = _cachedGoogleIdentities;
@@ -622,19 +620,7 @@ public class BlazorContentPage : ContentPage
             return;
         }
 
-        var nsWindow = this.Window?.Handler?.PlatformView as NSWindow;
-        var toolbar = nsWindow?.Toolbar;
-        if (toolbar == null) return;
-
-        NSMenuToolbarItem? identityNative = null;
-        foreach (var nsItem in toolbar.Items)
-        {
-            if (nsItem.Identifier == "MauiMenu_0" && nsItem is NSMenuToolbarItem m)
-            {
-                identityNative = m;
-                break;
-            }
-        }
+        var identityNative = _nativeIdentityMenu;
         if (identityNative?.Menu == null) return;
 
         var identities = _cachedIdentities;
@@ -697,6 +683,8 @@ public class BlazorContentPage : ContentPage
     void FullRebuildToolbar()
     {
             _actionItemMap.Clear();
+            _nativeIdentityMenu = null;
+            _nativeFilterMenu = null;
 
             // Copilot button in sidebar trailing area (convenience mode handles it)
             var copilotItem = CreateCopilotToolbarItem();
@@ -966,20 +954,7 @@ public class BlazorContentPage : ContentPage
         // Update native NSMenu checkmarks directly without rebuilding the toolbar
         Dispatcher.Dispatch(() =>
         {
-            var nsWindow = this.Window?.Handler?.PlatformView as NSWindow;
-            var toolbar = nsWindow?.Toolbar;
-            if (toolbar == null) return;
-
-            // Filter menu is MauiMenu_2 (identity=0, publish=1, filter=2)
-            NSMenuToolbarItem? filterNative = null;
-            foreach (var item in toolbar.Items)
-            {
-                if (item.Identifier == "MauiMenu_2" && item is NSMenuToolbarItem m)
-                {
-                    filterNative = m;
-                    break;
-                }
-            }
+            var filterNative = _nativeFilterMenu;
             if (filterNative?.Menu == null) return;
 
             var filters = _toolbarService.CurrentFilters;
