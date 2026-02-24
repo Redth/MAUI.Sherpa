@@ -1,9 +1,12 @@
 @page "/"
+@using Markdig
 @using MauiSherpa.Core.ViewModels
 @using MauiSherpa.Core.Interfaces
 @inject DashboardViewModel ViewModel
 @inject ICopilotContextService CopilotContext
 @inject IToolbarService ToolbarService
+@inject IUpdateService UpdateService
+@inject ILauncher AppLauncher
 
 <h1><i class="fas fa-home"></i> @ViewModel.Title</h1>
 <p class="welcome">@ViewModel.WelcomeMessage</p>
@@ -66,6 +69,53 @@
                 <i class="fas fa-shield-alt"></i> Root Certificates
             </a>
         </div>
+    </div>
+</div>
+
+<div class="releases-section">
+    <div class="card releases-card">
+        <div class="card-header">
+            <i class="fas fa-tags card-icon"></i>
+            <h3>Recent Releases</h3>
+        </div>
+        @if (isLoadingReleases)
+        {
+            <div class="releases-loading">
+                <i class="fas fa-spinner fa-spin"></i>
+                <span>Loading releases...</span>
+            </div>
+        }
+        else if (releases.Count == 0)
+        {
+            <p class="releases-empty">No releases found.</p>
+        }
+        else
+        {
+            @foreach (var release in releases)
+            {
+                <div class="release-entry">
+                    <div class="release-header">
+                        <div class="release-info">
+                            <span class="release-name">@release.Name</span>
+                            @if (release.IsPrerelease)
+                            {
+                                <span class="release-badge prerelease">pre-release</span>
+                            }
+                        </div>
+                        <div class="release-header-right">
+                            <span class="release-tag"><i class="fas fa-tag"></i> @release.TagName</span>
+                            <span class="release-date">@release.PublishedAt.ToString("MMM d, yyyy")</span>
+                            <button class="release-open-btn" @onclick="() => OpenRelease(release.HtmlUrl)" title="Open on GitHub">
+                                <i class="fas fa-external-link-alt"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="release-body">
+                        @((MarkupString)ConvertMarkdownToHtml(release.Body))
+                    </div>
+                </div>
+            }
+        }
     </div>
 </div>
 
@@ -207,12 +257,212 @@
     .theme-dark .apple-card {
         border-top: 3px solid var(--accent-indigo);
     }
+
+    .releases-section {
+        margin-top: 1.5rem;
+    }
+
+    .releases-card {
+        border-top: 3px solid var(--accent-warning);
+    }
+
+    .releases-card .card-icon {
+        color: var(--accent-warning);
+    }
+
+    .theme-dark .releases-card {
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-top: 3px solid var(--accent-warning);
+    }
+
+    .releases-loading {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        color: var(--text-muted);
+        font-size: 0.875rem;
+        padding: 1rem 0;
+    }
+
+    .releases-empty {
+        color: var(--text-muted);
+        font-size: 0.875rem;
+    }
+
+    .release-entry {
+        background: var(--bg-tertiary);
+        border-radius: 0.5rem;
+        margin-top: 1rem;
+    }
+
+    .theme-dark .release-entry {
+        background: rgba(255, 255, 255, 0.06);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .release-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.75rem 1rem;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .release-info {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .release-name {
+        font-weight: 600;
+    }
+
+    .release-badge.prerelease {
+        font-size: 0.7rem;
+        padding: 0.125rem 0.5rem;
+        border-radius: 1rem;
+        background: var(--accent-warning);
+        color: #fff;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.025em;
+    }
+
+    .release-header-right {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        color: var(--text-muted);
+        font-size: 0.8rem;
+    }
+
+    .release-tag i {
+        margin-right: 0.25rem;
+        opacity: 0.7;
+    }
+
+    .release-open-btn {
+        background: none;
+        border: none;
+        color: var(--text-muted);
+        cursor: pointer;
+        padding: 0.25rem 0.5rem;
+        border-radius: 0.25rem;
+        font-size: 0.8rem;
+        transition: all 0.2s ease;
+    }
+
+    .release-open-btn:hover {
+        color: var(--accent-purple);
+        background: var(--bg-hover);
+    }
+
+    .release-body {
+        padding: 0.75rem 1rem;
+        font-size: 0.8125rem;
+        color: var(--text-secondary);
+        line-height: 1.5;
+    }
+
+    .release-body h1,
+    .release-body h2,
+    .release-body h3 {
+        color: var(--text-primary);
+        margin-top: 1rem;
+        margin-bottom: 0.5rem;
+    }
+
+    .release-body h1:first-child,
+    .release-body h2:first-child,
+    .release-body h3:first-child {
+        margin-top: 0;
+    }
+
+    .release-body h1 { font-size: 1.125rem; }
+    .release-body h2 { font-size: 1rem; }
+    .release-body h3 { font-size: 0.9375rem; }
+
+    .release-body ul,
+    .release-body ol {
+        margin: 0.5rem 0;
+        padding-left: 1.5rem;
+    }
+
+    .release-body li {
+        margin: 0.375rem 0;
+    }
+
+    .release-body code {
+        background: var(--bg-primary);
+        padding: 2px 0.375rem;
+        border-radius: 0.25rem;
+        font-family: 'Courier New', monospace;
+        font-size: 0.8125rem;
+    }
+
+    .release-body pre {
+        background: var(--bg-primary);
+        padding: 0.75rem;
+        border-radius: 0.25rem;
+        overflow-x: auto;
+        margin: 0.75rem 0;
+    }
+
+    .release-body a {
+        color: var(--accent-purple);
+        text-decoration: none;
+    }
+
+    .release-body a:hover {
+        text-decoration: underline;
+    }
+
+    .release-body hr {
+        border: none;
+        border-top: 1px solid var(--border-color);
+        margin: 1rem 0;
+    }
+
+    .release-body p {
+        margin: 0.5rem 0;
+    }
 </style>
 
 @code {
-    protected override void OnInitialized()
+    private IReadOnlyList<GitHubRelease> releases = [];
+    private bool isLoadingReleases = true;
+
+    protected override async Task OnInitializedAsync()
     {
         ToolbarService.ClearItems();
+
+        var allReleases = await UpdateService.GetAllReleasesAsync();
+        releases = allReleases
+            .Where(r => !r.IsDraft)
+            .OrderByDescending(r => r.PublishedAt)
+            .Take(10)
+            .ToList();
+        isLoadingReleases = false;
+    }
+
+    private async Task OpenRelease(string url)
+    {
+        if (!string.IsNullOrEmpty(url))
+            await AppLauncher.OpenAsync(new Uri(url));
+    }
+
+    private string ConvertMarkdownToHtml(string markdown)
+    {
+        if (string.IsNullOrWhiteSpace(markdown))
+            return "<p>No release notes available.</p>";
+
+        var pipeline = new MarkdownPipelineBuilder()
+            .UseAutoLinks()
+            .UseEmphasisExtras()
+            .Build();
+
+        return Markdown.ToHtml(markdown, pipeline);
     }
 
     private void OpenCopilot()
