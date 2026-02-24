@@ -130,6 +130,57 @@ public interface IAdbDeviceWatcherService : IDisposable
     event Action<IReadOnlyList<DeviceInfo>>? DevicesChanged;
 }
 
+// ============================================================================
+// DEVICE MONITOR SERVICE — Centralized device/simulator/emulator monitoring
+// ============================================================================
+
+/// <summary>
+/// Apple device information from xcdevice list (covers both physical devices and simulators)
+/// </summary>
+public record AppleDeviceInfo(
+    string Identifier,
+    string Name,
+    string ModelName,
+    string Platform,
+    string Architecture,
+    string OsVersion,
+    bool IsSimulator,
+    bool IsAvailable,
+    string? Interface,   // "usb", "wifi", or null for simulators
+    string? SimState     // "Booted", "Shutdown", etc. (simulators only)
+);
+
+/// <summary>
+/// Snapshot of all connected devices, emulators, and simulators
+/// </summary>
+public record ConnectedDevicesSnapshot(
+    IReadOnlyList<DeviceInfo> AndroidDevices,
+    IReadOnlyList<DeviceInfo> AndroidEmulators,
+    IReadOnlyList<AppleDeviceInfo> ApplePhysicalDevices,
+    IReadOnlyList<AppleDeviceInfo> BootedSimulators
+)
+{
+    public static ConnectedDevicesSnapshot Empty => new(
+        Array.Empty<DeviceInfo>(),
+        Array.Empty<DeviceInfo>(),
+        Array.Empty<AppleDeviceInfo>(),
+        Array.Empty<AppleDeviceInfo>()
+    );
+}
+
+/// <summary>
+/// Centralized service for monitoring all connected devices, emulators, and simulators.
+/// Uses event-driven monitoring (ADB daemon + xcdevice observe) and publishes
+/// mediator events on changes.
+/// </summary>
+public interface IDeviceMonitorService
+{
+    ConnectedDevicesSnapshot Current { get; }
+    event Action<ConnectedDevicesSnapshot>? Changed;
+    Task StartAsync();
+    void Stop();
+}
+
 public record DeviceFileEntry(
     string Name,
     string FullPath,

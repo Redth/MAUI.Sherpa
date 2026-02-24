@@ -45,11 +45,23 @@ class MacOSApp : Application
         // Add custom menu items after framework finishes menu bar setup
         NSApplication.SharedApplication.BeginInvokeOnMainThread(() => AddAppMenuItems(blazorPage));
 
+        // Start centralized device monitoring
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var monitor = _serviceProvider.GetRequiredService<IDeviceMonitorService>();
+                await monitor.StartAsync();
+            }
+            catch { }
+        });
+
         return window;
     }
 
     private void OnMainWindowDestroying(object? sender, EventArgs e)
     {
+        try { _serviceProvider.GetRequiredService<IDeviceMonitorService>().Stop(); } catch { }
         NSApplication.SharedApplication.Terminate(NSApplication.SharedApplication);
     }
 
