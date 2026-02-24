@@ -49,17 +49,9 @@
             <div class="empty-description">Connect an Android device via USB or start an emulator</div>
         </div>
     }
-    else if (!FilteredDevices.Any())
-    {
-        <div class="empty-state">
-            <div class="empty-icon"><i class="fas fa-search"></i></div>
-            <div class="empty-title">No matching devices</div>
-            <div class="empty-description">No devices match your search. Try a different query.</div>
-        </div>
-    }
     else
     {
-        @foreach (var device in FilteredDevices)
+        @foreach (var device in devices)
         {
             <div class="device-card">
                 <div class="device-icon"><i class="fas @(device.IsEmulator ? "fa-mobile-alt" : "fa-mobile")"></i></div>
@@ -323,16 +315,13 @@
     private List<DeviceInfo> devices = new();
     private bool isLoading = false;
     private bool demoMode = false;
-    private string searchText = "";
 
     protected override async Task OnInitializedAsync()
     {
         ToolbarService.SetItems(
             new ToolbarAction("refresh", "Refresh", "arrow.clockwise")
         );
-        ToolbarService.SetSearch("Search devices...");
         ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
-        ToolbarService.SearchTextChanged += OnSearchTextChanged;
 
         try { var settings = await SettingsService.GetSettingsAsync(); demoMode = settings.Preferences.DemoMode; } catch { }
         // Subscribe to SDK path changes from Settings
@@ -430,21 +419,8 @@
     public void Dispose()
     {
         ToolbarService.ToolbarItemClicked -= OnToolbarItemClicked;
-        ToolbarService.SearchTextChanged -= OnSearchTextChanged;
         SdkService.SdkPathChanged -= OnSdkPathChanged;
         DeviceWatcher.DevicesChanged -= OnDevicesChanged;
-    }
-
-    private IEnumerable<DeviceInfo> FilteredDevices => string.IsNullOrWhiteSpace(searchText)
-        ? devices
-        : devices.Where(d =>
-            (d.Model?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
-            (d.Serial?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false));
-
-    private void OnSearchTextChanged(string text)
-    {
-        searchText = text;
-        InvokeAsync(StateHasChanged);
     }
 
     private void OnToolbarItemClicked(string actionId)
