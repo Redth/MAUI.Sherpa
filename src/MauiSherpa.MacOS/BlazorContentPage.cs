@@ -22,6 +22,7 @@ public class BlazorContentPage : ContentPage
     private readonly IAppleIdentityStateService _identityState;
     private readonly IGoogleIdentityService _googleIdentityService;
     private readonly IGoogleIdentityStateService _googleIdentityState;
+    private readonly IPreferences _preferences;
     private AppKit.NSView? _loadingOverlay;
     private NSImage? _copilotIcon;
     private MacOSMenuToolbarItem? _identityMenu;
@@ -31,6 +32,9 @@ public class BlazorContentPage : ContentPage
     private MacOSSearchToolbarItem? _searchItem;
     private string _pendingRoute = "/";
     private string _currentRoute = "/";
+
+    private const string PrefKeySidebarWidth = "sidebar_width";
+    private const double DefaultSidebarWidth = 250;
 
     // Routes that show the Apple identity picker
     static readonly HashSet<string> AppleRoutes = new(StringComparer.OrdinalIgnoreCase)
@@ -56,6 +60,7 @@ public class BlazorContentPage : ContentPage
         _identityState = serviceProvider.GetRequiredService<IAppleIdentityStateService>();
         _googleIdentityService = serviceProvider.GetRequiredService<IGoogleIdentityService>();
         _googleIdentityState = serviceProvider.GetRequiredService<IGoogleIdentityStateService>();
+        _preferences = serviceProvider.GetRequiredService<IPreferences>();
         _toolbarService.RouteChanged += route => _currentRoute = route;
 
         _splashService = serviceProvider.GetRequiredService<ISplashService>();
@@ -182,7 +187,11 @@ public class BlazorContentPage : ContentPage
 
     private void OnBlazorReady()
     {
-        Dispatcher.Dispatch(() => HideSplash());
+        Dispatcher.Dispatch(() =>
+        {
+            HideSplash();
+            SetupSidebarWidthPersistence();
+        });
     }
 
     private void HideSplash()
@@ -201,6 +210,31 @@ public class BlazorContentPage : ContentPage
             _loadingOverlay!.Layer!.Opacity = 0;
             CoreAnimation.CATransaction.Commit();
         });
+    }
+
+    /// <summary>
+    /// Restores saved sidebar width. Call once after the split view is ready.
+    /// </summary>
+    private void SetupSidebarWidthPersistence()
+    {
+        // BlazorContentPage -> NavigationPage (Detail) -> FlyoutPage
+        var navPage = this.Parent as NavigationPage;
+        var flyoutPage = navPage?.Parent as FlyoutPage;
+        var handler = flyoutPage?.Handler as Microsoft.Maui.Platform.MacOS.Handlers.NativeSidebarFlyoutPageHandler;
+        var splitVC = handler?.SplitViewController;
+        var splitView = splitVC?.SplitView;
+        if (splitView == null) return;
+
+        // Cache split view reference in MacOSApp for quit-time save
+        if (Application.Current is MacOSApp app)
+            app.CacheSplitView();
+
+        // Restore saved sidebar width
+        var savedWidth = _preferences.Get(PrefKeySidebarWidth, DefaultSidebarWidth);
+        if (savedWidth > 0)
+        {
+            splitView.SetPositionOfDivider((nfloat)savedWidth, 0);
+        }
     }
 
     /// <summary>

@@ -12,6 +12,7 @@ class MacOSApp : Application
     private readonly IPreferences _preferences;
     private FlyoutPage? _flyoutPage;
     private BlazorContentPage? _blazorPage;
+    private NSSplitView? _cachedSplitView;
     private List<MacOSSidebarItem>? _sidebarItems;
     private bool _suppressSidebarSync;
     private readonly List<NSObject> _menuHandlers = new(); // prevent GC of menu action targets
@@ -22,6 +23,7 @@ class MacOSApp : Application
     private const double DefaultHeight = 800;
     private const double MinWidth = 600;
     private const double MinHeight = 400;
+    private const string PrefKeySidebarWidth = "sidebar_width";
 
     public MacOSApp(IServiceProvider serviceProvider)
     {
@@ -30,6 +32,10 @@ class MacOSApp : Application
 
         var toolbarService = serviceProvider.GetRequiredService<IToolbarService>();
         toolbarService.RouteChanged += OnBlazorRouteChanged;
+
+        // Save sidebar width before the process terminates
+        NSNotificationCenter.DefaultCenter.AddObserver(
+            NSApplication.WillTerminateNotification, _ => SaveSidebarWidth());
     }
 
     protected override Window CreateWindow(IActivationState? activationState)
@@ -51,6 +57,7 @@ class MacOSApp : Application
 
         window.SizeChanged += OnWindowSizeChanged;
         window.Destroying += OnMainWindowDestroying;
+        window.Stopped += (_, _) => SaveSidebarWidth();
 
         // Add custom menu items after framework finishes menu bar setup
         NSApplication.SharedApplication.BeginInvokeOnMainThread(() => AddAppMenuItems(blazorPage));
@@ -60,7 +67,59 @@ class MacOSApp : Application
 
     private void OnMainWindowDestroying(object? sender, EventArgs e)
     {
+        // Save sidebar width before terminating
+        SaveSidebarWidth();
+
+        // Also save window size immediately (don't rely on debounce)
+        if (sender is Window w)
+        {
+            var width = w.Width;
+            var height = w.Height;
+            if (width >= MinWidth && height >= MinHeight)
+            {
+                _preferences.Set(PrefKeyWidth, width);
+                _preferences.Set(PrefKeyHeight, height);
+            }
+        }
+
         NSApplication.SharedApplication.Terminate(NSApplication.SharedApplication);
+    }
+
+    private void SaveSidebarWidth()
+    {
+        try
+        {
+            // Try to get split view from handler, or use cached reference
+            var splitView = _cachedSplitView;
+            if (splitView == null)
+            {
+                var handler = _flyoutPage?.Handler as Microsoft.Maui.Platform.MacOS.Handlers.NativeSidebarFlyoutPageHandler;
+                splitView = handler?.SplitViewController?.SplitView;
+            }
+            if (splitView == null) return;
+
+            _cachedSplitView = splitView;
+
+            var sidebarView = splitView.ArrangedSubviews.Length > 0
+                ? splitView.ArrangedSubviews[0]
+                : (splitView.Subviews.Length > 0 ? splitView.Subviews[0] : null);
+            if (sidebarView == null) return;
+
+            var width = (double)sidebarView.Frame.Width;
+            if (width > 0)
+                _preferences.Set(PrefKeySidebarWidth, width);
+        }
+        catch { }
+    }
+
+    /// <summary>
+    /// Caches the split view reference for use during app termination.
+    /// </summary>
+    internal void CacheSplitView()
+    {
+        if (_cachedSplitView != null) return;
+        var handler = _flyoutPage?.Handler as Microsoft.Maui.Platform.MacOS.Handlers.NativeSidebarFlyoutPageHandler;
+        _cachedSplitView = handler?.SplitViewController?.SplitView;
     }
 
     void AddAppMenuItems(BlazorContentPage blazorPage)
