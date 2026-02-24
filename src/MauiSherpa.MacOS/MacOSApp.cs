@@ -17,12 +17,6 @@ class MacOSApp : Application
     private bool _suppressSidebarSync;
     private readonly List<NSObject> _menuHandlers = new(); // prevent GC of menu action targets
 
-    private const string PrefKeyWidth = "window_width";
-    private const string PrefKeyHeight = "window_height";
-    private const double DefaultWidth = 1280;
-    private const double DefaultHeight = 800;
-    private const double MinWidth = 600;
-    private const double MinHeight = 400;
     private const string PrefKeySidebarWidth = "sidebar_width";
 
     public MacOSApp(IServiceProvider serviceProvider)
@@ -33,9 +27,9 @@ class MacOSApp : Application
         var toolbarService = serviceProvider.GetRequiredService<IToolbarService>();
         toolbarService.RouteChanged += OnBlazorRouteChanged;
 
-        // Save sidebar width before the process terminates
+        // Save state before the process terminates
         NSNotificationCenter.DefaultCenter.AddObserver(
-            NSApplication.WillTerminateNotification, _ => SaveSidebarWidth());
+            NSApplication.WillTerminateNotification, _ => SaveState());
     }
 
     protected override Window CreateWindow(IActivationState? activationState)
@@ -44,20 +38,9 @@ class MacOSApp : Application
         _blazorPage = blazorPage;
         var flyoutPage = CreateFlyoutPage(blazorPage);
 
-        var savedWidth = _preferences.Get(PrefKeyWidth, DefaultWidth);
-        var savedHeight = _preferences.Get(PrefKeyHeight, DefaultHeight);
-        savedWidth = Math.Max(MinWidth, savedWidth);
-        savedHeight = Math.Max(MinHeight, savedHeight);
+        var window = new Window(flyoutPage);
 
-        var window = new Window(flyoutPage)
-        {
-            Width = savedWidth,
-            Height = savedHeight,
-        };
-
-        window.SizeChanged += OnWindowSizeChanged;
         window.Destroying += OnMainWindowDestroying;
-        window.Stopped += (_, _) => SaveSidebarWidth();
 
         // Add custom menu items after framework finishes menu bar setup
         NSApplication.SharedApplication.BeginInvokeOnMainThread(() => AddAppMenuItems(blazorPage));
@@ -67,47 +50,32 @@ class MacOSApp : Application
 
     private void OnMainWindowDestroying(object? sender, EventArgs e)
     {
-        // Save sidebar width before terminating
-        SaveSidebarWidth();
-
-        // Also save window size immediately (don't rely on debounce)
-        if (sender is Window w)
-        {
-            var width = w.Width;
-            var height = w.Height;
-            if (width >= MinWidth && height >= MinHeight)
-            {
-                _preferences.Set(PrefKeyWidth, width);
-                _preferences.Set(PrefKeyHeight, height);
-            }
-        }
-
         NSApplication.SharedApplication.Terminate(NSApplication.SharedApplication);
     }
 
-    private void SaveSidebarWidth()
+    private void SaveState()
     {
         try
         {
-            // Try to get split view from handler, or use cached reference
+            // Save sidebar width
             var splitView = _cachedSplitView;
             if (splitView == null)
             {
                 var handler = _flyoutPage?.Handler as Microsoft.Maui.Platform.MacOS.Handlers.NativeSidebarFlyoutPageHandler;
                 splitView = handler?.SplitViewController?.SplitView;
             }
-            if (splitView == null) return;
-
-            _cachedSplitView = splitView;
-
-            var sidebarView = splitView.ArrangedSubviews.Length > 0
-                ? splitView.ArrangedSubviews[0]
-                : (splitView.Subviews.Length > 0 ? splitView.Subviews[0] : null);
-            if (sidebarView == null) return;
-
-            var width = (double)sidebarView.Frame.Width;
-            if (width > 0)
-                _preferences.Set(PrefKeySidebarWidth, width);
+            if (splitView != null)
+            {
+                var sidebarView = splitView.ArrangedSubviews.Length > 0
+                    ? splitView.ArrangedSubviews[0]
+                    : (splitView.Subviews.Length > 0 ? splitView.Subviews[0] : null);
+                if (sidebarView != null)
+                {
+                    var width = (double)sidebarView.Frame.Width;
+                    if (width > 0)
+                        _preferences.Set(PrefKeySidebarWidth, width);
+                }
+            }
         }
         catch { }
     }
@@ -239,31 +207,6 @@ class MacOSApp : Application
         _suppressSidebarSync = false;
     }
 
-    private CancellationTokenSource? _saveCts;
-
-    private void OnWindowSizeChanged(object? sender, EventArgs e)
-    {
-        if (sender is not Window window) return;
-
-        var w = window.Width;
-        var h = window.Height;
-        if (w < MinWidth || h < MinHeight) return;
-
-        _saveCts?.Cancel();
-        _saveCts = new CancellationTokenSource();
-        var token = _saveCts.Token;
-
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await Task.Delay(500, token);
-                _preferences.Set(PrefKeyWidth, w);
-                _preferences.Set(PrefKeyHeight, h);
-            }
-            catch (TaskCanceledException) { }
-        }, token);
-    }
 }
 
 /// <summary>
