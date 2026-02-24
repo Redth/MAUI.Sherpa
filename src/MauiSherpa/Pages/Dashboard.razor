@@ -1,72 +1,146 @@
 @page "/"
 @using MauiSherpa.Core.ViewModels
 @using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Core.Services
+@using Markdig
+@implements IDisposable
 @inject DashboardViewModel ViewModel
 @inject ICopilotContextService CopilotContext
 @inject IToolbarService ToolbarService
+@inject IPlatformService PlatformInfo
+@inject IAndroidSdkService AndroidSdk
+@inject IOpenJdkSettingsService JdkSettings
+@inject IAdbDeviceWatcherService AdbWatcher
+@inject ISimulatorService SimulatorService
+@inject IUpdateService UpdateService
+@inject NavigationManager Navigation
 
 <h1><i class="fas fa-home"></i> @ViewModel.Title</h1>
 <p class="welcome">@ViewModel.WelcomeMessage</p>
 
-<div class="quick-actions">
-    <a href="doctor" class="action-btn doctor">
-        <i class="fas fa-stethoscope action-icon"></i>
-        <span>Doctor</span>
-    </a>
-    <a href="settings" class="action-btn settings">
-        <i class="fas fa-cog action-icon"></i>
-        <span>Settings</span>
-    </a>
-    <button class="action-btn copilot" @onclick="OpenCopilot">
-        <i class="fas fa-robot action-icon"></i>
-        <span>Copilot</span>
-    </button>
+@if (!PlatformInfo.HasNativeToolbar)
+{
+    <div class="quick-actions">
+        <a href="doctor" class="action-btn doctor">
+            <i class="fas fa-stethoscope action-icon"></i>
+            <span>Doctor</span>
+        </a>
+        <a href="settings" class="action-btn settings">
+            <i class="fas fa-cog action-icon"></i>
+            <span>Settings</span>
+        </a>
+        <button class="action-btn copilot" @onclick="OpenCopilot">
+            <i class="fas fa-robot action-icon"></i>
+            <span>Copilot</span>
+        </button>
+    </div>
+}
+
+@* At a Glance Card *@
+<div class="card glance-card">
+    <div class="card-header">
+        <i class="fas fa-tachometer-alt card-icon"></i>
+        <h3>At a Glance</h3>
+    </div>
+    <div class="glance-grid">
+        <div class="glance-item" @onclick='() => Navigation.NavigateTo("/android-sdk")'>
+            <div class="glance-label"><i class="fab fa-android"></i> Android SDK</div>
+            <div class="glance-value @(AndroidSdk.IsSdkInstalled ? "" : "text-muted")">
+                @(AndroidSdk.IsSdkInstalled ? TruncatePath(AndroidSdk.SdkPath) : "Not installed")
+            </div>
+        </div>
+        <div class="glance-item" @onclick='() => Navigation.NavigateTo("/settings")'>
+            <div class="glance-label"><i class="fas fa-coffee"></i> OpenJDK</div>
+            <div class="glance-value @(jdkPath != null ? "" : "text-muted")">
+                @(jdkPath != null ? TruncatePath(jdkPath) : "Not configured")
+            </div>
+        </div>
+        <div class="glance-item" @onclick='() => Navigation.NavigateTo("/devices")'>
+            <div class="glance-label"><i class="fas fa-mobile-alt"></i> Android Devices</div>
+            <div class="glance-value">
+                @{
+                    var physicalDevices = AdbWatcher.Devices?.Where(d => !d.IsEmulator && d.State == "device").ToList();
+                    var emulators = AdbWatcher.Devices?.Where(d => d.IsEmulator && d.State == "device").ToList();
+                }
+                @if ((physicalDevices?.Count ?? 0) == 0 && (emulators?.Count ?? 0) == 0)
+                {
+                    <span class="text-muted">None connected</span>
+                }
+                else
+                {
+                    @if (physicalDevices?.Count > 0)
+                    {
+                        <span class="device-badge"><i class="fas fa-mobile-alt"></i> @physicalDevices.Count physical</span>
+                    }
+                    @if (emulators?.Count > 0)
+                    {
+                        <span class="device-badge emulator"><i class="fas fa-desktop"></i> @emulators.Count emulator@(emulators.Count > 1 ? "s" : "")</span>
+                    }
+                }
+            </div>
+        </div>
+        @if (SimulatorService.IsSupported)
+        {
+            <div class="glance-item" @onclick='() => Navigation.NavigateTo("/simulators")'>
+                <div class="glance-label"><i class="fas fa-tablet-alt"></i> iOS Simulators</div>
+                <div class="glance-value">
+                    @if (bootedSimulators == null)
+                    {
+                        <span class="text-muted">Loading...</span>
+                    }
+                    else if (bootedSimulators.Count == 0)
+                    {
+                        <span class="text-muted">None running</span>
+                    }
+                    else
+                    {
+                        @foreach (var sim in bootedSimulators.Take(3))
+                        {
+                            <span class="device-badge simulator"><i class="fas fa-tablet-alt"></i> @sim.Name</span>
+                        }
+                        @if (bootedSimulators.Count > 3)
+                        {
+                            <span class="text-muted">+@(bootedSimulators.Count - 3) more</span>
+                        }
+                    }
+                </div>
+            </div>
+        }
+    </div>
 </div>
 
-<div class="dashboard-cards">
-    <div class="card android-card">
-        <div class="card-header">
-            <i class="fab fa-android card-icon"></i>
-            <h3>Android</h3>
-        </div>
-        <p>Manage Android SDK, devices, and emulators</p>
-        <div class="card-links">
-            <a href="android-sdk" class="card-link">
-                <i class="fas fa-cube"></i> SDK Packages
-            </a>
-            <a href="devices" class="card-link">
-                <i class="fas fa-mobile-alt"></i> Devices
-            </a>
-            <a href="emulators" class="card-link">
-                <i class="fas fa-desktop"></i> Emulators
-            </a>
-        </div>
-    </div>
-    
-    <div class="card apple-card">
-        <div class="card-header">
-            <i class="fab fa-apple card-icon"></i>
-            <h3>Apple</h3>
-        </div>
-        <p>Manage Apple certificates, profiles, and devices</p>
-        <div class="card-links">
-            <a href="bundle-ids" class="card-link">
-                <i class="fas fa-fingerprint"></i> Bundle IDs
-            </a>
-            <a href="apple-devices" class="card-link">
-                <i class="fas fa-mobile-alt"></i> Devices
-            </a>
-            <a href="certificates" class="card-link">
-                <i class="fas fa-certificate"></i> Certificates
-            </a>
-            <a href="profiles" class="card-link">
-                <i class="fas fa-id-card"></i> Provisioning Profiles
-            </a>
-            <a href="root-certificates" class="card-link">
-                <i class="fas fa-shield-alt"></i> Root Certificates
-            </a>
-        </div>
-    </div>
+@* Release Notes *@
+<div class="release-notes-section">
+    <h2><i class="fas fa-mountain"></i> Release Notes</h2>
+    @if (releases == null || releases.Count == 0)
+    {
+        <p class="text-muted">Loading release notes...</p>
+    }
+    else
+    {
+        @foreach (var release in releases.Take(5))
+        {
+            <div class="release-card">
+                <div class="release-header" @onclick="() => ToggleRelease(release.TagName)">
+                    <div class="release-info">
+                        <span class="release-tag">@release.TagName</span>
+                        @if (release.IsPrerelease)
+                        {
+                            <span class="release-prerelease">pre-release</span>
+                        }
+                        <span class="release-date">@release.PublishedAt.ToString("MMM d, yyyy")</span>
+                    </div>
+                    <i class="fas @(expandedReleases.Contains(release.TagName) ? "fa-chevron-up" : "fa-chevron-down") release-toggle"></i>
+                </div>
+                @if (expandedReleases.Contains(release.TagName))
+                {
+                    <div class="release-body">
+                        @((MarkupString)ConvertMarkdownToHtml(release.Body))
+                    </div>
+                }
+            </div>
+        }
+    }
 </div>
 
 <style>
@@ -101,6 +175,7 @@
         font-size: inherit;
         font-weight: 500;
         transition: all 0.2s ease;
+        cursor: pointer;
     }
 
     .action-btn:hover {
@@ -115,104 +190,390 @@
 
     .action-icon { font-size: 1rem; opacity: 0.8; }
 
-    .dashboard-cards {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-        gap: 1.5rem;
-    }
-
-    .card {
+    /* At a Glance Card */
+    .glance-card {
         background: var(--card-bg);
         border-radius: 0.75rem;
         padding: 1.5rem;
         box-shadow: var(--card-shadow);
+        margin-bottom: 2rem;
+        border-top: 3px solid var(--accent-primary);
     }
 
-    .card-header {
+    .glance-card .card-header {
         display: flex;
         align-items: center;
         gap: 0.75rem;
-        margin-bottom: 0.75rem;
+        margin-bottom: 1rem;
     }
 
-    .card-icon { font-size: 1.75rem; }
+    .glance-card .card-icon {
+        font-size: 1.5rem;
+        color: var(--accent-primary);
+    }
 
-    .card h3 {
+    .glance-card h3 {
         margin: 0;
-        font-size: 1.375rem;
+        font-size: 1.25rem;
         color: var(--text-primary);
     }
 
-    .card > p {
-        margin: 0 0 1.25rem 0;
-        color: var(--text-muted);
-        font-size: 0.875rem;
+    .glance-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 0.75rem;
     }
 
-    .android-card { border-top: 3px solid var(--accent-success); }
-    .android-card .card-icon { color: var(--accent-success); }
-    
-    .apple-card { border-top: 3px solid var(--accent-indigo); }
-    .apple-card .card-icon { color: var(--accent-indigo); }
-
-    .card-links {
+    .glance-item {
         display: flex;
         flex-direction: column;
-        gap: 0.5rem;
-    }
-
-    .card-link {
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
+        gap: 0.25rem;
         padding: 0.75rem 1rem;
         background: var(--bg-tertiary);
         border-radius: 0.5rem;
-        text-decoration: none;
-        color: var(--text-primary);
-        font-weight: 500;
+        cursor: pointer;
         transition: all 0.2s ease;
     }
 
-    .card-link:hover {
+    .glance-item:hover {
         background: var(--bg-hover);
-        transform: translateX(4px);
+        transform: translateX(2px);
     }
 
-    .card-link i {
-        font-size: 0.875rem;
-        width: 18px;
+    .glance-label {
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+    }
+
+    .glance-label i {
+        width: 16px;
         text-align: center;
-        opacity: 0.7;
+        margin-right: 0.25rem;
     }
 
-    .theme-dark .card-link {
+    .glance-value {
+        font-size: 0.875rem;
+        color: var(--text-primary);
+        font-family: var(--font-mono, 'SF Mono', 'Menlo', monospace);
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.375rem;
+        align-items: center;
+    }
+
+    .device-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        padding: 0.125rem 0.5rem;
+        border-radius: 0.25rem;
+        font-size: 0.8rem;
+        font-family: inherit;
+        background: rgba(52, 199, 89, 0.12);
+        color: var(--accent-success);
+    }
+
+    .device-badge.emulator {
+        background: rgba(90, 130, 210, 0.12);
+        color: var(--accent-indigo);
+    }
+
+    .device-badge.simulator {
+        background: rgba(175, 82, 222, 0.12);
+        color: var(--accent-purple);
+    }
+
+    /* Release Notes */
+    .release-notes-section {
+        margin-top: 0.5rem;
+    }
+
+    .release-notes-section h2 {
+        font-size: 1.375rem;
+        color: var(--text-primary);
+        margin-bottom: 1rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .release-notes-section h2 i {
+        color: var(--accent-primary);
+    }
+
+    .release-card {
+        background: var(--card-bg);
+        border-radius: 0.625rem;
+        margin-bottom: 0.75rem;
+        box-shadow: var(--card-shadow);
+        overflow: hidden;
+    }
+
+    .release-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.875rem 1.25rem;
+        cursor: pointer;
+        transition: background 0.15s;
+    }
+
+    .release-header:hover {
+        background: var(--bg-hover);
+    }
+
+    .release-info {
+        display: flex;
+        align-items: center;
+        gap: 0.625rem;
+        flex-wrap: wrap;
+    }
+
+    .release-tag {
+        font-weight: 600;
+        color: var(--accent-primary);
+        font-size: 0.95rem;
+    }
+
+    .release-prerelease {
+        font-size: 0.7rem;
+        padding: 0.125rem 0.375rem;
+        border-radius: 0.25rem;
+        background: rgba(255, 159, 10, 0.15);
+        color: var(--accent-warning);
+        font-weight: 600;
+        text-transform: uppercase;
+    }
+
+    .release-date {
+        font-size: 0.8rem;
+        color: var(--text-muted);
+    }
+
+    .release-toggle {
+        font-size: 0.75rem;
+        color: var(--text-muted);
+        transition: transform 0.2s;
+    }
+
+    .release-body {
+        padding: 0 1.25rem 1rem;
+        font-size: 0.875rem;
+        line-height: 1.6;
+        color: var(--text-secondary);
+        border-top: 1px solid var(--border-color);
+    }
+
+    .release-body h1, .release-body h2, .release-body h3 {
+        color: var(--text-primary);
+        margin-top: 1rem;
+        margin-bottom: 0.5rem;
+        font-size: 1rem;
+    }
+
+    .release-body h2 { font-size: 1.05rem; }
+    .release-body h1 { font-size: 1.1rem; }
+
+    .release-body ul, .release-body ol {
+        padding-left: 1.25rem;
+        margin: 0.5rem 0;
+    }
+
+    .release-body li {
+        margin-bottom: 0.25rem;
+    }
+
+    .release-body code {
+        background: var(--bg-tertiary);
+        padding: 0.125rem 0.375rem;
+        border-radius: 0.25rem;
+        font-size: 0.825rem;
+    }
+
+    .release-body a {
+        color: var(--accent-primary);
+        text-decoration: none;
+    }
+
+    .release-body a:hover {
+        text-decoration: underline;
+    }
+
+    .release-body p {
+        margin: 0.5rem 0;
+    }
+
+    .text-muted {
+        color: var(--text-muted);
+    }
+
+    /* Dark mode */
+    .theme-dark .glance-card {
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-top: 3px solid var(--accent-primary);
+    }
+
+    .theme-dark .glance-item {
         background: rgba(255, 255, 255, 0.06);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .theme-dark .glance-item:hover {
+        background: rgba(255, 255, 255, 0.1);
+    }
+
+    .theme-dark .release-card {
         border: 1px solid rgba(255, 255, 255, 0.08);
     }
 
-    .theme-dark .card-link:hover {
-        background: rgba(255, 255, 255, 0.12);
-        border-color: rgba(255, 255, 255, 0.15);
-    }
-
-    .theme-dark .card {
-        border: 1px solid rgba(255, 255, 255, 0.08);
-    }
-
-    .theme-dark .android-card {
-        border-top: 3px solid var(--accent-success);
-    }
-
-    .theme-dark .apple-card {
-        border-top: 3px solid var(--accent-indigo);
+    .theme-dark .release-body {
+        border-top-color: rgba(255, 255, 255, 0.08);
     }
 </style>
 
 @code {
+    private string? jdkPath;
+    private List<SimulatorDevice>? bootedSimulators;
+    private IReadOnlyList<GitHubRelease>? releases;
+    private HashSet<string> expandedReleases = new();
+
+    private static readonly string CacheFilePath = Path.Combine(
+        AppDataPath.GetAppDataDirectory(), "releases-cache.json");
+
     protected override void OnInitialized()
     {
-        ToolbarService.ClearItems();
+        ToolbarService.SetItems(
+            new ToolbarAction("doctor", "Doctor", "fa-stethoscope"),
+            new ToolbarAction("settings", "Settings", "fa-cog")
+        );
+        ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
+
+        // Load cached releases immediately
+        LoadCachedReleases();
+
+        // Expand the first release by default
+        if (releases?.Count > 0)
+            expandedReleases.Add(releases[0].TagName);
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Load at-a-glance data
+        jdkPath = await JdkSettings.GetEffectiveJdkPathAsync();
+
+        if (SimulatorService.IsSupported)
+        {
+            try
+            {
+                var allSims = await SimulatorService.GetSimulatorsAsync();
+                bootedSimulators = allSims.Where(s => s.State == "Booted").ToList();
+            }
+            catch
+            {
+                bootedSimulators = new List<SimulatorDevice>();
+            }
+        }
+
+        // Refresh releases in background
+        await RefreshReleasesAsync();
+    }
+
+    private void OnToolbarItemClicked(string actionId)
+    {
+        switch (actionId)
+        {
+            case "doctor":
+                Navigation.NavigateTo("/doctor");
+                break;
+            case "settings":
+                Navigation.NavigateTo("/settings");
+                break;
+        }
+    }
+
+    private void LoadCachedReleases()
+    {
+        try
+        {
+            if (File.Exists(CacheFilePath))
+            {
+                var json = File.ReadAllText(CacheFilePath);
+                releases = System.Text.Json.JsonSerializer.Deserialize<List<GitHubRelease>>(json);
+            }
+        }
+        catch
+        {
+            // Ignore cache read errors
+        }
+    }
+
+    private async Task RefreshReleasesAsync()
+    {
+        try
+        {
+            var freshReleases = await UpdateService.GetAllReleasesAsync();
+            if (freshReleases?.Count > 0)
+            {
+                var newestCached = releases?.FirstOrDefault()?.TagName;
+                var newestFresh = freshReleases[0].TagName;
+
+                releases = freshReleases;
+
+                // Expand first release if nothing is expanded
+                if (expandedReleases.Count == 0)
+                    expandedReleases.Add(releases[0].TagName);
+
+                // Save to cache
+                try
+                {
+                    var json = System.Text.Json.JsonSerializer.Serialize(releases);
+                    await File.WriteAllTextAsync(CacheFilePath, json);
+                }
+                catch { /* ignore cache write errors */ }
+
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch
+        {
+            // Keep cached data if fetch fails
+        }
+    }
+
+    private void ToggleRelease(string tagName)
+    {
+        if (!expandedReleases.Remove(tagName))
+            expandedReleases.Add(tagName);
+    }
+
+    private string ConvertMarkdownToHtml(string? markdown)
+    {
+        if (string.IsNullOrWhiteSpace(markdown))
+            return "<p>No release notes available.</p>";
+
+        var pipeline = new MarkdownPipelineBuilder()
+            .UseAdvancedExtensions()
+            .DisableHtml()
+            .Build();
+
+        return Markdig.Markdown.ToHtml(markdown, pipeline);
+    }
+
+    private static string TruncatePath(string? path)
+    {
+        if (string.IsNullOrEmpty(path)) return "Unknown";
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (path.StartsWith(home))
+            return "~" + path[home.Length..];
+        return path;
+    }
+
+    public void Dispose()
+    {
+        ToolbarService.ToolbarItemClicked -= OnToolbarItemClicked;
     }
 
     private void OpenCopilot()

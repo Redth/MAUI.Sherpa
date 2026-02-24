@@ -307,7 +307,7 @@ public class BlazorContentPage : ContentPage
     List<NSObject> _nativeMenuTargets = new();
 
     // Superset signature for the initial build — includes all possible items
-    static readonly string SupersetSignature = "refresh,create,import,install-missing,save,reset,|S|F|I";
+    static readonly string SupersetSignature = "refresh,create,import,install-missing,save,reset,doctor,settings,|S|F|I";
 
     void OnToolbarChanged()
     {
@@ -698,6 +698,8 @@ public class BlazorContentPage : ContentPage
                 ("install-missing", "Install Missing", "arrow.down.circle"),
                 ("save", "Save", "checkmark"),
                 ("reset", "Reset to Defaults", "trash"),
+                ("doctor", "Doctor", "stethoscope"),
+                ("settings", "Settings", "gear"),
                 ("refresh", "Refresh", "arrow.clockwise"),
             };
 
