@@ -194,6 +194,14 @@
     protected override async Task OnInitializedAsync()
     {
         Inspector.DeviceChanged += OnDeviceChanged;
+
+        // Check if another tab requested navigation to a specific path
+        if (!string.IsNullOrEmpty(Inspector.PendingFilePath))
+        {
+            currentPath = Inspector.PendingFilePath;
+            Inspector.PendingFilePath = null;
+        }
+
         await RefreshAsync();
     }
 

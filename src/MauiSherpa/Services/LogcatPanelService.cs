@@ -70,6 +70,12 @@ public class DeviceInspectorService
         StateChanged?.Invoke();
     }
 
+    /// <summary>
+    /// Pending path for the Files tab to navigate to when activated.
+    /// Set before calling SetTab(Files) to auto-navigate.
+    /// </summary>
+    public string? PendingFilePath { get; set; }
+
     public void Close()
     {
         IsOpen = false;
