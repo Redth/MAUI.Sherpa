@@ -12,6 +12,7 @@ public class BackupServiceTests
     private readonly Mock<IAppleIdentityService> _mockAppleIdentityService;
     private readonly Mock<ICloudSecretsService> _mockCloudSecretsService;
     private readonly Mock<ISecretsPublisherService> _mockSecretsPublisherService;
+    private readonly Mock<IGoogleIdentityService> _mockGoogleIdentityService;
     private readonly BackupService _service;
 
     public BackupServiceTests()
@@ -20,6 +21,7 @@ public class BackupServiceTests
         _mockAppleIdentityService = new Mock<IAppleIdentityService>();
         _mockCloudSecretsService = new Mock<ICloudSecretsService>();
         _mockSecretsPublisherService = new Mock<ISecretsPublisherService>();
+        _mockGoogleIdentityService = new Mock<IGoogleIdentityService>();
 
         _mockAppleIdentityService
             .Setup(x => x.GetIdentitiesAsync())
@@ -36,12 +38,16 @@ public class BackupServiceTests
         _mockSecretsPublisherService
             .Setup(x => x.GetPublishersAsync())
             .ReturnsAsync(Array.Empty<SecretsPublisherConfig>());
+        _mockGoogleIdentityService
+            .Setup(x => x.GetIdentitiesAsync())
+            .ReturnsAsync(Array.Empty<GoogleIdentity>());
 
         _service = new BackupService(
             _mockSettingsService.Object,
             _mockAppleIdentityService.Object,
             _mockCloudSecretsService.Object,
-            _mockSecretsPublisherService.Object);
+            _mockSecretsPublisherService.Object,
+            _mockGoogleIdentityService.Object);
     }
 
     [Fact]
@@ -419,6 +425,10 @@ public class BackupServiceTests
                 new("sp1", "cp1", "GitHub Actions",
                     new Dictionary<string, string> { ["owner"] = "test", ["repo"] = "test-repo" })
             },
+            GoogleIdentities = new List<GoogleIdentityData>
+            {
+                new("gi1", "Firebase Prod", "my-project", "sa@proj.iam.gserviceaccount.com", "{\"type\":\"service_account\"}")
+            },
             ActiveCloudProviderId = "cp1",
             Preferences = new AppPreferences { Theme = "Dark", AndroidSdkPath = "/path/to/sdk" }
         };
@@ -430,6 +440,9 @@ public class BackupServiceTests
         imported.AppleIdentities.Should().HaveCount(2);
         imported.CloudProviders.Should().HaveCount(1);
         imported.SecretsPublishers.Should().HaveCount(1);
+        imported.GoogleIdentities.Should().HaveCount(1);
+        imported.GoogleIdentities[0].Name.Should().Be("Firebase Prod");
+        imported.GoogleIdentities[0].ServiceAccountJson.Should().Contain("service_account");
         imported.ActiveCloudProviderId.Should().Be("cp1");
         imported.Preferences.Theme.Should().Be("Dark");
     }
@@ -488,5 +501,76 @@ public class BackupServiceTests
         var imported = await _service.ImportSettingsAsync(encrypted, "password");
 
         imported.AppleIdentities.Should().HaveCount(50);
+    }
+
+    [Fact]
+    public async Task RoundTrip_PreservesGoogleIdentityServiceAccountJson()
+    {
+        var saJson = "{\"type\":\"service_account\",\"project_id\":\"my-proj\",\"private_key\":\"-----BEGIN RSA PRIVATE KEY-----\\nMIIE...\"}";
+        var original = new MauiSherpaSettings
+        {
+            GoogleIdentities = new List<GoogleIdentityData>
+            {
+                new("gi1", "Firebase Prod", "my-proj", "sa@my-proj.iam.gserviceaccount.com", saJson),
+                new("gi2", "Firebase Dev", "dev-proj", "sa@dev-proj.iam.gserviceaccount.com", null)
+            }
+        };
+        _mockSettingsService.Setup(x => x.GetSettingsAsync()).ReturnsAsync(original);
+
+        var encrypted = await _service.ExportSettingsAsync("password123");
+        var imported = await _service.ImportSettingsAsync(encrypted, "password123");
+
+        imported.GoogleIdentities.Should().HaveCount(2);
+        var gi1 = imported.GoogleIdentities.First(g => g.Id == "gi1");
+        gi1.ServiceAccountJson.Should().Be(saJson);
+        gi1.ProjectId.Should().Be("my-proj");
+        gi1.ClientEmail.Should().Be("sa@my-proj.iam.gserviceaccount.com");
+
+        var gi2 = imported.GoogleIdentities.First(g => g.Id == "gi2");
+        gi2.ServiceAccountJson.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task ExportSettingsAsync_WithSelection_FiltersGoogleIdentities()
+    {
+        var original = new MauiSherpaSettings
+        {
+            GoogleIdentities = new List<GoogleIdentityData>
+            {
+                new("gi1", "Prod", "proj-1", "sa1@proj.iam.gserviceaccount.com", "{\"type\":\"service_account\"}"),
+                new("gi2", "Dev", "proj-2", "sa2@proj.iam.gserviceaccount.com", "{\"type\":\"service_account\"}"),
+                new("gi3", "Staging", "proj-3", "sa3@proj.iam.gserviceaccount.com", "{\"type\":\"service_account\"}")
+            }
+        };
+        _mockSettingsService.Setup(x => x.GetSettingsAsync()).ReturnsAsync(original);
+
+        var encrypted = await _service.ExportSettingsAsync("password123", new BackupExportSelection
+        {
+            IncludePreferences = false,
+            GoogleIdentityIds = new List<string> { "gi1", "gi3" }
+        });
+        var importResult = await _service.ImportBackupAsync(encrypted, "password123");
+
+        importResult.Settings.GoogleIdentities.Select(g => g.Id).Should().Equal("gi1", "gi3");
+    }
+
+    [Fact]
+    public async Task ExportSettingsAsync_DefaultSelection_IncludesAllGoogleIdentities()
+    {
+        var original = new MauiSherpaSettings
+        {
+            GoogleIdentities = new List<GoogleIdentityData>
+            {
+                new("gi1", "Prod", "proj-1", "sa@proj.iam.gserviceaccount.com", "{\"type\":\"service_account\"}"),
+                new("gi2", "Dev", "proj-2", "sa@dev.iam.gserviceaccount.com", "{\"type\":\"service_account\"}")
+            }
+        };
+        _mockSettingsService.Setup(x => x.GetSettingsAsync()).ReturnsAsync(original);
+
+        var encrypted = await _service.ExportSettingsAsync("password123");
+        var importResult = await _service.ImportBackupAsync(encrypted, "password123");
+
+        importResult.Selection.GoogleIdentityIds.Should().BeEquivalentTo(new[] { "gi1", "gi2" });
+        importResult.Settings.GoogleIdentities.Should().HaveCount(2);
     }
 }

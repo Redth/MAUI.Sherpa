@@ -23,6 +23,7 @@ public class BackupService : IBackupService
     private readonly IAppleIdentityService? _appleIdentityService;
     private readonly ICloudSecretsService? _cloudSecretsService;
     private readonly ISecretsPublisherService? _secretsPublisherService;
+    private readonly IGoogleIdentityService? _googleIdentityService;
 
     private record BackupPayload(
         int Version,
@@ -34,12 +35,14 @@ public class BackupService : IBackupService
         IEncryptedSettingsService settingsService,
         IAppleIdentityService? appleIdentityService = null,
         ICloudSecretsService? cloudSecretsService = null,
-        ISecretsPublisherService? secretsPublisherService = null)
+        ISecretsPublisherService? secretsPublisherService = null,
+        IGoogleIdentityService? googleIdentityService = null)
     {
         _settingsService = settingsService;
         _appleIdentityService = appleIdentityService;
         _cloudSecretsService = cloudSecretsService;
         _secretsPublisherService = secretsPublisherService;
+        _googleIdentityService = googleIdentityService;
     }
 
     public async Task<byte[]> ExportSettingsAsync(string password, BackupExportSelection? selection = null)
@@ -52,7 +55,8 @@ public class BackupService : IBackupService
         if (!resolvedSelection.IncludePreferences &&
             resolvedSelection.AppleIdentityIds.Count == 0 &&
             resolvedSelection.CloudProviderIds.Count == 0 &&
-            resolvedSelection.SecretsPublisherIds.Count == 0)
+            resolvedSelection.SecretsPublisherIds.Count == 0 &&
+            resolvedSelection.GoogleIdentityIds.Count == 0)
         {
             throw new InvalidOperationException("At least one setting item must be selected for export.");
         }
@@ -151,7 +155,8 @@ public class BackupService : IBackupService
             IncludePreferences = true,
             AppleIdentityIds = settings.AppleIdentities.Select(i => i.Id).ToList(),
             CloudProviderIds = settings.CloudProviders.Select(p => p.Id).ToList(),
-            SecretsPublisherIds = settings.SecretsPublishers.Select(p => p.Id).ToList()
+            SecretsPublisherIds = settings.SecretsPublishers.Select(p => p.Id).ToList(),
+            GoogleIdentityIds = settings.GoogleIdentities.Select(g => g.Id).ToList()
         };
 
         return new BackupImportResult(settings, legacySelection);
@@ -193,6 +198,7 @@ public class BackupService : IBackupService
         settings = await HydrateAppleIdentitiesAsync(settings);
         settings = await HydrateCloudProvidersAsync(settings);
         settings = await HydrateSecretsPublishersAsync(settings);
+        settings = await HydrateGoogleIdentitiesAsync(settings);
         return settings;
     }
 
@@ -271,11 +277,34 @@ public class BackupService : IBackupService
         };
     }
 
+    private async Task<MauiSherpaSettings> HydrateGoogleIdentitiesAsync(MauiSherpaSettings settings)
+    {
+        if (_googleIdentityService is null)
+            return settings;
+
+        var identities = await _googleIdentityService.GetIdentitiesAsync();
+        if (identities.Count == 0)
+            return settings;
+
+        return settings with
+        {
+            GoogleIdentities = identities
+                .Select(identity => new GoogleIdentityData(
+                    Id: identity.Id,
+                    Name: identity.Name,
+                    ProjectId: identity.ProjectId,
+                    ClientEmail: identity.ClientEmail,
+                    ServiceAccountJson: identity.ServiceAccountJson))
+                .ToList()
+        };
+    }
+
     private static BackupExportSelection ResolveSelection(BackupExportSelection? selection, MauiSherpaSettings settings)
     {
         var availableIdentityIds = settings.AppleIdentities.Select(i => i.Id).ToHashSet(StringComparer.Ordinal);
         var availableProviderIds = settings.CloudProviders.Select(p => p.Id).ToHashSet(StringComparer.Ordinal);
         var availablePublisherIds = settings.SecretsPublishers.Select(p => p.Id).ToHashSet(StringComparer.Ordinal);
+        var availableGoogleIds = settings.GoogleIdentities.Select(g => g.Id).ToHashSet(StringComparer.Ordinal);
 
         if (selection is null)
         {
@@ -284,13 +313,15 @@ public class BackupService : IBackupService
                 IncludePreferences = true,
                 AppleIdentityIds = availableIdentityIds.ToList(),
                 CloudProviderIds = availableProviderIds.ToList(),
-                SecretsPublisherIds = availablePublisherIds.ToList()
+                SecretsPublisherIds = availablePublisherIds.ToList(),
+                GoogleIdentityIds = availableGoogleIds.ToList()
             };
         }
 
         var selectedIdentityIds = selection.AppleIdentityIds ?? new List<string>();
         var selectedProviderIds = selection.CloudProviderIds ?? new List<string>();
         var selectedPublisherIds = selection.SecretsPublisherIds ?? new List<string>();
+        var selectedGoogleIds = selection.GoogleIdentityIds ?? new List<string>();
 
         return new BackupExportSelection
         {
@@ -306,6 +337,10 @@ public class BackupService : IBackupService
             SecretsPublisherIds = selectedPublisherIds
                 .Where(id => availablePublisherIds.Contains(id))
                 .Distinct(StringComparer.Ordinal)
+                .ToList(),
+            GoogleIdentityIds = selectedGoogleIds
+                .Where(id => availableGoogleIds.Contains(id))
+                .Distinct(StringComparer.Ordinal)
                 .ToList()
         };
     }
@@ -315,6 +350,7 @@ public class BackupService : IBackupService
         var selectedIdentityIds = selection.AppleIdentityIds.ToHashSet(StringComparer.Ordinal);
         var selectedProviderIds = selection.CloudProviderIds.ToHashSet(StringComparer.Ordinal);
         var selectedPublisherIds = selection.SecretsPublisherIds.ToHashSet(StringComparer.Ordinal);
+        var selectedGoogleIds = selection.GoogleIdentityIds.ToHashSet(StringComparer.Ordinal);
 
         var cloudProviders = settings.CloudProviders
             .Where(provider => selectedProviderIds.Contains(provider.Id))
@@ -338,6 +374,9 @@ public class BackupService : IBackupService
             ActiveCloudProviderId = activeCloudProviderId,
             SecretsPublishers = settings.SecretsPublishers
                 .Where(publisher => selectedPublisherIds.Contains(publisher.Id))
+                .ToList(),
+            GoogleIdentities = settings.GoogleIdentities
+                .Where(identity => selectedGoogleIds.Contains(identity.Id))
                 .ToList()
         };
     }

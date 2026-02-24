@@ -2488,6 +2488,7 @@ public record MauiSherpaSettings
     public List<CloudProviderData> CloudProviders { get; init; } = new();
     public string? ActiveCloudProviderId { get; init; }
     public List<SecretsPublisherData> SecretsPublishers { get; init; } = new();
+    public List<GoogleIdentityData> GoogleIdentities { get; init; } = new();
     public AppPreferences Preferences { get; init; } = new();
     public PushTestingSettings PushTesting { get; init; } = new();
     public DateTime LastModified { get; init; } = DateTime.UtcNow;
@@ -2515,6 +2516,14 @@ public record SecretsPublisherData(
     string ProviderId,
     string Name,
     Dictionary<string, string> Settings
+);
+
+public record GoogleIdentityData(
+    string Id,
+    string Name,
+    string ProjectId,
+    string ClientEmail,
+    string? ServiceAccountJson
 );
 
 public record AppPreferences
@@ -2573,6 +2582,7 @@ public record BackupExportSelection
     public List<string> AppleIdentityIds { get; init; } = new();
     public List<string> CloudProviderIds { get; init; } = new();
     public List<string> SecretsPublisherIds { get; init; } = new();
+    public List<string> GoogleIdentityIds { get; init; } = new();
 }
 
 public record BackupImportResult(
