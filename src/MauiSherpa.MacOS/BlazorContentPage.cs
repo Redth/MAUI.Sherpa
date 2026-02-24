@@ -210,6 +210,9 @@ public class BlazorContentPage : ContentPage
     {
         _pendingRoute = route;
 
+        // Clear search text when navigating to a new page
+        ClearNativeSearchField();
+
         // Use Dispatcher instead of MainThread (Essentials may not be ready during ConnectHandler)
         Dispatcher.Dispatch(async () =>
         {
@@ -223,6 +226,13 @@ public class BlazorContentPage : ContentPage
                 // Blazor may not be ready yet; store pending route
             }
         });
+    }
+
+    void ClearNativeSearchField()
+    {
+        if (_hookedSearchField != null)
+            _hookedSearchField.StringValue = "";
+        _toolbarService.NotifySearchTextChanged("");
     }
 
     async Task EvaluateJavaScriptAsync(string js)
@@ -349,6 +359,10 @@ public class BlazorContentPage : ContentPage
 
         // 6. Set custom Copilot icon on sidebar item (replaces SF Symbol)
         SetCopilotIcon(toolbar);
+
+        // 7. Re-hook native search field — upstream handler may have unsubscribed events
+        if (hasSearch)
+            Dispatcher.Dispatch(HookNativeSearchField);
     }
 
     [System.Runtime.InteropServices.DllImport(ObjCRuntime.Constants.ObjectiveCLibrary, EntryPoint = "objc_msgSend")]
@@ -798,8 +812,6 @@ public class BlazorContentPage : ContentPage
 
     void HookNativeSearchField()
     {
-        UnhookNativeSearchField();
-
         var nsWindow = this.Window?.Handler?.PlatformView as AppKit.NSWindow;
         var toolbar = nsWindow?.Toolbar;
         if (toolbar == null || _searchItem == null)
@@ -812,8 +824,13 @@ public class BlazorContentPage : ContentPage
         {
             if (nsItem is AppKit.NSSearchToolbarItem searchToolbarItem)
             {
-                _hookedSearchField = searchToolbarItem.SearchField;
-                // Use NSNotificationCenter for per-keystroke updates (Changed only fires on Enter)
+                var sf = searchToolbarItem.SearchField;
+                // Already hooked to this exact field — skip
+                if (sf == _hookedSearchField && _searchObserver != null)
+                    return;
+
+                UnhookNativeSearchField();
+                _hookedSearchField = sf;
                 _searchObserver = NSNotificationCenter.DefaultCenter.AddObserver(
                     NSTextField.TextDidChangeNotification,
                     OnNativeSearchTextDidChange,
