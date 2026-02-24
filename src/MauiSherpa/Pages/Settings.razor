@@ -698,6 +698,27 @@
                                 </div>
                             }
                         </div>
+
+                        <div class="backup-selection-group">
+                            <label class="backup-selection-item">
+                                <input type="checkbox" @bind="exportIncludeGoogleIdentities" />
+                                <span>Android Identities (@selectedExportGoogleIdentityIds.Count/@googleIdentities.Count)</span>
+                            </label>
+                            @if (exportIncludeGoogleIdentities && googleIdentities.Count > 0)
+                            {
+                                <div class="backup-selection-children">
+                                    @foreach (var identity in googleIdentities)
+                                    {
+                                        <label class="backup-selection-item child">
+                                            <input type="checkbox"
+                                                   checked="@selectedExportGoogleIdentityIds.Contains(identity.Id)"
+                                                   @onchange="e => SetExportGoogleIdentitySelection(identity.Id, e.Value is bool isChecked && isChecked)" />
+                                            <span>@identity.Name</span>
+                                        </label>
+                                    }
+                                </div>
+                            }
+                        </div>
                     </div>
                     @if (!CanExportSelection)
                     {
@@ -1846,6 +1867,8 @@
     private HashSet<string> selectedExportAppleIdentityIds = new(StringComparer.Ordinal);
     private HashSet<string> selectedExportCloudProviderIds = new(StringComparer.Ordinal);
     private HashSet<string> selectedExportPublisherIds = new(StringComparer.Ordinal);
+    private bool exportIncludeGoogleIdentities = true;
+    private HashSet<string> selectedExportGoogleIdentityIds = new(StringComparer.Ordinal);
     private string importFilePath = "";
     private string importPassword = "";
     private string importError = "";
@@ -1856,7 +1879,8 @@
         exportIncludePreferences ||
         (exportIncludeAppleIdentities && selectedExportAppleIdentityIds.Count > 0) ||
         (exportIncludeCloudProviders && selectedExportCloudProviderIds.Count > 0) ||
-        (exportIncludeSecretsPublishers && selectedExportPublisherIds.Count > 0);
+        (exportIncludeSecretsPublishers && selectedExportPublisherIds.Count > 0) ||
+        (exportIncludeGoogleIdentities && selectedExportGoogleIdentityIds.Count > 0);
 
     private bool CanSaveIdentity => 
         !string.IsNullOrWhiteSpace(identityName) &&
@@ -2806,9 +2830,11 @@
         exportIncludeAppleIdentities = appleIdentities.Count > 0;
         exportIncludeCloudProviders = cloudProviders.Count > 0;
         exportIncludeSecretsPublishers = secretsPublishers.Count > 0;
+        exportIncludeGoogleIdentities = googleIdentities.Count > 0;
         selectedExportAppleIdentityIds = appleIdentities.Select(identity => identity.Id).ToHashSet(StringComparer.Ordinal);
         selectedExportCloudProviderIds = cloudProviders.Select(provider => provider.Id).ToHashSet(StringComparer.Ordinal);
         selectedExportPublisherIds = secretsPublishers.Select(publisher => publisher.Id).ToHashSet(StringComparer.Ordinal);
+        selectedExportGoogleIdentityIds = googleIdentities.Select(identity => identity.Id).ToHashSet(StringComparer.Ordinal);
     }
 
     private void SetExportAppleIdentitySelection(string id, bool isSelected)
@@ -2833,6 +2859,14 @@
             selectedExportPublisherIds.Add(id);
         else
             selectedExportPublisherIds.Remove(id);
+    }
+
+    private void SetExportGoogleIdentitySelection(string id, bool isSelected)
+    {
+        if (isSelected)
+            selectedExportGoogleIdentityIds.Add(id);
+        else
+            selectedExportGoogleIdentityIds.Remove(id);
     }
 
     private void ShowExportDialog()
@@ -2919,6 +2953,9 @@
                     : new List<string>(),
                 SecretsPublisherIds = exportIncludeSecretsPublishers
                     ? selectedExportPublisherIds.ToList()
+                    : new List<string>(),
+                GoogleIdentityIds = exportIncludeGoogleIdentities
+                    ? selectedExportGoogleIdentityIds.ToList()
                     : new List<string>()
             };
             var encrypted = await BackupService.ExportSettingsAsync(exportPassword, exportSelection);
@@ -3018,6 +3055,19 @@
                 publisher.Name,
                 new Dictionary<string, string>(publisher.Settings)));
         }
+
+        foreach (var googleIdentity in settings.GoogleIdentities)
+        {
+            await GoogleIdentityService.SaveIdentityAsync(new GoogleIdentity(
+                Id: googleIdentity.Id,
+                Name: googleIdentity.Name,
+                ProjectId: googleIdentity.ProjectId,
+                ClientEmail: googleIdentity.ClientEmail,
+                ServiceAccountJsonPath: null,
+                ServiceAccountJson: googleIdentity.ServiceAccountJson));
+        }
+
+        await LoadGoogleIdentities();
     }
 
     private async Task ImportSettings()
