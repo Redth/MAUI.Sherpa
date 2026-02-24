@@ -8,6 +8,7 @@
 @inject ICopilotContextService CopilotContext
 @inject IToolbarService ToolbarService
 @inject IPlatformService PlatformInfo
+@inject ILauncher AppLauncher
 @inject IAdbDeviceWatcherService AdbWatcher
 @inject ISimulatorService SimulatorService
 @inject IUpdateService UpdateService
@@ -113,13 +114,22 @@
                 <div class="release-header" @onclick="() => ToggleRelease(release.TagName)">
                     <div class="release-info">
                         <span class="release-tag">@release.TagName</span>
+                        @if (!string.IsNullOrEmpty(release.Name) && release.Name != release.TagName)
+                        {
+                            <span class="release-name">@release.Name</span>
+                        }
                         @if (release.IsPrerelease)
                         {
                             <span class="release-prerelease">pre-release</span>
                         }
                         <span class="release-date">@release.PublishedAt.ToString("MMM d, yyyy")</span>
                     </div>
-                    <i class="fas @(expandedReleases.Contains(release.TagName) ? "fa-chevron-up" : "fa-chevron-down") release-toggle"></i>
+                    <div class="release-header-right">
+                        <button class="release-open-btn" @onclick="() => OpenRelease(release.HtmlUrl)" @onclick:stopPropagation="true" title="Open on GitHub">
+                            <i class="fas fa-external-link-alt"></i>
+                        </button>
+                        <i class="fas @(expandedReleases.Contains(release.TagName) ? "fa-chevron-up" : "fa-chevron-down") release-toggle"></i>
+                    </div>
                 </div>
                 @if (expandedReleases.Contains(release.TagName))
                 {
@@ -356,6 +366,11 @@
         font-size: 0.875rem;
     }
 
+    .release-name {
+        color: var(--text-secondary);
+        font-size: 0.8rem;
+    }
+
     .release-prerelease {
         font-size: 0.65rem;
         padding: 0.0625rem 0.3rem;
@@ -369,6 +384,28 @@
     .release-date {
         font-size: 0.75rem;
         color: var(--text-muted);
+    }
+
+    .release-header-right {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .release-open-btn {
+        background: none;
+        border: none;
+        color: var(--text-muted);
+        cursor: pointer;
+        padding: 0.25rem 0.375rem;
+        border-radius: 0.25rem;
+        font-size: 0.7rem;
+        transition: all 0.15s;
+    }
+
+    .release-open-btn:hover {
+        color: var(--accent-primary);
+        background: var(--bg-hover);
     }
 
     .release-toggle {
@@ -388,6 +425,12 @@
         color: var(--text-primary);
         margin-top: 0.75rem;
         margin-bottom: 0.375rem;
+    }
+
+    .release-body h1:first-child,
+    .release-body h2:first-child,
+    .release-body h3:first-child {
+        margin-top: 0;
     }
 
     .release-body h3 { font-size: 0.9rem; }
@@ -417,6 +460,20 @@
 
     .release-body a:hover {
         text-decoration: underline;
+    }
+
+    .release-body pre {
+        background: var(--bg-tertiary);
+        padding: 0.625rem;
+        border-radius: 0.25rem;
+        overflow-x: auto;
+        margin: 0.5rem 0;
+    }
+
+    .release-body hr {
+        border: none;
+        border-top: 1px solid var(--border-color);
+        margin: 0.75rem 0;
     }
 
     .release-body p {
@@ -501,9 +558,12 @@
             var freshReleases = await UpdateService.GetAllReleasesAsync();
             if (freshReleases?.Count > 0)
             {
-                releases = freshReleases;
+                releases = freshReleases
+                    .Where(r => !r.IsDraft)
+                    .OrderByDescending(r => r.PublishedAt)
+                    .ToList();
 
-                if (expandedReleases.Count == 0)
+                if (expandedReleases.Count == 0 && releases.Count > 0)
                     expandedReleases.Add(releases[0].TagName);
 
                 try
@@ -517,6 +577,12 @@
             }
         }
         catch { }
+    }
+
+    private async Task OpenRelease(string url)
+    {
+        if (!string.IsNullOrEmpty(url))
+            await AppLauncher.OpenAsync(new Uri(url));
     }
 
     private void ToggleRelease(string tagName)
