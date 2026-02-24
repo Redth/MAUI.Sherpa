@@ -14,15 +14,44 @@
 @inject BlazorToastService ToastService
 @inject IEncryptedSettingsService SettingsService
 @inject IToolbarService ToolbarService
+@inject IPlatformService PlatformInfo
 @implements IDisposable
 
 <h1><i class="fas fa-mobile-alt"></i> Android Devices</h1>
 
+<div class="sdk-path-bar">
+    <i class="fas fa-folder"></i>
+    @if (!string.IsNullOrEmpty(SdkService.SdkPath))
+    {
+        <span class="sdk-path-text">@SdkService.SdkPath</span>
+        <button class="btn-copy" @onclick="@(() => CopyToClipboard(SdkService.SdkPath!))" title="Copy to clipboard">
+            <i class="fas fa-copy"></i>
+        </button>
+        <button class="btn-reveal" @onclick="@(() => FileSystem.RevealInFileManager(SdkService.SdkPath!))" title="Reveal in Finder">
+            <i class="fas fa-external-link-alt"></i>
+        </button>
+    }
+    else if (isLoading)
+    {
+        <span class="sdk-path-text detecting"><i class="fas fa-spinner fa-spin"></i> Detecting SDK...</span>
+    }
+    else
+    {
+        <span class="sdk-path-text no-sdk">No SDK detected</span>
+    }
+    <a class="btn-link-settings" href="settings" title="Change SDK path in Settings">
+        <i class="fas fa-cog"></i>
+    </a>
+</div>
+
+@if (!PlatformInfo.HasNativeToolbar)
+{
 <div class="toolbar">
     <button class="btn btn-primary" @onclick="() => RefreshDevices(forceRefresh: true)" disabled="@isLoading">
         <i class="fas @(isLoading ? "fa-spinner fa-spin" : "fa-sync-alt")"></i> Refresh
     </button>
 </div>
+}
 
 <div class="device-list">
     @if (isLoading && devices.Count == 0)
@@ -45,7 +74,7 @@
     }
     else
     {
-        @foreach (var device in devices)
+        @foreach (var device in FilteredDevices)
         {
             <div class="device-card">
                 <div class="device-icon"><i class="fas @(device.IsEmulator ? "fa-mobile-alt" : "fa-mobile")"></i></div>
@@ -332,13 +361,16 @@
     private List<DeviceInfo> devices = new();
     private bool isLoading = false;
     private bool demoMode = false;
+    private string searchText = "";
 
     protected override async Task OnInitializedAsync()
     {
         ToolbarService.SetItems(
             new ToolbarAction("refresh", "Refresh", "arrow.clockwise")
         );
+        ToolbarService.SetSearch("Search devices...");
         ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
+        ToolbarService.SearchTextChanged += OnSearchTextChanged;
 
         try { var settings = await SettingsService.GetSettingsAsync(); demoMode = settings.Preferences.DemoMode; } catch { }
         // Subscribe to SDK path changes from Settings
@@ -436,8 +468,21 @@
     public void Dispose()
     {
         ToolbarService.ToolbarItemClicked -= OnToolbarItemClicked;
+        ToolbarService.SearchTextChanged -= OnSearchTextChanged;
         SdkService.SdkPathChanged -= OnSdkPathChanged;
         DeviceWatcher.DevicesChanged -= OnDevicesChanged;
+    }
+
+    private IEnumerable<DeviceInfo> FilteredDevices => string.IsNullOrWhiteSpace(searchText)
+        ? devices
+        : devices.Where(d =>
+            (d.Model?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
+            (d.Serial?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false));
+
+    private void OnSearchTextChanged(string text)
+    {
+        searchText = text;
+        InvokeAsync(StateHasChanged);
     }
 
     private void OnToolbarItemClicked(string actionId)

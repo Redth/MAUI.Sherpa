@@ -358,7 +358,11 @@ public class WindowsTitleBarManager
             {
                 _cachedAppleIdentities = await _appleIdentityService.GetIdentitiesAsync();
                 if (_cachedAppleIdentities?.Count > 0)
+                {
+                    if (_appleIdentityState.SelectedIdentity == null)
+                        _appleIdentityState.SetSelectedIdentity(_cachedAppleIdentities[0]);
                     OnToolbarChanged();
+                }
             });
             return null;
         }
@@ -366,6 +370,11 @@ public class WindowsTitleBarManager
         if (_cachedAppleIdentities.Count == 0) return null;
 
         var selected = _appleIdentityState.SelectedIdentity;
+        if (selected == null && _cachedAppleIdentities.Count > 0)
+        {
+            selected = _cachedAppleIdentities[0];
+            _appleIdentityState.SetSelectedIdentity(selected);
+        }
         var displayName = selected?.Name ?? "Select Identity";
 
         var menuFlyout = new MenuFlyout();
@@ -404,7 +413,11 @@ public class WindowsTitleBarManager
             {
                 _cachedGoogleIdentities = await _googleIdentityService.GetIdentitiesAsync();
                 if (_cachedGoogleIdentities?.Count > 0)
+                {
+                    if (_googleIdentityState.SelectedIdentity == null)
+                        _googleIdentityState.SetSelectedIdentity(_cachedGoogleIdentities[0]);
                     OnToolbarChanged();
+                }
             });
             return null;
         }
@@ -412,6 +425,11 @@ public class WindowsTitleBarManager
         if (_cachedGoogleIdentities.Count == 0) return null;
 
         var selected = _googleIdentityState.SelectedIdentity;
+        if (selected == null && _cachedGoogleIdentities.Count > 0)
+        {
+            selected = _cachedGoogleIdentities[0];
+            _googleIdentityState.SetSelectedIdentity(selected);
+        }
         var displayName = selected?.Name ?? "Select Identity";
 
         var menuFlyout = new MenuFlyout();
