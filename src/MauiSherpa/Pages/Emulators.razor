@@ -65,7 +65,7 @@
     }
     else
     {
-        @foreach (var emulator in emulators)
+        @foreach (var emulator in emulators.Where(e => string.IsNullOrEmpty(searchQuery) || e.Name.Contains(searchQuery, StringComparison.OrdinalIgnoreCase)))
         {
             var isRunning = runningEmulators.ContainsKey(emulator.Name);
             var isStarting = startingEmulators.Contains(emulator.Name);
@@ -688,6 +688,7 @@
 
 @code {
     private List<AvdInfo> emulators = new();
+    private string searchQuery = "";
     private List<string> installedSystemImages = new();
     private List<string> availableSystemImages = new();
     private List<string> availableSkins = new();
@@ -719,7 +720,9 @@
             new ToolbarAction("refresh", "Refresh", "arrow.clockwise"),
             new ToolbarAction("create", "Create Emulator", "plus")
         );
+        ToolbarService.SetSearch("Search emulators...");
         ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
+        ToolbarService.SearchTextChanged += OnSearchTextChanged;
 
         // Subscribe to SDK path changes from Settings
         SdkService.SdkPathChanged += OnSdkPathChanged;
@@ -1081,6 +1084,7 @@
     public void Dispose()
     {
         ToolbarService.ToolbarItemClicked -= OnToolbarItemClicked;
+        ToolbarService.SearchTextChanged -= OnSearchTextChanged;
         SdkService.SdkPathChanged -= OnSdkPathChanged;
         _pollTimer?.Dispose();
         foreach (var id in _activeModals)
@@ -1102,6 +1106,11 @@
             }
             StateHasChanged();
         });
+    }
+
+    private void OnSearchTextChanged(string text)
+    {
+        InvokeAsync(() => { searchQuery = text; StateHasChanged(); });
     }
 
     private DotNetObjectReference<Emulators>? _dotNetRef;
