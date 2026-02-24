@@ -16,31 +16,6 @@
 
 <h1><i class="fas fa-cube"></i> Android SDK Packages</h1>
 
-<div class="sdk-path-bar">
-    <i class="fas fa-folder"></i>
-    @if (!string.IsNullOrEmpty(ViewModel.SdkPath))
-    {
-        <span class="sdk-path-text">@ViewModel.SdkPath</span>
-        <button class="btn-copy" @onclick="@(() => CopyToClipboard(ViewModel.SdkPath!))" title="Copy to clipboard">
-            <i class="fas fa-copy"></i>
-        </button>
-        <button class="btn-reveal" @onclick="@(() => FileSystem.RevealInFileManager(ViewModel.SdkPath!))" title="Reveal in Finder">
-            <i class="fas fa-external-link-alt"></i>
-        </button>
-    }
-    else if (ViewModel.IsLoading || !hasInitialized)
-    {
-        <span class="sdk-path-text detecting"><i class="fas fa-spinner fa-spin"></i> Detecting SDK locations...</span>
-    }
-    else
-    {
-        <span class="sdk-path-text no-sdk">No SDK detected</span>
-    }
-    <a class="btn-link-settings" href="settings" title="Change SDK path in Settings">
-        <i class="fas fa-cog"></i>
-    </a>
-</div>
-
 <div class="toolbar">
     @if (!ViewModel.IsSdkInstalled)
     {
@@ -61,6 +36,17 @@
         }
     }
 </div>
+
+@if ((ViewModel.IsLoading || !hasInitialized) && !ViewModel.IsSdkInstalled)
+{
+    <div class="loading-state">
+        <div class="loading-spinner">
+            <i class="fas fa-cube"></i>
+        </div>
+        <div class="loading-title">Loading SDK Packages</div>
+        <div class="loading-description">Discovering installed and available packages...</div>
+    </div>
+}
 
 @if (ViewModel.IsSdkInstalled)
 {

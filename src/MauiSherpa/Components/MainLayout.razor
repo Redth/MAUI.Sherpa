@@ -169,9 +169,10 @@
             // Notify native sidebar of route changes from Blazor navigation
             NavManager.LocationChanged += OnLocationChanged;
 
-            // On macOS, make html/body transparent so native window background shows through
+            // On macOS, make html/body transparent and enable document-level scrolling
+            // so WKWebView setObscuredContentInsets can scroll content under the toolbar
             if (PlatformInfo.IsMacOS)
-                _ = JS.InvokeVoidAsync("eval", "document.documentElement.style.backgroundColor='transparent';document.body.style.backgroundColor='transparent';");
+                _ = JS.InvokeVoidAsync("eval", "document.documentElement.style.backgroundColor='transparent';document.body.style.backgroundColor='transparent';document.documentElement.style.height='auto';document.documentElement.style.overflow='visible';document.body.style.height='auto';document.body.style.overflow='visible';");
         }
     }
 
@@ -483,6 +484,22 @@
         padding: 15px;
         margin-left: 0;
         background-color: transparent;
+        /* Let the document scroll instead of this div so WKWebView
+           setObscuredContentInsets can scroll content under the toolbar */
+        overflow-y: visible;
+        flex: 0 0 auto;
+        width: 100%;
+    }
+
+    .main-layout.platform-macos {
+        height: auto;
+        min-height: 100vh;
+    }
+
+    /* Prevent horizontal scroll bounce on macOS WKWebView */
+    .platform-macos {
+        overflow-x: hidden;
+        overscroll-behavior-x: none;
     }
 
     /* No gradient fade on macOS — native window background shows through */
