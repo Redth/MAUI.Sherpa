@@ -92,10 +92,10 @@ public class WindowsTitleBarManager
             Padding = new Thickness(0, 0, 8, 0),
         };
 
-        // Add filter pickers
-        foreach (var filter in _toolbarService.CurrentFilters)
+        // Add unified filter button if there are filters
+        if (_toolbarService.CurrentFilters.Count > 0)
         {
-            var filterBtn = CreateFilterButton(filter);
+            var filterBtn = CreateUnifiedFilterButton();
             trailing.Children.Add(filterBtn);
             _titleBar.PassthroughElements.Add(filterBtn);
         }
@@ -132,44 +132,50 @@ public class WindowsTitleBarManager
         }
     }
 
-    private Button CreateFilterButton(ToolbarFilter filter)
+    private Button CreateUnifiedFilterButton()
     {
-        var selectedLabel = filter.SelectedIndex >= 0 && filter.SelectedIndex < filter.Options.Length
-            ? filter.Options[filter.SelectedIndex]
-            : filter.Label;
-
-        // Show filter label when on "All" (index 0), otherwise show selected value
-        var displayText = filter.SelectedIndex == 0 ? $"▾ {filter.Label}" : $"▾ {selectedLabel}";
+        // Check if any filter is active (not on index 0 = "All")
+        var hasActiveFilter = _toolbarService.CurrentFilters.Any(f => f.SelectedIndex > 0);
 
         var btn = new Button
         {
-            Text = displayText,
+            Text = "▾ Filter",
             FontSize = 12,
             HeightRequest = 32,
             Padding = new Thickness(10, 0),
-            BackgroundColor = BgControl,
-            TextColor = filter.SelectedIndex == 0 ? TextMuted : Colors.White,
-            BorderColor = BorderColor,
+            BackgroundColor = hasActiveFilter ? Accent : BgControl,
+            TextColor = Colors.White,
+            BorderColor = hasActiveFilter ? Accent : BorderColor,
             BorderWidth = 1,
             CornerRadius = 6,
             VerticalOptions = LayoutOptions.Center,
         };
-        ToolTipProperties.SetText(btn, filter.Label);
+        ToolTipProperties.SetText(btn, "Filter");
 
         var menuFlyout = new MenuFlyout();
-        var filterId = filter.Id;
-        for (int i = 0; i < filter.Options.Length; i++)
+
+        foreach (var filter in _toolbarService.CurrentFilters)
         {
-            var index = i;
-            var option = filter.Options[i];
-            var item = new MenuFlyoutItem { Text = option };
-            item.Clicked += (s, e) =>
+            // Add submenu for each filter category
+            var sub = new MenuFlyoutSubItem { Text = filter.Label };
+            var filterId = filter.Id;
+
+            for (int i = 0; i < filter.Options.Length; i++)
             {
-                _toolbarService.NotifyFilterChanged(filterId, index);
-                btn.Text = index == 0 ? $"▾ {filter.Label}" : $"▾ {option}";
-                btn.TextColor = index == 0 ? TextMuted : Colors.White;
-            };
-            menuFlyout.Add(item);
+                var index = i;
+                var option = filter.Options[i];
+                var item = new MenuFlyoutItem
+                {
+                    Text = (i == filter.SelectedIndex ? "✓ " : "   ") + option,
+                };
+                item.Clicked += (s, e) =>
+                {
+                    _toolbarService.NotifyFilterChanged(filterId, index);
+                };
+                sub.Add(item);
+            }
+
+            menuFlyout.Add(sub);
         }
 
         FlyoutBase.SetContextFlyout(btn, menuFlyout);
