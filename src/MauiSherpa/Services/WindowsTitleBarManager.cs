@@ -149,7 +149,7 @@ public class WindowsTitleBarManager
             FontFamily = "FluentIcons",
             FontSize = 16,
             HeightRequest = 32,
-            Padding = new Thickness(8, 0),
+            Padding = new Thickness(12, 0),
             BackgroundColor = hasActiveFilter ? Accent : BgControl,
             TextColor = Colors.White,
             BorderColor = hasActiveFilter ? Accent : BorderColor,
