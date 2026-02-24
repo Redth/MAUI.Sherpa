@@ -763,6 +763,14 @@ public record AndroidDemoStatus(
     bool? HideNotifications = null
 );
 
+public record AndroidPackageInfo(
+    string PackageName,
+    string? VersionName,
+    string? VersionCode,
+    string? ApkPath,
+    bool IsSystemApp
+);
+
 public interface IAndroidDeviceToolsService
 {
     // Location simulation
@@ -784,6 +792,14 @@ public interface IAndroidDeviceToolsService
 
     // Deep links
     Task<bool> OpenDeepLinkAsync(string serial, string url);
+
+    // Package management
+    Task<IReadOnlyList<AndroidPackageInfo>> GetInstalledPackagesAsync(string serial);
+    Task<bool> LaunchPackageAsync(string serial, string packageName);
+    Task<bool> ForceStopPackageAsync(string serial, string packageName);
+    Task<bool> InstallApkAsync(string serial, string apkPath, IProgress<string>? progress = null);
+    Task<bool> UninstallPackageAsync(string serial, string packageName, IProgress<string>? progress = null);
+    Task<bool> ClearPackageDataAsync(string serial, string packageName);
 
     bool IsPlayingRoute { get; }
     event Action? RoutePlaybackStateChanged;

@@ -1,0 +1,342 @@
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Services
+@inject IAndroidDeviceToolsService DeviceTools
+@inject DeviceInspectorService Inspector
+@inject IAlertService AlertService
+@inject IDialogService DialogService
+@inject OperationModalService OperationModal
+@implements IDisposable
+
+<div class="android-apps-tab">
+    <div class="android-apps-toolbar">
+        <input type="text" placeholder="Search packages..." @bind="searchQuery" @bind:event="oninput" class="android-apps-search" />
+        <div class="android-apps-filter">
+            <select @bind="filterType">
+                <option value="">All Types</option>
+                <option value="User">User</option>
+                <option value="System">System</option>
+            </select>
+        </div>
+        <button class="btn btn-success btn-sm" @onclick="InstallApk" disabled="@isLoading">
+            <i class="fas fa-plus"></i> Install .apk
+        </button>
+        <button class="btn btn-primary btn-sm" @onclick="() => LoadPackages(forceRefresh: true)" disabled="@isLoading">
+            <i class="fas @(isLoading ? "fa-spinner fa-spin" : "fa-sync-alt")"></i>
+        </button>
+    </div>
+
+    <div class="android-apps-list">
+        @if (isLoading && packages.Count == 0)
+        {
+            <div class="android-apps-empty">
+                <i class="fas fa-spinner fa-spin"></i> Loading installed packages...
+            </div>
+        }
+        else if (!FilteredPackages.Any())
+        {
+            <div class="android-apps-empty">
+                <i class="fas fa-box-open"></i>
+                <span>No packages found</span>
+            </div>
+        }
+        else
+        {
+            @foreach (var pkg in FilteredPackages)
+            {
+                var isUserApp = !pkg.IsSystemApp;
+                <div class="android-app-row @(isUserApp ? "user-app" : "")">
+                    <div class="android-app-icon">
+                        <i class="fas @(isUserApp ? "fa-cube" : "fa-mobile-screen")"></i>
+                    </div>
+                    <div class="android-app-details">
+                        <div class="android-app-name">@pkg.PackageName</div>
+                        <div class="android-app-meta">
+                            <button class="btn-copy-inline" @onclick="@(() => CopyToClipboard(pkg.PackageName))" title="Copy package name">
+                                <i class="fas fa-copy"></i>
+                            </button>
+                            @if (!string.IsNullOrEmpty(pkg.VersionName))
+                            {
+                                <span class="android-app-version">v@(pkg.VersionName)</span>
+                            }
+                        </div>
+                    </div>
+                    <div class="android-app-type-badge">
+                        <span class="badge @(isUserApp ? "badge-user" : "badge-system")">@(isUserApp ? "User" : "System")</span>
+                    </div>
+                    <div class="android-app-actions">
+                        <button class="btn btn-sm btn-secondary" @onclick="@(() => LaunchApp(pkg))" title="Launch">
+                            <i class="fas fa-play"></i>
+                        </button>
+                        <button class="btn btn-sm btn-secondary" @onclick="@(() => ForceStopApp(pkg))" title="Force Stop">
+                            <i class="fas fa-stop"></i>
+                        </button>
+                        <button class="btn btn-sm btn-secondary" @onclick="@(() => ClearAppData(pkg))" title="Clear Data">
+                            <i class="fas fa-eraser"></i>
+                        </button>
+                        <button class="btn btn-sm btn-secondary" @onclick="@(() => BrowseDataDir(pkg))" title="Browse data directory">
+                            <i class="fas fa-folder-open"></i>
+                        </button>
+                        @if (isUserApp)
+                        {
+                            <button class="btn btn-sm btn-danger" @onclick="@(() => UninstallApp(pkg))" title="Uninstall">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        }
+                    </div>
+                </div>
+            }
+        }
+    </div>
+</div>
+
+<style>
+    .android-apps-tab {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+    }
+
+    .android-apps-toolbar {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.5rem 0.75rem;
+        border-bottom: 1px solid var(--border-color);
+        flex-shrink: 0;
+    }
+    .android-apps-search {
+        flex: 1;
+        padding: 0.3125rem 0.625rem;
+        border: 1px solid var(--border-color);
+        border-radius: 0.3125rem;
+        font-size: 0.75rem;
+        background: var(--bg-tertiary);
+        color: var(--text-primary);
+    }
+    .android-apps-search:focus { outline: none; border-color: var(--accent-primary); }
+    .android-apps-filter select {
+        padding: 0.3125rem 0.5rem;
+        border: 1px solid var(--border-color);
+        border-radius: 0.3125rem;
+        font-size: 0.75rem;
+        background: var(--bg-tertiary);
+        color: var(--text-primary);
+    }
+
+    .android-apps-list {
+        flex: 1;
+        overflow-y: auto;
+        padding: 0.25rem 0;
+    }
+
+    .android-app-row {
+        display: flex;
+        align-items: center;
+        gap: 0.625rem;
+        padding: 0.375rem 0.75rem;
+        transition: background 0.1s;
+    }
+    .android-app-row:hover { background: var(--bg-tertiary); }
+    .android-app-row.user-app { border-left: 3px solid var(--accent-primary); }
+
+    .android-app-icon { font-size: 1rem; color: var(--text-secondary); width: 1.5rem; text-align: center; }
+    .user-app .android-app-icon { color: var(--accent-primary); }
+
+    .android-app-details { flex: 1; min-width: 0; }
+    .android-app-name {
+        font-weight: 600; font-size: 0.75rem; color: var(--text-primary);
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .android-app-meta {
+        display: flex;
+        align-items: center;
+        gap: 0.25rem;
+    }
+    .android-app-version { font-size: 0.625rem; color: var(--text-muted); }
+
+    .btn-copy-inline {
+        background: none; border: none; color: var(--text-secondary);
+        cursor: pointer; padding: 1px 0.25rem; font-size: 0.5625rem;
+        border-radius: 3px; transition: all 0.15s;
+    }
+    .btn-copy-inline:hover { color: var(--accent-primary); background: var(--bg-tertiary); }
+
+    .android-app-type-badge { flex-shrink: 0; }
+    .badge { padding: 2px 0.5rem; border-radius: 0.625rem; font-size: 0.625rem; font-weight: 500; }
+    .badge-user { background: var(--status-success-bg); color: var(--status-success-text); }
+    .badge-system { background: var(--bg-tertiary); color: var(--text-secondary); }
+
+    .android-app-actions { display: flex; gap: 0.25rem; flex-shrink: 0; }
+
+    .android-apps-empty {
+        text-align: center; padding: 2.5rem 1.25rem;
+        color: var(--text-muted); font-size: 0.8125rem;
+        display: flex; flex-direction: column; align-items: center; gap: 0.75rem;
+    }
+    .android-apps-empty i { font-size: 1.75rem; }
+
+    .android-apps-tab .btn { padding: 0.375rem 0.875rem; border: none; border-radius: 0.3125rem; font-size: 0.75rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3125rem; transition: all 0.15s; }
+    .android-apps-tab .btn i { font-size: 0.6875rem; }
+    .android-apps-tab .btn-sm { padding: 0.25rem 0.5rem; font-size: 0.6875rem; }
+    .android-apps-tab .btn-primary { background: var(--accent-primary); color: white; }
+    .android-apps-tab .btn-success { background: var(--accent-success, #48bb78); color: white; }
+    .android-apps-tab .btn-secondary { background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border-color); }
+    .android-apps-tab .btn-danger { background: var(--accent-danger, #f56565); color: white; }
+    .android-apps-tab .btn:hover:not(:disabled) { filter: brightness(1.1); }
+    .android-apps-tab .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+</style>
+
+@code {
+    [Parameter] public string Serial { get; set; } = "";
+
+    private bool isLoading;
+    private string searchQuery = "";
+    private string filterType = "";
+    private List<AndroidPackageInfo> packages = new();
+
+    private IEnumerable<AndroidPackageInfo> FilteredPackages => packages
+        .Where(p => string.IsNullOrEmpty(searchQuery) ||
+                    p.PackageName.Contains(searchQuery, StringComparison.OrdinalIgnoreCase))
+        .Where(p => string.IsNullOrEmpty(filterType) ||
+                    (filterType == "User" && !p.IsSystemApp) ||
+                    (filterType == "System" && p.IsSystemApp));
+
+    protected override async Task OnInitializedAsync()
+    {
+        Inspector.DeviceChanged += OnDeviceSwitched;
+        await LoadPackages(forceRefresh: false);
+    }
+
+    private async Task LoadPackages(bool forceRefresh)
+    {
+        isLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            var result = await DeviceTools.GetInstalledPackagesAsync(Serial);
+            packages = result.ToList();
+        }
+        catch (Exception ex)
+        {
+            await AlertService.ShowToastAsync($"Error loading packages: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task LaunchApp(AndroidPackageInfo pkg)
+    {
+        var success = await DeviceTools.LaunchPackageAsync(Serial, pkg.PackageName);
+        await AlertService.ShowToastAsync(success
+            ? $"Launched {pkg.PackageName}"
+            : $"Failed to launch {pkg.PackageName}");
+    }
+
+    private async Task ForceStopApp(AndroidPackageInfo pkg)
+    {
+        var success = await DeviceTools.ForceStopPackageAsync(Serial, pkg.PackageName);
+        await AlertService.ShowToastAsync(success
+            ? $"Stopped {pkg.PackageName}"
+            : $"Failed to stop {pkg.PackageName}");
+    }
+
+    private async Task ClearAppData(AndroidPackageInfo pkg)
+    {
+        var confirm = await AlertService.ShowConfirmAsync(
+            "Clear App Data",
+            $"Are you sure you want to clear all data for '{pkg.PackageName}'? This cannot be undone.");
+
+        if (!confirm) return;
+
+        var success = await DeviceTools.ClearPackageDataAsync(Serial, pkg.PackageName);
+        await AlertService.ShowToastAsync(success
+            ? $"Cleared data for {pkg.PackageName}"
+            : $"Failed to clear data for {pkg.PackageName}");
+    }
+
+    private void BrowseDataDir(AndroidPackageInfo pkg)
+    {
+        // Switch to Files tab — user can navigate to /data/data/<pkg>
+        Inspector.SetTab(InspectorTab.Files);
+    }
+
+    private async Task UninstallApp(AndroidPackageInfo pkg)
+    {
+        var confirm = await AlertService.ShowConfirmAsync(
+            "Uninstall App",
+            $"Are you sure you want to uninstall '{pkg.PackageName}'?");
+
+        if (!confirm) return;
+
+        var result = await OperationModal.RunAsync(
+            "Uninstall App",
+            $"Uninstalling {pkg.PackageName}...",
+            async ctx =>
+            {
+                ctx.LogInfo($"Package: {pkg.PackageName}");
+                ctx.SetStatus("Uninstalling...");
+
+                var success = await DeviceTools.UninstallPackageAsync(Serial, pkg.PackageName,
+                    new Progress<string>(msg => { ctx.LogInfo(msg); ctx.SetStatus(msg); }));
+
+                if (success) ctx.LogSuccess($"Uninstalled {pkg.PackageName}");
+                return success;
+            },
+            canCancel: false);
+
+        if (result.Success)
+            await LoadPackages(forceRefresh: true);
+    }
+
+    private async Task InstallApk()
+    {
+        var apkPath = await DialogService.PickOpenFileAsync("Select APK file", new[] { "apk" });
+        if (string.IsNullOrEmpty(apkPath)) return;
+
+        var result = await OperationModal.RunAsync(
+            "Install APK",
+            $"Installing {Path.GetFileName(apkPath)}...",
+            async ctx =>
+            {
+                ctx.LogInfo($"Path: {apkPath}");
+                ctx.SetStatus("Installing...");
+
+                var success = await DeviceTools.InstallApkAsync(Serial, apkPath,
+                    new Progress<string>(msg => { ctx.LogInfo(msg); ctx.SetStatus(msg); }));
+
+                if (success) ctx.LogSuccess("APK installed successfully");
+                return success;
+            });
+
+        if (result.Success)
+            await LoadPackages(forceRefresh: true);
+    }
+
+    private async Task CopyToClipboard(string text)
+    {
+        await DialogService.CopyToClipboardAsync(text);
+        await AlertService.ShowToastAsync("Copied to clipboard");
+    }
+
+    private void OnDeviceSwitched(string newSerial)
+    {
+        _ = InvokeAsync(async () =>
+        {
+            Serial = newSerial;
+            packages.Clear();
+            searchQuery = "";
+            filterType = "";
+            StateHasChanged();
+            await LoadPackages(forceRefresh: false);
+        });
+    }
+
+    public void Dispose()
+    {
+        Inspector.DeviceChanged -= OnDeviceSwitched;
+    }
+}

@@ -238,6 +238,165 @@ public class AndroidDeviceToolsService : IAndroidDeviceToolsService
         }
     }
 
+    // ── Package Management ──
+
+    public async Task<IReadOnlyList<AndroidPackageInfo>> GetInstalledPackagesAsync(string serial)
+    {
+        try
+        {
+            // Get user packages
+            var userOutput = await RunAdbAsync(serial, "shell pm list packages -f -3");
+            var userPackages = ParsePackageList(userOutput, isSystem: false);
+
+            // Get system packages
+            var systemOutput = await RunAdbAsync(serial, "shell pm list packages -f -s");
+            var systemPackages = ParsePackageList(systemOutput, isSystem: true);
+
+            var allPackages = userPackages.Concat(systemPackages).ToList();
+
+            // Batch fetch version info (user apps only to keep it fast)
+            foreach (var pkg in userPackages)
+            {
+                try
+                {
+                    var dumpOutput = await RunAdbAsync(serial, $"shell dumpsys package {pkg.PackageName}");
+                    var versionName = ParseDumpsysField(dumpOutput, "versionName=");
+                    var versionCode = ParseDumpsysField(dumpOutput, "versionCode=");
+
+                    if (versionName != null || versionCode != null)
+                    {
+                        var idx = allPackages.IndexOf(pkg);
+                        if (idx >= 0)
+                            allPackages[idx] = pkg with { VersionName = versionName, VersionCode = versionCode };
+                    }
+                }
+                catch { }
+            }
+
+            return allPackages.OrderBy(p => p.IsSystemApp).ThenBy(p => p.PackageName).ToList().AsReadOnly();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Failed to list packages: {ex.Message}", ex);
+            return Array.Empty<AndroidPackageInfo>();
+        }
+    }
+
+    public async Task<bool> LaunchPackageAsync(string serial, string packageName)
+    {
+        try
+        {
+            await RunAdbAsync(serial, $"shell monkey -p {packageName} -c android.intent.category.LAUNCHER 1");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Failed to launch {packageName}: {ex.Message}", ex);
+            return false;
+        }
+    }
+
+    public async Task<bool> ForceStopPackageAsync(string serial, string packageName)
+    {
+        try
+        {
+            await RunAdbAsync(serial, $"shell am force-stop {packageName}");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Failed to force-stop {packageName}: {ex.Message}", ex);
+            return false;
+        }
+    }
+
+    public async Task<bool> InstallApkAsync(string serial, string apkPath, IProgress<string>? progress = null)
+    {
+        try
+        {
+            progress?.Report("Installing APK...");
+            var output = await RunAdbAsync(serial, $"install -r \"{apkPath}\"");
+            var success = output.Contains("Success", StringComparison.OrdinalIgnoreCase);
+            progress?.Report(success ? "APK installed successfully" : $"Install failed: {output.Trim()}");
+            return success;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Failed to install APK: {ex.Message}", ex);
+            progress?.Report($"Error: {ex.Message}");
+            return false;
+        }
+    }
+
+    public async Task<bool> UninstallPackageAsync(string serial, string packageName, IProgress<string>? progress = null)
+    {
+        try
+        {
+            progress?.Report($"Uninstalling {packageName}...");
+            var output = await RunAdbAsync(serial, $"uninstall {packageName}");
+            var success = output.Contains("Success", StringComparison.OrdinalIgnoreCase);
+            progress?.Report(success ? "Package uninstalled" : $"Uninstall failed: {output.Trim()}");
+            return success;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Failed to uninstall {packageName}: {ex.Message}", ex);
+            progress?.Report($"Error: {ex.Message}");
+            return false;
+        }
+    }
+
+    public async Task<bool> ClearPackageDataAsync(string serial, string packageName)
+    {
+        try
+        {
+            var output = await RunAdbAsync(serial, $"shell pm clear {packageName}");
+            return output.Contains("Success", StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Failed to clear data for {packageName}: {ex.Message}", ex);
+            return false;
+        }
+    }
+
+    private static List<AndroidPackageInfo> ParsePackageList(string output, bool isSystem)
+    {
+        var packages = new List<AndroidPackageInfo>();
+        foreach (var line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            // Format: package:<apk_path>=<package_name>
+            var trimmed = line.Trim();
+            if (!trimmed.StartsWith("package:")) continue;
+
+            var rest = trimmed["package:".Length..];
+            var eqIdx = rest.LastIndexOf('=');
+            if (eqIdx < 0) continue;
+
+            var apkPath = rest[..eqIdx];
+            var pkgName = rest[(eqIdx + 1)..];
+
+            packages.Add(new AndroidPackageInfo(pkgName, null, null, apkPath, isSystem));
+        }
+        return packages;
+    }
+
+    private static string? ParseDumpsysField(string output, string fieldName)
+    {
+        foreach (var line in output.Split('\n'))
+        {
+            var trimmed = line.Trim();
+            var idx = trimmed.IndexOf(fieldName, StringComparison.Ordinal);
+            if (idx < 0) continue;
+
+            var value = trimmed[(idx + fieldName.Length)..];
+            // Value may end at whitespace or end of line
+            var endIdx = value.IndexOfAny(new[] { ' ', '\r', '\n' });
+            return endIdx >= 0 ? value[..endIdx] : value;
+        }
+        return null;
+    }
+
     // ── Helpers ──
 
     private async Task<string> RunAdbAsync(string serial, string arguments)
