@@ -66,27 +66,54 @@ public class WindowsTitleBarManager
 
         _titleBar.PassthroughElements.Clear();
 
-        // Content: Search bar (centered)
-        if (!string.IsNullOrEmpty(_toolbarService.SearchPlaceholder))
+        // Content: Search bar + Filter button side by side
+        var hasSearch = !string.IsNullOrEmpty(_toolbarService.SearchPlaceholder);
+        var hasFilters = _toolbarService.CurrentFilters.Count > 0;
+
+        if (hasSearch || hasFilters)
         {
-            _searchBar = new SearchBar
+            var contentLayout = new HorizontalStackLayout
             {
-                Placeholder = _toolbarService.SearchPlaceholder,
-                Text = _toolbarService.SearchText,
-                MaximumWidthRequest = 350,
-                HorizontalOptions = LayoutOptions.Fill,
+                Spacing = 6,
                 VerticalOptions = LayoutOptions.Center,
-                HeightRequest = 32,
-                BackgroundColor = BgControl,
-                TextColor = Colors.White,
-                PlaceholderColor = TextMuted,
+                HorizontalOptions = LayoutOptions.Fill,
             };
-            _searchBar.TextChanged += (s, e) =>
+
+            if (hasSearch)
             {
-                _toolbarService.NotifySearchTextChanged(e.NewTextValue ?? "");
-            };
-            _titleBar.Content = _searchBar;
-            _titleBar.PassthroughElements.Add(_searchBar);
+                _searchBar = new SearchBar
+                {
+                    Placeholder = _toolbarService.SearchPlaceholder,
+                    Text = _toolbarService.SearchText,
+                    MaximumWidthRequest = 350,
+                    HorizontalOptions = LayoutOptions.Fill,
+                    VerticalOptions = LayoutOptions.Center,
+                    HeightRequest = 32,
+                    BackgroundColor = BgControl,
+                    TextColor = Colors.White,
+                    PlaceholderColor = TextMuted,
+                };
+                _searchBar.TextChanged += (s, e) =>
+                {
+                    _toolbarService.NotifySearchTextChanged(e.NewTextValue ?? "");
+                };
+                contentLayout.Children.Add(_searchBar);
+                _titleBar.PassthroughElements.Add(_searchBar);
+            }
+            else
+            {
+                _searchBar = null;
+            }
+
+            if (hasFilters)
+            {
+                var filterBtn = CreateUnifiedFilterButton();
+                contentLayout.Children.Add(filterBtn);
+                _titleBar.PassthroughElements.Add(filterBtn);
+            }
+
+            _titleBar.Content = contentLayout;
+            _titleBar.PassthroughElements.Add(contentLayout);
         }
         else
         {
@@ -94,7 +121,7 @@ public class WindowsTitleBarManager
             _titleBar.Content = null;
         }
 
-        // TrailingContent: Filters + Action buttons
+        // TrailingContent: Action buttons only
         var trailing = new HorizontalStackLayout
         {
             Spacing = 6,
@@ -102,28 +129,6 @@ public class WindowsTitleBarManager
             Padding = new Thickness(0, 0, 8, 0),
         };
 
-        // Add unified filter button if there are filters
-        if (_toolbarService.CurrentFilters.Count > 0)
-        {
-            var filterBtn = CreateUnifiedFilterButton();
-            trailing.Children.Add(filterBtn);
-            _titleBar.PassthroughElements.Add(filterBtn);
-        }
-
-        // Add separator if we have both filters and actions
-        if (_toolbarService.CurrentFilters.Count > 0 && _toolbarService.CurrentItems.Count > 0)
-        {
-            trailing.Children.Add(new BoxView
-            {
-                WidthRequest = 1,
-                HeightRequest = 24,
-                Color = BorderColor,
-                VerticalOptions = LayoutOptions.Center,
-                Margin = new Thickness(2, 0),
-            });
-        }
-
-        // Add action buttons
         foreach (var action in _toolbarService.CurrentItems)
         {
             var btn = CreateActionButton(action);
@@ -152,12 +157,13 @@ public class WindowsTitleBarManager
 
         var btn = new Button
         {
-            Text = filterGlyph + " " + chevronGlyph,
+            Text = filterGlyph + "  " + chevronGlyph,
             FontFamily = "FluentIcons",
             FontSize = 16,
             HeightRequest = 32,
-            MinimumWidthRequest = 56,
-            Padding = new Thickness(14, 0),
+            WidthRequest = 60,
+            MinimumWidthRequest = 60,
+            Padding = new Thickness(16, 0),
             BackgroundColor = hasActiveFilter ? Accent : BgControl,
             TextColor = Colors.White,
             BorderColor = hasActiveFilter ? Accent : BorderColor,
