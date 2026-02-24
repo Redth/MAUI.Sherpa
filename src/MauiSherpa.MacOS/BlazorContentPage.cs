@@ -60,6 +60,7 @@ public class BlazorContentPage : ContentPage
         {
             HostPage = "wwwroot/index.html",
             ContentInsets = new Thickness(0, 52, 0, 0),
+            HideScrollPocketOverlay = true,
         };
         _blazorWebView.RootComponents.Add(new BlazorRootComponent
         {
@@ -256,41 +257,38 @@ public class BlazorContentPage : ContentPage
         bool hasIdentity = AppleRoutes.Contains(_currentRoute) || GoogleRoutes.Contains(_currentRoute);
         bool hasPublishWizard = activeIds.Contains("publish-wizard");
 
-        // 1. Update action item visibility and commands
+        // 1. Update action item visibility via MacOSToolbarItem.IsVisible API and commands
         foreach (var (actionId, toolbarItem) in _actionItemMap)
         {
             bool shouldShow = activeIds.Contains(actionId);
+            MacOSToolbarItem.SetIsVisible(toolbarItem, shouldShow);
             toolbarItem.Command = shouldShow
                 ? new Command(() => _toolbarService.InvokeToolbarItemClicked(actionId))
                 : null;
         }
 
-        // 2. Toggle native NSToolbarItem hidden state
+        // 2. Toggle menu/search visibility and update enabled state via native APIs
+        //    (MacOSToolbarItem.IsVisible only works for ToolbarItems, not menus/search)
         var hiddenSelector = new ObjCRuntime.Selector("setHidden:");
+        var enabledSelector = new ObjCRuntime.Selector("setEnabled:");
         foreach (var nsItem in toolbar.Items)
         {
-            if (!nsItem.RespondsToSelector(hiddenSelector))
-                continue;
-
             var id = nsItem.Identifier;
-            bool shouldHide;
 
             if (id.StartsWith("MauiToolbarItem_"))
             {
-                // Content toolbar items — map back to our action items by index
+                // Update enabled state for action items
                 if (int.TryParse(id.Replace("MauiToolbarItem_", ""), out int idx) && idx < _actionItemMap.Count)
                 {
                     var actionId = _actionItemMap.Keys.ElementAt(idx);
-                    shouldHide = !activeIds.Contains(actionId);
-                }
-                else
-                {
-                    shouldHide = false;
+                    if (nsItem.RespondsToSelector(enabledSelector))
+                        _objc_msgSend_bool(nsItem.Handle, enabledSelector.Handle, _toolbarService.IsItemEnabled(actionId));
                 }
             }
             else if (id.StartsWith("MauiMenu_"))
             {
-                // Menu order in layout: identity(0), publish(1), filter(2)
+                if (!nsItem.RespondsToSelector(hiddenSelector)) continue;
+                bool shouldHide;
                 if (id == "MauiMenu_0")
                     shouldHide = !hasIdentity;
                 else if (id == "MauiMenu_1")
@@ -299,23 +297,18 @@ public class BlazorContentPage : ContentPage
                     shouldHide = !hasFilter;
                 else
                     shouldHide = false;
+                _objc_msgSend_bool(nsItem.Handle, hiddenSelector.Handle, shouldHide);
             }
             else if (id == "MauiSearchItem")
             {
-                shouldHide = !hasSearch;
-                if (!shouldHide && nsItem is NSSearchToolbarItem searchNative)
+                if (!nsItem.RespondsToSelector(hiddenSelector)) continue;
+                _objc_msgSend_bool(nsItem.Handle, hiddenSelector.Handle, !hasSearch);
+                if (hasSearch && nsItem is NSSearchToolbarItem searchNative)
                 {
                     searchNative.SearchField.PlaceholderString = _toolbarService.SearchPlaceholder ?? "";
                     searchNative.SearchField.StringValue = "";
                 }
             }
-            else
-            {
-                continue; // don't touch spacers, tracking separators, etc.
-            }
-
-            // Use objc_msgSend to call setHidden:
-            _objc_msgSend_bool(nsItem.Handle, hiddenSelector.Handle, shouldHide);
         }
 
         // 3. Rebuild filter submenus natively if filters are active

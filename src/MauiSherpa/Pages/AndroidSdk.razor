@@ -870,7 +870,10 @@
         {
             switch (actionId)
             {
-                case "refresh": await RefreshData(); break;
+                case "refresh":
+                    ToolbarService.SetItemEnabled("refresh", false);
+                    try { await RefreshData(); } finally { ToolbarService.SetItemEnabled("refresh", true); }
+                    break;
             }
             StateHasChanged();
         });

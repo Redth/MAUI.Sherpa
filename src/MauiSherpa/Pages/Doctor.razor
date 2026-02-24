@@ -774,7 +774,10 @@ else
         {
             switch (actionId)
             {
-                case "refresh": await RunDoctor(); break;
+                case "refresh":
+                    ToolbarService.SetItemEnabled("refresh", false);
+                    try { await RunDoctor(); } finally { ToolbarService.SetItemEnabled("refresh", true); }
+                    break;
             }
             StateHasChanged();
         });

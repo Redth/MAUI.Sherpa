@@ -471,7 +471,10 @@
         {
             switch (actionId)
             {
-                case "refresh": await RefreshDevices(forceRefresh: true); break;
+                case "refresh":
+                    ToolbarService.SetItemEnabled("refresh", false);
+                    try { await RefreshDevices(forceRefresh: true); } finally { ToolbarService.SetItemEnabled("refresh", true); }
+                    break;
             }
             StateHasChanged();
         });
