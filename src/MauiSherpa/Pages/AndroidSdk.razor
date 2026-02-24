@@ -109,7 +109,11 @@
         <div class="package-groups">
             @if (!FilteredInstalledPackages.Any())
             {
-                <div class="empty-state">@(ViewModel.InstalledPackages.Count == 0 ? "No packages installed" : "No packages match filters")</div>
+                <div class="empty-state">
+                    <div class="empty-icon"><i class="fas fa-search"></i></div>
+                    <div class="empty-title">@(ViewModel.InstalledPackages.Count == 0 ? "No packages installed" : "No matching packages")</div>
+                    <div class="empty-description">@(ViewModel.InstalledPackages.Count == 0 ? "Install packages from the Available tab" : "No installed packages match your search or filters. Try adjusting your criteria.")</div>
+                </div>
             }
             else
             {
@@ -180,7 +184,11 @@
         <div class="package-groups">
             @if (!FilteredAvailablePackages.Any())
             {
-                <div class="empty-state">No packages match filters</div>
+                <div class="empty-state">
+                    <div class="empty-icon"><i class="fas fa-search"></i></div>
+                    <div class="empty-title">No matching packages</div>
+                    <div class="empty-description">No available packages match your search or filters. Try adjusting your criteria.</div>
+                </div>
             }
             else
             {
@@ -690,12 +698,17 @@
     }
 
     .empty-state {
-        padding: 2.5rem;
+        padding: 3.75rem 2.5rem;
         text-align: center;
         color: var(--text-muted);
         background: var(--card-bg);
         border-radius: 0.5rem;
+        box-shadow: var(--card-shadow);
     }
+    .empty-icon { font-size: 48px; margin-bottom: 1rem; color: var(--text-secondary); }
+    .empty-icon i { font-size: 48px; }
+    .empty-title { font-size: 1.125rem; font-weight: 600; color: var(--text-primary); margin-bottom: 0.5rem; }
+    .empty-description { color: var(--text-secondary); font-size: 0.9rem; }
 </style>
 
 @code {

@@ -63,9 +63,17 @@
             <div class="empty-description">Click "Create Emulator" to set up a new Android Virtual Device</div>
         </div>
     }
+    else if (!FilteredEmulators.Any())
+    {
+        <div class="empty-state">
+            <div class="empty-icon"><i class="fas fa-search"></i></div>
+            <div class="empty-title">No matching emulators</div>
+            <div class="empty-description">No emulators match your search. Try a different query.</div>
+        </div>
+    }
     else
     {
-        @foreach (var emulator in emulators.Where(e => string.IsNullOrEmpty(searchQuery) || e.Name.Contains(searchQuery, StringComparison.OrdinalIgnoreCase)))
+        @foreach (var emulator in FilteredEmulators)
         {
             var isRunning = runningEmulators.ContainsKey(emulator.Name);
             var isStarting = startingEmulators.Contains(emulator.Name);
@@ -689,6 +697,10 @@
 @code {
     private List<AvdInfo> emulators = new();
     private string searchQuery = "";
+
+    private IEnumerable<AvdInfo> FilteredEmulators => emulators
+        .Where(e => string.IsNullOrEmpty(searchQuery) || e.Name.Contains(searchQuery, StringComparison.OrdinalIgnoreCase));
+
     private List<string> installedSystemImages = new();
     private List<string> availableSystemImages = new();
     private List<string> availableSkins = new();
