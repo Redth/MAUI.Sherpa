@@ -7,5 +7,6 @@ public class MacOSPlatformService : IPlatformService
     public bool IsWindows => false;
     public bool IsMacCatalyst => false;
     public bool IsMacOS => true;
+    public bool HasNativeToolbar => true;
     public string PlatformName => "macOS";
 }

@@ -878,12 +878,14 @@ public class BlazorContentPage : ContentPage
     {
         base.OnAppearing();
 
+#if !DEBUG
         // Disable right-click context menu in the webview
         Dispatcher.Dispatch(async () =>
         {
             try { await EvaluateJavaScriptAsync("document.addEventListener('contextmenu', e => e.preventDefault())"); }
             catch { }
         });
+#endif
     }
 
     protected override void OnDisappearing()
