@@ -317,7 +317,6 @@ public class BlazorContentPage : ContentPage
         if (hasSearch && _searchItem != null)
         {
             _searchItem.Placeholder = _toolbarService.SearchPlaceholder ?? "";
-            _searchItem.Text = "";
         }
 
         // Update enabled state for action items via native API
@@ -646,12 +645,10 @@ public class BlazorContentPage : ContentPage
 
     void FullRebuildToolbar()
     {
-            ToolbarItems.Clear();
             _actionItemMap.Clear();
 
             // Copilot button in sidebar trailing area (convenience mode handles it)
             var copilotItem = CreateCopilotToolbarItem();
-            ToolbarItems.Add(copilotItem);
 
             // Create SUPERSET of all possible action items (hidden ones toggled later)
             // Order matters for layout: [create/import] ← flex → [refresh]
@@ -664,6 +661,7 @@ public class BlazorContentPage : ContentPage
 
             ToolbarItem? refreshItem = null;
             var leadingItems = new List<ToolbarItem>();
+            var allToolbarItems = new List<ToolbarItem> { copilotItem };
             foreach (var (id, label, icon) in supersetActions)
             {
                 var actionId = id;
@@ -673,7 +671,7 @@ public class BlazorContentPage : ContentPage
                     IconImageSource = icon,
                     Command = new Command(() => _toolbarService.InvokeToolbarItemClicked(actionId)),
                 };
-                ToolbarItems.Add(item);
+                allToolbarItems.Add(item);
                 _actionItemMap[actionId] = item;
 
                 if (actionId == "refresh")
@@ -688,8 +686,16 @@ public class BlazorContentPage : ContentPage
                 Placeholder = _toolbarService.SearchPlaceholder ?? "Search...",
                 Text = _toolbarService.SearchText,
             };
-            _searchItem.TextChanged += (s, e) => _toolbarService.NotifySearchTextChanged(e.NewTextValue ?? "");
-            MacOSToolbar.SetSearchItem(this, _searchItem);
+            _searchItem.TextChanged += (s, e) =>
+                _toolbarService.NotifySearchTextChanged(e.NewTextValue ?? "");
+
+            // WORKAROUND: The upstream ToolbarHandler's CleanupSearchItem unsubscribes
+            // from the native NSSearchField.Changed event on every RefreshToolbar call,
+            // but only re-subscribes when macOS inserts a new toolbar item. After the
+            // initial insertion, subsequent refreshes leave the native event disconnected.
+            // We work around this by finding the native NSSearchToolbarItem after toolbar
+            // setup and subscribing to its search field changes directly.
+            Dispatcher.Dispatch(() => Dispatcher.Dispatch(HookNativeSearchField));
 
             // Always create identity menu (hidden on non-Apple pages)
             _identityMenu = CreateAppleIdentityMenu() ?? new MacOSMenuToolbarItem
@@ -769,10 +775,71 @@ public class BlazorContentPage : ContentPage
             if (refreshItem != null)
                 layout.Add(MacOSToolbarLayoutItem.Item(refreshItem));
 
+            // Set all attached properties BEFORE modifying ToolbarItems to minimize
+            // intermediate RefreshToolbar calls. SetSearchItem is set via the content
+            // layout (MacOSToolbarLayoutItem.Search), not as a separate attached property,
+            // so the handler only sees it once during the final refresh.
             MacOSToolbar.SetMenuItems(this, null);
             MacOSToolbar.SetPopUpItems(this, null);
             MacOSToolbar.SetSidebarLayout(this, null);
+            MacOSToolbar.SetSearchItem(this, _searchItem);
             MacOSToolbar.SetContentLayout(this, layout);
+
+            // Now set ToolbarItems in one batch — Clear + AddRange triggers fewer
+            // CollectionChanged events. The LAST RefreshToolbar (from SetContentLayout
+            // sentinel above) will see the complete state.
+            ToolbarItems.Clear();
+            foreach (var ti in allToolbarItems)
+                ToolbarItems.Add(ti);
+    }
+
+    AppKit.NSSearchField? _hookedSearchField;
+    NSObject? _searchObserver;
+
+    void HookNativeSearchField()
+    {
+        UnhookNativeSearchField();
+
+        var nsWindow = this.Window?.Handler?.PlatformView as AppKit.NSWindow;
+        var toolbar = nsWindow?.Toolbar;
+        if (toolbar == null || _searchItem == null)
+        {
+            Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(500), HookNativeSearchField);
+            return;
+        }
+
+        foreach (var nsItem in toolbar.Items)
+        {
+            if (nsItem is AppKit.NSSearchToolbarItem searchToolbarItem)
+            {
+                _hookedSearchField = searchToolbarItem.SearchField;
+                // Use NSNotificationCenter for per-keystroke updates (Changed only fires on Enter)
+                _searchObserver = NSNotificationCenter.DefaultCenter.AddObserver(
+                    NSTextField.TextDidChangeNotification,
+                    OnNativeSearchTextDidChange,
+                    _hookedSearchField);
+                return;
+            }
+        }
+
+        Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(500), HookNativeSearchField);
+    }
+
+    void UnhookNativeSearchField()
+    {
+        if (_searchObserver != null)
+        {
+            NSNotificationCenter.DefaultCenter.RemoveObserver(_searchObserver);
+            _searchObserver = null;
+        }
+        _hookedSearchField = null;
+    }
+
+    void OnNativeSearchTextDidChange(NSNotification notification)
+    {
+        if (notification.Object is not AppKit.NSSearchField sf) return;
+        var text = sf.StringValue ?? string.Empty;
+        _toolbarService.NotifySearchTextChanged(text);
     }
 
     private IReadOnlyList<AppleIdentity>? _cachedIdentities;
@@ -893,6 +960,7 @@ public class BlazorContentPage : ContentPage
         base.OnDisappearing();
         _toolbarService.ToolbarChanged -= OnToolbarChanged;
         _splashService.OnBlazorReady -= OnBlazorReady;
+        UnhookNativeSearchField();
     }
 }
 
