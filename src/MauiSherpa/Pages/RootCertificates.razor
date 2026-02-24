@@ -10,6 +10,7 @@
 @inject OperationModalService OperationModal
 @inject BlazorToastService ToastService
 @inject IToolbarService ToolbarService
+@implements IDisposable
 
 <h1><i class="fas fa-shield-alt"></i> Apple Root & Intermediate Certificates</h1>
 
@@ -57,6 +58,8 @@ else
                     <span>Intermediate Certificates</span>
                 }
             </div>
+            @if (!Platform.HasNativeToolbar)
+            {
             <div class="header-actions">
                 <button class="btn btn-secondary btn-sm" @onclick="() => RefreshInstalledCerts(forceRefresh: true)" disabled="@isLoading">
                     <i class="fas @(isLoading ? "fa-spinner fa-spin" : "fa-sync-alt")"></i> Refresh
@@ -65,6 +68,7 @@ else
                     <i class="fas fa-download"></i> Install All Missing
                 </button>
             </div>
+            }
         </div>
 
         <div class="cert-list">
@@ -383,6 +387,12 @@ else
     protected override async Task OnInitializedAsync()
     {
         ToolbarService.ClearItems();
+        ToolbarService.SetItems(
+            new ToolbarAction("install-missing", "Install Missing", "fa-download"),
+            new ToolbarAction("refresh", "Refresh", "fa-sync-alt")
+        );
+        ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
+
         availableCerts = CertService.GetAvailableCertificates().ToList();
         if (CertService.IsSupported)
         {
@@ -469,6 +479,19 @@ else
         return availableCerts.Any(c => !IsCertInstalled(c));
     }
 
+    private async void OnToolbarItemClicked(string actionId)
+    {
+        switch (actionId)
+        {
+            case "refresh":
+                await RefreshInstalledCerts(forceRefresh: true);
+                break;
+            case "install-missing":
+                await InstallAllMissing();
+                break;
+        }
+    }
+
     private async Task InstallCert(AppleRootCertInfo cert)
     {
         var result = await OperationModal.RunAsync(
@@ -541,5 +564,10 @@ else
             });
 
         await RefreshInstalledCerts(forceRefresh: true);
+    }
+
+    public void Dispose()
+    {
+        ToolbarService.ToolbarItemClicked -= OnToolbarItemClicked;
     }
 }
