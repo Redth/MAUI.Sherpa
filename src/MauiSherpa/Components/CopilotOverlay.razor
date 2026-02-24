@@ -6,11 +6,13 @@
 @implements IDisposable
 
 @* Floating Copilot Button - hidden on macOS (native toolbar button used instead) *@
+#if DEBUG
 <button class="copilot-fab @(isOpen ? "overlay-open" : "") @(PlatformInfo.IsMacOS ? "fab-hidden" : "")" 
         @onclick="ToggleOverlay"
         title="@(isOpen ? "Minimize Copilot" : "Open Copilot")">
     <i class="fas @(isOpen ? "fa-chevron-down" : "fa-robot")"></i>
 </button>
+#endif
 
 @* Overlay *@
 @if (isOpen)
@@ -96,9 +98,9 @@
         backdrop-filter: blur(4px);
         z-index: 20000;
         display: flex;
-        align-items: flex-end;
+        align-items: flex-start;
         justify-content: flex-start;
-        padding: 100px 2.5rem 100px 100px; /* top right bottom left - offset from FAB */
+        padding: 1rem 2.5rem 2.5rem 1rem;
         animation: fadeIn 0.2s ease;
     }
     
@@ -119,7 +121,7 @@
         display: flex;
         flex-direction: column;
         overflow: hidden;
-        transform-origin: bottom left;
+        transform-origin: top left;
         animation: expandFromCorner 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
     }
     
@@ -130,7 +132,7 @@
     @@keyframes expandFromCorner {
         from { 
             opacity: 0;
-            transform: scale(0.3) translateX(-20px) translateY(20px);
+            transform: scale(0.3) translateX(-20px) translateY(-20px);
         }
         to { 
             opacity: 1;
@@ -145,7 +147,7 @@
         }
         to { 
             opacity: 0;
-            transform: scale(0.3) translateX(-20px) translateY(20px);
+            transform: scale(0.3) translateX(-20px) translateY(-20px);
         }
     }
     
