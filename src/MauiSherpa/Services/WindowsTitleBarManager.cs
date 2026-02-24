@@ -33,10 +33,17 @@ public class WindowsTitleBarManager
     {
         _titleBar = new TitleBar
         {
-            Icon = "sherpalogo.png",
             BackgroundColor = BgDark,
             ForegroundColor = Colors.White,
             HeightRequest = 48,
+            LeadingContent = new Image
+            {
+                Source = "sherpalogo.png",
+                HeightRequest = 28,
+                WidthRequest = 28,
+                VerticalOptions = LayoutOptions.Center,
+                Margin = new Thickness(8, 0, 4, 0),
+            },
         };
 
         RebuildContent();
