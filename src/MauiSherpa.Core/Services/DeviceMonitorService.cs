@@ -250,7 +250,7 @@ public class DeviceMonitorService : IDeviceMonitorService, IDisposable
                             Interface: null, SimState: "Booted"));
                     }
                 }
-                else
+                else if (d.Platform != "com.apple.platform.macosx")
                 {
                     physicalDevices.Add(new AppleDeviceInfo(
                         d.Identifier, d.Name, d.ModelName, d.Platform,

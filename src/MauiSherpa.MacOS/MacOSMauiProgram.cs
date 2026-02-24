@@ -87,6 +87,7 @@ public static class MacOSMauiProgram
         builder.Services.AddSingleton<IKeystoreSyncService, KeystoreSyncService>();
         builder.Services.AddSingleton<ILogcatService, LogcatService>();
         builder.Services.AddSingleton<IAdbDeviceWatcherService, AdbDeviceWatcherService>();
+        builder.Services.AddSingleton<IDeviceMonitorService, DeviceMonitorService>();
         builder.Services.AddSingleton<IDeviceFileService, DeviceFileService>();
         builder.Services.AddSingleton<IDeviceShellService, DeviceShellService>();
         builder.Services.AddSingleton<IScreenCaptureService, ScreenCaptureService>();
@@ -183,6 +184,7 @@ public static class MacOSMauiProgram
         builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Apple.GetSimulatorDeviceTypesHandler>();
         builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Apple.GetSimulatorRuntimesHandler>();
         builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Apple.GetSimulatorAppsHandler>();
+        builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.GetConnectedDevicesHandler>();
 
 #if DEBUG
         builder.Services.AddBlazorWebViewDeveloperTools();

@@ -81,7 +81,7 @@
                 <div class="device-card-icon apple-device"><i class="fab fa-apple"></i></div>
                 <div class="device-card-info">
                     <div class="device-card-name">@device.Name</div>
-                    <div class="device-card-detail">@device.ModelName — @device.OsVersion</div>
+                    <div class="device-card-detail">@device.ModelName — @FriendlyPlatform(device.Platform) @device.OsVersion</div>
                 </div>
                 <button class="device-card-action" @onclick='() => Navigation.NavigateTo("/apple-simulators")' title="View">
                     <i class="fas fa-search"></i>
@@ -95,7 +95,7 @@
                 <div class="device-card-icon simulator"><i class="fas fa-tablet-alt"></i></div>
                 <div class="device-card-info">
                     <div class="device-card-name">@sim.Name</div>
-                    <div class="device-card-detail">@sim.Platform @sim.OsVersion</div>
+                    <div class="device-card-detail">@FriendlyPlatform(sim.Platform) @sim.OsVersion</div>
                 </div>
                 <button class="device-card-action" @onclick='() => SimInspector.Open(sim.Identifier, sim.Name)' title="Inspect">
                     <i class="fas fa-search"></i>
@@ -627,4 +627,15 @@
     {
         CopilotContext.OpenOverlay();
     }
+
+    private static string FriendlyPlatform(string platform) => platform switch
+    {
+        "com.apple.platform.iphonesimulator" => "iOS",
+        "com.apple.platform.iphoneos" => "iOS",
+        "com.apple.platform.watchos" or "com.apple.platform.watchsimulator" => "watchOS",
+        "com.apple.platform.tvos" or "com.apple.platform.tvsimulator" => "tvOS",
+        "com.apple.platform.xros" or "com.apple.platform.xrsimulator" => "visionOS",
+        "com.apple.platform.macosx" => "macOS",
+        _ => platform
+    };
 }
