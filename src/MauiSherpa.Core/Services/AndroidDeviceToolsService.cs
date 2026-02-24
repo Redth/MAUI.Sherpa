@@ -286,8 +286,24 @@ public class AndroidDeviceToolsService : IAndroidDeviceToolsService
     {
         try
         {
-            await RunAdbAsync(serial, $"shell monkey -p {packageName} -c android.intent.category.LAUNCHER 1");
-            return true;
+            // Resolve the launcher activity for this package
+            var resolveOutput = await RunAdbAsync(serial,
+                $"shell cmd package resolve-activity --brief -c android.intent.category.LAUNCHER {packageName}");
+
+            var lines = resolveOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+            // Second line contains the component: com.pkg/com.pkg.Activity
+            var component = lines.Length >= 2 ? lines[1].Trim() : null;
+
+            if (!string.IsNullOrEmpty(component) && component.Contains('/'))
+            {
+                await RunAdbAsync(serial, $"shell am start -n {component}");
+                return true;
+            }
+
+            // Fallback: try monkey
+            var monkeyOutput = await RunAdbAsync(serial,
+                $"shell monkey -p {packageName} -c android.intent.category.LAUNCHER 1");
+            return !monkeyOutput.Contains("No activities found", StringComparison.OrdinalIgnoreCase);
         }
         catch (Exception ex)
         {
