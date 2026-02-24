@@ -24,6 +24,10 @@ public class BlazorContentPage : ContentPage
     private readonly IGoogleIdentityStateService _googleIdentityState;
     private AppKit.NSView? _loadingOverlay;
     private NSImage? _copilotIcon;
+    private MacOSMenuToolbarItem? _identityMenu;
+    private MacOSMenuToolbarItem? _publishMenu;
+    private MacOSMenuToolbarItem? _filterMenu;
+    private MacOSSearchToolbarItem? _searchItem;
     private string _pendingRoute = "/";
     private string _currentRoute = "/";
 
@@ -81,6 +85,7 @@ public class BlazorContentPage : ContentPage
             {
                 AddNativeLoadingOverlay();
                 MakeWebViewTransparent();
+                Dispatcher.Dispatch(AddTitlebarDragOverlay);
             }
         };
 
@@ -137,6 +142,41 @@ public class BlazorContentPage : ContentPage
         // WKWebView draws an opaque background by default.
         // Use KVC to disable it so the native window background is visible.
         webView.SetValueForKey(NSObject.FromObject(false), new NSString("drawsBackground"));
+    }
+
+    private TitlebarDragView? _dragOverlay;
+
+    /// <summary>
+    /// Add a transparent overlay over the titlebar/toolbar zone of the WebView container
+    /// so the user can click-drag to move the window. Without this, the WKWebView intercepts
+    /// mouse events in the toolbar area and prevents window dragging.
+    /// </summary>
+    void AddTitlebarDragOverlay()
+    {
+        if (_dragOverlay != null) return;
+        if (_blazorWebView.Handler?.PlatformView is not NSView webViewNative) return;
+
+        var nsWindow = this.Window?.Handler?.PlatformView as NSWindow;
+        if (nsWindow == null) return;
+
+        var contentLayoutRect = nsWindow.ContentLayoutRect;
+        var windowFrame = nsWindow.Frame;
+        var titlebarHeight = windowFrame.Height - contentLayoutRect.GetMaxY();
+        if (titlebarHeight < 20) titlebarHeight = 52;
+
+        var container = webViewNative.Superview ?? webViewNative;
+        CGRect frame;
+        if (container.IsFlipped)
+            frame = new CGRect(0, 0, container.Bounds.Width, titlebarHeight);
+        else
+            frame = new CGRect(0, container.Bounds.Height - titlebarHeight, container.Bounds.Width, titlebarHeight);
+
+        _dragOverlay = new TitlebarDragView(frame)
+        {
+            AutoresizingMask = NSViewResizingMask.WidthSizable
+                | (container.IsFlipped ? NSViewResizingMask.MaxYMargin : NSViewResizingMask.MinYMargin),
+        };
+        container.AddSubview(_dragOverlay, NSWindowOrderingMode.Above, webViewNative);
     }
 
     private void OnBlazorReady()
@@ -267,46 +307,31 @@ public class BlazorContentPage : ContentPage
                 : null;
         }
 
-        // 2. Toggle menu/search visibility and update enabled state via native APIs
-        //    (MacOSToolbarItem.IsVisible only works for ToolbarItems, not menus/search)
-        var hiddenSelector = new ObjCRuntime.Selector("setHidden:");
+        // 2. Toggle menu/search visibility via MacOSToolbarItem.IsVisible API
+        //    and update enabled state via native APIs
+        MacOSToolbarItem.SetIsVisible(_identityMenu, hasIdentity);
+        MacOSToolbarItem.SetIsVisible(_publishMenu, hasPublishWizard);
+        MacOSToolbarItem.SetIsVisible(_filterMenu, hasFilter);
+        MacOSToolbarItem.SetIsVisible(_searchItem, hasSearch);
+
+        if (hasSearch && _searchItem != null)
+        {
+            _searchItem.Placeholder = _toolbarService.SearchPlaceholder ?? "";
+            _searchItem.Text = "";
+        }
+
+        // Update enabled state for action items via native API
         var enabledSelector = new ObjCRuntime.Selector("setEnabled:");
         foreach (var nsItem in toolbar.Items)
         {
             var id = nsItem.Identifier;
-
             if (id.StartsWith("MauiToolbarItem_"))
             {
-                // Update enabled state for action items
                 if (int.TryParse(id.Replace("MauiToolbarItem_", ""), out int idx) && idx < _actionItemMap.Count)
                 {
                     var actionId = _actionItemMap.Keys.ElementAt(idx);
                     if (nsItem.RespondsToSelector(enabledSelector))
                         _objc_msgSend_bool(nsItem.Handle, enabledSelector.Handle, _toolbarService.IsItemEnabled(actionId));
-                }
-            }
-            else if (id.StartsWith("MauiMenu_"))
-            {
-                if (!nsItem.RespondsToSelector(hiddenSelector)) continue;
-                bool shouldHide;
-                if (id == "MauiMenu_0")
-                    shouldHide = !hasIdentity;
-                else if (id == "MauiMenu_1")
-                    shouldHide = !hasPublishWizard;
-                else if (id == "MauiMenu_2")
-                    shouldHide = !hasFilter;
-                else
-                    shouldHide = false;
-                _objc_msgSend_bool(nsItem.Handle, hiddenSelector.Handle, shouldHide);
-            }
-            else if (id == "MauiSearchItem")
-            {
-                if (!nsItem.RespondsToSelector(hiddenSelector)) continue;
-                _objc_msgSend_bool(nsItem.Handle, hiddenSelector.Handle, !hasSearch);
-                if (hasSearch && nsItem is NSSearchToolbarItem searchNative)
-                {
-                    searchNative.SearchField.PlaceholderString = _toolbarService.SearchPlaceholder ?? "";
-                    searchNative.SearchField.StringValue = "";
                 }
             }
         }
@@ -658,16 +683,16 @@ public class BlazorContentPage : ContentPage
             }
 
             // Always create search item
-            var searchItem = new MacOSSearchToolbarItem
+            _searchItem = new MacOSSearchToolbarItem
             {
                 Placeholder = _toolbarService.SearchPlaceholder ?? "Search...",
                 Text = _toolbarService.SearchText,
             };
-            searchItem.TextChanged += (s, e) => _toolbarService.NotifySearchTextChanged(e.NewTextValue ?? "");
-            MacOSToolbar.SetSearchItem(this, searchItem);
+            _searchItem.TextChanged += (s, e) => _toolbarService.NotifySearchTextChanged(e.NewTextValue ?? "");
+            MacOSToolbar.SetSearchItem(this, _searchItem);
 
             // Always create identity menu (hidden on non-Apple pages)
-            var identityMenu = CreateAppleIdentityMenu() ?? new MacOSMenuToolbarItem
+            _identityMenu = CreateAppleIdentityMenu() ?? new MacOSMenuToolbarItem
             {
                 Icon = "apple.logo",
                 Text = "Identity",
@@ -676,7 +701,7 @@ public class BlazorContentPage : ContentPage
             };
 
             // Always create filter menu (hidden when no filters)
-            var filterMenu = new MacOSMenuToolbarItem
+            _filterMenu = new MacOSMenuToolbarItem
             {
                 Icon = "line.3.horizontal.decrease",
                 Text = "Filters",
@@ -702,13 +727,13 @@ public class BlazorContentPage : ContentPage
                         submenuItem.SubItems.Add(option);
                     }
                     if (fi > 0)
-                        filterMenu.Items.Add(new MacOSMenuItem { IsSeparator = true });
-                    filterMenu.Items.Add(submenuItem);
+                        _filterMenu.Items.Add(new MacOSMenuItem { IsSeparator = true });
+                    _filterMenu.Items.Add(submenuItem);
                 }
             }
 
             // Publish menu (icon+text, with sub-items for wizard and publish selected)
-            var publishMenu = new MacOSMenuToolbarItem
+            _publishMenu = new MacOSMenuToolbarItem
             {
                 Icon = "square.and.arrow.up",
                 Text = "Publish",
@@ -721,7 +746,7 @@ public class BlazorContentPage : ContentPage
                 Icon = "wand.and.stars",
             };
             wizardAction.Clicked += (s, e) => _toolbarService.InvokeToolbarItemClicked("publish-wizard");
-            publishMenu.Items.Add(wizardAction);
+            _publishMenu.Items.Add(wizardAction);
             var publishSelectedAction = new MacOSMenuItem
             {
                 Text = "Publish Selected…",
@@ -729,18 +754,18 @@ public class BlazorContentPage : ContentPage
                 IsEnabled = false,
             };
             publishSelectedAction.Clicked += (s, e) => _toolbarService.InvokeToolbarItemClicked("publish-selected");
-            publishMenu.Items.Add(publishSelectedAction);
+            _publishMenu.Items.Add(publishSelectedAction);
 
             // Build explicit content layout with ALL items:
             // [Identity] [Publish] [Create] [Import] ← FlexibleSpace → [Filter] [Search] [Refresh]
             var layout = new List<MacOSToolbarLayoutItem>();
-            layout.Add(MacOSToolbarLayoutItem.Menu(identityMenu));
-            layout.Add(MacOSToolbarLayoutItem.Menu(publishMenu));
+            layout.Add(MacOSToolbarLayoutItem.Menu(_identityMenu));
+            layout.Add(MacOSToolbarLayoutItem.Menu(_publishMenu));
             foreach (var item in leadingItems)
                 layout.Add(MacOSToolbarLayoutItem.Item(item));
             layout.Add(MacOSToolbarLayoutItem.FlexibleSpace);
-            layout.Add(MacOSToolbarLayoutItem.Menu(filterMenu));
-            layout.Add(MacOSToolbarLayoutItem.Search(searchItem));
+            layout.Add(MacOSToolbarLayoutItem.Menu(_filterMenu));
+            layout.Add(MacOSToolbarLayoutItem.Search(_searchItem));
             if (refreshItem != null)
                 layout.Add(MacOSToolbarLayoutItem.Item(refreshItem));
 
@@ -889,4 +914,34 @@ sealed class MenuActionTarget : NSObject
 
     [Export("menuItemClicked:")]
     void MenuItemClicked(NSObject sender) => _callback(_filterId, _optionIndex);
+}
+
+/// <summary>
+/// Transparent NSView placed over the WebView in the titlebar zone.
+/// Initiates window drag on mouseDown so the user can drag the window
+/// from the empty toolbar space, even though a WKWebView sits underneath.
+/// </summary>
+sealed class TitlebarDragView : NSView
+{
+    public TitlebarDragView(CGRect frame) : base(frame) { }
+
+    public override NSView? HitTest(CGPoint point)
+    {
+        if (!IsHiddenOrHasHiddenAncestor && Frame.Contains(point))
+            return this;
+        return null;
+    }
+
+    public override void MouseDown(NSEvent theEvent)
+    {
+        Window?.PerformWindowDrag(theEvent);
+    }
+
+    public override void MouseUp(NSEvent theEvent)
+    {
+        if (theEvent.ClickCount == 2)
+            Window?.PerformZoom(this);
+    }
+
+    public override bool MouseDownCanMoveWindow => true;
 }
