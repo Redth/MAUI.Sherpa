@@ -26,6 +26,7 @@ public class BlazorContentPage : ContentPage
     private NSImage? _copilotIcon;
     private MacOSMenuToolbarItem? _identityMenu;
     private MacOSMenuToolbarItem? _publishMenu;
+    private MacOSMenuToolbarItem? _backupMenu;
     private MacOSMenuToolbarItem? _filterMenu;
     private MacOSSearchToolbarItem? _searchItem;
     private string _pendingRoute = "/";
@@ -306,6 +307,7 @@ public class BlazorContentPage : ContentPage
         bool hasFilter = _toolbarService.CurrentFilters.Count > 0;
         bool hasIdentity = AppleRoutes.Contains(_currentRoute) || GoogleRoutes.Contains(_currentRoute);
         bool hasPublishWizard = activeIds.Contains("publish-wizard");
+        bool isSettings = _currentRoute.Equals("/settings", StringComparison.OrdinalIgnoreCase);
 
         // 1. Update action item visibility via MacOSToolbarItem.IsVisible API and commands
         foreach (var (actionId, toolbarItem) in _actionItemMap)
@@ -321,6 +323,7 @@ public class BlazorContentPage : ContentPage
         //    and update enabled state via native APIs
         MacOSToolbarItem.SetIsVisible(_identityMenu, hasIdentity);
         MacOSToolbarItem.SetIsVisible(_publishMenu, hasPublishWizard);
+        MacOSToolbarItem.SetIsVisible(_backupMenu, isSettings);
         MacOSToolbarItem.SetIsVisible(_filterMenu, hasFilter);
         MacOSToolbarItem.SetIsVisible(_searchItem, hasSearch);
 
@@ -778,11 +781,27 @@ public class BlazorContentPage : ContentPage
             publishSelectedAction.Clicked += (s, e) => _toolbarService.InvokeToolbarItemClicked("publish-selected");
             _publishMenu.Items.Add(publishSelectedAction);
 
+            // Backup menu (icon+text, with sub-items for export and import)
+            _backupMenu = new MacOSMenuToolbarItem
+            {
+                Icon = "shield",
+                Text = "Backup",
+                ShowsTitle = true,
+                ShowsIndicator = true,
+            };
+            var exportAction = new MacOSMenuItem { Text = "Export Settings…", Icon = "square.and.arrow.down" };
+            exportAction.Clicked += (s, e) => _toolbarService.InvokeToolbarItemClicked("export");
+            _backupMenu.Items.Add(exportAction);
+            var importAction = new MacOSMenuItem { Text = "Import Settings…", Icon = "square.and.arrow.up" };
+            importAction.Clicked += (s, e) => _toolbarService.InvokeToolbarItemClicked("import-settings");
+            _backupMenu.Items.Add(importAction);
+
             // Build explicit content layout with ALL items:
             // [Identity] [Publish] [Create] [Import] ← FlexibleSpace → [Filter] [Search] [Refresh]
             var layout = new List<MacOSToolbarLayoutItem>();
             layout.Add(MacOSToolbarLayoutItem.Menu(_identityMenu));
             layout.Add(MacOSToolbarLayoutItem.Menu(_publishMenu));
+            layout.Add(MacOSToolbarLayoutItem.Menu(_backupMenu));
             foreach (var item in leadingItems)
                 layout.Add(MacOSToolbarLayoutItem.Item(item));
             layout.Add(MacOSToolbarLayoutItem.FlexibleSpace);
