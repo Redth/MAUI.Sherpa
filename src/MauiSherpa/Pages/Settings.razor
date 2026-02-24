@@ -27,6 +27,7 @@
 @inject IJSRuntime JS
 @inject ILauncher AppLauncher
 @inject IToolbarService ToolbarService
+@inject IPlatformService PlatformInfo
 
 <h1><i class="fas fa-cog"></i> @ViewModel.Title</h1>
 
@@ -71,12 +72,15 @@
         </div>
 
         <div class="actions">
+            @if (!PlatformInfo.HasNativeToolbar)
+            {
             <button class="btn btn-primary" @onclick="SaveSettings">
                 <i class="fas fa-save"></i> Save Settings
             </button>
             <button class="btn btn-secondary" @onclick="ResetSettings">
                 <i class="fas fa-undo"></i> Reset to Defaults
             </button>
+            }
         </div>
         
         <div class="setting-group" style="margin-top: 1.5rem;">
@@ -1884,7 +1888,11 @@
 
     protected override async Task OnInitializedAsync()
     {
-        ToolbarService.ClearItems();
+        ToolbarService.SetItems(
+            new ToolbarAction("save", "Save", "checkmark"),
+            new ToolbarAction("reset", "Reset to Defaults", "trash")
+        );
+        ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
 
         // Sync ViewModel with current theme service state
         ViewModel.Theme = ThemeService.CurrentTheme;
@@ -1994,6 +2002,7 @@
 
     public void Dispose()
     {
+        ToolbarService.ToolbarItemClicked -= OnToolbarItemClicked;
         SdkSettings.SdkPathChanged -= OnSdkPathChanged;
         JdkSettings.JdkPathChanged -= OnJdkPathChanged;
         CloudSecretsService.OnActiveProviderChanged -= OnCloudProviderChanged;
@@ -2077,6 +2086,19 @@
         ThemeService.SetFontScale(ViewModel.FontScale);
     }
 
+    private void OnToolbarItemClicked(string actionId)
+    {
+        InvokeAsync(async () =>
+        {
+            switch (actionId)
+            {
+                case "save": await SaveSettings(); break;
+                case "reset": await ResetSettings(); break;
+            }
+            StateHasChanged();
+        });
+    }
+
     private async Task SaveSettings()
     {
         try
@@ -2099,6 +2121,11 @@
 
     private async Task ResetSettings()
     {
+        var confirmed = await AlertService.ShowConfirmAsync(
+            "Reset to Defaults",
+            "Are you sure you want to reset all settings to their default values?");
+        if (!confirmed) return;
+
         await ViewModel.ResetSettingsAsync();
         ThemeService.SetTheme(ViewModel.Theme);
         ThemeService.SetFontScale(ViewModel.FontScale);
