@@ -23,8 +23,10 @@ If `maui-devflow MAUI status` fails with connection refused:
 5. **Android?** Did you run `adb reverse tcp:19223 tcp:19223` (for broker) and
    `adb forward tcp:<port> tcp:<port>` (for agent)? Re-run after each deploy.
 6. **Mac Catalyst?** Check entitlements include `network.server` (see setup.md step 5).
-7. **Linux/GTK?** No special network setup needed — runs directly on localhost. Check if the app started successfully.
-8. **Broker issues?** `maui-devflow broker status` to check. `maui-devflow broker stop` then
+7. **macOS (AppKit)?** Ensure `AddMacOSEssentials()` is called and the app window appeared.
+   See [references/macos.md](macos.md) for troubleshooting.
+8. **Linux/GTK?** No special network setup needed — runs directly on localhost. Check if the app started successfully.
+9. **Broker issues?** `maui-devflow broker status` to check. `maui-devflow broker stop` then
    retry (CLI will auto-restart it).
 
 ## Build Failures
@@ -79,3 +81,13 @@ or dotfiles like `~/.myapp/` in the home root) programmatically. Instead use:
 
 If you can't avoid TCC paths, sign Debug builds with a stable Apple Development certificate
 so the code signature stays consistent across rebuilds.
+
+## macOS (AppKit) Issues
+
+For detailed macOS (AppKit) troubleshooting, see [references/macos.md](macos.md#troubleshooting).
+
+Common issues:
+- **No window appears** → Missing `AddMacOSEssentials()` in builder
+- **SIGKILL on launch** → Don't re-sign manually; clean rebuild instead
+- **Blazor stuck on "Loading..."** → Use `MacOSBlazorWebView`, not standard `BlazorWebView`
+- **No sidebar content** → Add `MacOSShell.SetUseNativeSidebar(shell, true)` + `FlyoutBehavior.Locked`

@@ -26,7 +26,7 @@ public class AlertService : MauiSherpa.Core.Interfaces.IAlertService
     public Task ShowToastAsync(string message)
     {
         // Use non-blocking Blazor toast instead of native alert
-        MainThread.BeginInvokeOnMainThread(() => _toastService.ShowSuccess(message));
+        _toastService.ShowSuccess(message);
         return Task.CompletedTask;
     }
 }

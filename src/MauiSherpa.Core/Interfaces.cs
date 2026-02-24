@@ -76,6 +76,8 @@ public interface IPlatformService
 {
     bool IsWindows { get; }
     bool IsMacCatalyst { get; }
+    bool IsMacOS { get; }
+    bool HasNativeToolbar { get; }
     string PlatformName { get; }
 }
 
@@ -2697,3 +2699,45 @@ public record ApnsPushResult(
     string? ErrorReason,
     string? ErrorDescription
 );
+
+// ──── Toolbar Service ──────────────────────────────────────────────────────
+
+/// <summary>
+/// Represents a toolbar action that can be displayed in the native macOS toolbar.
+/// </summary>
+public record ToolbarAction(string Id, string Label, string SfSymbol, bool IsPrimary = true);
+
+/// <summary>Describes a filter dropdown for the native toolbar.</summary>
+public record ToolbarFilter(string Id, string Label, string[] Options, int SelectedIndex = 0);
+
+/// <summary>
+/// Service for managing native toolbar items. Blazor pages register their toolbar
+/// actions, and the native macOS host observes changes to update NSToolbar.
+/// On non-macOS platforms this is a no-op.
+/// </summary>
+public interface IToolbarService
+{
+    IReadOnlyList<ToolbarAction> CurrentItems { get; }
+    string? SearchPlaceholder { get; }
+    string SearchText { get; }
+    IReadOnlyList<ToolbarFilter> CurrentFilters { get; }
+    event Action? ToolbarChanged;
+    event Action<string>? ToolbarItemClicked;
+    event Action<string>? RouteChanged;
+    /// <summary>Fired when the search text changes from the native toolbar.</summary>
+    event Action<string>? SearchTextChanged;
+    /// <summary>Fired when a filter selection changes from the native toolbar. Args: filterId, selectedIndex.</summary>
+    event Action<string, int>? FilterChanged;
+    void SetItems(params ToolbarAction[] items);
+    void SetSearch(string placeholder);
+    void SetFilters(params ToolbarFilter[] filters);
+    void ClearItems();
+    void InvokeToolbarItemClicked(string actionId);
+    void NotifyRouteChanged(string route);
+    void NotifySearchTextChanged(string text);
+    void NotifyFilterChanged(string filterId, int selectedIndex);
+    /// <summary>Enable or disable a toolbar item by ID without rebuilding the toolbar.</summary>
+    void SetItemEnabled(string actionId, bool enabled);
+    /// <summary>Check if a toolbar item is currently enabled.</summary>
+    bool IsItemEnabled(string actionId);
+}

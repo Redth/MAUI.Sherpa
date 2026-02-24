@@ -13,34 +13,16 @@
 @inject BlazorToastService ToastService
 @implements IDisposable
 @inject IJSRuntime JS
+@inject IToolbarService ToolbarService
+@inject IPlatformService PlatformInfo
+@inject DeviceInspectorService DeviceInspector
 
 <h1><i class="fas fa-desktop"></i> Android Emulators</h1>
 
-<div class="sdk-path-bar">
-    <i class="fas fa-folder"></i>
-    @if (!string.IsNullOrEmpty(SdkService.SdkPath))
-    {
-        <span class="sdk-path-text">@SdkService.SdkPath</span>
-        <button class="btn-copy" @onclick="@(() => CopyToClipboard(SdkService.SdkPath!))" title="Copy to clipboard">
-            <i class="fas fa-copy"></i>
-        </button>
-        <button class="btn-reveal" @onclick="@(() => FileSystem.RevealInFileManager(SdkService.SdkPath!))" title="Reveal in Finder">
-            <i class="fas fa-external-link-alt"></i>
-        </button>
-    }
-    else if (isLoading)
-    {
-        <span class="sdk-path-text detecting"><i class="fas fa-spinner fa-spin"></i> Detecting SDK...</span>
-    }
-    else
-    {
-        <span class="sdk-path-text no-sdk">No SDK detected</span>
-    }
-    <a class="btn-link-settings" href="settings" title="Change SDK path in Settings">
-        <i class="fas fa-cog"></i>
-    </a>
-</div>
 
+
+@if (!PlatformInfo.HasNativeToolbar)
+{
 <div class="toolbar">
     <button class="btn btn-primary" @onclick="() => RefreshEmulators(forceRefresh: true)" disabled="@isLoading">
         <i class="fas @(isLoading ? "fa-spinner fa-spin" : "fa-sync-alt")"></i> Refresh
@@ -49,6 +31,7 @@
         <i class="fas fa-plus"></i> Create Emulator
     </button>
 </div>
+}
 
 @if (!string.IsNullOrEmpty(statusMessage))
 {
@@ -133,6 +116,12 @@
                     }
                     else if (isRunning)
                     {
+                        <button class="btn btn-info btn-icon" @onclick="@(() => DeviceInspector.Open(runningEmulators[emulator.Name], emulator.Name))" title="Logcat">
+                            <i class="fas fa-scroll"></i>
+                        </button>
+                        <button class="btn btn-secondary btn-icon" @onclick="@(() => DeviceInspector.Open(runningEmulators[emulator.Name], emulator.Name, InspectorTab.Files))" title="Inspect">
+                            <i class="fas fa-search"></i>
+                        </button>
                         <button class="btn btn-warning btn-icon" @onclick="@(() => StopEmulator(emulator.Name))" disabled="@isLoading" title="Stop">
                             <i class="fas fa-stop"></i>
                         </button>
@@ -313,29 +302,6 @@
         font-size: 1.75rem;
         color: var(--text-primary);
     }
-
-    .sdk-path-bar {
-        display: flex;
-        align-items: center;
-        gap: 0.625rem;
-        background: var(--bg-tertiary);
-        padding: 0.75rem 1rem;
-        border-radius: 0.5rem;
-        margin-bottom: 1rem;
-        border: 1px solid var(--border-color);
-        font-family: 'Consolas', 'Monaco', monospace;
-    }
-    .sdk-path-bar i.fa-folder { color: var(--accent-primary); }
-    .sdk-path-text {
-        flex: 1;
-        color: var(--text-primary);
-        font-size: 0.875rem;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-    .sdk-path-text.detecting { color: var(--text-muted); font-style: italic; }
-    .sdk-path-text.no-sdk { color: var(--text-secondary); font-style: italic; }
 
     .btn-link-settings {
         color: var(--text-secondary);
@@ -749,6 +715,12 @@
 
     protected override async Task OnInitializedAsync()
     {
+        ToolbarService.SetItems(
+            new ToolbarAction("refresh", "Refresh", "arrow.clockwise"),
+            new ToolbarAction("create", "Create Emulator", "plus")
+        );
+        ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
+
         // Subscribe to SDK path changes from Settings
         SdkService.SdkPathChanged += OnSdkPathChanged;
         
@@ -1108,11 +1080,28 @@
 
     public void Dispose()
     {
+        ToolbarService.ToolbarItemClicked -= OnToolbarItemClicked;
         SdkService.SdkPathChanged -= OnSdkPathChanged;
         _pollTimer?.Dispose();
         foreach (var id in _activeModals)
             try { JS.InvokeVoidAsync("modalInterop.dispose", id); } catch { }
         _dotNetRef?.Dispose();
+    }
+
+    private void OnToolbarItemClicked(string actionId)
+    {
+        InvokeAsync(async () =>
+        {
+            switch (actionId)
+            {
+                case "refresh":
+                    ToolbarService.SetItemEnabled("refresh", false);
+                    try { await RefreshEmulators(forceRefresh: true); } finally { ToolbarService.SetItemEnabled("refresh", true); }
+                    break;
+                case "create": ShowCreateDialog(); break;
+            }
+            StateHasChanged();
+        });
     }
 
     private DotNetObjectReference<Emulators>? _dotNetRef;

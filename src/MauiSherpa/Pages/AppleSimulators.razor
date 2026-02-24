@@ -15,6 +15,7 @@
 @inject IPlatformService Platform
 @inject IJSRuntime JS
 @inject IEncryptedSettingsService SettingsService
+@inject IToolbarService ToolbarService
 @implements IDisposable
 
 <h1><i class="fas fa-tablet-screen-button"></i> Apple Devices</h1>
@@ -80,6 +81,8 @@ else
 <!-- Simulators Section -->
 <div class="section-label"><i class="fas fa-desktop"></i> Simulators</div>
 
+@if (!Platform.HasNativeToolbar)
+{
 <div class="toolbar">
     <button class="btn btn-primary" @onclick="() => RefreshSimulators(forceRefresh: true)" disabled="@isLoading">
         <i class="fas @(isLoading ? "fa-spinner fa-spin" : "fa-sync-alt")"></i> Refresh
@@ -88,10 +91,13 @@ else
         <i class="fas fa-plus"></i> Create Simulator
     </button>
 </div>
+}
 
 <!-- Filters -->
 @if (simulators.Count > 0)
 {
+    @if (!Platform.HasNativeToolbar)
+    {
     <div class="filter-bar">
         <div class="filter-group">
             <input type="text" placeholder="Search by name..." @bind="searchQuery" @bind:event="oninput" class="filter-input" />
@@ -122,6 +128,7 @@ else
             </select>
         </div>
     </div>
+    }
 }
 
 <div class="simulator-list">
@@ -238,7 +245,7 @@ else
                         {
                             <div class="sim-dropdown-menu">
                                 <button class="sim-dropdown-item" @onclick="@(() => { CloseDropdown(); OpenSimulatorDirectory(sim); })">
-                                    <i class="fas fa-folder-open"></i> Open in @(Platform.IsMacCatalyst ? "Finder" : "Explorer")
+                                    <i class="fas fa-folder-open"></i> Open in @(Platform.IsMacCatalyst || Platform.IsMacOS ? "Finder" : "Explorer")
                                 </button>
                                 <div class="sim-dropdown-divider"></div>
                                 <button class="sim-dropdown-item" @onclick="@(() => { CloseDropdown(); CloneSimulator(sim); })" disabled="@(isLoading || isBooting)">
@@ -784,6 +791,21 @@ else
     protected override async Task OnInitializedAsync()
     {
         if (!SimulatorService.IsSupported) return;
+
+        ToolbarService.SetItems(
+            new ToolbarAction("refresh", "Refresh", "arrow.clockwise"),
+            new ToolbarAction("create", "Create Simulator", "plus")
+        );
+        ToolbarService.SetSearch("Search by name...");
+        ToolbarService.SetFilters(
+            new ToolbarFilter("state", "State", ["All States", "Booted", "Shutdown"]),
+            new ToolbarFilter("family", "Family", ["All Families"]),
+            new ToolbarFilter("runtime", "Runtime", ["All Runtimes"])
+        );
+        ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
+        ToolbarService.SearchTextChanged += OnSearchTextChanged;
+        ToolbarService.FilterChanged += OnFilterChanged;
+
         try { var settings = await SettingsService.GetSettingsAsync(); demoMode = settings.Preferences.DemoMode; } catch { }
         await Task.WhenAll(
             RefreshSimulators(forceRefresh: false),
@@ -825,6 +847,13 @@ else
 
             var (_, rtResult) = await rtTask;
             availableRuntimes = rtResult?.ToList() ?? new();
+
+            // Update filters with dynamic family/runtime values from loaded data
+            ToolbarService.SetFilters(
+                new ToolbarFilter("state", "State", ["All States", "Booted", "Shutdown"]),
+                new ToolbarFilter("family", "Family", ["All Families", ..productFamilies]),
+                new ToolbarFilter("runtime", "Runtime", ["All Runtimes", ..runtimeNames])
+            );
         }
         catch (Exception ex)
         {
@@ -1171,8 +1200,54 @@ else
 
     public void Dispose()
     {
+        ToolbarService.ToolbarItemClicked -= OnToolbarItemClicked;
+        ToolbarService.SearchTextChanged -= OnSearchTextChanged;
+        ToolbarService.FilterChanged -= OnFilterChanged;
         foreach (var id in _activeModals)
             try { JS.InvokeVoidAsync("modalInterop.dispose", id); } catch { }
         _dotNetRef?.Dispose();
+    }
+
+    private void OnSearchTextChanged(string text)
+    {
+        InvokeAsync(() => { searchQuery = text; StateHasChanged(); });
+    }
+
+    private void OnFilterChanged(string filterId, int selectedIndex)
+    {
+        InvokeAsync(() =>
+        {
+            switch (filterId)
+            {
+                case "state":
+                    filterState = selectedIndex switch { 1 => "Booted", 2 => "Shutdown", _ => "" };
+                    break;
+                case "family":
+                    var families = new[] { "" }.Concat(productFamilies).ToArray();
+                    filterFamily = selectedIndex < families.Length ? families[selectedIndex] : "";
+                    break;
+                case "runtime":
+                    var runtimes = new[] { "" }.Concat(runtimeNames).ToArray();
+                    filterRuntime = selectedIndex < runtimes.Length ? runtimes[selectedIndex] : "";
+                    break;
+            }
+            StateHasChanged();
+        });
+    }
+
+    private void OnToolbarItemClicked(string actionId)
+    {
+        InvokeAsync(async () =>
+        {
+            switch (actionId)
+            {
+                case "refresh":
+                    ToolbarService.SetItemEnabled("refresh", false);
+                    try { await RefreshSimulators(forceRefresh: true); } finally { ToolbarService.SetItemEnabled("refresh", true); }
+                    break;
+                case "create": ShowCreateDialog(); break;
+            }
+            StateHasChanged();
+        });
     }
 }

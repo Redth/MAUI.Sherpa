@@ -37,7 +37,7 @@ grep -i 'GirCore\|Maui\.Gtk\|Gtk-4\.0' *.csproj Directory.Build.props 2>/dev/nul
 If GTK/GirCore references are found, use the **Linux/GTK packages** below.
 Otherwise, use the **standard MAUI packages**.
 
-### Standard MAUI Apps (iOS, Android, Mac Catalyst, Windows)
+### Standard MAUI Apps (iOS, Android, Mac Catalyst, Windows, macOS)
 
 Add to your MAUI app's `.csproj`:
 
@@ -49,10 +49,13 @@ Add to your MAUI app's `.csproj`:
 </ItemGroup>
 ```
 
-- `Redth.MauiDevFlow.Agent` — Required for all MAUI apps (iOS, Android, Mac Catalyst, Windows). Provides the in-app agent
+- `Redth.MauiDevFlow.Agent` — Required for all MAUI apps (iOS, Android, Mac Catalyst, Windows, macOS AppKit). Provides the in-app agent
   for visual tree inspection, screenshots, tapping, filling text, etc.
-- `Redth.MauiDevFlow.Blazor` — Required for Blazor Hybrid apps (iOS, Android, Mac Catalyst, Windows). Provides the CDP bridge
+- `Redth.MauiDevFlow.Blazor` — Required for Blazor Hybrid apps. Provides the CDP bridge
   for DOM inspection, JavaScript evaluation, and Blazor debugging.
+
+**macOS (AppKit) apps** also need the `Platform.Maui.MacOS` packages — see [references/macos.md](macos.md)
+for the full project setup including entry point, builder configuration, and BlazorWebView differences.
 
 ### Linux/GTK Apps
 
@@ -138,6 +141,19 @@ Both the MSBuild targets and the CLI read this file automatically:
 - **CLI**: `maui-devflow MAUI status` — connects to the configured port (when run from project dir)
 
 **Port priority:** Explicit `--agent-port` > Broker discovery > `.mauidevflow` > default 9223.
+
+**How port discovery works:** When you run any `MAUI` or `cdp` command, the CLI:
+1. Auto-starts the broker if not running
+2. Queries the broker for agents matching the current project (`.csproj` in cwd)
+3. If one agent matches → uses its port automatically
+4. If multiple match → prints a disambiguation table to stderr
+5. Falls back to `.mauidevflow` config file → default 9223
+
+**Multiple apps simultaneously:** The broker assigns unique ports from range 10223–10899.
+Use `maui-devflow list` to see all agents, then target a specific one:
+```bash
+maui-devflow MAUI status --agent-port 10224    # target specific agent
+```
 
 **Blazor options:**
 - `Enabled` — Enable/disable CDP support (default: true)
@@ -265,6 +281,7 @@ If status commands fail:
 - **Broker not running?** `maui-devflow broker status` — CLI auto-starts the broker, but check if it's healthy
 - **Agent not registered?** `maui-devflow list` — wait a few seconds for the agent to register
 - **Mac Catalyst:** Check entitlements (Step 5)
+- **macOS (AppKit):** Ensure `AddMacOSEssentials()` is called — see [references/macos.md](macos.md)
 - **Android:** Check port forwarding (Step 6) — need both `adb reverse tcp:19223` and `adb forward tcp:<port>`
 - **iOS Simulator:** Should work without extra config
 - **Linux/GTK:** Should work without extra config — runs directly on localhost
@@ -284,7 +301,8 @@ For an AI agent setting up MauiDevFlow in a new project:
 6. [ ] Mac Catalyst entitlements include `network.server` (Mac Catalyst only)
 7. [ ] `adb reverse tcp:19223` for broker + `adb forward tcp:<port>` for agent (Android only)
 8. [ ] Linux/GTK: `app.StartDevFlowAgent()` called after app activation
-9. [ ] Verify with `maui-devflow list` and `maui-devflow MAUI status`
+9. [ ] macOS (AppKit): `UseMauiAppMacOS()`, `AddMacOSEssentials()`, `MacOSBlazorWebView` — see [macos.md](macos.md)
+10. [ ] Verify with `maui-devflow list` and `maui-devflow MAUI status`
 
 ## Checking for Updates
 

@@ -1,0 +1,224 @@
+@page "/inspector/apple/{Udid}/{TabName?}"
+@layout MauiSherpa.Components.InspectorLayout
+@using MauiSherpa.Services
+@using MauiSherpa.Core.Interfaces
+@inject SimInspectorService InspectorService
+@inject ISimulatorService SimulatorService
+@implements IDisposable
+
+<div class="inspector-page">
+    <div class="inspector-tabstrip">
+        <div class="inspector-tabs">
+            <button class="inspector-tab @(ActiveTab == SimInspectorTab.Logs ? "active" : "")"
+                    @onclick="@(() => SetTab(SimInspectorTab.Logs))">
+                <i class="fas fa-scroll"></i> Logs
+            </button>
+            <button class="inspector-tab @(ActiveTab == SimInspectorTab.Apps ? "active" : "")"
+                    @onclick="@(() => SetTab(SimInspectorTab.Apps))">
+                <i class="fas fa-th-large"></i> Apps
+            </button>
+            <button class="inspector-tab @(ActiveTab == SimInspectorTab.Capture ? "active" : "")"
+                    @onclick="@(() => SetTab(SimInspectorTab.Capture))">
+                <i class="fas fa-camera"></i> Capture
+            </button>
+            <button class="inspector-tab @(ActiveTab == SimInspectorTab.Tools ? "active" : "")"
+                    @onclick="@(() => SetTab(SimInspectorTab.Tools))">
+                <i class="fas fa-wrench"></i> Tools
+            </button>
+        </div>
+        <div class="inspector-device-selector">
+            <i class="fab fa-apple inspector-device-icon"></i>
+            <select class="inspector-device-select" value="@Udid" @onchange="OnDeviceChanged">
+                @foreach (var s in bootedSimulators)
+                {
+                    <option value="@s.Udid" selected="@(s.Udid == Udid)">@s.Name</option>
+                }
+            </select>
+        </div>
+    </div>
+
+    <div class="inspector-body">
+        @switch (ActiveTab)
+        {
+            case SimInspectorTab.Logs:
+                <SimLogContent Udid="@Udid" />
+                break;
+            case SimInspectorTab.Apps:
+                <SimAppsTab Udid="@Udid" />
+                break;
+            case SimInspectorTab.Capture:
+                <SimCaptureTab Udid="@Udid" />
+                break;
+            case SimInspectorTab.Tools:
+                <SimToolsTab Udid="@Udid" />
+                break;
+        }
+    </div>
+</div>
+
+<style>
+    .inspector-page {
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+        background: var(--bg-primary);
+        overflow: hidden;
+    }
+
+    .inspector-tabstrip {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 0.5rem;
+        background: var(--bg-tertiary, #edf2f7);
+        border-bottom: 1px solid var(--border-color, #e2e8f0);
+        flex-shrink: 0;
+        gap: 0.5rem;
+    }
+    .inspector-tabs {
+        display: flex;
+        gap: 0;
+    }
+    .inspector-tab {
+        background: none;
+        border: none;
+        padding: 0.5rem 0.75rem;
+        font-size: 0.8125rem;
+        font-weight: 500;
+        color: var(--text-secondary);
+        cursor: pointer;
+        border-bottom: 2px solid transparent;
+        transition: all 0.15s;
+        display: flex;
+        align-items: center;
+        gap: 0.3125rem;
+        white-space: nowrap;
+    }
+    .inspector-tab:hover {
+        color: var(--text-primary);
+        background: var(--bg-secondary);
+    }
+    .inspector-tab.active {
+        color: var(--accent-primary, #4299e1);
+        border-bottom-color: var(--accent-primary, #4299e1);
+        font-weight: 600;
+    }
+    .inspector-tab i {
+        font-size: 0.75rem;
+    }
+
+    .inspector-device-selector {
+        display: flex;
+        align-items: center;
+        gap: 0.25rem;
+        padding: 3px 0.5rem;
+        border-radius: 0.375rem;
+        border: 1px solid var(--border-color, #e2e8f0);
+        background: var(--bg-secondary, #fff);
+        cursor: pointer;
+        flex-shrink: 0;
+    }
+    .inspector-device-selector:hover {
+        border-color: var(--accent-primary, #4299e1);
+    }
+    .inspector-device-icon {
+        color: var(--text-secondary);
+        font-size: 0.75rem;
+        flex-shrink: 0;
+    }
+    .inspector-device-select {
+        border: none;
+        outline: none !important;
+        background: transparent;
+        font-size: 0.75rem;
+        font-family: 'Consolas', 'Monaco', monospace;
+        color: var(--text-primary);
+        cursor: pointer;
+        -webkit-appearance: none;
+        appearance: none;
+        max-width: 180px;
+    }
+
+    .inspector-body {
+        flex: 1;
+        min-height: 0;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+    }
+</style>
+
+@code {
+    [Parameter] public string Udid { get; set; } = "";
+    [Parameter] public string? TabName { get; set; }
+
+    private SimInspectorTab ActiveTab = SimInspectorTab.Logs;
+    private List<SimulatorDevice> bootedSimulators = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        ActiveTab = ParseTab(TabName);
+        InspectorService.ActiveUdid = Udid;
+        InspectorService.ActiveTab = ActiveTab;
+        InspectorService.IsOpen = true;
+        InspectorService.StateChanged += OnServiceStateChanged;
+        await LoadBootedSimulatorsAsync();
+    }
+
+    protected override void OnParametersSet()
+    {
+        var newTab = ParseTab(TabName);
+        if (newTab != ActiveTab)
+        {
+            ActiveTab = newTab;
+            InspectorService.ActiveTab = ActiveTab;
+        }
+        if (InspectorService.ActiveUdid != Udid)
+        {
+            InspectorService.SwitchDevice(Udid);
+        }
+    }
+
+    private void SetTab(SimInspectorTab tab)
+    {
+        ActiveTab = tab;
+        InspectorService.SetTab(tab);
+    }
+
+    private void OnDeviceChanged(ChangeEventArgs e)
+    {
+        var newUdid = e.Value?.ToString();
+        if (string.IsNullOrEmpty(newUdid) || newUdid == Udid) return;
+        Udid = newUdid;
+        var sim = bootedSimulators.FirstOrDefault(s => s.Udid == newUdid);
+        InspectorService.SwitchDevice(newUdid, sim?.Name);
+    }
+
+    private async Task LoadBootedSimulatorsAsync()
+    {
+        try
+        {
+            var all = await SimulatorService.GetSimulatorsAsync();
+            bootedSimulators = all.Where(s => s.State?.Equals("Booted", StringComparison.OrdinalIgnoreCase) == true).ToList();
+        }
+        catch { }
+    }
+
+    private void OnServiceStateChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    private static SimInspectorTab ParseTab(string? tabName) => tabName?.ToLowerInvariant() switch
+    {
+        "apps" => SimInspectorTab.Apps,
+        "capture" => SimInspectorTab.Capture,
+        "tools" => SimInspectorTab.Tools,
+        _ => SimInspectorTab.Logs,
+    };
+
+    public void Dispose()
+    {
+        InspectorService.StateChanged -= OnServiceStateChanged;
+    }
+}

@@ -63,7 +63,7 @@ public class ProcessExecutionService : IProcessExecutionService
             var commandLine = $"$ {request.CommandLine}";
             OnOutput(commandLine, isError: false);
             
-            if (request.RequiresElevation && _platform.IsMacCatalyst)
+            if (request.RequiresElevation && (_platform.IsMacCatalyst || _platform.IsMacOS))
             {
                 return await ExecuteElevatedMacAsync(request, _linkedCts.Token);
             }
@@ -384,7 +384,7 @@ exit $EXIT_CODE
 
         try
         {
-            if (_platform.IsMacCatalyst)
+            if (_platform.IsMacCatalyst || _platform.IsMacOS)
             {
                 // Send SIGINT on Unix
                 SendSignal(_currentProcess.Id, 2); // SIGINT

@@ -10,34 +10,16 @@
 @inject INavigationService Navigation
 @inject OperationModalService OperationModal
 @inject MultiOperationModalService MultiOpModal
+@inject IToolbarService ToolbarService
+@inject IPlatformService PlatformInfo
+@implements IDisposable
 
 <h1><i class="fas fa-cube"></i> Android SDK Packages</h1>
 
-<div class="sdk-path-bar">
-    <i class="fas fa-folder"></i>
-    @if (!string.IsNullOrEmpty(ViewModel.SdkPath))
-    {
-        <span class="sdk-path-text">@ViewModel.SdkPath</span>
-        <button class="btn-copy" @onclick="@(() => CopyToClipboard(ViewModel.SdkPath!))" title="Copy to clipboard">
-            <i class="fas fa-copy"></i>
-        </button>
-        <button class="btn-reveal" @onclick="@(() => FileSystem.RevealInFileManager(ViewModel.SdkPath!))" title="Reveal in Finder">
-            <i class="fas fa-external-link-alt"></i>
-        </button>
-    }
-    else if (ViewModel.IsLoading || !hasInitialized)
-    {
-        <span class="sdk-path-text detecting"><i class="fas fa-spinner fa-spin"></i> Detecting SDK locations...</span>
-    }
-    else
-    {
-        <span class="sdk-path-text no-sdk">No SDK detected</span>
-    }
-    <a class="btn-link-settings" href="settings" title="Change SDK path in Settings">
-        <i class="fas fa-cog"></i>
-    </a>
-</div>
 
+
+@if (!PlatformInfo.HasNativeToolbar)
+{
 <div class="toolbar">
     @if (!ViewModel.IsSdkInstalled)
     {
@@ -58,6 +40,18 @@
         }
     }
 </div>
+}
+
+@if ((ViewModel.IsLoading || !hasInitialized) && !ViewModel.IsSdkInstalled)
+{
+    <div class="loading-state">
+        <div class="loading-spinner">
+            <i class="fas fa-cube"></i>
+        </div>
+        <div class="loading-title">Loading SDK Packages</div>
+        <div class="loading-description">Discovering installed and available packages...</div>
+    </div>
+}
 
 @if (ViewModel.IsSdkInstalled)
 {
@@ -75,6 +69,8 @@
     </div>
 
     <!-- Filter Section -->
+    @if (!PlatformInfo.HasNativeToolbar)
+    {
     <div class="filter-section">
         <div class="search-box">
             <span class="search-icon"><i class="fas fa-search"></i></span>
@@ -106,6 +102,7 @@
             <button class="clear-filters-btn" @onclick="ClearFilters">Clear Filters</button>
         }
     </div>
+    }
 
     @if (activeTab == "installed")
     {
@@ -237,29 +234,6 @@
         font-size: 1.75rem;
         color: var(--text-primary);
     }
-
-    .sdk-path-bar {
-        display: flex;
-        align-items: center;
-        gap: 0.625rem;
-        background: var(--bg-tertiary);
-        padding: 0.75rem 1rem;
-        border-radius: 0.5rem;
-        margin-bottom: 1rem;
-        border: 1px solid var(--border-color);
-        font-family: 'Consolas', 'Monaco', monospace;
-    }
-    .sdk-path-bar i.fa-folder { color: var(--accent-primary); }
-    .sdk-path-text {
-        flex: 1;
-        color: var(--text-primary);
-        font-size: 0.875rem;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-    .sdk-path-text.detecting { color: var(--text-muted); font-style: italic; }
-    .sdk-path-text.no-sdk { color: var(--text-muted); font-style: italic; }
 
     .btn-link-settings {
         color: var(--text-muted);
@@ -819,8 +793,69 @@
 
     protected override async Task OnInitializedAsync()
     {
+        ToolbarService.SetItems(
+            new ToolbarAction("refresh", "Refresh", "arrow.clockwise"),
+            new ToolbarAction("update-all", "Update All", "square.and.arrow.up")
+        );
+        ToolbarService.SetSearch("Search packages...");
+        ToolbarService.SetFilters(
+            new ToolbarFilter("category", "Category", ["All Categories", ..GetAllCategories()]),
+            new ToolbarFilter("updates", "Updates", ["All Packages", "Has Updates", "Up to Date"])
+        );
+        ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
+        ToolbarService.SearchTextChanged += OnSearchTextChanged;
+        ToolbarService.FilterChanged += OnFilterChanged;
+
         await ViewModel.InitializeAsync();
         hasInitialized = true;
+    }
+
+    private void OnSearchTextChanged(string text)
+    {
+        InvokeAsync(() => { searchQuery = text; StateHasChanged(); });
+    }
+
+    private void OnFilterChanged(string filterId, int selectedIndex)
+    {
+        InvokeAsync(() =>
+        {
+            switch (filterId)
+            {
+                case "category":
+                    var cats = new[] { "" }.Concat(GetAllCategories()).ToArray();
+                    filterCategory = selectedIndex < cats.Length ? cats[selectedIndex] : "";
+                    break;
+                case "updates":
+                    filterUpdates = selectedIndex switch { 1 => "updates", 2 => "current", _ => "" };
+                    break;
+            }
+            StateHasChanged();
+        });
+    }
+
+    private void OnToolbarItemClicked(string actionId)
+    {
+        InvokeAsync(async () =>
+        {
+            switch (actionId)
+            {
+                case "refresh":
+                    ToolbarService.SetItemEnabled("refresh", false);
+                    try { await RefreshData(); } finally { ToolbarService.SetItemEnabled("refresh", true); }
+                    break;
+                case "update-all":
+                    await UpdateAllPackages();
+                    break;
+            }
+            StateHasChanged();
+        });
+    }
+
+    public void Dispose()
+    {
+        ToolbarService.ToolbarItemClicked -= OnToolbarItemClicked;
+        ToolbarService.SearchTextChanged -= OnSearchTextChanged;
+        ToolbarService.FilterChanged -= OnFilterChanged;
     }
 
     private IEnumerable<IGrouping<string, SdkPackageInfo>> GetPackageGroups(IEnumerable<SdkPackageInfo> packages)
@@ -931,6 +966,12 @@
     private async Task RefreshData()
     {
         await ViewModel.RefreshPackagesAsync(forceRefresh: true);
+
+        // Update category filter with dynamic values from loaded packages
+        ToolbarService.SetFilters(
+            new ToolbarFilter("category", "Category", ["All Categories", ..GetAllCategories()]),
+            new ToolbarFilter("updates", "Updates", ["All Packages", "Has Updates", "Up to Date"])
+        );
     }
 
     private async Task AcquireSdk()

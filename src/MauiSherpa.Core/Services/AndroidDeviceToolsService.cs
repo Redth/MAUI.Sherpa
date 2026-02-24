@@ -269,7 +269,7 @@ public class AndroidDeviceToolsService : IAndroidDeviceToolsService
     {
         var sdkPath = _sdkService.SdkPath;
         if (string.IsNullOrEmpty(sdkPath)) return null;
-        return Path.Combine(sdkPath, "platform-tools", "adb");
+        return AppDataPath.GetAdbPath(sdkPath);
     }
 
     private static double HaversineDistance(double lat1, double lon1, double lat2, double lon2)

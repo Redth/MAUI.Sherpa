@@ -1,0 +1,27 @@
+@inherits LayoutComponentBase
+@using MauiSherpa.Core.Interfaces
+@inject IThemeService ThemeService
+@implements IDisposable
+
+<div class="main-layout @ThemeClass">
+    @Body
+</div>
+
+@code {
+    private string ThemeClass => ThemeService.IsDarkMode ? "theme-dark" : "theme-light";
+
+    protected override void OnInitialized()
+    {
+        ThemeService.ThemeChanged += OnThemeChanged;
+    }
+
+    private void OnThemeChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        ThemeService.ThemeChanged -= OnThemeChanged;
+    }
+}

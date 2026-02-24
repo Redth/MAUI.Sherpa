@@ -36,6 +36,38 @@ public class App : Application
             Height = savedHeight,
         };
 
+#if WINDOWS
+        var toolbarService = _serviceProvider.GetRequiredService<IToolbarService>();
+        var titleBarManager = new MauiSherpa.Services.WindowsTitleBarManager(
+            toolbarService,
+            _serviceProvider.GetRequiredService<IAppleIdentityService>(),
+            _serviceProvider.GetRequiredService<IAppleIdentityStateService>(),
+            _serviceProvider.GetRequiredService<IGoogleIdentityService>(),
+            _serviceProvider.GetRequiredService<IGoogleIdentityStateService>(),
+            _serviceProvider.GetRequiredService<ICopilotContextService>(),
+            _serviceProvider);
+        var titleBar = titleBarManager.CreateTitleBar();
+        window.TitleBar = titleBar;
+
+        window.HandlerChanged += (s, e) =>
+        {
+            if (window.Handler?.PlatformView is Microsoft.UI.Xaml.Window nativeWindow)
+            {
+                var appWindow = nativeWindow.AppWindow;
+                if (appWindow.TitleBar is { } tb)
+                {
+                    // Make caption buttons (min/max/close) white on dark background
+                    tb.ButtonForegroundColor = Microsoft.UI.Colors.White;
+                    tb.ButtonInactiveForegroundColor = Microsoft.UI.Colors.White;
+                    tb.ButtonHoverForegroundColor = Microsoft.UI.Colors.White;
+                    tb.ButtonPressedForegroundColor = Microsoft.UI.Colors.White;
+                    tb.ButtonHoverBackgroundColor = new Windows.UI.Color { A = 40, R = 255, G = 255, B = 255 };
+                    tb.ButtonPressedBackgroundColor = new Windows.UI.Color { A = 60, R = 255, G = 255, B = 255 };
+                }
+            }
+        };
+#endif
+
         window.SizeChanged += OnWindowSizeChanged;
 
         window.Created += (s, e) =>

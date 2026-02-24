@@ -41,7 +41,7 @@ public class LogcatService : ILogcatService
         if (string.IsNullOrEmpty(sdkPath))
             throw new InvalidOperationException("Android SDK path is not configured.");
 
-        var adbPath = Path.Combine(sdkPath, "platform-tools", "adb");
+        var adbPath = AppDataPath.GetAdbPath(sdkPath);
         if (!File.Exists(adbPath))
             throw new FileNotFoundException("adb not found.", adbPath);
 

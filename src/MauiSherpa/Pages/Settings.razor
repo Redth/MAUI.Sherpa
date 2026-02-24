@@ -25,6 +25,8 @@
 @inject IUpdateService UpdateService
 @implements IDisposable
 @inject IJSRuntime JS
+@inject ILauncher AppLauncher
+@inject IToolbarService ToolbarService
 
 <h1><i class="fas fa-cog"></i> @ViewModel.Title</h1>
 
@@ -215,7 +217,7 @@
     </div>
 </div>
 
-<div class="settings-section">
+<div class="settings-section" id="settings-apple-identities">
     <h2><i class="fab fa-apple"></i> Apple Identities</h2>
     <p class="section-description">
         Configure App Store Connect API credentials for managing Apple Developer resources.
@@ -285,7 +287,7 @@
     </div>
 </div>
 
-<div class="settings-section">
+<div class="settings-section" id="settings-google-identities">
     <h2><i class="fab fa-google"></i> Google Identities</h2>
     <p class="section-description">
         Configure Google Cloud / Firebase service account credentials for push notifications and project management.
@@ -1768,7 +1770,7 @@
     
     private async Task OpenUrl(string url)
     {
-        await Launcher.Default.OpenAsync(new Uri(url));
+        await AppLauncher.OpenAsync(new Uri(url));
     }
     
     private bool demoMode = false;
@@ -1882,6 +1884,8 @@
 
     protected override async Task OnInitializedAsync()
     {
+        ToolbarService.ClearItems();
+
         // Sync ViewModel with current theme service state
         ViewModel.Theme = ThemeService.CurrentTheme;
         ViewModel.FontScale = ThemeService.FontScale;
@@ -3074,7 +3078,7 @@
     {
         if (updateResult?.LatestRelease?.HtmlUrl is { Length: > 0 } url)
         {
-            try { await Launcher.Default.OpenAsync(new Uri(url)); } catch { }
+            try { await AppLauncher.OpenAsync(new Uri(url)); } catch { }
         }
         showUpdateDialog = false;
     }

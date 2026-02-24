@@ -18,13 +18,21 @@
 @inject IEncryptedSettingsService SettingsService
 @implements IDisposable
 @inject IJSRuntime JS
+@inject IToolbarService ToolbarService
+@inject IPlatformService PlatformInfo
+@inject IPreferences AppPreferences
 
 <h1><i class="fas fa-certificate"></i> Certificates</h1>
 
+@if (!PlatformInfo.HasNativeToolbar)
+{
 <AppleIdentityPicker />
+}
 
 @if (IdentityState.SelectedIdentity != null)
 {
+    @if (!PlatformInfo.HasNativeToolbar)
+    {
     <div class="toolbar">
         <button class="btn btn-primary" @onclick="@(() => RefreshData(forceRefresh: true))" disabled="@isLoading">
             <i class="fas @(isLoading ? "fa-spinner fa-spin" : "fa-sync-alt")"></i> Refresh
@@ -42,6 +50,7 @@
             </button>
         }
     </div>
+    }
 
     <!-- Cloud Sync Hint -->
     @if (CloudSecretsService.ActiveProvider == null && !syncHintDismissed)
@@ -59,6 +68,8 @@
     }
 
     <!-- Filter Section -->
+    @if (!PlatformInfo.HasNativeToolbar)
+    {
     <div class="filter-section">
         <div class="search-box">
             <span class="search-icon"><i class="fas fa-search"></i></span>
@@ -92,6 +103,7 @@
             <button class="clear-filters-btn" @onclick="ClearFilters">Clear Filters</button>
         }
     </div>
+    }
 
     @if (!string.IsNullOrEmpty(errorMessage))
     {
@@ -165,7 +177,7 @@
                             @if (CloudSecretsService.ActiveProvider != null)
                             {
                                 <span class="badge @GetSyncBadgeClass(syncStatus)" title="@GetSyncStatusTooltip(syncStatus)">
-                                    @GetSyncStatusIcon(syncStatus) @GetSyncStatusText(syncStatus)
+                                    <i class="@GetSyncStatusIcon(syncStatus)"></i> @GetSyncStatusText(syncStatus)
                                 </span>
                             }
                         </div>
@@ -612,6 +624,10 @@
     .badge-sync-local { background: var(--sync-local-bg); color: var(--sync-local-text); }
     .badge-sync-cloud { background: var(--sync-cloud-bg); color: var(--sync-cloud-text); }
     .badge-sync-none { background: var(--sync-none-bg); color: var(--sync-none-text); }
+    .text-sync-both { color: #22c55e; }
+    .text-sync-local { color: #3b82f6; }
+    .text-sync-cloud { color: #eab308; }
+    .text-sync-none { color: #6b7280; }
     
     /* Sync dropdown menu */
     .cert-dropdown-menu {
@@ -874,11 +890,25 @@
 
     protected override async Task OnInitializedAsync()
     {
+        ToolbarService.SetItems(
+            new ToolbarAction("refresh", "Refresh", "arrow.clockwise"),
+            new ToolbarAction("create", "Create Certificate", "plus")
+        );
+        ToolbarService.SetSearch("Search certificates...");
+        ToolbarService.SetFilters(
+            new ToolbarFilter("type", "Type", ["All Types", "Development", "Distribution", "Developer ID"]),
+            new ToolbarFilter("platform", "Platform", ["All Platforms", "iOS", "macOS"]),
+            new ToolbarFilter("status", "Status", ["All Statuses", "Valid", "Expiring Soon", "Expired"])
+        );
+        ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
+        ToolbarService.SearchTextChanged += OnSearchTextChanged;
+        ToolbarService.FilterChanged += OnFilterChanged;
+
         try { var settings = await SettingsService.GetSettingsAsync(); demoMode = settings.Preferences.DemoMode; } catch { }
         IdentityState.OnSelectionChanged += OnIdentityChanged;
         
         // Load sync hint dismissed preference
-        syncHintDismissed = Preferences.Default.Get(SyncHintDismissedKey, false);
+        syncHintDismissed = AppPreferences.Get(SyncHintDismissedKey, false);
         
         // Initialize cloud secrets service to load active provider
         await CloudSecretsService.InitializeAsync();
@@ -892,7 +922,7 @@
     private void DismissSyncHint()
     {
         syncHintDismissed = true;
-        Preferences.Default.Set(SyncHintDismissedKey, true);
+        AppPreferences.Set(SyncHintDismissedKey, true);
         StateHasChanged();
     }
 
@@ -908,12 +938,56 @@
         });
     }
 
+    private void OnSearchTextChanged(string text)
+    {
+        InvokeAsync(() => { searchQuery = text; StateHasChanged(); });
+    }
+
+    private void OnFilterChanged(string filterId, int selectedIndex)
+    {
+        InvokeAsync(() =>
+        {
+            switch (filterId)
+            {
+                case "type":
+                    filterType = selectedIndex switch { 1 => "DEVELOPMENT", 2 => "DISTRIBUTION", 3 => "DEVELOPER_ID", _ => "" };
+                    break;
+                case "platform":
+                    filterPlatform = selectedIndex switch { 1 => "IOS", 2 => "MAC", _ => "" };
+                    break;
+                case "status":
+                    filterStatus = selectedIndex switch { 1 => "valid", 2 => "expiring", 3 => "expired", _ => "" };
+                    break;
+            }
+            StateHasChanged();
+        });
+    }
+
     public void Dispose()
     {
+        ToolbarService.ToolbarItemClicked -= OnToolbarItemClicked;
+        ToolbarService.SearchTextChanged -= OnSearchTextChanged;
+        ToolbarService.FilterChanged -= OnFilterChanged;
         IdentityState.OnSelectionChanged -= OnIdentityChanged;
         foreach (var id in _activeModals)
             try { JS.InvokeVoidAsync("modalInterop.dispose", id); } catch { }
         _dotNetRef?.Dispose();
+    }
+
+    private void OnToolbarItemClicked(string actionId)
+    {
+        InvokeAsync(async () =>
+        {
+            switch (actionId)
+            {
+                case "refresh":
+                    ToolbarService.SetItemEnabled("refresh", false);
+                    try { await RefreshData(forceRefresh: true); } finally { ToolbarService.SetItemEnabled("refresh", true); }
+                    break;
+                case "create": ShowCreateDialog(); break;
+            }
+            StateHasChanged();
+        });
     }
 
     private async Task RefreshData(bool forceRefresh = false)
@@ -1474,10 +1548,10 @@
     
     private string GetSyncStatusIcon(SecretLocation location) => location switch
     {
-        SecretLocation.Both => "🟢",
-        SecretLocation.LocalOnly => "🔵",
-        SecretLocation.CloudOnly => "🟡",
-        _ => "⚫"
+        SecretLocation.Both => "fas fa-check-circle text-sync-both",
+        SecretLocation.LocalOnly => "fas fa-hdd text-sync-local",
+        SecretLocation.CloudOnly => "fas fa-cloud text-sync-cloud",
+        _ => "fas fa-times-circle text-sync-none"
     };
     
     private string GetSyncStatusText(SecretLocation location) => location switch

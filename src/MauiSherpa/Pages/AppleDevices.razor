@@ -11,13 +11,20 @@
 @inject IEncryptedSettingsService SettingsService
 @implements IDisposable
 @inject IJSRuntime JS
+@inject IToolbarService ToolbarService
+@inject IPlatformService PlatformInfo
 
 <h1><i class="fas fa-mobile-alt"></i> Registered Devices</h1>
 
+@if (!PlatformInfo.HasNativeToolbar)
+{
 <AppleIdentityPicker />
+}
 
 @if (IdentityState.SelectedIdentity != null)
 {
+    @if (!PlatformInfo.HasNativeToolbar)
+    {
     <div class="toolbar">
         <button class="btn btn-primary" @onclick="@(() => RefreshData(forceRefresh: true))" disabled="@isLoading">
             <i class="fas @(isLoading ? "fa-spinner fa-spin" : "fa-sync-alt")"></i> Refresh
@@ -26,8 +33,11 @@
             <i class="fas fa-plus"></i> Register Device
         </button>
     </div>
+    }
 
     <!-- Filter Section -->
+    @if (!PlatformInfo.HasNativeToolbar)
+    {
     <div class="filter-section">
         <div class="search-box">
             <span class="search-icon"><i class="fas fa-search"></i></span>
@@ -54,6 +64,7 @@
             <button class="clear-filters-btn" @onclick="ClearFilters">Clear Filters</button>
         }
     </div>
+    }
 
     @if (!string.IsNullOrEmpty(errorMessage))
     {
@@ -306,7 +317,7 @@
 
     .device-card.disabled { opacity: 0.6; }
 
-    .device-icon { font-size: 2.25rem; color: var(--accent-primary); }
+    .device-icon { font-size: 2.25rem; width: 2.5rem; height: 2.5rem; display: flex; align-items: center; justify-content: center; color: var(--accent-primary); }
     .device-icon i { font-size: 2rem; }
     .device-details { flex: 1; }
     .device-name { font-weight: 600; font-size: 1rem; color: var(--text-primary); }
@@ -380,6 +391,19 @@
 
     protected override async Task OnInitializedAsync()
     {
+        ToolbarService.SetItems(
+            new ToolbarAction("refresh", "Refresh", "arrow.clockwise"),
+            new ToolbarAction("create", "Register Device", "plus")
+        );
+        ToolbarService.SetSearch("Search devices...");
+        ToolbarService.SetFilters(
+            new ToolbarFilter("platform", "Platform", ["All Platforms", "iOS", "macOS"]),
+            new ToolbarFilter("status", "Status", ["All Statuses", "Enabled", "Disabled"])
+        );
+        ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
+        ToolbarService.SearchTextChanged += OnSearchTextChanged;
+        ToolbarService.FilterChanged += OnFilterChanged;
+
         try { var settings = await SettingsService.GetSettingsAsync(); demoMode = settings.Preferences.DemoMode; } catch { }
         IdentityState.OnSelectionChanged += OnIdentityChanged;
         if (IdentityState.SelectedIdentity != null)
@@ -395,12 +419,53 @@
         });
     }
 
+    private void OnSearchTextChanged(string text)
+    {
+        InvokeAsync(() => { searchQuery = text; StateHasChanged(); });
+    }
+
+    private void OnFilterChanged(string filterId, int selectedIndex)
+    {
+        InvokeAsync(() =>
+        {
+            switch (filterId)
+            {
+                case "platform":
+                    filterPlatform = selectedIndex switch { 1 => "IOS", 2 => "MAC_OS", _ => "" };
+                    break;
+                case "status":
+                    filterStatus = selectedIndex switch { 1 => "ENABLED", 2 => "DISABLED", _ => "" };
+                    break;
+            }
+            StateHasChanged();
+        });
+    }
+
     public void Dispose()
     {
+        ToolbarService.ToolbarItemClicked -= OnToolbarItemClicked;
+        ToolbarService.SearchTextChanged -= OnSearchTextChanged;
+        ToolbarService.FilterChanged -= OnFilterChanged;
         IdentityState.OnSelectionChanged -= OnIdentityChanged;
         foreach (var id in _activeModals)
             try { JS.InvokeVoidAsync("modalInterop.dispose", id); } catch { }
         _dotNetRef?.Dispose();
+    }
+
+    private void OnToolbarItemClicked(string actionId)
+    {
+        InvokeAsync(async () =>
+        {
+            switch (actionId)
+            {
+                case "refresh":
+                    ToolbarService.SetItemEnabled("refresh", false);
+                    try { await RefreshData(forceRefresh: true); } finally { ToolbarService.SetItemEnabled("refresh", true); }
+                    break;
+                case "create": ShowRegisterDialog(); break;
+            }
+            StateHasChanged();
+        });
     }
 
     private string GetDeviceIcon(string deviceClass) => deviceClass.ToUpperInvariant() switch

@@ -10,11 +10,13 @@ namespace MauiSherpa.Services;
 public class SecureStorageService : ISecureStorageService
 {
     private readonly string _fallbackPath;
+    private readonly ISecureStorage _secureStorage;
     private Dictionary<string, string>? _fallbackCache;
     private bool _usesFallback;
 
-    public SecureStorageService()
+    public SecureStorageService(ISecureStorage secureStorage)
     {
+        _secureStorage = secureStorage;
         _fallbackPath = Path.Combine(
             MauiSherpa.Core.Services.AppDataPath.GetAppDataDirectory(),
             ".secure-fallback.json");
@@ -33,7 +35,7 @@ public class SecureStorageService : ISecureStorageService
         {
             try
             {
-                var value = await SecureStorage.Default.GetAsync(key);
+                var value = await _secureStorage.GetAsync(key);
                 if (value != null)
                     return value;
                 // Key not found in SecureStorage - also check fallback in case it was saved there previously
@@ -58,7 +60,7 @@ public class SecureStorageService : ISecureStorageService
         {
             try
             {
-                await SecureStorage.Default.SetAsync(key, value);
+                await _secureStorage.SetAsync(key, value);
                 return;
             }
             catch (Exception)
@@ -82,7 +84,7 @@ public class SecureStorageService : ISecureStorageService
         {
             try
             {
-                SecureStorage.Default.Remove(key);
+                _secureStorage.Remove(key);
                 // Also remove from fallback if it exists there
             }
             catch (Exception)

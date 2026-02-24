@@ -6,6 +6,8 @@ using MauiSherpa.Core.Interfaces;
 using MauiSherpa.Core.Services;
 using MauiDevFlow.Agent;
 using MauiDevFlow.Blazor;
+using MauiIcons.Fluent;
+using MauiIcons.FontAwesome.Brand;
 using Shiny.Mediator;
 
 namespace MauiSherpa;
@@ -20,6 +22,8 @@ public static class MauiProgram
         var builder = MauiApp.CreateBuilder();
         builder
             .UseMauiApp<App>()
+            .UseFluentMauiIcons()
+            .UseFontAwesomeBrandMauiIcons()
             .ConfigureFonts(fonts =>
             {
                 fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");
@@ -47,8 +51,13 @@ public static class MauiProgram
         builder.Services.AddScoped<INavigationService, NavigationService>();
         builder.Services.AddSingleton<IDialogService, DialogService>();
         builder.Services.AddSingleton<IFileSystemService, FileSystemService>();
+        builder.Services.AddSingleton<IPreferences>(_ => Preferences.Default);
+        builder.Services.AddSingleton<ILauncher>(_ => Launcher.Default);
+        builder.Services.AddSingleton<IClipboard>(_ => Clipboard.Default);
+        builder.Services.AddSingleton<ISecureStorage>(_ => SecureStorage.Default);
         builder.Services.AddSingleton<ISecureStorageService, SecureStorageService>();
         builder.Services.AddSingleton<IThemeService, ThemeService>();
+        builder.Services.AddSingleton<IToolbarService, MauiSherpa.Core.Services.ToolbarService>();
 
         // Process execution services
         builder.Services.AddSingleton<IProcessExecutionService, ProcessExecutionService>();
@@ -100,7 +109,6 @@ public static class MauiProgram
         builder.Services.AddSingleton<ISimulatorLogService, SimulatorLogService>();
         builder.Services.AddSingleton<IPhysicalDeviceService, MauiSherpa.Core.Services.PhysicalDeviceService>();
         builder.Services.AddSingleton<SimInspectorService>();
-        builder.Services.AddSingleton<InspectorCoordinator>();
         
         // Cloud Secrets Storage services
         builder.Services.AddSingleton<ICloudSecretsProviderFactory, CloudSecretsProviderFactory>();

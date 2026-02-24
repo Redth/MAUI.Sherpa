@@ -39,7 +39,13 @@
     <RuntimeIdentifier>$(RuntimeIdentifierOverride)</RuntimeIdentifier>
   </PropertyGroup>
 
+  <PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">
+    <ApplicationManifest>Platforms\Windows\app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
   <ItemGroup>
+    <PackageReference Include="AathifMahir.Maui.MauiIcons.Fluent" Version="6.0.0" />
+    <PackageReference Include="AathifMahir.Maui.MauiIcons.FontAwesome.Brand" Version="6.0.0" />
     <PackageReference Include="Blazorise.Icons.FontAwesome" Version="1.7.2" />
     <PackageReference Include="Microsoft.AspNetCore.Components.QuickGrid" Version="10.0.1" />
     <PackageReference Include="Markdig" Version="0.44.0" />
@@ -47,8 +53,8 @@
     <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="10.0.0" />
     <PackageReference Include="Microsoft.Maui.Controls" Version="10.0.31" />
     <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.0" />
-    <PackageReference Include="Redth.MauiDevFlow.Agent" Version="0.8.0" />
-    <PackageReference Include="Redth.MauiDevFlow.Blazor" Version="0.8.0" />
+    <PackageReference Include="Redth.MauiDevFlow.Agent" Version="0.10.0" />
+    <PackageReference Include="Redth.MauiDevFlow.Blazor" Version="0.10.0" />
     <PackageReference Include="Shiny.Mediator.Caching.MicrosoftMemoryCache" Version="6.1.1" />
     <PackageReference Include="Shiny.Mediator.Maui" Version="6.1.1" />
   </ItemGroup>
@@ -71,8 +77,7 @@
        but at runtime on Mac Catalyst, RuntimeInformation.RuntimeIdentifier returns
        maccatalyst-arm64/maccatalyst-x64. We copy the downloaded binary directly
        into the app bundle at the path the SDK expects at runtime. -->
-  <Target Name="_BundleCopilotCliForMacCatalyst" AfterTargets="Build"
-          Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">
+  <Target Name="_BundleCopilotCliForMacCatalyst" AfterTargets="Build" Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">
     <PropertyGroup>
       <_CopilotMacCatRid Condition="'$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)' == 'Arm64'">maccatalyst-arm64</_CopilotMacCatRid>
       <_CopilotMacCatRid Condition="'$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)' == 'X64'">maccatalyst-x64</_CopilotMacCatRid>
@@ -82,8 +87,7 @@
       <_CopilotAppBundle>$(OutDir)$(ApplicationTitle).app/Contents/MonoBundle/runtimes/$(_CopilotMacCatRid)/native</_CopilotAppBundle>
     </PropertyGroup>
     <MakeDir Directories="$(_CopilotAppBundle)" Condition="Exists('$(_CopilotSourceBinary)')" />
-    <Copy SourceFiles="$(_CopilotSourceBinary)" DestinationFolder="$(_CopilotAppBundle)" SkipUnchangedFiles="true"
-          Condition="Exists('$(_CopilotSourceBinary)')" />
+    <Copy SourceFiles="$(_CopilotSourceBinary)" DestinationFolder="$(_CopilotAppBundle)" SkipUnchangedFiles="true" Condition="Exists('$(_CopilotSourceBinary)')" />
     <Exec Command="chmod +x &quot;$(_CopilotAppBundle)/copilot&quot;" Condition="Exists('$(_CopilotSourceBinary)')" />
   </Target>
 

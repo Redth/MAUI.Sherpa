@@ -67,7 +67,7 @@ public class AppleRootCertService : IAppleRootCertService
         }
     }
 
-    public bool IsSupported => _platform.IsMacCatalyst;
+    public bool IsSupported => _platform.IsMacCatalyst || _platform.IsMacOS;
 
     public IReadOnlyList<AppleRootCertInfo> GetAvailableCertificates() => _availableCerts.AsReadOnly();
 

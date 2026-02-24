@@ -10,6 +10,8 @@
 @inject IJSRuntime JS
 @inject IPlatformService PlatformInfo
 @inject IUpdateService UpdateService
+@inject IToolbarService ToolbarService
+@inject NavigationManager NavManager
 @implements IDisposable
 
 <div class="main-layout @ThemeClass @PlatformClass">
@@ -126,15 +128,9 @@
 <!-- Global Toast Notifications -->
 <MauiSherpa.Components.ToastContainer />
 
-<!-- Global Logcat Panel -->
-<MauiSherpa.Components.LogcatPanel />
-
-<!-- Global iOS Simulator Log Panel -->
-<MauiSherpa.Components.SimLogPanel />
-
 @code {
     private string ThemeClass => ThemeService.IsDarkMode ? "theme-dark" : "theme-light";
-    private string PlatformClass => PlatformInfo.IsWindows ? "platform-windows" : "platform-mac";
+    private string PlatformClass => PlatformInfo.IsMacOS ? "platform-macos" : PlatformInfo.IsWindows ? "platform-windows" : "platform-mac";
     private bool isDemoMode;
 
 #if DEBUG
@@ -169,6 +165,14 @@
 
             // Load demo mode setting
             _ = LoadDemoModeAsync();
+
+            // Notify native sidebar of route changes from Blazor navigation
+            NavManager.LocationChanged += OnLocationChanged;
+
+            // On macOS, make html/body transparent and enable document-level scrolling
+            // so WKWebView setObscuredContentInsets can scroll content under the toolbar
+            if (PlatformInfo.IsMacOS)
+                _ = JS.InvokeVoidAsync("eval", "document.documentElement.style.backgroundColor='transparent';document.body.style.backgroundColor='transparent';document.documentElement.style.height='auto';document.documentElement.style.overflow='visible';document.body.style.height='auto';document.body.style.overflow='visible';");
         }
     }
 
@@ -221,7 +225,10 @@
         try
         {
             var cls = ThemeService.IsDarkMode ? "theme-dark" : "theme-light";
-            await JS.InvokeVoidAsync("eval", $"document.body.className = '{cls}'");
+            if (PlatformInfo.IsMacOS)
+                await JS.InvokeVoidAsync("eval", $"document.body.className = '{cls}'; document.body.style.backgroundColor='transparent';");
+            else
+                await JS.InvokeVoidAsync("eval", $"document.body.className = '{cls}'");
         }
         catch { }
     }
@@ -239,6 +246,15 @@
     public void Dispose()
     {
         ThemeService.ThemeChanged -= OnThemeChanged;
+        NavManager.LocationChanged -= OnLocationChanged;
+    }
+
+    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+    {
+        var uri = new Uri(e.Location);
+        var route = uri.AbsolutePath;
+        if (string.IsNullOrEmpty(route)) route = "/";
+        ToolbarService.NotifyRouteChanged(route);
     }
 }
 
@@ -451,7 +467,74 @@
         --titlebar-height: 0px;
     }
 
+    .platform-windows .sidebar-menu {
+        padding-top: 0;
+    }
+
     .theme-dark .nav-section {
         color: #a0aec0;
+    }
+
+    /* macOS AppKit: hide Blazor sidebar (native sidebar handles navigation) */
+    .platform-macos .sidebar {
+        display: none;
+    }
+
+    .platform-macos .content {
+        padding: 15px;
+        margin-left: 0;
+        background-color: transparent;
+        /* Let the document scroll instead of this div so WKWebView
+           setObscuredContentInsets can scroll content under the toolbar */
+        overflow-y: visible;
+        flex: 0 0 auto;
+        width: 100%;
+    }
+
+    .main-layout.platform-macos {
+        height: auto;
+        min-height: 100vh;
+    }
+
+    /* Prevent horizontal scroll bounce on macOS WKWebView */
+    .platform-macos {
+        overflow-x: hidden;
+        overscroll-behavior-x: none;
+    }
+
+    /* No gradient fade on macOS — native window background shows through */
+    .platform-macos .content::before {
+        display: none;
+    }
+
+    .platform-macos .content-drag-region {
+        display: none;
+    }
+
+    .platform-macos .toolbar {
+        display: none;
+    }
+
+    .platform-macos .platform-hide-macos {
+        display: none;
+    }
+
+    /* macOS: use system font and scale down to match native proportions */
+    .platform-macos {
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", system-ui, sans-serif;
+        font-size: 13px;
+        -webkit-font-smoothing: antialiased;
+    }
+
+    .platform-macos h1, .platform-macos .page-header h1 {
+        font-size: 1.35rem;
+    }
+
+    .platform-macos h2 {
+        font-size: 1.15rem;
+    }
+
+    .platform-macos h3 {
+        font-size: 1rem;
     }
 </style>
