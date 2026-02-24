@@ -18,6 +18,7 @@ public class WindowsTitleBarManager
     private readonly IAppleIdentityStateService _appleIdentityState;
     private readonly IGoogleIdentityService _googleIdentityService;
     private readonly IGoogleIdentityStateService _googleIdentityState;
+    private readonly ICopilotContextService _copilotContext;
     private readonly IServiceProvider _serviceProvider;
     private TitleBar? _titleBar;
     private SearchBar? _searchBar;
@@ -49,6 +50,7 @@ public class WindowsTitleBarManager
         IAppleIdentityStateService appleIdentityState,
         IGoogleIdentityService googleIdentityService,
         IGoogleIdentityStateService googleIdentityState,
+        ICopilotContextService copilotContext,
         IServiceProvider serviceProvider)
     {
         _toolbarService = toolbarService;
@@ -56,6 +58,7 @@ public class WindowsTitleBarManager
         _appleIdentityState = appleIdentityState;
         _googleIdentityService = googleIdentityService;
         _googleIdentityState = googleIdentityState;
+        _copilotContext = copilotContext;
         _serviceProvider = serviceProvider;
 
         _toolbarService.ToolbarChanged += OnToolbarChanged;
@@ -126,7 +129,20 @@ public class WindowsTitleBarManager
             HeightRequest = 28,
             WidthRequest = 28,
             VerticalOptions = LayoutOptions.Center,
-            Margin = new Thickness(0, 0, 215, 0),
+            Margin = new Thickness(0, 0, 8, 0),
+        });
+
+        // Copilot button
+        var copilotBtn = CreateCopilotButton();
+        leading.Children.Add(copilotBtn);
+        _titleBar.PassthroughElements.Add(copilotBtn);
+
+        // Spacer to push remaining items past sidebar width
+        leading.Children.Add(new BoxView
+        {
+            WidthRequest = 155,
+            HeightRequest = 1,
+            Color = Colors.Transparent,
         });
 
         // Identity picker (Apple or Google depending on route)
@@ -346,6 +362,39 @@ public class WindowsTitleBarManager
         {
             _toolbarService.InvokeToolbarItemClicked(action.Id);
         };
+
+        return btn;
+    }
+
+    private View CreateCopilotButton()
+    {
+        var btn = new Border
+        {
+            BackgroundColor = Colors.Transparent,
+            StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 6 },
+            Stroke = Colors.Transparent,
+            Padding = new Thickness(6, 4),
+            VerticalOptions = LayoutOptions.Center,
+            Content = new Image
+            {
+                Source = "ghcp_icon_white.png",
+                HeightRequest = 20,
+                WidthRequest = 20,
+                VerticalOptions = LayoutOptions.Center,
+            }
+        };
+
+        var tapGesture = new TapGestureRecognizer();
+        tapGesture.Tapped += (s, e) => _copilotContext.ToggleOverlay();
+        btn.GestureRecognizers.Add(tapGesture);
+
+        // Hover effect via PointerGestureRecognizer
+        var pointerEnter = new PointerGestureRecognizer();
+        pointerEnter.PointerEntered += (s, e) => btn.BackgroundColor = BgControlHover;
+        var pointerExit = new PointerGestureRecognizer();
+        pointerExit.PointerExited += (s, e) => btn.BackgroundColor = Colors.Transparent;
+        btn.GestureRecognizers.Add(pointerEnter);
+        btn.GestureRecognizers.Add(pointerExit);
 
         return btn;
     }
