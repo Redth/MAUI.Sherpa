@@ -38,7 +38,13 @@ public class App : Application
 
 #if WINDOWS
         var toolbarService = _serviceProvider.GetRequiredService<IToolbarService>();
-        var titleBarManager = new MauiSherpa.Services.WindowsTitleBarManager(toolbarService);
+        var titleBarManager = new MauiSherpa.Services.WindowsTitleBarManager(
+            toolbarService,
+            _serviceProvider.GetRequiredService<IAppleIdentityService>(),
+            _serviceProvider.GetRequiredService<IAppleIdentityStateService>(),
+            _serviceProvider.GetRequiredService<IGoogleIdentityService>(),
+            _serviceProvider.GetRequiredService<IGoogleIdentityStateService>(),
+            _serviceProvider.GetRequiredService<INavigationService>());
         var titleBar = titleBarManager.CreateTitleBar();
         window.TitleBar = titleBar;
 
