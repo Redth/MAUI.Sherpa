@@ -82,6 +82,7 @@ public class WindowsTitleBarManager
             HeightRequest = 28,
             WidthRequest = 28,
             VerticalOptions = LayoutOptions.Center,
+            Margin = new Thickness(0, 0, 200, 0),
         });
         foreach (var action in leadingActions)
         {
