@@ -1,4 +1,7 @@
 using MauiSherpa.Core.Interfaces;
+using MauiIcons.Fluent;
+using System.ComponentModel;
+using System.Reflection;
 
 namespace MauiSherpa.Services;
 
@@ -137,20 +140,32 @@ public class WindowsTitleBarManager
         // Check if any filter is active (not on index 0 = "All")
         var hasActiveFilter = _toolbarService.CurrentFilters.Any(f => f.SelectedIndex > 0);
 
+        var filterGlyph = GetEnumDescription(FluentIcons.Filter20);
+        var chevronGlyph = GetEnumDescription(FluentIcons.ChevronDown16);
+
         var btn = new Button
         {
-            Text = "▾ Filter",
-            FontSize = 12,
+            Text = filterGlyph + " " + chevronGlyph,
+            FontFamily = "FluentIcons",
+            FontSize = 16,
             HeightRequest = 32,
-            Padding = new Thickness(10, 0),
+            Padding = new Thickness(8, 0),
             BackgroundColor = hasActiveFilter ? Accent : BgControl,
             TextColor = Colors.White,
             BorderColor = hasActiveFilter ? Accent : BorderColor,
             BorderWidth = 1,
             CornerRadius = 6,
             VerticalOptions = LayoutOptions.Center,
+            HorizontalOptions = LayoutOptions.Center,
+            LineBreakMode = LineBreakMode.NoWrap,
         };
+        ApplyVerticalCentering(btn);
         ToolTipProperties.SetText(btn, "Filter");
+        ApplyHoverEffect(btn,
+            hasActiveFilter ? Accent : BgControl,
+            hasActiveFilter ? Accent : BgControlHover,
+            hasActiveFilter ? Accent : BorderColor,
+            Accent);
 
         var menuFlyout = new MenuFlyout();
 
@@ -197,12 +212,14 @@ public class WindowsTitleBarManager
 
     private Button CreateActionButton(ToolbarAction action)
     {
-        var icon = MapSfSymbolToText(action.SfSymbol);
+        var fluentIcon = MapSfSymbolToFluentIcon(action.SfSymbol);
+        var glyph = GetEnumDescription(fluentIcon);
 
         var btn = new Button
         {
-            Text = icon,
-            FontSize = 16,
+            Text = glyph,
+            FontFamily = "FluentIcons",
+            FontSize = 18,
             HeightRequest = 32,
             WidthRequest = 36,
             MinimumWidthRequest = 36,
@@ -214,8 +231,11 @@ public class WindowsTitleBarManager
             CornerRadius = 6,
             VerticalOptions = LayoutOptions.Center,
             HorizontalOptions = LayoutOptions.Center,
+            LineBreakMode = LineBreakMode.NoWrap,
         };
+        ApplyVerticalCentering(btn);
         ToolTipProperties.SetText(btn, action.Label);
+        ApplyHoverEffect(btn, BgControl, BgControlHover, BorderColor, Accent);
 
         btn.Clicked += (s, e) =>
         {
@@ -225,21 +245,77 @@ public class WindowsTitleBarManager
         return btn;
     }
 
-    private static string MapSfSymbolToText(string sfSymbol) => sfSymbol switch
+    private static FluentIcons MapSfSymbolToFluentIcon(string sfSymbol) => sfSymbol switch
     {
-        "arrow.clockwise" => "⟳",
-        "plus" => "+",
-        "plus.circle" => "+",
-        "square.and.arrow.down" => "↓",
-        "square.and.arrow.up" => "↑",
-        "trash" => "🗑",
-        "pencil" => "✏",
-        "xmark" => "✕",
-        "checkmark" => "✓",
-        "magnifyingglass" => "🔍",
-        "gear" => "⚙",
-        "doc.on.doc" => "📋",
-        "arrow.triangle.2.circlepath" => "⟳",
-        _ => "•",
+        "arrow.clockwise" => FluentIcons.ArrowClockwise20,
+        "plus" => FluentIcons.Add20,
+        "plus.circle" => FluentIcons.AddCircle20,
+        "square.and.arrow.down" => FluentIcons.ArrowDownload20,
+        "square.and.arrow.up" => FluentIcons.ArrowUpload20,
+        "trash" => FluentIcons.Delete20,
+        "pencil" => FluentIcons.Edit20,
+        "xmark" => FluentIcons.Dismiss20,
+        "checkmark" => FluentIcons.Checkmark20,
+        "magnifyingglass" => FluentIcons.Search20,
+        "gear" => FluentIcons.Settings20,
+        "doc.on.doc" => FluentIcons.DocumentCopy20,
+        "arrow.triangle.2.circlepath" => FluentIcons.ArrowSync20,
+        _ => FluentIcons.Circle20,
     };
+
+    private static FontImageSource GetFluentIcon(FluentIcons icon, Color color, double size)
+    {
+        var glyph = GetEnumDescription(icon);
+        return new FontImageSource
+        {
+            Glyph = glyph,
+            FontFamily = "FluentIcons",
+            Color = color,
+            Size = size,
+        };
+    }
+
+    private static string GetEnumDescription(Enum value)
+    {
+        var field = value.GetType().GetField(value.ToString());
+        var attr = field?.GetCustomAttribute<DescriptionAttribute>();
+        return attr?.Description ?? string.Empty;
+    }
+
+    private static void ApplyHoverEffect(Button btn, Color normalBg, Color hoverBg, Color normalBorder, Color? hoverBorder = null)
+    {
+#if WINDOWS
+        btn.HandlerChanged += (s, e) =>
+        {
+            if (btn.Handler?.PlatformView is Microsoft.UI.Xaml.Controls.Button platformBtn)
+            {
+                platformBtn.PointerEntered += (_, _) =>
+                {
+                    btn.BackgroundColor = hoverBg;
+                    if (hoverBorder != null) btn.BorderColor = hoverBorder;
+                };
+                platformBtn.PointerExited += (_, _) =>
+                {
+                    btn.BackgroundColor = normalBg;
+                    btn.BorderColor = normalBorder;
+                };
+            }
+        };
+#endif
+    }
+
+    private static void ApplyVerticalCentering(Button btn)
+    {
+#if WINDOWS
+        btn.HandlerChanged += (s, e) =>
+        {
+            if (btn.Handler?.PlatformView is Microsoft.UI.Xaml.Controls.Button platformBtn)
+            {
+                platformBtn.VerticalContentAlignment = Microsoft.UI.Xaml.VerticalAlignment.Center;
+                platformBtn.HorizontalContentAlignment = Microsoft.UI.Xaml.HorizontalAlignment.Center;
+                platformBtn.Padding = new Microsoft.UI.Xaml.Thickness(0);
+            }
+        };
+#endif
+    }
 }

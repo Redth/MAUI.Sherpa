@@ -6,6 +6,7 @@ using MauiSherpa.Core.Interfaces;
 using MauiSherpa.Core.Services;
 using MauiDevFlow.Agent;
 using MauiDevFlow.Blazor;
+using MauiIcons.Fluent;
 using Shiny.Mediator;
 
 namespace MauiSherpa;
@@ -20,6 +21,7 @@ public static class MauiProgram
         var builder = MauiApp.CreateBuilder();
         builder
             .UseMauiApp<App>()
+            .UseFluentMauiIcons()
             .ConfigureFonts(fonts =>
             {
                 fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");
