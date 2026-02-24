@@ -349,7 +349,7 @@ public class WindowsTitleBarManager
         return btn;
     }
 
-    private Button? CreateAppleIdentityButton()
+    private View? CreateAppleIdentityButton()
     {
         if (_cachedAppleIdentities == null)
         {
@@ -366,24 +366,6 @@ public class WindowsTitleBarManager
 
         var selected = _appleIdentityState.SelectedIdentity;
         var displayName = selected?.Name ?? "Select Identity";
-        var chevronGlyph = GetEnumDescription(FluentIcons.ChevronDown16);
-
-        var btn = new Button
-        {
-            Text = "\uF8FF " + displayName + " " + chevronGlyph,
-            FontSize = 12,
-            HeightRequest = 32,
-            Padding = new Thickness(10, 0),
-            BackgroundColor = BgControl,
-            TextColor = Colors.White,
-            BorderColor = BorderColor,
-            BorderWidth = 1,
-            CornerRadius = 6,
-            VerticalOptions = LayoutOptions.Center,
-            LineBreakMode = LineBreakMode.NoWrap,
-        };
-        ApplyVerticalCentering(btn);
-        ApplyHoverEffect(btn, BgControl, BgControlHover, BorderColor, Accent);
 
         var menuFlyout = new MenuFlyout();
         foreach (var identity in _cachedAppleIdentities)
@@ -408,19 +390,10 @@ public class WindowsTitleBarManager
         };
         menuFlyout.Add(settingsItem);
 
-        FlyoutBase.SetContextFlyout(btn, menuFlyout);
-        btn.Clicked += (s, e) =>
-        {
-#if WINDOWS
-            if (btn.Handler?.PlatformView is Microsoft.UI.Xaml.FrameworkElement pv)
-                pv.ContextFlyout?.ShowAt(pv);
-#endif
-        };
-
-        return btn;
+        return CreateIdentityPickerView(FluentIcons.Certificate20, displayName, menuFlyout);
     }
 
-    private Button? CreateGoogleIdentityButton()
+    private View? CreateGoogleIdentityButton()
     {
         if (_cachedGoogleIdentities == null)
         {
@@ -437,24 +410,6 @@ public class WindowsTitleBarManager
 
         var selected = _googleIdentityState.SelectedIdentity;
         var displayName = selected?.Name ?? "Select Identity";
-        var chevronGlyph = GetEnumDescription(FluentIcons.ChevronDown16);
-
-        var btn = new Button
-        {
-            Text = "🔥 " + displayName + " " + chevronGlyph,
-            FontSize = 12,
-            HeightRequest = 32,
-            Padding = new Thickness(10, 0),
-            BackgroundColor = BgControl,
-            TextColor = Colors.White,
-            BorderColor = BorderColor,
-            BorderWidth = 1,
-            CornerRadius = 6,
-            VerticalOptions = LayoutOptions.Center,
-            LineBreakMode = LineBreakMode.NoWrap,
-        };
-        ApplyVerticalCentering(btn);
-        ApplyHoverEffect(btn, BgControl, BgControlHover, BorderColor, Accent);
 
         var menuFlyout = new MenuFlyout();
         foreach (var identity in _cachedGoogleIdentities)
@@ -479,16 +434,66 @@ public class WindowsTitleBarManager
         };
         menuFlyout.Add(settingsItem);
 
-        FlyoutBase.SetContextFlyout(btn, menuFlyout);
-        btn.Clicked += (s, e) =>
+        return CreateIdentityPickerView(FluentIcons.Cloud20, displayName, menuFlyout);
+    }
+
+    private Border CreateIdentityPickerView(FluentIcons icon, string displayName, MenuFlyout menuFlyout)
+    {
+        var iconGlyph = GetEnumDescription(icon);
+        var chevronGlyph = GetEnumDescription(FluentIcons.ChevronDown16);
+
+        var label = new Label
+        {
+            VerticalOptions = LayoutOptions.Center,
+            VerticalTextAlignment = TextAlignment.Center,
+            FormattedText = new FormattedString
+            {
+                Spans =
+                {
+                    new Span { Text = iconGlyph, FontFamily = "FluentIcons", FontSize = 16, TextColor = Colors.White },
+                    new Span { Text = "  " + displayName + "  ", FontSize = 12, TextColor = Colors.White },
+                    new Span { Text = chevronGlyph, FontFamily = "FluentIcons", FontSize = 12, TextColor = TextMuted },
+                },
+            },
+        };
+
+        var border = new Border
+        {
+            Content = label,
+            BackgroundColor = BgControl,
+            Stroke = BorderColor,
+            StrokeThickness = 1,
+            StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 6 },
+            Padding = new Thickness(10, 0),
+            HeightRequest = 32,
+            VerticalOptions = LayoutOptions.Center,
+        };
+
+        FlyoutBase.SetContextFlyout(border, menuFlyout);
+
+        var tapGesture = new TapGestureRecognizer();
+        tapGesture.Tapped += (s, e) =>
         {
 #if WINDOWS
-            if (btn.Handler?.PlatformView is Microsoft.UI.Xaml.FrameworkElement pv)
+            if (border.Handler?.PlatformView is Microsoft.UI.Xaml.FrameworkElement pv)
                 pv.ContextFlyout?.ShowAt(pv);
 #endif
         };
+        border.GestureRecognizers.Add(tapGesture);
 
-        return btn;
+#if WINDOWS
+        // Hover effect
+        border.HandlerChanged += (s, e) =>
+        {
+            if (border.Handler?.PlatformView is Microsoft.UI.Xaml.FrameworkElement fe)
+            {
+                fe.PointerEntered += (_, _) => { border.BackgroundColor = BgControlHover; border.Stroke = Accent; };
+                fe.PointerExited += (_, _) => { border.BackgroundColor = BgControl; border.Stroke = BorderColor; };
+            }
+        };
+#endif
+
+        return border;
     }
 
     private static FluentIcons MapSfSymbolToFluentIcon(string sfSymbol) => sfSymbol switch
