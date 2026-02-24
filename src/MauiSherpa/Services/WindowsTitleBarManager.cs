@@ -390,7 +390,7 @@ public class WindowsTitleBarManager
         };
         menuFlyout.Add(settingsItem);
 
-        return CreateIdentityPickerView(FluentIcons.Certificate20, displayName, menuFlyout);
+        return CreateIdentityPickerView(FluentIcons.AppStore24, displayName, menuFlyout);
     }
 
     private View? CreateGoogleIdentityButton()
@@ -439,27 +439,44 @@ public class WindowsTitleBarManager
 
     private Border CreateIdentityPickerView(FluentIcons icon, string displayName, MenuFlyout menuFlyout)
     {
-        var iconGlyph = GetEnumDescription(icon);
         var chevronGlyph = GetEnumDescription(FluentIcons.ChevronDown16);
 
-        var label = new Label
+        var layout = new HorizontalStackLayout
         {
+            Spacing = 6,
+            VerticalOptions = LayoutOptions.Center,
+        };
+
+        layout.Children.Add(new Image
+        {
+            Source = GetFluentIcon(icon, Colors.White, 16),
+            HeightRequest = 16,
+            WidthRequest = 16,
+            VerticalOptions = LayoutOptions.Center,
+        });
+
+        layout.Children.Add(new Label
+        {
+            Text = displayName,
+            FontSize = 12,
+            TextColor = Colors.White,
             VerticalOptions = LayoutOptions.Center,
             VerticalTextAlignment = TextAlignment.Center,
-            FormattedText = new FormattedString
-            {
-                Spans =
-                {
-                    new Span { Text = iconGlyph, FontFamily = "FluentIcons", FontSize = 16, TextColor = Colors.White },
-                    new Span { Text = "  " + displayName + "  ", FontSize = 12, TextColor = Colors.White },
-                    new Span { Text = chevronGlyph, FontFamily = "FluentIcons", FontSize = 12, TextColor = TextMuted },
-                },
-            },
-        };
+        });
+
+        layout.Children.Add(new Label
+        {
+            Text = chevronGlyph,
+            FontFamily = "FluentIcons",
+            FontSize = 12,
+            TextColor = TextMuted,
+            VerticalOptions = LayoutOptions.Center,
+            VerticalTextAlignment = TextAlignment.Center,
+        });
 
         var border = new Border
         {
-            Content = label,
+            Content = layout,
             BackgroundColor = BgControl,
             Stroke = BorderColor,
             StrokeThickness = 1,
