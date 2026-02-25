@@ -192,18 +192,32 @@
 
     private SimInspectorTab ActiveTab = SimInspectorTab.Logs;
     private bool isSimulator = true;
+    private bool isLoaded;
     private List<SimulatorDevice> bootedSimulators = new();
     private List<AppleDeviceInfo> physicalDevices = new();
 
     protected override async Task OnInitializedAsync()
     {
+        // Set isSimulator from the service BEFORE the first render to avoid
+        // passing a physical device UDID to simulator-only components
+        isSimulator = InspectorService.IsSimulator;
+
         ActiveTab = ParseTab(TabName);
         InspectorService.ActiveUdid = Udid;
         InspectorService.ActiveTab = ActiveTab;
         InspectorService.IsOpen = true;
         InspectorService.StateChanged += OnServiceStateChanged;
+
+        // If physical device landed on a sim-only tab, redirect
+        if (!isSimulator && (ActiveTab == SimInspectorTab.Capture || ActiveTab == SimInspectorTab.Tools))
+        {
+            ActiveTab = SimInspectorTab.Apps;
+            InspectorService.ActiveTab = ActiveTab;
+        }
+
         await LoadDevicesAsync();
         DetermineDeviceType();
+        isLoaded = true;
     }
 
     protected override void OnParametersSet()

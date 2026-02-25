@@ -270,8 +270,16 @@
 
     protected override async Task OnInitializedAsync()
     {
-        Inspector.DeviceChanged += OnDeviceSwitched;
-        await LoadApps(forceRefresh: false);
+        try
+        {
+            Inspector.DeviceChanged += OnDeviceSwitched;
+            await LoadApps(forceRefresh: false);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[AppleAppsTab.OnInitializedAsync] CRASH: {ex}");
+            Console.Error.WriteLine($"[AppleAppsTab.OnInitializedAsync] CRASH: {ex}");
+        }
     }
 
     private async Task LoadApps(bool forceRefresh)

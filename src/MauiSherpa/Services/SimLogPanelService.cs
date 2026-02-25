@@ -20,36 +20,53 @@ public class SimInspectorService
 
     public void Open(string udid, string? deviceName, bool isSimulator, SimInspectorTab tab = SimInspectorTab.Logs)
     {
-        ActiveUdid = udid;
-        ActiveSimName = deviceName ?? udid;
-        IsSimulator = isSimulator;
-        ActiveTab = tab;
-        IsOpen = true;
-
-        if (_window != null)
+        try
         {
-            // Window already open — switch device if needed
-            if (ActiveUdid != udid)
-                DeviceChanged?.Invoke(udid);
-            _window.Title = BuildTitle(deviceName ?? udid, isSimulator);
+            ActiveUdid = udid;
+            ActiveSimName = deviceName ?? udid;
+            IsSimulator = isSimulator;
+            ActiveTab = tab;
+            IsOpen = true;
+
+            if (_window != null)
+            {
+                // Window already open — switch device if needed
+                if (ActiveUdid != udid)
+                    DeviceChanged?.Invoke(udid);
+                _window.Title = BuildTitle(deviceName ?? udid, isSimulator);
+                StateChanged?.Invoke();
+                _window.Activated += OnWindowActivated;
+                Application.Current?.ActivateWindow(_window);
+                return;
+            }
+
+            var tabName = tab.ToString().ToLowerInvariant();
+            var title = BuildTitle(deviceName ?? udid, isSimulator);
+            Console.Error.WriteLine($"[SimInspectorService] Creating InspectorPage path=/inspector/apple/{Uri.EscapeDataString(udid)}/{tabName}");
+            Console.Error.Flush();
+            var page = new InspectorPage($"/inspector/apple/{Uri.EscapeDataString(udid)}/{tabName}", title);
+            Console.Error.WriteLine("[SimInspectorService] InspectorPage created, creating Window");
+            Console.Error.Flush();
+            _window = new Window(page)
+            {
+                Title = title,
+                Width = 800,
+                Height = 500,
+            };
+            _window.Destroying += OnWindowDestroying;
+            Console.Error.WriteLine("[SimInspectorService] Calling OpenWindow...");
+            Console.Error.Flush();
+            Application.Current?.OpenWindow(_window);
+            Console.Error.WriteLine("[SimInspectorService] OpenWindow returned OK");
+            Console.Error.Flush();
             StateChanged?.Invoke();
-            _window.Activated += OnWindowActivated;
-            Application.Current?.ActivateWindow(_window);
-            return;
         }
-
-        var tabName = tab.ToString().ToLowerInvariant();
-        var title = BuildTitle(deviceName ?? udid, isSimulator);
-        var page = new InspectorPage($"/inspector/apple/{Uri.EscapeDataString(udid)}/{tabName}", title);
-        _window = new Window(page)
+        catch (Exception ex)
         {
-            Title = title,
-            Width = 800,
-            Height = 500,
-        };
-        _window.Destroying += OnWindowDestroying;
-        Application.Current?.OpenWindow(_window);
-        StateChanged?.Invoke();
+            System.Diagnostics.Debug.WriteLine($"[SimInspectorService.Open] CRASH: {ex}");
+            Console.Error.WriteLine($"[SimInspectorService.Open] CRASH: {ex}");
+            throw;
+        }
     }
 
     private void OnWindowActivated(object? sender, EventArgs e)
