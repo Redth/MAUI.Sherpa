@@ -1,39 +1,24 @@
 @using MauiSherpa.Core.Interfaces
 @inject ICopilotContextService ContextService
 @inject ICopilotService CopilotService
-@inject ILoggingService Logger
 @inject IPlatformService PlatformInfo
 @implements IDisposable
 
 @* Floating Copilot Button - hidden when native toolbar has copilot button *@
 <button class="copilot-fab @(isOpen ? "overlay-open" : "") @(PlatformInfo.HasNativeToolbar ? "fab-hidden" : "")" 
         @onclick="ToggleOverlay"
-        title="@(isOpen ? "Minimize Copilot" : "Open Copilot")">
+        title="@(isOpen ? "Close Copilot" : "Open Copilot")">
     <i class="fas @(isOpen ? "fa-chevron-down" : "fa-robot")"></i>
 </button>
 
-@* Overlay *@
-@if (isOpen)
+@* Inline overlay fallback — used when ICopilotModalService is not available (e.g. macOS AppKit) *@
+@if (useInlineFallback && isOpen)
 {
     <div class="copilot-overlay-backdrop" @onclick="CloseOverlay">
         <div class="copilot-overlay @(isClosing ? "closing" : "")" @onclick:stopPropagation="true">
-            <div class="overlay-header">
-                <div class="header-title">
-                    <i class="fas fa-robot"></i>
-                    <span>GitHub Copilot</span>
-                    @if (CopilotService.IsConnected)
-                    {
-                        <span class="status-badge connected">Connected</span>
-                    }
-                    else
-                    {
-                        <span class="status-badge disconnected">Disconnected</span>
-                    }
-                </div>
-                <button class="btn-minimize-overlay" @onclick="CloseOverlay" title="Minimize">
-                    <i class="fas fa-chevron-down"></i>
-                </button>
-            </div>
+            <button class="btn-close-inline" @onclick="CloseOverlay" title="Close">
+                <i class="fas fa-times"></i>
+            </button>
             <div class="overlay-content">
                 <MauiSherpa.Pages.Copilot 
                     IsEmbedded="true"
@@ -62,7 +47,7 @@
         cursor: pointer;
         box-shadow: 0 0.25rem 0.75rem rgba(99, 102, 241, 0.4);
         transition: all 0.3s ease;
-        z-index: 20001; /* Above overlay */
+        z-index: 20001;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -85,10 +70,8 @@
     .copilot-fab.overlay-open:hover {
         transform: scale(1.1) translateY(2px);
     }
-    
 
-    
-    /* Overlay Backdrop */
+    /* Inline fallback overlay styles */
     .copilot-overlay-backdrop {
         position: fixed;
         inset: 0;
@@ -107,7 +90,6 @@
         to { opacity: 1; }
     }
     
-    /* Overlay Container */
     .copilot-overlay {
         width: calc(100vw - 160px);
         max-width: 900px;
@@ -121,6 +103,7 @@
         overflow: hidden;
         transform-origin: top left;
         animation: expandFromCorner 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+        position: relative;
     }
     
     .copilot-overlay.closing {
@@ -149,65 +132,31 @@
         }
     }
     
-    /* Overlay Header */
-    .overlay-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 1rem 1.25rem;
-        background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
-        color: white;
-    }
-    
-    .header-title {
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
-        font-size: 1.125rem;
-        font-weight: 600;
-    }
-    
-    .header-title i {
-        font-size: 1.5rem;
-    }
-    
-    .status-badge {
-        font-size: 0.6875rem;
-        padding: 0.25rem 0.5rem;
-        border-radius: 0.75rem;
-        font-weight: 500;
-    }
-    
-    .status-badge.connected {
-        background: rgba(52, 211, 153, 0.3);
-        color: #a7f3d0;
-    }
-    
-    .status-badge.disconnected {
-        background: rgba(251, 191, 36, 0.3);
-        color: #fde68a;
-    }
-    
-    .btn-minimize-overlay {
-        background: rgba(255, 255, 255, 0.2);
+    .btn-close-inline {
+        position: absolute;
+        top: 0.5rem;
+        right: 0.5rem;
+        z-index: 10;
+        background: var(--bg-tertiary, #edf2f7);
         border: none;
-        color: white;
-        width: 36px;
-        height: 36px;
-        border-radius: 0.5rem;
+        color: var(--text-muted, #718096);
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
         cursor: pointer;
         display: flex;
         align-items: center;
         justify-content: center;
+        font-size: 0.75rem;
         transition: all 0.2s;
+        opacity: 0.7;
+    }
+
+    .btn-close-inline:hover {
+        opacity: 1;
+        background: var(--border-color, #e2e8f0);
     }
     
-    .btn-minimize-overlay:hover {
-        background: rgba(255, 255, 255, 0.3);
-        transform: translateY(2px);
-    }
-    
-    /* Overlay Content */
     .overlay-content {
         flex: 1;
         overflow: hidden;
@@ -215,7 +164,6 @@
         flex-direction: column;
     }
     
-    /* Dark mode */
     .theme-dark .copilot-overlay {
         background: var(--card-bg);
     }
@@ -228,20 +176,38 @@
     private CopilotContext? pendingContext;
     private bool chatReady = false;
     
+    // When ICopilotModalService is registered, the modal service handles open/close
+    // and this overlay only renders the FAB. Otherwise, fall back to inline rendering.
+    private bool useInlineFallback = true;
+
+    [Inject] private IServiceProvider ServiceProvider { get; set; } = default!;
+    
     protected override void OnInitialized()
     {
-        ContextService.OnOpenRequested += HandleOpenRequested;
-        ContextService.OnCloseRequested += HandleCloseRequested;
-        ContextService.OnMessageRequested += HandleMessageRequested;
-        ContextService.OnContextRequested += HandleContextRequested;
+        // Check if the modal service is available (it won't be on macOS AppKit)
+        var modalService = ServiceProvider.GetService<ICopilotModalService>();
+        useInlineFallback = modalService is null;
+        
+        if (useInlineFallback)
+        {
+            // Inline mode: this component manages open/close and rendering
+            ContextService.OnOpenRequested += HandleOpenRequested;
+            ContextService.OnCloseRequested += HandleCloseRequested;
+            ContextService.OnMessageRequested += HandleMessageRequested;
+            ContextService.OnContextRequested += HandleContextRequested;
+        }
+        // When modal service is available, it handles events directly — we just render the FAB
     }
     
     public void Dispose()
     {
-        ContextService.OnOpenRequested -= HandleOpenRequested;
-        ContextService.OnCloseRequested -= HandleCloseRequested;
-        ContextService.OnMessageRequested -= HandleMessageRequested;
-        ContextService.OnContextRequested -= HandleContextRequested;
+        if (useInlineFallback)
+        {
+            ContextService.OnOpenRequested -= HandleOpenRequested;
+            ContextService.OnCloseRequested -= HandleCloseRequested;
+            ContextService.OnMessageRequested -= HandleMessageRequested;
+            ContextService.OnContextRequested -= HandleContextRequested;
+        }
     }
     
     private void HandleOpenRequested()
@@ -273,10 +239,18 @@
     
     private void ToggleOverlay()
     {
-        if (isOpen)
-            CloseOverlay();
+        if (useInlineFallback)
+        {
+            if (isOpen)
+                CloseOverlay();
+            else
+                OpenOverlay();
+        }
         else
-            OpenOverlay();
+        {
+            // Delegate to the context service → modal service handles it
+            ContextService.ToggleOverlay();
+        }
     }
     
     private void OpenOverlay()
@@ -291,7 +265,6 @@
         isClosing = true;
         StateHasChanged();
         
-        // Wait for animation to complete
         await Task.Delay(250);
         
         isOpen = false;

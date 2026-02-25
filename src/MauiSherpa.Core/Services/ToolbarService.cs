@@ -95,4 +95,12 @@ public class ToolbarService : IToolbarService
     }
 
     public bool IsItemEnabled(string actionId) => !_disabledItems.Contains(actionId);
+
+    public bool IsToolbarSuppressed { get; private set; }
+
+    public void SetToolbarSuppressed(bool suppressed)
+    {
+        IsToolbarSuppressed = suppressed;
+        ToolbarChanged?.Invoke();
+    }
 }

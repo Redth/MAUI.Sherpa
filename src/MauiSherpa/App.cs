@@ -49,6 +49,10 @@ public class App : Application
         var titleBar = titleBarManager.CreateTitleBar();
         window.TitleBar = titleBar;
 
+        // Eagerly resolve CopilotModalService so its constructor subscribes
+        // to context events before the Blazor app loads.
+        _serviceProvider.GetRequiredService<ICopilotModalService>();
+
         window.HandlerChanged += (s, e) =>
         {
             if (window.Handler?.PlatformView is Microsoft.UI.Xaml.Window nativeWindow)

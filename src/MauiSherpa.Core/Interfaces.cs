@@ -1903,9 +1903,62 @@ public interface ICopilotContextService
     event Action<CopilotContext>? OnContextRequested;
     
     /// <summary>
+    /// Pending message stored for consumption by newly-initialized modal components.
+    /// Set by OpenWithMessage, consumed and cleared by the modal on init.
+    /// </summary>
+    string? PendingMessage { get; }
+    
+    /// <summary>
+    /// Pending context stored for consumption by newly-initialized modal components.
+    /// Set by OpenWithContext, consumed and cleared by the modal on init.
+    /// </summary>
+    CopilotContext? PendingContext { get; }
+    
+    /// <summary>
+    /// Consume and clear pending message/context after the modal has picked it up.
+    /// </summary>
+    void ConsumePending();
+    
+    /// <summary>
     /// Notify that the overlay state changed (called by overlay component)
     /// </summary>
     void NotifyOverlayStateChanged(bool isOpen);
+    
+    /// <summary>
+    /// Submit a chat message from native UI (e.g. native MAUI input bar).
+    /// The Blazor component subscribes and processes (connect, send, error handling).
+    /// </summary>
+    void SubmitMessage(string message);
+    
+    /// <summary>
+    /// Event fired when a message is submitted from native UI
+    /// </summary>
+    event Action<string>? OnMessageSubmitted;
+    
+    /// <summary>
+    /// Notify that the chat busy state changed (for native UI to observe)
+    /// </summary>
+    void NotifyBusyStateChanged(bool isBusy);
+    
+    /// <summary>
+    /// Whether the chat is currently busy processing a message
+    /// </summary>
+    bool IsChatBusy { get; }
+    
+    /// <summary>
+    /// Event fired when chat busy state changes
+    /// </summary>
+    event Action<bool>? OnBusyStateChanged;
+
+    /// <summary>
+    /// Notify that the Copilot connection state has changed (connected/disconnected).
+    /// </summary>
+    void NotifyConnectionStateChanged();
+
+    /// <summary>
+    /// Event fired when connection state changes
+    /// </summary>
+    event Action? OnConnectionStateChanged;
 }
 
 /// <summary>
@@ -2899,4 +2952,36 @@ public interface IToolbarService
     void SetItemEnabled(string actionId, bool enabled);
     /// <summary>Check if a toolbar item is currently enabled.</summary>
     bool IsItemEnabled(string actionId);
+    /// <summary>When true, all toolbar items should be hidden (e.g. during modal presentation).</summary>
+    bool IsToolbarSuppressed { get; }
+    /// <summary>Temporarily suppress/unsuppress the toolbar. Fires ToolbarChanged.</summary>
+    void SetToolbarSuppressed(bool suppressed);
+}
+
+/// <summary>
+/// Service for presenting the Copilot chat as a modal page with its own BlazorWebView.
+/// </summary>
+public interface ICopilotModalService
+{
+    /// <summary>Whether the Copilot modal is currently visible.</summary>
+    bool IsOpen { get; }
+    
+    /// <summary>Show the Copilot modal page.</summary>
+    Task OpenAsync();
+    
+    /// <summary>Dismiss the Copilot modal page.</summary>
+    Task CloseAsync();
+}
+
+/// <summary>
+/// In-memory debug flags for testing failure scenarios.
+/// All flags reset to false on app restart — never persisted.
+/// </summary>
+public interface IDebugFlagService
+{
+    /// <summary>
+    /// When true, Android SDK build-tools install will use a truncated package name
+    /// (e.g. "build-tools" instead of "build-tools;36.1.0"), causing the install to fail.
+    /// </summary>
+    bool FailBuildToolsInstall { get; set; }
 }

@@ -105,6 +105,28 @@ public class WindowsTitleBarManager
 
         _titleBar.PassthroughElements.Clear();
 
+        // When toolbar is suppressed (e.g. Copilot modal is open), show minimal titlebar
+        if (_toolbarService.IsToolbarSuppressed)
+        {
+            var minimal = new HorizontalStackLayout
+            {
+                Spacing = 6,
+                VerticalOptions = LayoutOptions.Center,
+                Padding = new Thickness(8, 0, 0, 0),
+            };
+            minimal.Children.Add(new Image
+            {
+                Source = "sherpalogo.png",
+                HeightRequest = 28,
+                WidthRequest = 28,
+                VerticalOptions = LayoutOptions.Center,
+            });
+            _titleBar.LeadingContent = minimal;
+            _titleBar.Content = null;
+            _titleBar.TrailingContent = null;
+            return;
+        }
+
         // Split actions: "add" types go left, "refresh" types go right
         var leadingActions = new List<ToolbarAction>();
         var trailingActions = new List<ToolbarAction>();
@@ -592,16 +614,18 @@ public class WindowsTitleBarManager
         "arrow.clockwise" => FluentIcons.ArrowClockwise20,
         "plus" => FluentIcons.Add20,
         "plus.circle" => FluentIcons.AddCircle20,
-        "square.and.arrow.down" => FluentIcons.ArrowDownload20,
+        "square.and.arrow.down" or "fa-download" => FluentIcons.ArrowDownload20,
         "square.and.arrow.up" => FluentIcons.ArrowUpload20,
         "trash" => FluentIcons.Delete20,
         "pencil" => FluentIcons.Edit20,
         "xmark" => FluentIcons.Dismiss20,
         "checkmark" => FluentIcons.Checkmark20,
         "magnifyingglass" => FluentIcons.Search20,
-        "gear" => FluentIcons.Settings20,
+        "gear" or "fa-cog" => FluentIcons.Settings20,
         "doc.on.doc" => FluentIcons.DocumentCopy20,
-        "arrow.triangle.2.circlepath" => FluentIcons.ArrowSync20,
+        "arrow.triangle.2.circlepath" or "fa-sync-alt" => FluentIcons.ArrowSync20,
+        "fa-stethoscope" => FluentIcons.Stethoscope20,
+        "wand.and.stars" => FluentIcons.Sparkle20,
         _ => FluentIcons.Circle20,
     };
 

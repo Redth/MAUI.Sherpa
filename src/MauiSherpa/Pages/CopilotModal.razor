@@ -1,0 +1,64 @@
+@page "/copilot-modal"
+@layout CopilotModalLayout
+@using MauiSherpa.Core.Interfaces
+@inject ICopilotContextService ContextService
+
+<MauiSherpa.Pages.Copilot 
+    IsEmbedded="true"
+    HideInputArea="true"
+    PendingMessage="@pendingMessage"
+    PendingContext="@pendingContext"
+    OnPendingHandled="ClearPending"
+    OnReady="OnChatReady" />
+
+@code {
+    private string? pendingMessage;
+    private CopilotContext? pendingContext;
+
+    protected override void OnInitialized()
+    {
+        ContextService.OnMessageRequested += HandleMessageRequested;
+        ContextService.OnContextRequested += HandleContextRequested;
+        
+        // Pick up any pending message/context that was set before this component initialized
+        // (race condition: OpenWithContext fires events before the modal page is pushed)
+        if (ContextService.PendingContext != null)
+        {
+            pendingContext = ContextService.PendingContext;
+            ContextService.ConsumePending();
+        }
+        else if (ContextService.PendingMessage != null)
+        {
+            pendingMessage = ContextService.PendingMessage;
+            ContextService.ConsumePending();
+        }
+    }
+
+    private void HandleMessageRequested(string message)
+    {
+        pendingMessage = message;
+        pendingContext = null;
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void HandleContextRequested(CopilotContext context)
+    {
+        pendingContext = context;
+        pendingMessage = null;
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void OnChatReady() { }
+
+    private void ClearPending()
+    {
+        pendingMessage = null;
+        pendingContext = null;
+    }
+
+    public void Dispose()
+    {
+        ContextService.OnMessageRequested -= HandleMessageRequested;
+        ContextService.OnContextRequested -= HandleContextRequested;
+    }
+}

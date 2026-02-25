@@ -34,19 +34,55 @@ public class CopilotContextService : ICopilotContextService
     
     public void OpenWithMessage(string message)
     {
+        PendingMessage = message;
+        PendingContext = null;
         OnOpenRequested?.Invoke();
         OnMessageRequested?.Invoke(message);
     }
     
     public void OpenWithContext(CopilotContext context)
     {
+        PendingContext = context;
+        PendingMessage = null;
         OnOpenRequested?.Invoke();
         OnContextRequested?.Invoke(context);
+    }
+    
+    public string? PendingMessage { get; private set; }
+    public CopilotContext? PendingContext { get; private set; }
+    
+    public void ConsumePending()
+    {
+        PendingMessage = null;
+        PendingContext = null;
     }
     
     public void NotifyOverlayStateChanged(bool isOpen)
     {
         IsOverlayOpen = isOpen;
+    }
+    
+    public bool IsChatBusy { get; private set; }
+    
+    public event Action<string>? OnMessageSubmitted;
+    public event Action<bool>? OnBusyStateChanged;
+    
+    public void SubmitMessage(string message)
+    {
+        OnMessageSubmitted?.Invoke(message);
+    }
+    
+    public void NotifyBusyStateChanged(bool isBusy)
+    {
+        IsChatBusy = isBusy;
+        OnBusyStateChanged?.Invoke(isBusy);
+    }
+
+    public event Action? OnConnectionStateChanged;
+
+    public void NotifyConnectionStateChanged()
+    {
+        OnConnectionStateChanged?.Invoke();
     }
     
     /// <summary>
