@@ -4,7 +4,7 @@
 @inject IAppleIdentityService IdentityService
 @inject IApnsPushService PushService
 @inject IDialogService DialogService
-@inject IEncryptedSettingsService SettingsService
+@inject IPushProjectService ProjectService
 @inject BlazorToastService ToastService
 @inject ILoggingService Logger
 @inject IToolbarService ToolbarService
@@ -12,13 +12,20 @@
 
 <h1><i class="fas fa-paper-plane"></i> Push Testing</h1>
 
+<PushProjectBar @ref="projectBar"
+    Platform="PushProjectPlatform.Apns"
+    ActiveProject="activeProject"
+    ActiveProjectChanged="OnActiveProjectChanged"
+    OnSaveRequested="SaveProject"
+    IsDirty="isDirty" />
+
 <div class="push-layout">
     <div class="push-section">
         <div class="section-header"><i class="fas fa-key"></i> Authentication</div>
         <div class="section-body">
             <div class="form-group">
                 <label>Auth Method</label>
-                <select @bind="authMode" @bind:after="OnAuthModeChanged">
+                <select @bind="authMode" @bind:after="MarkDirty">
                     <option value="identity">Stored Apple Identity</option>
                     <option value="p8file">.p8 File from Filesystem</option>
                 </select>
@@ -34,7 +41,7 @@
                     }
                     else
                     {
-                        <select @bind="selectedIdentityId" @bind:after="OnIdentityChanged">
+                        <select @bind="selectedIdentityId" @bind:after="MarkDirty">
                             <option value="">-- Select Identity --</option>
                             @foreach (var identity in identities)
                             {
@@ -45,7 +52,7 @@
                 </div>
                 <div class="form-group">
                     <label>Team ID</label>
-                    <input type="text" @bind="teamId" @bind:after="SaveSettings" placeholder="e.g. ABC1234DEF" />
+                    <input type="text" @bind="teamId" @bind:after="MarkDirty" placeholder="e.g. ABC1234DEF" />
                 </div>
             }
             else
@@ -61,11 +68,11 @@
                 </div>
                 <div class="form-group">
                     <label>Team ID</label>
-                    <input type="text" @bind="teamId" @bind:after="SaveSettings" placeholder="e.g. ABC1234DEF" />
+                    <input type="text" @bind="teamId" @bind:after="MarkDirty" placeholder="e.g. ABC1234DEF" />
                 </div>
                 <div class="form-group">
                     <label>Key ID</label>
-                    <input type="text" @bind="p8KeyId" @bind:after="SaveSettings" placeholder="e.g. ABCDE12345" />
+                    <input type="text" @bind="p8KeyId" @bind:after="MarkDirty" placeholder="e.g. ABCDE12345" />
                 </div>
             }
         </div>
@@ -77,7 +84,7 @@
             <div class="form-row">
                 <div class="form-group flex-1">
                     <label>Push Type</label>
-                    <select @bind="pushType" @bind:after="SaveSettings">
+                    <select @bind="pushType" @bind:after="MarkDirty">
                         <option value="alert">Alert</option>
                         <option value="background">Background</option>
                         <option value="voip">VoIP</option>
@@ -91,7 +98,7 @@
                 </div>
                 <div class="form-group flex-1">
                     <label>Priority</label>
-                    <select @bind="priority" @bind:after="SaveSettings">
+                    <select @bind="priority" @bind:after="MarkDirty">
                         <option value="5">Normal (5)</option>
                         <option value="10">Immediate (10)</option>
                     </select>
@@ -101,22 +108,22 @@
             <div class="form-row">
                 <div class="form-group flex-1">
                     <label>Collapse ID <span class="optional">(optional)</span></label>
-                    <input type="text" @bind="collapseId" @bind:after="SaveSettings" placeholder="Collapse identifier" />
+                    <input type="text" @bind="collapseId" @bind:after="MarkDirty" placeholder="Collapse identifier" />
                 </div>
                 <div class="form-group flex-1">
                     <label>Notification ID <span class="optional">(optional)</span></label>
-                    <input type="text" @bind="notificationId" @bind:after="SaveSettings" placeholder="UUID format" />
+                    <input type="text" @bind="notificationId" @bind:after="MarkDirty" placeholder="UUID format" />
                 </div>
             </div>
 
             <div class="form-row">
                 <div class="form-group flex-1">
                     <label>Expiration <span class="optional">(seconds, optional)</span></label>
-                    <input type="number" @bind="expirationSeconds" @bind:after="SaveSettings" placeholder="0 = immediate expiry" />
+                    <input type="number" @bind="expirationSeconds" @bind:after="MarkDirty" placeholder="0 = immediate expiry" />
                 </div>
                 <div class="form-group flex-1">
                     <label>Environment</label>
-                    <select @bind="useSandbox" @bind:after="SaveSettings">
+                    <select @bind="useSandbox" @bind:after="MarkDirty">
                         <option value="true">Sandbox</option>
                         <option value="false">Production</option>
                     </select>
@@ -131,16 +138,16 @@
             <div class="form-row">
                 <div class="form-group flex-1">
                     <label>Bundle ID</label>
-                    <input type="text" @bind="bundleId" @bind:after="SaveSettings" placeholder="e.g. com.example.myapp" />
+                    <input type="text" @bind="bundleId" @bind:after="MarkDirty" placeholder="e.g. com.example.myapp" />
                 </div>
                 <div class="form-group flex-1">
                     <label>Device Token</label>
-                    <input type="text" @bind="deviceToken" @bind:after="SaveSettings" placeholder="Hex device token" />
+                    <input type="text" @bind="deviceToken" @bind:after="MarkDirty" placeholder="Hex device token" />
                 </div>
             </div>
             <div class="form-group">
                 <label>JSON Body</label>
-                <textarea class="json-editor" @bind="jsonPayload" @bind:after="SaveSettings" rows="12" spellcheck="false"></textarea>
+                <textarea class="json-editor" @bind="jsonPayload" @bind:after="MarkDirty" rows="12" spellcheck="false"></textarea>
             </div>
         </div>
     </div>
@@ -152,33 +159,46 @@
         </button>
     </div>
 
-    @if (lastResult != null)
+    @if (activeProject?.History.Count > 0)
     {
-        <div class="push-section result-section @(lastResult.Success ? "result-success" : "result-error")">
+        <div class="push-section">
             <div class="section-header">
-                <i class="fas @(lastResult.Success ? "fa-check-circle" : "fa-times-circle")"></i>
-                Result — HTTP @lastResult.StatusCode
+                <span><i class="fas fa-history"></i> Send History</span>
+                <button class="btn-clear" @onclick="ClearHistory">
+                    <i class="fas fa-eraser"></i> Clear
+                </button>
             </div>
-            <div class="section-body">
-                @if (lastResult.Success)
+            <div class="section-body history-list">
+                @foreach (var entry in activeProject.History)
                 {
-                    <div class="result-row"><strong>Status:</strong> Success</div>
-                    @if (!string.IsNullOrEmpty(lastResult.ApnsId))
-                    {
-                        <div class="result-row"><strong>apns-id:</strong> <code>@lastResult.ApnsId</code></div>
-                    }
-                }
-                else
-                {
-                    <div class="result-row"><strong>Status:</strong> Failed</div>
-                    @if (!string.IsNullOrEmpty(lastResult.ErrorReason))
-                    {
-                        <div class="result-row"><strong>Reason:</strong> <code>@lastResult.ErrorReason</code></div>
-                    }
-                    @if (!string.IsNullOrEmpty(lastResult.ErrorDescription))
-                    {
-                        <div class="result-row"><strong>Response:</strong> <pre class="error-detail">@lastResult.ErrorDescription</pre></div>
-                    }
+                    <div class="history-card @(entry.Success ? "success" : "error")">
+                        <div class="history-status">
+                            <i class="fas @(entry.Success ? "fa-check-circle text-success" : "fa-times-circle text-danger")"></i>
+                            <span class="history-time">@entry.Timestamp.ToLocalTime().ToString("HH:mm:ss")</span>
+                            @if (entry.StatusCode.HasValue)
+                            {
+                                <span class="badge @(entry.Success ? "badge-success" : "badge-danger")">@entry.StatusCode</span>
+                            }
+                        </div>
+                        <div class="history-details">
+                            @if (!string.IsNullOrEmpty(entry.Target))
+                            {
+                                <div class="history-target mono"><i class="fas fa-mobile-alt"></i> @entry.Target</div>
+                            }
+                            @if (entry.Success && !string.IsNullOrEmpty(entry.MessageId))
+                            {
+                                <div class="history-message-id mono">@entry.MessageId</div>
+                            }
+                            @if (!entry.Success && !string.IsNullOrEmpty(entry.ErrorReason))
+                            {
+                                <div class="history-error">@entry.ErrorReason</div>
+                            }
+                            @if (!entry.Success && !string.IsNullOrEmpty(entry.ErrorDescription))
+                            {
+                                <div class="history-error-detail">@entry.ErrorDescription</div>
+                            }
+                        </div>
+                    </div>
                 }
             </div>
         </div>
@@ -214,6 +234,7 @@
         border-bottom: 1px solid var(--border-color);
         display: flex;
         align-items: center;
+        justify-content: space-between;
         gap: 8px;
     }
 
@@ -338,54 +359,119 @@
         padding: 8px 0;
     }
 
-    .result-section {
-        border-width: 2px;
+    .btn-clear {
+        background: none;
+        border: none;
+        color: var(--text-muted);
+        font-size: 0.75rem;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 0.25rem;
+        padding: 0.25rem 0.5rem;
+        border-radius: 4px;
     }
 
-    .result-success {
-        border-color: var(--success-color, #48bb78);
+    .btn-clear:hover {
+        background: var(--bg-hover);
+        color: var(--text-secondary);
     }
 
-    .result-success .section-header {
-        color: var(--success-color, #48bb78);
+    /* History */
+    .history-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
     }
 
-    .result-error {
-        border-color: var(--danger-color, #f56565);
+    .history-card {
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        padding: 0.75rem 1rem;
+        display: flex;
+        gap: 0.75rem;
+        align-items: flex-start;
     }
 
-    .result-error .section-header {
+    .history-card.success {
+        border-left: 3px solid var(--success-color, #48bb78);
+    }
+
+    .history-card.error {
+        border-left: 3px solid var(--danger-color, #f56565);
+    }
+
+    .history-status {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        flex-shrink: 0;
+    }
+
+    .history-time {
+        font-size: 0.75rem;
+        color: var(--text-muted);
+        font-family: 'SF Mono', monospace;
+    }
+
+    .history-details {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .history-target {
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        margin-bottom: 0.25rem;
+    }
+
+    .history-message-id {
+        font-size: 0.6875rem;
+        color: var(--text-muted);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .history-error {
+        font-size: 0.75rem;
         color: var(--danger-color, #f56565);
     }
 
-    .result-row {
-        padding: 4px 0;
-        font-size: 14px;
-        color: var(--text-primary);
+    .history-error-detail {
+        font-size: 0.6875rem;
+        color: var(--text-muted);
+        margin-top: 0.125rem;
+        word-break: break-word;
     }
 
-    .result-row code {
-        background: var(--bg-tertiary);
-        padding: 2px 6px;
+    .badge {
+        padding: 0.125rem 0.375rem;
         border-radius: 4px;
-        font-size: 13px;
-        user-select: text;
+        font-size: 0.6875rem;
+        font-weight: 600;
     }
 
-    .error-detail {
-        background: var(--bg-tertiary);
-        padding: 8px 12px;
-        border-radius: 6px;
-        font-size: 12px;
-        margin-top: 4px;
-        overflow-x: auto;
-        white-space: pre-wrap;
-        user-select: text;
+    .badge-success {
+        background: rgba(72, 187, 120, 0.15);
+        color: var(--success-color, #48bb78);
     }
+
+    .badge-danger {
+        background: rgba(245, 101, 101, 0.15);
+        color: var(--danger-color, #f56565);
+    }
+
+    .text-success { color: var(--success-color, #48bb78); }
+    .text-danger { color: var(--danger-color, #f56565); }
+    .mono { font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace; }
 </style>
 
 @code {
+    PushProjectBar? projectBar;
     List<AppleIdentity> identities = new();
+    PushProject? activeProject;
 
     // Auth
     string authMode = "identity";
@@ -409,8 +495,7 @@
 
     // State
     bool isSending;
-    ApnsPushResult? lastResult;
-    bool settingsLoaded;
+    bool isDirty;
 
     bool IsValid
     {
@@ -438,81 +523,132 @@
     {
         ToolbarService.ClearItems();
         identities = (await IdentityService.GetIdentitiesAsync()).ToList();
-        await LoadSettings();
-        SettingsService.OnSettingsChanged += OnSettingsChanged;
-    }
 
-    async Task LoadSettings()
-    {
-        try
-        {
-            var settings = await SettingsService.GetSettingsAsync();
-            var ps = settings.PushTesting;
+        // Migrate legacy settings if needed
+        var migrated = await ProjectService.MigrateFromLegacyAsync();
 
-            authMode = ps.AuthMode ?? "identity";
-            selectedIdentityId = ps.SelectedIdentityId ?? "";
-            p8FilePath = ps.P8FilePath ?? "";
-            p8KeyId = ps.P8KeyId ?? "";
-            teamId = ps.TeamId ?? "";
-            pushType = ps.PushType;
-            priority = ps.Priority;
-            collapseId = ps.CollapseId ?? "";
-            notificationId = ps.NotificationId ?? "";
-            expirationSeconds = ps.ExpirationSeconds;
-            bundleId = ps.BundleId ?? "";
-            deviceToken = ps.DeviceToken ?? "";
-            jsonPayload = ps.JsonPayload;
-            useSandbox = ps.UseSandbox;
-            settingsLoaded = true;
-        }
-        catch (Exception ex)
+        // Load projects and select most recent (or create blank)
+        var projects = await ProjectService.GetProjectsAsync(PushProjectPlatform.Apns);
+        if (projects.Count > 0)
         {
-            Logger.LogError($"Failed to load push testing settings: {ex.Message}", ex);
-            settingsLoaded = true;
+            var selected = migrated ?? projects[0];
+            LoadFromProject(selected);
         }
     }
 
-    async Task SaveSettings()
+    void LoadFromProject(PushProject project)
     {
-        if (!settingsLoaded) return;
+        activeProject = project;
+        var config = project.ApnsConfig ?? new ApnsPushProjectConfig();
 
+        authMode = config.AuthMode ?? "identity";
+        selectedIdentityId = config.SelectedIdentityId ?? "";
+        p8FilePath = config.P8FilePath ?? "";
+        p8KeyId = config.P8KeyId ?? "";
+        teamId = config.TeamId ?? "";
+        pushType = config.PushType;
+        priority = config.Priority;
+        collapseId = config.CollapseId ?? "";
+        notificationId = config.NotificationId ?? "";
+        expirationSeconds = config.ExpirationSeconds;
+        bundleId = config.BundleId ?? "";
+        deviceToken = config.DeviceToken ?? "";
+        jsonPayload = config.JsonPayload;
+        useSandbox = config.UseSandbox;
+        isDirty = false;
+    }
+
+    void ResetToBlank()
+    {
+        activeProject = null;
+        var defaults = new ApnsPushProjectConfig();
+        authMode = defaults.AuthMode ?? "identity";
+        selectedIdentityId = "";
+        p8FilePath = "";
+        p8KeyId = "";
+        teamId = "";
+        pushType = defaults.PushType;
+        priority = defaults.Priority;
+        collapseId = "";
+        notificationId = "";
+        expirationSeconds = null;
+        bundleId = "";
+        deviceToken = "";
+        jsonPayload = defaults.JsonPayload;
+        useSandbox = defaults.UseSandbox;
+        isDirty = false;
+    }
+
+    async Task OnActiveProjectChanged(PushProject? project)
+    {
+        if (project != null)
+            LoadFromProject(project);
+        else
+            ResetToBlank();
+
+        await Task.CompletedTask;
+        StateHasChanged();
+    }
+
+    void MarkDirty() => isDirty = true;
+
+    ApnsPushProjectConfig BuildConfig() => new()
+    {
+        AuthMode = authMode,
+        SelectedIdentityId = string.IsNullOrEmpty(selectedIdentityId) ? null : selectedIdentityId,
+        P8FilePath = string.IsNullOrEmpty(p8FilePath) ? null : p8FilePath,
+        P8KeyId = string.IsNullOrEmpty(p8KeyId) ? null : p8KeyId,
+        TeamId = string.IsNullOrEmpty(teamId) ? null : teamId,
+        PushType = pushType,
+        Priority = priority,
+        CollapseId = string.IsNullOrEmpty(collapseId) ? null : collapseId,
+        NotificationId = string.IsNullOrEmpty(notificationId) ? null : notificationId,
+        ExpirationSeconds = expirationSeconds,
+        BundleId = string.IsNullOrEmpty(bundleId) ? null : bundleId,
+        DeviceToken = string.IsNullOrEmpty(deviceToken) ? null : deviceToken,
+        JsonPayload = jsonPayload,
+        UseSandbox = useSandbox
+    };
+
+    async Task SaveProject()
+    {
         try
         {
-            await SettingsService.UpdateSettingsAsync(s => s with
+            var name = projectBar?.GetProjectName() ?? "Untitled";
+            var description = projectBar?.GetProjectDescription();
+
+            if (activeProject != null)
             {
-                PushTesting = new PushTestingSettings
+                var updated = activeProject with
                 {
-                    AuthMode = authMode,
-                    SelectedIdentityId = string.IsNullOrEmpty(selectedIdentityId) ? null : selectedIdentityId,
-                    P8FilePath = string.IsNullOrEmpty(p8FilePath) ? null : p8FilePath,
-                    P8KeyId = string.IsNullOrEmpty(p8KeyId) ? null : p8KeyId,
-                    TeamId = string.IsNullOrEmpty(teamId) ? null : teamId,
-                    PushType = pushType,
-                    Priority = priority,
-                    CollapseId = string.IsNullOrEmpty(collapseId) ? null : collapseId,
-                    NotificationId = string.IsNullOrEmpty(notificationId) ? null : notificationId,
-                    ExpirationSeconds = expirationSeconds,
-                    BundleId = string.IsNullOrEmpty(bundleId) ? null : bundleId,
-                    DeviceToken = string.IsNullOrEmpty(deviceToken) ? null : deviceToken,
-                    JsonPayload = jsonPayload,
-                    UseSandbox = useSandbox
-                }
-            });
+                    Name = name,
+                    Description = description,
+                    ApnsConfig = BuildConfig()
+                };
+                await ProjectService.SaveProjectAsync(updated);
+                activeProject = await ProjectService.GetProjectAsync(updated.Id);
+            }
+            else
+            {
+                var project = new PushProject
+                {
+                    Name = name,
+                    Description = description,
+                    Platform = PushProjectPlatform.Apns,
+                    ApnsConfig = BuildConfig()
+                };
+                await ProjectService.SaveProjectAsync(project);
+                activeProject = await ProjectService.GetProjectAsync(project.Id);
+            }
+
+            isDirty = false;
+            ToastService.Show("Project saved.", ToastType.Success);
         }
         catch (Exception ex)
         {
-            Logger.LogError($"Failed to save push testing settings: {ex.Message}", ex);
+            Logger.LogError($"Failed to save push project: {ex.Message}", ex);
+            ToastService.Show($"Save failed: {ex.Message}", ToastType.Error);
         }
-    }
-
-    async Task OnAuthModeChanged()
-    {
-        await SaveSettings();
-    }
-
-    async Task OnIdentityChanged()
-    {
-        await SaveSettings();
     }
 
     async Task PickP8File()
@@ -521,7 +657,7 @@
         if (!string.IsNullOrEmpty(path))
         {
             p8FilePath = path;
-            await SaveSettings();
+            MarkDirty();
         }
     }
 
@@ -530,7 +666,6 @@
         if (!IsValid) return;
 
         isSending = true;
-        lastResult = null;
         StateHasChanged();
 
         try
@@ -543,13 +678,13 @@
                 var identity = identities.FirstOrDefault(i => i.Id == selectedIdentityId);
                 if (identity == null)
                 {
-                    ToastService.ShowError("Selected identity not found.");
+                    ToastService.Show("Selected identity not found.", ToastType.Error);
                     return;
                 }
 
                 if (string.IsNullOrEmpty(identity.P8KeyContent))
                 {
-                    ToastService.ShowError("Selected identity has no P8 key content.");
+                    ToastService.Show("Selected identity has no P8 key content.", ToastType.Error);
                     return;
                 }
 
@@ -560,7 +695,7 @@
             {
                 if (!File.Exists(p8FilePath))
                 {
-                    ToastService.ShowError("P8 file not found.");
+                    ToastService.Show("P8 file not found.", ToastType.Error);
                     return;
                 }
 
@@ -583,17 +718,34 @@
                 UseSandbox: useSandbox
             );
 
-            lastResult = await PushService.SendPushAsync(request);
+            var result = await PushService.SendPushAsync(request);
 
-            if (lastResult.Success)
-                ToastService.ShowSuccess("Push notification sent successfully!");
+            // Record history
+            if (activeProject != null)
+            {
+                var historyEntry = new PushSendHistoryEntry
+                {
+                    Timestamp = DateTime.UtcNow,
+                    Success = result.Success,
+                    StatusCode = result.StatusCode,
+                    MessageId = result.ApnsId,
+                    ErrorReason = result.ErrorReason,
+                    ErrorDescription = result.ErrorDescription,
+                    Target = TruncateToken(deviceToken)
+                };
+                await ProjectService.AddHistoryEntryAsync(activeProject.Id, historyEntry);
+                activeProject = await ProjectService.GetProjectAsync(activeProject.Id);
+            }
+
+            if (result.Success)
+                ToastService.Show("Push notification sent successfully!", ToastType.Success);
             else
-                ToastService.ShowError($"Push failed: {lastResult.ErrorReason ?? "Unknown error"}");
+                ToastService.Show($"Push failed: {result.ErrorReason ?? "Unknown error"}", ToastType.Error);
         }
         catch (Exception ex)
         {
             Logger.LogError($"Push send error: {ex.Message}", ex);
-            ToastService.ShowError($"Error: {ex.Message}");
+            ToastService.Show($"Error: {ex.Message}", ToastType.Error);
         }
         finally
         {
@@ -602,17 +754,18 @@
         }
     }
 
-    void OnSettingsChanged()
+    async Task ClearHistory()
     {
-        InvokeAsync(async () =>
-        {
-            await LoadSettings();
-            StateHasChanged();
-        });
+        if (activeProject == null) return;
+        await ProjectService.ClearHistoryAsync(activeProject.Id);
+        activeProject = await ProjectService.GetProjectAsync(activeProject.Id);
+        StateHasChanged();
     }
+
+    static string TruncateToken(string token) =>
+        token.Length > 24 ? $"{token[..12]}...{token[^8..]}" : token;
 
     public void Dispose()
     {
-        SettingsService.OnSettingsChanged -= OnSettingsChanged;
     }
 }

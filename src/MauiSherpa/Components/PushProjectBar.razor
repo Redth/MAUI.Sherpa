@@ -1,0 +1,380 @@
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Services
+@inject IPushProjectService ProjectService
+@inject IAlertService AlertService
+@inject BlazorToastService ToastService
+@implements IDisposable
+
+<div class="project-bar">
+    <div class="project-bar-row">
+        <div class="project-selector">
+            <label><i class="fas fa-folder-open"></i> Project:</label>
+            <select value="@selectedProjectId" @onchange="OnProjectDropdownChanged">
+                <option value="__new__">+ New Project</option>
+                @foreach (var project in projects)
+                {
+                    <option value="@project.Id">@project.Name</option>
+                }
+            </select>
+        </div>
+
+        <div class="project-name-group">
+            <input type="text" class="project-name-input" placeholder="Project name"
+                   value="@projectName"
+                   @oninput="OnNameInput" />
+        </div>
+
+        <div class="project-actions">
+            <button class="btn btn-sm @(IsDirty ? "btn-save-dirty" : "btn-save")" @onclick="HandleSave" title="Save project">
+                <i class="fas fa-save"></i> Save
+            </button>
+            <button class="btn btn-sm btn-ghost" @onclick="HandleDuplicate" disabled="@(ActiveProject == null)" title="Duplicate project">
+                <i class="fas fa-copy"></i>
+            </button>
+            <button class="btn btn-sm btn-ghost btn-danger-ghost" @onclick="HandleDelete" disabled="@(ActiveProject == null)" title="Delete project">
+                <i class="fas fa-trash-alt"></i>
+            </button>
+        </div>
+    </div>
+
+    @if (showDescription)
+    {
+        <div class="project-description-row">
+            <input type="text" class="project-description-input" placeholder="Description (optional)"
+                   value="@projectDescription"
+                   @oninput="OnDescriptionInput" />
+        </div>
+    }
+
+    <button class="description-toggle" @onclick="() => showDescription = !showDescription">
+        <i class="fas @(showDescription ? "fa-chevron-up" : "fa-chevron-down")"></i>
+        @(showDescription ? "Hide description" : "Description")
+    </button>
+</div>
+
+<style>
+    .project-bar {
+        background: var(--bg-tertiary);
+        border: 1px solid var(--border-color);
+        border-radius: 10px;
+        padding: 0.75rem 1rem;
+        margin-bottom: 1rem;
+    }
+
+    .project-bar-row {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+    }
+
+    .project-selector {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        flex-shrink: 0;
+    }
+
+    .project-selector label {
+        font-weight: 500;
+        font-size: 0.8125rem;
+        color: var(--text-secondary);
+        white-space: nowrap;
+        display: flex;
+        align-items: center;
+        gap: 0.375rem;
+    }
+
+    .project-selector select {
+        max-width: 220px;
+        padding: 0.375rem 0.625rem;
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        font-size: 0.8125rem;
+        background: var(--card-bg);
+        color: var(--text-primary);
+    }
+
+    .project-selector select:focus {
+        outline: none;
+        border-color: var(--accent-primary);
+    }
+
+    .project-name-group {
+        flex: 1;
+        min-width: 150px;
+    }
+
+    .project-name-input {
+        width: 100%;
+        padding: 0.375rem 0.625rem;
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        font-size: 0.8125rem;
+        background: var(--card-bg);
+        color: var(--text-primary);
+        box-sizing: border-box;
+    }
+
+    .project-name-input:focus {
+        outline: none;
+        border-color: var(--accent-primary);
+    }
+
+    .project-actions {
+        display: flex;
+        gap: 0.25rem;
+        flex-shrink: 0;
+    }
+
+    .project-description-row {
+        margin-top: 0.5rem;
+    }
+
+    .project-description-input {
+        width: 100%;
+        padding: 0.375rem 0.625rem;
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        font-size: 0.8125rem;
+        background: var(--card-bg);
+        color: var(--text-primary);
+        box-sizing: border-box;
+    }
+
+    .project-description-input:focus {
+        outline: none;
+        border-color: var(--accent-primary);
+    }
+
+    .description-toggle {
+        background: none;
+        border: none;
+        color: var(--text-muted);
+        font-size: 0.6875rem;
+        cursor: pointer;
+        padding: 0.25rem 0;
+        display: flex;
+        align-items: center;
+        gap: 0.25rem;
+        margin-top: 0.25rem;
+    }
+
+    .description-toggle:hover {
+        color: var(--text-secondary);
+    }
+
+    .btn-sm {
+        padding: 0.3rem 0.625rem;
+        font-size: 0.75rem;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        transition: all 0.15s ease;
+    }
+
+    .btn-sm:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+    }
+
+    .btn-save {
+        background: var(--bg-hover);
+        color: var(--text-secondary);
+    }
+
+    .btn-save:hover:not(:disabled) {
+        background: var(--accent-primary);
+        color: white;
+    }
+
+    .btn-save-dirty {
+        background: var(--accent-primary);
+        color: white;
+        animation: pulse-save 2s ease-in-out infinite;
+    }
+
+    @@keyframes pulse-save {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(66, 153, 225, 0.4); }
+        50% { box-shadow: 0 0 0 4px rgba(66, 153, 225, 0); }
+    }
+
+    .btn-ghost {
+        background: transparent;
+        color: var(--text-secondary);
+    }
+
+    .btn-ghost:hover:not(:disabled) {
+        background: var(--bg-hover);
+        color: var(--text-primary);
+    }
+
+    .btn-danger-ghost:hover:not(:disabled) {
+        background: rgba(239, 68, 68, 0.1);
+        color: var(--danger, #ef4444);
+    }
+</style>
+
+@code {
+    [Parameter] public PushProjectPlatform Platform { get; set; }
+    [Parameter] public PushProject? ActiveProject { get; set; }
+    [Parameter] public EventCallback<PushProject?> ActiveProjectChanged { get; set; }
+    [Parameter] public EventCallback OnSaveRequested { get; set; }
+    [Parameter] public bool IsDirty { get; set; }
+
+    private List<PushProject> projects = new();
+    private string selectedProjectId = "__new__";
+    private string projectName = "";
+    private string projectDescription = "";
+    private bool showDescription;
+
+    protected override async Task OnInitializedAsync()
+    {
+        ProjectService.OnProjectsChanged += OnProjectsChanged;
+        await LoadProjects();
+    }
+
+    protected override void OnParametersSet()
+    {
+        if (ActiveProject != null)
+        {
+            selectedProjectId = ActiveProject.Id;
+            projectName = ActiveProject.Name;
+            projectDescription = ActiveProject.Description ?? "";
+            if (!string.IsNullOrEmpty(projectDescription))
+                showDescription = true;
+        }
+        else
+        {
+            selectedProjectId = "__new__";
+            if (string.IsNullOrEmpty(projectName))
+                projectName = "Untitled";
+        }
+    }
+
+    private async Task LoadProjects()
+    {
+        projects = (await ProjectService.GetProjectsAsync(Platform)).ToList();
+    }
+
+    private async Task OnProjectDropdownChanged(ChangeEventArgs e)
+    {
+        var value = e.Value?.ToString() ?? "__new__";
+
+        if (IsDirty)
+        {
+            var discard = await AlertService.ShowConfirmAsync(
+                "Unsaved Changes",
+                "You have unsaved changes. Discard them?",
+                "Discard", "Cancel");
+            if (!discard) return;
+        }
+
+        if (value == "__new__")
+        {
+            await ActiveProjectChanged.InvokeAsync(null);
+            projectName = "Untitled";
+            projectDescription = "";
+        }
+        else
+        {
+            var project = projects.FirstOrDefault(p => p.Id == value);
+            if (project != null)
+            {
+                await ActiveProjectChanged.InvokeAsync(project);
+                projectName = project.Name;
+                projectDescription = project.Description ?? "";
+            }
+        }
+    }
+
+    private void OnNameInput(ChangeEventArgs e)
+    {
+        projectName = e.Value?.ToString() ?? "";
+    }
+
+    private void OnDescriptionInput(ChangeEventArgs e)
+    {
+        projectDescription = e.Value?.ToString() ?? "";
+    }
+
+    public string GetProjectName() => projectName;
+    public string? GetProjectDescription() => string.IsNullOrWhiteSpace(projectDescription) ? null : projectDescription;
+
+    private async Task HandleSave()
+    {
+        if (string.IsNullOrWhiteSpace(projectName))
+        {
+            ToastService.Show("Project name is required.", ToastType.Warning);
+            return;
+        }
+
+        await OnSaveRequested.InvokeAsync();
+        await LoadProjects();
+    }
+
+    private async Task HandleDuplicate()
+    {
+        if (ActiveProject == null) return;
+
+        try
+        {
+            var copy = await ProjectService.DuplicateProjectAsync(ActiveProject.Id);
+            await LoadProjects();
+            await ActiveProjectChanged.InvokeAsync(copy);
+            projectName = copy.Name;
+            projectDescription = copy.Description ?? "";
+            ToastService.Show("Project duplicated.", ToastType.Success);
+        }
+        catch (Exception ex)
+        {
+            ToastService.Show($"Failed to duplicate: {ex.Message}", ToastType.Error);
+        }
+    }
+
+    private async Task HandleDelete()
+    {
+        if (ActiveProject == null) return;
+
+        var confirm = await AlertService.ShowConfirmAsync(
+            "Delete Project",
+            $"Delete \"{ActiveProject.Name}\"? This cannot be undone.",
+            "Delete", "Cancel");
+        if (!confirm) return;
+
+        await ProjectService.DeleteProjectAsync(ActiveProject.Id);
+        await LoadProjects();
+
+        if (projects.Count > 0)
+        {
+            await ActiveProjectChanged.InvokeAsync(projects[0]);
+            projectName = projects[0].Name;
+            projectDescription = projects[0].Description ?? "";
+        }
+        else
+        {
+            await ActiveProjectChanged.InvokeAsync(null);
+            projectName = "Untitled";
+            projectDescription = "";
+        }
+
+        ToastService.Show("Project deleted.", ToastType.Success);
+    }
+
+    private void OnProjectsChanged()
+    {
+        InvokeAsync(async () =>
+        {
+            await LoadProjects();
+            StateHasChanged();
+        });
+    }
+
+    public void Dispose()
+    {
+        ProjectService.OnProjectsChanged -= OnProjectsChanged;
+    }
+}

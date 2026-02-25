@@ -2478,6 +2478,86 @@ public interface ISecretsPublisherService
 // Encrypted Settings Storage
 // ============================================================================
 
+// ============================================================================
+// Push Projects — Named push configurations with history
+// ============================================================================
+
+public enum PushProjectPlatform { Apns, Fcm }
+
+public record PushProject
+{
+    public string Id { get; init; } = Guid.NewGuid().ToString();
+    public string Name { get; init; } = "";
+    public string? Description { get; init; }
+    public PushProjectPlatform Platform { get; init; }
+    public ApnsPushProjectConfig? ApnsConfig { get; init; }
+    public FcmPushProjectConfig? FcmConfig { get; init; }
+    public List<PushSendHistoryEntry> History { get; init; } = new();
+    public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
+    public DateTime LastModified { get; init; } = DateTime.UtcNow;
+}
+
+public record ApnsPushProjectConfig
+{
+    public string? AuthMode { get; init; } = "identity";
+    public string? SelectedIdentityId { get; init; }
+    public string? P8FilePath { get; init; }
+    public string? P8KeyId { get; init; }
+    public string? TeamId { get; init; }
+    public string PushType { get; init; } = "alert";
+    public int Priority { get; init; } = 5;
+    public string? CollapseId { get; init; }
+    public string? NotificationId { get; init; }
+    public int? ExpirationSeconds { get; init; }
+    public string? BundleId { get; init; }
+    public string? DeviceToken { get; init; }
+    public string JsonPayload { get; init; } = "{\n  \"aps\": {\n    \"alert\": {\n      \"title\": \"Test\",\n      \"body\": \"Hello from MauiSherpa!\"\n    },\n    \"sound\": \"default\"\n  }\n}";
+    public bool UseSandbox { get; init; } = true;
+}
+
+public record FcmPushProjectConfig
+{
+    public string? SelectedGoogleIdentityId { get; init; }
+    public bool UseToken { get; init; } = true;
+    public string? DeviceToken { get; init; }
+    public string? Topic { get; init; }
+    public string? Title { get; init; }
+    public string? Body { get; init; }
+    public string? ImageUrl { get; init; }
+    public List<FcmDataEntry> DataEntries { get; init; } = new();
+    public bool RawJsonMode { get; init; }
+    public string? RawJson { get; init; }
+}
+
+public record FcmDataEntry(string Key, string Value);
+
+public record PushSendHistoryEntry
+{
+    public string Id { get; init; } = Guid.NewGuid().ToString();
+    public DateTime Timestamp { get; init; } = DateTime.UtcNow;
+    public bool Success { get; init; }
+    public int? StatusCode { get; init; }
+    public string? MessageId { get; init; }
+    public string? ErrorReason { get; init; }
+    public string? ErrorDescription { get; init; }
+    public string? Target { get; init; }
+}
+
+public interface IPushProjectService
+{
+    Task<IReadOnlyList<PushProject>> GetProjectsAsync(PushProjectPlatform? platform = null);
+    Task<PushProject?> GetProjectAsync(string id);
+    Task SaveProjectAsync(PushProject project);
+    Task DeleteProjectAsync(string id);
+    Task<PushProject> DuplicateProjectAsync(string id);
+    Task AddHistoryEntryAsync(string projectId, PushSendHistoryEntry entry);
+    Task ClearHistoryAsync(string projectId);
+    Task<PushProject?> MigrateFromLegacyAsync();
+    event Action? OnProjectsChanged;
+}
+
+// ============================================================================
+
 /// <summary>
 /// Unified settings data model for MauiSherpa
 /// </summary>
@@ -2491,6 +2571,7 @@ public record MauiSherpaSettings
     public List<GoogleIdentityData> GoogleIdentities { get; init; } = new();
     public AppPreferences Preferences { get; init; } = new();
     public PushTestingSettings PushTesting { get; init; } = new();
+    public List<PushProject> PushProjects { get; init; } = new();
     public DateTime LastModified { get; init; } = DateTime.UtcNow;
 }
 
@@ -2583,6 +2664,7 @@ public record BackupExportSelection
     public List<string> CloudProviderIds { get; init; } = new();
     public List<string> SecretsPublisherIds { get; init; } = new();
     public List<string> GoogleIdentityIds { get; init; } = new();
+    public List<string> PushProjectIds { get; init; } = new();
 }
 
 public record BackupImportResult(

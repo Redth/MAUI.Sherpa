@@ -24,6 +24,7 @@ public class BackupService : IBackupService
     private readonly ICloudSecretsService? _cloudSecretsService;
     private readonly ISecretsPublisherService? _secretsPublisherService;
     private readonly IGoogleIdentityService? _googleIdentityService;
+    private readonly IPushProjectService? _pushProjectService;
 
     private record BackupPayload(
         int Version,
@@ -36,13 +37,15 @@ public class BackupService : IBackupService
         IAppleIdentityService? appleIdentityService = null,
         ICloudSecretsService? cloudSecretsService = null,
         ISecretsPublisherService? secretsPublisherService = null,
-        IGoogleIdentityService? googleIdentityService = null)
+        IGoogleIdentityService? googleIdentityService = null,
+        IPushProjectService? pushProjectService = null)
     {
         _settingsService = settingsService;
         _appleIdentityService = appleIdentityService;
         _cloudSecretsService = cloudSecretsService;
         _secretsPublisherService = secretsPublisherService;
         _googleIdentityService = googleIdentityService;
+        _pushProjectService = pushProjectService;
     }
 
     public async Task<byte[]> ExportSettingsAsync(string password, BackupExportSelection? selection = null)
@@ -56,7 +59,8 @@ public class BackupService : IBackupService
             resolvedSelection.AppleIdentityIds.Count == 0 &&
             resolvedSelection.CloudProviderIds.Count == 0 &&
             resolvedSelection.SecretsPublisherIds.Count == 0 &&
-            resolvedSelection.GoogleIdentityIds.Count == 0)
+            resolvedSelection.GoogleIdentityIds.Count == 0 &&
+            resolvedSelection.PushProjectIds.Count == 0)
         {
             throw new InvalidOperationException("At least one setting item must be selected for export.");
         }
@@ -156,7 +160,8 @@ public class BackupService : IBackupService
             AppleIdentityIds = settings.AppleIdentities.Select(i => i.Id).ToList(),
             CloudProviderIds = settings.CloudProviders.Select(p => p.Id).ToList(),
             SecretsPublisherIds = settings.SecretsPublishers.Select(p => p.Id).ToList(),
-            GoogleIdentityIds = settings.GoogleIdentities.Select(g => g.Id).ToList()
+            GoogleIdentityIds = settings.GoogleIdentities.Select(g => g.Id).ToList(),
+            PushProjectIds = settings.PushProjects.Select(p => p.Id).ToList()
         };
 
         return new BackupImportResult(settings, legacySelection);
@@ -199,6 +204,7 @@ public class BackupService : IBackupService
         settings = await HydrateCloudProvidersAsync(settings);
         settings = await HydrateSecretsPublishersAsync(settings);
         settings = await HydrateGoogleIdentitiesAsync(settings);
+        settings = await HydratePushProjectsAsync(settings);
         return settings;
     }
 
@@ -299,12 +305,31 @@ public class BackupService : IBackupService
         };
     }
 
+    private async Task<MauiSherpaSettings> HydratePushProjectsAsync(MauiSherpaSettings settings)
+    {
+        if (_pushProjectService is null)
+            return settings;
+
+        var projects = await _pushProjectService.GetProjectsAsync();
+        if (projects.Count == 0)
+            return settings;
+
+        // Strip history — only back up project settings, not send history
+        return settings with
+        {
+            PushProjects = projects
+                .Select(p => p with { History = new List<PushSendHistoryEntry>() })
+                .ToList()
+        };
+    }
+
     private static BackupExportSelection ResolveSelection(BackupExportSelection? selection, MauiSherpaSettings settings)
     {
         var availableIdentityIds = settings.AppleIdentities.Select(i => i.Id).ToHashSet(StringComparer.Ordinal);
         var availableProviderIds = settings.CloudProviders.Select(p => p.Id).ToHashSet(StringComparer.Ordinal);
         var availablePublisherIds = settings.SecretsPublishers.Select(p => p.Id).ToHashSet(StringComparer.Ordinal);
         var availableGoogleIds = settings.GoogleIdentities.Select(g => g.Id).ToHashSet(StringComparer.Ordinal);
+        var availablePushProjectIds = settings.PushProjects.Select(p => p.Id).ToHashSet(StringComparer.Ordinal);
 
         if (selection is null)
         {
@@ -314,7 +339,8 @@ public class BackupService : IBackupService
                 AppleIdentityIds = availableIdentityIds.ToList(),
                 CloudProviderIds = availableProviderIds.ToList(),
                 SecretsPublisherIds = availablePublisherIds.ToList(),
-                GoogleIdentityIds = availableGoogleIds.ToList()
+                GoogleIdentityIds = availableGoogleIds.ToList(),
+                PushProjectIds = availablePushProjectIds.ToList()
             };
         }
 
@@ -322,6 +348,7 @@ public class BackupService : IBackupService
         var selectedProviderIds = selection.CloudProviderIds ?? new List<string>();
         var selectedPublisherIds = selection.SecretsPublisherIds ?? new List<string>();
         var selectedGoogleIds = selection.GoogleIdentityIds ?? new List<string>();
+        var selectedPushProjectIds = selection.PushProjectIds ?? new List<string>();
 
         return new BackupExportSelection
         {
@@ -341,6 +368,10 @@ public class BackupService : IBackupService
             GoogleIdentityIds = selectedGoogleIds
                 .Where(id => availableGoogleIds.Contains(id))
                 .Distinct(StringComparer.Ordinal)
+                .ToList(),
+            PushProjectIds = selectedPushProjectIds
+                .Where(id => availablePushProjectIds.Contains(id))
+                .Distinct(StringComparer.Ordinal)
                 .ToList()
         };
     }
@@ -351,6 +382,7 @@ public class BackupService : IBackupService
         var selectedProviderIds = selection.CloudProviderIds.ToHashSet(StringComparer.Ordinal);
         var selectedPublisherIds = selection.SecretsPublisherIds.ToHashSet(StringComparer.Ordinal);
         var selectedGoogleIds = selection.GoogleIdentityIds.ToHashSet(StringComparer.Ordinal);
+        var selectedPushProjectIds = selection.PushProjectIds.ToHashSet(StringComparer.Ordinal);
 
         var cloudProviders = settings.CloudProviders
             .Where(provider => selectedProviderIds.Contains(provider.Id))
@@ -377,6 +409,9 @@ public class BackupService : IBackupService
                 .ToList(),
             GoogleIdentities = settings.GoogleIdentities
                 .Where(identity => selectedGoogleIds.Contains(identity.Id))
+                .ToList(),
+            PushProjects = settings.PushProjects
+                .Where(project => selectedPushProjectIds.Contains(project.Id))
                 .ToList()
         };
     }
