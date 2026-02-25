@@ -337,6 +337,24 @@ public class BlazorContentPage : ContentPage
 
         CacheNativeMenuItems(toolbar);
 
+        // When toolbar is suppressed (e.g. modal open), hide all items
+        if (_toolbarService.IsToolbarSuppressed)
+        {
+            foreach (var (_, toolbarItem) in _actionItemMap)
+            {
+                MacOSToolbarItem.SetIsVisible(toolbarItem, false);
+                toolbarItem.Command = null;
+            }
+            MacOSToolbarItem.SetIsVisible(_identityMenu, false);
+            MacOSToolbarItem.SetIsVisible(_publishMenu, false);
+            MacOSToolbarItem.SetIsVisible(_backupMenu, false);
+            MacOSToolbarItem.SetIsVisible(_filterMenu, false);
+            MacOSToolbarItem.SetIsVisible(_searchItem, false);
+            if (_nativeIdentityMenu != null) _nativeIdentityMenu.Hidden = true;
+            if (_nativeFilterMenu != null) _nativeFilterMenu.Hidden = true;
+            return;
+        }
+
         var activeIds = new HashSet<string>();
         foreach (var action in _toolbarService.CurrentItems)
             activeIds.Add(action.Id);

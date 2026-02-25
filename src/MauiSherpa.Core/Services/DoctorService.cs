@@ -18,6 +18,7 @@ public class DoctorService : IDoctorService
     private readonly IAndroidSdkService _androidSdkService;
     private readonly ILoggingService _loggingService;
     private readonly IOpenJdkSettingsService _jdkSettingsService;
+    private readonly IDebugFlagService? _debugFlags;
     private readonly ILogger<DoctorService> _logger;
     private readonly ILoggerFactory _loggerFactory;
     
@@ -29,11 +30,12 @@ public class DoctorService : IDoctorService
     private WorkloadManifestService? _manifestService;
     private SdkVersionService? _sdkVersionService;
     
-    public DoctorService(IAndroidSdkService androidSdkService, ILoggingService loggingService, IOpenJdkSettingsService jdkSettingsService, ILoggerFactory? loggerFactory = null)
+    public DoctorService(IAndroidSdkService androidSdkService, ILoggingService loggingService, IOpenJdkSettingsService jdkSettingsService, ILoggerFactory? loggerFactory = null, IDebugFlagService? debugFlags = null)
     {
         _androidSdkService = androidSdkService;
         _loggingService = loggingService;
         _jdkSettingsService = jdkSettingsService;
+        _debugFlags = debugFlags;
         _loggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
         _logger = _loggerFactory.CreateLogger<DoctorService>();
     }
@@ -1026,6 +1028,17 @@ public class DoctorService : IDoctorService
                 }
 
                 progress?.Report($"Installing Android package: {packageId}");
+                
+                // Debug flag: simulate the bug where package name is truncated
+                // (e.g. "build-tools" instead of "build-tools;36.1.0")
+                if (_debugFlags?.FailBuildToolsInstall == true && packageId.StartsWith("build-tools;"))
+                {
+                    var truncated = packageId.Split(';').First();
+                    _logger.LogWarning("DEBUG: Truncating package name from '{Full}' to '{Truncated}' to simulate install failure", packageId, truncated);
+                    progress?.Report($"Installing Android package: {truncated}");
+                    packageId = truncated;
+                }
+                
                 return await _androidSdkService.InstallPackageAsync(packageId, progress);
             }
             

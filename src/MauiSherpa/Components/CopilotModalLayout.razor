@@ -1,0 +1,126 @@
+@inherits LayoutComponentBase
+@using MauiSherpa.Core.Interfaces
+@inject IThemeService ThemeService
+@inject IJSRuntime JS
+@inject IPlatformService PlatformInfo
+@implements IDisposable
+
+<div class="copilot-modal-layout @ThemeClass @PlatformClass">
+    @Body
+</div>
+
+@code {
+    private string ThemeClass => ThemeService.IsDarkMode ? "theme-dark" : "theme-light";
+    private string PlatformClass => PlatformInfo.IsMacOS ? "platform-macos" : PlatformInfo.IsWindows ? "platform-windows" : "platform-mac";
+
+    protected override void OnInitialized()
+    {
+        ThemeService.ThemeChanged += OnThemeChanged;
+    }
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        // Always sync — the same page instance is reused across modal open/close
+        _ = SyncBodyThemeAsync();
+        _ = SyncFontScaleAsync();
+    }
+
+    private async void OnThemeChanged()
+    {
+        await InvokeAsync(async () =>
+        {
+            StateHasChanged();
+            await SyncBodyThemeAsync();
+            await SyncFontScaleAsync();
+        });
+    }
+
+    private async Task SyncBodyThemeAsync()
+    {
+        try
+        {
+            var cls = ThemeService.IsDarkMode ? "theme-dark" : "theme-light";
+            var bg = ThemeService.IsDarkMode ? "#1a202c" : "#f7fafc";
+            await JS.InvokeVoidAsync("eval", $"document.body.className = '{cls}'; document.body.style.backgroundColor='{bg}';");
+        }
+        catch { }
+    }
+
+    private async Task SyncFontScaleAsync()
+    {
+        try
+        {
+            var sizePx = 16.0 * ThemeService.FontScale;
+            await JS.InvokeVoidAsync("eval", $"document.documentElement.style.fontSize = '{sizePx:F1}px'");
+        }
+        catch { }
+    }
+
+    public void Dispose()
+    {
+        ThemeService.ThemeChanged -= OnThemeChanged;
+    }
+}
+
+<style>
+    .copilot-modal-layout {
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+        width: 100vw;
+        background-color: var(--bg-primary);
+        color: var(--text-primary);
+        overflow: hidden;
+        /* Negate safe-area insets that macOS WebView may add */
+        padding: 0 !important;
+        margin: 0 !important;
+    }
+
+    /* Override html/body to fill viewport without safe-area gaps */
+    html, body {
+        padding: 0 !important;
+        margin: 0 !important;
+        height: 100% !important;
+        overflow: hidden !important;
+    }
+
+    /* Reuse theme variables from MainLayout */
+    .theme-light {
+        --bg-primary: #f7fafc;
+        --bg-secondary: #ffffff;
+        --bg-tertiary: #edf2f7;
+        --text-primary: #2d3748;
+        --text-secondary: #4a5568;
+        --text-muted: #718096;
+        --border-color: #e2e8f0;
+        --card-bg: #ffffff;
+        --card-shadow: 0 2px 0.25rem rgba(0, 0, 0, 0.1);
+        --input-bg: #ffffff;
+        --input-border: #e2e8f0;
+        --hover-bg: #f7fafc;
+        --accent-bg: #faf5ff;
+    }
+
+    .theme-dark {
+        --bg-primary: #1a202c;
+        --bg-secondary: #2d3748;
+        --bg-tertiary: #4a5568;
+        --text-primary: #e2e8f0;
+        --text-secondary: #cbd5e0;
+        --text-muted: #a0aec0;
+        --border-color: #4a5568;
+        --card-bg: #2d3748;
+        --card-shadow: 0 2px 0.25rem rgba(0, 0, 0, 0.3);
+        --input-bg: #2d3748;
+        --input-border: #4a5568;
+        --hover-bg: #4a5568;
+        --accent-bg: #312e81;
+    }
+
+    /* macOS system font */
+    .platform-macos .copilot-modal-layout {
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", system-ui, sans-serif;
+        font-size: 13px;
+        -webkit-font-smoothing: antialiased;
+    }
+</style>

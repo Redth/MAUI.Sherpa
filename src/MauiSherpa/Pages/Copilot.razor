@@ -3,6 +3,7 @@
 @inject ICopilotService CopilotService
 @inject IAlertService AlertService
 @inject ICopilotToolsService ToolsService
+@inject ICopilotContextService ContextService
 @inject IJSRuntime JSRuntime
 @inject ILoggingService _logger
 @inject ILauncher AppLauncher
@@ -108,6 +109,8 @@ else if (availability != null && !availability.IsAuthenticated)
 else
 {
     <!-- Copilot Available -->
+    @if (!IsEmbedded)
+    {
     <div class="connection-status @(CopilotService.IsConnected ? "connected" : "disconnected")">
         <span class="status-indicator"></span>
         <span class="status-text">
@@ -135,6 +138,7 @@ else
             </button>
         }
     </div>
+    }
 
     @if (!CopilotService.IsConnected && !isConnecting)
     {
@@ -332,6 +336,8 @@ else
                 }
             </div>
 
+            @if (!HideInputArea)
+            {
             <div class="chat-input-area">
                 @{
                     var hasUsageToShow = currentUsageInfo != null && (
@@ -403,6 +409,7 @@ else
                     </button>
                 </div>
             </div>
+            }
         </div>
     </div>
     }
@@ -497,9 +504,12 @@ else
 }
 
 @* Debug Toggle Button *@
+@if (!IsEmbedded)
+{
 <button class="debug-toggle-btn" @onclick="() => showDebugOverlay = !showDebugOverlay" title="Toggle Debug Overlay">
     <i class="fas fa-bug"></i>
 </button>
+}
 
 </div> @* Close copilot-page *@
 
@@ -526,6 +536,11 @@ else
         flex: 1;
         height: auto !important;
         min-height: 0 !important;
+    }
+
+    .copilot-page.embedded .chat-messages {
+        padding: 1rem 1rem 0.5rem 1rem;
+        gap: 0.5rem;
     }
     
     h1 {
@@ -2038,6 +2053,7 @@ else
 @code {
     // Parameters for embedded mode (overlay)
     [Parameter] public bool IsEmbedded { get; set; } = false;
+    [Parameter] public bool HideInputArea { get; set; } = false;
     [Parameter] public string? PendingMessage { get; set; }
     [Parameter] public CopilotContext? PendingContext { get; set; }
     [Parameter] public EventCallback OnPendingHandled { get; set; }
@@ -2137,6 +2153,9 @@ else
         CopilotService.OnSessionError += OnSessionError;
         _logger.OnLogAdded += OnLogAdded;
         
+        // Listen for messages submitted from native UI (when HideInputArea is true)
+        ContextService.OnMessageSubmitted += OnNativeMessageSubmitted;
+        
         // Set up permission handler
         CopilotService.PermissionHandler = HandlePermissionRequest;
         
@@ -2233,6 +2252,7 @@ else
         CopilotService.OnUsageInfoChanged -= OnUsageInfoChanged;
         CopilotService.OnSessionError -= OnSessionError;
         _logger.OnLogAdded -= OnLogAdded;
+        ContextService.OnMessageSubmitted -= OnNativeMessageSubmitted;
         CopilotService.PermissionHandler = null;
         foreach (var id in _activeCopilotModals)
             try { JSRuntime.InvokeVoidAsync("modalInterop.dispose", id); } catch { }
@@ -2331,6 +2351,7 @@ else
         {
             isConnecting = false;
             StateHasChanged();
+            ContextService.NotifyConnectionStateChanged();
         }
     }
 
@@ -2352,6 +2373,7 @@ else
             catch { }
         }
         StateHasChanged();
+        ContextService.NotifyConnectionStateChanged();
     }
 
     private async Task UseSuggestion(SuggestedPrompt suggestion)
@@ -2380,6 +2402,7 @@ else
         CopilotService.AddUserMessage(message);
         currentResponse = "";
         isBusy = true;
+        ContextService.NotifyBusyStateChanged(true);
         isAtBottom = true; // Reset to bottom when user sends a message
         StateHasChanged();
         
@@ -2401,9 +2424,19 @@ else
         {
             CopilotService.AddAssistantMessage($"Error: {ex.Message}");
             isBusy = false;
+            ContextService.NotifyBusyStateChanged(false);
             StateHasChanged();
             await ScrollToBottomIfNeeded();
         }
+    }
+
+    private void OnNativeMessageSubmitted(string message)
+    {
+        InvokeAsync(async () =>
+        {
+            userInput = message;
+            await SendMessage();
+        });
     }
 
     private async Task HandleKeyDown(KeyboardEventArgs e)
@@ -2454,6 +2487,7 @@ else
         isBusy = false;
         currentTool = "";
         currentReasoningId = null;
+        ContextService.NotifyBusyStateChanged(false);
         InvokeAsync(async () => 
         {
             StateHasChanged();
@@ -2468,6 +2502,7 @@ else
         isBusy = false;
         currentTool = "";
         currentReasoningId = null;
+        ContextService.NotifyBusyStateChanged(false);
         InvokeAsync(async () => 
         {
             StateHasChanged();

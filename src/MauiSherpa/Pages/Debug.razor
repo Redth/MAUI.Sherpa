@@ -8,6 +8,8 @@
 @inject IDialogService DialogService
 @inject BlazorToastService ToastService
 @inject IUpdateService UpdateService
+@inject IAndroidSdkService AndroidSdkService
+@inject IDebugFlagService DebugFlags
 
 <div class="page-header">
     <div class="page-title-row">
@@ -170,6 +172,36 @@
         </div>
     </div>
 
+    <!-- Android SDK Debug Scenarios -->
+    <div class="debug-section">
+        <h2><i class="fa-solid fa-android"></i> Android SDK Failure Simulation</h2>
+        <p class="section-description">Simulate Android SDK install failures for testing the "Fix with Copilot" flow.</p>
+        <div class="debug-card">
+            <div class="toggle-row">
+                <label class="toggle-label">
+                    <span>Fail build-tools install</span>
+                    <span class="toggle-hint">Truncates package name to simulate a parsing bug. Resets on app restart.</span>
+                </label>
+                <label class="toggle-switch">
+                    <input type="checkbox" checked="@DebugFlags.FailBuildToolsInstall" @onchange="ToggleFailBuildTools" />
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+            @if (isUninstallingBuildTools)
+            {
+                <div class="debug-status">
+                    <i class="fa-solid fa-spinner fa-spin"></i> Uninstalling build-tools packages...
+                </div>
+            }
+            @if (uninstallResult != null)
+            {
+                <div class="debug-status @(uninstallResult.StartsWith("✓") ? "status-success" : "status-error")">
+                    @uninstallResult
+                </div>
+            }
+        </div>
+    </div>
+
 </div>
 
 <UpdateAvailableModal
@@ -266,6 +298,81 @@
 
     .text-success { color: var(--success, #10b981) !important; }
     .text-danger { color: var(--danger, #ef4444) !important; }
+
+    .toggle-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+    }
+
+    .toggle-label {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+
+    .toggle-label span:first-child {
+        font-weight: 600;
+        color: var(--text-primary);
+    }
+
+    .toggle-hint {
+        font-size: 12px;
+        color: var(--text-muted);
+        font-weight: 400 !important;
+    }
+
+    .toggle-switch {
+        position: relative;
+        display: inline-block;
+        width: 44px;
+        height: 24px;
+        flex-shrink: 0;
+    }
+
+    .toggle-switch input { opacity: 0; width: 0; height: 0; }
+
+    .toggle-slider {
+        position: absolute;
+        cursor: pointer;
+        inset: 0;
+        background-color: var(--border-color, #ccc);
+        border-radius: 24px;
+        transition: 0.2s;
+    }
+
+    .toggle-slider::before {
+        content: "";
+        position: absolute;
+        height: 18px;
+        width: 18px;
+        left: 3px;
+        bottom: 3px;
+        background-color: white;
+        border-radius: 50%;
+        transition: 0.2s;
+    }
+
+    .toggle-switch input:checked + .toggle-slider {
+        background-color: #ef4444;
+    }
+
+    .toggle-switch input:checked + .toggle-slider::before {
+        transform: translateX(20px);
+    }
+
+    .debug-status {
+        margin-top: 12px;
+        padding: 8px 12px;
+        border-radius: 6px;
+        font-size: 13px;
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+    }
+
+    .debug-status.status-success { color: var(--success, #10b981); }
+    .debug-status.status-error { color: var(--danger, #ef4444); }
 </style>
 
 @code {
@@ -573,5 +680,61 @@
     {
         await DialogService.CopyToClipboardAsync("Hello from Debug page! 🐛");
         await AlertService.ShowToastAsync("Copied to clipboard!");
+    }
+
+    // === Android SDK Failure Simulation ===
+
+    private bool isUninstallingBuildTools;
+    private string? uninstallResult;
+
+    private async Task ToggleFailBuildTools(ChangeEventArgs e)
+    {
+        var enabled = (bool)(e.Value ?? false);
+        DebugFlags.FailBuildToolsInstall = enabled;
+
+        if (enabled)
+        {
+            // Uninstall any installed build-tools packages so Doctor detects them as missing
+            isUninstallingBuildTools = true;
+            uninstallResult = null;
+            StateHasChanged();
+
+            try
+            {
+                var installed = await AndroidSdkService.GetInstalledPackagesAsync();
+                var buildToolsPkgs = installed
+                    .Where(p => p.Path?.StartsWith("build-tools;", StringComparison.OrdinalIgnoreCase) == true)
+                    .ToList();
+
+                if (buildToolsPkgs.Count == 0)
+                {
+                    uninstallResult = "✓ No build-tools packages installed — Doctor should already flag this as missing.";
+                }
+                else
+                {
+                    var removed = 0;
+                    foreach (var pkg in buildToolsPkgs)
+                    {
+                        var ok = await AndroidSdkService.UninstallPackageAsync(pkg.Path!);
+                        if (ok) removed++;
+                    }
+                    uninstallResult = $"✓ Uninstalled {removed}/{buildToolsPkgs.Count} build-tools package(s). Run Doctor to see the missing dependency.";
+                }
+            }
+            catch (Exception ex)
+            {
+                uninstallResult = $"✗ Error: {ex.Message}";
+            }
+            finally
+            {
+                isUninstallingBuildTools = false;
+                StateHasChanged();
+            }
+        }
+        else
+        {
+            uninstallResult = null;
+            StateHasChanged();
+        }
     }
 }
