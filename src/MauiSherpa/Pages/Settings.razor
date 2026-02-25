@@ -21,6 +21,7 @@
 @inject ISecretsPublisherService SecretsPublisherService
 @inject ISecretsPublisherFactory SecretsPublisherFactory
 @inject IBackupService BackupService
+@inject IPushProjectService PushProjectService
 @inject IEncryptedSettingsService EncryptedSettings
 @inject IUpdateService UpdateService
 @implements IDisposable
@@ -714,6 +715,27 @@
                                                    checked="@selectedExportGoogleIdentityIds.Contains(identity.Id)"
                                                    @onchange="e => SetExportGoogleIdentitySelection(identity.Id, e.Value is bool isChecked && isChecked)" />
                                             <span>@identity.Name</span>
+                                        </label>
+                                    }
+                                </div>
+                            }
+                        </div>
+
+                        <div class="backup-selection-group">
+                            <label class="backup-selection-item">
+                                <input type="checkbox" @bind="exportIncludePushProjects" />
+                                <span>Push Projects (@selectedExportPushProjectIds.Count/@pushProjects.Count)</span>
+                            </label>
+                            @if (exportIncludePushProjects && pushProjects.Count > 0)
+                            {
+                                <div class="backup-selection-children">
+                                    @foreach (var project in pushProjects)
+                                    {
+                                        <label class="backup-selection-item child">
+                                            <input type="checkbox"
+                                                   checked="@selectedExportPushProjectIds.Contains(project.Id)"
+                                                   @onchange="e => SetExportPushProjectSelection(project.Id, e.Value is bool isChecked && isChecked)" />
+                                            <span>@project.Name (@(project.Platform == PushProjectPlatform.Apns ? "APNs" : "FCM"))</span>
                                         </label>
                                     }
                                 </div>
@@ -1869,6 +1891,9 @@
     private HashSet<string> selectedExportPublisherIds = new(StringComparer.Ordinal);
     private bool exportIncludeGoogleIdentities = true;
     private HashSet<string> selectedExportGoogleIdentityIds = new(StringComparer.Ordinal);
+    private bool exportIncludePushProjects = true;
+    private HashSet<string> selectedExportPushProjectIds = new(StringComparer.Ordinal);
+    private List<PushProject> pushProjects = new();
     private string importFilePath = "";
     private string importPassword = "";
     private string importError = "";
@@ -1880,7 +1905,8 @@
         (exportIncludeAppleIdentities && selectedExportAppleIdentityIds.Count > 0) ||
         (exportIncludeCloudProviders && selectedExportCloudProviderIds.Count > 0) ||
         (exportIncludeSecretsPublishers && selectedExportPublisherIds.Count > 0) ||
-        (exportIncludeGoogleIdentities && selectedExportGoogleIdentityIds.Count > 0);
+        (exportIncludeGoogleIdentities && selectedExportGoogleIdentityIds.Count > 0) ||
+        (exportIncludePushProjects && selectedExportPushProjectIds.Count > 0);
 
     private bool CanSaveIdentity => 
         !string.IsNullOrWhiteSpace(identityName) &&
@@ -2824,7 +2850,7 @@
     }
 
     // Backup & Restore methods
-    private void InitializeExportSelection()
+    private async Task InitializeExportSelection()
     {
         exportIncludePreferences = true;
         exportIncludeAppleIdentities = appleIdentities.Count > 0;
@@ -2835,6 +2861,9 @@
         selectedExportCloudProviderIds = cloudProviders.Select(provider => provider.Id).ToHashSet(StringComparer.Ordinal);
         selectedExportPublisherIds = secretsPublishers.Select(publisher => publisher.Id).ToHashSet(StringComparer.Ordinal);
         selectedExportGoogleIdentityIds = googleIdentities.Select(identity => identity.Id).ToHashSet(StringComparer.Ordinal);
+        pushProjects = (await PushProjectService.GetProjectsAsync()).ToList();
+        exportIncludePushProjects = pushProjects.Count > 0;
+        selectedExportPushProjectIds = pushProjects.Select(p => p.Id).ToHashSet(StringComparer.Ordinal);
     }
 
     private void SetExportAppleIdentitySelection(string id, bool isSelected)
@@ -2869,12 +2898,20 @@
             selectedExportGoogleIdentityIds.Remove(id);
     }
 
-    private void ShowExportDialog()
+    private void SetExportPushProjectSelection(string id, bool isSelected)
+    {
+        if (isSelected)
+            selectedExportPushProjectIds.Add(id);
+        else
+            selectedExportPushProjectIds.Remove(id);
+    }
+
+    private async Task ShowExportDialog()
     {
         exportPassword = "";
         exportPasswordConfirm = "";
         exportError = "";
-        InitializeExportSelection();
+        await InitializeExportSelection();
         showExportDialog = true;
         _ = InitModalAsync("export-settings-modal");
     }
@@ -2956,6 +2993,9 @@
                     : new List<string>(),
                 GoogleIdentityIds = exportIncludeGoogleIdentities
                     ? selectedExportGoogleIdentityIds.ToList()
+                    : new List<string>(),
+                PushProjectIds = exportIncludePushProjects
+                    ? selectedExportPushProjectIds.ToList()
                     : new List<string>()
             };
             var encrypted = await BackupService.ExportSettingsAsync(exportPassword, exportSelection);
@@ -3065,6 +3105,11 @@
                 ClientEmail: googleIdentity.ClientEmail,
                 ServiceAccountJsonPath: null,
                 ServiceAccountJson: googleIdentity.ServiceAccountJson));
+        }
+
+        foreach (var pushProject in settings.PushProjects)
+        {
+            await PushProjectService.SaveProjectAsync(pushProject);
         }
 
         await LoadGoogleIdentities();

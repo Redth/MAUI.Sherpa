@@ -5,6 +5,7 @@
 @inject IFirebasePushService PushService
 @inject IGoogleIdentityService GoogleIdentityService
 @inject IGoogleIdentityStateService GoogleIdentityState
+@inject IPushProjectService ProjectService
 @inject IAlertService AlertService
 @inject IDialogService DialogService
 @inject IFileSystemService FileSystem
@@ -15,6 +16,13 @@
 <h1><i class="fas fa-paper-plane"></i> Firebase Push Testing</h1>
 <p class="page-description">Send test push notifications via Firebase Cloud Messaging to Android devices.</p>
 
+<PushProjectBar @ref="projectBar"
+    Platform="PushProjectPlatform.Fcm"
+    ActiveProject="activeProject"
+    ActiveProjectChanged="OnActiveProjectChanged"
+    OnSaveRequested="SaveProject"
+    IsDirty="isDirty" />
+
 <GoogleIdentityPicker />
 
 <!-- Compose Section -->
@@ -22,10 +30,10 @@
     <div class="section-header">
         <h2><i class="fas fa-edit"></i> Compose Message</h2>
         <div class="target-toggle">
-            <button class="toggle-btn small @(!rawJsonMode ? "active" : "")" @onclick="() => rawJsonMode = false">
+            <button class="toggle-btn small @(!rawJsonMode ? "active" : "")" @onclick="() => { rawJsonMode = false; MarkDirty(); }">
                 <i class="fas fa-list-alt"></i> Form
             </button>
-            <button class="toggle-btn small @(rawJsonMode ? "active" : "")" @onclick="() => rawJsonMode = true">
+            <button class="toggle-btn small @(rawJsonMode ? "active" : "")" @onclick="() => { rawJsonMode = true; MarkDirty(); }">
                 <i class="fas fa-code"></i> JSON
             </button>
         </div>
@@ -37,7 +45,7 @@
             <div class="form-group">
                 <label>Message JSON</label>
                 <textarea class="form-input mono json-editor" rows="16" placeholder="@jsonPlaceholder"
-                          @bind="rawJson" @bind:event="oninput"></textarea>
+                          @bind="rawJson" @bind:event="oninput" @bind:after="MarkDirty"></textarea>
                 <p class="help-text">Enter the FCM v1 <code>message</code> object. The <code>{"{"}"message": ...{"}"}</code> wrapper is added automatically if omitted.</p>
             </div>
 
@@ -62,10 +70,10 @@
         <div class="form-group">
             <label>Target</label>
             <div class="target-toggle">
-                <button class="toggle-btn small @(useToken ? "active" : "")" @onclick="() => useToken = true">
+                <button class="toggle-btn small @(useToken ? "active" : "")" @onclick="() => { useToken = true; MarkDirty(); }">
                     <i class="fas fa-mobile-alt"></i> Device Token
                 </button>
-                <button class="toggle-btn small @(!useToken ? "active" : "")" @onclick="() => useToken = false">
+                <button class="toggle-btn small @(!useToken ? "active" : "")" @onclick="() => { useToken = false; MarkDirty(); }">
                     <i class="fas fa-hashtag"></i> Topic
                 </button>
             </div>
@@ -76,7 +84,7 @@
             <div class="form-group">
                 <label>Device Token</label>
                 <input type="text" class="form-input mono" placeholder="FCM registration token"
-                       @bind="deviceToken" @bind:event="oninput" />
+                       @bind="deviceToken" @bind:event="oninput" @bind:after="MarkDirty" />
             </div>
         }
         else
@@ -84,7 +92,7 @@
             <div class="form-group">
                 <label>Topic</label>
                 <input type="text" class="form-input" placeholder="e.g. news, updates"
-                       @bind="topic" @bind:event="oninput" />
+                       @bind="topic" @bind:event="oninput" @bind:after="MarkDirty" />
             </div>
         }
 
@@ -92,20 +100,20 @@
             <div class="form-group flex-1">
                 <label>Title</label>
                 <input type="text" class="form-input" placeholder="Notification title"
-                       @bind="title" @bind:event="oninput" />
+                       @bind="title" @bind:event="oninput" @bind:after="MarkDirty" />
             </div>
         </div>
 
         <div class="form-group">
             <label>Body</label>
             <textarea class="form-input" rows="3" placeholder="Notification body text"
-                      @bind="body" @bind:event="oninput"></textarea>
+                      @bind="body" @bind:event="oninput" @bind:after="MarkDirty"></textarea>
         </div>
 
         <div class="form-group">
             <label>Image URL <span class="optional">(optional)</span></label>
             <input type="text" class="form-input" placeholder="https://example.com/image.png"
-                   @bind="imageUrl" @bind:event="oninput" />
+                   @bind="imageUrl" @bind:event="oninput" @bind:after="MarkDirty" />
         </div>
 
         <!-- Data Payload -->
@@ -125,11 +133,11 @@
                         <div class="data-entry">
                             <input type="text" class="form-input" placeholder="Key"
                                    value="@dataEntries[index].Key"
-                                   @oninput="e => UpdateDataKey(index, e.Value?.ToString())" />
+                                   @oninput="e => { UpdateDataKey(index, e.Value?.ToString()); MarkDirty(); }" />
                             <input type="text" class="form-input" placeholder="Value"
                                    value="@dataEntries[index].Value"
-                                   @oninput="e => UpdateDataValue(index, e.Value?.ToString())" />
-                            <button class="btn btn-sm btn-icon btn-danger" @onclick="() => RemoveDataEntry(index)">
+                                   @oninput="e => { UpdateDataValue(index, e.Value?.ToString()); MarkDirty(); }" />
+                            <button class="btn btn-sm btn-icon btn-danger" @onclick="() => { RemoveDataEntry(index); MarkDirty(); }">
                                 <i class="fas fa-times"></i>
                             </button>
                         </div>
@@ -156,50 +164,42 @@
         }
     </div>
 </div>
-@if (history.Count > 0)
+@if (activeProject?.History.Count > 0)
 {
     <div class="section">
         <div class="section-header">
             <h2><i class="fas fa-history"></i> Recent Sends</h2>
-            <button class="btn btn-sm btn-ghost" @onclick="() => history.Clear()">
+            <button class="btn btn-sm btn-ghost" @onclick="ClearHistory">
                 <i class="fas fa-eraser"></i> Clear
             </button>
         </div>
 
         <div class="history-list">
-            @foreach (var entry in history)
+            @foreach (var entry in activeProject.History)
             {
-                <div class="history-card @(entry.Response.Success ? "success" : "error")">
+                <div class="history-card @(entry.Success ? "success" : "error")">
                     <div class="history-status">
-                        <i class="fas @(entry.Response.Success ? "fa-check-circle text-success" : "fa-times-circle text-danger")"></i>
-                        <span class="history-time">@entry.Response.Timestamp.ToLocalTime().ToString("HH:mm:ss")</span>
-                        @if (entry.Response.StatusCode.HasValue)
+                        <i class="fas @(entry.Success ? "fa-check-circle text-success" : "fa-times-circle text-danger")"></i>
+                        <span class="history-time">@entry.Timestamp.ToLocalTime().ToString("HH:mm:ss")</span>
+                        @if (entry.StatusCode.HasValue)
                         {
-                            <span class="badge @(entry.Response.Success ? "badge-success" : "badge-danger")">@entry.Response.StatusCode</span>
+                            <span class="badge @(entry.Success ? "badge-success" : "badge-danger")">@entry.StatusCode</span>
                         }
                     </div>
                     <div class="history-details">
-                        <div class="history-target mono">
-                            @if (!string.IsNullOrEmpty(entry.Request.Topic))
-                            {
-                                <span><i class="fas fa-hashtag"></i> @entry.Request.Topic</span>
-                            }
-                            else
-                            {
-                                <span><i class="fas fa-mobile-alt"></i> @TruncateToken(entry.Request.DeviceToken)</span>
-                            }
-                        </div>
-                        @if (!string.IsNullOrEmpty(entry.Request.Title))
+                        @if (!string.IsNullOrEmpty(entry.Target))
                         {
-                            <div class="history-title">@entry.Request.Title</div>
+                            <div class="history-target mono">
+                                <i class="fas fa-mobile-alt"></i> @entry.Target
+                            </div>
                         }
-                        @if (entry.Response.Success && !string.IsNullOrEmpty(entry.Response.MessageId))
+                        @if (entry.Success && !string.IsNullOrEmpty(entry.MessageId))
                         {
-                            <div class="history-message-id mono">@entry.Response.MessageId</div>
+                            <div class="history-message-id mono">@entry.MessageId</div>
                         }
-                        @if (!entry.Response.Success && !string.IsNullOrEmpty(entry.Response.Error))
+                        @if (!entry.Success && !string.IsNullOrEmpty(entry.ErrorReason))
                         {
-                            <div class="history-error">@entry.Response.Error</div>
+                            <div class="history-error">@entry.ErrorReason</div>
                         }
                     </div>
                 </div>
@@ -563,6 +563,8 @@
 </style>
 
 @code {
+    PushProjectBar? projectBar;
+    PushProject? activeProject;
     bool hasCredentials;
     string? projectId;
 
@@ -575,14 +577,12 @@
     string imageUrl = "";
     List<DataEntry> dataEntries = new();
     bool isSending;
+    bool isDirty;
 
     // Compose - JSON mode
     bool rawJsonMode;
     string rawJson = "";
     const string jsonPlaceholder = "{\n  \"token\": \"DEVICE_TOKEN\",\n  \"notification\": {\n    \"title\": \"Test\",\n    \"body\": \"Hello from Sherpa!\"\n  },\n  \"android\": {\n    \"priority\": \"high\",\n    \"notification\": {\n      \"channel_id\": \"default\"\n    }\n  },\n  \"data\": {\n    \"key\": \"value\"\n  }\n}";
-
-    // History
-    List<HistoryEntry> history = new();
 
     bool CanSend => hasCredentials
         && ((useToken && !string.IsNullOrWhiteSpace(deviceToken))
@@ -593,6 +593,12 @@
     {
         ToolbarService.ClearItems();
         GoogleIdentityState.OnSelectionChanged += OnIdentityChanged;
+
+        // Load projects and select most recent (or create blank)
+        var projects = await ProjectService.GetProjectsAsync(PushProjectPlatform.Fcm);
+        if (projects.Count > 0)
+            await LoadFromProject(projects[0]);
+
         await SyncCredentialsFromIdentity();
     }
 
@@ -624,9 +630,114 @@
         }
     }
 
-    async Task RefreshCredentialStatus()
+    async Task LoadFromProject(PushProject project)
     {
-        await SyncCredentialsFromIdentity();
+        activeProject = project;
+        var config = project.FcmConfig ?? new FcmPushProjectConfig();
+
+        useToken = config.UseToken;
+        deviceToken = config.DeviceToken ?? "";
+        topic = config.Topic ?? "";
+        title = config.Title ?? "";
+        body = config.Body ?? "";
+        imageUrl = config.ImageUrl ?? "";
+        dataEntries = config.DataEntries.Select(e => new DataEntry { Key = e.Key, Value = e.Value }).ToList();
+        rawJsonMode = config.RawJsonMode;
+        rawJson = config.RawJson ?? "";
+
+        // Restore Google identity selection
+        if (!string.IsNullOrEmpty(config.SelectedGoogleIdentityId))
+        {
+            var identity = await GoogleIdentityService.GetIdentityAsync(config.SelectedGoogleIdentityId);
+            if (identity != null)
+                GoogleIdentityState.SetSelectedIdentity(identity);
+        }
+
+        isDirty = false;
+    }
+
+    void ResetToBlank()
+    {
+        activeProject = null;
+        useToken = true;
+        deviceToken = "";
+        topic = "";
+        title = "";
+        body = "";
+        imageUrl = "";
+        dataEntries = new();
+        rawJsonMode = false;
+        rawJson = "";
+        isDirty = false;
+    }
+
+    async Task OnActiveProjectChanged(PushProject? project)
+    {
+        if (project != null)
+            await LoadFromProject(project);
+        else
+            ResetToBlank();
+
+        StateHasChanged();
+    }
+
+    void MarkDirty() => isDirty = true;
+
+    FcmPushProjectConfig BuildConfig() => new()
+    {
+        SelectedGoogleIdentityId = GoogleIdentityState.SelectedIdentity?.Id,
+        UseToken = useToken,
+        DeviceToken = string.IsNullOrEmpty(deviceToken) ? null : deviceToken,
+        Topic = string.IsNullOrEmpty(topic) ? null : topic,
+        Title = string.IsNullOrEmpty(title) ? null : title,
+        Body = string.IsNullOrEmpty(body) ? null : body,
+        ImageUrl = string.IsNullOrEmpty(imageUrl) ? null : imageUrl,
+        DataEntries = dataEntries
+            .Where(d => !string.IsNullOrWhiteSpace(d.Key))
+            .Select(d => new FcmDataEntry(d.Key, d.Value ?? ""))
+            .ToList(),
+        RawJsonMode = rawJsonMode,
+        RawJson = string.IsNullOrEmpty(rawJson) ? null : rawJson
+    };
+
+    async Task SaveProject()
+    {
+        try
+        {
+            var name = projectBar?.GetProjectName() ?? "Untitled";
+            var description = projectBar?.GetProjectDescription();
+
+            if (activeProject != null)
+            {
+                var updated = activeProject with
+                {
+                    Name = name,
+                    Description = description,
+                    FcmConfig = BuildConfig()
+                };
+                await ProjectService.SaveProjectAsync(updated);
+                activeProject = await ProjectService.GetProjectAsync(updated.Id);
+            }
+            else
+            {
+                var project = new PushProject
+                {
+                    Name = name,
+                    Description = description,
+                    Platform = PushProjectPlatform.Fcm,
+                    FcmConfig = BuildConfig()
+                };
+                await ProjectService.SaveProjectAsync(project);
+                activeProject = await ProjectService.GetProjectAsync(project.Id);
+            }
+
+            isDirty = false;
+            ToastService.Show("Project saved.", ToastType.Success);
+        }
+        catch (Exception ex)
+        {
+            ToastService.Show($"Save failed: {ex.Message}", ToastType.Error);
+        }
     }
 
     async Task SendPush()
@@ -650,7 +761,25 @@
             );
 
             var response = await PushService.SendPushAsync(request);
-            history.Insert(0, new HistoryEntry(request, response));
+
+            // Record history
+            if (activeProject != null)
+            {
+                var target = !string.IsNullOrEmpty(request.Topic)
+                    ? $"#{request.Topic}"
+                    : TruncateToken(request.DeviceToken);
+                var historyEntry = new PushSendHistoryEntry
+                {
+                    Timestamp = DateTime.UtcNow,
+                    Success = response.Success,
+                    StatusCode = response.StatusCode,
+                    MessageId = response.MessageId,
+                    ErrorReason = response.Error,
+                    Target = target
+                };
+                await ProjectService.AddHistoryEntryAsync(activeProject.Id, historyEntry);
+                activeProject = await ProjectService.GetProjectAsync(activeProject.Id);
+            }
 
             if (response.Success)
                 ToastService.Show("Push sent successfully!", ToastType.Success);
@@ -675,7 +804,22 @@
         try
         {
             var response = await PushService.SendRawJsonAsync(rawJson);
-            history.Insert(0, new HistoryEntry(new FcmPushRequest("raw-json", "Raw JSON", null), response));
+
+            // Record history
+            if (activeProject != null)
+            {
+                var historyEntry = new PushSendHistoryEntry
+                {
+                    Timestamp = DateTime.UtcNow,
+                    Success = response.Success,
+                    StatusCode = response.StatusCode,
+                    MessageId = response.MessageId,
+                    ErrorReason = response.Error,
+                    Target = "raw-json"
+                };
+                await ProjectService.AddHistoryEntryAsync(activeProject.Id, historyEntry);
+                activeProject = await ProjectService.GetProjectAsync(activeProject.Id);
+            }
 
             if (response.Success)
                 ToastService.Show("Push sent successfully!", ToastType.Success);
@@ -692,7 +836,15 @@
         }
     }
 
-    void AddDataEntry() => dataEntries.Add(new DataEntry());
+    async Task ClearHistory()
+    {
+        if (activeProject == null) return;
+        await ProjectService.ClearHistoryAsync(activeProject.Id);
+        activeProject = await ProjectService.GetProjectAsync(activeProject.Id);
+        StateHasChanged();
+    }
+
+    void AddDataEntry() { dataEntries.Add(new DataEntry()); MarkDirty(); }
     void RemoveDataEntry(int index) => dataEntries.RemoveAt(index);
     void UpdateDataKey(int index, string? value) => dataEntries[index].Key = value ?? "";
     void UpdateDataValue(int index, string? value) => dataEntries[index].Value = value ?? "";
@@ -705,8 +857,6 @@
         public string Key { get; set; } = "";
         public string Value { get; set; } = "";
     }
-
-    record HistoryEntry(FcmPushRequest Request, FcmPushResponse Response);
 
     public void Dispose()
     {

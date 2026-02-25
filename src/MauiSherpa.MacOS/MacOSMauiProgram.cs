@@ -107,6 +107,7 @@ public static class MacOSMauiProgram
         builder.Services.AddSingleton<IAppleConnectService, AppleConnectService>();
         builder.Services.AddSingleton<IAppleRootCertService, AppleRootCertService>();
         builder.Services.AddSingleton<IApnsPushService, ApnsPushService>();
+        builder.Services.AddSingleton<IPushProjectService, PushProjectService>();
         builder.Services.AddSingleton<ILocalCertificateService>(sp =>
         {
             var logger = sp.GetRequiredService<ILoggingService>();
