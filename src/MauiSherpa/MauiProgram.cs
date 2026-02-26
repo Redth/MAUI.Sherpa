@@ -4,8 +4,10 @@ using MauiSherpa.Services;
 using MauiSherpa.Core.ViewModels;
 using MauiSherpa.Core.Interfaces;
 using MauiSherpa.Core.Services;
+#if DEBUG
 using MauiDevFlow.Agent;
 using MauiDevFlow.Blazor;
+#endif
 using MauiIcons.Fluent;
 using MauiIcons.FontAwesome.Brand;
 using Shiny.Mediator;
