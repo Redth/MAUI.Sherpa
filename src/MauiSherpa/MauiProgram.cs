@@ -5,14 +5,18 @@ using MauiSherpa.Core.ViewModels;
 using MauiSherpa.Core.Interfaces;
 using MauiSherpa.Core.Services;
 #if LINUXGTK
+#if DEBUG
 using MauiDevFlow.Agent.Gtk;
 using MauiDevFlow.Blazor.Gtk;
+#endif
 using Platform.Maui.Linux.Gtk4.BlazorWebView;
 using Platform.Maui.Linux.Gtk4.Essentials.Hosting;
 using Platform.Maui.Linux.Gtk4.Hosting;
 #else
+#if DEBUG
 using MauiDevFlow.Agent;
 using MauiDevFlow.Blazor;
+#endif
 using MauiIcons.Fluent;
 using MauiIcons.FontAwesome.Brand;
 #endif
