@@ -144,6 +144,20 @@ public class CopilotPage : ContentPage
         };
 
         // --- Page layout ---
+#if LINUXGTK
+        // On Linux GTK, the HeaderBar takes space that MAUI layout doesn't account for,
+        // causing the bottom input bar to be clipped. Use only the BlazorWebView
+        // (which knows its real GTK-allocated size) and let the Blazor content provide
+        // its own input area via HideInputArea=false on the embedded Copilot component.
+        var layout = new Grid
+        {
+            RowDefinitions =
+            {
+                new RowDefinition(GridLength.Star),   // webview fills all space
+            },
+        };
+        layout.Add(webView, 0, 0);
+#else
         var layout = new Grid
         {
             RowDefinitions =
@@ -170,6 +184,7 @@ public class CopilotPage : ContentPage
 #else
         layout.Add(headerBar, 0, 0);
         layout.Add(webView, 0, 1);
+#endif
 #endif
 
         Content = layout;

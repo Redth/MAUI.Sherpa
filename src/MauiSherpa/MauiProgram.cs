@@ -4,10 +4,18 @@ using MauiSherpa.Services;
 using MauiSherpa.Core.ViewModels;
 using MauiSherpa.Core.Interfaces;
 using MauiSherpa.Core.Services;
+#if LINUXGTK
+using MauiDevFlow.Agent.Gtk;
+using MauiDevFlow.Blazor.Gtk;
+using Platform.Maui.Linux.Gtk4.BlazorWebView;
+using Platform.Maui.Linux.Gtk4.Essentials.Hosting;
+using Platform.Maui.Linux.Gtk4.Hosting;
+#else
 using MauiDevFlow.Agent;
 using MauiDevFlow.Blazor;
 using MauiIcons.Fluent;
 using MauiIcons.FontAwesome.Brand;
+#endif
 using Shiny.Mediator;
 
 namespace MauiSherpa;
@@ -20,6 +28,16 @@ public static class MauiProgram
         MigrateAppData();
 
         var builder = MauiApp.CreateBuilder();
+#if LINUXGTK
+        builder
+            .UseMauiAppLinuxGtk4<App>()
+            .AddLinuxGtk4Essentials()
+            .ConfigureFonts(fonts =>
+            {
+                fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");
+                fonts.AddFont("OpenSans-Semibold.ttf", "OpenSansSemibold");
+            });
+#else
         builder
             .UseMauiApp<App>()
             .UseFluentMauiIcons()
@@ -29,8 +47,18 @@ public static class MauiProgram
                 fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");
                 fonts.AddFont("OpenSans-Semibold.ttf", "OpenSansSemibold");
             });
+#endif
 
+#if LINUXGTK
+        builder.Services.AddBlazorWebView();
+        builder.Services.AddLinuxGtk4BlazorWebView();
+        builder.ConfigureMauiHandlers(handlers =>
+        {
+            handlers.AddHandler<Microsoft.AspNetCore.Components.WebView.Maui.BlazorWebView, BlazorWebViewHandler>();
+        });
+#else
         builder.Services.AddMauiBlazorWebView();
+#endif
 
         // Debug logging service (must be registered before logger provider)
         var debugLogService = new DebugLogService();
@@ -184,7 +212,9 @@ public static class MauiProgram
         builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.GetConnectedDevicesHandler>();
 
 #if DEBUG
+#if !LINUXGTK
         builder.Services.AddBlazorWebViewDeveloperTools();
+#endif
         builder.AddMauiDevFlowAgent();
         builder.AddMauiBlazorDevFlowTools();
         builder.Logging.AddDebug();

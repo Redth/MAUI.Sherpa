@@ -123,6 +123,8 @@ public class OperationModalService : IOperationModalService
         finally
         {
             IsRunning = false;
+            // Notify UI after IsRunning flips so modal can switch from spinner to result state.
+            OnStateChanged?.Invoke(CurrentState);
             _cts?.Dispose();
             _cts = null;
         }

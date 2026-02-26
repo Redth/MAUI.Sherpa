@@ -21,10 +21,17 @@ public class App : Application
     protected override Window CreateWindow(IActivationState? activationState)
     {
         var splashService = _serviceProvider.GetRequiredService<ISplashService>();
-        
-        var savedWidth = Preferences.Default.Get(PrefKeyWidth, DefaultWidth);
-        var savedHeight = Preferences.Default.Get(PrefKeyHeight, DefaultHeight);
-        
+
+        double savedWidth;
+        double savedHeight;
+#if LINUXGTK
+        savedWidth = DefaultWidth;
+        savedHeight = DefaultHeight;
+#else
+        savedWidth = Preferences.Default.Get(PrefKeyWidth, DefaultWidth);
+        savedHeight = Preferences.Default.Get(PrefKeyHeight, DefaultHeight);
+#endif
+
         // Clamp to reasonable bounds
         savedWidth = Math.Max(MinWidth, savedWidth);
         savedHeight = Math.Max(MinHeight, savedHeight);
@@ -116,8 +123,10 @@ public class App : Application
             try
             {
                 await Task.Delay(500, token);
+#if !LINUXGTK
                 Preferences.Default.Set(PrefKeyWidth, w);
                 Preferences.Default.Set(PrefKeyHeight, h);
+#endif
             }
             catch (TaskCanceledException) { }
         }, token);

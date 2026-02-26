@@ -32,8 +32,8 @@ public class CopilotModalService : ICopilotModalService, IDisposable
 
     private CopilotPage GetOrCreatePage()
     {
-#if MACOSAPP
-        // macOS AppKit: always create fresh — WebView is disposed on PopModalAsync
+#if MACOSAPP || LINUXGTK
+        // macOS AppKit / Linux GTK: always create fresh — WebView is disposed on PopModalAsync
         return ActivatorUtilities.CreateInstance<CopilotPage>(_serviceProvider);
 #else
         // Mac Catalyst/Windows: reuse singleton (HandlerDisconnectPolicy.Manual)
@@ -71,7 +71,7 @@ public class CopilotModalService : ICopilotModalService, IDisposable
             await nav.PopModalAsync(animated: true);
         }
 
-#if MACOSAPP
+#if MACOSAPP || LINUXGTK
         _currentPage = null; // let GC collect the disposed page
 #endif
 
