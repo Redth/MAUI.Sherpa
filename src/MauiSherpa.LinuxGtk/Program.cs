@@ -1,6 +1,8 @@
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.Hosting;
+#if DEBUG
 using MauiDevFlow.Agent.Gtk;
+#endif
 using MauiSherpa.Core.Interfaces;
 using MauiSherpa.Services;
 using Platform.Maui.Linux.Gtk4.Platform;
