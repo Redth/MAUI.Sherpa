@@ -455,6 +455,17 @@
                                     <span class="detail-value mono"><span class="@(demoMode ? "demo-blur" : "")">@provider.Settings.GetValueOrDefault("ItemTitle", "MAUI.Sherpa")</span></span>
                                 </div>
                             }
+                            @if (provider.ProviderType == CloudSecretsProviderType.Vaultwarden)
+                            {
+                                <div class="detail-item">
+                                    <span class="detail-label">SERVER</span>
+                                    <span class="detail-value mono"><span class="@(demoMode ? "demo-blur" : "")">@provider.Settings.GetValueOrDefault("ServerUrl", "")</span></span>
+                                </div>
+                                <div class="detail-item">
+                                    <span class="detail-label">EMAIL</span>
+                                    <span class="detail-value mono"><span class="@(demoMode ? "demo-blur" : "")">@provider.Settings.GetValueOrDefault("Email", "")</span></span>
+                                </div>
+                            }
                         </div>
                     </div>
                 }
@@ -2597,6 +2608,7 @@
         CloudSecretsProviderType.AwsSecretsManager => "fab fa-aws",
         CloudSecretsProviderType.GoogleSecretManager => "fab fa-google",
         CloudSecretsProviderType.OnePassword => "fas fa-lock",
+        CloudSecretsProviderType.Vaultwarden => "fas fa-vault",
         _ => "fas fa-lock"
     };
 
@@ -2609,6 +2621,7 @@
             CloudSecretsProviderType.AwsSecretsManager => GetAwsSecretsManagerUrl(provider),
             CloudSecretsProviderType.GoogleSecretManager => GetGoogleSecretManagerUrl(provider),
             CloudSecretsProviderType.OnePassword => "https://my.1password.com",
+            CloudSecretsProviderType.Vaultwarden => GetVaultwardenUrl(provider),
             _ => null
         };
     }
@@ -2660,6 +2673,12 @@
             return null;
         // Link to Google Cloud Console Secret Manager for the project
         return $"https://console.cloud.google.com/security/secret-manager?project={projectId}";
+    }
+
+    private string? GetVaultwardenUrl(CloudSecretsProviderConfig provider)
+    {
+        var serverUrl = provider.Settings.GetValueOrDefault("ServerUrl", "").TrimEnd('/');
+        return string.IsNullOrEmpty(serverUrl) ? null : serverUrl;
     }
     
     private IReadOnlyList<CloudProviderSettingInfo> GetCurrentProviderSettings()

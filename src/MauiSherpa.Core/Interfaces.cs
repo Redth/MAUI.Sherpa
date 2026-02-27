@@ -2027,7 +2027,8 @@ public enum CloudSecretsProviderType
     AwsSecretsManager,
     GoogleSecretManager,
     Infisical,
-    OnePassword
+    OnePassword,
+    Vaultwarden
 }
 
 /// <summary>
