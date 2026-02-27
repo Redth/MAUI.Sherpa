@@ -645,24 +645,56 @@ jobs:
             -p:UseSharedCompilation=false \
             -nodeReuse:false
 
-      - name: Create archive
+      - name: Publish Linux App (arm64)
+        run: |
+          dotnet publish src/MauiSherpa.LinuxGtk/MauiSherpa.LinuxGtk.csproj \
+            -c Release \
+            -r linux-arm64 \
+            --self-contained true \
+            --disable-build-servers \
+            -p:AppVersion=${{ steps.version.outputs.app_version }} \
+            -p:AppCommitSha=${{ steps.version.outputs.commit_sha }} \
+            -p:UseSharedCompilation=false \
+            -nodeReuse:false
+
+      - name: Create archives
         run: |
           mkdir -p ./artifacts
-          PUBLISH_DIR=$(find src/MauiSherpa.LinuxGtk/bin/Release -type d -name publish | head -1)
-          if [ -z "$PUBLISH_DIR" ]; then
-            echo "ERROR: Could not find publish directory"
+
+          X64_DIR=$(find src/MauiSherpa.LinuxGtk/bin/Release -path "*linux-x64*" -type d -name publish | head -1)
+          if [ -z "$X64_DIR" ]; then
+            echo "ERROR: Could not find x64 publish directory"
             find src/MauiSherpa.LinuxGtk/bin/Release -type d | head -20
             exit 1
           fi
-          echo "Publishing from: $PUBLISH_DIR"
-          cd "$PUBLISH_DIR" && tar czf "$OLDPWD/artifacts/MAUI-Sherpa.linux-x64.tar.gz" .
-          ls -lh "$OLDPWD/artifacts/MAUI-Sherpa.linux-x64.tar.gz"
+          echo "x64 from: $X64_DIR"
+          cd "$X64_DIR" && tar czf "$OLDPWD/artifacts/MAUI-Sherpa.linux-x64.tar.gz" .
+          cd "$OLDPWD"
 
-      - name: Upload Linux App
+          ARM64_DIR=$(find src/MauiSherpa.LinuxGtk/bin/Release -path "*linux-arm64*" -type d -name publish | head -1)
+          if [ -z "$ARM64_DIR" ]; then
+            echo "ERROR: Could not find arm64 publish directory"
+            find src/MauiSherpa.LinuxGtk/bin/Release -type d | head -20
+            exit 1
+          fi
+          echo "arm64 from: $ARM64_DIR"
+          cd "$ARM64_DIR" && tar czf "$OLDPWD/artifacts/MAUI-Sherpa.linux-arm64.tar.gz" .
+          cd "$OLDPWD"
+
+          ls -lh ./artifacts/
+
+      - name: Upload Linux App (x64)
         uses: actions/upload-artifact@v4
         with:
           name: MAUI-Sherpa.linux-x64
           path: ./artifacts/MAUI-Sherpa.linux-x64.tar.gz
+          retention-days: 30
+
+      - name: Upload Linux App (arm64)
+        uses: actions/upload-artifact@v4
+        with:
+          name: MAUI-Sherpa.linux-arm64
+          path: ./artifacts/MAUI-Sherpa.linux-arm64.tar.gz
           retention-days: 30
 
       - name: Set commit status with artifact link
@@ -672,9 +704,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           ARTIFACT_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          if [ -f "./artifacts/MAUI-Sherpa.linux-x64.tar.gz" ]; then
+          if [ -f "./artifacts/MAUI-Sherpa.linux-x64.tar.gz" ] && [ -f "./artifacts/MAUI-Sherpa.linux-arm64.tar.gz" ]; then
             STATE="success"
-            DESC="MAUI Sherpa Linux built successfully (x64)"
+            DESC="MAUI Sherpa Linux built successfully (x64 + arm64)"
           else
             STATE="failure"
             DESC="MAUI Sherpa Linux build failed"
@@ -904,6 +936,12 @@ jobs:
           name: MAUI-Sherpa.linux-x64
           path: ./release
 
+      - name: Download Linux artifact (arm64)
+        uses: actions/download-artifact@v4
+        with:
+          name: MAUI-Sherpa.linux-arm64
+          path: ./release
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
@@ -913,6 +951,7 @@ jobs:
             ./release/MAUI-Sherpa.win-x64.zip
             ./release/MAUI-Sherpa.win-arm64.zip
             ./release/MAUI-Sherpa.linux-x64.tar.gz
+            ./release/MAUI-Sherpa.linux-arm64.tar.gz
           generate_release_notes: false
           draft: false
           prerelease: ${{ contains(github.ref, '-') }}
