@@ -9,6 +9,7 @@
     <EnableDefaultCssItems>false</EnableDefaultCssItems>
     <LinuxGtkHeadBuild>true</LinuxGtkHeadBuild>
     <DefineConstants>$(DefineConstants);LINUXGTK</DefineConstants>
+    <ApplicationId>codes.redth.mauisherpa</ApplicationId>
     <LocalGtkNugetSource>$(MSBuildThisFileDirectory)..\..\.nuget\local-packages</LocalGtkNugetSource>
     <RestoreSources>$(RestoreSources);https://api.nuget.org/v3/index.json</RestoreSources>
     <RestoreSources Condition="Exists('$(LocalGtkNugetSource)')">$(RestoreSources);$(LocalGtkNugetSource)</RestoreSources>
@@ -55,8 +56,16 @@
     <Content Include="Resources\fa-stethoscope-white-24.png" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <!-- Emit MauiApplicationId so GtkMauiApplication uses the correct GTK application ID -->
   <ItemGroup>
-    <Content Include="linux\maui-sherpa.desktop" CopyToOutputDirectory="PreserveNewest" Link="linux\maui-sherpa.desktop" />
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>MauiApplicationId</_Parameter1>
+      <_Parameter2>$(ApplicationId)</_Parameter2>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="linux\codes.redth.mauisherpa.desktop" CopyToOutputDirectory="PreserveNewest" Link="linux\codes.redth.mauisherpa.desktop" />
     <Content Include="linux\maui-sherpa.png" CopyToOutputDirectory="PreserveNewest" Link="linux\maui-sherpa.png" />
     <Content Include="linux\install.sh" CopyToOutputDirectory="PreserveNewest" Link="linux\install.sh" />
   </ItemGroup>

@@ -38,6 +38,7 @@ public class App : Application
         
         var window = new Window
         {
+            Title = "MAUI Sherpa",
             Page = new MainPage(splashService),
             Width = savedWidth,
             Height = savedHeight,

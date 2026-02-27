@@ -6,7 +6,7 @@ set -e
 
 INSTALL_DIR="/opt/maui-sherpa"
 BIN_LINK="/usr/local/bin/maui-sherpa"
-DESKTOP_FILE="maui-sherpa.desktop"
+DESKTOP_FILE="codes.redth.mauisherpa.desktop"
 ICON_FILE="maui-sherpa.png"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
