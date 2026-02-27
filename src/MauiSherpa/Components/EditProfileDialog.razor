@@ -9,6 +9,8 @@
 @inject IMediator Mediator
 @inject IJSRuntime JS
 @inject IEncryptedSettingsService SettingsService
+@inject ICertificateSyncService CertificateSyncService
+@inject ICloudSecretsService CloudSecretsService
 @implements IDisposable
 
 @if (IsVisible && Profile != null)
@@ -86,7 +88,16 @@
                                            checked="@isSelected"
                                            @onchange="@(e => ToggleCertificate(cert.Id, (bool)(e.Value ?? false)))" />
                                     <div class="item-content">
-                                        <div class="item-name">@cert.Name</div>
+                                        <div class="item-name">
+                                            @cert.Name
+                                            @if (CloudSecretsService.ActiveProvider != null)
+                                            {
+                                                var syncStatus = GetSyncStatus(cert);
+                                                <span class="badge @GetSyncBadgeClass(syncStatus)" title="@GetSyncStatusTooltip(syncStatus)">
+                                                    <i class="@GetSyncStatusIcon(syncStatus)"></i> @GetSyncStatusText(syncStatus)
+                                                </span>
+                                            }
+                                        </div>
                                         <div class="item-detail">
                                             <span class="@(demoMode ? "demo-blur" : "")">@cert.SerialNumber</span>
                                             <span>Expires: @cert.ExpirationDate.ToString("MMM dd, yyyy")</span>
@@ -411,6 +422,16 @@
 
     .badge-warning { background: var(--status-warning-bg); color: var(--status-warning-text); }
 
+    /* Sync status badges */
+    .badge-sync-both { background: var(--sync-synced-bg); color: var(--sync-synced-text); }
+    .badge-sync-local { background: var(--sync-local-bg); color: var(--sync-local-text); }
+    .badge-sync-cloud { background: var(--sync-cloud-bg); color: var(--sync-cloud-text); }
+    .badge-sync-none { background: var(--sync-none-bg); color: var(--sync-none-text); }
+    .text-sync-both { color: #22c55e; }
+    .text-sync-local { color: #3b82f6; }
+    .text-sync-cloud { color: #eab308; }
+    .text-sync-none { color: #6b7280; }
+
     .empty-list {
         padding: 30px 1.25rem;
         text-align: center;
@@ -536,6 +557,7 @@
     // Selections
     private HashSet<string> selectedCertificateIds = new();
     private HashSet<string> selectedDeviceIds = new();
+    private Dictionary<string, CertificateSecretInfo> syncStatuses = new();
 
     // Computed
     private bool RequiresDevices => Profile?.ProfileType?.Contains("DEVELOPMENT") == true || 
@@ -625,6 +647,9 @@
             {
                 selectedDeviceIds = EnabledDevices.Select(d => d.Id).ToHashSet();
             }
+
+            // Load sync statuses for certificates
+            await LoadSyncStatusesAsync();
         }
         catch (Exception ex)
         {
@@ -715,6 +740,65 @@
         _ => profileType.Replace("_", " ")
     };
 
+    private async Task LoadSyncStatusesAsync()
+    {
+        if (!certificates.Any())
+        {
+            syncStatuses.Clear();
+            return;
+        }
+
+        try
+        {
+            var statuses = await CertificateSyncService.GetCertificateStatusesAsync(certificates);
+            syncStatuses = statuses.ToDictionary(s => s.CertificateId, s => s);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError($"Failed to load sync statuses: {ex.Message}", ex);
+            syncStatuses.Clear();
+        }
+    }
+
+    private SecretLocation GetSyncStatus(AppleCertificate cert)
+    {
+        if (syncStatuses.TryGetValue(cert.Id ?? "", out var status))
+            return status.Location;
+        return SecretLocation.None;
+    }
+
+    private string GetSyncBadgeClass(SecretLocation location) => location switch
+    {
+        SecretLocation.Both => "badge-sync-both",
+        SecretLocation.LocalOnly => "badge-sync-local",
+        SecretLocation.CloudOnly => "badge-sync-cloud",
+        _ => "badge-sync-none"
+    };
+
+    private string GetSyncStatusIcon(SecretLocation location) => location switch
+    {
+        SecretLocation.Both => "fas fa-check-circle text-sync-both",
+        SecretLocation.LocalOnly => "fas fa-hdd text-sync-local",
+        SecretLocation.CloudOnly => "fas fa-cloud text-sync-cloud",
+        _ => "fas fa-times-circle text-sync-none"
+    };
+
+    private string GetSyncStatusText(SecretLocation location) => location switch
+    {
+        SecretLocation.Both => "Synced",
+        SecretLocation.LocalOnly => "Local",
+        SecretLocation.CloudOnly => "Cloud",
+        _ => "No Key"
+    };
+
+    private string GetSyncStatusTooltip(SecretLocation location) => location switch
+    {
+        SecretLocation.Both => "Private key exists locally and in cloud storage",
+        SecretLocation.LocalOnly => "Private key exists locally only - can upload to cloud",
+        SecretLocation.CloudOnly => "Private key in cloud only - can install locally",
+        _ => "No private key available - cannot sign with this certificate"
+    };
+
     private async Task RegenerateProfile()
     {
         if (Profile == null || selectedBundle == null || !CanRegenerate) return;
@@ -765,6 +849,7 @@
         devices.Clear();
         selectedCertificateIds.Clear();
         selectedDeviceIds.Clear();
+        syncStatuses.Clear();
         selectedBundle = null;
         errorMessage = "";
 
