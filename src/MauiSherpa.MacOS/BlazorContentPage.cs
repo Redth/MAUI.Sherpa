@@ -193,7 +193,35 @@ public class BlazorContentPage : ContentPage
         {
             HideSplash();
             SetupSidebarWidthPersistence();
+
+            // Defensive: after everything is ready, verify toolbar was properly
+            // populated. On first launch, FullRebuildToolbar may have run before
+            // the native toolbar was fully connected — the items were added to
+            // the MAUI ToolbarItems collection but the native NSToolbar may not
+            // have created all NSToolbarItems if the delegate wasn't ready yet.
+            Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(500), EnsureToolbarPopulated);
         });
+    }
+
+    /// <summary>
+    /// Verifies the native toolbar has the expected number of items.
+    /// If not (first-launch timing race), forces a full rebuild.
+    /// </summary>
+    void EnsureToolbarPopulated()
+    {
+        var nsWindow = this.Window?.Handler?.PlatformView as NSWindow;
+        var toolbar = nsWindow?.Toolbar;
+        if (toolbar == null) return;
+
+        // The full toolbar should have at minimum: tracking separator + copilot
+        // + several content items. If we only see ≤2 items, the initial build
+        // didn't fully take effect.
+        if (_toolbarInitialized && toolbar.Items.Length <= 2)
+        {
+            _toolbarInitialized = false;
+            _toolbarVisibilityApplied = false;
+            OnToolbarChanged();
+        }
     }
 
     private void HideSplash()
@@ -303,6 +331,7 @@ public class BlazorContentPage : ContentPage
 
     // Toolbar caching: create items once, then show/hide natively
     bool _toolbarInitialized;
+    bool _toolbarVisibilityApplied;
     Dictionary<string, ToolbarItem> _actionItemMap = new();
     List<NSObject> _nativeMenuTargets = new();
 
@@ -320,8 +349,36 @@ public class BlazorContentPage : ContentPage
                 FullRebuildToolbar();
             }
 
-            // After initial build: show/hide native items + update commands
-            UpdateToolbarVisibility();
+            // After initial build: show/hide native items + update commands.
+            // If the native toolbar isn't ready yet, schedule a retry so
+            // visibility is applied once the window is fully set up.
+            if (!TryUpdateToolbarVisibility())
+                ScheduleToolbarVisibilityRetry();
+        });
+    }
+
+    /// <summary>
+    /// Attempts to update toolbar visibility. Returns false if the native
+    /// toolbar isn't available yet (common on first launch when Blazor
+    /// initializes before the window is fully connected).
+    /// </summary>
+    bool TryUpdateToolbarVisibility()
+    {
+        var nsWindow = this.Window?.Handler?.PlatformView as NSWindow;
+        var toolbar = nsWindow?.Toolbar;
+        if (toolbar == null) return false;
+
+        UpdateToolbarVisibility();
+        _toolbarVisibilityApplied = true;
+        return true;
+    }
+
+    void ScheduleToolbarVisibilityRetry()
+    {
+        Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(250), () =>
+        {
+            if (!_toolbarVisibilityApplied && _toolbarInitialized)
+                TryUpdateToolbarVisibility();
         });
     }
 

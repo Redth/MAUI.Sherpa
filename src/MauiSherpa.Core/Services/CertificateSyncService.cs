@@ -396,15 +396,15 @@ public class CertificateSyncService : ICertificateSyncService
         string password,
         CancellationToken cancellationToken)
     {
+        if (OperatingSystem.IsWindows() || OperatingSystem.IsLinux())
+        {
+            return ImportP12ToX509Store(p12Data, password);
+        }
+
         if (!_localCertificateService.IsSupported)
         {
             _logger.LogWarning("Cannot import P12 to keychain: not supported on this platform");
             return false;
-        }
-
-        if (OperatingSystem.IsWindows())
-        {
-            return ImportP12ToWindowsStore(p12Data, password);
         }
 
         // macOS: use security CLI to import into login keychain
@@ -451,7 +451,7 @@ public class CertificateSyncService : ICertificateSyncService
         }
     }
 
-    private bool ImportP12ToWindowsStore(byte[] p12Data, string password)
+    private bool ImportP12ToX509Store(byte[] p12Data, string password)
     {
         try
         {
@@ -476,12 +476,12 @@ public class CertificateSyncService : ICertificateSyncService
                 cert.Dispose();
             }
 
-            _logger.LogInformation("Successfully imported certificate to Windows certificate store");
+            _logger.LogInformation("Successfully imported certificate to X509 store");
             return true;
         }
         catch (Exception ex)
         {
-            _logger.LogError($"Failed to import P12 to Windows store: {ex.Message}", ex);
+            _logger.LogError($"Failed to import P12 to X509 store: {ex.Message}", ex);
             return false;
         }
     }

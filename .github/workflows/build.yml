@@ -396,17 +396,6 @@ jobs:
           echo "Universal binary created:"
           lipo -info "$DEST_APP/Contents/MacOS/$BINARY_NAME"
 
-          # Copy copilot CLI binaries from both architectures into the universal app
-          for ARCH_APP in "$ARM64_APP" "$X64_APP"; do
-            find "$ARCH_APP/Contents/MonoBundle/runtimes" -name "copilot" -type f 2>/dev/null | while read -r src; do
-              rel_path="${src#$ARCH_APP/}"
-              dest="$DEST_APP/$rel_path"
-              mkdir -p "$(dirname "$dest")"
-              cp "$src" "$dest"
-              chmod +x "$dest"
-            done
-          done
-
       - name: Re-sign with Hardened Runtime
         if: env.APPLE_CERTIFICATE_P12 != ''
         env:
@@ -626,10 +615,15 @@ jobs:
       - name: Install GTK4 dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-4-dev libadwaita-1-dev libwebkitgtk-6.0-dev
+          sudo apt-get install -y libgtk-4-dev libadwaita-1-dev libwebkitgtk-6.0-dev flatpak flatpak-builder
 
       - name: Install MAUI workload
         run: dotnet workload install maui-android --version 10.0.102
+
+      - name: Install Flatpak runtimes
+        run: |
+          flatpak remote-add --if-not-exists --user flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user -y flathub org.gnome.Platform//47 org.gnome.Sdk//47
 
       - name: Determine version
         id: version
@@ -644,7 +638,7 @@ jobs:
           echo "commit_sha=$SHA" >> $GITHUB_OUTPUT
           echo "Version: $VER+$SHA"
 
-      - name: Publish Linux App (x64)
+      - name: Publish Linux App (x64) with all packages
         run: |
           dotnet publish src/MauiSherpa.LinuxGtk/MauiSherpa.LinuxGtk.csproj \
             -c Release \
@@ -654,12 +648,15 @@ jobs:
             -p:AppVersion=${{ steps.version.outputs.app_version }} \
             -p:AppCommitSha=${{ steps.version.outputs.commit_sha }} \
             -p:UseSharedCompilation=false \
-            -nodeReuse:false
+            -nodeReuse:false \
+            -p:CreateAppImage=true \
+            -p:CreateDeb=true \
+            -p:CreateFlatpak=true
 
       - name: Clean before arm64 build
         run: dotnet clean src/MauiSherpa.LinuxGtk/MauiSherpa.LinuxGtk.csproj -c Release
 
-      - name: Publish Linux App (arm64)
+      - name: Publish Linux App (arm64) with deb package
         run: |
           dotnet publish src/MauiSherpa.LinuxGtk/MauiSherpa.LinuxGtk.csproj \
             -c Release \
@@ -669,56 +666,74 @@ jobs:
             -p:AppVersion=${{ steps.version.outputs.app_version }} \
             -p:AppCommitSha=${{ steps.version.outputs.commit_sha }} \
             -p:UseSharedCompilation=false \
-            -nodeReuse:false
+            -nodeReuse:false \
+            -p:CreateDeb=true
 
-      - name: Create archives
+      - name: Collect artifacts
         run: |
           mkdir -p ./artifacts
+          VER="${{ steps.version.outputs.app_version }}"
 
-          X64_DIR=$(find src/MauiSherpa.LinuxGtk/bin/Release -path "*linux-x64*" -type d -name publish | head -1)
-          if [ -z "$X64_DIR" ]; then
-            echo "ERROR: Could not find x64 publish directory"
-            find src/MauiSherpa.LinuxGtk/bin/Release -type d | head -20
-            exit 1
-          fi
-          echo "x64 from: $X64_DIR"
-          cd "$X64_DIR" && tar czf "$OLDPWD/artifacts/MAUI-Sherpa.linux-x64.tar.gz" .
-          cd "$OLDPWD"
+          # tar.gz archives from publish output
+          for RID in linux-x64 linux-arm64; do
+            PUBLISH_DIR=$(find src/MauiSherpa.LinuxGtk/bin/Release -type d -name publish | grep "$RID" | head -1)
+            if [ -n "$PUBLISH_DIR" ]; then
+              tar -czf "./artifacts/MAUI-Sherpa.${RID}.tar.gz" -C "$PUBLISH_DIR" .
+              echo "Created: MAUI-Sherpa.${RID}.tar.gz ($(du -h ./artifacts/MAUI-Sherpa.${RID}.tar.gz | cut -f1))"
+            fi
+          done
 
-          ARM64_DIR=$(find src/MauiSherpa.LinuxGtk/bin/Release -path "*linux-arm64*" -type d -name publish | head -1)
-          if [ -z "$ARM64_DIR" ]; then
-            echo "ERROR: Could not find arm64 publish directory"
-            find src/MauiSherpa.LinuxGtk/bin/Release -type d | head -20
-            exit 1
-          fi
-          echo "arm64 from: $ARM64_DIR"
-          cd "$ARM64_DIR" && tar czf "$OLDPWD/artifacts/MAUI-Sherpa.linux-arm64.tar.gz" .
-          cd "$OLDPWD"
+          # Collect generated packages from publish output parent directories
+          find src/MauiSherpa.LinuxGtk/bin/Release -name "*.AppImage" -o -name "*.deb" -o -name "*.flatpak" | while read f; do
+            cp "$f" "./artifacts/"
+            echo "Collected: $(basename $f) ($(du -h $f | cut -f1))"
+          done
 
+          echo "=== All artifacts ==="
           ls -lh ./artifacts/
 
-      - name: Upload Linux App (x64)
+      - name: Upload Linux tar.gz (x64)
         uses: actions/upload-artifact@v4
         with:
           name: MAUI-Sherpa.linux-x64
           path: ./artifacts/MAUI-Sherpa.linux-x64.tar.gz
           retention-days: 30
 
-      - name: Upload Linux App (arm64)
+      - name: Upload Linux tar.gz (arm64)
         uses: actions/upload-artifact@v4
         with:
           name: MAUI-Sherpa.linux-arm64
           path: ./artifacts/MAUI-Sherpa.linux-arm64.tar.gz
           retention-days: 30
 
+      - name: Upload Linux .deb packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: MAUI-Sherpa.linux-deb
+          path: ./artifacts/*.deb
+          retention-days: 30
+
+      - name: Upload Linux AppImage
+        uses: actions/upload-artifact@v4
+        with:
+          name: MAUI-Sherpa.linux-appimage
+          path: ./artifacts/*.AppImage
+          retention-days: 30
+
+      - name: Upload Linux Flatpak
+        uses: actions/upload-artifact@v4
+        with:
+          name: MAUI-Sherpa.linux-flatpak
+          path: ./artifacts/*.flatpak
+          retention-days: 30
+
       - name: Set commit status with artifact link
         if: always()
-        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           ARTIFACT_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          if [ -f "./artifacts/MAUI-Sherpa.linux-x64.tar.gz" ] && [ -f "./artifacts/MAUI-Sherpa.linux-arm64.tar.gz" ]; then
+          if [ -f "./artifacts/MAUI-Sherpa.linux-x64.tar.gz" ]; then
             STATE="success"
             DESC="MAUI Sherpa Linux built successfully (x64 + arm64)"
           else
@@ -944,16 +959,34 @@ jobs:
           name: MAUI-Sherpa.win-arm64
           path: ./release
 
-      - name: Download Linux artifact (x64)
+      - name: Download Linux tar.gz (x64)
         uses: actions/download-artifact@v4
         with:
           name: MAUI-Sherpa.linux-x64
           path: ./release
 
-      - name: Download Linux artifact (arm64)
+      - name: Download Linux tar.gz (arm64)
         uses: actions/download-artifact@v4
         with:
           name: MAUI-Sherpa.linux-arm64
+          path: ./release
+
+      - name: Download Linux .deb packages
+        uses: actions/download-artifact@v4
+        with:
+          name: MAUI-Sherpa.linux-deb
+          path: ./release
+
+      - name: Download Linux AppImage
+        uses: actions/download-artifact@v4
+        with:
+          name: MAUI-Sherpa.linux-appimage
+          path: ./release
+
+      - name: Download Linux Flatpak
+        uses: actions/download-artifact@v4
+        with:
+          name: MAUI-Sherpa.linux-flatpak
           path: ./release
 
       - name: Create Release
@@ -966,6 +999,9 @@ jobs:
             ./release/MAUI-Sherpa.win-arm64.zip
             ./release/MAUI-Sherpa.linux-x64.tar.gz
             ./release/MAUI-Sherpa.linux-arm64.tar.gz
+            ./release/*.deb
+            ./release/*.AppImage
+            ./release/*.flatpak
           generate_release_notes: false
           draft: false
           prerelease: ${{ contains(github.ref, '-') }}
