@@ -396,6 +396,17 @@ jobs:
           echo "Universal binary created:"
           lipo -info "$DEST_APP/Contents/MacOS/$BINARY_NAME"
 
+          # Copy copilot CLI binaries from both architectures into the universal app
+          for ARCH_APP in "$ARM64_APP" "$X64_APP"; do
+            find "$ARCH_APP/Contents/MonoBundle/runtimes" -name "copilot" -type f 2>/dev/null | while read -r src; do
+              rel_path="${src#$ARCH_APP/}"
+              dest="$DEST_APP/$rel_path"
+              mkdir -p "$(dirname "$dest")"
+              cp "$src" "$dest"
+              chmod +x "$dest"
+            done
+          done
+
       - name: Re-sign with Hardened Runtime
         if: env.APPLE_CERTIFICATE_P12 != ''
         env:

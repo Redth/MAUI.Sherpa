@@ -72,4 +72,21 @@
     <MauiAsset Include="..\MauiSherpa\Resources\Raw\**" LogicalName="%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 
+  <!-- Bundle Copilot CLI binary into the macOS app.
+       The GitHub.Copilot.SDK downloads the binary under osx-{arch}/native,
+       but the macOS build system doesn't copy it into the .app bundle automatically.
+       We copy it into Contents/MonoBundle/runtimes/{rid}/native/ where
+       CopilotService.ResolveCopilotCliPath() expects to find it. -->
+  <Target Name="_BundleCopilotCliForMacOS" AfterTargets="Build">
+    <PropertyGroup>
+      <_CopilotRid>$(RuntimeIdentifier)</_CopilotRid>
+      <_CopilotRid Condition="'$(_CopilotRid)' == ''">osx-$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant())</_CopilotRid>
+      <_CopilotSourceBinary>$(OutDir)runtimes/$(_CopilotRid)/native/copilot</_CopilotSourceBinary>
+      <_CopilotAppBundle>$(OutDir)$(ApplicationTitle).app/Contents/MonoBundle/runtimes/$(_CopilotRid)/native</_CopilotAppBundle>
+    </PropertyGroup>
+    <MakeDir Directories="$(_CopilotAppBundle)" Condition="Exists('$(_CopilotSourceBinary)')" />
+    <Copy SourceFiles="$(_CopilotSourceBinary)" DestinationFolder="$(_CopilotAppBundle)" SkipUnchangedFiles="true" Condition="Exists('$(_CopilotSourceBinary)')" />
+    <Exec Command="chmod +x &quot;$(_CopilotAppBundle)/copilot&quot;" Condition="Exists('$(_CopilotSourceBinary)')" />
+  </Target>
+
 </Project>
