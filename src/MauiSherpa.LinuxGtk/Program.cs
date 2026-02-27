@@ -1,8 +1,6 @@
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.Hosting;
-#if DEBUG
 using MauiDevFlow.Agent.Gtk;
-#endif
 using MauiSherpa.Core.Interfaces;
 using MauiSherpa.Services;
 using Platform.Maui.Linux.Gtk4.Platform;
@@ -28,13 +26,22 @@ public class Program : GtkMauiApplication
         var toolbarService = Services.GetService<IToolbarService>();
         var copilotContext = Services.GetService<ICopilotContextService>();
         var themeForToolbar = Services.GetService<IThemeService>();
-        if (toolbarService != null && copilotContext != null && themeForToolbar != null)
+        var appleIdentityService = Services.GetService<IAppleIdentityService>();
+        var appleIdentityState = Services.GetService<IAppleIdentityStateService>();
+        var googleIdentityService = Services.GetService<IGoogleIdentityService>();
+        var googleIdentityState = Services.GetService<IGoogleIdentityStateService>();
+        if (toolbarService != null && copilotContext != null && themeForToolbar != null
+            && appleIdentityService != null && appleIdentityState != null
+            && googleIdentityService != null && googleIdentityState != null)
         {
             var mauiWindow = Microsoft.Maui.Controls.Application.Current?.Windows?.FirstOrDefault();
             var gtkWindow = (mauiWindow as Window)?.Handler?.PlatformView as Gtk.Window;
             if (gtkWindow != null)
             {
-                _toolbarManager = new LinuxToolbarManager(toolbarService, copilotContext, themeForToolbar);
+                _toolbarManager = new LinuxToolbarManager(
+                    toolbarService, copilotContext, themeForToolbar,
+                    appleIdentityService, appleIdentityState,
+                    googleIdentityService, googleIdentityState);
                 _toolbarManager.AttachToWindow(gtkWindow);
             }
         }
