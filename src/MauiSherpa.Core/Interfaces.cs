@@ -370,6 +370,31 @@ public record AppleBundleIdCapability(
 /// </summary>
 public static class CapabilityCategories
 {
+    /// <summary>
+    /// Capability types that cannot be toggled via the App Store Connect API.
+    /// These must be configured through the Apple Developer Portal or Xcode.
+    /// </summary>
+    public static readonly IReadOnlySet<string> NonToggleableCapabilities = new HashSet<string>
+    {
+        "CARPLAY_PLAYABLE_CONTENT",
+        "MARZIPAN",
+        "COMMUNICATION_NOTIFICATIONS",
+        "GROUP_ACTIVITIES",
+        "EXPOSURE_NOTIFICATION",
+        "EXTENDED_VIRTUAL_ADDRESSING",
+        "MDMMANAGED_ASSOCIATED_DOMAINS",
+        "FILE_PROVIDER_TESTING_MODE",
+        "HEALTH_KIT_RECALIBRATE_ESTIMATES",
+        "TIME_SENSITIVE_NOTIFICATIONS",
+        "FAMILY_CONTROLS",
+    };
+
+    /// <summary>
+    /// Returns true if the capability can be toggled via the App Store Connect API.
+    /// </summary>
+    public static bool IsToggleable(string capabilityType) =>
+        !NonToggleableCapabilities.Contains(capabilityType);
+
     public static readonly IReadOnlyDictionary<string, string[]> Categories = new Dictionary<string, string[]>
     {
         ["App Services"] = new[] { "PUSH_NOTIFICATIONS", "ICLOUD", "IN_APP_PURCHASE", "GAME_CENTER", "APPLE_PAY", "WALLET" },
