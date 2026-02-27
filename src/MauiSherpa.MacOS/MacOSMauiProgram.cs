@@ -8,8 +8,10 @@ using Microsoft.Maui.Platform.MacOS.Hosting;
 using Microsoft.Maui.Platform.MacOS.Handlers;
 using Microsoft.Maui.Essentials.MacOS;
 using Shiny.Mediator;
+#if DEBUG
 using MauiDevFlow.Agent;
 using MauiDevFlow.Blazor;
+#endif
 
 namespace MauiSherpa;
 

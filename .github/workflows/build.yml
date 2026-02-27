@@ -597,7 +597,7 @@ jobs:
 
   publish-linux:
     name: Publish Linux App
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     needs: build-test
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     permissions:
@@ -615,7 +615,13 @@ jobs:
       - name: Install GTK4 dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev flatpak flatpak-builder
+          sudo apt-get install -y libgtk-4-dev libadwaita-1-dev libwebkitgtk-6.0-dev flatpak flatpak-builder
+
+      - name: Install MAUI workload
+        run: dotnet workload install maui-android --version 10.0.102
+
+      - name: Install Flatpak runtimes
+        run: |
           flatpak remote-add --if-not-exists --user flathub https://dl.flathub.org/repo/flathub.flatpakrepo
           flatpak install --user -y flathub org.gnome.Platform//47 org.gnome.Sdk//47
 
@@ -638,11 +644,17 @@ jobs:
             -c Release \
             -r linux-x64 \
             --self-contained true \
+            --disable-build-servers \
             -p:AppVersion=${{ steps.version.outputs.app_version }} \
             -p:AppCommitSha=${{ steps.version.outputs.commit_sha }} \
+            -p:UseSharedCompilation=false \
+            -nodeReuse:false \
             -p:CreateAppImage=true \
             -p:CreateDeb=true \
             -p:CreateFlatpak=true
+
+      - name: Clean before arm64 build
+        run: dotnet clean src/MauiSherpa.LinuxGtk/MauiSherpa.LinuxGtk.csproj -c Release
 
       - name: Publish Linux App (arm64) with deb package
         run: |
@@ -650,8 +662,11 @@ jobs:
             -c Release \
             -r linux-arm64 \
             --self-contained true \
+            --disable-build-servers \
             -p:AppVersion=${{ steps.version.outputs.app_version }} \
             -p:AppCommitSha=${{ steps.version.outputs.commit_sha }} \
+            -p:UseSharedCompilation=false \
+            -nodeReuse:false \
             -p:CreateDeb=true
 
       - name: Collect artifacts
