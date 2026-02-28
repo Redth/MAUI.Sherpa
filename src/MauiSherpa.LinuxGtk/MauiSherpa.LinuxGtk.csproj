@@ -67,4 +67,15 @@
     <Content Include="Resources\fa-stethoscope-white-24.png" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <!-- Flatpak requires icons in hicolor/scalable/ to be max 512x512 -->
+  <Target Name="_OverrideFlatpakIconSize"
+          AfterTargets="_CopyFlatpakIcon"
+          BeforeTargets="CreateFlatpak"
+          Condition="'$(_FlatpakEnabled)' == 'true' and Exists('Resources/appicon-512.png')">
+    <Copy SourceFiles="Resources/appicon-512.png"
+          DestinationFiles="$(_FlatpakWorkDir)/publish/share/icons/hicolor/scalable/apps/$(ApplicationId).png"
+          OverwriteReadOnlyFiles="true" />
+    <Message Importance="normal" Text="Flatpak: Replaced icon with 512x512 version" />
+  </Target>
+
 </Project>
