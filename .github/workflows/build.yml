@@ -596,12 +596,22 @@ jobs:
             -f context="MAUI Sherpa / Download Windows App"
 
   publish-linux:
-    name: Publish Linux App
-    runs-on: ubuntu-latest
+    name: Publish Linux App (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
     needs: build-test
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     permissions:
       statuses: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-latest
+            rid: linux-x64
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            rid: linux-arm64
 
     steps:
       - name: Checkout
@@ -645,11 +655,11 @@ jobs:
             --disable-build-servers \
             -nodeReuse:false
 
-      - name: Publish Linux App (x64) with all packages
+      - name: Publish Linux App (${{ matrix.arch }}) with all packages
         run: |
           dotnet publish src/MauiSherpa.LinuxGtk/MauiSherpa.LinuxGtk.csproj \
             -c Release \
-            -r linux-x64 \
+            -r ${{ matrix.rid }} \
             --self-contained true \
             --disable-build-servers \
             -p:AppVersion=${{ steps.version.outputs.app_version }} \
@@ -661,38 +671,16 @@ jobs:
             -p:CreateDeb=true \
             -p:CreateFlatpak=true
 
-      - name: Clean before arm64 build
-        run: |
-          dotnet build-server shutdown
-          dotnet clean src/MauiSherpa.LinuxGtk/MauiSherpa.LinuxGtk.csproj -c Release
-
-      - name: Publish Linux App (arm64) with deb package
-        run: |
-          dotnet publish src/MauiSherpa.LinuxGtk/MauiSherpa.LinuxGtk.csproj \
-            -c Release \
-            -r linux-arm64 \
-            --self-contained true \
-            --disable-build-servers \
-            -p:AppVersion=${{ steps.version.outputs.app_version }} \
-            -p:AppCommitSha=${{ steps.version.outputs.commit_sha }} \
-            -p:UseSharedCompilation=false \
-            -nodeReuse:false \
-            -maxcpucount:1 \
-            -p:CreateDeb=true
-
       - name: Collect artifacts
         run: |
           mkdir -p ./artifacts
-          VER="${{ steps.version.outputs.app_version }}"
 
-          # tar.gz archives from publish output
-          for RID in linux-x64 linux-arm64; do
-            PUBLISH_DIR=$(find src/MauiSherpa.LinuxGtk/bin/Release -type d -name publish | grep "$RID" | head -1)
-            if [ -n "$PUBLISH_DIR" ]; then
-              tar -czf "./artifacts/MAUI-Sherpa.${RID}.tar.gz" -C "$PUBLISH_DIR" .
-              echo "Created: MAUI-Sherpa.${RID}.tar.gz ($(du -h ./artifacts/MAUI-Sherpa.${RID}.tar.gz | cut -f1))"
-            fi
-          done
+          # tar.gz archive from publish output
+          PUBLISH_DIR=$(find src/MauiSherpa.LinuxGtk/bin/Release -type d -name publish | grep "${{ matrix.rid }}" | head -1)
+          if [ -n "$PUBLISH_DIR" ]; then
+            tar -czf "./artifacts/MAUI-Sherpa.${{ matrix.rid }}.tar.gz" -C "$PUBLISH_DIR" .
+            echo "Created: MAUI-Sherpa.${{ matrix.rid }}.tar.gz ($(du -h ./artifacts/MAUI-Sherpa.${{ matrix.rid }}.tar.gz | cut -f1))"
+          fi
 
           # Collect generated packages (AppImage, Deb, Flatpak are in bin/{type}/, not bin/Release/)
           find src/MauiSherpa.LinuxGtk/bin -name "*.AppImage" -o -name "*.deb" -o -name "*.flatpak" | while read f; do
@@ -703,38 +691,31 @@ jobs:
           echo "=== All artifacts ==="
           ls -lh ./artifacts/
 
-      - name: Upload Linux tar.gz (x64)
+      - name: Upload Linux tar.gz
         uses: actions/upload-artifact@v4
         with:
-          name: MAUI-Sherpa.linux-x64
-          path: ./artifacts/MAUI-Sherpa.linux-x64.tar.gz
-          retention-days: 30
-
-      - name: Upload Linux tar.gz (arm64)
-        uses: actions/upload-artifact@v4
-        with:
-          name: MAUI-Sherpa.linux-arm64
-          path: ./artifacts/MAUI-Sherpa.linux-arm64.tar.gz
+          name: MAUI-Sherpa.${{ matrix.rid }}
+          path: ./artifacts/MAUI-Sherpa.${{ matrix.rid }}.tar.gz
           retention-days: 30
 
       - name: Upload Linux .deb packages
         uses: actions/upload-artifact@v4
         with:
-          name: MAUI-Sherpa.linux-deb
+          name: MAUI-Sherpa.linux-deb-${{ matrix.arch }}
           path: ./artifacts/*.deb
           retention-days: 30
 
       - name: Upload Linux AppImage
         uses: actions/upload-artifact@v4
         with:
-          name: MAUI-Sherpa.linux-appimage
+          name: MAUI-Sherpa.linux-appimage-${{ matrix.arch }}
           path: ./artifacts/*.AppImage
           retention-days: 30
 
       - name: Upload Linux Flatpak
         uses: actions/upload-artifact@v4
         with:
-          name: MAUI-Sherpa.linux-flatpak
+          name: MAUI-Sherpa.linux-flatpak-${{ matrix.arch }}
           path: ./artifacts/*.flatpak
           retention-days: 30
 
@@ -744,18 +725,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           ARTIFACT_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          if [ -f "./artifacts/MAUI-Sherpa.linux-x64.tar.gz" ]; then
+          if [ -f "./artifacts/MAUI-Sherpa.${{ matrix.rid }}.tar.gz" ]; then
             STATE="success"
-            DESC="MAUI Sherpa Linux built successfully (x64 + arm64)"
+            DESC="MAUI Sherpa Linux ${{ matrix.arch }} built successfully"
           else
             STATE="failure"
-            DESC="MAUI Sherpa Linux build failed"
+            DESC="MAUI Sherpa Linux ${{ matrix.arch }} build failed"
           fi
           gh api repos/${{ github.repository }}/statuses/${{ github.sha }} \
             -f state="$STATE" \
             -f target_url="$ARTIFACT_URL" \
             -f description="$DESC" \
-            -f context="MAUI Sherpa / Download Linux App"
+            -f context="MAUI Sherpa / Download Linux App (${{ matrix.arch }})"
 
   notarize-maccatalyst:
     name: Notarize Mac Catalyst App
@@ -982,22 +963,40 @@ jobs:
           name: MAUI-Sherpa.linux-arm64
           path: ./release
 
-      - name: Download Linux .deb packages
+      - name: Download Linux .deb packages (x64)
         uses: actions/download-artifact@v4
         with:
-          name: MAUI-Sherpa.linux-deb
+          name: MAUI-Sherpa.linux-deb-x64
           path: ./release
 
-      - name: Download Linux AppImage
+      - name: Download Linux .deb packages (arm64)
         uses: actions/download-artifact@v4
         with:
-          name: MAUI-Sherpa.linux-appimage
+          name: MAUI-Sherpa.linux-deb-arm64
           path: ./release
 
-      - name: Download Linux Flatpak
+      - name: Download Linux AppImage (x64)
         uses: actions/download-artifact@v4
         with:
-          name: MAUI-Sherpa.linux-flatpak
+          name: MAUI-Sherpa.linux-appimage-x64
+          path: ./release
+
+      - name: Download Linux AppImage (arm64)
+        uses: actions/download-artifact@v4
+        with:
+          name: MAUI-Sherpa.linux-appimage-arm64
+          path: ./release
+
+      - name: Download Linux Flatpak (x64)
+        uses: actions/download-artifact@v4
+        with:
+          name: MAUI-Sherpa.linux-flatpak-x64
+          path: ./release
+
+      - name: Download Linux Flatpak (arm64)
+        uses: actions/download-artifact@v4
+        with:
+          name: MAUI-Sherpa.linux-flatpak-arm64
           path: ./release
 
       - name: Create Release
