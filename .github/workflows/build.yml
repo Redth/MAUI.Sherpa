@@ -638,6 +638,13 @@ jobs:
           echo "commit_sha=$SHA" >> $GITHUB_OUTPUT
           echo "Version: $VER+$SHA"
 
+      - name: Pre-build shared dependencies
+        run: |
+          dotnet build src/MauiSherpa.Workloads/MauiSherpa.Workloads.csproj \
+            -c Release \
+            --disable-build-servers \
+            -nodeReuse:false
+
       - name: Publish Linux App (x64) with all packages
         run: |
           dotnet publish src/MauiSherpa.LinuxGtk/MauiSherpa.LinuxGtk.csproj \
@@ -649,6 +656,7 @@ jobs:
             -p:AppCommitSha=${{ steps.version.outputs.commit_sha }} \
             -p:UseSharedCompilation=false \
             -nodeReuse:false \
+            -maxcpucount:1 \
             -p:CreateAppImage=true \
             -p:CreateDeb=true \
             -p:CreateFlatpak=true
@@ -669,6 +677,7 @@ jobs:
             -p:AppCommitSha=${{ steps.version.outputs.commit_sha }} \
             -p:UseSharedCompilation=false \
             -nodeReuse:false \
+            -maxcpucount:1 \
             -p:CreateDeb=true
 
       - name: Collect artifacts
