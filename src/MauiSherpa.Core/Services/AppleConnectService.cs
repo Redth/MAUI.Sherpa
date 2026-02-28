@@ -504,16 +504,30 @@ public class AppleConnectService : IAppleConnectService
                 fieldsCertificates: null, fieldsDevices: null,
                 cancellationToken: default);
 
+            // Build lookup of included bundle IDs by resource ID
+            var bundleIdLookup = (response.IncludedBundleIds ?? [])
+                .ToDictionary(b => b.Id, b => b.Attributes?.Identifier ?? "");
+
             return response.Data
-                .Select(p => new AppleProfile(
-                    p.Id,
-                    p.Attributes?.Name ?? "",
-                    p.Attributes?.ProfileType.ToString() ?? "IOS_APP_DEVELOPMENT",
-                    p.Attributes?.Platform.ToString() ?? "IOS",
-                    p.Attributes?.ProfileState.ToString() ?? "ACTIVE",
-                    p.Attributes?.ExpirationDate?.DateTime ?? DateTime.UtcNow.AddYears(1),
-                    "", // BundleIdIdentifier - would need to resolve from relationships
-                    p.Attributes?.Uuid ?? ""))
+                .Select(p =>
+                {
+                    var bundleIds = p.Relationships?.TryGetValue("bundleId", out var bundleIdRel) == true
+                        ? (bundleIdRel?.Data ?? [])
+                            .Select(d => bundleIdLookup.TryGetValue(d.Id, out var id) ? id : null)
+                            .Where(id => !string.IsNullOrEmpty(id))
+                            .ToList()
+                        : [];
+                    var bundleIdentifier = string.Join(", ", bundleIds);
+                    return new AppleProfile(
+                        p.Id,
+                        p.Attributes?.Name ?? "",
+                        p.Attributes?.ProfileType.ToString() ?? "IOS_APP_DEVELOPMENT",
+                        p.Attributes?.Platform.ToString() ?? "IOS",
+                        p.Attributes?.ProfileState.ToString() ?? "ACTIVE",
+                        p.Attributes?.ExpirationDate?.DateTime ?? DateTime.UtcNow.AddYears(1),
+                        bundleIdentifier,
+                        p.Attributes?.Uuid ?? "");
+                })
                 .ToList();
         }
         catch (Exception ex)
