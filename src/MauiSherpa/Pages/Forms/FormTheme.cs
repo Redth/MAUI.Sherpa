@@ -58,7 +58,14 @@ public static class FormTheme
         ApplyTheme(app.Resources, IsDark(app));
 
         app.RequestedThemeChanged += (_, e) =>
-            ApplyTheme(app.Resources, e.RequestedTheme == AppTheme.Dark);
+            ApplyTheme(app.Resources, IsDark(app));
+
+        // Also update when UserAppTheme is set programmatically (manual theme switch)
+        app.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(Application.UserAppTheme))
+                ApplyTheme(app.Resources, IsDark(app));
+        };
     }
 
     static bool IsDark(Application app)
