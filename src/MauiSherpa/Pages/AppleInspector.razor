@@ -19,31 +19,28 @@
                     @onclick="@(() => SetTab(SimInspectorTab.Apps))">
                 <i class="fas fa-th-large"></i> Apps
             </button>
-            <button class="inspector-tab @(ActiveTab == SimInspectorTab.Capture ? "active" : "")"
-                    @onclick="@(() => SetTab(SimInspectorTab.Capture))">
-                <i class="fas fa-camera"></i> Capture
-            </button>
-            <button class="inspector-tab @(ActiveTab == SimInspectorTab.Tools ? "active" : "")"
-                    @onclick="@(() => SetTab(SimInspectorTab.Tools))">
-                <i class="fas fa-wrench"></i> Tools
-            </button>
+            @if (!InspectorService.IsPhysicalDevice)
+            {
+                <button class="inspector-tab @(ActiveTab == SimInspectorTab.Capture ? "active" : "")"
+                        @onclick="@(() => SetTab(SimInspectorTab.Capture))">
+                    <i class="fas fa-camera"></i> Capture
+                </button>
+                <button class="inspector-tab @(ActiveTab == SimInspectorTab.Tools ? "active" : "")"
+                        @onclick="@(() => SetTab(SimInspectorTab.Tools))">
+                    <i class="fas fa-wrench"></i> Tools
+                </button>
+            }
         </div>
         <div class="inspector-device-selector">
             <i class="fab fa-apple inspector-device-icon"></i>
             <select class="inspector-device-select" value="@Udid" @onchange="OnDeviceChanged">
-                @if (InspectorService.IsPhysicalDevice)
+                @foreach (var s in bootedSimulators)
                 {
-                    @foreach (var d in physicalDevices)
-                    {
-                        <option value="@d.Identifier" selected="@(d.Identifier == Udid)">@d.Name</option>
-                    }
+                    <option value="@s.Udid" selected="@(s.Udid == Udid)">@s.Name (Sim)</option>
                 }
-                else
+                @foreach (var d in physicalDevices)
                 {
-                    @foreach (var s in bootedSimulators)
-                    {
-                        <option value="@s.Udid" selected="@(s.Udid == Udid)">@s.Name</option>
-                    }
+                    <option value="@d.Identifier" selected="@(d.Identifier == Udid)">@d.Name</option>
                 }
             </select>
         </div>
@@ -63,31 +60,16 @@
                 }
                 break;
             case SimInspectorTab.Apps:
-                @if (InspectorService.IsPhysicalDevice)
-                {
-                    <PhysicalDeviceAppsTab Identifier="@Udid" />
-                }
-                else
-                {
-                    <SimAppsTab Udid="@Udid" />
-                }
+                <AppleAppsTab Identifier="@Udid" IsSimulator="@(!InspectorService.IsPhysicalDevice)" />
                 break;
             case SimInspectorTab.Capture:
-                @if (InspectorService.IsPhysicalDevice)
-                {
-                    <PhysicalDeviceCaptureTab Identifier="@Udid" />
-                }
-                else
+                @if (!InspectorService.IsPhysicalDevice)
                 {
                     <SimCaptureTab Udid="@Udid" />
                 }
                 break;
             case SimInspectorTab.Tools:
-                @if (InspectorService.IsPhysicalDevice)
-                {
-                    <PhysicalDeviceToolsTab Identifier="@Udid" />
-                }
-                else
+                @if (!InspectorService.IsPhysicalDevice)
                 {
                     <SimToolsTab Udid="@Udid" />
                 }
@@ -204,10 +186,16 @@
         InspectorService.IsOpen = true;
         InspectorService.StateChanged += OnServiceStateChanged;
 
-        if (InspectorService.IsPhysicalDevice)
-            LoadPhysicalDevices();
-        else
-            await LoadBootedSimulatorsAsync();
+        // Always load both so the device selector is complete
+        await LoadBootedSimulatorsAsync();
+        LoadPhysicalDevices();
+
+        // If physical device landed on a sim-only tab, redirect to Apps
+        if (InspectorService.IsPhysicalDevice && (ActiveTab == SimInspectorTab.Capture || ActiveTab == SimInspectorTab.Tools))
+        {
+            ActiveTab = SimInspectorTab.Apps;
+            InspectorService.ActiveTab = ActiveTab;
+        }
     }
 
     protected override void OnParametersSet()
@@ -236,15 +224,17 @@
         if (string.IsNullOrEmpty(newUdid) || newUdid == Udid) return;
         Udid = newUdid;
 
-        if (InspectorService.IsPhysicalDevice)
+        var physical = physicalDevices.FirstOrDefault(d => d.Identifier == newUdid);
+        var sim = bootedSimulators.FirstOrDefault(s => s.Udid == newUdid);
+        InspectorService.IsPhysicalDevice = physical != null;
+        var name = physical?.Name ?? sim?.Name;
+        InspectorService.SwitchDevice(newUdid, name);
+
+        // If switched to physical and on sim-only tab, redirect
+        if (InspectorService.IsPhysicalDevice && (ActiveTab == SimInspectorTab.Capture || ActiveTab == SimInspectorTab.Tools))
         {
-            var device = physicalDevices.FirstOrDefault(d => d.Identifier == newUdid);
-            InspectorService.SwitchDevice(newUdid, device?.Name);
-        }
-        else
-        {
-            var sim = bootedSimulators.FirstOrDefault(s => s.Udid == newUdid);
-            InspectorService.SwitchDevice(newUdid, sim?.Name);
+            ActiveTab = SimInspectorTab.Apps;
+            InspectorService.ActiveTab = ActiveTab;
         }
     }
 
