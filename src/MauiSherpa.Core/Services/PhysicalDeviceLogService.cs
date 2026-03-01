@@ -5,8 +5,9 @@ using MauiSherpa.Core.Interfaces;
 namespace MauiSherpa.Core.Services;
 
 /// <summary>
-/// Streams syslog from a physical iOS device using idevicesyslog (libimobiledevice).
-/// Falls back to devicectl if idevicesyslog is not available.
+/// Streams syslog from a physical iOS device.
+/// Uses pymobiledevice3 (supports iOS 17+ via bonjour/mobdev2 discovery),
+/// falls back to idevicesyslog (libimobiledevice, works for iOS 16 and older).
 /// </summary>
 public class PhysicalDeviceLogService : IPhysicalDeviceLogService
 {
@@ -20,6 +21,14 @@ public class PhysicalDeviceLogService : IPhysicalDeviceLogService
     private Process? _process;
     private CancellationTokenSource? _cts;
     private Channel<SimulatorLogEntry>? _channel;
+
+    // Common venv install locations for pymobiledevice3
+    private static readonly string[] PymobiledevicePaths = new[]
+    {
+        "pymobiledevice3", // on PATH
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".local/pymobiledevice3-venv/bin/pymobiledevice3"),
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".local/bin/pymobiledevice3"),
+    };
 
     public bool IsSupported => _platform.IsMacCatalyst || _platform.IsMacOS;
     public bool IsRunning => _process is { HasExited: false };
@@ -55,7 +64,6 @@ public class PhysicalDeviceLogService : IPhysicalDeviceLogService
             SingleReader = false,
         });
 
-        // Try idevicesyslog first, fall back to devicectl syslog
         var (fileName, arguments) = FindLogCommand(hardwareUdid, udid);
 
         _process = new Process
@@ -76,6 +84,7 @@ public class PhysicalDeviceLogService : IPhysicalDeviceLogService
         _logger.LogInformation($"Physical device log stream started for {udid} (PID: {_process.Id}, cmd: {fileName} {arguments})");
 
         _ = Task.Run(() => ReadOutputAsync(_process, _cts.Token), _cts.Token);
+        _ = Task.Run(() => ReadStderrAsync(_process, _cts.Token), _cts.Token);
     }
 
     public void Stop()
@@ -155,28 +164,66 @@ public class PhysicalDeviceLogService : IPhysicalDeviceLogService
         return identifierOrUdid;
     }
 
-    private static (string fileName, string arguments) FindLogCommand(string hardwareUdid, string coreDeviceId)
+    private (string fileName, string arguments) FindLogCommand(string hardwareUdid, string coreDeviceId)
     {
-        // Prefer idevicesyslog for richer output
+        // pymobiledevice3 supports iOS 17+ via bonjour/mobdev2 discovery
+        var pymobile = ResolvePymobiledevice3();
+        if (pymobile != null)
+        {
+            _logger.LogInformation($"Using pymobiledevice3 for device log streaming: {pymobile}");
+            return (pymobile, $"syslog live --mobdev2 --udid {hardwareUdid}");
+        }
+
+        // idevicesyslog works with devices visible to usbmuxd (iOS 16 and older,
+        // or iOS 17+ if a tunnel is set up)
+        if (TryWhich("idevicesyslog"))
+        {
+            _logger.LogInformation("Using idevicesyslog for device log streaming");
+            return ("idevicesyslog", $"-u {hardwareUdid}");
+        }
+
+        // No tool available — output an error message
+        _logger.LogWarning("No device log streaming tool found (pymobiledevice3 or idevicesyslog)");
+        return ("echo", "Device log streaming requires pymobiledevice3 or idevicesyslog (libimobiledevice). Install with: python3 -m venv ~/.local/pymobiledevice3-venv && ~/.local/pymobiledevice3-venv/bin/pip install pymobiledevice3");
+    }
+
+    /// <summary>
+    /// Finds pymobiledevice3 on PATH or in common venv locations.
+    /// </summary>
+    private static string? ResolvePymobiledevice3()
+    {
+        foreach (var path in PymobiledevicePaths)
+        {
+            if (path == "pymobiledevice3")
+            {
+                if (TryWhich(path))
+                    return path;
+            }
+            else if (File.Exists(path))
+            {
+                return path;
+            }
+        }
+        return null;
+    }
+
+    private static bool TryWhich(string tool)
+    {
         try
         {
             var psi = new ProcessStartInfo
             {
                 FileName = "which",
-                Arguments = "idevicesyslog",
+                Arguments = tool,
                 RedirectStandardOutput = true,
                 UseShellExecute = false,
                 CreateNoWindow = true,
             };
             using var p = Process.Start(psi);
             p?.WaitForExit(2000);
-            if (p?.ExitCode == 0)
-                return ("idevicesyslog", $"-u {hardwareUdid}");
+            return p?.ExitCode == 0;
         }
-        catch { }
-
-        // Fallback to xcrun devicectl (uses CoreDevice identifier)
-        return ("xcrun", $"devicectl device info syslog --device {coreDeviceId}");
+        catch { return false; }
     }
 
     private async Task ReadOutputAsync(Process process, CancellationToken ct)
@@ -220,8 +267,27 @@ public class PhysicalDeviceLogService : IPhysicalDeviceLogService
         }
     }
 
+    private async Task ReadStderrAsync(Process process, CancellationToken ct)
+    {
+        try
+        {
+            var reader = process.StandardError;
+            while (!ct.IsCancellationRequested && !reader.EndOfStream)
+            {
+                var line = await reader.ReadLineAsync(ct).ConfigureAwait(false);
+                if (!string.IsNullOrWhiteSpace(line))
+                    _logger.LogWarning($"Device log stderr: {line}");
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Error reading device log stderr: {ex.Message}", ex);
+        }
+    }
+
     /// <summary>
-    /// Parse syslog lines from idevicesyslog or devicectl syslog.
+    /// Parse syslog lines from idevicesyslog or pymobiledevice3 syslog.
     /// Typical format: "Mar  1 12:34:56 DeviceName processName(pid)[category] &lt;Level&gt;: message"
     /// </summary>
     private static SimulatorLogEntry? ParseSyslogLine(string line)
