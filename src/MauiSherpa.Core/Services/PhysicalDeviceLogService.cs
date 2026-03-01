@@ -14,6 +14,7 @@ public class PhysicalDeviceLogService : IPhysicalDeviceLogService
 
     private readonly ILoggingService _logger;
     private readonly IPlatformService _platform;
+    private readonly IPhysicalDeviceService _deviceService;
     private readonly List<SimulatorLogEntry> _entries = new();
     private readonly object _lock = new();
     private Process? _process;
@@ -29,18 +30,23 @@ public class PhysicalDeviceLogService : IPhysicalDeviceLogService
 
     public event Action? OnCleared;
 
-    public PhysicalDeviceLogService(ILoggingService logger, IPlatformService platform)
+    public PhysicalDeviceLogService(ILoggingService logger, IPlatformService platform, IPhysicalDeviceService deviceService)
     {
         _logger = logger;
         _platform = platform;
+        _deviceService = deviceService;
     }
 
-    public Task StartAsync(string udid, CancellationToken ct = default)
+    public async Task StartAsync(string udid, CancellationToken ct = default)
     {
-        if (!IsSupported) return Task.CompletedTask;
+        if (!IsSupported) return;
 
         if (IsRunning)
             Stop();
+
+        // The udid parameter may be a CoreDevice identifier (UUID format).
+        // idevicesyslog needs the hardware UDID, so look it up.
+        var hardwareUdid = await ResolveHardwareUdidAsync(udid);
 
         _cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         _channel = Channel.CreateUnbounded<SimulatorLogEntry>(new UnboundedChannelOptions
@@ -50,7 +56,7 @@ public class PhysicalDeviceLogService : IPhysicalDeviceLogService
         });
 
         // Try idevicesyslog first, fall back to devicectl syslog
-        var (fileName, arguments) = FindLogCommand(udid);
+        var (fileName, arguments) = FindLogCommand(hardwareUdid, udid);
 
         _process = new Process
         {
@@ -67,11 +73,9 @@ public class PhysicalDeviceLogService : IPhysicalDeviceLogService
         };
 
         _process.Start();
-        _logger.LogInformation($"Physical device log stream started for {udid} (PID: {_process.Id}, cmd: {fileName})");
+        _logger.LogInformation($"Physical device log stream started for {udid} (PID: {_process.Id}, cmd: {fileName} {arguments})");
 
         _ = Task.Run(() => ReadOutputAsync(_process, _cts.Token), _cts.Token);
-
-        return Task.CompletedTask;
     }
 
     public void Stop()
@@ -125,7 +129,33 @@ public class PhysicalDeviceLogService : IPhysicalDeviceLogService
         GC.SuppressFinalize(this);
     }
 
-    private static (string fileName, string arguments) FindLogCommand(string udid)
+    private async Task<string> ResolveHardwareUdidAsync(string identifierOrUdid)
+    {
+        try
+        {
+            var devices = await _deviceService.GetDevicesAsync();
+            // Match by CoreDevice identifier
+            var device = devices.FirstOrDefault(d =>
+                d.Identifier.Equals(identifierOrUdid, StringComparison.OrdinalIgnoreCase));
+            if (device != null)
+                return device.Udid;
+
+            // Maybe it's already a hardware UDID
+            device = devices.FirstOrDefault(d =>
+                d.Udid.Equals(identifierOrUdid, StringComparison.OrdinalIgnoreCase));
+            if (device != null)
+                return device.Udid;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning($"Failed to resolve hardware UDID for {identifierOrUdid}: {ex.Message}");
+        }
+
+        // Fall back to using as-is
+        return identifierOrUdid;
+    }
+
+    private static (string fileName, string arguments) FindLogCommand(string hardwareUdid, string coreDeviceId)
     {
         // Prefer idevicesyslog for richer output
         try
@@ -141,12 +171,12 @@ public class PhysicalDeviceLogService : IPhysicalDeviceLogService
             using var p = Process.Start(psi);
             p?.WaitForExit(2000);
             if (p?.ExitCode == 0)
-                return ("idevicesyslog", $"-u {udid}");
+                return ("idevicesyslog", $"-u {hardwareUdid}");
         }
         catch { }
 
-        // Fallback to xcrun devicectl
-        return ("xcrun", $"devicectl device info syslog --device {udid}");
+        // Fallback to xcrun devicectl (uses CoreDevice identifier)
+        return ("xcrun", $"devicectl device info syslog --device {coreDeviceId}");
     }
 
     private async Task ReadOutputAsync(Process process, CancellationToken ct)
