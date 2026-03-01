@@ -4,6 +4,7 @@
 @using MauiSherpa.Core.Interfaces
 @inject SimInspectorService InspectorService
 @inject ISimulatorService SimulatorService
+@inject IDeviceMonitorService DeviceMonitor
 @implements IDisposable
 
 <div class="inspector-page">
@@ -17,21 +18,28 @@
                     @onclick="@(() => SetTab(SimInspectorTab.Apps))">
                 <i class="fas fa-th-large"></i> Apps
             </button>
-            <button class="inspector-tab @(ActiveTab == SimInspectorTab.Capture ? "active" : "")"
-                    @onclick="@(() => SetTab(SimInspectorTab.Capture))">
-                <i class="fas fa-camera"></i> Capture
-            </button>
-            <button class="inspector-tab @(ActiveTab == SimInspectorTab.Tools ? "active" : "")"
-                    @onclick="@(() => SetTab(SimInspectorTab.Tools))">
-                <i class="fas fa-wrench"></i> Tools
-            </button>
+            @if (isSimulator)
+            {
+                <button class="inspector-tab @(ActiveTab == SimInspectorTab.Capture ? "active" : "")"
+                        @onclick="@(() => SetTab(SimInspectorTab.Capture))">
+                    <i class="fas fa-camera"></i> Capture
+                </button>
+                <button class="inspector-tab @(ActiveTab == SimInspectorTab.Tools ? "active" : "")"
+                        @onclick="@(() => SetTab(SimInspectorTab.Tools))">
+                    <i class="fas fa-wrench"></i> Tools
+                </button>
+            }
         </div>
         <div class="inspector-device-selector">
             <i class="fab fa-apple inspector-device-icon"></i>
             <select class="inspector-device-select" value="@Udid" @onchange="OnDeviceChanged">
                 @foreach (var s in bootedSimulators)
                 {
-                    <option value="@s.Udid" selected="@(s.Udid == Udid)">@s.Name</option>
+                    <option value="@s.Udid" selected="@(s.Udid == Udid)">@s.Name (Sim)</option>
+                }
+                @foreach (var d in physicalDevices)
+                {
+                    <option value="@d.Identifier" selected="@(d.Identifier == Udid)">@d.Name</option>
                 }
             </select>
         </div>
@@ -41,16 +49,32 @@
         @switch (ActiveTab)
         {
             case SimInspectorTab.Logs:
-                <SimLogContent Udid="@Udid" />
+                @if (isSimulator)
+                {
+                    <SimLogContent Udid="@Udid" />
+                }
+                else
+                {
+                    <div class="inspector-placeholder">
+                        <i class="fas fa-info-circle"></i>
+                        <span>Log streaming is not yet supported for physical devices</span>
+                    </div>
+                }
                 break;
             case SimInspectorTab.Apps:
-                <SimAppsTab Udid="@Udid" />
+                <AppleAppsTab Identifier="@Udid" IsSimulator="@isSimulator" />
                 break;
             case SimInspectorTab.Capture:
-                <SimCaptureTab Udid="@Udid" />
+                @if (isSimulator)
+                {
+                    <SimCaptureTab Udid="@Udid" />
+                }
                 break;
             case SimInspectorTab.Tools:
-                <SimToolsTab Udid="@Udid" />
+                @if (isSimulator)
+                {
+                    <SimToolsTab Udid="@Udid" />
+                }
                 break;
         }
     </div>
@@ -136,7 +160,7 @@
         cursor: pointer;
         -webkit-appearance: none;
         appearance: none;
-        max-width: 180px;
+        max-width: 220px;
     }
 
     .inspector-body {
@@ -146,6 +170,20 @@
         display: flex;
         flex-direction: column;
     }
+
+    .inspector-placeholder {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.75rem;
+        height: 100%;
+        color: var(--text-muted);
+        font-size: 0.875rem;
+    }
+    .inspector-placeholder i {
+        font-size: 1.5rem;
+    }
 </style>
 
 @code {
@@ -153,7 +191,9 @@
     [Parameter] public string? TabName { get; set; }
 
     private SimInspectorTab ActiveTab = SimInspectorTab.Logs;
+    private bool isSimulator = true;
     private List<SimulatorDevice> bootedSimulators = new();
+    private List<AppleDeviceInfo> physicalDevices = new();
 
     protected override async Task OnInitializedAsync()
     {
@@ -162,7 +202,8 @@
         InspectorService.ActiveTab = ActiveTab;
         InspectorService.IsOpen = true;
         InspectorService.StateChanged += OnServiceStateChanged;
-        await LoadBootedSimulatorsAsync();
+        await LoadDevicesAsync();
+        DetermineDeviceType();
     }
 
     protected override void OnParametersSet()
@@ -176,6 +217,20 @@
         if (InspectorService.ActiveUdid != Udid)
         {
             InspectorService.SwitchDevice(Udid);
+            DetermineDeviceType();
+        }
+    }
+
+    private void DetermineDeviceType()
+    {
+        var snapshot = DeviceMonitor.Current;
+        isSimulator = snapshot.BootedSimulators.Any(s => s.Identifier == Udid);
+
+        // If on a physical device and current tab is simulator-only, switch to Apps
+        if (!isSimulator && (ActiveTab == SimInspectorTab.Capture || ActiveTab == SimInspectorTab.Tools))
+        {
+            ActiveTab = SimInspectorTab.Apps;
+            InspectorService.ActiveTab = ActiveTab;
         }
     }
 
@@ -190,11 +245,15 @@
         var newUdid = e.Value?.ToString();
         if (string.IsNullOrEmpty(newUdid) || newUdid == Udid) return;
         Udid = newUdid;
+        DetermineDeviceType();
+
         var sim = bootedSimulators.FirstOrDefault(s => s.Udid == newUdid);
-        InspectorService.SwitchDevice(newUdid, sim?.Name);
+        var physical = physicalDevices.FirstOrDefault(d => d.Identifier == newUdid);
+        var name = sim?.Name ?? physical?.Name;
+        InspectorService.SwitchDevice(newUdid, name, isSimulator);
     }
 
-    private async Task LoadBootedSimulatorsAsync()
+    private async Task LoadDevicesAsync()
     {
         try
         {
@@ -202,6 +261,9 @@
             bootedSimulators = all.Where(s => s.State?.Equals("Booted", StringComparison.OrdinalIgnoreCase) == true).ToList();
         }
         catch { }
+
+        var snapshot = DeviceMonitor.Current;
+        physicalDevices = snapshot.ApplePhysicalDevices.ToList();
     }
 
     private void OnServiceStateChanged()

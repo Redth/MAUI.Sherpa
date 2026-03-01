@@ -835,6 +835,8 @@ public interface IPhysicalDeviceService
     Task<IReadOnlyList<PhysicalDevice>> GetDevicesAsync();
     Task<bool> InstallAppAsync(string identifier, string appPath, IProgress<string>? progress = null);
     Task<bool> LaunchAppAsync(string identifier, string bundleId, IProgress<string>? progress = null);
+    Task<IReadOnlyList<PhysicalDeviceApp>> GetInstalledAppsAsync(string identifier);
+    Task<string?> DownloadAppContainerAsync(string identifier, string bundleId, string outputDir, IProgress<string>? progress = null);
 }
 
 /// <summary>
@@ -847,6 +849,16 @@ public record SimulatorApp(
     string ApplicationType,
     string? DataContainerPath,
     string? BundlePath
+);
+
+/// <summary>
+/// Represents an installed app on a physical iOS device
+/// </summary>
+public record PhysicalDeviceApp(
+    string BundleId,
+    string Name,
+    string? Version,
+    string ApplicationType
 );
 
 // ============================================================================
