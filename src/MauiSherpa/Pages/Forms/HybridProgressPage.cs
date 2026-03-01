@@ -68,7 +68,8 @@ public class HybridProgressPage : ContentPage
         };
 
         // Header separator
-        var headerSeparator = new BoxView { HeightRequest = 1, Opacity = 0.2 };
+        var headerSeparator = new BoxView { HeightRequest = 1 };
+        headerSeparator.SetDynamicResource(BoxView.ColorProperty, FormTheme.Separator);
 
 
         // BlazorWebView
@@ -105,7 +106,8 @@ public class HybridProgressPage : ContentPage
         _webView = webView;
 
         // Footer separator
-        var footerSeparator = new BoxView { HeightRequest = 1, Opacity = 0.2 };
+        var footerSeparator = new BoxView { HeightRequest = 1 };
+        footerSeparator.SetDynamicResource(BoxView.ColorProperty, FormTheme.Separator);
 
 
         // Footer — pre-create button slots. Hidden initially via IsVisible=false.

@@ -90,7 +90,8 @@ public abstract class HybridFormPage<TResult> : ContentPage, IFormPage<TResult>,
         };
 
         // Header separator — full width
-        var headerSeparator = new BoxView { HeightRequest = 1, Opacity = 0.2 };
+        var headerSeparator = new BoxView { HeightRequest = 1 };
+        headerSeparator.SetDynamicResource(BoxView.ColorProperty, FormTheme.Separator);
 
 
         // BlazorWebView
@@ -127,7 +128,8 @@ public abstract class HybridFormPage<TResult> : ContentPage, IFormPage<TResult>,
         _webView = webView;
 
         // Footer separator — full width
-        var footerSeparator = new BoxView { HeightRequest = 1, Opacity = 0.2 };
+        var footerSeparator = new BoxView { HeightRequest = 1 };
+        footerSeparator.SetDynamicResource(BoxView.ColorProperty, FormTheme.Separator);
 
 
         var cancelButton = new Button
