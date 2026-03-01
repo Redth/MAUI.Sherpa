@@ -131,6 +131,17 @@
                     </p>
 
                     <div class="device-toolbar">
+                        <div class="search-box">
+                            <i class="fas fa-search"></i>
+                            <input type="text" placeholder="Filter devices..." 
+                                   @bind="deviceSearchFilter" @bind:event="oninput" />
+                            @if (!string.IsNullOrEmpty(deviceSearchFilter))
+                            {
+                                <button class="clear-search" @onclick="@(() => deviceSearchFilter = string.Empty)">
+                                    <i class="fas fa-times"></i>
+                                </button>
+                            }
+                        </div>
                         <label class="select-all-checkbox">
                             <input type="checkbox" 
                                    checked="@(selectedDeviceIds.Count == EnabledDevices.Count() && EnabledDevices.Any())"
@@ -381,7 +392,44 @@
 
     .device-toolbar {
         margin-bottom: 0.5rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
     }
+
+    .search-box {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.5rem 0.75rem;
+        background: var(--input-bg, white);
+        border-radius: var(--card-radius, 1rem);
+        border: 1px solid var(--border-color, #e2e8f0);
+    }
+
+    .search-box i { color: var(--text-muted); font-size: 0.8125rem; }
+
+    .search-box input {
+        flex: 1;
+        border: none;
+        outline: none;
+        background: transparent;
+        font-size: 0.8125rem;
+        color: var(--text-primary);
+    }
+
+    .search-box input::placeholder { color: var(--text-muted); }
+
+    .clear-search {
+        background: none;
+        border: none;
+        cursor: pointer;
+        color: var(--text-muted);
+        padding: 0;
+        font-size: 0.75rem;
+    }
+
+    .clear-search:hover { color: var(--text-primary); }
 
     .select-all-checkbox {
         display: flex;
@@ -435,6 +483,7 @@
     private HashSet<string> selectedCertificateIds = new();
     private HashSet<string> selectedDeviceIds = new();
     private Dictionary<string, CertificateSecretInfo> syncStatuses = new();
+    private string deviceSearchFilter = string.Empty;
 
     // Computed
     private bool RequiresDevices => Profile?.ProfileType?.Contains("DEVELOPMENT") == true || 
@@ -452,6 +501,9 @@
 
     private IEnumerable<AppleDevice> FilteredDevices => devices
         .Where(d => IsDeviceCompatible(d.Platform, d.DeviceClass))
+        .Where(d => string.IsNullOrWhiteSpace(deviceSearchFilter) ||
+                    d.Name.Contains(deviceSearchFilter, StringComparison.OrdinalIgnoreCase) ||
+                    d.Udid.Contains(deviceSearchFilter, StringComparison.OrdinalIgnoreCase))
         .OrderByDescending(d => d.Status == "ENABLED")
         .ThenBy(d => d.Name);
 
