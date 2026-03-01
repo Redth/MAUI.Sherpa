@@ -67,7 +67,8 @@ public class SettingsPage : ContentPage
         };
 
         // Header separator
-        var headerSeparator = new BoxView { HeightRequest = 1, Opacity = 0.2 };
+        var headerSeparator = new BoxView { HeightRequest = 1 };
+        headerSeparator.SetDynamicResource(BoxView.ColorProperty, FormTheme.Separator);
 
 
         // BlazorWebView
@@ -104,7 +105,8 @@ public class SettingsPage : ContentPage
         _webView = webView;
 
         // Footer separator
-        var footerSeparator = new BoxView { HeightRequest = 1, Opacity = 0.2 };
+        var footerSeparator = new BoxView { HeightRequest = 1 };
+        footerSeparator.SetDynamicResource(BoxView.ColorProperty, FormTheme.Separator);
 
 
         // Footer buttons: Reset (left) ... Cancel + Save (right)
