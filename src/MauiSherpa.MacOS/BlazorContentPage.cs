@@ -422,7 +422,13 @@ public class BlazorContentPage : ContentPage
             bool shouldShow = activeIds.Contains(actionId);
             MacOSToolbarItem.SetIsVisible(toolbarItem, shouldShow);
             toolbarItem.Command = shouldShow
-                ? new Command(() => _toolbarService.InvokeToolbarItemClicked(actionId))
+                ? new Command(() =>
+                {
+                    if (actionId == "settings")
+                        OpenSettingsDialog();
+                    else
+                        _toolbarService.InvokeToolbarItemClicked(actionId);
+                })
                 : null;
         }
 
