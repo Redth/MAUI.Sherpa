@@ -131,9 +131,15 @@
         <h3>Select Bundle ID</h3>
         <p class="step-description">Choose the App ID for this profile.</p>
 
-        <div class="search-box">
+        <div class="search-box" style="margin-bottom: 1rem;">
             <i class="fas fa-search"></i>
             <input type="text" @bind="bundleIdSearch" @bind:event="oninput" placeholder="Search bundle IDs..." />
+            @if (!string.IsNullOrEmpty(bundleIdSearch))
+            {
+                <button class="clear-search" @onclick="@(() => bundleIdSearch = string.Empty)">
+                    <i class="fas fa-times"></i>
+                </button>
+            }
         </div>
 
         <div class="selection-list">
@@ -223,16 +229,22 @@
         </p>
 
         <div class="device-toolbar">
+            <div class="search-box">
+                <i class="fas fa-search"></i>
+                <input type="text" @bind="deviceSearch" @bind:event="oninput" placeholder="Filter devices..." />
+                @if (!string.IsNullOrEmpty(deviceSearch))
+                {
+                    <button class="clear-search" @onclick="@(() => deviceSearch = string.Empty)">
+                        <i class="fas fa-times"></i>
+                    </button>
+                }
+            </div>
             <label class="select-all-checkbox">
                 <input type="checkbox" 
                        checked="@(selectedDeviceIds.Count == FilteredDevices.Count() && FilteredDevices.Any())"
                        @onchange="ToggleAllDevices" />
                 <span>Select All (@FilteredDevices.Count())</span>
             </label>
-            <div class="search-box small">
-                <i class="fas fa-search"></i>
-                <input type="text" @bind="deviceSearch" @bind:event="oninput" placeholder="Search devices..." />
-            </div>
         </div>
 
         <div class="selection-list devices">
@@ -437,24 +449,6 @@
     .type-content { flex: 1; }
     .type-name { font-weight: 500; font-size: 0.875rem; color: var(--text-primary, #1a202c); }
     .type-description { font-size: 0.75rem; color: var(--text-muted, #718096); margin-top: 2px; }
-
-    /* Search Box */
-    .search-box { position: relative; margin-bottom: 1rem; }
-    .search-box i { position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--text-muted); font-size: 0.875rem; }
-    .search-box input {
-        width: 100%;
-        padding: 0.625rem 0.75rem 0.625rem 36px;
-        border: 1px solid var(--border-color, #e2e8f0);
-        border-radius: 0.375rem;
-        font-size: 0.875rem;
-        box-sizing: border-box;
-        background: var(--input-bg, white);
-        color: var(--text-primary);
-    }
-    .search-box input:focus { outline: none; border-color: var(--accent-primary, #8b5cf6); box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.15); }
-    .search-box.small { margin-bottom: 0; }
-    .search-box.small input { padding: 0.375rem 0.625rem 0.375rem 2rem; font-size: 0.8125rem; }
-    .search-box.small i { font-size: 0.75rem; left: 0.625rem; }
 
     /* Selection List */
     .selection-list {
