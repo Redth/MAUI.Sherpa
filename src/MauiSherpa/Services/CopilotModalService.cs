@@ -15,16 +15,14 @@ public class CopilotModalService : ICopilotModalService, IDisposable
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly ICopilotContextService _contextService;
-    private readonly IToolbarService _toolbarService;
     private CopilotPage? _currentPage;
 
     public bool IsOpen { get; private set; }
 
-    public CopilotModalService(IServiceProvider serviceProvider, ICopilotContextService contextService, IToolbarService toolbarService)
+    public CopilotModalService(IServiceProvider serviceProvider, ICopilotContextService contextService)
     {
         _serviceProvider = serviceProvider;
         _contextService = contextService;
-        _toolbarService = toolbarService;
 
         _contextService.OnOpenRequested += HandleOpenRequested;
         _contextService.OnCloseRequested += HandleCloseRequested;
@@ -50,7 +48,6 @@ public class CopilotModalService : ICopilotModalService, IDisposable
 
         IsOpen = true;
         _contextService.NotifyOverlayStateChanged(true);
-        _toolbarService.SetToolbarSuppressed(true);
 
         _currentPage = GetOrCreatePage();
         await nav.PushModalAsync(_currentPage, animated: true);
@@ -74,10 +71,6 @@ public class CopilotModalService : ICopilotModalService, IDisposable
 #if MACOSAPP || LINUXGTK
         _currentPage = null; // let GC collect the disposed page
 #endif
-
-        // Restore toolbar AFTER the modal is fully dismissed so the
-        // native toolbar items re-appear on the underlying page.
-        _toolbarService.SetToolbarSuppressed(false);
     }
 
     private void HandleOpenRequested()

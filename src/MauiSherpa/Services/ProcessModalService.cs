@@ -1,4 +1,6 @@
 using MauiSherpa.Core.Interfaces;
+using MauiSherpa.Pages.Forms;
+using Microsoft.Maui.Controls;
 
 namespace MauiSherpa.Services;
 
@@ -8,6 +10,7 @@ namespace MauiSherpa.Services;
 public class ProcessModalService : IProcessModalService
 {
     private readonly IProcessExecutionService _processService;
+    private readonly ProgressBridgeHolder _bridgeHolder;
     private TaskCompletionSource<ProcessResult?>? _completionSource;
     private ProcessResult? _pendingResult;
 
@@ -22,9 +25,10 @@ public class ProcessModalService : IProcessModalService
     public bool RequiresConfirmation { get; private set; }
     public ProcessResult? LastResult => _pendingResult;
 
-    public ProcessModalService(IProcessExecutionService processService)
+    public ProcessModalService(IProcessExecutionService processService, ProgressBridgeHolder bridgeHolder)
     {
         _processService = processService;
+        _bridgeHolder = bridgeHolder;
     }
 
     public async Task<ProcessResult?> ShowProcessAsync(ProcessRequest request, bool requireConfirmation = true)
@@ -43,7 +47,22 @@ public class ProcessModalService : IProcessModalService
         OnModalShown?.Invoke();
         OnShowRequested?.Invoke(request);
 
+        // Push native modal page
+        var nav = Application.Current?.Windows.FirstOrDefault()?.Page?.Navigation;
+        INavigation? activeNav = nav;
+        if (nav != null)
+        {
+            var page = new HybridProgressPage(_bridgeHolder, "/modal/process", request.Title ?? "Process Execution", 700, 500);
+            await nav.PushModalAsync(page, animated: true);
+        }
+
         var result = await _completionSource.Task;
+
+        // Pop native modal page
+        if (activeNav != null)
+        {
+            try { await activeNav.PopModalAsync(animated: true); } catch { }
+        }
 
         IsVisible = false;
         CurrentRequest = null;

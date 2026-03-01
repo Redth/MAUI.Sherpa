@@ -16,6 +16,7 @@ public class App : Application
     public App(IServiceProvider serviceProvider)
     {
         _serviceProvider = serviceProvider;
+        Pages.Forms.FormTheme.Register(this);
     }
 
     protected override Window CreateWindow(IActivationState? activationState)

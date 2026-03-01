@@ -10,6 +10,8 @@
 @inject IDialogService DialogService
 @inject IFileSystemService FileSystem
 @inject OperationModalService OperationModal
+@inject IFormModalService FormModalService
+@inject MauiSherpa.Pages.Forms.HybridFormBridgeHolder BridgeHolder
 @inject BlazorToastService ToastService
 @inject IEncryptedSettingsService SettingsService
 @inject IToolbarService ToolbarService
@@ -203,9 +205,6 @@
     </div>
 }
 
-<CreateProfileDialog @bind-IsVisible="showCreateDialog" OnProfileCreated="OnProfileCreated" />
-<EditProfileDialog @bind-IsVisible="showEditDialog" Profile="selectedProfileForEdit" OnProfileRegenerated="OnProfileRegenerated" />
-
 <style>
     h1 { margin-bottom: 1.25rem; font-size: 1.75rem; color: var(--text-primary); }
 
@@ -216,13 +215,10 @@
     .btn-purple { background: #8b5cf6; color: white; }
     .btn-purple:hover:not(:disabled) { background: #7c3aed; }
 
-    .btn-warning { background: #ed8936; color: white; }
-    .btn-warning:hover:not(:disabled) { background: #dd6b20; }
-
     /* Filter Section Styles */
     .filter-section {
         background: var(--card-bg);
-        border-radius: 0.5rem;
+        border-radius: var(--card-radius);
         padding: 1rem;
         margin-bottom: 1rem;
         box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
@@ -338,18 +334,6 @@
         color: var(--text-muted);
         margin-bottom: 0.75rem;
     }
-
-    .btn { 
-        padding: 0.625rem 1.25rem; 
-        border: none; 
-        border-radius: 0.375rem; 
-        font-size: 0.875rem; 
-        cursor: pointer; 
-        transition: all 0.2s ease;
-        display: inline-flex;
-        align-items: center;
-        gap: 0.375rem;
-    }
     .btn i { font-size: 0.75rem; }
     .btn-icon {
         width: 2rem; height: 2rem; padding: 0;
@@ -357,23 +341,13 @@
         border-radius: 0.375rem; font-size: 0.8125rem;
     }
     .btn-icon i { font-size: 0.8125rem; margin: 0; }
-    .btn-primary { background-color: var(--accent-primary); color: white; }
-    .btn-primary:hover:not(:disabled) { background-color: var(--accent-primary-hover); }
-    .btn-secondary { background-color: #a0aec0; color: white; }
-    .btn-secondary:hover:not(:disabled) { background-color: #718096; }
-    .btn-danger { background-color: #f56565; color: white; }
-    .btn-danger:hover:not(:disabled) { background-color: var(--accent-danger); }
-    .btn-success { background-color: var(--accent-success); color: white; }
-    .btn-success:hover:not(:disabled) { background-color: var(--accent-success-hover); }
-    .btn-sm { padding: 0.375rem 0.75rem; font-size: 0.75rem; }
-    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
     /* ── Dropdown ── */
     .prof-dropdown { position: relative; }
     .prof-dropdown-menu {
         position: absolute; right: 0; top: 100%; margin-top: 0.25rem;
         min-width: 160px; background: var(--card-bg);
-        border: 1px solid var(--border-color); border-radius: 0.5rem;
+        border-radius: var(--card-radius);
         box-shadow: 0 0.25rem 1rem rgba(0,0,0,0.15); z-index: 100; padding: 0.25rem 0;
     }
     .prof-dropdown-item {
@@ -394,20 +368,19 @@
 
     .profile-card {
         background: var(--card-bg);
-        border-radius: 0.5rem;
-        padding: 1.25rem;
+        border-radius: var(--card-radius);
+        padding: 0.875rem;
         display: flex;
         align-items: flex-start;
         gap: 1rem;
-        box-shadow: var(--card-shadow);
         border-left: 0.25rem solid var(--accent-success);
     }
 
     .profile-card.invalid { border-left-color: #f56565; opacity: 0.7; }
     .profile-card.expiring { border-left-color: var(--accent-warning); }
 
-    .profile-icon { font-size: 2.25rem; color: #6b46c1; }
-    .profile-icon i { font-size: 1.75rem; }
+    .profile-icon { font-size: 1.5rem; color: #6b46c1; }
+    .profile-icon i { font-size: 1.25rem; }
     .profile-details { flex: 1; }
     .profile-name { font-weight: 600; font-size: 1rem; color: var(--text-primary); }
     .profile-uuid { 
@@ -458,7 +431,7 @@
     .badge-expired { background: var(--status-error-bg); color: var(--status-error-text); }
     .badge-invalid { background: var(--status-error-bg); color: var(--status-error-text); }
 
-    .empty-state { background: var(--card-bg); border-radius: 0.5rem; padding: 3.75rem 2.5rem; text-align: center; box-shadow: var(--card-shadow); }
+    .empty-state { background: var(--card-bg); border-radius: var(--card-radius); padding: 3.75rem 2.5rem; text-align: center; }
     .empty-icon { font-size: 48px; margin-bottom: 1rem; color: #a0aec0; }
     .empty-icon i { font-size: 48px; }
     .empty-title { font-size: 1.125rem; font-weight: 600; color: var(--text-primary); margin-bottom: 0.5rem; }
@@ -472,17 +445,11 @@
     private bool demoMode = false;
     private string errorMessage = "";
     private string? openDropdown = null;
-    private bool showCreateDialog = false;
-    
     // Filter state
     private string searchQuery = "";
     private string filterState = "";
     private string filterType = "";
     private string filterPlatform = "";
-
-    // Edit dialog state
-    private bool showEditDialog = false;
-    private AppleProfile? selectedProfileForEdit = null;
 
     private bool HasActiveFilters => !string.IsNullOrEmpty(searchQuery) || 
                                       !string.IsNullOrEmpty(filterState) || 
@@ -500,28 +467,20 @@
         openDropdown = openDropdown == id ? null : id;
     }
 
-    private void ShowCreateDialog()
+    private async Task ShowCreateDialog()
     {
-        showCreateDialog = true;
+        var page = new MauiSherpa.Pages.Modals.CreateProfilePage(BridgeHolder);
+        var result = await FormModalService.ShowAsync<AppleProfile>(page);
+        if (result != null)
+            await RefreshData(forceRefresh: true);
     }
 
-    private void ShowEditDialog(AppleProfile profile)
+    private async Task ShowEditDialog(AppleProfile profile)
     {
-        selectedProfileForEdit = profile;
-        showEditDialog = true;
-    }
-
-    private async Task OnProfileCreated(AppleProfile profile)
-    {
-        // Refresh the list to show the new profile
-        await RefreshData(forceRefresh: true);
-    }
-
-    private async Task OnProfileRegenerated(AppleProfile profile)
-    {
-        // Refresh the list to show the regenerated profile
-        selectedProfileForEdit = null;
-        await RefreshData(forceRefresh: true);
+        var page = new MauiSherpa.Pages.Modals.EditProfilePage(BridgeHolder, profile);
+        var result = await FormModalService.ShowAsync<AppleProfile>(page);
+        if (result != null)
+            await RefreshData(forceRefresh: true);
     }
 
     private IEnumerable<AppleProfile> FilteredProfiles => profiles
@@ -617,7 +576,7 @@
                     ToolbarService.SetItemEnabled("refresh", false);
                     try { await RefreshData(forceRefresh: true); } finally { ToolbarService.SetItemEnabled("refresh", true); }
                     break;
-                case "create": ShowCreateDialog(); break;
+                case "create": await ShowCreateDialog(); break;
             }
             StateHasChanged();
         });

@@ -23,6 +23,7 @@ class MacOSApp : Application
     {
         _serviceProvider = serviceProvider;
         _preferences = serviceProvider.GetRequiredService<IPreferences>();
+        MauiSherpa.Pages.Forms.FormTheme.Register(this);
 
         var toolbarService = serviceProvider.GetRequiredService<IToolbarService>();
         toolbarService.RouteChanged += OnBlazorRouteChanged;
@@ -116,7 +117,7 @@ class MacOSApp : Application
         var sep1 = NSMenuItem.SeparatorItem;
         appMenu.InsertItem(sep1, insertIndex++);
 
-        var settingsHandler = new MenuActionHandler(() => blazorPage.NavigateToRoute("/settings"));
+        var settingsHandler = new MenuActionHandler(() => blazorPage.OpenSettingsDialog());
         _menuHandlers.Add(settingsHandler);
         var settingsItem = new NSMenuItem("Settings…", new ObjCRuntime.Selector("menuAction:"), ",");
         settingsItem.Target = settingsHandler;
@@ -147,7 +148,6 @@ class MacOSApp : Application
         {
             new() { Title = "Dashboard", SystemImage = "house.fill", Tag = "/" },
             new() { Title = "Doctor", SystemImage = "stethoscope", Tag = "/doctor" },
-            new() { Title = "Settings", SystemImage = "gear", Tag = "/settings" },
             new MacOSSidebarItem
             {
                 Title = "Android",

@@ -1,118 +1,69 @@
 @using MauiSherpa.Core.Interfaces
 @using MauiSherpa.Core.Services
 @using MauiSherpa.Services
+@using MauiSherpa.Pages.Forms
 @inject OperationModalService ModalService
 @inject ICopilotContextService CopilotContext
 @inject IJSRuntime JS
+@inject ProgressBridgeHolder BridgeHolder
 @implements IDisposable
 
 @if (ModalService.IsVisible)
 {
-    <div class="operation-modal-overlay" id="operation-modal">
-        <div class="operation-modal @(ModalService.IsRunning ? "" : "completed")" role="dialog" aria-modal="true" aria-labelledby="operation-modal-title">
-            <div class="modal-header">
-                <h2 id="operation-modal-title">
-                    @if (ModalService.IsRunning)
-                    {
-                        <i class="fas fa-spinner fa-spin"></i>
-                    }
-                    else if (ModalService.CurrentState == OperationState.Completed)
-                    {
-                        <i class="fas fa-check-circle success-icon"></i>
-                    }
-                    else if (ModalService.CurrentState == OperationState.Failed)
-                    {
-                        <i class="fas fa-times-circle error-icon"></i>
-                    }
-                    else if (ModalService.CurrentState == OperationState.Cancelled)
-                    {
-                        <i class="fas fa-ban warning-icon"></i>
-                    }
-                    @ModalService.Title
-                </h2>
-                @if (!ModalService.IsRunning)
-                {
-                    <button class="close-btn" @onclick="HandleClose"><i class="fas fa-times"></i></button>
-                }
-            </div>
+    <div class="operation-content" id="operation-modal">
+        <div class="description">@ModalService.Description</div>
 
-            <div class="modal-body">
-                <div class="description">@ModalService.Description</div>
-
-                @if (ModalService.IsRunning)
+        @if (ModalService.IsRunning)
+        {
+            <div class="progress-section">
+                @if (!string.IsNullOrEmpty(ModalService.CurrentStatus))
                 {
-                    <div class="progress-section">
-                        @if (!string.IsNullOrEmpty(ModalService.CurrentStatus))
-                        {
-                            <div class="status-text">@ModalService.CurrentStatus</div>
-                        }
-                        <div class="progress-bar-container">
-                            @if (ModalService.CurrentProgress.HasValue)
-                            {
-                                <div class="progress-bar" style="width: @(ModalService.CurrentProgress)%"></div>
-                                <span class="progress-text">@(ModalService.CurrentProgress)%</span>
-                            }
-                            else
-                            {
-                                <div class="progress-bar indeterminate"></div>
-                            }
-                        </div>
-                        <div class="elapsed-time">
-                            <i class="fas fa-clock"></i> @ElapsedTime
-                        </div>
-                    </div>
+                    <div class="status-text">@ModalService.CurrentStatus</div>
                 }
-                else
-                {
-                    <div class="result-section">
-                        <div class="result-status @GetResultClass()">
-                            <i class="fas @GetResultIcon()"></i>
-                            <span>@GetResultText()</span>
-                        </div>
-                        <div class="result-details">
-                            <span><i class="fas fa-clock"></i> Duration: @Duration</span>
-                        </div>
-                    </div>
-                }
-
-                <div class="log-section">
-                    <div class="log-header">
-                        <span><i class="fas fa-list"></i> Activity Log</span>
-                        <button class="btn-icon" @onclick="CopyLog" title="Copy log">
-                            <i class="fas fa-copy"></i>
-                        </button>
-                    </div>
-                    <div class="log-container" @ref="_logContainer">
-                        @foreach (var entry in ModalService.LogEntries)
-                        {
-                            <div class="log-entry @GetLogLevelClass(entry.Level)">
-                                <span class="log-time">@entry.Timestamp.ToString("HH:mm:ss")</span>
-                                <i class="fas @GetLogLevelIcon(entry.Level)"></i>
-                                <span class="log-message">@entry.Message</span>
-                            </div>
-                        }
-                    </div>
+                <div class="progress-bar-container">
+                    @if (ModalService.CurrentProgress.HasValue)
+                    {
+                        <div class="progress-bar" style="width: @(ModalService.CurrentProgress)%"></div>
+                        <span class="progress-text">@(ModalService.CurrentProgress)%</span>
+                    }
+                    else
+                    {
+                        <div class="progress-bar indeterminate"></div>
+                    }
+                </div>
+                <div class="elapsed-time">
+                    <i class="fas fa-clock"></i> @ElapsedTime
                 </div>
             </div>
+        }
+        else
+        {
+            <div class="result-section">
+                <div class="result-status @GetResultClass()">
+                    <i class="fas @GetResultIcon()"></i>
+                    <span>@GetResultText()</span>
+                </div>
+                <div class="result-details">
+                    <span><i class="fas fa-clock"></i> Duration: @Duration</span>
+                </div>
+            </div>
+        }
 
-            <div class="modal-footer">
-                @if (ModalService.IsRunning && ModalService.CanCancel)
+        <div class="log-section">
+            <div class="log-header">
+                <span><i class="fas fa-list"></i> Activity Log</span>
+                <button class="btn-icon" @onclick="CopyLog" title="Copy log">
+                    <i class="fas fa-copy"></i>
+                </button>
+            </div>
+            <div class="log-container" @ref="_logContainer">
+                @foreach (var entry in ModalService.LogEntries)
                 {
-                    <button class="btn btn-warning" @onclick="HandleCancel">
-                        <i class="fas fa-stop"></i> Cancel
-                    </button>
-                }
-                @if (!ModalService.IsRunning)
-                {
-                    @if (ModalService.CurrentState == OperationState.Failed)
-                    {
-                        <button class="btn btn-copilot" @onclick="HandleTryWithCopilot">
-                            <i class="fas fa-robot"></i> Try with Copilot
-                        </button>
-                    }
-                    <button class="btn btn-primary" @onclick="HandleClose">
-                        <i class="fas fa-check"></i> Close
-                    </button>
+                    <div class="log-entry @GetLogLevelClass(entry.Level)">
+                        <span class="log-time">@entry.Timestamp.ToString("HH:mm:ss")</span>
+                        <i class="fas @GetLogLevelIcon(entry.Level)"></i>
+                        <span class="log-message">@entry.Message</span>
+                    </div>
                 }
             </div>
         </div>
@@ -120,76 +71,18 @@
 }
 
 <style>
-    .operation-modal-overlay {
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: rgba(0, 0, 0, 0.6);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        z-index: 20000;
-        backdrop-filter: blur(2px);
-    }
-
-    .operation-modal {
-        background: white;
-        border-radius: 0.75rem;
-        width: 90%;
-        max-width: 600px;
-        max-height: 80vh;
+    .operation-content {
+        width: 100%;
+        height: 100%;
         display: flex;
         flex-direction: column;
-        box-shadow: 0 1.25rem 3.75rem rgba(0, 0, 0, 0.3);
-    }
-
-    .modal-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 1rem 1.25rem;
-        border-bottom: 1px solid #e2e8f0;
-    }
-
-    .modal-header h2 {
-        margin: 0;
-        font-size: 1.125rem;
-        font-weight: 600;
-        color: #1a202c;
-        display: flex;
-        align-items: center;
-        gap: 0.625rem;
-    }
-
-    .modal-header h2 i { font-size: 1.25rem; }
-    .modal-header h2 .success-icon { color: #38a169; }
-    .modal-header h2 .error-icon { color: #e53e3e; }
-    .modal-header h2 .warning-icon { color: #d69e2e; }
-
-    .close-btn {
-        background: none;
-        border: none;
-        font-size: 1.125rem;
-        color: #a0aec0;
-        cursor: pointer;
-        padding: 0.25rem 0.5rem;
-    }
-
-    .close-btn:hover { color: #4a5568; }
-
-    .modal-body {
-        flex: 1;
         padding: 1.25rem;
         overflow: auto;
-        display: flex;
-        flex-direction: column;
         gap: 1rem;
     }
 
     .description {
-        color: #4a5568;
+        color: var(--text-secondary, #a0aec0);
         font-size: 0.875rem;
     }
 
@@ -366,35 +259,6 @@
     .log-entry.warning .log-message { color: #fbd38d; }
     .log-entry.error .log-message { color: #feb2b2; }
 
-    .modal-footer {
-        padding: 1rem 1.25rem;
-        border-top: 1px solid #e2e8f0;
-        display: flex;
-        justify-content: flex-end;
-        gap: 0.75rem;
-    }
-
-    .btn {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.5rem;
-        padding: 0.625rem 1.25rem;
-        border: none;
-        border-radius: 0.375rem;
-        font-size: 0.875rem;
-        font-weight: 500;
-        cursor: pointer;
-        transition: all 0.2s;
-    }
-
-    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-
-    .btn-primary { background: #4299e1; color: white; }
-    .btn-primary:hover:not(:disabled) { background: #3182ce; }
-
-    .btn-warning { background: #ed8936; color: white; }
-    .btn-warning:hover:not(:disabled) { background: #dd6b20; }
-
     .btn-copilot { background: linear-gradient(135deg, #6366f1, #8b5cf6); color: white; }
     .btn-copilot:hover:not(:disabled) { background: linear-gradient(135deg, #4f46e5, #7c3aed); }
 
@@ -406,29 +270,16 @@
         padding: 0.25rem;
     }
 
-    .btn-icon:hover { color: #2d3748; }
+    .btn-icon:hover { color: #e2e8f0; }
 
     /* Dark mode overrides */
-    .theme-dark .operation-modal { background: var(--bg-secondary, #2d3748); }
-    .theme-dark .modal-header { border-bottom-color: var(--border-color, #4a5568); }
-    .theme-dark .modal-header h2 { color: var(--text-primary, #e2e8f0); }
-    .theme-dark .close-btn { color: #a0aec0; }
-    .theme-dark .close-btn:hover { color: #e2e8f0; }
-    .theme-dark .operation-message { color: var(--text-secondary, #a0aec0); }
     .theme-dark .status-text { color: var(--text-primary, #e2e8f0); }
-    .theme-dark .progress-bar-bg { background: var(--bg-tertiary, #374151); }
-    .theme-dark .elapsed-time { color: #a0aec0; }
-    .theme-dark .percentage-text { color: #a0aec0; }
     .theme-dark .result-status.success { background: rgba(72, 187, 120, 0.15); border-color: #38a169; color: #9ae6b4; }
     .theme-dark .result-status.error { background: rgba(245, 101, 101, 0.15); border-color: #fc8181; color: #feb2b2; }
     .theme-dark .result-status.cancelled { background: rgba(237, 137, 54, 0.15); border-color: #ed8936; color: #fbd38d; }
     .theme-dark .result-details { color: #a0aec0; }
     .theme-dark .log-section { border-color: var(--border-color, #4a5568); }
     .theme-dark .log-header { background: var(--bg-tertiary, #374151); border-bottom-color: var(--border-color, #4a5568); color: var(--text-secondary, #a0aec0); }
-    .theme-dark .btn-icon { color: #a0aec0; }
-    .theme-dark .btn-icon:hover { color: #e2e8f0; }
-    .theme-dark .btn-secondary { background: var(--bg-tertiary, #374151); color: var(--text-primary, #e2e8f0); }
-    .theme-dark .btn-secondary:hover:not(:disabled) { background: #4a5568; }
 </style>
 
 @code {
@@ -436,7 +287,6 @@
     private System.Timers.Timer? _elapsedTimer;
     private DateTime _startTime;
     private DotNetObjectReference<OperationModal>? _dotNetRef;
-    private bool _modalInitialized;
     private string ElapsedTime { get; set; } = "00:00";
     private string Duration { get; set; } = "00:00";
 
@@ -448,20 +298,22 @@
         ModalService.OnStatusChanged += HandleStatusChanged;
         ModalService.OnProgressChanged += HandleProgressChanged;
         _dotNetRef = DotNetObjectReference.Create(this);
+
+        var bridge = BridgeHolder.Current;
+        if (bridge != null)
+            bridge.ButtonClicked += OnBridgeButtonClicked;
+
+        // Catch up if already visible
+        if (ModalService.IsVisible)
+        {
+            HandleShowRequested(ModalService.Title ?? "", ModalService.Description ?? "", ModalService.CanCancel);
+        }
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (ModalService.IsVisible && !_modalInitialized)
-        {
-            _modalInitialized = true;
-            await JS.InvokeVoidAsync("modalInterop.initialize", "operation-modal", _dotNetRef);
-        }
-        else if (!ModalService.IsVisible && _modalInitialized)
-        {
-            _modalInitialized = false;
-            await JS.InvokeVoidAsync("modalInterop.dispose", "operation-modal");
-        }
+        // No modalInterop needed — native modal handles focus
+        await Task.CompletedTask;
     }
 
     [JSInvokable]
@@ -485,6 +337,7 @@
         };
         _elapsedTimer.Start();
 
+        UpdateBridgeButtons();
         InvokeAsync(StateHasChanged);
     }
 
@@ -508,12 +361,8 @@
             _elapsedTimer = null;
             Duration = (DateTime.Now - _startTime).ToString(@"mm\:ss\.fff");
         }
-        InvokeAsync(async () =>
-        {
-            StateHasChanged();
-            if (state != OperationState.Running)
-                await JS.InvokeVoidAsync("modalInterop.focusFirst", "operation-modal");
-        });
+        UpdateBridgeButtons();
+        InvokeAsync(StateHasChanged);
     }
 
     private void HandleStatusChanged(string status)
@@ -544,6 +393,49 @@
     private void HandleClose()
     {
         ModalService.Close();
+        BridgeHolder.Current?.RequestClose();
+    }
+
+    private void UpdateBridgeButtons()
+    {
+        var bridge = BridgeHolder.Current;
+        if (bridge == null) return;
+
+        if (ModalService.IsRunning)
+        {
+            if (ModalService.CanCancel)
+                bridge.SetButtons(new ProgressButton("cancel", "Cancel", ProgressButtonStyle.Warning));
+            else
+                bridge.SetButtons();
+        }
+        else
+        {
+            var buttons = new List<ProgressButton>();
+            if (ModalService.CurrentState == OperationState.Failed)
+                buttons.Add(new ProgressButton("copilot", "Try with Copilot", ProgressButtonStyle.Copilot, "fas fa-robot"));
+            buttons.Add(new ProgressButton("close", "Close", ProgressButtonStyle.Primary));
+            bridge.SetButtons(buttons.ToArray());
+        }
+    }
+
+    private async Task OnBridgeButtonClicked(string buttonId)
+    {
+        await InvokeAsync(() =>
+        {
+            switch (buttonId)
+            {
+                case "cancel":
+                    HandleCancel();
+                    break;
+                case "copilot":
+                    HandleTryWithCopilot();
+                    break;
+                case "close":
+                    HandleClose();
+                    break;
+            }
+            return Task.CompletedTask;
+        });
     }
 
     private void HandleTryWithCopilot()
@@ -630,8 +522,9 @@
         ModalService.OnStatusChanged -= HandleStatusChanged;
         ModalService.OnProgressChanged -= HandleProgressChanged;
         _elapsedTimer?.Dispose();
-        if (_modalInitialized)
-            _ = JS.InvokeVoidAsync("modalInterop.dispose", "operation-modal");
+        var bridge = BridgeHolder.Current;
+        if (bridge != null)
+            bridge.ButtonClicked -= OnBridgeButtonClicked;
         _dotNetRef?.Dispose();
     }
 }

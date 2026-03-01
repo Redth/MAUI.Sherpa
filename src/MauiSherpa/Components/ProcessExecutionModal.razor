@@ -1,210 +1,108 @@
 @using MauiSherpa.Core.Interfaces
 @using MauiSherpa.Core.Services
 @using MauiSherpa.Services
+@using MauiSherpa.Pages.Forms
 @inject ProcessModalService ModalService
 @inject IProcessExecutionService ProcessService
 @inject ICopilotContextService CopilotContext
 @inject IJSRuntime JS
+@inject ProgressBridgeHolder BridgeHolder
 @implements IDisposable
 
 @if (IsVisible)
 {
-    <div class="process-modal-overlay" id="process-modal">
-        <div class="process-modal @(CurrentView == ModalView.Running ? "expanded" : "")" role="dialog" aria-modal="true" aria-labelledby="process-modal-title">
-            <div class="modal-header">
-                <h2 id="process-modal-title">@GetTitle()</h2>
-                @if (CurrentView != ModalView.Running)
+    <div class="process-content" id="process-modal">
+        @if (CurrentView == ModalView.Confirmation)
+        {
+            <div class="confirmation-view">
+                @if (!string.IsNullOrEmpty(Request?.Description))
                 {
-                    <button class="close-btn" @onclick="HandleClose">×</button>
+                    <p class="description">@Request.Description</p>
                 }
-            </div>
 
-            <div class="modal-body">
-                @if (CurrentView == ModalView.Confirmation)
+                <div class="command-preview">
+                    <label>Command to execute:</label>
+                    <div class="command-box">
+                        <code>@Request?.CommandLine</code>
+                    </div>
+                </div>
+
+                @if (Request?.RequiresElevation == true)
                 {
-                    <div class="confirmation-view">
-                        @if (!string.IsNullOrEmpty(Request?.Description))
-                        {
-                            <p class="description">@Request.Description</p>
-                        }
-
-                        <div class="command-preview">
-                            <label>Command to execute:</label>
-                            <div class="command-box">
-                                <code>@Request?.CommandLine</code>
-                            </div>
-                        </div>
-
-                        @if (Request?.RequiresElevation == true)
-                        {
-                            <div class="elevation-warning">
-                                <span class="warning-icon">⚠️</span>
-                                <span>This command requires administrator privileges. You may be prompted for your password.</span>
-                            </div>
-                        }
-
-                        @if (!string.IsNullOrEmpty(Request?.WorkingDirectory))
-                        {
-                            <div class="working-dir">
-                                <label>Working directory:</label>
-                                <code>@Request.WorkingDirectory</code>
-                            </div>
-                        }
+                    <div class="elevation-warning">
+                        <span class="warning-icon">⚠️</span>
+                        <span>This command requires administrator privileges. You may be prompted for your password.</span>
                     </div>
                 }
-                else if (CurrentView == ModalView.Running)
+
+                @if (!string.IsNullOrEmpty(Request?.WorkingDirectory))
                 {
-                    <div class="running-view">
-                        <div class="process-status-bar">
-                            <div class="process-status-info">
-                                <span class="spinner">⏳</span>
-                                <span class="process-status-text">Running... @ElapsedTime</span>
-                            </div>
-                            <div class="process-controls">
-                                <button class="btn btn-warning btn-sm" @onclick="HandleCancel" disabled="@(!CanCancel)">
-                                    Cancel
-                                </button>
-                                <button class="btn btn-danger btn-sm" @onclick="HandleKill" disabled="@(!CanKill)">
-                                    Force Kill
-                                </button>
-                            </div>
-                        </div>
-                        <div class="terminal-wrapper">
-                            <div class="terminal-container" id="process-terminal"></div>
-                        </div>
-                    </div>
-                }
-                else if (CurrentView == ModalView.Completed)
-                {
-                    <div class="completed-view">
-                        <div class="result-status @GetResultClass()">
-                            <span class="result-icon">@GetResultIcon()</span>
-                            <span class="result-text">@GetResultText()</span>
-                        </div>
-                        <div class="result-details">
-                            <div class="detail-item">
-                                <label>Exit code:</label>
-                                <span class="@(Result?.ExitCode == 0 ? "success" : "error")">@Result?.ExitCode</span>
-                            </div>
-                            <div class="detail-item">
-                                <label>Duration:</label>
-                                <span>@Result?.Duration.ToString(@"mm\:ss\.fff")</span>
-                            </div>
-                        </div>
-                        <div class="terminal-wrapper completed">
-                            <div class="terminal-header">
-                                <span>Output</span>
-                                <button class="btn-icon" @onclick="CopyOutput" title="Copy output">📋</button>
-                            </div>
-                            <div class="terminal-container" id="process-terminal"></div>
-                        </div>
+                    <div class="working-dir">
+                        <label>Working directory:</label>
+                        <code>@Request.WorkingDirectory</code>
                     </div>
                 }
             </div>
-
-            <div class="modal-footer">
-                @if (CurrentView == ModalView.Confirmation)
-                {
-                    <button class="btn btn-secondary" @onclick="HandleCancelBeforeExecution">Cancel</button>
-                    <button class="btn btn-primary" @onclick="HandleExecute">
-                        @if (Request?.RequiresElevation == true)
-                        {
-                            <span>🔐 Execute</span>
-                        }
-                        else
-                        {
-                            <span>Execute</span>
-                        }
-                    </button>
-                }
-                else if (CurrentView == ModalView.Completed)
-                {
-                    @if (Result != null && !Result.Success && !Result.WasCancelled && !Result.WasKilled)
-                    {
-                        <button class="btn btn-copilot" @onclick="HandleTryWithCopilot">
-                            <i class="fas fa-robot"></i> Try with Copilot
+        }
+        else if (CurrentView == ModalView.Running)
+        {
+            <div class="running-view">
+                <div class="process-status-bar">
+                    <div class="process-status-info">
+                        <span class="spinner">⏳</span>
+                        <span class="process-status-text">Running... @ElapsedTime</span>
+                    </div>
+                    <div class="process-controls">
+                        <button class="btn btn-warning btn-sm" @onclick="HandleCancel" disabled="@(!CanCancel)">
+                            Cancel
                         </button>
-                    }
-                    <button class="btn btn-primary" @onclick="HandleClose">Close</button>
-                }
+                        <button class="btn btn-danger btn-sm" @onclick="HandleKill" disabled="@(!CanKill)">
+                            Force Kill
+                        </button>
+                    </div>
+                </div>
+                <div class="terminal-wrapper">
+                    <div class="terminal-container" id="process-terminal"></div>
+                </div>
             </div>
-        </div>
+        }
+        else if (CurrentView == ModalView.Completed)
+        {
+            <div class="completed-view">
+                <div class="result-status @GetResultClass()">
+                    <span class="result-icon">@GetResultIcon()</span>
+                    <span class="result-text">@GetResultText()</span>
+                </div>
+                <div class="result-details">
+                    <div class="detail-item">
+                        <label>Exit code:</label>
+                        <span class="@(Result?.ExitCode == 0 ? "success" : "error")">@Result?.ExitCode</span>
+                    </div>
+                    <div class="detail-item">
+                        <label>Duration:</label>
+                        <span>@Result?.Duration.ToString(@"mm\:ss\.fff")</span>
+                    </div>
+                </div>
+                <div class="terminal-wrapper completed">
+                    <div class="terminal-header">
+                        <span>Output</span>
+                        <button class="btn-icon" @onclick="CopyOutput" title="Copy output">📋</button>
+                    </div>
+                    <div class="terminal-container" id="process-terminal"></div>
+                </div>
+            </div>
+        }
     </div>
 }
 
 <style>
-    .process-modal-overlay {
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: rgba(0, 0, 0, 0.6);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        z-index: 20000;
-        backdrop-filter: blur(2px);
-    }
-
-    .process-modal {
-        background: white;
-        border-radius: 0.75rem;
-        width: 90%;
-        max-width: 600px;
-        max-height: 90vh;
+    .process-content {
+        width: 100%;
+        height: 100%;
         display: flex;
         flex-direction: column;
-        box-shadow: 0 1.25rem 3.75rem rgba(0, 0, 0, 0.3);
-        transition: all 0.3s ease;
-    }
-
-    .process-modal.expanded {
-        max-width: 900px;
-        max-height: 80vh;
-    }
-
-    .modal-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 1rem 1.25rem;
-        border-bottom: 1px solid #e2e8f0;
-    }
-
-    .modal-header h2 {
-        margin: 0;
-        font-size: 1.125rem;
-        font-weight: 600;
-        color: #1a202c;
-    }
-
-    .close-btn {
-        background: none;
-        border: none;
-        font-size: 1.5rem;
-        color: #a0aec0;
-        cursor: pointer;
-        padding: 0;
-        line-height: 1;
-    }
-
-    .close-btn:hover { color: #4a5568; }
-
-    .process-modal .modal-body {
-        flex: 1;
         padding: 1.25rem;
-        overflow: hidden;
-        display: flex;
-        flex-direction: column;
-    }
-
-    .modal-footer {
-        padding: 1rem 1.25rem;
-        border-top: 1px solid #e2e8f0;
-        display: flex;
-        justify-content: flex-end;
-        gap: 0.75rem;
+        overflow: auto;
     }
 
     /* Confirmation View */
@@ -388,38 +286,8 @@
     .detail-item span.success { color: #38a169; }
     .detail-item span.error { color: #e53e3e; }
 
-    /* Buttons */
-    .btn {
-        padding: 0.625rem 1.25rem;
-        border: none;
-        border-radius: 0.375rem;
-        font-size: 0.875rem;
-        font-weight: 500;
-        cursor: pointer;
-        transition: all 0.2s;
-    }
-
-    .btn:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
-    }
-
-    .btn-primary { background: #4299e1; color: white; }
-    .btn-primary:hover:not(:disabled) { background: #3182ce; }
-
-    .btn-secondary { background: #e2e8f0; color: #4a5568; }
-    .btn-secondary:hover:not(:disabled) { background: #cbd5e0; }
-
-    .btn-warning { background: #ed8936; color: white; }
-    .btn-warning:hover:not(:disabled) { background: #dd6b20; }
-
-    .btn-danger { background: #e53e3e; color: white; }
-    .btn-danger:hover:not(:disabled) { background: #c53030; }
-
     .btn-copilot { background: linear-gradient(135deg, #6366f1, #8b5cf6); color: white; display: inline-flex; align-items: center; gap: 0.5rem; }
     .btn-copilot:hover:not(:disabled) { background: linear-gradient(135deg, #4f46e5, #7c3aed); }
-
-    .btn-sm { padding: 0.375rem 0.75rem; font-size: 0.8125rem; }
 
     .btn-icon {
         background: none;
@@ -471,7 +339,6 @@
     private bool _needsCompletedTerminal;
     private CancellationTokenSource? _cts;
     private DotNetObjectReference<ProcessExecutionModal>? _dotNetRef;
-    private bool _modalInitialized;
 
     private bool CanCancel => ProcessService.CurrentState == ProcessState.Running;
     private bool CanKill => ProcessService.CurrentState == ProcessState.Running || 
@@ -483,21 +350,23 @@
         ProcessService.OutputReceived += HandleOutputReceived;
         ProcessService.StateChanged += HandleStateChanged;
         _dotNetRef = DotNetObjectReference.Create(this);
+
+        // Subscribe to native button clicks via bridge
+        var bridge = BridgeHolder.Current;
+        if (bridge != null)
+        {
+            bridge.ButtonClicked += OnBridgeButtonClicked;
+        }
+
+        // If already visible (timing: service fires before Blazor subscribes), catch up
+        if (IsVisible && Request != null)
+        {
+            HandleShowRequested(Request);
+        }
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (IsVisible && !_modalInitialized)
-        {
-            _modalInitialized = true;
-            await JS.InvokeVoidAsync("modalInterop.initialize", "process-modal", _dotNetRef);
-        }
-        else if (!IsVisible && _modalInitialized)
-        {
-            _modalInitialized = false;
-            await JS.InvokeVoidAsync("modalInterop.dispose", "process-modal");
-        }
-
         if (_needsCompletedTerminal && Result != null)
         {
             _needsCompletedTerminal = false;
@@ -544,6 +413,7 @@
         CurrentView = ModalService.RequiresConfirmation ? ModalView.Confirmation : ModalView.Running;
         Result = null;
         _terminalInitialized = false;
+        UpdateBridgeButtons();
         InvokeAsync(StateHasChanged);
 
         if (!ModalService.RequiresConfirmation)
@@ -574,6 +444,7 @@
     private async Task HandleExecute()
     {
         CurrentView = ModalView.Running;
+        UpdateBridgeButtons();
         StateHasChanged();
 
         // Wait a tick for the terminal container to render
@@ -622,6 +493,7 @@
         _needsCompletedTerminal = true;
         CurrentView = ModalView.Completed;
         ModalService.CompleteWithResult(Result);
+        UpdateBridgeButtons();
         StateHasChanged();
     }
 
@@ -647,6 +519,57 @@
             _ = JS.InvokeVoidAsync("terminalInterop.dispose", "process-terminal");
         }
         ModalService.Close();
+        BridgeHolder.Current?.RequestClose();
+    }
+
+    private void UpdateBridgeButtons()
+    {
+        var bridge = BridgeHolder.Current;
+        if (bridge == null) return;
+
+        switch (CurrentView)
+        {
+            case ModalView.Confirmation:
+                bridge.SetTitle(Request?.Title ?? "Confirm Execution");
+                bridge.SetButtons(
+                    new ProgressButton("cancel", "Cancel", ProgressButtonStyle.Secondary),
+                    new ProgressButton("execute", Request?.RequiresElevation == true ? "🔐 Execute" : "Execute", ProgressButtonStyle.Primary));
+                break;
+            case ModalView.Running:
+                bridge.SetTitle(Request?.Title ?? "Running Process");
+                bridge.SetButtons(); // No footer buttons during running — controls are inline
+                break;
+            case ModalView.Completed:
+                bridge.SetTitle("Process Complete");
+                var buttons = new List<ProgressButton>();
+                if (Result != null && !Result.Success && !Result.WasCancelled && !Result.WasKilled)
+                    buttons.Add(new ProgressButton("copilot", "Try with Copilot", ProgressButtonStyle.Copilot, "fas fa-robot"));
+                buttons.Add(new ProgressButton("close", "Close", ProgressButtonStyle.Primary));
+                bridge.SetButtons(buttons.ToArray());
+                break;
+        }
+    }
+
+    private async Task OnBridgeButtonClicked(string buttonId)
+    {
+        await InvokeAsync(async () =>
+        {
+            switch (buttonId)
+            {
+                case "cancel":
+                    HandleCancelBeforeExecution();
+                    break;
+                case "execute":
+                    await HandleExecute();
+                    break;
+                case "copilot":
+                    await HandleTryWithCopilot();
+                    break;
+                case "close":
+                    HandleClose();
+                    break;
+            }
+        });
     }
 
     private async Task HandleTryWithCopilot()
@@ -726,8 +649,9 @@
         ProcessService.StateChanged -= HandleStateChanged;
         _elapsedTimer?.Dispose();
         _cts?.Dispose();
-        if (_modalInitialized)
-            _ = JS.InvokeVoidAsync("modalInterop.dispose", "process-modal");
+        var bridge = BridgeHolder.Current;
+        if (bridge != null)
+            bridge.ButtonClicked -= OnBridgeButtonClicked;
         _dotNetRef?.Dispose();
     }
 }

@@ -227,66 +227,66 @@
         <a href="https://appstoreconnect.apple.com/access/integrations/api" target="_blank">Get API keys</a>
     </p>
     
-    <div class="settings-container">
-        @if (appleIdentities.Count == 0)
-        {
+    @if (appleIdentities.Count == 0)
+    {
+        <div class="settings-container">
             <div class="empty-identities">
                 <p>No Apple identities configured</p>
             </div>
-        }
-        else
-        {
-            <div class="identity-list">
-                @foreach (var identity in appleIdentities)
-                {
-                    <div class="identity-card">
-                        <div class="identity-header">
-                            <div class="identity-info">
-                                <i class="fas fa-id-badge identity-icon"></i>
-                                <span class="identity-name">@identity.Name</span>
-                            </div>
-                            <div class="identity-actions">
-                                <button class="btn btn-sm btn-secondary" @onclick="@(() => TestIdentity(identity))" title="Test Connection">
-                                    <i class="fas fa-plug"></i> Test
-                                </button>
-                                <button class="btn btn-sm btn-secondary" @onclick="@(() => EditIdentity(identity))" title="Edit">
-                                    <i class="fas fa-edit"></i> Edit
-                                </button>
-                                <button class="btn btn-sm btn-danger" @onclick="@(() => DeleteIdentity(identity))" title="Delete">
-                                    <i class="fas fa-trash"></i> Delete
-                                </button>
-                            </div>
+        </div>
+    }
+    else
+    {
+        <div class="connected-list">
+            @foreach (var identity in appleIdentities)
+            {
+                <div class="connected-list-item">
+                    <div class="identity-header">
+                        <div class="identity-info">
+                            <i class="fas fa-id-badge identity-icon"></i>
+                            <span class="identity-name">@identity.Name</span>
                         </div>
-                        <div class="identity-details">
-                            <div class="detail-item">
-                                <span class="detail-label">KEY ID</span>
-                                <span class="detail-value mono copyable">
-                                    <span class="@(demoMode ? "demo-blur" : "")">@identity.KeyId</span>
-                                    <button class="btn-copy" @onclick="@(() => CopyToClipboard(identity.KeyId))" title="Copy to clipboard">
-                                        <i class="fas fa-copy"></i>
-                                    </button>
-                                </span>
-                            </div>
-                            <div class="detail-item">
-                                <span class="detail-label">ISSUER ID</span>
-                                <span class="detail-value mono copyable">
-                                    <span class="@(demoMode ? "demo-blur" : "")">@identity.IssuerId</span>
-                                    <button class="btn-copy" @onclick="@(() => CopyToClipboard(identity.IssuerId))" title="Copy to clipboard">
-                                        <i class="fas fa-copy"></i>
-                                    </button>
-                                </span>
-                            </div>
+                        <div class="identity-actions">
+                            <button class="btn btn-sm btn-secondary" @onclick="@(() => TestIdentity(identity))" title="Test Connection">
+                                <i class="fas fa-plug"></i> Test
+                            </button>
+                            <button class="btn btn-sm btn-secondary" @onclick="@(() => EditIdentity(identity))" title="Edit">
+                                <i class="fas fa-edit"></i> Edit
+                            </button>
+                            <button class="btn btn-sm btn-danger" @onclick="@(() => DeleteIdentity(identity))" title="Delete">
+                                <i class="fas fa-trash"></i> Delete
+                            </button>
                         </div>
                     </div>
-                }
-            </div>
-        }
-        
-        <div class="add-identity">
-            <button class="btn btn-success" @onclick="ShowAddIdentityDialog">
-                <i class="fas fa-plus"></i> Add Apple Identity
-            </button>
+                    <div class="identity-details">
+                        <div class="detail-item">
+                            <span class="detail-label">KEY ID</span>
+                            <span class="detail-value mono copyable">
+                                <span class="@(demoMode ? "demo-blur" : "")">@identity.KeyId</span>
+                                <button class="btn-copy" @onclick="@(() => CopyToClipboard(identity.KeyId))" title="Copy to clipboard">
+                                    <i class="fas fa-copy"></i>
+                                </button>
+                            </span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">ISSUER ID</span>
+                            <span class="detail-value mono copyable">
+                                <span class="@(demoMode ? "demo-blur" : "")">@identity.IssuerId</span>
+                                <button class="btn-copy" @onclick="@(() => CopyToClipboard(identity.IssuerId))" title="Copy to clipboard">
+                                    <i class="fas fa-copy"></i>
+                                </button>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            }
         </div>
+    }
+    
+    <div class="section-add-action">
+        <button class="btn btn-success" @onclick="ShowAddIdentityDialog">
+            <i class="fas fa-plus"></i> Add Apple Identity
+        </button>
     </div>
 </div>
 
@@ -297,56 +297,56 @@
         <a href="https://console.firebase.google.com/project/_/settings/serviceaccounts/adminsdk" target="_blank">Get service account JSON</a>
     </p>
     
-    <div class="settings-container">
-        @if (googleIdentities.Count == 0)
-        {
+    @if (googleIdentities.Count == 0)
+    {
+        <div class="settings-container">
             <div class="empty-identities">
                 <p>No Google identities configured</p>
             </div>
-        }
-        else
-        {
-            <div class="identity-list">
-                @foreach (var identity in googleIdentities)
-                {
-                    <div class="identity-card">
-                        <div class="identity-header">
-                            <div class="identity-info">
-                                <i class="fab fa-google identity-icon"></i>
-                                <span class="identity-name">@identity.Name</span>
-                            </div>
-                            <div class="identity-actions">
-                                <button class="btn btn-sm btn-secondary" @onclick="@(() => TestGoogleIdentity(identity))" title="Test Connection">
-                                    <i class="fas fa-plug"></i> Test
-                                </button>
-                                <button class="btn btn-sm btn-secondary" @onclick="@(() => EditGoogleIdentity(identity))" title="Edit">
-                                    <i class="fas fa-edit"></i> Edit
-                                </button>
-                                <button class="btn btn-sm btn-danger" @onclick="@(() => DeleteGoogleIdentity(identity))" title="Delete">
-                                    <i class="fas fa-trash"></i> Delete
-                                </button>
-                            </div>
+        </div>
+    }
+    else
+    {
+        <div class="connected-list">
+            @foreach (var identity in googleIdentities)
+            {
+                <div class="connected-list-item">
+                    <div class="identity-header">
+                        <div class="identity-info">
+                            <i class="fab fa-google identity-icon"></i>
+                            <span class="identity-name">@identity.Name</span>
                         </div>
-                        <div class="identity-details">
-                            <div class="detail-item">
-                                <span class="detail-label">PROJECT</span>
-                                <span class="detail-value mono"><span class="@(demoMode ? "demo-blur" : "")">@identity.ProjectId</span></span>
-                            </div>
-                            <div class="detail-item">
-                                <span class="detail-label">SERVICE ACCOUNT</span>
-                                <span class="detail-value mono"><span class="@(demoMode ? "demo-blur" : "")">@identity.ClientEmail</span></span>
-                            </div>
+                        <div class="identity-actions">
+                            <button class="btn btn-sm btn-secondary" @onclick="@(() => TestGoogleIdentity(identity))" title="Test Connection">
+                                <i class="fas fa-plug"></i> Test
+                            </button>
+                            <button class="btn btn-sm btn-secondary" @onclick="@(() => EditGoogleIdentity(identity))" title="Edit">
+                                <i class="fas fa-edit"></i> Edit
+                            </button>
+                            <button class="btn btn-sm btn-danger" @onclick="@(() => DeleteGoogleIdentity(identity))" title="Delete">
+                                <i class="fas fa-trash"></i> Delete
+                            </button>
                         </div>
                     </div>
-                }
-            </div>
-        }
-        
-        <div class="add-identity">
-            <button class="btn btn-success" @onclick="ShowAddGoogleIdentityDialog">
-                <i class="fas fa-plus"></i> Add Google Identity
-            </button>
+                    <div class="identity-details">
+                        <div class="detail-item">
+                            <span class="detail-label">PROJECT</span>
+                            <span class="detail-value mono"><span class="@(demoMode ? "demo-blur" : "")">@identity.ProjectId</span></span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">SERVICE ACCOUNT</span>
+                            <span class="detail-value mono"><span class="@(demoMode ? "demo-blur" : "")">@identity.ClientEmail</span></span>
+                        </div>
+                    </div>
+                </div>
+            }
         </div>
+    }
+    
+    <div class="section-add-action">
+        <button class="btn btn-success" @onclick="ShowAddGoogleIdentityDialog">
+            <i class="fas fa-plus"></i> Add Google Identity
+        </button>
     </div>
 </div>
 
@@ -357,113 +357,113 @@
         This enables sharing signing certificates between development machines and CI/CD pipelines.
     </p>
     
-    <div class="settings-container">
-        @if (cloudProviders.Count == 0)
-        {
+    @if (cloudProviders.Count == 0)
+    {
+        <div class="settings-container">
             <div class="empty-providers">
                 <p>No cloud providers configured</p>
             </div>
-        }
-        else
-        {
-            <div class="provider-list">
-                @foreach (var provider in cloudProviders)
-                {
-                    var isActive = CloudSecretsService.ActiveProvider?.Id == provider.Id;
-                    var providerUrl = GetProviderUrl(provider);
-                    <div class="provider-card @(isActive ? "active" : "")">
-                        <div class="provider-header">
-                            <div class="provider-info">
-                                <i class="@GetProviderIcon(provider.ProviderType) provider-icon"></i>
-                                <span class="provider-name">@provider.Name</span>
-                                @if (!string.IsNullOrEmpty(providerUrl))
-                                {
-                                    <a href="@providerUrl" target="_blank" class="provider-link" title="Open in browser">
-                                        <i class="fas fa-external-link-alt"></i>
-                                    </a>
-                                }
-                                @if (isActive)
-                                {
-                                    <span class="active-badge">Active</span>
-                                }
-                            </div>
-                            <div class="provider-actions">
-                                @if (!isActive)
-                                {
-                                    <button class="btn btn-sm btn-primary" @onclick="@(() => SetActiveProvider(provider))" title="Set as Active">
-                                        <i class="fas fa-check"></i> Activate
-                                    </button>
-                                }
-                                <button class="btn btn-sm btn-secondary" @onclick="@(() => TestProvider(provider))" title="Test Connection">
-                                    <i class="fas fa-plug"></i> Test
-                                </button>
-                                <button class="btn btn-sm btn-secondary" @onclick="@(() => EditProvider(provider))" title="Edit">
-                                    <i class="fas fa-edit"></i> Edit
-                                </button>
-                                <button class="btn btn-sm btn-danger" @onclick="@(() => DeleteProvider(provider))" title="Delete">
-                                    <i class="fas fa-trash"></i> Delete
-                                </button>
-                            </div>
+        </div>
+    }
+    else
+    {
+        <div class="connected-list">
+            @foreach (var provider in cloudProviders)
+            {
+                var isActive = CloudSecretsService.ActiveProvider?.Id == provider.Id;
+                var providerUrl = GetProviderUrl(provider);
+                <div class="connected-list-item @(isActive ? "active" : "")">
+                    <div class="provider-header">
+                        <div class="provider-info">
+                            <i class="@GetProviderIcon(provider.ProviderType) provider-icon"></i>
+                            <span class="provider-name">@provider.Name</span>
+                            @if (!string.IsNullOrEmpty(providerUrl))
+                            {
+                                <a href="@providerUrl" target="_blank" class="provider-link" title="Open in browser">
+                                    <i class="fas fa-external-link-alt"></i>
+                                </a>
+                            }
+                            @if (isActive)
+                            {
+                                <span class="active-badge">Active</span>
+                            }
                         </div>
-                        <div class="provider-details">
-                            <div class="detail-item">
-                                <span class="detail-label">TYPE</span>
-                                <span class="detail-value">@CloudSecretsProviderFactory.GetProviderDisplayName(provider.ProviderType)</span>
-                            </div>
-                            @if (provider.ProviderType == CloudSecretsProviderType.Infisical)
+                        <div class="provider-actions">
+                            @if (!isActive)
                             {
-                                <div class="detail-item">
-                                    <span class="detail-label">SITE</span>
-                                    <span class="detail-value mono"><span class="@(demoMode ? "demo-blur" : "")">@provider.Settings.GetValueOrDefault("SiteUrl", "https://app.infisical.com")</span></span>
-                                </div>
-                                <div class="detail-item">
-                                    <span class="detail-label">PROJECT</span>
-                                    <span class="detail-value mono"><span class="@(demoMode ? "demo-blur" : "")">@provider.Settings.GetValueOrDefault("ProjectId", "")</span></span>
-                                </div>
+                                <button class="btn btn-sm btn-primary" @onclick="@(() => SetActiveProvider(provider))" title="Set as Active">
+                                    <i class="fas fa-check"></i> Activate
+                                </button>
                             }
-                            @if (provider.ProviderType == CloudSecretsProviderType.AzureKeyVault)
-                            {
-                                <div class="detail-item">
-                                    <span class="detail-label">VAULT</span>
-                                    <span class="detail-value mono"><span class="@(demoMode ? "demo-blur" : "")">@provider.Settings.GetValueOrDefault("VaultUrl", "")</span></span>
-                                </div>
-                            }
-                            @if (provider.ProviderType == CloudSecretsProviderType.AwsSecretsManager)
-                            {
-                                <div class="detail-item">
-                                    <span class="detail-label">REGION</span>
-                                    <span class="detail-value mono"><span class="@(demoMode ? "demo-blur" : "")">@provider.Settings.GetValueOrDefault("Region", "us-east-1")</span></span>
-                                </div>
-                            }
-                            @if (provider.ProviderType == CloudSecretsProviderType.GoogleSecretManager)
-                            {
-                                <div class="detail-item">
-                                    <span class="detail-label">PROJECT</span>
-                                    <span class="detail-value mono"><span class="@(demoMode ? "demo-blur" : "")">@provider.Settings.GetValueOrDefault("ProjectId", "")</span></span>
-                                </div>
-                            }
-                            @if (provider.ProviderType == CloudSecretsProviderType.OnePassword)
-                            {
-                                <div class="detail-item">
-                                    <span class="detail-label">VAULT</span>
-                                    <span class="detail-value mono"><span class="@(demoMode ? "demo-blur" : "")">@provider.Settings.GetValueOrDefault("Vault", "")</span></span>
-                                </div>
-                                <div class="detail-item">
-                                    <span class="detail-label">ITEM</span>
-                                    <span class="detail-value mono"><span class="@(demoMode ? "demo-blur" : "")">@provider.Settings.GetValueOrDefault("ItemTitle", "MAUI.Sherpa")</span></span>
-                                </div>
-                            }
+                            <button class="btn btn-sm btn-secondary" @onclick="@(() => TestProvider(provider))" title="Test Connection">
+                                <i class="fas fa-plug"></i> Test
+                            </button>
+                            <button class="btn btn-sm btn-secondary" @onclick="@(() => EditProvider(provider))" title="Edit">
+                                <i class="fas fa-edit"></i> Edit
+                            </button>
+                            <button class="btn btn-sm btn-danger" @onclick="@(() => DeleteProvider(provider))" title="Delete">
+                                <i class="fas fa-trash"></i> Delete
+                            </button>
                         </div>
                     </div>
-                }
-            </div>
-        }
-        
-        <div class="add-provider">
-            <button class="btn btn-success" @onclick="ShowAddProviderDialog">
-                <i class="fas fa-plus"></i> Add Cloud Provider
-            </button>
+                    <div class="provider-details">
+                        <div class="detail-item">
+                            <span class="detail-label">TYPE</span>
+                            <span class="detail-value">@CloudSecretsProviderFactory.GetProviderDisplayName(provider.ProviderType)</span>
+                        </div>
+                        @if (provider.ProviderType == CloudSecretsProviderType.Infisical)
+                        {
+                            <div class="detail-item">
+                                <span class="detail-label">SITE</span>
+                                <span class="detail-value mono"><span class="@(demoMode ? "demo-blur" : "")">@provider.Settings.GetValueOrDefault("SiteUrl", "https://app.infisical.com")</span></span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="detail-label">PROJECT</span>
+                                <span class="detail-value mono"><span class="@(demoMode ? "demo-blur" : "")">@provider.Settings.GetValueOrDefault("ProjectId", "")</span></span>
+                            </div>
+                        }
+                        @if (provider.ProviderType == CloudSecretsProviderType.AzureKeyVault)
+                        {
+                            <div class="detail-item">
+                                <span class="detail-label">VAULT</span>
+                                <span class="detail-value mono"><span class="@(demoMode ? "demo-blur" : "")">@provider.Settings.GetValueOrDefault("VaultUrl", "")</span></span>
+                            </div>
+                        }
+                        @if (provider.ProviderType == CloudSecretsProviderType.AwsSecretsManager)
+                        {
+                            <div class="detail-item">
+                                <span class="detail-label">REGION</span>
+                                <span class="detail-value mono"><span class="@(demoMode ? "demo-blur" : "")">@provider.Settings.GetValueOrDefault("Region", "us-east-1")</span></span>
+                            </div>
+                        }
+                        @if (provider.ProviderType == CloudSecretsProviderType.GoogleSecretManager)
+                        {
+                            <div class="detail-item">
+                                <span class="detail-label">PROJECT</span>
+                                <span class="detail-value mono"><span class="@(demoMode ? "demo-blur" : "")">@provider.Settings.GetValueOrDefault("ProjectId", "")</span></span>
+                            </div>
+                        }
+                        @if (provider.ProviderType == CloudSecretsProviderType.OnePassword)
+                        {
+                            <div class="detail-item">
+                                <span class="detail-label">VAULT</span>
+                                <span class="detail-value mono"><span class="@(demoMode ? "demo-blur" : "")">@provider.Settings.GetValueOrDefault("Vault", "")</span></span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="detail-label">ITEM</span>
+                                <span class="detail-value mono"><span class="@(demoMode ? "demo-blur" : "")">@provider.Settings.GetValueOrDefault("ItemTitle", "MAUI.Sherpa")</span></span>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
         </div>
+    }
+    
+    <div class="section-add-action">
+        <button class="btn btn-success" @onclick="ShowAddProviderDialog">
+            <i class="fas fa-plus"></i> Add Cloud Provider
+        </button>
     </div>
 </div>
 
@@ -475,77 +475,77 @@
         Secrets will be encrypted and stored as repository secrets.
     </p>
     
-    <div class="settings-container">
-        @if (secretsPublishers.Count == 0)
-        {
+    @if (secretsPublishers.Count == 0)
+    {
+        <div class="settings-container">
             <div class="empty-providers">
                 <p>No CI/CD publishers configured</p>
             </div>
-        }
-        else
-        {
-            <div class="provider-list">
-                @foreach (var publisher in secretsPublishers)
-                {
-                    <div class="provider-card">
-                        <div class="provider-header">
-                            <div class="provider-info">
-                                <i class="@GetPublisherIcon(publisher.ProviderId) provider-icon"></i>
-                                <span class="provider-name">@publisher.Name</span>
-                            </div>
-                            <div class="provider-actions">
-                                <button class="btn btn-sm btn-secondary" @onclick="@(() => TestPublisher(publisher))" title="Test Connection">
-                                    <i class="fas fa-plug"></i> Test
-                                </button>
-                                <button class="btn btn-sm btn-secondary" @onclick="@(() => EditPublisher(publisher))" title="Edit">
-                                    <i class="fas fa-edit"></i> Edit
-                                </button>
-                                <button class="btn btn-sm btn-danger" @onclick="@(() => DeletePublisher(publisher))" title="Delete">
-                                    <i class="fas fa-trash"></i> Delete
-                                </button>
-                            </div>
+        </div>
+    }
+    else
+    {
+        <div class="connected-list">
+            @foreach (var publisher in secretsPublishers)
+            {
+                <div class="connected-list-item">
+                    <div class="provider-header">
+                        <div class="provider-info">
+                            <i class="@GetPublisherIcon(publisher.ProviderId) provider-icon"></i>
+                            <span class="provider-name">@publisher.Name</span>
                         </div>
-                        <div class="provider-details">
-                            <div class="detail-item">
-                                <span class="detail-label">TYPE</span>
-                                <span class="detail-value">@GetPublisherDisplayName(publisher.ProviderId)</span>
-                            </div>
-                            @if (publisher.ProviderId == "github")
-                            {
-                                var owner = publisher.Settings.GetValueOrDefault("Owner", "");
-                                @if (!string.IsNullOrEmpty(owner))
-                                {
-                                    <div class="detail-item">
-                                        <span class="detail-label">OWNER</span>
-                                        <span class="detail-value mono">@owner</span>
-                                    </div>
-                                }
-                            }
-                            @if (publisher.ProviderId == "gitea" || publisher.ProviderId == "gitlab")
-                            {
-                                <div class="detail-item">
-                                    <span class="detail-label">SERVER</span>
-                                    <span class="detail-value mono">@publisher.Settings.GetValueOrDefault("ServerUrl", "")</span>
-                                </div>
-                            }
-                            @if (publisher.ProviderId == "azuredevops")
-                            {
-                                <div class="detail-item">
-                                    <span class="detail-label">ORG</span>
-                                    <span class="detail-value mono">@publisher.Settings.GetValueOrDefault("OrganizationUrl", "")</span>
-                                </div>
-                            }
+                        <div class="provider-actions">
+                            <button class="btn btn-sm btn-secondary" @onclick="@(() => TestPublisher(publisher))" title="Test Connection">
+                                <i class="fas fa-plug"></i> Test
+                            </button>
+                            <button class="btn btn-sm btn-secondary" @onclick="@(() => EditPublisher(publisher))" title="Edit">
+                                <i class="fas fa-edit"></i> Edit
+                            </button>
+                            <button class="btn btn-sm btn-danger" @onclick="@(() => DeletePublisher(publisher))" title="Delete">
+                                <i class="fas fa-trash"></i> Delete
+                            </button>
                         </div>
                     </div>
-                }
-            </div>
-        }
-        
-        <div class="add-provider">
-            <button class="btn btn-success" @onclick="ShowAddPublisherDialog">
-                <i class="fas fa-plus"></i> Add CI/CD Publisher
-            </button>
+                    <div class="provider-details">
+                        <div class="detail-item">
+                            <span class="detail-label">TYPE</span>
+                            <span class="detail-value">@GetPublisherDisplayName(publisher.ProviderId)</span>
+                        </div>
+                        @if (publisher.ProviderId == "github")
+                        {
+                            var owner = publisher.Settings.GetValueOrDefault("Owner", "");
+                            @if (!string.IsNullOrEmpty(owner))
+                            {
+                                <div class="detail-item">
+                                    <span class="detail-label">OWNER</span>
+                                    <span class="detail-value mono">@owner</span>
+                                </div>
+                            }
+                        }
+                        @if (publisher.ProviderId == "gitea" || publisher.ProviderId == "gitlab")
+                        {
+                            <div class="detail-item">
+                                <span class="detail-label">SERVER</span>
+                                <span class="detail-value mono">@publisher.Settings.GetValueOrDefault("ServerUrl", "")</span>
+                            </div>
+                        }
+                        @if (publisher.ProviderId == "azuredevops")
+                        {
+                            <div class="detail-item">
+                                <span class="detail-label">ORG</span>
+                                <span class="detail-value mono">@publisher.Settings.GetValueOrDefault("OrganizationUrl", "")</span>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
         </div>
+    }
+    
+    <div class="section-add-action">
+        <button class="btn btn-success" @onclick="ShowAddPublisherDialog">
+            <i class="fas fa-plus"></i> Add CI/CD Publisher
+        </button>
     </div>
 </div>
 
@@ -619,11 +619,11 @@
 
 <style>
     h1 { margin-bottom: 1.25rem; font-size: 1.75rem; color: var(--text-primary); font-weight: 600; }
-    h2 { margin: 0 0 1rem 0; font-size: 1.125rem; color: var(--text-primary); font-weight: 600; display: flex; align-items: center; gap: 0.625rem; }
+    h2 { margin: 0 0 0.25rem 0; font-size: 1.125rem; color: var(--text-primary); font-weight: 600; display: flex; align-items: center; gap: 0.625rem; }
     h2 i { color: var(--text-secondary); }
 
-    .settings-section { margin-bottom: 2rem; }
-    .section-description { color: var(--text-muted); margin-bottom: 1rem; font-size: 0.875rem; }
+    .settings-section { margin-bottom: 1.25rem; }
+    .section-description { color: var(--text-muted); margin-bottom: 0.5rem; font-size: 0.875rem; }
     .section-description a { color: var(--accent-primary); }
 
     .btn-update-available {
@@ -648,8 +648,7 @@
     .settings-container {
         background: var(--card-bg);
         padding: 1rem 1.25rem;
-        border-radius: 0.5rem;
-        box-shadow: var(--card-shadow);
+        border-radius: var(--card-radius);
     }
 
     .setting-group { margin-bottom: 1.5rem; }
@@ -760,31 +759,40 @@
     }
 
     .actions { display: flex; gap: 0.75rem; }
-
-    .btn { 
-        padding: 0.625rem 1.25rem; 
-        border: none; 
-        border-radius: 0.375rem; 
-        font-size: 0.875rem; 
-        cursor: pointer; 
-        transition: all 0.2s ease;
-        display: inline-flex;
-        align-items: center;
-        gap: 0.5rem;
-    }
     .btn i { font-size: 0.875rem; }
-    .btn-sm { padding: 0.375rem 0.75rem; font-size: 0.8125rem; }
     .btn-sm i { font-size: 0.75rem; }
-    .btn-primary { background-color: var(--accent-primary); color: var(--card-bg); }
-    .btn-primary:hover { background-color: var(--accent-primary-hover); }
-    .btn-secondary { background-color: var(--text-secondary); color: var(--card-bg); }
-    .btn-secondary:hover { background-color: var(--text-primary); }
-    .btn-success { background-color: #48bb78; color: white; }
-    .btn-success:hover { background-color: #38a169; }
-    .btn-danger { background-color: #f56565; color: white; }
-    .btn-danger:hover { background-color: #e53e3e; }
 
     .identity-list { display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1.25rem; }
+
+    /* Connected list pattern - items share one card with separators */
+    .connected-list {
+        background: var(--card-bg);
+        border-radius: var(--card-radius);
+        overflow: hidden;
+    }
+
+    .connected-list-item {
+        padding: 0.75rem 0.75rem;
+        position: relative;
+    }
+
+    .connected-list-item:not(:last-child)::after {
+        content: '';
+        position: absolute;
+        bottom: 0;
+        left: 0.75rem;
+        right: 0.75rem;
+        height: 1px;
+        background: var(--border-color);
+    }
+
+    .connected-list-item.active {
+        border-left: 3px solid var(--accent-primary);
+    }
+
+    .section-add-action {
+        margin-top: 0.75rem;
+    }
 
     .identity-card {
         border: 1px solid var(--border-color);
@@ -987,11 +995,9 @@
     }
 
     .empty-identities { padding: 1.25rem; text-align: center; color: var(--text-muted); }
-    .add-identity { margin-top: 1rem; }
 
     /* Cloud Provider Styles */
     .empty-providers { padding: 1.25rem; text-align: center; color: var(--text-muted); }
-    .add-provider { margin-top: 1rem; }
     
     .provider-list { display: flex; flex-direction: column; gap: 1rem; }
     

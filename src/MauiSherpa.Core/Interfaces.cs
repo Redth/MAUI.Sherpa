@@ -2986,3 +2986,33 @@ public interface IDebugFlagService
     /// </summary>
     bool FailBuildToolsInstall { get; set; }
 }
+
+/// <summary>
+/// Service for presenting native MAUI form modal pages.
+/// </summary>
+public interface IFormModalService
+{
+    /// <summary>
+    /// Shows a form page modally and waits for the result.
+    /// Returns the result value, or default if cancelled.
+    /// </summary>
+    Task<TResult?> ShowAsync<TResult>(IFormPage<TResult> page);
+
+    /// <summary>
+    /// Shows a view-only page modally and waits for it to close.
+    /// Used for dialogs with no result (e.g. capabilities, signatures).
+    /// The page parameter should be a ContentPage.
+    /// </summary>
+    Task ShowViewAsync(object page, Func<Task> waitForClose);
+}
+
+/// <summary>
+/// Interface for form pages that return a typed result.
+/// </summary>
+public interface IFormPage<TResult>
+{
+    /// <summary>
+    /// Awaits the form result (completes when user submits or cancels).
+    /// </summary>
+    Task<TResult?> GetResultAsync();
+}

@@ -1,0 +1,107 @@
+@inherits LayoutComponentBase
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Pages.Forms
+@inject IThemeService ThemeService
+@inject IJSRuntime JS
+@inject IPlatformService PlatformInfo
+@implements IDisposable
+
+<div class="modal-layout @ThemeClass @PlatformClass">
+    @Body
+</div>
+
+@code {
+    private string ThemeClass => ThemeService.IsDarkMode ? "theme-dark" : "theme-light";
+    private string PlatformClass => PlatformInfo.IsMacOS ? "platform-macos" : PlatformInfo.IsWindows ? "platform-windows" : "";
+
+    protected override void OnInitialized()
+    {
+        ThemeService.ThemeChanged += OnThemeChanged;
+    }
+
+    protected override async void OnAfterRender(bool firstRender)
+    {
+        await SyncBodyThemeAsync();
+        if (firstRender)
+        {
+            // Use requestAnimationFrame to ensure child components have rendered
+            double height = 400;
+            try
+            {
+                height = await JS.InvokeAsync<double>("eval",
+                    "new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => r(document.body.scrollHeight))))");
+            }
+            catch { }
+            ModalWebViewReadySignal.Signal(height);
+
+            // Set up a ResizeObserver to signal height changes as content grows
+            try
+            {
+                await JS.InvokeVoidAsync("eval", @"
+                    if (!window.__modalResizeObserver) {
+                        window.__modalResizeObserver = new ResizeObserver(() => {
+                            const h = document.body.scrollHeight;
+                            if (h !== window.__lastModalHeight) {
+                                window.__lastModalHeight = h;
+                                document.body.setAttribute('data-content-height', h);
+                            }
+                        });
+                        window.__modalResizeObserver.observe(document.body);
+                    }");
+            }
+            catch { }
+        }
+    }
+
+    private async void OnThemeChanged()
+    {
+        await InvokeAsync(async () =>
+        {
+            StateHasChanged();
+            await SyncBodyThemeAsync();
+        });
+    }
+
+    private async Task SyncBodyThemeAsync()
+    {
+        try
+        {
+            var cls = ThemeService.IsDarkMode ? "theme-dark" : "theme-light";
+            var bg = ThemeService.IsDarkMode ? "#1a202c" : "#f7fafc";
+            await JS.InvokeVoidAsync("eval", $"document.body.className = '{cls}'; document.body.style.backgroundColor='{bg}';");
+        }
+        catch { }
+    }
+
+    public void Dispose()
+    {
+        ThemeService.ThemeChanged -= OnThemeChanged;
+    }
+}
+
+<style>
+    .modal-layout {
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+        height: 100%;
+        background: transparent;
+        color: var(--text-primary);
+        overflow-y: auto;
+        padding: 0;
+        margin: 0;
+    }
+
+    html, body, #app {
+        padding: 0 !important;
+        margin: 0 !important;
+        height: 100% !important;
+        background: transparent !important;
+    }
+
+    .platform-macos .modal-layout {
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+        font-size: 13px;
+        -webkit-font-smoothing: antialiased;
+    }
+</style>

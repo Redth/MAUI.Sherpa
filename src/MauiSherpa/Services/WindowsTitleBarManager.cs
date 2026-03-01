@@ -105,28 +105,6 @@ public class WindowsTitleBarManager
 
         _titleBar.PassthroughElements.Clear();
 
-        // When toolbar is suppressed (e.g. Copilot modal is open), show minimal titlebar
-        if (_toolbarService.IsToolbarSuppressed)
-        {
-            var minimal = new HorizontalStackLayout
-            {
-                Spacing = 6,
-                VerticalOptions = LayoutOptions.Center,
-                Padding = new Thickness(8, 0, 0, 0),
-            };
-            minimal.Children.Add(new Image
-            {
-                Source = "sherpalogo.png",
-                HeightRequest = 28,
-                WidthRequest = 28,
-                VerticalOptions = LayoutOptions.Center,
-            });
-            _titleBar.LeadingContent = minimal;
-            _titleBar.Content = null;
-            _titleBar.TrailingContent = null;
-            return;
-        }
-
         // Split actions: "add" types go left, "refresh" types go right
         var leadingActions = new List<ToolbarAction>();
         var trailingActions = new List<ToolbarAction>();
@@ -467,13 +445,21 @@ public class WindowsTitleBarManager
         var settingsItem = new MenuFlyoutItem { Text = "Settings…" };
         settingsItem.Clicked += (s, e) =>
         {
-            _ = _serviceProvider.GetRequiredService<INavigationService>().NavigateToAsync("/settings");
+            _ = OpenSettingsDialogAsync();
         };
         menuFlyout.Add(settingsItem);
 
         return CreateIdentityPickerView(
             GetEnumDescription(FontAwesomeBrandIcons.Apple), "FontAwesomeBrandIcons",
             displayName, menuFlyout);
+    }
+
+    private async Task OpenSettingsDialogAsync()
+    {
+        var bridgeHolder = _serviceProvider.GetRequiredService<MauiSherpa.Pages.Forms.HybridFormBridgeHolder>();
+        var formModalService = _serviceProvider.GetRequiredService<IFormModalService>();
+        var page = new MauiSherpa.Pages.Forms.SettingsPage(bridgeHolder);
+        await formModalService.ShowViewAsync(page, async () => await page.ShowAsync());
     }
 
     private View? CreateGoogleIdentityButton()
@@ -522,7 +508,7 @@ public class WindowsTitleBarManager
         var settingsItem = new MenuFlyoutItem { Text = "Settings…" };
         settingsItem.Clicked += (s, e) =>
         {
-            _ = _serviceProvider.GetRequiredService<INavigationService>().NavigateToAsync("/settings");
+            _ = OpenSettingsDialogAsync();
         };
         menuFlyout.Add(settingsItem);
 

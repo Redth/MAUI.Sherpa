@@ -1,0 +1,242 @@
+@page "/modal/export-certificate"
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Pages.Forms
+@using MauiSherpa.Services
+@inject HybridFormBridgeHolder BridgeHolder
+@inject IAlertService AlertService
+@inject IDialogService DialogService
+@inject ILocalCertificateService LocalCertificateService
+@inject ILoggingService Logger
+@implements IDisposable
+
+@{
+    var bridge = BridgeHolder.Current;
+}
+
+@if (bridge != null)
+{
+    <div class="form-content">
+        @if (exportCertificate != null)
+        {
+            <div class="cert-export-info">
+                <strong>@exportCertificate.Name</strong>
+                <div class="text-muted">@exportCertificate.CertificateType</div>
+            </div>
+
+            <div class="form-group">
+                <label>Export Type</label>
+                <div class="export-type-options">
+                    <label class="radio-option">
+                        <input type="radio" name="exportType" value="p12" checked="@(exportType == "p12")" @onchange="@(() => { exportType = "p12"; OnFieldChanged(); })" />
+                        <span class="radio-label">
+                            <strong>P12 / PFX (with private key)</strong>
+                            <small>Includes both public and private key - can be used for signing</small>
+                        </span>
+                    </label>
+                    <label class="radio-option">
+                        <input type="radio" name="exportType" value="cer" checked="@(exportType == "cer")" @onchange="@(() => { exportType = "cer"; OnFieldChanged(); })" />
+                        <span class="radio-label">
+                            <strong>CER (public key only)</strong>
+                            <small>Contains only the public certificate - cannot be used for signing</small>
+                        </span>
+                    </label>
+                </div>
+            </div>
+
+            @if (exportType == "p12")
+            {
+                var localIdentity = localIdentities?.FirstOrDefault(i =>
+                    i.SerialNumber?.Equals(exportCertificate?.SerialNumber, StringComparison.OrdinalIgnoreCase) == true);
+                if (localIdentity == null)
+                {
+                    <div class="alert alert-warning">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        Private key not found in local keychain. You can only export the public certificate.
+                    </div>
+                }
+                else
+                {
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" @bind="exportWithPassword" @bind:after="OnFieldChanged" />
+                            <span>Protect with password</span>
+                        </label>
+                    </div>
+
+                    @if (exportWithPassword)
+                    {
+                        <div class="form-group">
+                            <label>Password</label>
+                            <input type="password" @bind="exportPassword" @bind:after="OnFieldChanged" class="form-control" placeholder="Enter password" />
+                        </div>
+                        <div class="form-group">
+                            <label>Confirm Password</label>
+                            <input type="password" @bind="exportPasswordConfirm" @bind:after="OnFieldChanged" class="form-control" placeholder="Confirm password" />
+                            @if (!string.IsNullOrEmpty(exportPassword) && !string.IsNullOrEmpty(exportPasswordConfirm) && exportPassword != exportPasswordConfirm)
+                            {
+                                <small class="form-error">Passwords do not match</small>
+                            }
+                        </div>
+                    }
+                }
+            }
+        }
+    </div>
+}
+
+@code {
+    private AppleCertificate? exportCertificate;
+    private string exportType = "p12";
+    private bool exportWithPassword = false;
+    private string exportPassword = "";
+    private string exportPasswordConfirm = "";
+    private bool isExporting = false;
+    private IReadOnlyList<LocalSigningIdentity>? localIdentities;
+
+    private bool CanExport => exportCertificate != null &&
+        !isExporting &&
+        (exportType == "cer" ||
+         (exportType == "p12" &&
+          localIdentities?.Any(i => i.SerialNumber?.Equals(exportCertificate.SerialNumber, StringComparison.OrdinalIgnoreCase) == true) == true &&
+          (!exportWithPassword || (exportPassword == exportPasswordConfirm && !string.IsNullOrEmpty(exportPassword)))));
+
+    protected override void OnInitialized()
+    {
+        var bridge = BridgeHolder.Current;
+        if (bridge == null) return;
+
+        exportCertificate = bridge.Parameters.GetValueOrDefault("Certificate") as AppleCertificate;
+        localIdentities = bridge.Parameters.GetValueOrDefault("LocalIdentities") as IReadOnlyList<LocalSigningIdentity>;
+
+        bridge.SubmitRequested += OnSubmitRequested;
+        bridge.SetValid(CanExport);
+    }
+
+    private void OnFieldChanged()
+    {
+        BridgeHolder.Current?.SetValid(CanExport);
+    }
+
+    private async Task OnSubmitRequested()
+    {
+        if (exportCertificate == null) return;
+
+        isExporting = true;
+        StateHasChanged();
+
+        try
+        {
+            var cert = exportCertificate;
+            var fileName = $"{cert.Name?.Replace(" ", "_") ?? "certificate"}_{DateTime.Now:yyyyMMdd}";
+            byte[] data;
+            string extension;
+
+            if (exportType == "p12")
+            {
+                extension = ".p12";
+                var matchingIdentity = localIdentities?.FirstOrDefault(i =>
+                    SerialsMatch(i.SerialNumber, cert.SerialNumber));
+
+                if (matchingIdentity == null)
+                {
+                    await AlertService.ShowAlertAsync("Error", "Private key not found in local keychain.");
+                    return;
+                }
+
+                var password = exportWithPassword ? exportPassword : "";
+                data = await LocalCertificateService.ExportP12Async(matchingIdentity.Identity, password);
+            }
+            else
+            {
+                extension = ".cer";
+                data = await LocalCertificateService.ExportCertificateAsync(cert.SerialNumber ?? "");
+            }
+
+            var savePath = await DialogService.ShowFileDialogAsync(
+                "Save Certificate",
+                isSave: true,
+                defaultFileName: fileName + extension);
+
+            if (string.IsNullOrEmpty(savePath))
+            {
+                return;
+            }
+
+            await File.WriteAllBytesAsync(savePath, data);
+            await AlertService.ShowToastAsync($"Certificate exported to {Path.GetFileName(savePath)}");
+
+            var bridge = BridgeHolder.Current;
+            if (bridge != null)
+                bridge.Result = true;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError($"Export failed: {ex}");
+            await AlertService.ShowAlertAsync("Export Failed", ex.Message);
+        }
+        finally
+        {
+            isExporting = false;
+            StateHasChanged();
+        }
+    }
+
+    private static bool SerialsMatch(string? a, string? b)
+        => (a ?? "").TrimStart('0').Equals((b ?? "").TrimStart('0'), StringComparison.OrdinalIgnoreCase);
+
+    public void Dispose()
+    {
+        var bridge = BridgeHolder.Current;
+        if (bridge != null)
+            bridge.SubmitRequested -= OnSubmitRequested;
+    }
+}
+
+<style>
+    .form-content {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        padding: 8px 4px;
+    }
+
+    .text-muted { color: var(--text-muted); font-size: 13px; }
+
+    .cert-export-info {
+        background: var(--bg-secondary);
+        padding: 0.75rem 1rem;
+        border-radius: 0.5rem;
+    }
+
+    .export-type-options { display: flex; flex-direction: column; gap: 0.75rem; }
+
+    .radio-option {
+        display: flex; align-items: flex-start; gap: 0.75rem;
+        padding: 0.75rem 1rem; border: 1px solid var(--border-color);
+        border-radius: 0.5rem; cursor: pointer;
+        transition: border-color 0.15s, background 0.15s;
+    }
+    .radio-option:hover { background: var(--bg-hover); }
+    .radio-option input[type="radio"] { margin-top: 0.25rem; }
+    .radio-option input[type="radio"]:checked + .radio-label { color: var(--accent-primary); }
+
+    .radio-label { display: flex; flex-direction: column; gap: 0.25rem; }
+    .radio-label strong { font-size: 0.875rem; }
+    .radio-label small { font-size: 0.75rem; color: var(--text-muted); }
+
+    .checkbox-label { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; }
+    .checkbox-label input[type="checkbox"] { width: 18px; height: 18px; }
+
+    .form-group { margin-bottom: 0; }
+    .form-group label { display: block; font-weight: 500; margin-bottom: 0.5rem; color: var(--text-secondary); }
+    .form-control {
+        width: 100%; padding: 0.625rem 0.75rem;
+        border: 1px solid var(--border-color); border-radius: 0.375rem;
+        font-size: 0.875rem; box-sizing: border-box;
+    }
+    .form-control:focus { outline: none; border-color: var(--accent-primary); box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.15); }
+    .form-error { display: block; margin-top: 0.25rem; font-size: 0.75rem; color: var(--status-error-text); }
+
+    .alert { padding: 0.75rem 1rem; border-radius: 0.5rem; margin-bottom: 0; display: flex; align-items: center; gap: 0.625rem; }
+    .alert-warning { background: #fef3cd; color: #856404; border: 1px solid #ffc107; }
+</style>

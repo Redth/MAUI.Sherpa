@@ -1,9 +1,11 @@
 @page "/emulators"
 @using MauiSherpa.Core.Interfaces
 @using MauiSherpa.Core.Requests.Android
+@using MauiSherpa.Pages.Forms
 @using MauiSherpa.Services
 @using Shiny.Mediator
 @inject IMediator Mediator
+@inject IFormModalService FormModalService
 @inject IAndroidSdkService SdkService
 @inject IAndroidSdkSettingsService SdkSettings
 @inject IAlertService AlertService
@@ -12,7 +14,6 @@
 @inject OperationModalService OperationModal
 @inject BlazorToastService ToastService
 @implements IDisposable
-@inject IJSRuntime JS
 @inject IToolbarService ToolbarService
 @inject IPlatformService PlatformInfo
 @inject DeviceInspectorService DeviceInspector
@@ -166,144 +167,6 @@
     }
 </div>
 
-@if (showCreateDialog)
-{
-    <div class="modal-overlay" id="create-emu-modal">
-        <div class="modal" @onclick:stopPropagation="true" role="dialog" aria-modal="true" aria-labelledby="create-emu-title">
-            <div class="modal-header">
-                <h2 id="create-emu-title">Create New Emulator</h2>
-                <button class="close-btn" @onclick="CloseCreateDialog">×</button>
-            </div>
-            <div class="modal-body">
-                @if (!string.IsNullOrEmpty(createProgress))
-                {
-                    <div class="create-progress">
-                        <span class="spinner"></span>
-                        <span>@createProgress</span>
-                    </div>
-                }
-                <div class="form-group">
-                    <label>Emulator Name</label>
-                    <input type="text" @bind="newEmulatorName" placeholder="MyEmulator" disabled="@isCreating" />
-                </div>
-                <div class="form-group">
-                    <label>System Image</label>
-                    <select @bind="selectedSystemImage" disabled="@isCreating">
-                        <option value="">Select a system image...</option>
-                        @if (installedSystemImages.Count > 0)
-                        {
-                            <optgroup label="✓ Installed">
-                                @foreach (var image in installedSystemImages)
-                                {
-                                    <option value="@image">@FormatSystemImage(image)</option>
-                                }
-                            </optgroup>
-                        }
-                        @if (availableSystemImages.Count > 0)
-                        {
-                            <optgroup label="📥 Available to Install">
-                                @foreach (var image in availableSystemImages)
-                                {
-                                    <option value="@image">@FormatSystemImage(image)</option>
-                                }
-                            </optgroup>
-                        }
-                    </select>
-                    @if (installedSystemImages.Count == 0 && availableSystemImages.Count == 0)
-                    {
-                        <div class="help-text">No system images found.</div>
-                    }
-                    else if (!string.IsNullOrEmpty(selectedSystemImage) && !installedSystemImages.Contains(selectedSystemImage))
-                    {
-                        <div class="help-text info">📥 This image will be downloaded and installed first</div>
-                    }
-                </div>
-                <div class="form-group">
-                    <label>Device Definition (optional)</label>
-                    <select @bind="selectedDevice" disabled="@isCreating">
-                        <option value="">Default</option>
-                        @foreach (var device in deviceDefinitions)
-                        {
-                            <option value="@device.Id">@device.Name (@device.Oem)</option>
-                        }
-                    </select>
-                </div>
-                
-                <!-- Advanced Options -->
-                <details class="advanced-section">
-                    <summary>Advanced Options</summary>
-                    <div class="advanced-content">
-                        <div class="form-group">
-                            <label>RAM Size (MB)</label>
-                            <select @bind="selectedRamSize" disabled="@isCreating">
-                                <option value="">Default</option>
-                                <option value="1024">1024 MB (1 GB)</option>
-                                <option value="1536">1536 MB (1.5 GB)</option>
-                                <option value="2048">2048 MB (2 GB)</option>
-                                <option value="3072">3072 MB (3 GB)</option>
-                                <option value="4096">4096 MB (4 GB)</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label>Internal Storage (MB)</label>
-                            <select @bind="selectedStorageSize" disabled="@isCreating">
-                                <option value="">Default (800 MB)</option>
-                                <option value="2048">2 GB</option>
-                                <option value="4096">4 GB</option>
-                                <option value="6144">6 GB</option>
-                                <option value="8192">8 GB</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label>SD Card Size</label>
-                            <select @bind="selectedSdCardSize" disabled="@isCreating">
-                                <option value="">None</option>
-                                <option value="128M">128 MB</option>
-                                <option value="256M">256 MB</option>
-                                <option value="512M">512 MB</option>
-                                <option value="1G">1 GB</option>
-                                <option value="2G">2 GB</option>
-                            </select>
-                        </div>
-                        @if (availableSkins.Count > 0)
-                        {
-                            <div class="form-group">
-                                <label>Skin</label>
-                                <select @bind="selectedSkin" disabled="@isCreating">
-                                    <option value="">Default</option>
-                                    @foreach (var skin in availableSkins)
-                                    {
-                                        <option value="@skin">@skin</option>
-                                    }
-                                </select>
-                            </div>
-                        }
-                    </div>
-                </details>
-            </div>
-            <div class="modal-footer">
-                <button class="btn btn-secondary" @onclick="CloseCreateDialog" disabled="@isCreating">
-                    <i class="fas fa-times"></i> Cancel
-                </button>
-                <button class="btn btn-primary" @onclick="CreateEmulator" disabled="@(string.IsNullOrEmpty(newEmulatorName) || string.IsNullOrEmpty(selectedSystemImage) || isCreating)">
-                    @if (isCreating)
-                    {
-                        <span><i class="fas fa-spinner fa-spin"></i> Creating...</span>
-                    }
-                    else if (!string.IsNullOrEmpty(selectedSystemImage) && !installedSystemImages.Contains(selectedSystemImage))
-                    {
-                        <span><i class="fas fa-download"></i> Install & Create</span>
-                    }
-                    else
-                    {
-                        <span><i class="fas fa-plus"></i> Create</span>
-                    }
-                </button>
-            </div>
-        </div>
-    </div>
-}
-
 <style>
     h1 {
         margin-bottom: 1.25rem;
@@ -383,32 +246,7 @@
         to { transform: rotate(360deg); }
     }
 
-    .btn {
-        padding: 0.625rem 1.25rem;
-        border: none;
-        border-radius: 0.375rem;
-        font-size: 0.875rem;
-        cursor: pointer;
-        transition: all 0.2s ease;
-        display: inline-flex;
-        align-items: center;
-        gap: 0.375rem;
-    }
-
     .btn i { font-size: 0.75rem; }
-
-    .btn-primary { background-color: var(--accent-primary); color: var(--card-bg); }
-    .btn-primary:hover:not(:disabled) { background-color: var(--accent-primary-hover); }
-    .btn-success { background-color: var(--accent-success); color: var(--card-bg); }
-    .btn-success:hover:not(:disabled) { background-color: var(--accent-success-hover); }
-    .btn-warning { background-color: var(--accent-warning); color: var(--card-bg); }
-    .btn-warning:hover:not(:disabled) { background-color: var(--accent-warning-hover); }
-    .btn-danger { background-color: var(--accent-danger); color: var(--card-bg); }
-    .btn-danger:hover:not(:disabled) { background-color: var(--accent-danger-hover); }
-    .btn-secondary { background-color: var(--text-secondary); color: var(--card-bg); }
-    .btn-secondary:hover:not(:disabled) { background-color: var(--text-muted); }
-    .btn-sm { padding: 0.375rem 0.75rem; font-size: 0.75rem; }
-    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
     .emulator-list {
         display: flex;
@@ -418,12 +256,11 @@
 
     .emulator-card {
         background: var(--card-bg);
-        border-radius: 0.5rem;
-        padding: 1.25rem;
+        border-radius: var(--card-radius);
+        padding: 0.875rem;
         display: flex;
         align-items: center;
         gap: 1rem;
-        box-shadow: var(--card-shadow);
         border-left: 0.25rem solid transparent;
     }
 
@@ -437,16 +274,16 @@
     }
 
     .emulator-icon {
-        font-size: 2.25rem;
-        width: 2.5rem;
-        height: 2.5rem;
+        font-size: 1.5rem;
+        width: 1.75rem;
+        height: 1.75rem;
         display: flex;
         align-items: center;
         justify-content: center;
         color: var(--accent-primary);
     }
 
-    .emulator-icon i { font-size: 2rem; }
+    .emulator-icon i { font-size: 1.375rem; }
 
     .emulator-details {
         flex: 1;
@@ -501,8 +338,7 @@
         margin-top: 0.25rem;
         min-width: 140px;
         background: var(--card-bg);
-        border: 1px solid var(--border-color);
-        border-radius: 0.5rem;
+        border-radius: var(--card-radius);
         box-shadow: 0 0.25rem 1rem rgba(0,0,0,0.15);
         z-index: 100;
         padding: 0.25rem 0;
@@ -541,10 +377,9 @@
 
     .empty-state {
         background: var(--card-bg);
-        border-radius: 0.5rem;
+        border-radius: var(--card-radius);
         padding: 3.75rem 2.5rem;
         text-align: center;
-        box-shadow: var(--card-shadow);
     }
 
     .empty-icon { font-size: 48px; margin-bottom: 1rem; color: var(--text-secondary); }
@@ -552,146 +387,7 @@
     .empty-title { font-size: 1.125rem; font-weight: 600; color: var(--text-primary); margin-bottom: 0.5rem; }
     .empty-description { color: var(--text-muted); font-size: 0.875rem; }
 
-    .modal-overlay {
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: rgba(0, 0, 0, 0.5);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        z-index: 1000;
-    }
-
-    .modal {
-        background: var(--card-bg);
-        border-radius: 0.75rem;
-        width: 90%;
-        max-width: 500px;
-        box-shadow: 0 1.25rem 3.75rem rgba(0, 0, 0, 0.3);
-    }
-
-    .modal-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 1.25rem 1.5rem;
-        border-bottom: 1px solid var(--border-color);
-    }
-
-    .modal-header h2 {
-        margin: 0;
-        font-size: 1.125rem;
-        color: var(--text-primary);
-    }
-
-    .close-btn {
-        background: none;
-        border: none;
-        font-size: 1.5rem;
-        cursor: pointer;
-        color: var(--text-secondary);
-    }
-
-    .modal-body {
-        padding: 1.5rem;
-    }
-
-    .modal-footer {
-        padding: 1rem 1.5rem;
-        border-top: 1px solid var(--border-color);
-        display: flex;
-        justify-content: flex-end;
-        gap: 0.75rem;
-    }
-
-    .create-progress {
-        background: var(--status-info-bg);
-        border: 1px solid var(--status-info-border);
-        border-radius: 0.375rem;
-        padding: 0.75rem 1rem;
-        margin-bottom: 1.25rem;
-        display: flex;
-        align-items: center;
-        gap: 0.625rem;
-        color: var(--status-info-text);
-    }
-
-    .form-group {
-        margin-bottom: 1.25rem;
-    }
-
-    .form-group label {
-        display: block;
-        margin-bottom: 0.5rem;
-        font-weight: 500;
-        color: var(--text-secondary);
-    }
-
-    .form-group input,
-    .form-group select {
-        width: 100%;
-        padding: 0.625rem 0.75rem;
-        border: 1px solid var(--border-color);
-        border-radius: 0.375rem;
-        font-size: 0.875rem;
-    }
-
-    .form-group input:focus,
-    .form-group select:focus {
-        outline: none;
-        border-color: var(--accent-primary);
-        box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.1);
-    }
-
-    .help-text {
-        margin-top: 0.5rem;
-        font-size: 0.75rem;
-        color: var(--accent-warning);
-    }
-
-    .help-text.info {
-        color: var(--accent-primary);
-    }
-
-    .advanced-section {
-        margin-top: 1rem;
-        border: 1px solid var(--border-color);
-        border-radius: 0.5rem;
-        overflow: hidden;
-    }
-
-    .advanced-section summary {
-        padding: 0.75rem 1rem;
-        background: var(--bg-tertiary);
-        cursor: pointer;
-        font-weight: 500;
-        color: var(--text-secondary);
-        user-select: none;
-    }
-
-    .advanced-section summary:hover {
-        background: var(--bg-hover);
-    }
-
-    .advanced-section[open] summary {
-        border-bottom: 1px solid var(--border-color);
-    }
-
-    .advanced-content {
-        padding: 1rem;
-        background: var(--bg-tertiary);
-    }
-
-    .advanced-content .form-group {
-        margin-bottom: 0.75rem;
-    }
-
-    .advanced-content .form-group:last-child {
-        margin-bottom: 0;
-    }
+    /* Modal CSS removed - using native FormPage modal */
 </style>
 
 @code {
@@ -712,19 +408,6 @@
     private string statusMessage = "";
     private string? openDropdown = null;
     private System.Threading.Timer? _pollTimer;
-
-    private bool showCreateDialog = false;
-    private bool isCreating = false;
-    private string createProgress = "";
-    private string newEmulatorName = "";
-    private string selectedSystemImage = "";
-    private string selectedDevice = "";
-    
-    // Advanced options
-    private string selectedRamSize = "";
-    private string selectedStorageSize = "";
-    private string selectedSdCardSize = "";
-    private string selectedSkin = "";
 
     protected override async Task OnInitializedAsync()
     {
@@ -805,7 +488,6 @@
                 .Select(p => p.Path)
                 .Where(p => !installedSystemImages.Contains(p))
                 .OrderByDescending(p => p) // Newest first
-                .Take(50) // Limit to avoid overwhelming the dropdown
                 .ToList();
 
             await RefreshRunningState(forceRefresh);
@@ -853,41 +535,25 @@
         openDropdown = openDropdown == name ? null : name;
     }
 
-    private void ShowCreateDialog()
+    private async Task ShowCreateDialog()
     {
-        newEmulatorName = "";
-        selectedSystemImage = installedSystemImages.FirstOrDefault() ?? "";
-        selectedDevice = "";
-        selectedRamSize = "";
-        selectedStorageSize = "";
-        selectedSdCardSize = "";
-        selectedSkin = "";
-        createProgress = "";
-        isCreating = false;
-        showCreateDialog = true;
-        _ = InitModalAsync("create-emu-modal");
         openDropdown = null;
-    }
 
-    private void CloseCreateDialog()
-    {
-        if (!isCreating)
-        {
-            showCreateDialog = false;
-            _ = DisposeModalAsync("create-emu-modal");
-        }
-    }
+        // Ensure data is loaded before opening the form
+        if (installedSystemImages.Count == 0 && availableSystemImages.Count == 0)
+            await RefreshEmulators(forceRefresh: false);
 
-    private async Task CreateEmulator()
-    {
-        if (string.IsNullOrWhiteSpace(newEmulatorName) || string.IsNullOrWhiteSpace(selectedSystemImage))
-            return;
+        var page = new CreateEmulatorPage(
+            installedSystemImages,
+            availableSystemImages,
+            deviceDefinitions,
+            availableSkins);
+        var formResult = await FormModalService.ShowAsync<EmulatorCreateResult>(page);
+        if (formResult == null) return;
 
-        showCreateDialog = false;
-        _ = DisposeModalAsync("create-emu-modal");
-        var emulatorName = newEmulatorName.Trim().Replace(" ", "_");
-        var systemImage = selectedSystemImage;
-        var needsInstall = !installedSystemImages.Contains(systemImage);
+        var emulatorName = formResult.Name;
+        var systemImage = formResult.SystemImage;
+        var needsInstall = formResult.NeedsInstall;
 
         var result = await OperationModal.RunAsync(
             "Create Emulator",
@@ -897,7 +563,6 @@
                 ctx.LogInfo($"Emulator name: {emulatorName}");
                 ctx.LogInfo($"System image: {systemImage}");
 
-                // Check if we need to install the system image first
                 if (needsInstall)
                 {
                     ctx.SetStatus("Installing system image...");
@@ -920,11 +585,11 @@
                 ctx.SetStatus("Creating AVD...");
 
                 var createOptions = new EmulatorCreateOptions(
-                    Device: string.IsNullOrEmpty(selectedDevice) ? null : selectedDevice,
-                    SdCardSize: string.IsNullOrEmpty(selectedSdCardSize) ? null : selectedSdCardSize,
-                    Skin: string.IsNullOrEmpty(selectedSkin) ? null : selectedSkin,
-                    RamSizeMb: string.IsNullOrEmpty(selectedRamSize) ? null : int.Parse(selectedRamSize),
-                    InternalStorageMb: string.IsNullOrEmpty(selectedStorageSize) ? null : int.Parse(selectedStorageSize)
+                    Device: formResult.Device,
+                    SdCardSize: formResult.SdCardSize,
+                    Skin: formResult.Skin,
+                    RamSizeMb: formResult.RamSizeMb,
+                    InternalStorageMb: formResult.InternalStorageMb
                 );
 
                 var success = await SdkService.CreateAvdAsync(
@@ -1099,9 +764,6 @@
         ToolbarService.SearchTextChanged -= OnSearchTextChanged;
         SdkService.SdkPathChanged -= OnSdkPathChanged;
         _pollTimer?.Dispose();
-        foreach (var id in _activeModals)
-            try { JS.InvokeVoidAsync("modalInterop.dispose", id); } catch { }
-        _dotNetRef?.Dispose();
     }
 
     private void OnToolbarItemClicked(string actionId)
@@ -1114,7 +776,7 @@
                     ToolbarService.SetItemEnabled("refresh", false);
                     try { await RefreshEmulators(forceRefresh: true); } finally { ToolbarService.SetItemEnabled("refresh", true); }
                     break;
-                case "create": ShowCreateDialog(); break;
+                case "create": await ShowCreateDialog(); break;
             }
             StateHasChanged();
         });
@@ -1125,27 +787,4 @@
         InvokeAsync(() => { searchQuery = text; StateHasChanged(); });
     }
 
-    private DotNetObjectReference<Emulators>? _dotNetRef;
-    private readonly HashSet<string> _activeModals = new();
-
-    private async Task InitModalAsync(string modalId)
-    {
-        await Task.Yield();
-        _dotNetRef ??= DotNetObjectReference.Create(this);
-        _activeModals.Add(modalId);
-        await JS.InvokeVoidAsync("modalInterop.initialize", modalId, _dotNetRef);
-    }
-
-    private async Task DisposeModalAsync(string modalId)
-    {
-        _activeModals.Remove(modalId);
-        try { await JS.InvokeVoidAsync("modalInterop.dispose", modalId); } catch { }
-    }
-
-    [JSInvokable]
-    public void OnEscapePressed()
-    {
-        CloseCreateDialog();
-        InvokeAsync(StateHasChanged);
-    }
 }

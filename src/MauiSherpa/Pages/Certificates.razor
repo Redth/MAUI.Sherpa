@@ -2,6 +2,8 @@
 @using MauiSherpa.Core.Interfaces
 @using MauiSherpa.Core.Requests.Apple
 @using MauiSherpa.Services
+@using MauiSherpa.Pages.Forms
+@using MauiSherpa.Pages.Modals
 @using Shiny.Mediator
 @inject IMediator Mediator
 @inject IAppleConnectService AppleService
@@ -16,8 +18,9 @@
 @inject BlazorToastService ToastService
 @inject ILoggingService Logger
 @inject IEncryptedSettingsService SettingsService
+@inject IFormModalService FormModalService
+@inject HybridFormBridgeHolder BridgeHolder
 @implements IDisposable
-@inject IJSRuntime JS
 @inject IToolbarService ToolbarService
 @inject IPlatformService PlatformInfo
 @inject IPreferences AppPreferences
@@ -235,135 +238,7 @@
     </div>
 }
 
-@if (showCreateDialog)
-{
-    <div class="modal-overlay" id="create-cert-modal">
-        <div class="modal" @onclick:stopPropagation="true" role="dialog" aria-modal="true" aria-labelledby="create-cert-title">
-            <div class="modal-header">
-                <h2 id="create-cert-title">Create Certificate</h2>
-                <button class="close-btn" @onclick="CloseCreateDialog">×</button>
-            </div>
-            <div class="modal-body">
-                <div class="form-group">
-                    <label>Certificate Type</label>
-                    <select @bind="newCertType" class="form-control">
-                        <option value="IOS_DEVELOPMENT">iOS Development</option>
-                        <option value="IOS_DISTRIBUTION">iOS Distribution</option>
-                        <option value="MAC_APP_DEVELOPMENT">Mac Development</option>
-                        <option value="MAC_APP_DISTRIBUTION">Mac App Distribution</option>
-                        <option value="MAC_INSTALLER_DISTRIBUTION">Mac Installer Distribution</option>
-                        <option value="DEVELOPER_ID_APPLICATION">Developer ID Application</option>
-                        <option value="DEVELOPER_ID_KEXT">Developer ID Kernel Extension</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>Common Name (optional)</label>
-                    <input type="text" @bind="newCertCommonName" class="form-control" 
-                           placeholder="@Environment.MachineName" />
-                    <small class="form-hint">Defaults to your machine name if not specified</small>
-                </div>
-                <div class="form-group">
-                    <label>PFX Passphrase (optional)</label>
-                    <input type="password" @bind="newCertPassphrase" class="form-control" 
-                           placeholder="Leave empty for no passphrase" />
-                    <small class="form-hint">Password to protect the exported certificate file</small>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button class="btn btn-secondary" @onclick="CloseCreateDialog" disabled="@isCreating">
-                    <i class="fas fa-times"></i> Cancel
-                </button>
-                <button class="btn btn-primary" @onclick="CreateCertificate" disabled="@isCreating">
-                    <i class="fas @(isCreating ? "fa-spinner fa-spin" : "fa-plus")"></i> @(isCreating ? "Creating..." : "Create")
-                </button>
-            </div>
-        </div>
-    </div>
-}
 
-@if (showExportDialog && exportCertificate != null)
-{
-    <div class="modal-overlay" id="export-cert-modal">
-        <div class="modal" @onclick:stopPropagation="true" role="dialog" aria-modal="true" aria-labelledby="export-cert-title">
-            <div class="modal-header">
-                <h2 id="export-cert-title">Export Certificate</h2>
-                <button class="close-btn" @onclick="CloseExportDialog">×</button>
-            </div>
-            <div class="modal-body">
-                <div class="cert-export-info">
-                    <strong>@exportCertificate.Name</strong>
-                    <div class="text-muted">@exportCertificate.CertificateType</div>
-                </div>
-                
-                <div class="form-group">
-                    <label>Export Type</label>
-                    <div class="export-type-options">
-                        <label class="radio-option">
-                            <input type="radio" name="exportType" value="p12" checked="@(exportType == "p12")" @onchange="@(() => exportType = "p12")" />
-                            <span class="radio-label">
-                                <strong>P12 / PFX (with private key)</strong>
-                                <small>Includes both public and private key - can be used for signing</small>
-                            </span>
-                        </label>
-                        <label class="radio-option">
-                            <input type="radio" name="exportType" value="cer" checked="@(exportType == "cer")" @onchange="@(() => exportType = "cer")" />
-                            <span class="radio-label">
-                                <strong>CER (public key only)</strong>
-                                <small>Contains only the public certificate - cannot be used for signing</small>
-                            </span>
-                        </label>
-                    </div>
-                </div>
-                
-                @if (exportType == "p12")
-                {
-                    var localIdentity = localIdentities?.FirstOrDefault(i => 
-                        i.SerialNumber?.Equals(exportCertificate?.SerialNumber, StringComparison.OrdinalIgnoreCase) == true);
-                    if (localIdentity == null)
-                    {
-                        <div class="alert alert-warning">
-                            <i class="fas fa-exclamation-triangle"></i>
-                            Private key not found in local keychain. You can only export the public certificate.
-                        </div>
-                    }
-                    else
-                    {
-                        <div class="form-group">
-                            <label class="checkbox-label">
-                                <input type="checkbox" @bind="exportWithPassword" />
-                                <span>Protect with password</span>
-                            </label>
-                        </div>
-                        
-                        @if (exportWithPassword)
-                        {
-                            <div class="form-group">
-                                <label>Password</label>
-                                <input type="password" @bind="exportPassword" class="form-control" placeholder="Enter password" />
-                            </div>
-                            <div class="form-group">
-                                <label>Confirm Password</label>
-                                <input type="password" @bind="exportPasswordConfirm" class="form-control" placeholder="Confirm password" />
-                                @if (!string.IsNullOrEmpty(exportPassword) && !string.IsNullOrEmpty(exportPasswordConfirm) && exportPassword != exportPasswordConfirm)
-                                {
-                                    <small class="form-error">Passwords do not match</small>
-                                }
-                            </div>
-                        }
-                    }
-                }
-            </div>
-            <div class="modal-footer">
-                <button class="btn btn-secondary" @onclick="CloseExportDialog" disabled="@isExporting">
-                    <i class="fas fa-times"></i> Cancel
-                </button>
-                <button class="btn btn-primary" @onclick="ExportCertificate" disabled="@(!CanExport)">
-                    <i class="fas @(isExporting ? "fa-spinner fa-spin" : "fa-file-export")"></i> @(isExporting ? "Exporting..." : "Export")
-                </button>
-            </div>
-        </div>
-    </div>
-}
 
 <style>
     h1 { margin-bottom: 1.25rem; font-size: 1.75rem; color: var(--text-primary); }
@@ -429,7 +304,7 @@
     /* Filter Section Styles */
     .filter-section {
         background: var(--card-bg);
-        border-radius: 0.5rem;
+        border-radius: var(--card-radius);
         padding: 1rem;
         margin-bottom: 1rem;
         box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
@@ -530,18 +405,6 @@
         color: var(--text-muted);
         margin-bottom: 0.75rem;
     }
-
-    .btn { 
-        padding: 0.625rem 1.25rem; 
-        border: none; 
-        border-radius: 0.375rem; 
-        font-size: 0.875rem; 
-        cursor: pointer; 
-        transition: all 0.2s ease;
-        display: inline-flex;
-        align-items: center;
-        gap: 0.375rem;
-    }
     .btn i { font-size: 0.75rem; }
     .btn-icon {
         width: 2rem; height: 2rem; padding: 0;
@@ -549,35 +412,24 @@
         border-radius: 0.375rem; font-size: 0.8125rem;
     }
     .btn-icon i { font-size: 0.8125rem; margin: 0; }
-    .btn-primary { background-color: var(--accent-primary); color: white; }
-    .btn-primary:hover:not(:disabled) { background-color: var(--accent-primary-hover); }
-    .btn-success { background-color: var(--accent-success); color: white; }
-    .btn-success:hover:not(:disabled) { background-color: var(--accent-success-hover); }
-    .btn-secondary { background-color: var(--bg-hover); color: var(--text-secondary); }
-    .btn-secondary:hover:not(:disabled) { background-color: var(--bg-tertiary); }
-    .btn-danger { background-color: #f56565; color: white; }
-    .btn-danger:hover:not(:disabled) { background-color: var(--accent-danger); }
-    .btn-sm { padding: 0.375rem 0.75rem; font-size: 0.8125rem; }
-    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
     .cert-list { display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1.25rem; }
 
     .cert-card {
         background: var(--card-bg);
-        border-radius: 0.5rem;
-        padding: 1.25rem;
+        border-radius: var(--card-radius);
+        padding: 0.875rem;
         display: flex;
         align-items: flex-start;
         gap: 1rem;
-        box-shadow: var(--card-shadow);
         border-left: 0.25rem solid var(--accent-success);
     }
 
     .cert-card.expired { border-left-color: #f56565; opacity: 0.7; }
     .cert-card.expiring { border-left-color: var(--accent-warning); }
 
-    .cert-icon { font-size: 2.25rem; color: #6b46c1; }
-    .cert-icon i { font-size: 1.75rem; }
+    .cert-icon { font-size: 1.5rem; color: #6b46c1; }
+    .cert-icon i { font-size: 1.25rem; }
     .cert-details { flex: 1; }
     .cert-name { font-weight: 600; font-size: 1rem; color: var(--text-primary); }
     .cert-serial { 
@@ -634,8 +486,7 @@
         margin-top: 0.25rem;
         min-width: 180px;
         background: var(--card-bg);
-        border: 1px solid var(--border-color);
-        border-radius: 0.5rem;
+        border-radius: var(--card-radius);
         box-shadow: 0 0.25rem 1rem rgba(0,0,0,0.15);
         z-index: 100;
         padding: 0.25rem 0;
@@ -654,165 +505,17 @@
     .cert-dropdown-item.danger { color: var(--accent-danger, #e53e3e); }
     .cert-dropdown-item.danger i { color: var(--accent-danger, #e53e3e); }
 
-    .empty-state { background: var(--card-bg); border-radius: 0.5rem; padding: 3.75rem 2.5rem; text-align: center; box-shadow: var(--card-shadow); }
+    .empty-state { background: var(--card-bg); border-radius: var(--card-radius); padding: 3.75rem 2.5rem; text-align: center; }
     .empty-icon { font-size: 48px; margin-bottom: 1rem; color: #a0aec0; }
     .empty-icon i { font-size: 48px; }
     .empty-title { font-size: 1.125rem; font-weight: 600; color: var(--text-primary); margin-bottom: 0.5rem; }
     .empty-description { color: var(--text-muted); font-size: 0.875rem; }
 
-    /* Modal styles */
-    .modal-overlay {
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: rgba(0, 0, 0, 0.5);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        z-index: 1000;
-    }
-
-    .modal {
-        background: var(--card-bg);
-        border-radius: 0.75rem;
-        width: 90%;
-        max-width: 500px;
-        max-height: 90vh;
-        overflow-y: auto;
-        box-shadow: 0 1.25rem 3.75rem rgba(0, 0, 0, 0.3);
-    }
-
-    .modal-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 1.25rem 1.5rem;
-        border-bottom: 1px solid var(--border-color);
-    }
-
-    .modal-header h2 { margin: 0; font-size: 1.25rem; color: var(--text-primary); }
-
-    .close-btn {
-        background: none;
-        border: none;
-        font-size: 1.5rem;
-        color: var(--text-muted);
-        cursor: pointer;
-        padding: 0;
-        line-height: 1;
-    }
-
-    .modal-body { padding: 1.5rem; }
-    .modal-footer {
-        display: flex;
-        justify-content: flex-end;
-        gap: 0.75rem;
-        padding: 1rem 1.5rem;
-        border-top: 1px solid var(--border-color);
-        background: var(--bg-tertiary);
-        border-radius: 0 0 0.75rem 0.75rem;
-    }
-
-    .form-group { margin-bottom: 1.25rem; }
-    .form-group label { display: block; font-weight: 500; margin-bottom: 0.5rem; color: var(--text-secondary); }
-    .form-control {
-        width: 100%;
-        padding: 0.625rem 0.75rem;
-        border: 1px solid var(--border-color);
-        border-radius: 0.375rem;
-        font-size: 0.875rem;
-        box-sizing: border-box;
-    }
-    .form-control:focus { outline: none; border-color: var(--accent-primary); box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.15); }
-    .form-hint { display: block; margin-top: 0.25rem; font-size: 0.75rem; color: var(--text-muted); }
-    .form-error { display: block; margin-top: 0.25rem; font-size: 0.75rem; color: var(--status-error-text); }
-    
-    /* Export dialog styles */
-    .cert-export-info {
-        background: var(--bg-secondary);
-        padding: 0.75rem 1rem;
-        border-radius: 0.5rem;
-        margin-bottom: 1.25rem;
-    }
-    
-    .export-type-options {
-        display: flex;
-        flex-direction: column;
-        gap: 0.75rem;
-    }
-    
-    .radio-option {
-        display: flex;
-        align-items: flex-start;
-        gap: 0.75rem;
-        padding: 0.75rem 1rem;
-        border: 1px solid var(--border-color);
-        border-radius: 0.5rem;
-        cursor: pointer;
-        transition: border-color 0.15s, background 0.15s;
-    }
-    
-    .radio-option:hover {
-        background: var(--bg-hover);
-    }
-    
-    .radio-option input[type="radio"] {
-        margin-top: 0.25rem;
-    }
-    
-    .radio-option input[type="radio"]:checked + .radio-label {
-        color: var(--accent-primary);
-    }
-    
-    .radio-label {
-        display: flex;
-        flex-direction: column;
-        gap: 0.25rem;
-    }
-    
-    .radio-label strong {
-        font-size: 0.875rem;
-    }
-    
-    .radio-label small {
-        font-size: 0.75rem;
-        color: var(--text-muted);
-    }
-    
-    .checkbox-label {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        cursor: pointer;
-    }
-    
-    .checkbox-label input[type="checkbox"] {
-        width: 18px;
-        height: 18px;
-    }
-    
-    .alert {
-        padding: 0.75rem 1rem;
-        border-radius: 0.5rem;
-        margin-bottom: 1rem;
-        display: flex;
-        align-items: center;
-        gap: 0.625rem;
-    }
-    
-    .alert-warning {
-        background: #fef3cd;
-        color: #856404;
-        border: 1px solid #ffc107;
-    }
 </style>
 
 @code {
     private List<AppleCertificate> certificates = new();
     private bool isLoading = false;
-    private bool isCreating = false;
     private bool demoMode = false;
     private string errorMessage = "";
     
@@ -822,35 +525,12 @@
     private string filterPlatform = "";
     private string filterStatus = "";
     
-    // Create dialog state
-    private bool showCreateDialog = false;
-    private string newCertType = "IOS_DEVELOPMENT";
-    private string newCertCommonName = "";
-    private string newCertPassphrase = "";
-    
-    // Export dialog state
-    private bool showExportDialog = false;
-    private bool isExporting = false;
-    private AppleCertificate? exportCertificate = null;
-    private string exportType = "p12";
-    private bool exportWithPassword = false;
-    private string exportPassword = "";
-    private string exportPasswordConfirm = "";
-    private IReadOnlyList<LocalSigningIdentity>? localIdentities = null;
-    
     // Sync state
     private Dictionary<string, CertificateSecretInfo> syncStatuses = new();
     private string? openSyncMenuCertId = null;
     private bool syncHintDismissed = false;
     private const string SyncHintDismissedKey = "CertificatesSyncHintDismissed";
     
-    private bool CanExport => exportCertificate != null && 
-        !isExporting && 
-        (exportType == "cer" || 
-         (exportType == "p12" && 
-          localIdentities?.Any(i => i.SerialNumber?.Equals(exportCertificate.SerialNumber, StringComparison.OrdinalIgnoreCase) == true) == true &&
-          (!exportWithPassword || (exportPassword == exportPasswordConfirm && !string.IsNullOrEmpty(exportPassword)))));
-
     private bool HasActiveFilters => !string.IsNullOrEmpty(searchQuery) || 
                                       !string.IsNullOrEmpty(filterType) || 
                                       !string.IsNullOrEmpty(filterPlatform) ||
@@ -966,9 +646,6 @@
         ToolbarService.SearchTextChanged -= OnSearchTextChanged;
         ToolbarService.FilterChanged -= OnFilterChanged;
         IdentityState.OnSelectionChanged -= OnIdentityChanged;
-        foreach (var id in _activeModals)
-            try { JS.InvokeVoidAsync("modalInterop.dispose", id); } catch { }
-        _dotNetRef?.Dispose();
     }
 
     private void OnToolbarItemClicked(string actionId)
@@ -981,7 +658,7 @@
                     ToolbarService.SetItemEnabled("refresh", false);
                     try { await RefreshData(forceRefresh: true); } finally { ToolbarService.SetItemEnabled("refresh", true); }
                     break;
-                case "create": ShowCreateDialog(); break;
+                case "create": await ShowCreateDialog(); break;
             }
             StateHasChanged();
         });
@@ -1069,143 +746,30 @@
         }
     }
 
-    private void ShowCreateDialog()
+    private async Task ShowCreateDialog()
     {
-        newCertType = "IOS_DEVELOPMENT";
-        newCertCommonName = "";
-        newCertPassphrase = "";
-        showCreateDialog = true;
-        _ = InitModalAsync("create-cert-modal");
+        var page = new CreateCertificatePage(AppleService);
+        var certResult = await FormModalService.ShowAsync<AppleCertificateCreateResult>(page);
+        if (certResult == null) return;
+
+        var fileName = $"certificate_{DateTime.Now:yyyyMMdd_HHmmss}.pfx";
+        var downloadsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", fileName);
+        await File.WriteAllBytesAsync(downloadsPath, certResult.PfxData);
+
+        await AlertService.ShowToastAsync($"Certificate saved: ~/Downloads/{fileName}");
+        await RefreshData(forceRefresh: true);
     }
 
-    private void CloseCreateDialog()
-    {
-        showCreateDialog = false;
-        _ = DisposeModalAsync("create-cert-modal");
-    }
-    
     private async Task ShowExportDialog(AppleCertificate cert)
     {
-        exportCertificate = cert;
-        exportType = "p12";
-        exportWithPassword = false;
-        exportPassword = "";
-        exportPasswordConfirm = "";
-        
-        // Load local identities to check if we have the private key
+        IReadOnlyList<LocalSigningIdentity>? localIds = null;
         if (LocalCertificateService.IsSupported)
         {
-            localIdentities = await LocalCertificateService.GetSigningIdentitiesAsync();
+            localIds = await LocalCertificateService.GetSigningIdentitiesAsync();
         }
-        
-        showExportDialog = true;
-        _ = InitModalAsync("export-cert-modal");
-    }
-    
-    private void CloseExportDialog()
-    {
-        showExportDialog = false;
-        exportCertificate = null;
-        _ = DisposeModalAsync("export-cert-modal");
-    }
-    
-    private async Task ExportCertificate()
-    {
-        if (exportCertificate == null) return;
-        
-        isExporting = true;
-        StateHasChanged();
-        
-        try
-        {
-            var cert = exportCertificate;
-            var fileName = $"{cert.Name?.Replace(" ", "_") ?? "certificate"}_{DateTime.Now:yyyyMMdd}";
-            byte[] data;
-            string extension;
-            
-            if (exportType == "p12")
-            {
-                extension = ".p12";
-                var matchingIdentity = localIdentities?.FirstOrDefault(i => 
-                    SerialsMatch(i.SerialNumber, cert.SerialNumber));
-                
-                if (matchingIdentity == null)
-                {
-                    await AlertService.ShowAlertAsync("Error", "Private key not found in local keychain.");
-                    return;
-                }
-                
-                var password = exportWithPassword ? exportPassword : "";
-                data = await LocalCertificateService.ExportP12Async(matchingIdentity.Identity, password);
-            }
-            else
-            {
-                extension = ".cer";
-                data = await LocalCertificateService.ExportCertificateAsync(cert.SerialNumber ?? "");
-            }
-            
-            // Get save location
-            var savePath = await DialogService.ShowFileDialogAsync(
-                "Save Certificate", 
-                isSave: true, 
-                defaultFileName: fileName + extension);
-            
-            if (string.IsNullOrEmpty(savePath))
-            {
-                return; // User cancelled
-            }
-            
-            await File.WriteAllBytesAsync(savePath, data);
-            await AlertService.ShowToastAsync($"Certificate exported to {Path.GetFileName(savePath)}");
-            CloseExportDialog();
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError($"Export failed: {ex}");
-            await AlertService.ShowAlertAsync("Export Failed", ex.Message);
-        }
-        finally
-        {
-            isExporting = false;
-            StateHasChanged();
-        }
-    }
 
-    private async Task CreateCertificate()
-    {
-        showCreateDialog = false;
-        _ = DisposeModalAsync("create-cert-modal");
-        
-        var commonName = string.IsNullOrWhiteSpace(newCertCommonName) ? null : newCertCommonName;
-        var passphrase = string.IsNullOrWhiteSpace(newCertPassphrase) ? null : newCertPassphrase;
-        
-        var result = await OperationModal.RunAsync(
-            "Create Certificate",
-            $"Creating {newCertType} certificate...",
-            async ctx =>
-            {
-                ctx.SetStatus("Generating certificate signing request...");
-                ctx.LogInfo($"Certificate type: {newCertType}");
-                if (!string.IsNullOrEmpty(commonName))
-                    ctx.LogInfo($"Common name: {commonName}");
-                
-                var certResult = await AppleService.CreateCertificateAsync(newCertType, commonName, passphrase);
-                
-                ctx.SetStatus("Saving certificate to Downloads...");
-                var fileName = $"certificate_{newCertType}_{DateTime.Now:yyyyMMdd_HHmmss}.pfx";
-                var downloadsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", fileName);
-                await File.WriteAllBytesAsync(downloadsPath, certResult.PfxData);
-                
-                ctx.LogSuccess($"Certificate saved: ~/Downloads/{fileName}");
-                ctx.LogInfo($"Expires: {certResult.ExpirationDate:MMM dd, yyyy}");
-                return true;
-            },
-            canCancel: false);
-
-        if (result.Success)
-        {
-            await RefreshData(forceRefresh: true);
-        }
+        var page = new ExportCertificatePage(BridgeHolder, cert, localIds);
+        await FormModalService.ShowAsync<bool>(page);
     }
 
     private async Task RevokeCertificate(AppleCertificate cert)
@@ -1725,32 +1289,5 @@
             await LoadSyncStatuses();
             StateHasChanged();
         }
-    }
-
-    private DotNetObjectReference<Certificates>? _dotNetRef;
-    private readonly HashSet<string> _activeModals = new();
-
-    private async Task InitModalAsync(string modalId)
-    {
-        await Task.Yield();
-        _dotNetRef ??= DotNetObjectReference.Create(this);
-        _activeModals.Add(modalId);
-        await JS.InvokeVoidAsync("modalInterop.initialize", modalId, _dotNetRef);
-    }
-
-    private async Task DisposeModalAsync(string modalId)
-    {
-        _activeModals.Remove(modalId);
-        try { await JS.InvokeVoidAsync("modalInterop.dispose", modalId); } catch { }
-    }
-
-    [JSInvokable]
-    public void OnEscapePressed()
-    {
-        if (showExportDialog)
-            CloseExportDialog();
-        else if (showCreateDialog)
-            CloseCreateDialog();
-        InvokeAsync(StateHasChanged);
     }
 }

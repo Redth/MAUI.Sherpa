@@ -74,6 +74,7 @@ public static class MacOSMauiProgram
 
         // Process execution services
         builder.Services.AddSingleton<IProcessExecutionService, ProcessExecutionService>();
+        builder.Services.AddSingleton<MauiSherpa.Pages.Forms.ProgressBridgeHolder>();
         builder.Services.AddSingleton<ProcessModalService>();
         builder.Services.AddSingleton<IProcessModalService>(sp => sp.GetRequiredService<ProcessModalService>());
         builder.Services.AddSingleton<OperationModalService>();
@@ -102,6 +103,9 @@ public static class MacOSMauiProgram
         builder.Services.AddSingleton<ICopilotService, CopilotService>();
         builder.Services.AddSingleton<ICopilotContextService, CopilotContextService>();
         builder.Services.AddSingleton<ICopilotModalService, MauiSherpa.Services.CopilotModalService>();
+        builder.Services.AddSingleton<IFormModalService, MauiSherpa.Services.FormModalService>();
+        builder.Services.AddSingleton<MauiSherpa.Pages.Forms.HybridFormBridgeHolder>();
+        builder.Services.AddSingleton<MauiSherpa.Pages.Forms.ModalParameterService>();
 
         // Apple services
         builder.Services.AddSingleton<IAppleIdentityService, AppleIdentityService>();

@@ -1,0 +1,114 @@
+@page "/modal/pepk-export"
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Services
+@using MauiSherpa.Pages.Forms
+@inject HybridFormBridgeHolder BridgeHolder
+@inject IKeystoreService KeystoreService
+@inject IDialogService DialogService
+@inject OperationModalService OperationModal
+@inject BlazorToastService ToastService
+@implements IDisposable
+
+@{
+    var bridge = BridgeHolder.Current;
+}
+
+@if (bridge != null)
+{
+    <div class="form-content">
+        <p class="help-text">Export your signing key for Google Play App Signing. Paste the encryption key from your Play Console.</p>
+        <div class="form-group">
+            <label>Keystore Password *</label>
+            <input type="password" @bind="pepkKeystorePassword" @bind:event="oninput"
+                   @bind:after="OnFieldChanged" />
+        </div>
+        <div class="form-group">
+            <label>Key Password *</label>
+            <input type="password" @bind="pepkKeyPassword" @bind:event="oninput"
+                   @bind:after="OnFieldChanged" />
+        </div>
+        <div class="form-group">
+            <label>Google Encryption Key *</label>
+            <input type="text" @bind="pepkEncryptionKey" @bind:event="oninput"
+                   @bind:after="OnFieldChanged" placeholder="Paste from Play Console" />
+            <small class="help-text">Found in Play Console → App integrity → App signing</small>
+        </div>
+    </div>
+}
+
+@code {
+    private string alias = "";
+    private string keystorePath = "";
+    private string pepkKeystorePassword = "";
+    private string pepkKeyPassword = "";
+    private string pepkEncryptionKey = "";
+
+    private bool CanExportPepk => !string.IsNullOrWhiteSpace(pepkKeystorePassword)
+        && !string.IsNullOrWhiteSpace(pepkKeyPassword)
+        && !string.IsNullOrWhiteSpace(pepkEncryptionKey);
+
+    protected override void OnInitialized()
+    {
+        var bridge = BridgeHolder.Current;
+        if (bridge == null) return;
+
+        alias = bridge.Parameters.GetValueOrDefault("Alias") as string ?? "";
+        keystorePath = bridge.Parameters.GetValueOrDefault("KeystorePath") as string ?? "";
+
+        bridge.SubmitRequested += OnSubmitRequested;
+        bridge.SetValid(CanExportPepk);
+    }
+
+    private void OnFieldChanged()
+    {
+        BridgeHolder.Current?.SetValid(CanExportPepk);
+    }
+
+    private async Task OnSubmitRequested()
+    {
+        var bridge = BridgeHolder.Current;
+        if (bridge == null) return;
+
+        var savePath = await DialogService.PickSaveFileAsync("Save PEPK File", $"{alias}.pepk", ".pepk");
+        if (savePath == null) return;
+
+        bridge.Result = true;
+
+        await OperationModal.RunAsync("Export PEPK", $"Exporting PEPK for '{alias}'...", async (ctx) =>
+        {
+            ctx.LogInfo($"Keystore: {keystorePath}");
+            ctx.LogInfo($"Alias: {alias}");
+            await KeystoreService.ExportPepkAsync(
+                keystorePath, alias,
+                pepkKeystorePassword, pepkKeyPassword,
+                pepkEncryptionKey, savePath);
+            ctx.LogInfo($"PEPK exported to: {savePath}");
+            return true;
+        });
+
+        ToastService.ShowSuccess("PEPK file exported!");
+    }
+
+    public void Dispose()
+    {
+        var bridge = BridgeHolder.Current;
+        if (bridge != null)
+            bridge.SubmitRequested -= OnSubmitRequested;
+    }
+}
+
+<style>
+    .form-content {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        padding: 8px 4px;
+    }
+
+    .help-text { color: var(--text-muted); font-size: 13px; margin-bottom: 16px; }
+
+    .form-group { margin-bottom: 12px; }
+    .form-group label { display: block; font-size: 13px; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px; }
+    .form-group input { width: 100%; padding: 8px 12px; border: 1px solid var(--input-border); border-radius: 6px; background: var(--input-bg); color: var(--text-primary); font-size: 14px; }
+    .form-group small { color: var(--text-muted); font-size: 11px; }
+</style>

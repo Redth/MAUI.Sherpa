@@ -1,0 +1,269 @@
+@page "/modal/manage-capabilities"
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Services
+@inject MauiSherpa.Pages.Forms.ModalParameterService ModalParams
+@inject IAppleConnectService AppleService
+@inject IAlertService AlertService
+@inject IEncryptedSettingsService SettingsService
+
+<div class="form-content">
+    <div class="dialog-subheader">
+        <span class="bundle-id-label"><span class="bundle-id-prefix">BUNDLE ID</span> <span class="@(demoMode ? "demo-blur" : "")">@bundleId?.Identifier</span></span>
+    </div>
+    <div class="capabilities-body">
+        @if (isLoadingCapabilities)
+        {
+            <div class="loading-capabilities">
+                <i class="fas fa-spinner fa-spin"></i> Loading capabilities...
+            </div>
+        }
+        else
+        {
+            @foreach (var category in GetGroupedCapabilities())
+            {
+                <div class="capability-category">
+                    <h3 class="category-title">@category.Key</h3>
+                    <div class="capability-list">
+                        @foreach (var capType in category.Value)
+                        {
+                            var isEnabled = IsCapabilityEnabled(capType);
+                            var capId = GetCapabilityId(capType);
+                            <div class="capability-item @(isEnabled ? "enabled" : "")">
+                                <div class="capability-info">
+                                    <i class="fas @CapabilityCategories.GetIcon(capType)"></i>
+                                    <span class="capability-name">@CapabilityCategories.GetDisplayName(capType)</span>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox"
+                                           checked="@isEnabled"
+                                           disabled="@isTogglingCapability"
+                                           @onchange="@(e => ToggleCapability(capType, capId, (bool)(e.Value ?? false)))" />
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+        }
+    </div>
+</div>
+
+@code {
+    private AppleBundleId? bundleId;
+    private List<AppleBundleIdCapability> currentCapabilities = new();
+    private List<string> availableCapabilityTypes = new();
+    private bool isLoadingCapabilities = false;
+    private bool isTogglingCapability = false;
+    private bool demoMode = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        bundleId = ModalParams.Get<AppleBundleId>("BundleId");
+        try { var settings = await SettingsService.GetSettingsAsync(); demoMode = settings.Preferences.DemoMode; } catch { }
+
+        if (bundleId == null) return;
+
+        isLoadingCapabilities = true;
+        StateHasChanged();
+
+        try
+        {
+            availableCapabilityTypes = (await AppleService.GetAvailableCapabilityTypesAsync()).ToList();
+            var caps = await AppleService.GetBundleIdCapabilitiesAsync(bundleId.Id);
+            currentCapabilities = caps.ToList();
+        }
+        catch (Exception ex)
+        {
+            await AlertService.ShowAlertAsync("Error", $"Failed to load capabilities: {ex.Message}");
+        }
+        finally
+        {
+            isLoadingCapabilities = false;
+            StateHasChanged();
+        }
+    }
+
+    private IEnumerable<KeyValuePair<string, List<string>>> GetGroupedCapabilities()
+    {
+        return availableCapabilityTypes
+            .GroupBy(cap => CapabilityCategories.GetCategory(cap))
+            .OrderBy(g => g.Key == "Other" ? 1 : 0)
+            .ThenBy(g => g.Key)
+            .Select(g => new KeyValuePair<string, List<string>>(g.Key, g.ToList()));
+    }
+
+    private bool IsCapabilityEnabled(string capabilityType)
+    {
+        return currentCapabilities.Any(c => c.CapabilityType == capabilityType);
+    }
+
+    private string? GetCapabilityId(string capabilityType)
+    {
+        return currentCapabilities.FirstOrDefault(c => c.CapabilityType == capabilityType)?.Id;
+    }
+
+    private async Task ToggleCapability(string capabilityType, string? capabilityId, bool enable)
+    {
+        if (bundleId == null) return;
+
+        isTogglingCapability = true;
+        StateHasChanged();
+
+        try
+        {
+            if (enable && capabilityId == null)
+            {
+                await AppleService.EnableCapabilityAsync(bundleId.Id, capabilityType);
+                await AlertService.ShowToastAsync($"Enabled {CapabilityCategories.GetDisplayName(capabilityType)}");
+            }
+            else if (!enable && capabilityId != null)
+            {
+                await AppleService.DisableCapabilityAsync(capabilityId);
+                await AlertService.ShowToastAsync($"Disabled {CapabilityCategories.GetDisplayName(capabilityType)}");
+            }
+
+            var caps = await AppleService.GetBundleIdCapabilitiesAsync(bundleId.Id);
+            currentCapabilities = caps.ToList();
+        }
+        catch (Exception ex)
+        {
+            await AlertService.ShowAlertAsync("Error", $"Failed to toggle capability: {ex.Message}");
+        }
+        finally
+        {
+            isTogglingCapability = false;
+            StateHasChanged();
+        }
+    }
+}
+
+<style>
+    .form-content { padding: 16px 20px; }
+    .dialog-subheader {
+        display: inline-block;
+        padding: 0.5rem 1rem;
+        background: rgba(139, 92, 246, 0.12);
+        border: 1px solid rgba(139, 92, 246, 0.35);
+        border-radius: 0.5rem;
+        margin-bottom: 1.25rem;
+    }
+    .bundle-id-label {
+        font-family: 'Monaco', 'Menlo', monospace;
+        font-size: 0.8125rem;
+        color: var(--accent-primary);
+        font-weight: 500;
+    }
+    .bundle-id-prefix {
+        font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+        font-size: 0.6875rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: rgba(139, 92, 246, 0.7);
+        margin-right: 0.375rem;
+    }
+
+    .capabilities-body {
+        overflow-y: auto;
+    }
+    .loading-capabilities {
+        text-align: center;
+        padding: 2.5rem;
+        color: var(--text-muted);
+    }
+    .capability-category {
+        margin-bottom: 1.5rem;
+    }
+    .category-title {
+        font-size: 0.875rem;
+        font-weight: 600;
+        color: var(--text-secondary);
+        margin: 0 0 0.75rem 0;
+        padding-bottom: 0.5rem;
+        border-bottom: 1px solid var(--border-color);
+    }
+    .capability-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+    .capability-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.75rem 1rem;
+        background: var(--bg-hover);
+        border-radius: 0.5rem;
+        border: 1px solid transparent;
+        transition: all 0.15s;
+    }
+    .capability-item.enabled {
+        background: rgba(72, 187, 120, 0.15);
+        border-color: #38a169;
+    }
+    .capability-info {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+    .capability-info i {
+        font-size: 1rem;
+        width: 1.25rem;
+        text-align: center;
+        color: #718096;
+    }
+    .capability-item.enabled .capability-info i {
+        color: #38a169;
+    }
+    .capability-name {
+        font-size: 0.875rem;
+        color: var(--text-primary);
+    }
+
+    /* Toggle Switch */
+    .toggle-switch {
+        position: relative;
+        display: inline-block;
+        width: 44px;
+        height: 1.5rem;
+    }
+    .toggle-switch input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+    }
+    .toggle-slider {
+        position: absolute;
+        cursor: pointer;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-color: #cbd5e0;
+        transition: 0.2s;
+        border-radius: 1.5rem;
+    }
+    .toggle-slider:before {
+        position: absolute;
+        content: "";
+        height: 18px;
+        width: 18px;
+        left: 3px;
+        bottom: 3px;
+        background-color: white;
+        transition: 0.2s;
+        border-radius: 50%;
+    }
+    .toggle-switch input:checked + .toggle-slider {
+        background-color: #48bb78;
+    }
+    .toggle-switch input:checked + .toggle-slider:before {
+        transform: translateX(20px);
+    }
+    .toggle-switch input:disabled + .toggle-slider {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+</style>

@@ -1,4 +1,6 @@
 using MauiSherpa.Core.Interfaces;
+using MauiSherpa.Pages.Forms;
+using Microsoft.Maui.Controls;
 
 namespace MauiSherpa.Services;
 
@@ -7,6 +9,7 @@ namespace MauiSherpa.Services;
 /// </summary>
 public class OperationModalService : IOperationModalService
 {
+    private readonly ProgressBridgeHolder _bridgeHolder;
     private TaskCompletionSource<OperationResult>? _completionSource;
     private OperationResult? _pendingResult;
 
@@ -30,6 +33,11 @@ public class OperationModalService : IOperationModalService
     public List<OperationLogEntry> LogEntries { get; } = new();
 
     private CancellationTokenSource? _cts;
+
+    public OperationModalService(ProgressBridgeHolder bridgeHolder)
+    {
+        _bridgeHolder = bridgeHolder;
+    }
 
     public async Task<OperationResult> RunAsync(
         string title,
@@ -59,6 +67,15 @@ public class OperationModalService : IOperationModalService
         OnModalShown?.Invoke();
         OnShowRequested?.Invoke(title, description, canCancel);
         OnStateChanged?.Invoke(CurrentState);
+
+        // Push native modal page
+        var nav = Application.Current?.Windows.FirstOrDefault()?.Page?.Navigation;
+        INavigation? activeNav = nav;
+        if (nav != null)
+        {
+            var page = new HybridProgressPage(_bridgeHolder, "/modal/operation", title, 600, 550);
+            await nav.PushModalAsync(page, animated: true);
+        }
 
         var startTime = DateTime.Now;
         var context = new OperationContext(this, _cts.Token);
@@ -131,6 +148,12 @@ public class OperationModalService : IOperationModalService
 
         // Wait for user to close the modal
         var result = await _completionSource.Task;
+
+        // Pop native modal page
+        if (activeNav != null)
+        {
+            try { await activeNav.PopModalAsync(animated: true); } catch { }
+        }
 
         IsVisible = false;
         Title = null;

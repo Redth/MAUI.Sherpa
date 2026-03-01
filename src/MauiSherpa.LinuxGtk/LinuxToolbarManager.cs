@@ -180,18 +180,6 @@ public class LinuxToolbarManager
             _identityDropdown = null;
         }
 
-        // When toolbar is suppressed (e.g. Copilot modal is open), show only a close button
-        if (_toolbarService.IsToolbarSuppressed)
-        {
-            var closeButton = Gtk.Button.NewWithLabel("✕");
-            closeButton.AddCssClass("flat");
-            closeButton.SetTooltipText("Close Copilot");
-            closeButton.OnClicked += (s, _) => _copilotContext.ToggleOverlay();
-            _headerBar!.PackEnd(closeButton);
-            _endWidgets.Add(closeButton);
-            return;
-        }
-
         // Add action buttons (PackEnd in reverse so first item appears leftmost)
         var items = _toolbarService.CurrentItems;
         for (int i = items.Count - 1; i >= 0; i--)

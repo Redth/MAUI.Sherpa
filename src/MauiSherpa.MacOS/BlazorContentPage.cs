@@ -23,15 +23,17 @@ public class BlazorContentPage : ContentPage
     private readonly IGoogleIdentityService _googleIdentityService;
     private readonly IGoogleIdentityStateService _googleIdentityState;
     private readonly IPreferences _preferences;
+    private readonly IFormModalService _formModalService;
+    private readonly MauiSherpa.Pages.Forms.HybridFormBridgeHolder _bridgeHolder;
     private AppKit.NSView? _loadingOverlay;
     private NSImage? _copilotIcon;
     private MacOSMenuToolbarItem? _identityMenu;
     private MacOSMenuToolbarItem? _publishMenu;
-    private MacOSMenuToolbarItem? _backupMenu;
     private MacOSMenuToolbarItem? _filterMenu;
     private MacOSSearchToolbarItem? _searchItem;
     private NSMenuToolbarItem? _nativeIdentityMenu;
     private NSMenuToolbarItem? _nativeFilterMenu;
+    private NSMenuToolbarItem? _nativePublishMenu;
     private string _pendingRoute = "/";
     private string _currentRoute = "/";
 
@@ -63,6 +65,8 @@ public class BlazorContentPage : ContentPage
         _googleIdentityService = serviceProvider.GetRequiredService<IGoogleIdentityService>();
         _googleIdentityState = serviceProvider.GetRequiredService<IGoogleIdentityStateService>();
         _preferences = serviceProvider.GetRequiredService<IPreferences>();
+        _formModalService = serviceProvider.GetRequiredService<IFormModalService>();
+        _bridgeHolder = serviceProvider.GetRequiredService<MauiSherpa.Pages.Forms.HybridFormBridgeHolder>();
         _toolbarService.RouteChanged += route => _currentRoute = route;
 
         _splashService = serviceProvider.GetRequiredService<ISplashService>();
@@ -293,6 +297,15 @@ public class BlazorContentPage : ContentPage
         });
     }
 
+    public void OpenSettingsDialog()
+    {
+        Dispatcher.Dispatch(async () =>
+        {
+            var page = new MauiSherpa.Pages.Forms.SettingsPage(_bridgeHolder);
+            await _formModalService.ShowViewAsync(page, async () => await page.ShowAsync());
+        });
+    }
+
     void ClearNativeSearchField()
     {
         if (_hookedSearchField != null)
@@ -394,24 +407,6 @@ public class BlazorContentPage : ContentPage
 
         CacheNativeMenuItems(toolbar);
 
-        // When toolbar is suppressed (e.g. modal open), hide all items
-        if (_toolbarService.IsToolbarSuppressed)
-        {
-            foreach (var (_, toolbarItem) in _actionItemMap)
-            {
-                MacOSToolbarItem.SetIsVisible(toolbarItem, false);
-                toolbarItem.Command = null;
-            }
-            MacOSToolbarItem.SetIsVisible(_identityMenu, false);
-            MacOSToolbarItem.SetIsVisible(_publishMenu, false);
-            MacOSToolbarItem.SetIsVisible(_backupMenu, false);
-            MacOSToolbarItem.SetIsVisible(_filterMenu, false);
-            MacOSToolbarItem.SetIsVisible(_searchItem, false);
-            if (_nativeIdentityMenu != null) _nativeIdentityMenu.Hidden = true;
-            if (_nativeFilterMenu != null) _nativeFilterMenu.Hidden = true;
-            return;
-        }
-
         var activeIds = new HashSet<string>();
         foreach (var action in _toolbarService.CurrentItems)
             activeIds.Add(action.Id);
@@ -420,7 +415,6 @@ public class BlazorContentPage : ContentPage
         bool hasFilter = _toolbarService.CurrentFilters.Count > 0;
         bool hasIdentity = AppleRoutes.Contains(_currentRoute) || GoogleRoutes.Contains(_currentRoute);
         bool hasPublishWizard = activeIds.Contains("publish-wizard");
-        bool isSettings = _currentRoute.Equals("/settings", StringComparison.OrdinalIgnoreCase);
 
         // 1. Update action item visibility via MacOSToolbarItem.IsVisible API and commands
         foreach (var (actionId, toolbarItem) in _actionItemMap)
@@ -436,12 +430,12 @@ public class BlazorContentPage : ContentPage
         //    and update enabled state via native APIs
         MacOSToolbarItem.SetIsVisible(_identityMenu, hasIdentity);
         MacOSToolbarItem.SetIsVisible(_publishMenu, hasPublishWizard);
-        MacOSToolbarItem.SetIsVisible(_backupMenu, isSettings);
         MacOSToolbarItem.SetIsVisible(_filterMenu, hasFilter);
         MacOSToolbarItem.SetIsVisible(_searchItem, hasSearch);
 
         // Also directly set native Hidden on cached items (macOS 15+)
         if (_nativeIdentityMenu != null) _nativeIdentityMenu.Hidden = !hasIdentity;
+        if (_nativePublishMenu != null) _nativePublishMenu.Hidden = !hasPublishWizard;
         if (_nativeFilterMenu != null) _nativeFilterMenu.Hidden = !hasFilter;
 
         if (hasSearch && _searchItem != null)
@@ -491,11 +485,12 @@ public class BlazorContentPage : ContentPage
     /// </summary>
     void CacheNativeMenuItems(NSToolbar toolbar)
     {
-        if (_nativeIdentityMenu != null && _nativeFilterMenu != null) return;
+        if (_nativeIdentityMenu != null && _nativeFilterMenu != null && _nativePublishMenu != null) return;
         foreach (var nsItem in toolbar.Items)
         {
             if (nsItem is not NSMenuToolbarItem m) continue;
             if (nsItem.Identifier == "MauiMenu_0") _nativeIdentityMenu = m;
+            else if (nsItem.Identifier == "MauiMenu_1") _nativePublishMenu = m;
             else if (nsItem.Identifier == "MauiMenu_3") _nativeFilterMenu = m;
         }
     }
@@ -667,12 +662,7 @@ public class BlazorContentPage : ContentPage
         var settingsItem = new NSMenuItem("Settings…");
         var settingsTarget = new MenuActionTarget("__settings__", 0, (_, _) =>
         {
-            Dispatcher.Dispatch(() => NavigateToRoute("/settings"));
-            Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(500), async () =>
-            {
-                try { await EvaluateJavaScriptAsync("document.getElementById('settings-google-identities')?.scrollIntoView({behavior:'smooth'})"); }
-                catch { }
-            });
+            Dispatcher.Dispatch(() => OpenSettingsDialog());
         });
         settingsItem.Target = settingsTarget;
         settingsItem.Action = new ObjCRuntime.Selector("menuItemClicked:");
@@ -740,12 +730,7 @@ public class BlazorContentPage : ContentPage
         var settingsItem = new NSMenuItem("Settings…");
         var settingsTarget = new MenuActionTarget("__settings__", 0, (_, _) =>
         {
-            Dispatcher.Dispatch(() => NavigateToRoute("/settings"));
-            Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(500), async () =>
-            {
-                try { await EvaluateJavaScriptAsync("document.getElementById('settings-apple-identities')?.scrollIntoView({behavior:'smooth'})"); }
-                catch { }
-            });
+            Dispatcher.Dispatch(() => OpenSettingsDialog());
         });
         settingsItem.Target = settingsTarget;
         settingsItem.Action = new ObjCRuntime.Selector("menuItemClicked:");
@@ -881,27 +866,11 @@ public class BlazorContentPage : ContentPage
             publishSelectedAction.Clicked += (s, e) => _toolbarService.InvokeToolbarItemClicked("publish-selected");
             _publishMenu.Items.Add(publishSelectedAction);
 
-            // Backup menu (icon+text, with sub-items for export and import)
-            _backupMenu = new MacOSMenuToolbarItem
-            {
-                Icon = "shield",
-                Text = "Backup",
-                ShowsTitle = true,
-                ShowsIndicator = true,
-            };
-            var exportAction = new MacOSMenuItem { Text = "Export Settings…", Icon = "square.and.arrow.down" };
-            exportAction.Clicked += (s, e) => _toolbarService.InvokeToolbarItemClicked("export");
-            _backupMenu.Items.Add(exportAction);
-            var importAction = new MacOSMenuItem { Text = "Import Settings…", Icon = "square.and.arrow.up" };
-            importAction.Clicked += (s, e) => _toolbarService.InvokeToolbarItemClicked("import-settings");
-            _backupMenu.Items.Add(importAction);
-
             // Build explicit content layout with ALL items:
             // [Identity] [Publish] [Create] [Import] ← FlexibleSpace → [Filter] [Search] [Refresh]
             var layout = new List<MacOSToolbarLayoutItem>();
             layout.Add(MacOSToolbarLayoutItem.Menu(_identityMenu));
             layout.Add(MacOSToolbarLayoutItem.Menu(_publishMenu));
-            layout.Add(MacOSToolbarLayoutItem.Menu(_backupMenu));
             foreach (var item in leadingItems)
                 layout.Add(MacOSToolbarLayoutItem.Item(item));
             layout.Add(MacOSToolbarLayoutItem.FlexibleSpace);
@@ -1070,6 +1039,11 @@ public class BlazorContentPage : ContentPage
     {
         base.OnAppearing();
 
+        // Re-subscribe to toolbar changes (may have been unsubscribed if a modal was pushed)
+        _toolbarService.ToolbarChanged -= OnToolbarChanged;
+        _toolbarService.ToolbarChanged += OnToolbarChanged;
+        OnToolbarChanged();
+
 #if !DEBUG
         // Disable right-click context menu in the webview
         Dispatcher.Dispatch(async () =>
@@ -1083,7 +1057,6 @@ public class BlazorContentPage : ContentPage
     protected override void OnDisappearing()
     {
         base.OnDisappearing();
-        _toolbarService.ToolbarChanged -= OnToolbarChanged;
         _splashService.OnBlazorReady -= OnBlazorReady;
         UnhookNativeSearchField();
     }

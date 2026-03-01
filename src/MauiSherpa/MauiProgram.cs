@@ -122,6 +122,10 @@ public static class MauiProgram
         builder.Services.AddSingleton<ICopilotContextService, CopilotContextService>();
         builder.Services.AddSingleton<CopilotPage>();
         builder.Services.AddSingleton<ICopilotModalService, MauiSherpa.Services.CopilotModalService>();
+        builder.Services.AddSingleton<IFormModalService, MauiSherpa.Services.FormModalService>();
+        builder.Services.AddSingleton<MauiSherpa.Pages.Forms.HybridFormBridgeHolder>();
+        builder.Services.AddSingleton<MauiSherpa.Pages.Forms.ProgressBridgeHolder>();
+        builder.Services.AddSingleton<MauiSherpa.Pages.Forms.ModalParameterService>();
         
         // Apple services
         builder.Services.AddSingleton<IAppleIdentityService, AppleIdentityService>();

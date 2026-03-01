@@ -13,8 +13,8 @@
 @inject SimInspectorService SimInspector
 @inject IPhysicalDeviceService PhysicalDeviceService
 @inject IPlatformService Platform
-@inject IJSRuntime JS
 @inject IEncryptedSettingsService SettingsService
+@inject IFormModalService FormModalService
 @inject IToolbarService ToolbarService
 @implements IDisposable
 
@@ -267,62 +267,6 @@ else
     }
 </div>
 
-@if (showCreateDialog)
-{
-    <div class="modal-overlay" id="create-sim-modal">
-        <div class="modal" @onclick:stopPropagation="true" role="dialog" aria-modal="true" aria-labelledby="create-sim-title">
-            <div class="modal-header">
-                <h2 id="create-sim-title">Create New Simulator</h2>
-                <button class="close-btn" @onclick="CloseCreateDialog">×</button>
-            </div>
-            <div class="modal-body">
-                <div class="form-group">
-                    <label>Simulator Name</label>
-                    <input type="text" @bind="newSimulatorName" placeholder="My iPhone Simulator" disabled="@isCreating" />
-                </div>
-                <div class="form-group">
-                    <label>Runtime</label>
-                    <select @bind="selectedRuntime" @bind:after="OnRuntimeChanged" disabled="@isCreating">
-                        <option value="">Select a runtime...</option>
-                        @foreach (var runtime in availableRuntimes.Where(r => r.IsAvailable))
-                        {
-                            <option value="@runtime.Identifier">@runtime.Name</option>
-                        }
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>Device Type</label>
-                    <select @bind="selectedDeviceType" disabled="@(isCreating || string.IsNullOrEmpty(selectedRuntime))">
-                        <option value="">Select a device type...</option>
-                        @foreach (var dt in FilteredDeviceTypes)
-                        {
-                            <option value="@dt.Identifier">@dt.Name</option>
-                        }
-                    </select>
-                    @if (string.IsNullOrEmpty(selectedRuntime))
-                    {
-                        <div class="help-text info">Select a runtime first to see compatible device types</div>
-                    }
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button class="btn btn-secondary" @onclick="CloseCreateDialog" disabled="@isCreating">
-                    <i class="fas fa-times"></i> Cancel
-                </button>
-                <button class="btn btn-primary" @onclick="CreateSimulator" disabled="@(string.IsNullOrEmpty(newSimulatorName) || string.IsNullOrEmpty(selectedRuntime) || string.IsNullOrEmpty(selectedDeviceType) || isCreating)">
-                    @if (isCreating)
-                    {
-                        <span><i class="fas fa-spinner fa-spin"></i> Creating...</span>
-                    }
-                    else
-                    {
-                        <span><i class="fas fa-plus"></i> Create</span>
-                    }
-                </button>
-            </div>
-        </div>
-    </div>
-}
 } @* end else IsSupported *@
 
 <style>
@@ -357,8 +301,7 @@ else
         margin-bottom: 1.25rem;
         flex-wrap: wrap;
         padding: 0.75rem 1rem;
-        border: 1px solid var(--border-color);
-        border-radius: 0.5rem;
+        border-radius: var(--card-radius);
         background: var(--card-bg);
     }
 
@@ -378,33 +321,7 @@ else
         box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.1);
     }
 
-    .btn {
-        padding: 0.625rem 1.25rem;
-        border: none;
-        border-radius: 0.375rem;
-        font-size: 0.875rem;
-        cursor: pointer;
-        transition: all 0.2s ease;
-        display: inline-flex;
-        align-items: center;
-        gap: 0.375rem;
-    }
-
     .btn i { font-size: 0.75rem; }
-    .btn-primary { background-color: var(--accent-primary); color: var(--card-bg); }
-    .btn-primary:hover:not(:disabled) { background-color: var(--accent-primary-hover); }
-    .btn-success { background-color: var(--accent-success); color: var(--card-bg); }
-    .btn-success:hover:not(:disabled) { background-color: var(--accent-success-hover); }
-    .btn-warning { background-color: var(--accent-warning); color: var(--card-bg); }
-    .btn-warning:hover:not(:disabled) { background-color: var(--accent-warning-hover); }
-    .btn-danger { background-color: var(--accent-danger); color: var(--card-bg); }
-    .btn-danger:hover:not(:disabled) { background-color: var(--accent-danger-hover); }
-    .btn-secondary { background-color: var(--text-secondary); color: var(--card-bg); }
-    .btn-secondary:hover:not(:disabled) { background-color: var(--text-muted); }
-    .btn-sm { padding: 0.375rem 0.75rem; font-size: 0.75rem; }
-    .btn-info { background-color: var(--accent-primary); color: var(--card-bg); }
-    .btn-info:hover:not(:disabled) { background-color: var(--accent-primary-hover); }
-    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
     .spinner-large {
         display: inline-block;
@@ -428,12 +345,11 @@ else
 
     .simulator-card {
         background: var(--card-bg);
-        border-radius: 0.5rem;
-        padding: 1.25rem;
+        border-radius: var(--card-radius);
+        padding: 0.875rem;
         display: flex;
         align-items: center;
         gap: 1rem;
-        box-shadow: var(--card-shadow);
         border-left: 0.25rem solid transparent;
     }
 
@@ -447,16 +363,16 @@ else
     }
 
     .simulator-icon {
-        font-size: 2.25rem;
-        width: 2.5rem;
-        height: 2.5rem;
+        font-size: 1.5rem;
+        width: 1.75rem;
+        height: 1.75rem;
         display: flex;
         align-items: center;
         justify-content: center;
         color: var(--accent-primary);
     }
 
-    .simulator-icon i { font-size: 2rem; }
+    .simulator-icon i { font-size: 1.375rem; }
 
     .simulator-details {
         flex: 1;
@@ -542,8 +458,7 @@ else
         margin-top: 0.25rem;
         min-width: 140px;
         background: var(--card-bg);
-        border: 1px solid var(--border-color);
-        border-radius: 0.5rem;
+        border-radius: var(--card-radius);
         box-shadow: 0 0.25rem 1rem rgba(0,0,0,0.15);
         z-index: 100;
         padding: 0.25rem 0;
@@ -592,10 +507,9 @@ else
 
     .empty-state, .loading-state {
         background: var(--card-bg);
-        border-radius: 0.5rem;
+        border-radius: var(--card-radius);
         padding: 3.75rem 2.5rem;
         text-align: center;
-        box-shadow: var(--card-shadow);
     }
 
     .empty-icon, .loading-spinner { font-size: 48px; margin-bottom: 1rem; color: var(--text-secondary); }
@@ -630,90 +544,6 @@ else
     .badge-transport { background: var(--bg-tertiary); color: var(--text-secondary); display: inline-flex; align-items: center; gap: 0.25rem; }
     .badge-transport i { font-size: 0.625rem; }
 
-    .modal-overlay {
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: rgba(0, 0, 0, 0.5);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        z-index: 1000;
-    }
-
-    .modal {
-        background: var(--card-bg);
-        border-radius: 0.75rem;
-        width: 90%;
-        max-width: 500px;
-        box-shadow: 0 1.25rem 3.75rem rgba(0, 0, 0, 0.3);
-    }
-
-    .modal-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 1.25rem 1.5rem;
-        border-bottom: 1px solid var(--border-color);
-    }
-
-    .modal-header h2 {
-        margin: 0;
-        font-size: 1.125rem;
-        color: var(--text-primary);
-    }
-
-    .close-btn {
-        background: none;
-        border: none;
-        font-size: 1.5rem;
-        cursor: pointer;
-        color: var(--text-secondary);
-    }
-
-    .modal-body {
-        padding: 1.5rem;
-    }
-
-    .modal-footer {
-        padding: 1rem 1.5rem;
-        border-top: 1px solid var(--border-color);
-        display: flex;
-        justify-content: flex-end;
-        gap: 0.75rem;
-    }
-
-    .form-group {
-        margin-bottom: 1.25rem;
-    }
-
-    .form-group label {
-        display: block;
-        margin-bottom: 0.5rem;
-        font-weight: 500;
-        color: var(--text-secondary);
-    }
-
-    .form-group input,
-    .form-group select {
-        width: 100%;
-        padding: 0.625rem 0.75rem;
-        border: 1px solid var(--border-color);
-        border-radius: 0.375rem;
-        font-size: 0.875rem;
-        background: var(--card-bg);
-        color: var(--text-primary);
-    }
-
-    .form-group input:focus,
-    .form-group select:focus {
-        outline: none;
-        border-color: var(--accent-primary);
-        box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.1);
-    }
-
     .help-text {
         margin-top: 0.5rem;
         font-size: 0.75rem;
@@ -742,13 +572,6 @@ else
     private string filterFamily = "";
     private string filterRuntime = "";
 
-    // Create dialog
-    private bool showCreateDialog = false;
-    private bool isCreating = false;
-    private string newSimulatorName = "";
-    private string selectedRuntime = "";
-    private string selectedDeviceType = "";
-
     private IEnumerable<string> productFamilies => simulators
         .Where(s => !string.IsNullOrEmpty(s.ProductFamily))
         .Select(s => s.ProductFamily!)
@@ -772,21 +595,6 @@ else
                     (s.Runtime?.Equals(filterRuntime, StringComparison.OrdinalIgnoreCase) ?? false))
         .OrderByDescending(s => s.State == "Booted")
         .ThenBy(s => s.Name);
-
-    private IEnumerable<SimulatorDeviceType> FilteredDeviceTypes
-    {
-        get
-        {
-            if (string.IsNullOrEmpty(selectedRuntime))
-                return availableDeviceTypes;
-
-            var runtime = availableRuntimes.FirstOrDefault(r => r.Identifier == selectedRuntime);
-            if (runtime?.SupportedDeviceTypes != null)
-                return runtime.SupportedDeviceTypes;
-
-            return availableDeviceTypes;
-        }
-    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -867,69 +675,16 @@ else
         }
     }
 
-    private void ShowCreateDialog()
+    private async Task ShowCreateDialog()
     {
-        newSimulatorName = "";
-        selectedRuntime = "";
-        selectedDeviceType = "";
-        isCreating = false;
-        showCreateDialog = true;
-        _ = InitModalAsync("create-sim-modal");
-    }
+        // Ensure data is loaded before opening the form
+        if (availableRuntimes.Count == 0 && availableDeviceTypes.Count == 0)
+            await RefreshSimulators(forceRefresh: false);
 
-    private void CloseCreateDialog()
-    {
-        if (!isCreating)
-        {
-            showCreateDialog = false;
-            _ = DisposeModalAsync("create-sim-modal");
-        }
-    }
+        var page = new Forms.CreateSimulatorPage(SimulatorService, availableRuntimes, availableDeviceTypes);
+        var created = await FormModalService.ShowAsync<bool>(page);
 
-    private void OnRuntimeChanged()
-    {
-        selectedDeviceType = "";
-    }
-
-    private async Task CreateSimulator()
-    {
-        if (string.IsNullOrWhiteSpace(newSimulatorName) || string.IsNullOrEmpty(selectedRuntime) || string.IsNullOrEmpty(selectedDeviceType))
-            return;
-
-        showCreateDialog = false;
-        _ = DisposeModalAsync("create-sim-modal");
-        var name = newSimulatorName.Trim();
-        var deviceType = selectedDeviceType;
-        var runtime = selectedRuntime;
-
-        var dtName = availableDeviceTypes.FirstOrDefault(d => d.Identifier == deviceType)?.Name ?? deviceType;
-        var rtName = availableRuntimes.FirstOrDefault(r => r.Identifier == runtime)?.Name ?? runtime;
-
-        var result = await OperationModal.RunAsync(
-            "Create Simulator",
-            $"Creating simulator '{name}'...",
-            async ctx =>
-            {
-                ctx.LogInfo($"Name: {name}");
-                ctx.LogInfo($"Device type: {dtName}");
-                ctx.LogInfo($"Runtime: {rtName}");
-                ctx.SetStatus("Creating simulator...");
-
-                var success = await SimulatorService.CreateSimulatorAsync(name, deviceType, runtime,
-                    new Progress<string>(msg =>
-                    {
-                        ctx.LogInfo(msg);
-                        ctx.SetStatus(msg);
-                    }));
-
-                if (success)
-                {
-                    ctx.LogSuccess($"Simulator '{name}' created successfully");
-                }
-                return success;
-            });
-
-        if (result.Success)
+        if (created == true)
         {
             await RefreshSimulators(forceRefresh: true);
         }
@@ -1174,38 +929,11 @@ else
         );
     }
 
-    private DotNetObjectReference<AppleSimulators>? _dotNetRef;
-    private readonly HashSet<string> _activeModals = new();
-
-    private async Task InitModalAsync(string modalId)
-    {
-        await Task.Yield();
-        _dotNetRef ??= DotNetObjectReference.Create(this);
-        _activeModals.Add(modalId);
-        await JS.InvokeVoidAsync("modalInterop.initialize", modalId, _dotNetRef);
-    }
-
-    private async Task DisposeModalAsync(string modalId)
-    {
-        _activeModals.Remove(modalId);
-        try { await JS.InvokeVoidAsync("modalInterop.dispose", modalId); } catch { }
-    }
-
-    [JSInvokable]
-    public void OnEscapePressed()
-    {
-        CloseCreateDialog();
-        InvokeAsync(StateHasChanged);
-    }
-
     public void Dispose()
     {
         ToolbarService.ToolbarItemClicked -= OnToolbarItemClicked;
         ToolbarService.SearchTextChanged -= OnSearchTextChanged;
         ToolbarService.FilterChanged -= OnFilterChanged;
-        foreach (var id in _activeModals)
-            try { JS.InvokeVoidAsync("modalInterop.dispose", id); } catch { }
-        _dotNetRef?.Dispose();
     }
 
     private void OnSearchTextChanged(string text)
@@ -1245,7 +973,7 @@ else
                     ToolbarService.SetItemEnabled("refresh", false);
                     try { await RefreshSimulators(forceRefresh: true); } finally { ToolbarService.SetItemEnabled("refresh", true); }
                     break;
-                case "create": ShowCreateDialog(); break;
+                case "create": await ShowCreateDialog(); break;
             }
             StateHasChanged();
         });

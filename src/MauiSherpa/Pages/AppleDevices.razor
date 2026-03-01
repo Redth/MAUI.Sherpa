@@ -2,6 +2,7 @@
 @using MauiSherpa.Core.Interfaces
 @using MauiSherpa.Core.Requests.Apple
 @using MauiSherpa.Services
+@using MauiSherpa.Pages.Forms
 @using Shiny.Mediator
 @inject IMediator Mediator
 @inject IAppleConnectService AppleService
@@ -9,8 +10,8 @@
 @inject IAlertService AlertService
 @inject BlazorToastService ToastService
 @inject IEncryptedSettingsService SettingsService
+@inject IFormModalService FormModalService
 @implements IDisposable
-@inject IJSRuntime JS
 @inject IToolbarService ToolbarService
 @inject IPlatformService PlatformInfo
 
@@ -131,45 +132,6 @@
     </div>
 }
 
-@if (showRegisterDialog)
-{
-    <div class="modal-overlay" id="register-device-modal">
-        <div class="modal" @onclick:stopPropagation="true" role="dialog" aria-modal="true" aria-labelledby="register-device-title">
-            <div class="modal-header">
-                <h2 id="register-device-title">Register Device</h2>
-                <button class="close-btn" @onclick="CloseRegisterDialog">×</button>
-            </div>
-            <div class="modal-body">
-                <div class="form-group">
-                    <label>Device UDID</label>
-                    <input type="text" @bind="newUdid" placeholder="00008030-000000000000002E" />
-                    <div class="help-text">Find UDID in Finder (macOS) or iTunes (Windows) when device is connected</div>
-                </div>
-                <div class="form-group">
-                    <label>Device Name</label>
-                    <input type="text" @bind="newDeviceName" placeholder="John's iPhone" />
-                </div>
-                <div class="form-group">
-                    <label>Platform</label>
-                    <select @bind="newPlatform">
-                        <option value="IOS">iOS</option>
-                        <option value="MACOS">macOS</option>
-                    </select>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button class="btn btn-secondary" @onclick="CloseRegisterDialog">
-                    <i class="fas fa-times"></i> Cancel
-                </button>
-                <button class="btn btn-primary" @onclick="RegisterDevice" 
-                        disabled="@(string.IsNullOrWhiteSpace(newUdid) || string.IsNullOrWhiteSpace(newDeviceName) || isLoading)">
-                    <i class="fas @(isLoading ? "fa-spinner fa-spin" : "fa-plus")"></i> @(isLoading ? "Registering..." : "Register")
-                </button>
-            </div>
-        </div>
-    </div>
-}
-
 <style>
     h1 { margin-bottom: 1.25rem; font-size: 1.75rem; color: var(--text-primary); }
 
@@ -179,10 +141,9 @@
     /* Filter Section Styles */
     .filter-section {
         background: var(--card-bg);
-        border-radius: 0.5rem;
+        border-radius: var(--card-radius);
         padding: 1rem;
         margin-bottom: 1rem;
-        box-shadow: var(--card-shadow);
         display: flex;
         flex-wrap: wrap;
         gap: 0.75rem;
@@ -266,18 +227,6 @@
     .clear-filters-btn:hover { background: var(--bg-tertiary); color: var(--text-secondary); }
 
     .results-info { font-size: 0.8125rem; color: var(--text-muted); margin-bottom: 0.75rem; }
-
-    .btn { 
-        padding: 0.625rem 1.25rem; 
-        border: none; 
-        border-radius: 0.375rem; 
-        font-size: 0.875rem; 
-        cursor: pointer; 
-        transition: all 0.2s ease;
-        display: inline-flex;
-        align-items: center;
-        gap: 0.375rem;
-    }
     .btn i { font-size: 0.75rem; }
     .btn-icon {
         width: 2rem;
@@ -290,32 +239,22 @@
         font-size: 0.8125rem;
     }
     .btn-icon i { font-size: 0.8125rem; margin: 0; }
-    .btn-primary { background-color: var(--accent-primary); color: white; }
-    .btn-primary:hover:not(:disabled) { background-color: var(--accent-primary-hover); }
-    .btn-success { background-color: var(--accent-success); color: white; }
-    .btn-success:hover:not(:disabled) { background-color: var(--accent-success-hover); }
-    .btn-warning { background-color: var(--accent-warning); color: white; }
-    .btn-warning:hover:not(:disabled) { background-color: #dd6b20; }
-    .btn-secondary { background-color: #a0aec0; color: white; }
-    .btn-sm { padding: 0.375rem 0.75rem; font-size: 0.75rem; }
-    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
     .device-list { display: flex; flex-direction: column; gap: 0.75rem; }
 
     .device-card {
         background: var(--card-bg);
-        border-radius: 0.5rem;
-        padding: 1.25rem;
+        border-radius: var(--card-radius);
+        padding: 0.875rem;
         display: flex;
         align-items: center;
         gap: 1rem;
-        box-shadow: var(--card-shadow);
     }
 
     .device-card.disabled { opacity: 0.6; }
 
-    .device-icon { font-size: 2.25rem; width: 2.5rem; height: 2.5rem; display: flex; align-items: center; justify-content: center; color: var(--accent-primary); }
-    .device-icon i { font-size: 2rem; }
+    .device-icon { font-size: 1.5rem; width: 1.75rem; height: 1.75rem; display: flex; align-items: center; justify-content: center; color: var(--accent-primary); }
+    .device-icon i { font-size: 1.375rem; }
     .device-details { flex: 1; }
     .device-name { font-weight: 600; font-size: 1rem; color: var(--text-primary); }
     .device-udid { font-family: monospace; font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem; }
@@ -328,25 +267,12 @@
     .badge-enabled { background: var(--status-success-bg); color: var(--status-success-text); }
     .badge-disabled { background: var(--status-error-bg); color: var(--status-error-text); }
 
-    .empty-state { background: var(--card-bg); border-radius: 0.5rem; padding: 3.75rem 2.5rem; text-align: center; box-shadow: var(--card-shadow); }
+    .empty-state { background: var(--card-bg); border-radius: var(--card-radius); padding: 3.75rem 2.5rem; text-align: center; }
     .empty-icon { font-size: 48px; margin-bottom: 1rem; color: #a0aec0; }
     .empty-icon i { font-size: 48px; }
     .empty-title { font-size: 1.125rem; font-weight: 600; color: var(--text-primary); margin-bottom: 0.5rem; }
     .empty-description { color: var(--text-muted); font-size: 0.875rem; }
 
-    .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-    .modal { background: var(--card-bg); border-radius: 0.75rem; width: 90%; max-width: 500px; box-shadow: 0 1.25rem 3.75rem rgba(0, 0, 0, 0.3); }
-    .modal-header { display: flex; justify-content: space-between; align-items: center; padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--border-color); }
-    .modal-header h2 { margin: 0; font-size: 1.125rem; color: var(--text-primary); }
-    .close-btn { background: none; border: none; font-size: 1.5rem; cursor: pointer; color: #a0aec0; }
-    .modal-body { padding: 1.5rem; }
-    .modal-footer { padding: 1rem 1.5rem; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; gap: 0.75rem; }
-
-    .form-group { margin-bottom: 1.25rem; }
-    .form-group label { display: block; margin-bottom: 0.5rem; font-weight: 500; color: var(--text-secondary); }
-    .form-group input, .form-group select { width: 100%; padding: 0.625rem 0.75rem; border: 1px solid var(--border-color); border-radius: 0.375rem; font-size: 0.875rem; }
-    .form-group input:focus, .form-group select:focus { outline: none; border-color: var(--accent-primary); box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.1); }
-    .help-text { margin-top: 0.375rem; font-size: 0.75rem; color: var(--text-muted); }
 </style>
 
 @code {
@@ -359,11 +285,6 @@
     private string searchQuery = "";
     private string filterPlatform = "";
     private string filterStatus = "";
-
-    private bool showRegisterDialog = false;
-    private string newUdid = "";
-    private string newDeviceName = "";
-    private string newPlatform = "IOS";
 
     private bool HasActiveFilters => !string.IsNullOrEmpty(searchQuery) || 
                                       !string.IsNullOrEmpty(filterPlatform) ||
@@ -444,9 +365,6 @@
         ToolbarService.SearchTextChanged -= OnSearchTextChanged;
         ToolbarService.FilterChanged -= OnFilterChanged;
         IdentityState.OnSelectionChanged -= OnIdentityChanged;
-        foreach (var id in _activeModals)
-            try { JS.InvokeVoidAsync("modalInterop.dispose", id); } catch { }
-        _dotNetRef?.Dispose();
     }
 
     private void OnToolbarItemClicked(string actionId)
@@ -459,7 +377,7 @@
                     ToolbarService.SetItemEnabled("refresh", false);
                     try { await RefreshData(forceRefresh: true); } finally { ToolbarService.SetItemEnabled("refresh", true); }
                     break;
-                case "create": ShowRegisterDialog(); break;
+                case "create": await ShowRegisterDialog(); break;
             }
             StateHasChanged();
         });
@@ -512,39 +430,13 @@
         }
     }
 
-    private void ShowRegisterDialog()
+    private async Task ShowRegisterDialog()
     {
-        newUdid = "";
-        newDeviceName = "";
-        newPlatform = "IOS";
-        showRegisterDialog = true;
-        _ = InitModalAsync("register-device-modal");
-    }
+        var result = await FormModalService.ShowAsync<AppleDevice>(new RegisterDevicePage(AppleService));
+        if (result == null) return;
 
-    private void CloseRegisterDialog()
-    {
-        showRegisterDialog = false;
-        _ = DisposeModalAsync("register-device-modal");
-    }
-
-    private async Task RegisterDevice()
-    {
-        isLoading = true;
-        try
-        {
-            await AppleService.RegisterDeviceAsync(newUdid, newDeviceName, newPlatform);
-            await AlertService.ShowToastAsync($"Device '{newDeviceName}' registered!");
-            CloseRegisterDialog();
-            await RefreshData(forceRefresh: true);
-        }
-        catch (Exception ex)
-        {
-            await AlertService.ShowAlertAsync("Error", $"Failed to register device: {ex.Message}");
-        }
-        finally
-        {
-            isLoading = false;
-        }
+        await AlertService.ShowToastAsync($"Device '{result.Name}' registered!");
+        await RefreshData(forceRefresh: true);
     }
 
     private async Task ToggleDevice(AppleDevice device, bool enable)
@@ -566,27 +458,4 @@
         }
     }
 
-    private DotNetObjectReference<AppleDevices>? _dotNetRef;
-    private readonly HashSet<string> _activeModals = new();
-
-    private async Task InitModalAsync(string modalId)
-    {
-        await Task.Yield();
-        _dotNetRef ??= DotNetObjectReference.Create(this);
-        _activeModals.Add(modalId);
-        await JS.InvokeVoidAsync("modalInterop.initialize", modalId, _dotNetRef);
-    }
-
-    private async Task DisposeModalAsync(string modalId)
-    {
-        _activeModals.Remove(modalId);
-        try { await JS.InvokeVoidAsync("modalInterop.dispose", modalId); } catch { }
-    }
-
-    [JSInvokable]
-    public void OnEscapePressed()
-    {
-        CloseRegisterDialog();
-        InvokeAsync(StateHasChanged);
-    }
 }

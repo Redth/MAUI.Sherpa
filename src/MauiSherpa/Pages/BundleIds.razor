@@ -12,9 +12,10 @@
 @inject BlazorToastService ToastService
 @inject IEncryptedSettingsService SettingsService
 @implements IDisposable
-@inject IJSRuntime JS
 @inject IToolbarService ToolbarService
 @inject IPlatformService PlatformInfo
+@inject IFormModalService FormModalService
+@inject MauiSherpa.Pages.Forms.ModalParameterService ModalParams
 
 <h1><i class="fas fa-fingerprint"></i> Bundle IDs</h1>
 
@@ -142,101 +143,7 @@
     </div>
 }
 
-@if (showCreateDialog)
-{
-    <div class="modal-overlay" id="register-bundle-modal">
-        <div class="modal" role="dialog" aria-modal="true" aria-labelledby="register-bundle-title" @onclick:stopPropagation="true">
-            <div class="modal-header">
-                <h2 id="register-bundle-title">Register Bundle ID</h2>
-                <button class="close-btn" @onclick="CloseCreateDialog">×</button>
-            </div>
-            <div class="modal-body">
-                <div class="form-group">
-                    <label>Bundle Identifier</label>
-                    <input type="text" @bind="newIdentifier" placeholder="com.example.myapp" />
-                </div>
-                <div class="form-group">
-                    <label>Name</label>
-                    <input type="text" @bind="newName" placeholder="My App" />
-                </div>
-                <div class="form-group">
-                    <label>Platform</label>
-                    <select @bind="newPlatform">
-                        <option value="IOS">iOS</option>
-                        <option value="MAC_OS">macOS</option>
-                    </select>
-                    <p class="field-note"><i class="fas fa-info-circle"></i> Mac Catalyst apps use the <strong>iOS</strong> platform. Select <strong>macOS</strong> only for native AppKit apps.</p>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button class="btn btn-secondary" @onclick="CloseCreateDialog">
-                    <i class="fas fa-times"></i> Cancel
-                </button>
-                <button class="btn btn-primary" @onclick="CreateBundle" 
-                        disabled="@(string.IsNullOrWhiteSpace(newIdentifier) || string.IsNullOrWhiteSpace(newName) || isCreating)">
-                    <i class="fas @(isCreating ? "fa-spinner fa-spin" : "fa-plus")"></i> @(isCreating ? "Creating..." : "Create")
-                </button>
-            </div>
-        </div>
-    </div>
-}
 
-@if (showCapabilitiesDialog && selectedBundleForCapabilities != null)
-{
-    <div class="modal-overlay" id="manage-caps-modal">
-        <div class="modal modal-lg" role="dialog" aria-modal="true" aria-labelledby="manage-caps-title" @onclick:stopPropagation="true">
-            <div class="modal-header">
-                <h2 id="manage-caps-title"><i class="fas fa-puzzle-piece"></i> Capabilities</h2>
-                <button class="close-btn" @onclick="CloseCapabilitiesDialog">×</button>
-            </div>
-            <div class="modal-subheader">
-                <span class="bundle-id-label"><span class="@(demoMode ? "demo-blur" : "")">@selectedBundleForCapabilities.Identifier</span></span>
-            </div>
-            <div class="modal-body capabilities-body">
-                @if (isLoadingCapabilities)
-                {
-                    <div class="loading-capabilities">
-                        <i class="fas fa-spinner fa-spin"></i> Loading capabilities...
-                    </div>
-                }
-                else
-                {
-                    @foreach (var category in GetGroupedCapabilities())
-                    {
-                        <div class="capability-category">
-                            <h3 class="category-title">@category.Key</h3>
-                            <div class="capability-list">
-                                @foreach (var capType in category.Value)
-                                {
-                                    var isEnabled = IsCapabilityEnabled(capType);
-                                    var capId = GetCapabilityId(capType);
-                                    <div class="capability-item @(isEnabled ? "enabled" : "")">
-                                        <div class="capability-info">
-                                            <i class="fas @CapabilityCategories.GetIcon(capType)"></i>
-                                            <span class="capability-name">@CapabilityCategories.GetDisplayName(capType)</span>
-                                        </div>
-                                        <label class="toggle-switch">
-                                            <input type="checkbox" 
-                                                   checked="@isEnabled" 
-                                                   disabled="@isTogglingCapability"
-                                                   @onchange="@(e => ToggleCapability(capType, capId, (bool)(e.Value ?? false)))" />
-                                            <span class="toggle-slider"></span>
-                                        </label>
-                                    </div>
-                                }
-                            </div>
-                        </div>
-                    }
-                }
-            </div>
-            <div class="modal-footer">
-                <button class="btn btn-secondary" @onclick="CloseCapabilitiesDialog">
-                    <i class="fas fa-times"></i> Close
-                </button>
-            </div>
-        </div>
-    </div>
-}
 
 <style>
     h1 { margin-bottom: 1.25rem; font-size: 1.75rem; color: var(--text-primary); }
@@ -247,7 +154,7 @@
     /* Filter Section Styles */
     .filter-section {
         background: var(--card-bg);
-        border-radius: 0.5rem;
+        border-radius: var(--card-radius);
         padding: 1rem;
         margin-bottom: 1rem;
         box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
@@ -334,18 +241,6 @@
     .clear-filters-btn:hover { background: var(--bg-tertiary); color: var(--text-secondary); }
 
     .results-info { font-size: 0.8125rem; color: var(--text-muted); margin-bottom: 0.75rem; }
-
-    .btn { 
-        padding: 0.625rem 1.25rem; 
-        border: none; 
-        border-radius: 0.375rem; 
-        font-size: 0.875rem; 
-        cursor: pointer; 
-        transition: all 0.2s ease;
-        display: inline-flex;
-        align-items: center;
-        gap: 0.375rem;
-    }
     .btn i { font-size: 0.75rem; }
     .btn-icon {
         width: 2rem; height: 2rem; padding: 0;
@@ -353,26 +248,16 @@
         border-radius: 0.375rem; font-size: 0.8125rem;
     }
     .btn-icon i { font-size: 0.8125rem; margin: 0; }
-    .btn-primary { background-color: var(--accent-primary); color: white; }
-    .btn-primary:hover:not(:disabled) { background-color: var(--accent-primary-hover); }
-    .btn-success { background-color: var(--accent-success); color: white; }
-    .btn-success:hover:not(:disabled) { background-color: var(--accent-success-hover); }
-    .btn-danger { background-color: #f56565; color: white; }
-    .btn-danger:hover:not(:disabled) { background-color: var(--accent-danger); }
-    .btn-secondary { background-color: #a0aec0; color: white; }
-    .btn-sm { padding: 0.375rem 0.75rem; font-size: 0.75rem; }
-    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
     .bundle-list { display: flex; flex-direction: column; gap: 0.75rem; }
 
     .bundle-card {
         background: var(--card-bg);
-        border-radius: 0.5rem;
-        padding: 1.25rem;
+        border-radius: var(--card-radius);
+        padding: 0.875rem;
         display: flex;
         justify-content: space-between;
         align-items: center;
-        box-shadow: var(--card-shadow);
     }
 
     .bundle-identifier { 
@@ -407,26 +292,11 @@
     .badge-platform { background: #bee3f8; color: #2c5282; }
     .badge-seed { background: var(--bg-hover); color: var(--text-secondary); }
 
-    .empty-state { background: var(--card-bg); border-radius: 0.5rem; padding: 3.75rem 2.5rem; text-align: center; box-shadow: var(--card-shadow); }
+    .empty-state { background: var(--card-bg); border-radius: var(--card-radius); padding: 3.75rem 2.5rem; text-align: center; }
     .empty-icon { font-size: 48px; margin-bottom: 1rem; color: #a0aec0; }
     .empty-icon i { font-size: 48px; }
     .empty-title { font-size: 1.125rem; font-weight: 600; color: var(--text-primary); margin-bottom: 0.5rem; }
     .empty-description { color: var(--text-muted); font-size: 0.875rem; }
-
-    .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-    .modal { background: var(--card-bg); border-radius: 0.75rem; width: 90%; max-width: 500px; box-shadow: 0 1.25rem 3.75rem rgba(0, 0, 0, 0.3); }
-    .modal-header { display: flex; justify-content: space-between; align-items: center; padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--border-color); }
-    .modal-header h2 { margin: 0; font-size: 1.125rem; color: var(--text-primary); }
-    .close-btn { background: none; border: none; font-size: 1.5rem; cursor: pointer; color: #a0aec0; }
-    .modal-body { padding: 1.5rem; }
-    .modal-footer { padding: 1rem 1.5rem; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; gap: 0.75rem; }
-
-    .form-group { margin-bottom: 1.25rem; }
-    .form-group label { display: block; margin-bottom: 0.5rem; font-weight: 500; color: var(--text-secondary); }
-    .form-group input, .form-group select { width: 100%; padding: 0.625rem 0.75rem; border: 1px solid var(--border-color); border-radius: 0.375rem; font-size: 0.875rem; }
-    .form-group input:focus, .form-group select:focus { outline: none; border-color: var(--accent-primary); box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.1); }
-    .field-note { margin: 0.375rem 0 0 0; font-size: 0.75rem; color: var(--text-muted); line-height: 1.4; }
-    .field-note i { margin-right: 0.25rem; }
 
     /* Capability badges in bundle cards */
     .bundle-capabilities {
@@ -455,120 +325,6 @@
         border-radius: 0.25rem;
     }
 
-    /* Capabilities Modal */
-    .modal-lg { max-width: 700px; }
-    .modal-subheader {
-        padding: 0.75rem 1.5rem;
-        background: var(--bg-hover);
-        border-bottom: 1px solid var(--border-color);
-    }
-    .bundle-id-label {
-        font-family: monospace;
-        font-size: 0.875rem;
-        color: var(--text-secondary);
-    }
-    .capabilities-body {
-        max-height: 60vh;
-        overflow-y: auto;
-    }
-    .loading-capabilities {
-        text-align: center;
-        padding: 2.5rem;
-        color: var(--text-muted);
-    }
-    .capability-category {
-        margin-bottom: 1.5rem;
-    }
-    .category-title {
-        font-size: 0.875rem;
-        font-weight: 600;
-        color: var(--text-secondary);
-        margin: 0 0 0.75rem 0;
-        padding-bottom: 0.5rem;
-        border-bottom: 1px solid var(--border-color);
-    }
-    .capability-list {
-        display: flex;
-        flex-direction: column;
-        gap: 0.5rem;
-    }
-    .capability-item {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 0.75rem 1rem;
-        background: var(--bg-hover);
-        border-radius: 0.5rem;
-        border: 1px solid transparent;
-        transition: all 0.15s;
-    }
-    .capability-item.enabled {
-        background: rgba(72, 187, 120, 0.15);
-        border-color: #38a169;
-    }
-    .capability-info {
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
-    }
-    .capability-info i {
-        font-size: 1rem;
-        width: 1.25rem;
-        text-align: center;
-        color: #718096;
-    }
-    .capability-item.enabled .capability-info i {
-        color: #38a169;
-    }
-    .capability-name {
-        font-size: 0.875rem;
-        color: var(--text-primary);
-    }
-
-    /* Toggle Switch */
-    .toggle-switch {
-        position: relative;
-        display: inline-block;
-        width: 44px;
-        height: 1.5rem;
-    }
-    .toggle-switch input {
-        opacity: 0;
-        width: 0;
-        height: 0;
-    }
-    .toggle-slider {
-        position: absolute;
-        cursor: pointer;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background-color: #cbd5e0;
-        transition: 0.2s;
-        border-radius: 1.5rem;
-    }
-    .toggle-slider:before {
-        position: absolute;
-        content: "";
-        height: 18px;
-        width: 18px;
-        left: 3px;
-        bottom: 3px;
-        background-color: white;
-        transition: 0.2s;
-        border-radius: 50%;
-    }
-    .toggle-switch input:checked + .toggle-slider {
-        background-color: #48bb78;
-    }
-    .toggle-switch input:checked + .toggle-slider:before {
-        transform: translateX(20px);
-    }
-    .toggle-switch input:disabled + .toggle-slider {
-        opacity: 0.5;
-        cursor: not-allowed;
-    }
 </style>
 
 @code {
@@ -582,20 +338,6 @@
     private string searchQuery = "";
     private string filterPlatform = "";
 
-    private bool showCreateDialog = false;
-    private bool isCreating = false;
-    private string newIdentifier = "";
-    private string newName = "";
-    private string newPlatform = "IOS";
-
-    // Capabilities state
-    private bool showCapabilitiesDialog = false;
-    private AppleBundleId? selectedBundleForCapabilities = null;
-    private List<AppleBundleIdCapability> currentCapabilities = new();
-    private List<string> availableCapabilityTypes = new();
-    private bool isLoadingCapabilities = false;
-    private bool isTogglingCapability = false;
-    
     // Capabilities cache per bundle ID
     private Dictionary<string, List<AppleBundleIdCapability>> capabilitiesCache = new();
 
@@ -668,9 +410,6 @@
         ToolbarService.SearchTextChanged -= OnSearchTextChanged;
         ToolbarService.FilterChanged -= OnFilterChanged;
         IdentityState.OnSelectionChanged -= OnIdentityChanged;
-        foreach (var id in _activeModals)
-            try { JS.InvokeVoidAsync("modalInterop.dispose", id); } catch { }
-        _dotNetRef?.Dispose();
     }
 
     private void OnToolbarItemClicked(string actionId)
@@ -683,7 +422,7 @@
                     ToolbarService.SetItemEnabled("refresh", false);
                     try { await RefreshData(forceRefresh: true); } finally { ToolbarService.SetItemEnabled("refresh", true); }
                     break;
-                case "create": ShowCreateDialog(); break;
+                case "create": await ShowCreateDialog(); break;
             }
             StateHasChanged();
         });
@@ -734,44 +473,12 @@
         }
     }
 
-    private void ShowCreateDialog()
+    private async Task ShowCreateDialog()
     {
-        newIdentifier = "";
-        newName = "";
-        newPlatform = "IOS";
-        showCreateDialog = true;
-        _ = InitModalAsync("register-bundle-modal");
-    }
-
-    private void CloseCreateDialog()
-    {
-        showCreateDialog = false;
-        _ = DisposeModalAsync("register-bundle-modal");
-    }
-
-    private async Task CreateBundle()
-    {
-        showCreateDialog = false;
-        
-        var result = await OperationModal.RunAsync(
-            "Create Bundle ID",
-            $"Creating bundle ID '{newIdentifier}'...",
-            async ctx =>
-            {
-                ctx.SetStatus("Registering bundle ID...");
-                ctx.LogInfo($"Identifier: {newIdentifier}");
-                ctx.LogInfo($"Name: {newName}");
-                ctx.LogInfo($"Platform: {newPlatform}");
-                
-                await AppleService.CreateBundleIdAsync(newIdentifier, newName, newPlatform);
-                ctx.LogSuccess("Bundle ID created successfully");
-                return true;
-            },
-            canCancel: false);
-
-        if (result.Success)
+        var page = new MauiSherpa.Pages.Forms.CreateBundleIdPage(AppleService);
+        var result = await FormModalService.ShowAsync<AppleBundleId>(page);
+        if (result != null)
         {
-            CloseCreateDialog();
             await RefreshData(forceRefresh: true);
         }
     }
@@ -822,101 +529,16 @@
 
     private async Task ShowEditCapabilitiesDialog(AppleBundleId bundle)
     {
-        selectedBundleForCapabilities = bundle;
-        showCapabilitiesDialog = true;
-        _ = InitModalAsync("manage-caps-modal");
-        isLoadingCapabilities = true;
-        currentCapabilities.Clear();
-        StateHasChanged();
-
+        var page = new MauiSherpa.Pages.Modals.ManageCapabilitiesPage(ModalParams, bundle);
+        await FormModalService.ShowViewAsync(page, page.WaitForCloseAsync);
+        // Refresh capabilities cache after modal closes
         try
         {
-            // Load available capability types if not already loaded
-            if (!availableCapabilityTypes.Any())
-            {
-                availableCapabilityTypes = (await AppleService.GetAvailableCapabilityTypesAsync()).ToList();
-            }
-
-            // Load current capabilities for this bundle
             var caps = await AppleService.GetBundleIdCapabilitiesAsync(bundle.Id);
-            currentCapabilities = caps.ToList();
-            capabilitiesCache[bundle.Id] = currentCapabilities;
-        }
-        catch (Exception ex)
-        {
-            await AlertService.ShowAlertAsync("Error", $"Failed to load capabilities: {ex.Message}");
-        }
-        finally
-        {
-            isLoadingCapabilities = false;
+            capabilitiesCache[bundle.Id] = caps.ToList();
             StateHasChanged();
         }
-    }
-
-    private void CloseCapabilitiesDialog()
-    {
-        showCapabilitiesDialog = false;
-        _ = DisposeModalAsync("manage-caps-modal");
-        selectedBundleForCapabilities = null;
-        currentCapabilities.Clear();
-    }
-
-    private IEnumerable<KeyValuePair<string, List<string>>> GetGroupedCapabilities()
-    {
-        var grouped = availableCapabilityTypes
-            .GroupBy(cap => CapabilityCategories.GetCategory(cap))
-            .OrderBy(g => g.Key == "Other" ? 1 : 0)
-            .ThenBy(g => g.Key)
-            .Select(g => new KeyValuePair<string, List<string>>(g.Key, g.ToList()));
-        return grouped;
-    }
-
-    private bool IsCapabilityEnabled(string capabilityType)
-    {
-        return currentCapabilities.Any(c => c.CapabilityType == capabilityType);
-    }
-
-    private string? GetCapabilityId(string capabilityType)
-    {
-        return currentCapabilities.FirstOrDefault(c => c.CapabilityType == capabilityType)?.Id;
-    }
-
-    private async Task ToggleCapability(string capabilityType, string? capabilityId, bool enable)
-    {
-        if (selectedBundleForCapabilities == null) return;
-
-        isTogglingCapability = true;
-        StateHasChanged();
-
-        try
-        {
-            if (enable && capabilityId == null)
-            {
-                // Enable capability
-                await AppleService.EnableCapabilityAsync(selectedBundleForCapabilities.Id, capabilityType);
-                await AlertService.ShowToastAsync($"Enabled {CapabilityCategories.GetDisplayName(capabilityType)}");
-            }
-            else if (!enable && capabilityId != null)
-            {
-                // Disable capability
-                await AppleService.DisableCapabilityAsync(capabilityId);
-                await AlertService.ShowToastAsync($"Disabled {CapabilityCategories.GetDisplayName(capabilityType)}");
-            }
-
-            // Refresh capabilities
-            var caps = await AppleService.GetBundleIdCapabilitiesAsync(selectedBundleForCapabilities.Id);
-            currentCapabilities = caps.ToList();
-            capabilitiesCache[selectedBundleForCapabilities.Id] = currentCapabilities;
-        }
-        catch (Exception ex)
-        {
-            await AlertService.ShowAlertAsync("Error", $"Failed to toggle capability: {ex.Message}");
-        }
-        finally
-        {
-            isTogglingCapability = false;
-            StateHasChanged();
-        }
+        catch { }
     }
 
     private static string FormatPlatform(string? platform)
@@ -931,35 +553,4 @@
         };
     }
 
-    private DotNetObjectReference<BundleIds>? _dotNetRef;
-    private readonly HashSet<string> _activeModals = new();
-
-    private async Task InitModalAsync(string modalId)
-    {
-        await Task.Yield();
-        _dotNetRef ??= DotNetObjectReference.Create(this);
-        _activeModals.Add(modalId);
-        await JS.InvokeVoidAsync("modalInterop.initialize", modalId, _dotNetRef);
-    }
-
-    private async Task DisposeModalAsync(string modalId)
-    {
-        _activeModals.Remove(modalId);
-        try { await JS.InvokeVoidAsync("modalInterop.dispose", modalId); } catch { }
-    }
-
-    [JSInvokable]
-    public void OnEscapePressed()
-    {
-        // Close whichever modal is open
-        if (showCapabilitiesDialog)
-        {
-            CloseCapabilitiesDialog();
-        }
-        else if (showCreateDialog)
-        {
-            CloseCreateDialog();
-        }
-        InvokeAsync(StateHasChanged);
-    }
 }
