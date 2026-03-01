@@ -31,7 +31,7 @@
                 @if (Request?.RequiresElevation == true)
                 {
                     <div class="elevation-warning">
-                        <span class="warning-icon">⚠️</span>
+                        <i class="fas fa-exclamation-triangle warning-icon"></i>
                         <span>This command requires administrator privileges. You may be prompted for your password.</span>
                     </div>
                 }
@@ -53,7 +53,7 @@
                 </div>
                 <div class="process-status-bar">
                     <div class="process-status-info">
-                        <span class="spinner">⏳</span>
+                        <i class="fas fa-spinner fa-spin"></i>
                         <span class="process-status-text">Running... @ElapsedTime</span>
                     </div>
                     <div class="process-controls">
@@ -73,12 +73,12 @@
                 <div class="terminal-wrapper completed">
                     <div class="terminal-header">
                         <span>Output</span>
-                        <button class="btn-icon" @onclick="CopyOutput" title="Copy output">📋</button>
+                        <button class="btn-icon" @onclick="CopyOutput" title="Copy output"><i class="fas fa-copy"></i></button>
                     </div>
                     <div class="terminal-container" id="process-terminal"></div>
                 </div>
                 <div class="result-status @GetResultClass()">
-                    <span class="result-icon">@GetResultIcon()</span>
+                    <i class="fas @GetResultIcon() result-icon"></i>
                     <span class="result-text">@GetResultText()</span>
                 </div>
                 <div class="result-details">
@@ -193,15 +193,6 @@
         display: flex;
         align-items: center;
         gap: 0.5rem;
-    }
-
-    .spinner {
-        animation: spin 1s linear infinite;
-    }
-
-    @@keyframes spin {
-        from { transform: rotate(0deg); }
-        to { transform: rotate(360deg); }
     }
 
     .process-status-text { color: #4a5568; font-weight: 500; }
@@ -389,13 +380,13 @@
 
             // Write final status line
             if (Result.Success)
-                await JS.InvokeVoidAsync("terminalInterop.writeSuccess", "process-terminal", $"\n✅ Process completed successfully (exit code {Result.ExitCode})");
+                await JS.InvokeVoidAsync("terminalInterop.writeSuccess", "process-terminal", $"\n[OK] Process completed successfully (exit code {Result.ExitCode})");
             else if (Result.WasCancelled)
-                await JS.InvokeVoidAsync("terminalInterop.writeWarning", "process-terminal", $"\n⚠️ Process was cancelled");
+                await JS.InvokeVoidAsync("terminalInterop.writeWarning", "process-terminal", $"\n[CANCELLED] Process was cancelled");
             else if (Result.WasKilled)
-                await JS.InvokeVoidAsync("terminalInterop.writeWarning", "process-terminal", $"\n🛑 Process was killed");
+                await JS.InvokeVoidAsync("terminalInterop.writeWarning", "process-terminal", $"\n[KILLED] Process was killed");
             else
-                await JS.InvokeVoidAsync("terminalInterop.writeError", "process-terminal", $"\n❌ Process failed (exit code {Result.ExitCode})");
+                await JS.InvokeVoidAsync("terminalInterop.writeError", "process-terminal", $"\n[FAILED] Process failed (exit code {Result.ExitCode})");
         }
     }
 
@@ -633,9 +624,9 @@
     private string GetResultIcon()
     {
         if (Result == null) return "";
-        if (Result.Success) return "✅";
-        if (Result.WasCancelled || Result.WasKilled) return "⚠️";
-        return "❌";
+        if (Result.Success) return "fa-check-circle";
+        if (Result.WasCancelled || Result.WasKilled) return "fa-ban";
+        return "fa-times-circle";
     }
 
     private string GetResultText()
