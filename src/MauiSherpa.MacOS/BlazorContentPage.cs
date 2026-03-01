@@ -773,7 +773,13 @@ public class BlazorContentPage : ContentPage
                 {
                     Text = label,
                     IconImageSource = icon,
-                    Command = new Command(() => _toolbarService.InvokeToolbarItemClicked(actionId)),
+                    Command = new Command(() =>
+                    {
+                        if (actionId == "settings")
+                            OpenSettingsDialog();
+                        else
+                            _toolbarService.InvokeToolbarItemClicked(actionId);
+                    }),
                 };
                 allToolbarItems.Add(item);
                 _actionItemMap[actionId] = item;
