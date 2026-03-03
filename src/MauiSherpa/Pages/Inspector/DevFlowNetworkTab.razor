@@ -184,7 +184,7 @@
     private string detailTab = "headers";
     private bool isStreaming = true;
     private bool showColumnFilters;
-    private CancellationTokenSource? _streamCts;
+    private Timer? _pollTimer;
     private double detailPaneWidth = 420;
     private bool isResizing;
     private double resizeStartX;
@@ -274,9 +274,9 @@
             }
         };
 
-        // Initial fetch via REST, then try WebSocket streaming
+        // Initial fetch via REST, then poll for updates
         await FetchNetworkRequests();
-        _ = StartStreamingAsync();
+        StartPolling();
     }
 
     private async Task FetchNetworkRequests()
@@ -293,56 +293,28 @@
         catch { }
     }
 
-    private async Task StartStreamingAsync()
+    private void StartPolling()
     {
-        _streamCts?.Cancel();
-        _streamCts = new CancellationTokenSource();
+        _pollTimer?.Dispose();
         isStreaming = true;
-
-        try
+        _pollTimer = new Timer(async _ =>
         {
-            await Client.StreamNetworkRequestsAsync(req =>
-            {
-                InvokeAsync(() =>
-                {
-                    // Only add if not a duplicate (initial REST fetch may overlap)
-                    if (!string.IsNullOrEmpty(req.Id) && !requests.Any(r => r.Id == req.Id))
-                    {
-                        requests.Add(req);
-                        while (requests.Count > 500)
-                            requests.RemoveAt(0);
-                        StateHasChanged();
-                    }
-                });
-            }, _streamCts.Token);
-        }
-        catch
-        {
-            // WebSocket failed — fall back to polling
-            await PollNetworkRequests();
-        }
-    }
-
-    private async Task PollNetworkRequests()
-    {
-        while (!(_streamCts?.Token.IsCancellationRequested ?? true))
-        {
+            if (!isStreaming) return;
             await FetchNetworkRequests();
-            try { await Task.Delay(2000, _streamCts?.Token ?? CancellationToken.None); }
-            catch (OperationCanceledException) { break; }
-        }
+        }, null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
     }
 
     private void ToggleStreaming()
     {
         if (isStreaming)
         {
-            _streamCts?.Cancel();
             isStreaming = false;
+            _pollTimer?.Dispose();
+            _pollTimer = null;
         }
         else
         {
-            _ = StartStreamingAsync();
+            StartPolling();
         }
         StateHasChanged();
     }
@@ -438,7 +410,7 @@
 
     public void Dispose()
     {
-        _streamCts?.Cancel();
+        _pollTimer?.Dispose();
     }
 }
 
