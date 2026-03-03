@@ -71,7 +71,7 @@
                     }
                     @if (!string.IsNullOrEmpty(agent.Version))
                     {
-                        <span class="agent-version"><i class="fas fa-code-branch"></i> v@(agent.Version)</span>
+                        <span class="agent-version"><i class="fas fa-code-branch"></i> @FormatVersion(agent.Version)</span>
                     }
                 </div>
             </div>
@@ -192,7 +192,27 @@
     private bool IsAgentSupported(BrokerAgent agent)
     {
         if (string.IsNullOrEmpty(agent.Version)) return true; // unknown version = allow
-        return Version.TryParse(agent.Version, out var v) && v >= MinSupportedAgentVersion;
+        return TryParseAgentVersion(agent.Version, out var v) && v >= MinSupportedAgentVersion;
+    }
+
+    private static bool TryParseAgentVersion(string versionStr, out Version version)
+    {
+        // Handle semver-like strings: "v0.14.0+hash", "0.14.0-beta.1", "v1.2.3"
+        var s = versionStr.TrimStart('v');
+        var plusIdx = s.IndexOf('+');
+        if (plusIdx >= 0) s = s[..plusIdx];
+        var dashIdx = s.IndexOf('-');
+        if (dashIdx >= 0) s = s[..dashIdx];
+        return Version.TryParse(s, out version!);
+    }
+
+    private static string FormatVersion(string version)
+    {
+        // Show clean version: "v0.14.0+hash" → "v0.14.0", "0.14.0" → "v0.14.0"
+        var s = version.TrimStart('v');
+        var plusIdx = s.IndexOf('+');
+        if (plusIdx >= 0) s = s[..plusIdx];
+        return $"v{s}";
     }
 
     private void OpenInspector(BrokerAgent agent)
