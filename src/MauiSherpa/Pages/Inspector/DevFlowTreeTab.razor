@@ -297,7 +297,9 @@
         string Group = "Other",
         string[]? EnumValues = null,
         double? NumMin = null, double? NumMax = null, double NumStep = 1,
-        bool IsDouble = false);
+        bool IsDouble = false,
+        int SortOrder = 100,
+        string? DefaultValue = null);
 
     private static readonly Dictionary<string, PropertyMeta> PropertyRegistry = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -320,25 +322,25 @@
         ["CornerRadius"] = new(EditorType.Number, "Appearance", NumMin: 0, NumMax: 500, NumStep: 1, IsDouble: true),
 
         // --- Layout ---
-        ["WidthRequest"] = new(EditorType.Number, "Layout", NumMin: -1, NumMax: 10000, NumStep: 1, IsDouble: true),
-        ["HeightRequest"] = new(EditorType.Number, "Layout", NumMin: -1, NumMax: 10000, NumStep: 1, IsDouble: true),
-        ["MinimumWidthRequest"] = new(EditorType.Number, "Layout", NumMin: -1, NumMax: 10000, NumStep: 1, IsDouble: true),
-        ["MinimumHeightRequest"] = new(EditorType.Number, "Layout", NumMin: -1, NumMax: 10000, NumStep: 1, IsDouble: true),
-        ["MaximumWidthRequest"] = new(EditorType.Number, "Layout", NumMin: -1, NumMax: 10000, NumStep: 1, IsDouble: true),
-        ["MaximumHeightRequest"] = new(EditorType.Number, "Layout", NumMin: -1, NumMax: 10000, NumStep: 1, IsDouble: true),
-        ["Margin"] = new(EditorType.Thickness, "Layout"),
-        ["Padding"] = new(EditorType.Thickness, "Layout"),
-        ["HorizontalOptions"] = new(EditorType.Enum, "Layout",
+        ["Margin"] = new(EditorType.Thickness, "Layout", SortOrder: 1),
+        ["Padding"] = new(EditorType.Thickness, "Layout", SortOrder: 2),
+        ["HorizontalOptions"] = new(EditorType.Enum, "Layout", SortOrder: 3,
             EnumValues: new[] { "Start", "Center", "End", "Fill", "StartAndExpand", "CenterAndExpand", "EndAndExpand", "FillAndExpand" }),
-        ["VerticalOptions"] = new(EditorType.Enum, "Layout",
+        ["VerticalOptions"] = new(EditorType.Enum, "Layout", SortOrder: 4,
             EnumValues: new[] { "Start", "Center", "End", "Fill", "StartAndExpand", "CenterAndExpand", "EndAndExpand", "FillAndExpand" }),
-        ["HorizontalTextAlignment"] = new(EditorType.Enum, "Layout",
+        ["WidthRequest"] = new(EditorType.Number, "Layout", NumMin: -1, NumMax: 10000, NumStep: 1, IsDouble: true, SortOrder: 5),
+        ["HeightRequest"] = new(EditorType.Number, "Layout", NumMin: -1, NumMax: 10000, NumStep: 1, IsDouble: true, SortOrder: 6),
+        ["MinimumWidthRequest"] = new(EditorType.Number, "Layout", NumMin: -1, NumMax: 10000, NumStep: 1, IsDouble: true, SortOrder: 7, DefaultValue: "-1"),
+        ["MinimumHeightRequest"] = new(EditorType.Number, "Layout", NumMin: -1, NumMax: 10000, NumStep: 1, IsDouble: true, SortOrder: 8, DefaultValue: "-1"),
+        ["MaximumWidthRequest"] = new(EditorType.Number, "Layout", NumMin: -1, NumMax: 10000, NumStep: 1, IsDouble: true, SortOrder: 9, DefaultValue: "Infinity"),
+        ["MaximumHeightRequest"] = new(EditorType.Number, "Layout", NumMin: -1, NumMax: 10000, NumStep: 1, IsDouble: true, SortOrder: 10, DefaultValue: "Infinity"),
+        ["HorizontalTextAlignment"] = new(EditorType.Enum, "Layout", SortOrder: 11,
             EnumValues: new[] { "Start", "Center", "End" }),
-        ["VerticalTextAlignment"] = new(EditorType.Enum, "Layout",
+        ["VerticalTextAlignment"] = new(EditorType.Enum, "Layout", SortOrder: 12,
             EnumValues: new[] { "Start", "Center", "End" }),
-        ["LineBreakMode"] = new(EditorType.Enum, "Layout",
+        ["LineBreakMode"] = new(EditorType.Enum, "Layout", SortOrder: 13,
             EnumValues: new[] { "NoWrap", "WordWrap", "CharacterWrap", "HeadTruncation", "TailTruncation", "MiddleTruncation" }),
-        ["Spacing"] = new(EditorType.Number, "Layout", NumMin: 0, NumMax: 1000, NumStep: 1, IsDouble: true),
+        ["Spacing"] = new(EditorType.Number, "Layout", NumMin: 0, NumMax: 1000, NumStep: 1, IsDouble: true, SortOrder: 14),
 
         // --- Transform ---
         ["Rotation"] = new(EditorType.Number, "Transform", NumMin: 0, NumMax: 360, NumStep: 1, IsDouble: true),
@@ -372,10 +374,23 @@
         .Where(k => k != "AutomationId" && k != "Text") // These come from tree node
         .ToArray();
 
-    private static readonly string[] GroupOrder = new[] { "Appearance", "Layout", "Transform", "Behavior", "Other" };
+    private static readonly string[] GroupOrder = new[] { "Appearance", "Layout", "Behavior", "Transform", "Other" };
 
     private static PropertyMeta GetMeta(string propName)
         => PropertyRegistry.TryGetValue(propName, out var meta) ? meta : new PropertyMeta(EditorType.Text, "Other");
+
+    private static bool IsDefaultValue(string? value, string defaultValue)
+    {
+        if (string.IsNullOrEmpty(value)) return true;
+        // Handle infinity comparisons
+        if (defaultValue == "Infinity")
+            return value.Contains("Infinity", StringComparison.OrdinalIgnoreCase)
+                || (double.TryParse(value, out var v) && double.IsPositiveInfinity(v));
+        // Numeric comparison
+        if (double.TryParse(value, out var current) && double.TryParse(defaultValue, out var def))
+            return Math.Abs(current - def) < 0.001;
+        return string.Equals(value, defaultValue, StringComparison.OrdinalIgnoreCase);
+    }
 
     // Resize state
     private double screenshotPaneWidth = 280;
@@ -841,6 +856,7 @@
                 fetchedProperties = results
                     .Where(p => p.Value != null)
                     .OrderBy(p => Array.IndexOf(GroupOrder, p.Meta.Group))
+                    .ThenBy(p => p.Meta.SortOrder)
                     .ThenBy(p => p.Name)
                     .ToList();
             }
@@ -1677,6 +1693,9 @@
 
     private RenderFragment RenderNumberEditor(PropertyEntry prop) => __builder =>
     {
+        var hasDefault = prop.Meta.DefaultValue != null;
+        var isDefault = hasDefault && IsDefaultValue(prop.Value, prop.Meta.DefaultValue!);
+
         __builder.OpenElement(0, "div");
         __builder.AddAttribute(1, "class", "prop-row editable");
         __builder.AddAttribute(2, "onclick", EventCallback.Factory.Create<MouseEventArgs>(this, () => StartEditing(prop.Name, prop.Value)));
@@ -1706,6 +1725,23 @@
             __builder.AddAttribute(17, "class", "prop-value");
             __builder.AddContent(18, prop.Value);
             __builder.CloseElement();
+
+            if (hasDefault && !isDefault)
+            {
+                __builder.OpenElement(19, "button");
+                __builder.AddAttribute(20, "class", "btn-reset");
+                __builder.AddAttribute(21, "title", $"Reset to {prop.Meta.DefaultValue}");
+                __builder.AddAttribute(22, "onclick", EventCallback.Factory.Create<MouseEventArgs>(this, async (e) =>
+                {
+                    editingProperty = prop.Name;
+                    editValue = prop.Meta.DefaultValue!;
+                    await CommitEdit();
+                }));
+                __builder.OpenElement(23, "i");
+                __builder.AddAttribute(24, "class", "fas fa-undo");
+                __builder.CloseElement();
+                __builder.CloseElement();
+            }
         }
 
         __builder.CloseElement(); // div.prop-row
@@ -2258,6 +2294,24 @@
         color: var(--accent-color, #8b5cf6);
     }
 
+    /* Reset button */
+    .btn-reset {
+        background: none;
+        border: 1px solid var(--border-color);
+        color: var(--text-tertiary);
+        cursor: pointer;
+        padding: 0.1rem 0.35rem;
+        border-radius: 3px;
+        font-size: 0.6rem;
+        margin-left: 0.3rem;
+        flex-shrink: 0;
+    }
+
+    .btn-reset:hover {
+        background: var(--bg-tertiary);
+        color: var(--accent-color, #8b5cf6);
+    }
+
     /* Enum select */
     .prop-enum-select {
         flex: 1;
@@ -2388,6 +2442,10 @@
         flex-direction: column;
         align-items: stretch;
         gap: 0.3rem;
+        background: var(--bg-tertiary);
+        border-radius: 6px;
+        padding: 0.5rem;
+        margin-top: 0.25rem;
     }
 
     .brush-preview {
