@@ -269,16 +269,15 @@
         isLoadingTree = true;
         StateHasChanged();
 
-        var previousExpanded = new HashSet<string>(expandedNodes);
         var previousSelected = selectedElementId;
 
         try
         {
             treeItems = await Client.GetTreeAsync();
 
-            // Re-expand previously expanded nodes that still exist
+            // Always expand all nodes
             expandedNodes.Clear();
-            RestoreExpandedNodes(treeItems, previousExpanded);
+            AddAllNodeIds(treeItems);
 
             // Re-select previous element
             if (previousSelected != null)
@@ -293,17 +292,6 @@
         {
             isLoadingTree = false;
             StateHasChanged();
-        }
-    }
-
-    private void RestoreExpandedNodes(List<DevFlowElementInfo> items, HashSet<string> previous)
-    {
-        foreach (var item in items)
-        {
-            if (previous.Contains(item.Id))
-                expandedNodes.Add(item.Id);
-            if (item.Children?.Count > 0)
-                RestoreExpandedNodes(item.Children, previous);
         }
     }
 
@@ -415,15 +403,6 @@
 
         if (hasChildren)
         {
-            __builder.OpenElement(10, "span");
-            __builder.AddAttribute(11, "class", "tree-toggle");
-            __builder.AddAttribute(12, "onclick", EventCallback.Factory.Create<Microsoft.AspNetCore.Components.Web.MouseEventArgs>(this, () => ToggleExpand(item.Id)));
-            __builder.AddEventStopPropagationAttribute(13, "onclick", true);
-            __builder.OpenElement(14, "i");
-            __builder.AddAttribute(15, "class", $"fas {(isExpanded ? "fa-caret-down" : "fa-caret-right")}");
-            __builder.CloseElement(); // i
-            __builder.CloseElement(); // span
-
             __builder.OpenElement(16, "span");
             __builder.AddAttribute(17, "class", "tree-expand-all");
             __builder.AddAttribute(18, "title", "Expand all children");
@@ -431,6 +410,15 @@
             __builder.AddEventStopPropagationAttribute(20, "onclick", true);
             __builder.OpenElement(21, "i");
             __builder.AddAttribute(22, "class", "fas fa-angles-down");
+            __builder.CloseElement(); // i
+            __builder.CloseElement(); // span
+
+            __builder.OpenElement(10, "span");
+            __builder.AddAttribute(11, "class", "tree-toggle");
+            __builder.AddAttribute(12, "onclick", EventCallback.Factory.Create<Microsoft.AspNetCore.Components.Web.MouseEventArgs>(this, () => ToggleExpand(item.Id)));
+            __builder.AddEventStopPropagationAttribute(13, "onclick", true);
+            __builder.OpenElement(14, "i");
+            __builder.AddAttribute(15, "class", $"fas {(isExpanded ? "fa-caret-down" : "fa-caret-right")}");
             __builder.CloseElement(); // i
             __builder.CloseElement(); // span
         }
