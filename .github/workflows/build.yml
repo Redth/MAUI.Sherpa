@@ -7,6 +7,12 @@ on:
   pull_request:
     branches: [ main ]
   workflow_dispatch:
+    inputs:
+      publish_artifacts:
+        description: 'Build, sign, notarize, and attach platform artifacts'
+        required: false
+        default: false
+        type: boolean
 
 env:
   DOTNET_NOLOGO: true
@@ -64,7 +70,7 @@ jobs:
     name: Publish macOS App
     runs-on: macos-26
     needs: build-test
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish_artifacts)
     permissions:
       statuses: write
 
@@ -274,7 +280,7 @@ jobs:
     name: Publish Windows App
     runs-on: windows-latest
     needs: build-test
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish_artifacts)
     permissions:
       statuses: write
 
@@ -388,7 +394,7 @@ jobs:
     name: Publish Linux App (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
     needs: build-test
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish_artifacts)
     permissions:
       statuses: write
     strategy:
@@ -531,7 +537,7 @@ jobs:
     name: Notarize macOS App
     runs-on: macos-26
     needs: publish-macos
-    if: (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) && github.event_name == 'push'
+    if: ((github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) && github.event_name == 'push') || (github.event_name == 'workflow_dispatch' && inputs.publish_artifacts)
     permissions:
       statuses: write
 
