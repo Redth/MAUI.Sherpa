@@ -91,6 +91,7 @@
         <div class="props-container">
             @if (selectedElement != null)
             {
+                <!-- Element identity -->
                 <div class="prop-section">
                     <div class="prop-section-title">Element</div>
                     <div class="prop-row">
@@ -107,16 +108,23 @@
                     </div>
                     @if (selectedElement.AutomationId != null)
                     {
-                        <div class="prop-row">
+                        <div class="prop-row editable" @onclick='@(() => StartEditing("AutomationId", selectedElement.AutomationId))'>
                             <span class="prop-key">AutomationId</span>
-                            <span class="prop-value">@selectedElement.AutomationId</span>
+                            @if (editingProperty == "AutomationId")
+                            {
+                                <input type="text" @bind="editValue" @bind:event="oninput" @onkeydown="OnEditKeyDown" @onfocusout="OnEditBlur" @ref="editInput" class="prop-edit-input" />
+                            }
+                            else
+                            {
+                                <span class="prop-value">@selectedElement.AutomationId</span>
+                            }
                         </div>
                     }
                     @if (selectedElement.Text != null)
                     {
-                        <div class="prop-row editable" @onclick='@(() => StartEditing("text", selectedElement.Text))'>
+                        <div class="prop-row editable" @onclick='@(() => StartEditing("Text", selectedElement.Text))'>
                             <span class="prop-key">Text</span>
-                            @if (editingProperty == "text")
+                            @if (editingProperty == "Text")
                             {
                                 <input type="text" @bind="editValue" @bind:event="oninput" @onkeydown="OnEditKeyDown" @onfocusout="OnEditBlur" @ref="editInput" class="prop-edit-input" />
                             }
@@ -128,25 +136,45 @@
                     }
                 </div>
 
+                <!-- State -->
                 <div class="prop-section">
                     <div class="prop-section-title">State</div>
-                    <div class="prop-row">
+                    <div class="prop-row editable" @onclick='@(() => ToggleBoolProperty("IsVisible", selectedElement.IsVisible))'>
                         <span class="prop-key">Visible</span>
-                        <span class="prop-value @(selectedElement.IsVisible ? "val-true" : "val-false")">@selectedElement.IsVisible</span>
+                        <span class="prop-value">
+                            <label class="bool-toggle">
+                                <input type="checkbox" checked="@selectedElement.IsVisible" @onclick:preventDefault @onclick:stopPropagation />
+                                <span class="@(selectedElement.IsVisible ? "val-true" : "val-false")">@selectedElement.IsVisible</span>
+                            </label>
+                        </span>
                     </div>
-                    <div class="prop-row">
+                    <div class="prop-row editable" @onclick='@(() => ToggleBoolProperty("IsEnabled", selectedElement.IsEnabled))'>
                         <span class="prop-key">Enabled</span>
-                        <span class="prop-value @(selectedElement.IsEnabled ? "val-true" : "val-false")">@selectedElement.IsEnabled</span>
+                        <span class="prop-value">
+                            <label class="bool-toggle">
+                                <input type="checkbox" checked="@selectedElement.IsEnabled" @onclick:preventDefault @onclick:stopPropagation />
+                                <span class="@(selectedElement.IsEnabled ? "val-true" : "val-false")">@selectedElement.IsEnabled</span>
+                            </label>
+                        </span>
                     </div>
                     <div class="prop-row">
                         <span class="prop-key">Focused</span>
-                        <span class="prop-value @(selectedElement.IsFocused ? "val-true" : "val-false")">@selectedElement.IsFocused</span>
+                        <span class="prop-value @(selectedElement.IsFocused ? "val-true" : "val-false")">
+                            @selectedElement.IsFocused
+                            @if (!selectedElement.IsFocused)
+                            {
+                                <button class="btn-focus" @onclick="FocusSelected" title="Focus this element">
+                                    <i class="fas fa-crosshairs"></i>
+                                </button>
+                            }
+                        </span>
                     </div>
-                    <div class="prop-row editable" @onclick='@(() => StartEditing("opacity", selectedElement.Opacity.ToString("F2")))'>
+                    <div class="prop-row editable" @onclick='@(() => StartEditing("Opacity", selectedElement.Opacity.ToString("F2")))'>
                         <span class="prop-key">Opacity</span>
-                        @if (editingProperty == "opacity")
+                        @if (editingProperty == "Opacity")
                         {
-                            <input type="text" @bind="editValue" @bind:event="oninput" @onkeydown="OnEditKeyDown" @onfocusout="OnEditBlur" @ref="editInput" class="prop-edit-input" />
+                            <input type="number" @bind="editValue" @bind:event="oninput" @onkeydown="OnEditKeyDown" @onfocusout="OnEditBlur" @ref="editInput"
+                                   class="prop-edit-input" min="0" max="1" step="0.05" />
                         }
                         else
                         {
@@ -155,6 +183,7 @@
                     </div>
                 </div>
 
+                <!-- Bounds -->
                 @if (selectedElement.Bounds != null)
                 {
                     <div class="prop-section">
@@ -170,6 +199,7 @@
                     </div>
                 }
 
+                <!-- Gestures -->
                 @if (selectedElement.Gestures?.Count > 0)
                 {
                     <div class="prop-section">
@@ -181,6 +211,7 @@
                     </div>
                 }
 
+                <!-- Fetched Properties by Group -->
                 <div class="prop-section">
                     <div class="prop-section-title">
                         Properties
@@ -192,29 +223,41 @@
                             <i class="fas fa-sync-alt"></i>
                         </button>
                     </div>
-                    @if (fetchedProperties.Count > 0)
-                    {
-                        @foreach (var prop in fetchedProperties)
-                        {
-                            <div class="prop-row editable" @onclick='@(() => StartEditing(prop.Name, prop.Value))'>
-                                <span class="prop-key">@prop.Name</span>
-                                @if (editingProperty == prop.Name)
-                                {
-                                    <input type="text" @bind="editValue" @bind:event="oninput" @onkeydown="OnEditKeyDown" @onfocusout="OnEditBlur" @ref="editInput" class="prop-edit-input" />
-                                }
-                                else
-                                {
-                                    <span class="prop-value @(GetPropertyValueClass(prop.Value))">@(prop.Value ?? "null")</span>
-                                }
-                            </div>
-                        }
-                    }
-                    else if (!isLoadingProps)
-                    {
-                        <div class="prop-row"><span class="prop-value" style="color: var(--text-tertiary);">No properties found</span></div>
-                    }
                 </div>
 
+                @if (fetchedProperties.Count > 0)
+                {
+                    @foreach (var group in fetchedProperties.GroupBy(p => p.Meta.Group).OrderBy(g => Array.IndexOf(GroupOrder, g.Key)))
+                    {
+                        <div class="prop-section">
+                            <div class="prop-group-title">@group.Key</div>
+                            @foreach (var prop in group)
+                            {
+                                @RenderPropertyEditor(prop)
+                            }
+                        </div>
+                    }
+                }
+                else if (!isLoadingProps)
+                {
+                    <div class="prop-section">
+                        <div class="prop-row"><span class="prop-value" style="color: var(--text-tertiary);">No properties found</span></div>
+                    </div>
+                }
+
+                <!-- Custom property query -->
+                <div class="prop-section">
+                    <div class="prop-section-title">Query Property</div>
+                    <div class="prop-row">
+                        <input type="text" @bind="customPropertyName" @bind:event="oninput" @onkeydown="OnCustomPropertyKeyDown"
+                               placeholder="PropertyName" class="prop-custom-input" />
+                        <button class="btn-icon" @onclick="FetchCustomProperty" title="Fetch property">
+                            <i class="fas fa-search"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Native -->
                 @if (selectedElement.NativeType != null)
                 {
                     <div class="prop-section">
@@ -265,22 +308,97 @@
     private string editValue = "";
     private ElementReference editInput;
     private List<PropertyEntry> fetchedProperties = new();
+    private string customPropertyName = "";
 
-    private record PropertyEntry(string Name, string? Value, bool IsEditable = true);
+    private record PropertyEntry(string Name, string? Value, PropertyMeta Meta);
 
-    // Common VisualElement properties worth fetching
-    private static readonly string[] CommonProperties = new[]
+    // --- Property Metadata Registry ---
+
+    private enum EditorType { Text, Boolean, Enum, Color, Thickness, Number }
+
+    private record PropertyMeta(
+        EditorType Editor,
+        string Group = "Other",
+        string[]? EnumValues = null,
+        double? NumMin = null, double? NumMax = null, double NumStep = 1,
+        bool IsDouble = false);
+
+    private static readonly Dictionary<string, PropertyMeta> PropertyRegistry = new(StringComparer.OrdinalIgnoreCase)
     {
-        "BackgroundColor", "Background",
-        "TextColor", "FontSize", "FontFamily", "FontAttributes",
-        "WidthRequest", "HeightRequest", "MinimumWidthRequest", "MinimumHeightRequest",
-        "MaximumWidthRequest", "MaximumHeightRequest",
-        "Margin", "Padding",
-        "HorizontalOptions", "VerticalOptions",
-        "InputTransparent", "ZIndex", "Rotation", "Scale",
-        "TranslationX", "TranslationY",
-        "FlowDirection", "StyleClass",
+        // --- Appearance ---
+        ["BackgroundColor"] = new(EditorType.Color, "Appearance"),
+        ["Background"] = new(EditorType.Text, "Appearance"), // Brush - complex, text fallback
+        ["TextColor"] = new(EditorType.Color, "Appearance"),
+        ["PlaceholderColor"] = new(EditorType.Color, "Appearance"),
+        ["BorderColor"] = new(EditorType.Color, "Appearance"),
+        ["Color"] = new(EditorType.Color, "Appearance"),
+        ["BarBackgroundColor"] = new(EditorType.Color, "Appearance"),
+        ["BarTextColor"] = new(EditorType.Color, "Appearance"),
+        ["Opacity"] = new(EditorType.Number, "Appearance", NumMin: 0, NumMax: 1, NumStep: 0.05, IsDouble: true),
+        ["FontSize"] = new(EditorType.Number, "Appearance", NumMin: 1, NumMax: 200, NumStep: 1, IsDouble: true),
+        ["FontFamily"] = new(EditorType.Text, "Appearance"),
+        ["FontAttributes"] = new(EditorType.Enum, "Appearance", EnumValues: new[] { "None", "Bold", "Italic" }),
+        ["TextDecorations"] = new(EditorType.Enum, "Appearance", EnumValues: new[] { "None", "Underline", "Strikethrough" }),
+        ["StyleClass"] = new(EditorType.Text, "Appearance"),
+        ["CornerRadius"] = new(EditorType.Thickness, "Appearance"),
+
+        // --- Layout ---
+        ["WidthRequest"] = new(EditorType.Number, "Layout", NumMin: -1, NumMax: 10000, NumStep: 1, IsDouble: true),
+        ["HeightRequest"] = new(EditorType.Number, "Layout", NumMin: -1, NumMax: 10000, NumStep: 1, IsDouble: true),
+        ["MinimumWidthRequest"] = new(EditorType.Number, "Layout", NumMin: -1, NumMax: 10000, NumStep: 1, IsDouble: true),
+        ["MinimumHeightRequest"] = new(EditorType.Number, "Layout", NumMin: -1, NumMax: 10000, NumStep: 1, IsDouble: true),
+        ["MaximumWidthRequest"] = new(EditorType.Number, "Layout", NumMin: -1, NumMax: 10000, NumStep: 1, IsDouble: true),
+        ["MaximumHeightRequest"] = new(EditorType.Number, "Layout", NumMin: -1, NumMax: 10000, NumStep: 1, IsDouble: true),
+        ["Margin"] = new(EditorType.Thickness, "Layout"),
+        ["Padding"] = new(EditorType.Thickness, "Layout"),
+        ["HorizontalOptions"] = new(EditorType.Enum, "Layout",
+            EnumValues: new[] { "Start", "Center", "End", "Fill", "StartAndExpand", "CenterAndExpand", "EndAndExpand", "FillAndExpand" }),
+        ["VerticalOptions"] = new(EditorType.Enum, "Layout",
+            EnumValues: new[] { "Start", "Center", "End", "Fill", "StartAndExpand", "CenterAndExpand", "EndAndExpand", "FillAndExpand" }),
+        ["HorizontalTextAlignment"] = new(EditorType.Enum, "Layout",
+            EnumValues: new[] { "Start", "Center", "End" }),
+        ["VerticalTextAlignment"] = new(EditorType.Enum, "Layout",
+            EnumValues: new[] { "Start", "Center", "End" }),
+        ["LineBreakMode"] = new(EditorType.Enum, "Layout",
+            EnumValues: new[] { "NoWrap", "WordWrap", "CharacterWrap", "HeadTruncation", "TailTruncation", "MiddleTruncation" }),
+        ["Spacing"] = new(EditorType.Number, "Layout", NumMin: 0, NumMax: 1000, NumStep: 1, IsDouble: true),
+
+        // --- Transform ---
+        ["Rotation"] = new(EditorType.Number, "Transform", NumMin: 0, NumMax: 360, NumStep: 1, IsDouble: true),
+        ["RotationX"] = new(EditorType.Number, "Transform", NumMin: 0, NumMax: 360, NumStep: 1, IsDouble: true),
+        ["RotationY"] = new(EditorType.Number, "Transform", NumMin: 0, NumMax: 360, NumStep: 1, IsDouble: true),
+        ["Scale"] = new(EditorType.Number, "Transform", NumMin: 0, NumMax: 10, NumStep: 0.1, IsDouble: true),
+        ["ScaleX"] = new(EditorType.Number, "Transform", NumMin: 0, NumMax: 10, NumStep: 0.1, IsDouble: true),
+        ["ScaleY"] = new(EditorType.Number, "Transform", NumMin: 0, NumMax: 10, NumStep: 0.1, IsDouble: true),
+        ["TranslationX"] = new(EditorType.Number, "Transform", NumMin: -10000, NumMax: 10000, NumStep: 1, IsDouble: true),
+        ["TranslationY"] = new(EditorType.Number, "Transform", NumMin: -10000, NumMax: 10000, NumStep: 1, IsDouble: true),
+        ["AnchorX"] = new(EditorType.Number, "Transform", NumMin: 0, NumMax: 1, NumStep: 0.1, IsDouble: true),
+        ["AnchorY"] = new(EditorType.Number, "Transform", NumMin: 0, NumMax: 1, NumStep: 0.1, IsDouble: true),
+
+        // --- Behavior ---
+        ["IsVisible"] = new(EditorType.Boolean, "Behavior"),
+        ["IsEnabled"] = new(EditorType.Boolean, "Behavior"),
+        ["InputTransparent"] = new(EditorType.Boolean, "Behavior"),
+        ["IsReadOnly"] = new(EditorType.Boolean, "Behavior"),
+        ["IsSpellCheckEnabled"] = new(EditorType.Boolean, "Behavior"),
+        ["IsTextPredictionEnabled"] = new(EditorType.Boolean, "Behavior"),
+        ["ZIndex"] = new(EditorType.Number, "Behavior", NumMin: -1000, NumMax: 1000, NumStep: 1),
+        ["FlowDirection"] = new(EditorType.Enum, "Behavior",
+            EnumValues: new[] { "MatchParent", "LeftToRight", "RightToLeft" }),
+        ["Keyboard"] = new(EditorType.Enum, "Behavior",
+            EnumValues: new[] { "Default", "Chat", "Email", "Numeric", "Plain", "Telephone", "Text", "Url" }),
+        ["AutomationId"] = new(EditorType.Text, "Element"),
+        ["Text"] = new(EditorType.Text, "Element"),
     };
+
+    private static readonly string[] CommonProperties = PropertyRegistry.Keys
+        .Where(k => k != "AutomationId" && k != "Text") // These come from tree node
+        .ToArray();
+
+    private static readonly string[] GroupOrder = new[] { "Appearance", "Layout", "Transform", "Behavior", "Other" };
+
+    private static PropertyMeta GetMeta(string propName)
+        => PropertyRegistry.TryGetValue(propName, out var meta) ? meta : new PropertyMeta(EditorType.Text, "Other");
 
     // Resize state
     private double screenshotPaneWidth = 280;
@@ -418,7 +536,7 @@
                     var tasks = CommonProperties.Select(async prop =>
                     {
                         var val = await Client.GetPropertyAsync(element.Id, prop);
-                        return new PropertyEntry(prop, val);
+                        return new PropertyEntry(prop, val, GetMeta(prop));
                     });
 
                     var results = await Task.WhenAll(tasks);
@@ -427,7 +545,8 @@
                     {
                         fetchedProperties = results
                             .Where(p => p.Value != null)
-                            .OrderBy(p => p.Name)
+                            .OrderBy(p => Array.IndexOf(GroupOrder, p.Meta.Group))
+                            .ThenBy(p => p.Name)
                             .ToList();
                     }
                 }
@@ -689,7 +808,7 @@
             var tasks = CommonProperties.Select(async prop =>
             {
                 var val = await Client.GetPropertyAsync(elementId, prop);
-                return new PropertyEntry(prop, val);
+                return new PropertyEntry(prop, val, GetMeta(prop));
             });
 
             var results = await Task.WhenAll(tasks);
@@ -698,7 +817,8 @@
             {
                 fetchedProperties = results
                     .Where(p => p.Value != null)
-                    .OrderBy(p => p.Name)
+                    .OrderBy(p => Array.IndexOf(GroupOrder, p.Meta.Group))
+                    .ThenBy(p => p.Name)
                     .ToList();
             }
         }
@@ -715,8 +835,419 @@
         if (value == null) return "";
         if (value.Equals("True", StringComparison.OrdinalIgnoreCase)) return "val-true";
         if (value.Equals("False", StringComparison.OrdinalIgnoreCase)) return "val-false";
-        if (value.StartsWith("#") || value.StartsWith("Color ") || value.Contains("rgba", StringComparison.OrdinalIgnoreCase)) return "val-color";
         return "";
+    }
+
+    // --- Specialized property editors ---
+
+    private RenderFragment RenderPropertyEditor(PropertyEntry prop) => __builder =>
+    {
+        switch (prop.Meta.Editor)
+        {
+            case EditorType.Boolean:
+                RenderBoolEditor(prop)(__builder);
+                break;
+            case EditorType.Enum:
+                RenderEnumEditor(prop)(__builder);
+                break;
+            case EditorType.Color:
+                RenderColorEditor(prop)(__builder);
+                break;
+            case EditorType.Thickness:
+                RenderThicknessEditor(prop)(__builder);
+                break;
+            case EditorType.Number:
+                RenderNumberEditor(prop)(__builder);
+                break;
+            default:
+                RenderTextEditor(prop)(__builder);
+                break;
+        }
+    };
+
+    private RenderFragment RenderBoolEditor(PropertyEntry prop) => __builder =>
+    {
+        var isTrue = prop.Value?.Equals("True", StringComparison.OrdinalIgnoreCase) == true;
+        __builder.OpenElement(0, "div");
+        __builder.AddAttribute(1, "class", "prop-row editable");
+        __builder.AddAttribute(2, "onclick", EventCallback.Factory.Create<MouseEventArgs>(this, () => ToggleBoolProperty(prop.Name, isTrue)));
+
+        __builder.OpenElement(3, "span");
+        __builder.AddAttribute(4, "class", "prop-key");
+        __builder.AddContent(5, prop.Name);
+        __builder.CloseElement();
+
+        __builder.OpenElement(6, "span");
+        __builder.AddAttribute(7, "class", "prop-value");
+        __builder.OpenElement(8, "label");
+        __builder.AddAttribute(9, "class", "bool-toggle");
+        __builder.OpenElement(10, "input");
+        __builder.AddAttribute(11, "type", "checkbox");
+        if (isTrue) __builder.AddAttribute(12, "checked", true);
+        __builder.CloseElement();
+        __builder.OpenElement(13, "span");
+        __builder.AddAttribute(14, "class", isTrue ? "val-true" : "val-false");
+        __builder.AddContent(15, prop.Value);
+        __builder.CloseElement();
+        __builder.CloseElement(); // label
+        __builder.CloseElement(); // span.prop-value
+
+        __builder.CloseElement(); // div.prop-row
+    };
+
+    private RenderFragment RenderEnumEditor(PropertyEntry prop) => __builder =>
+    {
+        __builder.OpenElement(0, "div");
+        __builder.AddAttribute(1, "class", "prop-row");
+
+        __builder.OpenElement(2, "span");
+        __builder.AddAttribute(3, "class", "prop-key");
+        __builder.AddContent(4, prop.Name);
+        __builder.CloseElement();
+
+        __builder.OpenElement(5, "select");
+        __builder.AddAttribute(6, "class", "prop-enum-select");
+        __builder.AddAttribute(7, "value", prop.Value ?? "");
+        __builder.AddAttribute(8, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, async (e) =>
+        {
+            if (selectedElement != null)
+            {
+                await Client.SetPropertyAsync(selectedElement.Id, prop.Name, e.Value?.ToString() ?? "");
+                await RefreshTree();
+                await RefreshProperties();
+            }
+        }));
+
+        if (prop.Meta.EnumValues != null)
+        {
+            foreach (var val in prop.Meta.EnumValues)
+            {
+                __builder.OpenElement(10, "option");
+                __builder.AddAttribute(11, "value", val);
+                if (val.Equals(prop.Value, StringComparison.OrdinalIgnoreCase))
+                    __builder.AddAttribute(12, "selected", true);
+                __builder.AddContent(13, val);
+                __builder.CloseElement();
+            }
+        }
+        __builder.CloseElement(); // select
+        __builder.CloseElement(); // div
+    };
+
+    private RenderFragment RenderColorEditor(PropertyEntry prop) => __builder =>
+    {
+        var cssColor = MauiColorToCss(prop.Value);
+        var hexColor = MauiColorToHex(prop.Value);
+
+        __builder.OpenElement(0, "div");
+        __builder.AddAttribute(1, "class", "prop-row editable");
+
+        __builder.OpenElement(2, "span");
+        __builder.AddAttribute(3, "class", "prop-key");
+        __builder.AddContent(4, prop.Name);
+        __builder.CloseElement();
+
+        __builder.OpenElement(5, "span");
+        __builder.AddAttribute(6, "class", "prop-value color-value");
+
+        // Color swatch
+        __builder.OpenElement(7, "span");
+        __builder.AddAttribute(8, "class", "color-swatch");
+        __builder.AddAttribute(9, "style", $"background: {cssColor}");
+        __builder.CloseElement();
+
+        if (editingProperty == prop.Name)
+        {
+            __builder.OpenElement(10, "input");
+            __builder.AddAttribute(11, "type", "color");
+            __builder.AddAttribute(12, "value", hexColor);
+            __builder.AddAttribute(13, "class", "color-picker-input");
+            __builder.AddAttribute(14, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, async (e) =>
+            {
+                if (selectedElement != null)
+                {
+                    await Client.SetPropertyAsync(selectedElement.Id, prop.Name, e.Value?.ToString() ?? "");
+                    editingProperty = null;
+                    await RefreshTree();
+                    await RefreshProperties();
+                }
+            }));
+            __builder.CloseElement();
+
+            __builder.OpenElement(15, "input");
+            __builder.AddAttribute(16, "type", "text");
+            __builder.AddAttribute(17, "value", prop.Value);
+            __builder.AddAttribute(18, "class", "prop-edit-input color-text-input");
+            __builder.AddAttribute(19, "onkeydown", EventCallback.Factory.Create<KeyboardEventArgs>(this, async (e) =>
+            {
+                if (e.Key == "Enter") await CommitEdit();
+                else if (e.Key == "Escape") { editingProperty = null; StateHasChanged(); }
+            }));
+            __builder.AddAttribute(20, "onfocusout", EventCallback.Factory.Create(this, OnEditBlur));
+            __builder.CloseElement();
+        }
+        else
+        {
+            __builder.AddAttribute(21, "onclick", EventCallback.Factory.Create<MouseEventArgs>(this, () => StartEditing(prop.Name, prop.Value)));
+            __builder.OpenElement(22, "span");
+            __builder.AddAttribute(23, "class", "mono");
+            __builder.AddContent(24, prop.Value);
+            __builder.CloseElement();
+        }
+
+        __builder.CloseElement(); // span.prop-value
+        __builder.CloseElement(); // div.prop-row
+    };
+
+    private RenderFragment RenderThicknessEditor(PropertyEntry prop) => __builder =>
+    {
+        var (top, right, bottom, left) = ParseThickness(prop.Value);
+
+        __builder.OpenElement(0, "div");
+        __builder.AddAttribute(1, "class", "prop-row thickness-row");
+
+        __builder.OpenElement(2, "span");
+        __builder.AddAttribute(3, "class", "prop-key");
+        __builder.AddContent(4, prop.Name);
+        __builder.CloseElement();
+
+        __builder.OpenElement(5, "div");
+        __builder.AddAttribute(6, "class", "thickness-editor");
+
+        // Box model visual
+        __builder.OpenElement(7, "div");
+        __builder.AddAttribute(8, "class", "thickness-box");
+
+        // Top
+        __builder.OpenElement(10, "div");
+        __builder.AddAttribute(11, "class", "thickness-val thickness-top");
+        __builder.OpenElement(12, "input");
+        __builder.AddAttribute(13, "type", "number");
+        __builder.AddAttribute(14, "value", top);
+        __builder.AddAttribute(15, "class", "thickness-input");
+        __builder.AddAttribute(16, "step", "1");
+        __builder.AddAttribute(17, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, (e) =>
+            CommitThickness(prop.Name, e.Value?.ToString() ?? "0", right, bottom, left)));
+        __builder.CloseElement();
+        __builder.CloseElement();
+
+        // Right
+        __builder.OpenElement(20, "div");
+        __builder.AddAttribute(21, "class", "thickness-val thickness-right");
+        __builder.OpenElement(22, "input");
+        __builder.AddAttribute(23, "type", "number");
+        __builder.AddAttribute(24, "value", right);
+        __builder.AddAttribute(25, "class", "thickness-input");
+        __builder.AddAttribute(26, "step", "1");
+        __builder.AddAttribute(27, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, (e) =>
+            CommitThickness(prop.Name, top, e.Value?.ToString() ?? "0", bottom, left)));
+        __builder.CloseElement();
+        __builder.CloseElement();
+
+        // Bottom
+        __builder.OpenElement(30, "div");
+        __builder.AddAttribute(31, "class", "thickness-val thickness-bottom");
+        __builder.OpenElement(32, "input");
+        __builder.AddAttribute(33, "type", "number");
+        __builder.AddAttribute(34, "value", bottom);
+        __builder.AddAttribute(35, "class", "thickness-input");
+        __builder.AddAttribute(36, "step", "1");
+        __builder.AddAttribute(37, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, (e) =>
+            CommitThickness(prop.Name, top, right, e.Value?.ToString() ?? "0", left)));
+        __builder.CloseElement();
+        __builder.CloseElement();
+
+        // Left
+        __builder.OpenElement(40, "div");
+        __builder.AddAttribute(41, "class", "thickness-val thickness-left");
+        __builder.OpenElement(42, "input");
+        __builder.AddAttribute(43, "type", "number");
+        __builder.AddAttribute(44, "value", left);
+        __builder.AddAttribute(45, "class", "thickness-input");
+        __builder.AddAttribute(46, "step", "1");
+        __builder.AddAttribute(47, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, (e) =>
+            CommitThickness(prop.Name, top, right, bottom, e.Value?.ToString() ?? "0")));
+        __builder.CloseElement();
+        __builder.CloseElement();
+
+        __builder.CloseElement(); // thickness-box
+        __builder.CloseElement(); // thickness-editor
+        __builder.CloseElement(); // prop-row
+    };
+
+    private RenderFragment RenderNumberEditor(PropertyEntry prop) => __builder =>
+    {
+        __builder.OpenElement(0, "div");
+        __builder.AddAttribute(1, "class", "prop-row editable");
+        __builder.AddAttribute(2, "onclick", EventCallback.Factory.Create<MouseEventArgs>(this, () => StartEditing(prop.Name, prop.Value)));
+
+        __builder.OpenElement(3, "span");
+        __builder.AddAttribute(4, "class", "prop-key");
+        __builder.AddContent(5, prop.Name);
+        __builder.CloseElement();
+
+        if (editingProperty == prop.Name)
+        {
+            __builder.OpenElement(6, "input");
+            __builder.AddAttribute(7, "type", "number");
+            __builder.AddAttribute(8, "class", "prop-edit-input");
+            __builder.AddAttribute(9, "step", prop.Meta.NumStep.ToString());
+            if (prop.Meta.NumMin.HasValue) __builder.AddAttribute(10, "min", prop.Meta.NumMin.Value.ToString());
+            if (prop.Meta.NumMax.HasValue) __builder.AddAttribute(11, "max", prop.Meta.NumMax.Value.ToString());
+            __builder.AddAttribute(12, "value", editValue);
+            __builder.AddAttribute(13, "onkeydown", EventCallback.Factory.Create<KeyboardEventArgs>(this, OnEditKeyDown));
+            __builder.AddAttribute(14, "onfocusout", EventCallback.Factory.Create(this, OnEditBlur));
+            __builder.AddElementReferenceCapture(15, (r) => editInput = r);
+            __builder.CloseElement();
+        }
+        else
+        {
+            __builder.OpenElement(16, "span");
+            __builder.AddAttribute(17, "class", "prop-value");
+            __builder.AddContent(18, prop.Value);
+            __builder.CloseElement();
+        }
+
+        __builder.CloseElement(); // div.prop-row
+    };
+
+    private RenderFragment RenderTextEditor(PropertyEntry prop) => __builder =>
+    {
+        __builder.OpenElement(0, "div");
+        __builder.AddAttribute(1, "class", "prop-row editable");
+        __builder.AddAttribute(2, "onclick", EventCallback.Factory.Create<MouseEventArgs>(this, () => StartEditing(prop.Name, prop.Value)));
+
+        __builder.OpenElement(3, "span");
+        __builder.AddAttribute(4, "class", "prop-key");
+        __builder.AddContent(5, prop.Name);
+        __builder.CloseElement();
+
+        if (editingProperty == prop.Name)
+        {
+            __builder.OpenElement(6, "input");
+            __builder.AddAttribute(7, "type", "text");
+            __builder.AddAttribute(8, "class", "prop-edit-input");
+            __builder.AddAttribute(9, "value", editValue);
+            __builder.AddAttribute(10, "onkeydown", EventCallback.Factory.Create<KeyboardEventArgs>(this, OnEditKeyDown));
+            __builder.AddAttribute(11, "onfocusout", EventCallback.Factory.Create(this, OnEditBlur));
+            __builder.AddElementReferenceCapture(12, (r) => editInput = r);
+            __builder.CloseElement();
+        }
+        else
+        {
+            __builder.OpenElement(13, "span");
+            __builder.AddAttribute(14, "class", "prop-value");
+            __builder.AddContent(15, prop.Value ?? "null");
+            __builder.CloseElement();
+        }
+
+        __builder.CloseElement(); // div.prop-row
+    };
+
+    // --- Toggle, Focus, Custom query ---
+
+    private async Task ToggleBoolProperty(string propertyName, bool currentValue)
+    {
+        if (selectedElement == null) return;
+        await Client.SetPropertyAsync(selectedElement.Id, propertyName, (!currentValue).ToString());
+        await RefreshTree();
+        await RefreshProperties();
+    }
+
+    private async Task FocusSelected()
+    {
+        if (selectedElement == null) return;
+        await Client.FocusAsync(selectedElement.Id);
+        await RefreshTree();
+    }
+
+    private async Task FetchCustomProperty()
+    {
+        if (selectedElement == null || string.IsNullOrWhiteSpace(customPropertyName)) return;
+        var name = customPropertyName.Trim();
+        var val = await Client.GetPropertyAsync(selectedElement.Id, name);
+        if (val != null)
+        {
+            var meta = GetMeta(name);
+            // Remove existing entry with same name if any
+            fetchedProperties.RemoveAll(p => p.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+            fetchedProperties.Insert(0, new PropertyEntry(name, val, meta));
+        }
+        customPropertyName = "";
+        StateHasChanged();
+    }
+
+    private async Task OnCustomPropertyKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await FetchCustomProperty();
+    }
+
+    private async Task CommitThickness(string propName, string top, string right, string bottom, string left)
+    {
+        if (selectedElement == null) return;
+        await Client.SetPropertyAsync(selectedElement.Id, propName, $"{left},{top},{right},{bottom}");
+        await RefreshTree();
+        await RefreshProperties();
+    }
+
+    // --- Color parsing helpers ---
+
+    private static string MauiColorToCss(string? value)
+    {
+        if (string.IsNullOrEmpty(value)) return "transparent";
+        if (value.StartsWith("#")) return value;
+        // Parse "Color [A=1, R=0.5, G=0.5, B=0.5, ...]" format
+        if (value.StartsWith("Color [") || value.StartsWith("[Color:"))
+        {
+            var parts = value.Split(new[] { 'A', 'R', 'G', 'B', '=', ',', '[', ']', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            var nums = parts.Where(p => double.TryParse(p, out _)).Select(p => double.Parse(p)).ToArray();
+            if (nums.Length >= 4)
+            {
+                var a = nums[0]; var r = (int)(nums[1] * 255); var g = (int)(nums[2] * 255); var b = (int)(nums[3] * 255);
+                return $"rgba({r},{g},{b},{a:F2})";
+            }
+        }
+        // Named colors
+        return value.ToLowerInvariant() switch
+        {
+            "transparent" => "transparent",
+            _ => value.ToLowerInvariant()
+        };
+    }
+
+    private static string MauiColorToHex(string? value)
+    {
+        if (string.IsNullOrEmpty(value)) return "#000000";
+        if (value.StartsWith("#") && value.Length >= 7) return value[..7];
+        if (value.StartsWith("Color [") || value.StartsWith("[Color:"))
+        {
+            var parts = value.Split(new[] { 'A', 'R', 'G', 'B', '=', ',', '[', ']', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            var nums = parts.Where(p => double.TryParse(p, out _)).Select(p => double.Parse(p)).ToArray();
+            if (nums.Length >= 4)
+            {
+                var r = (int)(nums[1] * 255); var g = (int)(nums[2] * 255); var b = (int)(nums[3] * 255);
+                return $"#{r:X2}{g:X2}{b:X2}";
+            }
+        }
+        return "#000000";
+    }
+
+    // --- Thickness parsing ---
+
+    private static (string top, string right, string bottom, string left) ParseThickness(string? value)
+    {
+        if (string.IsNullOrEmpty(value)) return ("0", "0", "0", "0");
+        // Format: "{Left=0 Top=0 Right=0 Bottom=0}" or "L, T, R, B" or uniform "X"
+        var nums = System.Text.RegularExpressions.Regex.Matches(value, @"-?[\d.]+")
+            .Select(m => m.Value).ToArray();
+        return nums.Length switch
+        {
+            >= 4 => (nums[1], nums[2], nums[3], nums[0]), // MAUI order: Left, Top, Right, Bottom
+            3 => (nums[1], nums[2], nums[1], nums[0]),
+            2 => (nums[1], nums[0], nums[1], nums[0]),
+            1 => (nums[0], nums[0], nums[0], nums[0]),
+            _ => ("0", "0", "0", "0")
+        };
     }
 
     private void OnAutoRefreshChanged()
@@ -1083,8 +1614,152 @@
         padding: 0.1rem 0.3rem;
     }
 
-    .prop-value.val-color {
-        font-family: 'SF Mono', 'Cascadia Code', monospace;
+    /* Property group sub-headers */
+    .prop-group-title {
+        font-size: 0.7rem;
+        font-weight: 500;
+        color: var(--text-tertiary);
+        padding: 0.2rem 0.75rem;
+        opacity: 0.8;
+    }
+
+    /* Boolean toggle */
+    .bool-toggle {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        cursor: pointer;
+    }
+
+    .bool-toggle input[type="checkbox"] {
+        width: 14px;
+        height: 14px;
+        accent-color: var(--accent-color, #8b5cf6);
+        cursor: pointer;
+    }
+
+    /* Focus button */
+    .btn-focus {
+        background: none;
+        border: 1px solid var(--border-color);
+        color: var(--text-secondary);
+        cursor: pointer;
+        padding: 0.1rem 0.35rem;
+        border-radius: 3px;
+        font-size: 0.65rem;
+        margin-left: 0.4rem;
+    }
+
+    .btn-focus:hover {
+        background: var(--bg-tertiary);
+        color: var(--accent-color, #8b5cf6);
+    }
+
+    /* Enum select */
+    .prop-enum-select {
+        flex: 1;
         font-size: 0.75rem;
+        padding: 0.15rem 0.3rem;
+        border: 1px solid var(--border-color);
+        border-radius: 3px;
+        background: var(--bg-primary);
+        color: var(--text-primary);
+        cursor: pointer;
+    }
+
+    /* Color editor */
+    .color-value {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+    }
+
+    .color-swatch {
+        display: inline-block;
+        width: 16px;
+        height: 16px;
+        border-radius: 3px;
+        border: 1px solid var(--border-color);
+        flex-shrink: 0;
+    }
+
+    .color-picker-input {
+        width: 28px;
+        height: 22px;
+        padding: 0;
+        border: 1px solid var(--border-color);
+        border-radius: 3px;
+        cursor: pointer;
+        background: transparent;
+    }
+
+    .color-text-input {
+        flex: 1;
+        min-width: 0;
+    }
+
+    /* Thickness editor */
+    .thickness-row {
+        flex-direction: column;
+        align-items: flex-start !important;
+    }
+
+    .thickness-editor {
+        width: 100%;
+        padding: 0.25rem 0;
+    }
+
+    .thickness-box {
+        position: relative;
+        width: 100%;
+        height: 56px;
+        border: 2px dashed var(--border-color);
+        border-radius: 4px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .thickness-val {
+        position: absolute;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .thickness-top { top: 2px; left: 50%; transform: translateX(-50%); }
+    .thickness-right { right: 4px; top: 50%; transform: translateY(-50%); }
+    .thickness-bottom { bottom: 2px; left: 50%; transform: translateX(-50%); }
+    .thickness-left { left: 4px; top: 50%; transform: translateY(-50%); }
+
+    .thickness-input {
+        width: 36px;
+        text-align: center;
+        font-size: 0.7rem;
+        font-family: 'SF Mono', 'Cascadia Code', monospace;
+        border: 1px solid transparent;
+        border-radius: 2px;
+        background: transparent;
+        color: var(--text-primary);
+        padding: 0.1rem;
+    }
+
+    .thickness-input:hover,
+    .thickness-input:focus {
+        border-color: var(--accent-color, #8b5cf6);
+        background: var(--bg-primary);
+        outline: none;
+    }
+
+    /* Custom property query */
+    .prop-custom-input {
+        flex: 1;
+        font-size: 0.75rem;
+        font-family: 'SF Mono', 'Cascadia Code', monospace;
+        padding: 0.2rem 0.4rem;
+        border: 1px solid var(--border-color);
+        border-radius: 3px;
+        background: var(--bg-primary);
+        color: var(--text-primary);
     }
 </style>
