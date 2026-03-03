@@ -1,0 +1,289 @@
+@using MauiSherpa.Core.Models.DevFlow
+@using MauiSherpa.Core.Services
+@implements IDisposable
+
+<div class="logs-layout">
+    <div class="pane-header">
+        <span>Application Logs <span class="log-count">(@logs.Count)</span></span>
+        <div class="pane-actions">
+            <select @bind="sourceFilter" class="source-filter">
+                <option value="">All Sources</option>
+                <option value="native">Native</option>
+                <option value="webview">WebView</option>
+            </select>
+            <select @bind="levelFilter" class="level-filter">
+                <option value="">All Levels</option>
+                <option value="info">Info</option>
+                <option value="warn">Warning</option>
+                <option value="error">Error</option>
+                <option value="debug">Debug</option>
+            </select>
+            <input type="text" @bind="searchQuery" @bind:event="oninput" placeholder="Search..." class="log-search" />
+            <label class="auto-scroll-label">
+                <input type="checkbox" @bind="autoScroll" />
+                Auto-scroll
+            </label>
+            <button class="btn-icon" @onclick="RefreshLogs" title="Refresh">
+                <i class="fas fa-sync-alt"></i>
+            </button>
+            <button class="btn-icon" @onclick="ClearLogs" title="Clear">
+                <i class="fas fa-trash"></i>
+            </button>
+        </div>
+    </div>
+    <div class="log-table-header">
+        <span class="col-log-time">Time</span>
+        <span class="col-log-level">Level</span>
+        <span class="col-log-source">Source</span>
+        <span class="col-log-message">Message</span>
+    </div>
+    <div class="log-list" @ref="logContainer">
+        @foreach (var log in FilteredLogs)
+        {
+            <div class="log-row level-@(log.Level?.ToLowerInvariant() ?? "info")">
+                <span class="col-log-time">@log.Timestamp.ToLocalTime().ToString("HH:mm:ss.fff")</span>
+                <span class="col-log-level">
+                    <span class="level-badge">@(log.Level?.ToUpperInvariant() ?? "INFO")</span>
+                </span>
+                <span class="col-log-source">
+                    <span class="source-badge source-@(log.Source?.ToLowerInvariant() ?? "native")">@(log.Source ?? "native")</span>
+                </span>
+                <span class="col-log-message text-selectable">@log.Message</span>
+            </div>
+        }
+        @if (logs.Count == 0 && !isLoading)
+        {
+            <div class="log-empty">
+                <i class="fas fa-scroll"></i>
+                <span>No logs captured yet</span>
+            </div>
+        }
+        @if (isLoading)
+        {
+            <div class="log-loading"><i class="fas fa-spinner fa-spin"></i> Loading...</div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public DevFlowAgentClient Client { get; set; } = null!;
+
+    private List<DevFlowLogEntry> logs = new();
+    private string sourceFilter = "";
+    private string levelFilter = "";
+    private string searchQuery = "";
+    private bool autoScroll = true;
+    private bool isLoading;
+    private Timer? _pollTimer;
+    private ElementReference logContainer;
+
+    private IEnumerable<DevFlowLogEntry> FilteredLogs
+    {
+        get
+        {
+            var result = logs.AsEnumerable();
+            if (!string.IsNullOrEmpty(sourceFilter))
+                result = result.Where(l => l.Source?.Equals(sourceFilter, StringComparison.OrdinalIgnoreCase) == true);
+            if (!string.IsNullOrEmpty(levelFilter))
+                result = result.Where(l => l.Level?.Equals(levelFilter, StringComparison.OrdinalIgnoreCase) == true);
+            if (!string.IsNullOrEmpty(searchQuery))
+                result = result.Where(l => l.Message?.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) == true
+                    || l.Category?.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) == true);
+            return result;
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshLogs();
+        _pollTimer = new Timer(async _ =>
+        {
+            await InvokeAsync(async () => await PollNewLogs());
+        }, null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
+    }
+
+    private async Task RefreshLogs()
+    {
+        isLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            var source = string.IsNullOrEmpty(sourceFilter) ? null : sourceFilter;
+            logs = await Client.GetLogsAsync(limit: 500, source: source);
+        }
+        catch { }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task PollNewLogs()
+    {
+        try
+        {
+            var source = string.IsNullOrEmpty(sourceFilter) ? null : sourceFilter;
+            var newLogs = await Client.GetLogsAsync(limit: 50, skip: logs.Count, source: source);
+            if (newLogs.Count > 0)
+            {
+                logs.AddRange(newLogs);
+                StateHasChanged();
+            }
+        }
+        catch { }
+    }
+
+    private void ClearLogs()
+    {
+        logs.Clear();
+        StateHasChanged();
+    }
+
+    public void Dispose()
+    {
+        _pollTimer?.Dispose();
+    }
+}
+
+<style>
+    .logs-layout {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+    }
+
+    .log-count {
+        font-weight: 400;
+        color: var(--text-tertiary);
+    }
+
+    .source-filter, .level-filter {
+        font-size: 0.75rem;
+        padding: 0.15rem 0.4rem;
+        border-radius: 4px;
+        border: 1px solid var(--border-color);
+        background: var(--bg-primary);
+        color: var(--text-primary);
+    }
+
+    .log-search {
+        font-size: 0.75rem;
+        padding: 0.2rem 0.5rem;
+        border-radius: 4px;
+        border: 1px solid var(--border-color);
+        background: var(--bg-primary);
+        color: var(--text-primary);
+        width: 120px;
+    }
+
+    .auto-scroll-label {
+        display: flex;
+        align-items: center;
+        gap: 0.3rem;
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        cursor: pointer;
+    }
+
+    .log-table-header {
+        display: flex;
+        padding: 0.3rem 0.75rem;
+        background: var(--bg-secondary);
+        border-bottom: 1px solid var(--border-color);
+        font-size: 0.7rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        color: var(--text-tertiary);
+        letter-spacing: 0.05em;
+    }
+
+    .log-list {
+        flex: 1;
+        overflow: auto;
+        font-family: 'SF Mono', 'Cascadia Code', monospace;
+        font-size: 0.8rem;
+    }
+
+    .log-row {
+        display: flex;
+        align-items: flex-start;
+        padding: 0.2rem 0.75rem;
+        border-bottom: 1px solid var(--border-color);
+        gap: 0.5rem;
+    }
+
+    .log-row.level-warn, .log-row.level-warning {
+        background: rgba(245, 158, 11, 0.05);
+    }
+
+    .log-row.level-error {
+        background: rgba(239, 68, 68, 0.05);
+    }
+
+    .col-log-time {
+        width: 90px;
+        flex-shrink: 0;
+        color: var(--text-tertiary);
+        font-size: 0.75rem;
+    }
+
+    .col-log-level {
+        width: 55px;
+        flex-shrink: 0;
+    }
+
+    .col-log-source {
+        width: 65px;
+        flex-shrink: 0;
+    }
+
+    .col-log-message {
+        flex: 1;
+        word-break: break-all;
+        color: var(--text-primary);
+    }
+
+    .level-badge {
+        font-size: 0.65rem;
+        font-weight: 700;
+        padding: 0.05rem 0.3rem;
+        border-radius: 3px;
+    }
+
+    .level-info .level-badge { color: #3b82f6; }
+    .level-debug .level-badge { color: #6b7280; }
+    .level-warn .level-badge, .level-warning .level-badge { color: #f59e0b; }
+    .level-error .level-badge { color: #ef4444; }
+
+    .source-badge {
+        font-size: 0.65rem;
+        padding: 0.05rem 0.3rem;
+        border-radius: 3px;
+        font-weight: 500;
+    }
+
+    .source-native {
+        color: #8b5cf6;
+    }
+
+    .source-webview {
+        color: #06b6d4;
+    }
+
+    .log-empty {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 3rem;
+        color: var(--text-tertiary);
+    }
+
+    .log-loading {
+        padding: 1rem;
+        text-align: center;
+        color: var(--text-tertiary);
+    }
+</style>

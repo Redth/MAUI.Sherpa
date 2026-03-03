@@ -1,0 +1,427 @@
+@using MauiSherpa.Core.Models.DevFlow
+@using MauiSherpa.Core.Services
+@implements IDisposable
+
+<div class="webview-layout">
+    <!-- Console / Logs -->
+    <div class="webview-console-pane">
+        <div class="pane-header">
+            <span>Console</span>
+            <div class="pane-actions">
+                <select @bind="logLevelFilter" class="level-filter">
+                    <option value="">All</option>
+                    <option value="info">Info</option>
+                    <option value="warn">Warning</option>
+                    <option value="error">Error</option>
+                </select>
+                <button class="btn-icon" @onclick="RefreshLogs" title="Refresh">
+                    <i class="fas fa-sync-alt"></i>
+                </button>
+                <button class="btn-icon" @onclick="ClearLogs" title="Clear">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </div>
+        </div>
+        <div class="console-output">
+            @foreach (var log in FilteredLogs)
+            {
+                <div class="console-entry level-@(log.Level?.ToLowerInvariant() ?? "info")">
+                    <span class="console-time">@log.Timestamp.ToString("HH:mm:ss.fff")</span>
+                    <span class="console-level">@(log.Level ?? "info")</span>
+                    <span class="console-message text-selectable">@log.Message</span>
+                </div>
+            }
+            @if (logs.Count == 0)
+            {
+                <div class="console-empty">No console messages</div>
+            }
+        </div>
+    </div>
+
+    <!-- JS Eval + DOM Query -->
+    <div class="webview-tools-pane">
+        <div class="pane-header">
+            <span>JavaScript</span>
+        </div>
+        <div class="js-eval-section">
+            <div class="js-input-row">
+                <input type="text" @bind="jsExpression" @onkeydown="OnJsKeyDown" placeholder="Enter JavaScript expression..." class="js-input" />
+                <button class="btn btn-sm btn-primary" @onclick="EvaluateJs">
+                    <i class="fas fa-play"></i>
+                </button>
+            </div>
+            @if (jsResults.Count > 0)
+            {
+                <div class="js-results">
+                    @foreach (var result in jsResults)
+                    {
+                        <div class="js-result-entry @(result.IsError ? "js-error" : "")">
+                            <span class="js-prompt">@(result.IsError ? "✗" : "›")</span>
+                            <span class="js-expr">@result.Expression</span>
+                            <div class="js-output text-selectable">@result.Output</div>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+
+        <div class="pane-header">
+            <span>DOM Query</span>
+        </div>
+        <div class="dom-query-section">
+            <div class="js-input-row">
+                <input type="text" @bind="cssSelector" @onkeydown="OnSelectorKeyDown" placeholder="CSS selector (e.g. .my-class, #id)" class="js-input" />
+                <button class="btn btn-sm btn-secondary" @onclick="RunQuery">
+                    <i class="fas fa-search"></i>
+                </button>
+            </div>
+            @if (queryResults.Count > 0)
+            {
+                <div class="query-results">
+                    @foreach (var el in queryResults)
+                    {
+                        <div class="query-result-item">
+                            <span class="tree-type">@el.Type</span>
+                            @if (!string.IsNullOrEmpty(el.Text))
+                            {
+                                <span class="tree-text">"@el.Text"</span>
+                            }
+                            @if (!string.IsNullOrEmpty(el.AutomationId))
+                            {
+                                <span class="tree-aid">#@el.AutomationId</span>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+
+        <div class="pane-header">
+            <span>Page Source</span>
+            <div class="pane-actions">
+                <button class="btn-icon" @onclick="FetchPageSource" title="Fetch page source">
+                    <i class="fas fa-code"></i>
+                </button>
+            </div>
+        </div>
+        @if (pageSource != null)
+        {
+            <pre class="page-source text-selectable">@pageSource</pre>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public DevFlowAgentClient Client { get; set; } = null!;
+
+    private List<DevFlowLogEntry> logs = new();
+    private string logLevelFilter = "";
+    private string jsExpression = "";
+    private List<JsResult> jsResults = new();
+    private string cssSelector = "";
+    private List<DevFlowElementInfo> queryResults = new();
+    private string? pageSource;
+    private Timer? _pollTimer;
+
+    private IEnumerable<DevFlowLogEntry> FilteredLogs
+    {
+        get
+        {
+            var result = logs.AsEnumerable();
+            if (!string.IsNullOrEmpty(logLevelFilter))
+                result = result.Where(l => l.Level?.Equals(logLevelFilter, StringComparison.OrdinalIgnoreCase) == true);
+            return result;
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshLogs();
+        // Start polling for new logs
+        _pollTimer = new Timer(async _ =>
+        {
+            await InvokeAsync(async () =>
+            {
+                await PollNewLogs();
+            });
+        }, null, TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(3));
+    }
+
+    private async Task RefreshLogs()
+    {
+        try
+        {
+            logs = await Client.GetLogsAsync(limit: 200, source: "webview");
+            StateHasChanged();
+        }
+        catch { }
+    }
+
+    private async Task PollNewLogs()
+    {
+        try
+        {
+            var newLogs = await Client.GetLogsAsync(limit: 50, skip: logs.Count, source: "webview");
+            if (newLogs.Count > 0)
+            {
+                logs.AddRange(newLogs);
+                StateHasChanged();
+            }
+        }
+        catch { }
+    }
+
+    private void ClearLogs()
+    {
+        logs.Clear();
+        StateHasChanged();
+    }
+
+    private async Task EvaluateJs()
+    {
+        if (string.IsNullOrWhiteSpace(jsExpression)) return;
+
+        var expr = jsExpression;
+        jsExpression = "";
+
+        try
+        {
+            var response = await Client.SendCdpCommandAsync("Runtime.evaluate", new Dictionary<string, object?>
+            {
+                ["expression"] = expr,
+                ["returnByValue"] = true
+            });
+
+            if (response?.Success == true)
+            {
+                var output = response.Result?.ToString() ?? "undefined";
+                jsResults.Add(new JsResult(expr, output, false));
+            }
+            else
+            {
+                jsResults.Add(new JsResult(expr, response?.Error ?? "Unknown error", true));
+            }
+        }
+        catch (Exception ex)
+        {
+            jsResults.Add(new JsResult(expr, ex.Message, true));
+        }
+        StateHasChanged();
+    }
+
+    private async Task OnJsKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await EvaluateJs();
+    }
+
+    private async Task RunQuery()
+    {
+        if (string.IsNullOrWhiteSpace(cssSelector)) return;
+
+        try
+        {
+            queryResults = await Client.QueryAsync(selector: cssSelector);
+        }
+        catch
+        {
+            queryResults.Clear();
+        }
+        StateHasChanged();
+    }
+
+    private async Task OnSelectorKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await RunQuery();
+    }
+
+    private async Task FetchPageSource()
+    {
+        try
+        {
+            var response = await Client.SendCdpCommandAsync("Runtime.evaluate", new Dictionary<string, object?>
+            {
+                ["expression"] = "document.documentElement.outerHTML",
+                ["returnByValue"] = true
+            });
+            pageSource = response?.Result?.ToString() ?? "Could not fetch page source";
+        }
+        catch (Exception ex)
+        {
+            pageSource = $"Error: {ex.Message}";
+        }
+        StateHasChanged();
+    }
+
+    public void Dispose()
+    {
+        _pollTimer?.Dispose();
+    }
+
+    private record JsResult(string Expression, string Output, bool IsError);
+}
+
+<style>
+    .webview-layout {
+        display: flex;
+        height: 100%;
+    }
+
+    .webview-console-pane {
+        flex: 1;
+        border-right: 1px solid var(--border-color);
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+    }
+
+    .webview-tools-pane {
+        width: 420px;
+        display: flex;
+        flex-direction: column;
+        flex-shrink: 0;
+        overflow: auto;
+    }
+
+    .console-output {
+        flex: 1;
+        overflow: auto;
+        font-family: 'SF Mono', 'Cascadia Code', monospace;
+        font-size: 0.8rem;
+    }
+
+    .console-entry {
+        display: flex;
+        gap: 0.5rem;
+        padding: 0.2rem 0.75rem;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .console-time {
+        color: var(--text-tertiary);
+        font-size: 0.7rem;
+        flex-shrink: 0;
+        width: 80px;
+    }
+
+    .console-level {
+        font-size: 0.7rem;
+        font-weight: 600;
+        width: 40px;
+        flex-shrink: 0;
+        text-transform: uppercase;
+    }
+
+    .level-info .console-level { color: #3b82f6; }
+    .level-warn .console-level, .level-warning .console-level { color: #f59e0b; }
+    .level-error .console-level { color: #ef4444; }
+    .level-warn, .level-warning { background: rgba(245, 158, 11, 0.05); }
+    .level-error { background: rgba(239, 68, 68, 0.05); }
+
+    .console-message {
+        color: var(--text-primary);
+        word-break: break-all;
+    }
+
+    .console-empty {
+        padding: 2rem;
+        text-align: center;
+        color: var(--text-tertiary);
+    }
+
+    .level-filter {
+        font-size: 0.75rem;
+        padding: 0.15rem 0.4rem;
+        border-radius: 4px;
+        border: 1px solid var(--border-color);
+        background: var(--bg-primary);
+        color: var(--text-primary);
+    }
+
+    /* JS Eval */
+    .js-eval-section, .dom-query-section {
+        padding: 0.5rem;
+    }
+
+    .js-input-row {
+        display: flex;
+        gap: 0.4rem;
+    }
+
+    .js-input {
+        flex: 1;
+        font-family: 'SF Mono', 'Cascadia Code', monospace;
+        font-size: 0.8rem;
+        padding: 0.4rem 0.6rem;
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+        background: var(--bg-primary);
+        color: var(--text-primary);
+    }
+
+    .btn-sm {
+        padding: 0.3rem 0.6rem;
+        font-size: 0.8rem;
+    }
+
+    .js-results {
+        margin-top: 0.5rem;
+        max-height: 200px;
+        overflow: auto;
+    }
+
+    .js-result-entry {
+        padding: 0.3rem 0.5rem;
+        border-bottom: 1px solid var(--border-color);
+        font-family: 'SF Mono', 'Cascadia Code', monospace;
+        font-size: 0.75rem;
+    }
+
+    .js-prompt {
+        color: #22c55e;
+        margin-right: 0.3rem;
+    }
+
+    .js-error .js-prompt {
+        color: #ef4444;
+    }
+
+    .js-expr {
+        color: var(--text-secondary);
+    }
+
+    .js-output {
+        color: var(--text-primary);
+        padding-left: 1rem;
+        word-break: break-all;
+    }
+
+    .js-error .js-output {
+        color: #ef4444;
+    }
+
+    .query-results {
+        margin-top: 0.5rem;
+        max-height: 150px;
+        overflow: auto;
+    }
+
+    .query-result-item {
+        display: flex;
+        gap: 0.4rem;
+        padding: 0.2rem 0.4rem;
+        font-size: 0.8rem;
+    }
+
+    .page-source {
+        flex: 1;
+        overflow: auto;
+        padding: 0.5rem;
+        font-family: 'SF Mono', 'Cascadia Code', monospace;
+        font-size: 0.7rem;
+        background: var(--bg-secondary);
+        margin: 0;
+        max-height: 300px;
+        white-space: pre-wrap;
+        word-break: break-all;
+    }
+</style>

@@ -1,0 +1,453 @@
+@page "/devflow"
+@using MauiSherpa.Core.Models.DevFlow
+@using MauiSherpa.Core.Services
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Services
+@inject DevFlowInspectorService InspectorService
+@inject IAlertService AlertService
+@implements IDisposable
+
+<h1><i class="fas fa-wand-magic-sparkles"></i> MauiDevFlow Inspector</h1>
+
+<div class="devflow-connection">
+    <div class="connection-row">
+        <label>Broker</label>
+        <input type="text" @bind="brokerHost" placeholder="localhost" class="input-field broker-input" />
+        <span class="port-sep">:</span>
+        <input type="number" @bind="brokerPort" placeholder="19223" class="input-field port-input" />
+        <button class="btn btn-primary" @onclick="RefreshAgents" disabled="@isLoading">
+            <i class="fas @(isLoading ? "fa-spinner fa-spin" : "fa-plug")"></i>
+            @(isLoading ? "Connecting..." : "Connect")
+        </button>
+        <label class="auto-refresh-label">
+            <input type="checkbox" @bind="autoRefresh" @bind:after="OnAutoRefreshChanged" />
+            Auto-refresh
+        </label>
+    </div>
+
+    <div class="connection-status">
+        @if (brokerConnected == true)
+        {
+            <span class="status-badge status-connected"><i class="fas fa-circle"></i> Broker connected — @agents.Count agent(s)</span>
+        }
+        else if (brokerConnected == false)
+        {
+            <span class="status-badge status-disconnected"><i class="fas fa-circle"></i> Broker not reachable at @brokerHost:@brokerPort</span>
+        }
+    </div>
+</div>
+
+<div class="manual-connect">
+    <details>
+        <summary><i class="fas fa-plug"></i> Direct connect (no broker)</summary>
+        <div class="manual-connect-row">
+            <input type="text" @bind="manualHost" placeholder="localhost" class="input-field broker-input" />
+            <span class="port-sep">:</span>
+            <input type="number" @bind="manualPort" placeholder="9223" class="input-field port-input" />
+            <button class="btn btn-secondary" @onclick="ManualConnect">
+                <i class="fas fa-arrow-right"></i> Connect
+            </button>
+        </div>
+    </details>
+</div>
+
+@if (agents.Count > 0)
+{
+    <div class="agent-grid">
+        @foreach (var agent in agents)
+        {
+            <div class="agent-card" @onclick="@(() => OpenInspector(agent))">
+                <div class="agent-icon">
+                    <i class="fas @GetPlatformIcon(agent.Platform)"></i>
+                </div>
+                <div class="agent-info">
+                    <div class="agent-name">@(agent.AppName ?? "Unknown App")</div>
+                    <div class="agent-meta">
+                        <span class="agent-platform">@(agent.Platform ?? "Unknown")</span>
+                        @if (agent.Tfm != null)
+                        {
+                            <span class="agent-tfm">@agent.Tfm</span>
+                        }
+                    </div>
+                    @if (agent.Project != null)
+                    {
+                        <div class="agent-project" title="@agent.Project">@GetProjectName(agent.Project)</div>
+                    }
+                    <div class="agent-details">
+                        <span class="agent-port"><i class="fas fa-network-wired"></i> Port @agent.Port</span>
+                        @if (agent.ConnectedAt != null)
+                        {
+                            <span class="agent-time"><i class="fas fa-clock"></i> @FormatTimeAgo(agent.ConnectedAt.Value)</span>
+                        }
+                    </div>
+                </div>
+                <div class="agent-arrow">
+                    <i class="fas fa-chevron-right"></i>
+                </div>
+            </div>
+        }
+    </div>
+}
+else if (brokerConnected == true)
+{
+    <div class="empty-state">
+        <i class="fas fa-satellite-dish empty-icon"></i>
+        <h3>No agents connected</h3>
+        <p>Start a MAUI app with MauiDevFlow agent enabled to see it here.</p>
+        <div class="empty-instructions">
+            <code>builder.AddMauiDevFlowAgent();</code> in your MauiProgram.cs
+        </div>
+    </div>
+}
+else if (brokerConnected == null)
+{
+    <div class="empty-state">
+        <i class="fas fa-plug empty-icon"></i>
+        <h3>Connect to a broker</h3>
+        <p>Click <strong>Connect</strong> to discover running MauiDevFlow agents, or use <strong>Direct connect</strong> below.</p>
+    </div>
+}
+
+@code {
+    private string brokerHost = "localhost";
+    private int brokerPort = 19223;
+    private string manualHost = "localhost";
+    private int manualPort = 9223;
+    private bool isLoading;
+    private bool? brokerConnected;
+    private bool autoRefresh;
+    private List<BrokerAgent> agents = new();
+    private Timer? _refreshTimer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAgents();
+    }
+
+    private async Task RefreshAgents()
+    {
+        isLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            var healthy = await DevFlowAgentClient.IsBrokerHealthyAsync(brokerHost, brokerPort);
+            brokerConnected = healthy;
+
+            if (healthy)
+            {
+                agents = await DevFlowAgentClient.GetBrokerAgentsAsync(brokerHost, brokerPort);
+            }
+            else
+            {
+                agents.Clear();
+            }
+        }
+        catch
+        {
+            brokerConnected = false;
+            agents.Clear();
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void OpenInspector(BrokerAgent agent)
+    {
+        InspectorService.Open(agent.Id, brokerHost, agent.Port, agent.AppName);
+    }
+
+    private async Task ManualConnect()
+    {
+        var client = new DevFlowAgentClient(manualHost, manualPort);
+        try
+        {
+            var status = await client.GetStatusAsync();
+            if (status != null)
+            {
+                var id = $"manual-{manualHost}-{manualPort}";
+                InspectorService.Open(id, manualHost, manualPort, status.AppName ?? $"{manualHost}:{manualPort}");
+            }
+            else
+            {
+                await AlertService.ShowToastAsync($"Could not reach agent at {manualHost}:{manualPort}");
+            }
+        }
+        catch
+        {
+            await AlertService.ShowToastAsync($"Connection failed: {manualHost}:{manualPort}");
+        }
+        finally
+        {
+            client.Dispose();
+        }
+    }
+
+    private void OnAutoRefreshChanged()
+    {
+        _refreshTimer?.Dispose();
+        _refreshTimer = null;
+
+        if (autoRefresh)
+        {
+            _refreshTimer = new Timer(async _ =>
+            {
+                await InvokeAsync(async () =>
+                {
+                    await RefreshAgents();
+                });
+            }, null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
+        }
+    }
+
+    private static string GetPlatformIcon(string? platform) => platform?.ToLowerInvariant() switch
+    {
+        "maccatalyst" => "fa-apple",
+        "macos" => "fa-apple",
+        "ios" => "fa-apple",
+        "android" => "fa-android",
+        "winui" or "windows" => "fa-windows",
+        "linux" or "gtk" => "fa-linux",
+        _ => "fa-microchip"
+    };
+
+    private static string GetProjectName(string projectPath)
+    {
+        var name = System.IO.Path.GetFileNameWithoutExtension(projectPath);
+        return name ?? projectPath;
+    }
+
+    private static string FormatTimeAgo(DateTimeOffset time)
+    {
+        var elapsed = DateTimeOffset.UtcNow - time;
+        if (elapsed.TotalSeconds < 60) return "just now";
+        if (elapsed.TotalMinutes < 60) return $"{(int)elapsed.TotalMinutes}m ago";
+        if (elapsed.TotalHours < 24) return $"{(int)elapsed.TotalHours}h ago";
+        return $"{(int)elapsed.TotalDays}d ago";
+    }
+
+    public void Dispose()
+    {
+        _refreshTimer?.Dispose();
+    }
+}
+
+<style>
+    .devflow-connection {
+        margin-bottom: 1rem;
+    }
+
+    .connection-row {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+    }
+
+    .connection-row label:first-child {
+        font-weight: 600;
+        color: var(--text-secondary);
+    }
+
+    .broker-input {
+        width: 160px;
+    }
+
+    .port-input {
+        width: 80px;
+    }
+
+    .port-sep {
+        color: var(--text-secondary);
+        font-weight: bold;
+    }
+
+    .auto-refresh-label {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+        cursor: pointer;
+    }
+
+    .connection-status {
+        margin-top: 0.5rem;
+    }
+
+    .status-badge {
+        font-size: 0.85rem;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+    }
+
+    .status-connected {
+        color: #22c55e;
+    }
+
+    .status-connected i {
+        font-size: 0.5rem;
+    }
+
+    .status-disconnected {
+        color: #ef4444;
+    }
+
+    .status-disconnected i {
+        font-size: 0.5rem;
+    }
+
+    .manual-connect {
+        margin-bottom: 1.5rem;
+    }
+
+    .manual-connect summary {
+        cursor: pointer;
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+    }
+
+    .manual-connect-row {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-top: 0.5rem;
+        padding-left: 1rem;
+    }
+
+    .agent-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+        gap: 1rem;
+    }
+
+    .agent-card {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        padding: 1rem 1.25rem;
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+
+    .agent-card:hover {
+        border-color: var(--accent-color, #8b5cf6);
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+
+    .agent-icon {
+        font-size: 1.8rem;
+        color: var(--text-secondary);
+        width: 48px;
+        text-align: center;
+        flex-shrink: 0;
+    }
+
+    .agent-icon .fa-apple {
+        color: #999;
+    }
+
+    .agent-icon .fa-android {
+        color: #3ddc84;
+    }
+
+    .agent-icon .fa-windows {
+        color: #0078d4;
+    }
+
+    .agent-icon .fa-linux {
+        color: #fcc624;
+    }
+
+    .agent-info {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .agent-name {
+        font-weight: 600;
+        font-size: 1rem;
+        color: var(--text-primary);
+    }
+
+    .agent-meta {
+        display: flex;
+        gap: 0.5rem;
+        margin-top: 0.25rem;
+    }
+
+    .agent-platform, .agent-tfm {
+        font-size: 0.75rem;
+        padding: 0.1rem 0.5rem;
+        border-radius: 4px;
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+    }
+
+    .agent-project {
+        font-size: 0.8rem;
+        color: var(--text-tertiary);
+        margin-top: 0.25rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .agent-details {
+        display: flex;
+        gap: 1rem;
+        margin-top: 0.4rem;
+        font-size: 0.8rem;
+        color: var(--text-tertiary);
+    }
+
+    .agent-details i {
+        margin-right: 0.25rem;
+    }
+
+    .agent-arrow {
+        color: var(--text-tertiary);
+        font-size: 1rem;
+    }
+
+    .empty-state {
+        text-align: center;
+        padding: 3rem 1rem;
+        color: var(--text-secondary);
+    }
+
+    .empty-icon {
+        font-size: 3rem;
+        margin-bottom: 1rem;
+        opacity: 0.4;
+    }
+
+    .empty-state h3 {
+        margin-bottom: 0.5rem;
+        color: var(--text-primary);
+    }
+
+    .empty-state p {
+        max-width: 400px;
+        margin: 0 auto;
+        font-size: 0.9rem;
+    }
+
+    .empty-instructions {
+        margin-top: 1rem;
+    }
+
+    .empty-instructions code {
+        background: var(--bg-tertiary);
+        padding: 0.4rem 0.8rem;
+        border-radius: 4px;
+        font-size: 0.85rem;
+    }
+</style>

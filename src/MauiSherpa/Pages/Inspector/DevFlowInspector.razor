@@ -1,0 +1,217 @@
+@page "/inspector/devflow/{AgentId}/{TabName?}"
+@using MauiSherpa.Core.Models.DevFlow
+@using MauiSherpa.Core.Services
+@using MauiSherpa.Services
+@layout MauiSherpa.Components.InspectorLayout
+@inject DevFlowInspectorService InspectorService
+@inject NavigationManager NavManager
+@implements IDisposable
+
+<div class="devflow-inspector">
+    <div class="inspector-toolbar">
+        <div class="inspector-title">
+            <i class="fas fa-wand-magic-sparkles"></i>
+            <span>@(agentStatus?.AppName ?? "DevFlow")</span>
+            @if (agentStatus != null)
+            {
+                <span class="toolbar-platform">@agentStatus.Platform</span>
+            }
+            <span class="toolbar-connection @(isConnected ? "connected" : "disconnected")">
+                <i class="fas fa-circle"></i>
+            </span>
+        </div>
+        <div class="inspector-tabs">
+            <button class="tab-btn @(activeTab == "tree" ? "active" : "")" @onclick='@(() => SwitchTab("tree"))'>
+                <i class="fas fa-sitemap"></i> Visual Tree
+            </button>
+            <button class="tab-btn @(activeTab == "network" ? "active" : "")" @onclick='@(() => SwitchTab("network"))'>
+                <i class="fas fa-network-wired"></i> Network
+            </button>
+            <button class="tab-btn @(activeTab == "webview" ? "active" : "")" @onclick='@(() => SwitchTab("webview"))'>
+                <i class="fas fa-globe"></i> WebView
+            </button>
+            <button class="tab-btn @(activeTab == "logs" ? "active" : "")" @onclick='@(() => SwitchTab("logs"))'>
+                <i class="fas fa-scroll"></i> Logs
+            </button>
+        </div>
+    </div>
+
+    <div class="inspector-content">
+        @if (!isConnected)
+        {
+            <div class="connecting-overlay">
+                <i class="fas fa-spinner fa-spin"></i>
+                <p>Connecting to agent at @agentHost:@agentPort...</p>
+            </div>
+        }
+        else
+        {
+            @switch (activeTab)
+            {
+                case "tree":
+                    <DevFlowTreeTab Client="@client" />
+                    break;
+                case "network":
+                    <DevFlowNetworkTab Client="@client" />
+                    break;
+                case "webview":
+                    <DevFlowWebViewTab Client="@client" />
+                    break;
+                case "logs":
+                    <DevFlowLogsTab Client="@client" />
+                    break;
+            }
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public string AgentId { get; set; } = "";
+    [Parameter] public string? TabName { get; set; }
+
+    [SupplyParameterFromQuery(Name = "host")]
+    public string? QueryHost { get; set; }
+
+    [SupplyParameterFromQuery(Name = "port")]
+    public int? QueryPort { get; set; }
+
+    private DevFlowAgentClient? client;
+    private DevFlowAgentStatus? agentStatus;
+    private string agentHost = "localhost";
+    private int agentPort = 9223;
+    private string activeTab = "tree";
+    private bool isConnected;
+
+    protected override async Task OnInitializedAsync()
+    {
+        agentHost = QueryHost ?? "localhost";
+        agentPort = QueryPort ?? 9223;
+        activeTab = TabName ?? "tree";
+
+        client = new DevFlowAgentClient(agentHost, agentPort);
+        await ConnectAsync();
+    }
+
+    private async Task ConnectAsync()
+    {
+        try
+        {
+            agentStatus = await client!.GetStatusAsync();
+            isConnected = agentStatus != null;
+        }
+        catch
+        {
+            isConnected = false;
+        }
+        StateHasChanged();
+    }
+
+    private void SwitchTab(string tab)
+    {
+        if (activeTab == tab) return;
+        activeTab = tab;
+        StateHasChanged();
+    }
+
+    public void Dispose()
+    {
+        client?.Dispose();
+    }
+}
+
+<style>
+    .devflow-inspector {
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+        background: var(--bg-primary);
+        color: var(--text-primary);
+    }
+
+    .inspector-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.5rem 1rem;
+        background: var(--bg-secondary);
+        border-bottom: 1px solid var(--border-color);
+        flex-shrink: 0;
+    }
+
+    .inspector-title {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-weight: 600;
+        font-size: 0.95rem;
+    }
+
+    .toolbar-platform {
+        font-size: 0.75rem;
+        padding: 0.1rem 0.5rem;
+        border-radius: 4px;
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+        font-weight: 400;
+    }
+
+    .toolbar-connection {
+        font-size: 0.4rem;
+    }
+
+    .toolbar-connection.connected {
+        color: #22c55e;
+    }
+
+    .toolbar-connection.disconnected {
+        color: #ef4444;
+    }
+
+    .inspector-tabs {
+        display: flex;
+        gap: 0;
+    }
+
+    .tab-btn {
+        padding: 0.5rem 1rem;
+        background: none;
+        border: none;
+        border-bottom: 2px solid transparent;
+        color: var(--text-secondary);
+        cursor: pointer;
+        font-size: 0.85rem;
+        transition: all 0.2s ease;
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+    }
+
+    .tab-btn:hover {
+        color: var(--text-primary);
+        background: var(--bg-tertiary);
+    }
+
+    .tab-btn.active {
+        color: var(--accent-color, #8b5cf6);
+        border-bottom-color: var(--accent-color, #8b5cf6);
+    }
+
+    .inspector-content {
+        flex: 1;
+        overflow: hidden;
+    }
+
+    .connecting-overlay {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        gap: 1rem;
+        color: var(--text-secondary);
+    }
+
+    .connecting-overlay i {
+        font-size: 2rem;
+    }
+</style>

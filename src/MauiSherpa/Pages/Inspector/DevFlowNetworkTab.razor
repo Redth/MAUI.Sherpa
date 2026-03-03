@@ -1,0 +1,629 @@
+@using MauiSherpa.Core.Models.DevFlow
+@using MauiSherpa.Core.Services
+@implements IDisposable
+
+<div class="network-layout">
+    <!-- Left: Request list -->
+    <div class="network-list-pane">
+        <div class="pane-header">
+            <span>Requests <span class="request-count">(@requests.Count)</span></span>
+            <div class="pane-actions">
+                <input type="text" @bind="searchQuery" @bind:event="oninput" placeholder="Filter URL..." class="network-search" />
+                <select @bind="methodFilter" class="method-filter">
+                    <option value="">All</option>
+                    <option value="GET">GET</option>
+                    <option value="POST">POST</option>
+                    <option value="PUT">PUT</option>
+                    <option value="DELETE">DELETE</option>
+                    <option value="PATCH">PATCH</option>
+                </select>
+                <button class="btn-icon" @onclick="ToggleStreaming" title="@(isStreaming ? "Pause" : "Resume")">
+                    <i class="fas @(isStreaming ? "fa-pause" : "fa-play")"></i>
+                </button>
+                <button class="btn-icon" @onclick="ClearRequests" title="Clear">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </div>
+        </div>
+        <div class="request-table-header">
+            <span class="col-status">Status</span>
+            <span class="col-method">Method</span>
+            <span class="col-url">URL</span>
+            <span class="col-duration">Time</span>
+            <span class="col-size">Size</span>
+        </div>
+        <div class="request-list">
+            @foreach (var req in FilteredRequests)
+            {
+                <div class="request-row @(selectedRequest?.Id == req.Id ? "selected" : "") @GetStatusClass(req)" @onclick="@(() => SelectRequest(req))">
+                    <span class="col-status">
+                        @if (req.Error != null)
+                        {
+                            <span class="status-badge status-error" title="@req.Error">ERR</span>
+                        }
+                        else if (req.StatusCode != null)
+                        {
+                            <span class="status-badge status-@GetStatusCategory(req.StatusCode.Value)">@req.StatusCode</span>
+                        }
+                        else
+                        {
+                            <span class="status-badge status-pending">...</span>
+                        }
+                    </span>
+                    <span class="col-method method-@req.Method.ToLowerInvariant()">@req.Method</span>
+                    <span class="col-url" title="@req.Url">@(req.Path ?? req.Url)</span>
+                    <span class="col-duration">@(req.DurationMs)ms</span>
+                    <span class="col-size">@FormatSize(req.ResponseSize)</span>
+                </div>
+            }
+            @if (requests.Count == 0)
+            {
+                <div class="request-list-empty">
+                    <i class="fas fa-network-wired"></i>
+                    <span>@(isStreaming ? "Waiting for requests..." : "No requests captured")</span>
+                </div>
+            }
+        </div>
+    </div>
+
+    <!-- Right: Request detail -->
+    <div class="network-detail-pane">
+        @if (selectedDetail != null)
+        {
+            <div class="pane-header">
+                <span class="detail-method method-@selectedDetail.Method.ToLowerInvariant()">@selectedDetail.Method</span>
+                <span class="detail-url" title="@selectedDetail.Url">@selectedDetail.Url</span>
+            </div>
+            <div class="detail-tabs">
+                <button class="detail-tab @(detailTab == "headers" ? "active" : "")" @onclick='@(() => detailTab = "headers")'>Headers</button>
+                <button class="detail-tab @(detailTab == "request" ? "active" : "")" @onclick='@(() => detailTab = "request")'>Request</button>
+                <button class="detail-tab @(detailTab == "response" ? "active" : "")" @onclick='@(() => detailTab = "response")'>Response</button>
+                <button class="detail-tab @(detailTab == "timing" ? "active" : "")" @onclick='@(() => detailTab = "timing")'>Timing</button>
+            </div>
+            <div class="detail-content">
+                @switch (detailTab)
+                {
+                    case "headers":
+                        @if (selectedDetail.RequestHeaders?.Count > 0)
+                        {
+                            <div class="header-section">
+                                <div class="header-section-title">Request Headers</div>
+                                @foreach (var h in selectedDetail.RequestHeaders)
+                                {
+                                    <div class="header-row">
+                                        <span class="header-key">@h.Key</span>
+                                        <span class="header-value">@string.Join(", ", h.Value)</span>
+                                    </div>
+                                }
+                            </div>
+                        }
+                        @if (selectedDetail.ResponseHeaders?.Count > 0)
+                        {
+                            <div class="header-section">
+                                <div class="header-section-title">Response Headers</div>
+                                @foreach (var h in selectedDetail.ResponseHeaders)
+                                {
+                                    <div class="header-row">
+                                        <span class="header-key">@h.Key</span>
+                                        <span class="header-value">@string.Join(", ", h.Value)</span>
+                                    </div>
+                                }
+                            </div>
+                        }
+                        break;
+
+                    case "request":
+                        @if (selectedDetail.RequestBody != null)
+                        {
+                            <div class="body-viewer">
+                                <div class="body-meta">
+                                    <span>Content-Type: @(selectedDetail.RequestContentType ?? "unknown")</span>
+                                    @if (selectedDetail.RequestBodyTruncated) { <span class="truncated-badge">Truncated</span> }
+                                </div>
+                                <pre class="body-content text-selectable">@FormatBody(selectedDetail.RequestBody, selectedDetail.RequestContentType)</pre>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="body-empty">No request body</div>
+                        }
+                        break;
+
+                    case "response":
+                        @if (selectedDetail.ResponseBody != null)
+                        {
+                            <div class="body-viewer">
+                                <div class="body-meta">
+                                    <span>Content-Type: @(selectedDetail.ResponseContentType ?? "unknown")</span>
+                                    @if (selectedDetail.ResponseSize != null) { <span>@FormatSize(selectedDetail.ResponseSize) </span> }
+                                    @if (selectedDetail.ResponseBodyTruncated) { <span class="truncated-badge">Truncated</span> }
+                                </div>
+                                <pre class="body-content text-selectable">@FormatBody(selectedDetail.ResponseBody, selectedDetail.ResponseContentType)</pre>
+                            </div>
+                        }
+                        else if (selectedDetail.Error != null)
+                        {
+                            <div class="body-error"><i class="fas fa-exclamation-triangle"></i> @selectedDetail.Error</div>
+                        }
+                        else
+                        {
+                            <div class="body-empty">No response body</div>
+                        }
+                        break;
+
+                    case "timing":
+                        <div class="timing-section">
+                            <div class="timing-row">
+                                <span class="timing-label">Duration</span>
+                                <span class="timing-value">@(selectedDetail.DurationMs)ms</span>
+                            </div>
+                            <div class="timing-row">
+                                <span class="timing-label">Status</span>
+                                <span class="timing-value">@(selectedDetail.StatusCode != null ? $"{selectedDetail.StatusCode} {selectedDetail.StatusText}" : "Error")</span>
+                            </div>
+                            @if (selectedDetail.RequestSize != null)
+                            {
+                                <div class="timing-row">
+                                    <span class="timing-label">Request Size</span>
+                                    <span class="timing-value">@FormatSize(selectedDetail.RequestSize)</span>
+                                </div>
+                            }
+                            @if (selectedDetail.ResponseSize != null)
+                            {
+                                <div class="timing-row">
+                                    <span class="timing-label">Response Size</span>
+                                    <span class="timing-value">@FormatSize(selectedDetail.ResponseSize)</span>
+                                </div>
+                            }
+                            <div class="timing-bar">
+                                <div class="timing-bar-fill" style="width: @(Math.Min(100, selectedDetail.DurationMs / 10.0))%"></div>
+                            </div>
+                        </div>
+                        break;
+                }
+            </div>
+        }
+        else
+        {
+            <div class="detail-empty">
+                <i class="fas fa-hand-pointer"></i>
+                <span>Select a request to view details</span>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public DevFlowAgentClient Client { get; set; } = null!;
+
+    private List<DevFlowNetworkRequest> requests = new();
+    private DevFlowNetworkRequest? selectedRequest;
+    private DevFlowNetworkRequest? selectedDetail;
+    private string searchQuery = "";
+    private string methodFilter = "";
+    private string detailTab = "headers";
+    private bool isStreaming = true;
+    private CancellationTokenSource? _streamCts;
+
+    private IEnumerable<DevFlowNetworkRequest> FilteredRequests
+    {
+        get
+        {
+            var result = requests.AsEnumerable();
+            if (!string.IsNullOrEmpty(methodFilter))
+                result = result.Where(r => r.Method.Equals(methodFilter, StringComparison.OrdinalIgnoreCase));
+            if (!string.IsNullOrEmpty(searchQuery))
+                result = result.Where(r => r.Url.Contains(searchQuery, StringComparison.OrdinalIgnoreCase));
+            return result.Reverse(); // newest first
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Try WebSocket streaming first, fall back to polling
+        _ = StartStreamingAsync();
+    }
+
+    private async Task StartStreamingAsync()
+    {
+        _streamCts?.Cancel();
+        _streamCts = new CancellationTokenSource();
+        isStreaming = true;
+
+        try
+        {
+            await Client.StreamNetworkRequestsAsync(req =>
+            {
+                InvokeAsync(() =>
+                {
+                    requests.Add(req);
+                    // Keep max 500
+                    while (requests.Count > 500)
+                        requests.RemoveAt(0);
+                    StateHasChanged();
+                });
+            }, _streamCts.Token);
+        }
+        catch
+        {
+            // WebSocket failed — fall back to polling
+            await PollNetworkRequests();
+        }
+    }
+
+    private async Task PollNetworkRequests()
+    {
+        while (!(_streamCts?.Token.IsCancellationRequested ?? true))
+        {
+            try
+            {
+                var latest = await Client.GetNetworkRequestsAsync(_streamCts!.Token);
+                if (latest.Count > 0)
+                {
+                    requests = latest;
+                    await InvokeAsync(StateHasChanged);
+                }
+            }
+            catch { }
+            await Task.Delay(2000, _streamCts?.Token ?? CancellationToken.None);
+        }
+    }
+
+    private void ToggleStreaming()
+    {
+        if (isStreaming)
+        {
+            _streamCts?.Cancel();
+            isStreaming = false;
+        }
+        else
+        {
+            _ = StartStreamingAsync();
+        }
+        StateHasChanged();
+    }
+
+    private async Task SelectRequest(DevFlowNetworkRequest req)
+    {
+        selectedRequest = req;
+        detailTab = "headers";
+
+        // Fetch full details
+        try
+        {
+            selectedDetail = await Client.GetNetworkRequestDetailAsync(req.Id);
+        }
+        catch
+        {
+            selectedDetail = req; // fall back to summary
+        }
+        StateHasChanged();
+    }
+
+    private async Task ClearRequests()
+    {
+        await Client.ClearNetworkRequestsAsync();
+        requests.Clear();
+        selectedRequest = null;
+        selectedDetail = null;
+        StateHasChanged();
+    }
+
+    private static string GetStatusCategory(int code) => code switch
+    {
+        >= 200 and < 300 => "2xx",
+        >= 300 and < 400 => "3xx",
+        >= 400 and < 500 => "4xx",
+        >= 500 => "5xx",
+        _ => "other"
+    };
+
+    private static string GetStatusClass(DevFlowNetworkRequest req)
+    {
+        if (req.Error != null) return "row-error";
+        if (req.StatusCode is >= 400) return "row-error";
+        return "";
+    }
+
+    private static string FormatSize(long? bytes)
+    {
+        if (bytes == null) return "—";
+        if (bytes < 1024) return $"{bytes}B";
+        if (bytes < 1024 * 1024) return $"{bytes / 1024.0:F1}KB";
+        return $"{bytes / (1024.0 * 1024.0):F1}MB";
+    }
+
+    private static string FormatBody(string body, string? contentType)
+    {
+        if (contentType?.Contains("json") == true)
+        {
+            try
+            {
+                var doc = System.Text.Json.JsonDocument.Parse(body);
+                return System.Text.Json.JsonSerializer.Serialize(doc, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+            }
+            catch { }
+        }
+        return body;
+    }
+
+    public void Dispose()
+    {
+        _streamCts?.Cancel();
+    }
+}
+
+<style>
+    .network-layout {
+        display: flex;
+        height: 100%;
+    }
+
+    .network-list-pane {
+        flex: 1;
+        border-right: 1px solid var(--border-color);
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+    }
+
+    .network-detail-pane {
+        width: 420px;
+        display: flex;
+        flex-direction: column;
+        flex-shrink: 0;
+    }
+
+    .network-search {
+        font-size: 0.75rem;
+        padding: 0.2rem 0.5rem;
+        border-radius: 4px;
+        border: 1px solid var(--border-color);
+        background: var(--bg-primary);
+        color: var(--text-primary);
+        width: 140px;
+    }
+
+    .method-filter {
+        font-size: 0.75rem;
+        padding: 0.15rem 0.4rem;
+        border-radius: 4px;
+        border: 1px solid var(--border-color);
+        background: var(--bg-primary);
+        color: var(--text-primary);
+    }
+
+    .request-count {
+        font-weight: 400;
+        color: var(--text-tertiary);
+    }
+
+    .request-table-header {
+        display: flex;
+        padding: 0.3rem 0.75rem;
+        background: var(--bg-secondary);
+        border-bottom: 1px solid var(--border-color);
+        font-size: 0.7rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        color: var(--text-tertiary);
+        letter-spacing: 0.05em;
+    }
+
+    .request-list {
+        flex: 1;
+        overflow: auto;
+        font-size: 0.8rem;
+    }
+
+    .request-row {
+        display: flex;
+        align-items: center;
+        padding: 0.35rem 0.75rem;
+        cursor: pointer;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .request-row:hover {
+        background: var(--bg-tertiary);
+    }
+
+    .request-row.selected {
+        background: rgba(139, 92, 246, 0.15);
+    }
+
+    .request-row.row-error {
+        background: rgba(239, 68, 68, 0.05);
+    }
+
+    .col-status { width: 50px; flex-shrink: 0; }
+    .col-method { width: 55px; flex-shrink: 0; font-weight: 600; font-size: 0.75rem; }
+    .col-url { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .col-duration { width: 60px; flex-shrink: 0; text-align: right; color: var(--text-secondary); font-size: 0.75rem; }
+    .col-size { width: 55px; flex-shrink: 0; text-align: right; color: var(--text-tertiary); font-size: 0.75rem; }
+
+    .status-badge {
+        font-size: 0.7rem;
+        font-weight: 700;
+        padding: 0.05rem 0.3rem;
+        border-radius: 3px;
+    }
+
+    .status-2xx { color: #22c55e; }
+    .status-3xx { color: #3b82f6; }
+    .status-4xx { color: #f59e0b; }
+    .status-5xx { color: #ef4444; }
+    .status-error { color: #ef4444; }
+    .status-pending { color: var(--text-tertiary); }
+
+    .method-get { color: #22c55e; }
+    .method-post { color: #3b82f6; }
+    .method-put { color: #f59e0b; }
+    .method-delete { color: #ef4444; }
+    .method-patch { color: #a855f7; }
+
+    .request-list-empty {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 3rem;
+        color: var(--text-tertiary);
+    }
+
+    /* Detail pane */
+    .detail-tabs {
+        display: flex;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .detail-tab {
+        padding: 0.4rem 0.8rem;
+        background: none;
+        border: none;
+        border-bottom: 2px solid transparent;
+        color: var(--text-secondary);
+        cursor: pointer;
+        font-size: 0.8rem;
+    }
+
+    .detail-tab.active {
+        color: var(--accent-color, #8b5cf6);
+        border-bottom-color: var(--accent-color, #8b5cf6);
+    }
+
+    .detail-content {
+        flex: 1;
+        overflow: auto;
+        font-size: 0.8rem;
+    }
+
+    .detail-method {
+        font-weight: 700;
+        font-size: 0.8rem;
+    }
+
+    .detail-url {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+    }
+
+    .detail-empty {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        gap: 0.5rem;
+        color: var(--text-tertiary);
+    }
+
+    .header-section {
+        padding: 0.5rem 0;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .header-section-title {
+        font-weight: 600;
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        color: var(--text-tertiary);
+        padding: 0.25rem 0.75rem;
+    }
+
+    .header-row {
+        display: flex;
+        padding: 0.15rem 0.75rem;
+        gap: 0.5rem;
+    }
+
+    .header-key {
+        color: #2196F3;
+        min-width: 120px;
+        flex-shrink: 0;
+        font-weight: 500;
+    }
+
+    .header-value {
+        color: var(--text-primary);
+        word-break: break-all;
+    }
+
+    .body-viewer {
+        padding: 0.5rem;
+    }
+
+    .body-meta {
+        display: flex;
+        gap: 0.75rem;
+        padding: 0.4rem 0.5rem;
+        font-size: 0.75rem;
+        color: var(--text-tertiary);
+        border-bottom: 1px solid var(--border-color);
+        margin-bottom: 0.5rem;
+    }
+
+    .truncated-badge {
+        color: #f59e0b;
+        font-weight: 600;
+    }
+
+    .body-content {
+        padding: 0.5rem;
+        background: var(--bg-secondary);
+        border-radius: 4px;
+        overflow: auto;
+        max-height: 400px;
+        font-family: 'SF Mono', 'Cascadia Code', monospace;
+        font-size: 0.75rem;
+        white-space: pre-wrap;
+        word-break: break-all;
+        margin: 0;
+    }
+
+    .body-empty, .body-error {
+        padding: 2rem;
+        text-align: center;
+        color: var(--text-tertiary);
+    }
+
+    .body-error {
+        color: #ef4444;
+    }
+
+    .timing-section {
+        padding: 1rem 0.75rem;
+    }
+
+    .timing-row {
+        display: flex;
+        justify-content: space-between;
+        padding: 0.3rem 0;
+    }
+
+    .timing-label {
+        color: var(--text-secondary);
+    }
+
+    .timing-value {
+        font-weight: 500;
+    }
+
+    .timing-bar {
+        height: 6px;
+        background: var(--bg-tertiary);
+        border-radius: 3px;
+        margin-top: 1rem;
+        overflow: hidden;
+    }
+
+    .timing-bar-fill {
+        height: 100%;
+        background: var(--accent-color, #8b5cf6);
+        border-radius: 3px;
+        transition: width 0.3s ease;
+    }
+</style>

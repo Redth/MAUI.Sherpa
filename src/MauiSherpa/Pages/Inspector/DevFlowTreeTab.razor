@@ -1,0 +1,695 @@
+@using MauiSherpa.Core.Models.DevFlow
+@using MauiSherpa.Core.Services
+@implements IDisposable
+
+<div class="tree-layout">
+    <!-- Left: Screenshot -->
+    <div class="tree-screenshot-pane">
+        <div class="pane-header">
+            <span>Screenshot</span>
+            <div class="pane-actions">
+                <select @bind="autoRefreshInterval" @bind:after="OnAutoRefreshChanged" class="auto-refresh-select">
+                    <option value="0">Manual</option>
+                    <option value="1">1s</option>
+                    <option value="2">2s</option>
+                    <option value="5">5s</option>
+                </select>
+                <button class="btn-icon" @onclick="RefreshScreenshot" title="Refresh screenshot">
+                    <i class="fas fa-camera"></i>
+                </button>
+            </div>
+        </div>
+        <div class="screenshot-container">
+            @if (screenshotData != null)
+            {
+                <img src="@($"data:image/png;base64,{screenshotData}")" alt="App screenshot" class="screenshot-img" />
+            }
+            else
+            {
+                <div class="screenshot-placeholder">
+                    <i class="fas fa-image"></i>
+                    <span>Click refresh to capture</span>
+                </div>
+            }
+        </div>
+    </div>
+
+    <!-- Center: Tree View -->
+    <div class="tree-view-pane">
+        <div class="pane-header">
+            <span>Visual Tree</span>
+            <div class="pane-actions">
+                <input type="text" @bind="searchQuery" @bind:event="oninput" placeholder="Filter..." class="tree-search" />
+                <button class="btn-icon" @onclick="RefreshTree" title="Refresh tree">
+                    <i class="fas @(isLoadingTree ? "fa-spinner fa-spin" : "fa-sync-alt")"></i>
+                </button>
+            </div>
+        </div>
+        <div class="tree-container">
+            @if (treeItems.Count > 0)
+            {
+                @foreach (var item in treeItems)
+                {
+                    @RenderNode(item, 0)
+                }
+            }
+            else if (isLoadingTree)
+            {
+                <div class="tree-loading"><i class="fas fa-spinner fa-spin"></i> Loading tree...</div>
+            }
+            else
+            {
+                <div class="tree-empty">No elements found</div>
+            }
+        </div>
+    </div>
+
+    <!-- Right: Properties -->
+    <div class="tree-props-pane">
+        <div class="pane-header">
+            <span>Properties</span>
+        </div>
+        <div class="props-container">
+            @if (selectedElement != null)
+            {
+                <div class="prop-section">
+                    <div class="prop-section-title">Element</div>
+                    <div class="prop-row">
+                        <span class="prop-key">Type</span>
+                        <span class="prop-value">@selectedElement.Type</span>
+                    </div>
+                    <div class="prop-row">
+                        <span class="prop-key">Full Type</span>
+                        <span class="prop-value mono">@selectedElement.FullType</span>
+                    </div>
+                    <div class="prop-row">
+                        <span class="prop-key">ID</span>
+                        <span class="prop-value mono">@selectedElement.Id</span>
+                    </div>
+                    @if (selectedElement.AutomationId != null)
+                    {
+                        <div class="prop-row">
+                            <span class="prop-key">AutomationId</span>
+                            <span class="prop-value">@selectedElement.AutomationId</span>
+                        </div>
+                    }
+                    @if (selectedElement.Text != null)
+                    {
+                        <div class="prop-row editable" @onclick='@(() => StartEditing("text", selectedElement.Text))'>
+                            <span class="prop-key">Text</span>
+                            @if (editingProperty == "text")
+                            {
+                                <input type="text" @bind="editValue" @onkeydown="OnEditKeyDown" @ref="editInput" class="prop-edit-input" />
+                            }
+                            else
+                            {
+                                <span class="prop-value">"@selectedElement.Text"</span>
+                            }
+                        </div>
+                    }
+                </div>
+
+                <div class="prop-section">
+                    <div class="prop-section-title">State</div>
+                    <div class="prop-row">
+                        <span class="prop-key">Visible</span>
+                        <span class="prop-value @(selectedElement.IsVisible ? "val-true" : "val-false")">@selectedElement.IsVisible</span>
+                    </div>
+                    <div class="prop-row">
+                        <span class="prop-key">Enabled</span>
+                        <span class="prop-value @(selectedElement.IsEnabled ? "val-true" : "val-false")">@selectedElement.IsEnabled</span>
+                    </div>
+                    <div class="prop-row">
+                        <span class="prop-key">Focused</span>
+                        <span class="prop-value @(selectedElement.IsFocused ? "val-true" : "val-false")">@selectedElement.IsFocused</span>
+                    </div>
+                    <div class="prop-row editable" @onclick='@(() => StartEditing("opacity", selectedElement.Opacity.ToString("F2")))'>
+                        <span class="prop-key">Opacity</span>
+                        @if (editingProperty == "opacity")
+                        {
+                            <input type="text" @bind="editValue" @onkeydown="OnEditKeyDown" @ref="editInput" class="prop-edit-input" />
+                        }
+                        else
+                        {
+                            <span class="prop-value">@selectedElement.Opacity.ToString("F2")</span>
+                        }
+                    </div>
+                </div>
+
+                @if (selectedElement.Bounds != null)
+                {
+                    <div class="prop-section">
+                        <div class="prop-section-title">Bounds</div>
+                        <div class="prop-row">
+                            <span class="prop-key">Position</span>
+                            <span class="prop-value">@($"{selectedElement.Bounds.X:F0}, {selectedElement.Bounds.Y:F0}")</span>
+                        </div>
+                        <div class="prop-row">
+                            <span class="prop-key">Size</span>
+                            <span class="prop-value">@($"{selectedElement.Bounds.Width:F0} × {selectedElement.Bounds.Height:F0}")</span>
+                        </div>
+                    </div>
+                }
+
+                @if (selectedElement.Gestures?.Count > 0)
+                {
+                    <div class="prop-section">
+                        <div class="prop-section-title">Gestures</div>
+                        @foreach (var gesture in selectedElement.Gestures)
+                        {
+                            <div class="prop-row"><span class="prop-value">@gesture</span></div>
+                        }
+                    </div>
+                }
+
+                @if (selectedElement.NativeType != null)
+                {
+                    <div class="prop-section">
+                        <div class="prop-section-title">Native (@selectedElement.NativeType)</div>
+                        @if (selectedElement.NativeProperties != null)
+                        {
+                            @foreach (var kvp in selectedElement.NativeProperties)
+                            {
+                                <div class="prop-row">
+                                    <span class="prop-key">@kvp.Key</span>
+                                    <span class="prop-value">@(kvp.Value ?? "null")</span>
+                                </div>
+                            }
+                        }
+                    </div>
+                }
+            }
+            else
+            {
+                <div class="props-empty">Select an element in the tree to view its properties</div>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public DevFlowAgentClient Client { get; set; } = null!;
+
+    private List<DevFlowElementInfo> treeItems = new();
+    private DevFlowElementInfo? selectedElement;
+    private string? selectedElementId;
+    private HashSet<string> expandedNodes = new();
+    private string searchQuery = "";
+    private string? screenshotData;
+    private bool isLoadingTree;
+    private int autoRefreshInterval;
+    private Timer? _screenshotTimer;
+    private string? editingProperty;
+    private string editValue = "";
+    private ElementReference editInput;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshTree();
+        await RefreshScreenshot();
+    }
+
+    private async Task RefreshTree()
+    {
+        isLoadingTree = true;
+        StateHasChanged();
+
+        var previousExpanded = new HashSet<string>(expandedNodes);
+        var previousSelected = selectedElementId;
+
+        try
+        {
+            treeItems = await Client.GetTreeAsync();
+
+            // Re-expand previously expanded nodes that still exist
+            expandedNodes.Clear();
+            RestoreExpandedNodes(treeItems, previousExpanded);
+
+            // Re-select previous element
+            if (previousSelected != null)
+            {
+                selectedElement = FindElement(treeItems, previousSelected);
+                if (selectedElement == null)
+                    selectedElementId = null;
+            }
+        }
+        catch { }
+        finally
+        {
+            isLoadingTree = false;
+            StateHasChanged();
+        }
+    }
+
+    private void RestoreExpandedNodes(List<DevFlowElementInfo> items, HashSet<string> previous)
+    {
+        foreach (var item in items)
+        {
+            if (previous.Contains(item.Id))
+                expandedNodes.Add(item.Id);
+            if (item.Children?.Count > 0)
+                RestoreExpandedNodes(item.Children, previous);
+        }
+    }
+
+    private DevFlowElementInfo? FindElement(List<DevFlowElementInfo> items, string id)
+    {
+        foreach (var item in items)
+        {
+            if (item.Id == id) return item;
+            if (item.Children?.Count > 0)
+            {
+                var found = FindElement(item.Children, id);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
+    private async Task RefreshScreenshot()
+    {
+        try
+        {
+            var bytes = await Client.GetScreenshotAsync();
+            screenshotData = bytes != null ? Convert.ToBase64String(bytes) : null;
+            StateHasChanged();
+        }
+        catch { }
+    }
+
+    private void SelectElement(DevFlowElementInfo element)
+    {
+        selectedElement = element;
+        selectedElementId = element.Id;
+        editingProperty = null;
+        StateHasChanged();
+    }
+
+    private void ToggleExpand(string id)
+    {
+        if (expandedNodes.Contains(id))
+            expandedNodes.Remove(id);
+        else
+            expandedNodes.Add(id);
+        StateHasChanged();
+    }
+
+    private bool MatchesSearch(DevFlowElementInfo item)
+    {
+        if (string.IsNullOrEmpty(searchQuery)) return true;
+        var q = searchQuery.ToLowerInvariant();
+        return (item.Type?.ToLowerInvariant().Contains(q) == true)
+            || (item.Text?.ToLowerInvariant().Contains(q) == true)
+            || (item.AutomationId?.ToLowerInvariant().Contains(q) == true);
+    }
+
+    private bool HasMatchingDescendant(DevFlowElementInfo item)
+    {
+        if (MatchesSearch(item)) return true;
+        if (item.Children == null) return false;
+        return item.Children.Any(c => HasMatchingDescendant(c));
+    }
+
+    private RenderFragment RenderNode(DevFlowElementInfo item, int depth) => __builder =>
+    {
+        if (!string.IsNullOrEmpty(searchQuery) && !HasMatchingDescendant(item))
+            return;
+
+        var hasChildren = item.Children?.Count > 0;
+        var isExpanded = expandedNodes.Contains(item.Id);
+        var isSelected = selectedElementId == item.Id;
+        var indent = depth * 16;
+
+        __builder.OpenElement(0, "div");
+        __builder.AddAttribute(1, "class", $"tree-node {(isSelected ? "selected" : "")}");
+        __builder.AddAttribute(2, "style", $"padding-left: {indent + 4}px");
+        __builder.AddAttribute(3, "onclick", EventCallback.Factory.Create<Microsoft.AspNetCore.Components.Web.MouseEventArgs>(this, () => SelectElement(item)));
+
+        if (hasChildren)
+        {
+            __builder.OpenElement(10, "span");
+            __builder.AddAttribute(11, "class", "tree-toggle");
+            __builder.AddAttribute(12, "onclick", EventCallback.Factory.Create<Microsoft.AspNetCore.Components.Web.MouseEventArgs>(this, () => ToggleExpand(item.Id)));
+            __builder.AddEventStopPropagationAttribute(13, "onclick", true);
+            __builder.OpenElement(14, "i");
+            __builder.AddAttribute(15, "class", $"fas {(isExpanded ? "fa-caret-down" : "fa-caret-right")}");
+            __builder.CloseElement(); // i
+            __builder.CloseElement(); // span
+        }
+        else
+        {
+            __builder.OpenElement(20, "span");
+            __builder.AddAttribute(21, "class", "tree-toggle-space");
+            __builder.CloseElement();
+        }
+
+        __builder.OpenElement(30, "span");
+        __builder.AddAttribute(31, "class", "tree-type");
+        __builder.AddContent(32, item.Type);
+        __builder.CloseElement();
+
+        if (!string.IsNullOrEmpty(item.Text))
+        {
+            __builder.OpenElement(40, "span");
+            __builder.AddAttribute(41, "class", "tree-text");
+            __builder.AddContent(42, $"\"{Truncate(item.Text, 30)}\"");
+            __builder.CloseElement();
+        }
+
+        if (!string.IsNullOrEmpty(item.AutomationId))
+        {
+            __builder.OpenElement(50, "span");
+            __builder.AddAttribute(51, "class", "tree-aid");
+            __builder.AddContent(52, $"#{item.AutomationId}");
+            __builder.CloseElement();
+        }
+
+        if (!item.IsVisible)
+        {
+            __builder.OpenElement(60, "span");
+            __builder.AddAttribute(61, "class", "tree-hidden");
+            __builder.AddAttribute(62, "title", "Hidden");
+            __builder.OpenElement(63, "i");
+            __builder.AddAttribute(64, "class", "fas fa-eye-slash");
+            __builder.CloseElement(); // i
+            __builder.CloseElement(); // span
+        }
+
+        __builder.CloseElement(); // div.tree-node
+
+        if (hasChildren && isExpanded)
+        {
+            foreach (var child in item.Children!)
+            {
+                __builder.AddContent(70, RenderNode(child, depth + 1));
+            }
+        }
+    };
+
+    private void StartEditing(string property, string? currentValue)
+    {
+        editingProperty = property;
+        editValue = currentValue ?? "";
+        StateHasChanged();
+    }
+
+    private async Task OnEditKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && selectedElement != null && editingProperty != null)
+        {
+            await Client.SetPropertyAsync(selectedElement.Id, editingProperty, editValue);
+            editingProperty = null;
+            await RefreshTree();
+        }
+        else if (e.Key == "Escape")
+        {
+            editingProperty = null;
+            StateHasChanged();
+        }
+    }
+
+    private void OnAutoRefreshChanged()
+    {
+        _screenshotTimer?.Dispose();
+        _screenshotTimer = null;
+
+        if (autoRefreshInterval > 0)
+        {
+            var interval = TimeSpan.FromSeconds(autoRefreshInterval);
+            _screenshotTimer = new Timer(async _ =>
+            {
+                await InvokeAsync(async () =>
+                {
+                    await RefreshScreenshot();
+                });
+            }, null, interval, interval);
+        }
+    }
+
+    private static string Truncate(string text, int max)
+        => text.Length <= max ? text : text[..max] + "…";
+
+    public void Dispose()
+    {
+        _screenshotTimer?.Dispose();
+    }
+}
+
+<style>
+    .tree-layout {
+        display: flex;
+        height: 100%;
+    }
+
+    .tree-screenshot-pane {
+        width: 280px;
+        border-right: 1px solid var(--border-color);
+        display: flex;
+        flex-direction: column;
+        flex-shrink: 0;
+    }
+
+    .tree-view-pane {
+        flex: 1;
+        border-right: 1px solid var(--border-color);
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+    }
+
+    .tree-props-pane {
+        width: 300px;
+        display: flex;
+        flex-direction: column;
+        flex-shrink: 0;
+    }
+
+    .pane-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.5rem 0.75rem;
+        background: var(--bg-secondary);
+        border-bottom: 1px solid var(--border-color);
+        font-size: 0.8rem;
+        font-weight: 600;
+        flex-shrink: 0;
+    }
+
+    .pane-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+    }
+
+    .btn-icon {
+        background: none;
+        border: none;
+        color: var(--text-secondary);
+        cursor: pointer;
+        padding: 0.25rem 0.5rem;
+        border-radius: 4px;
+        font-size: 0.8rem;
+    }
+
+    .btn-icon:hover {
+        background: var(--bg-tertiary);
+        color: var(--text-primary);
+    }
+
+    .auto-refresh-select {
+        font-size: 0.75rem;
+        padding: 0.15rem 0.4rem;
+        border-radius: 4px;
+        border: 1px solid var(--border-color);
+        background: var(--bg-primary);
+        color: var(--text-primary);
+    }
+
+    .tree-search {
+        font-size: 0.75rem;
+        padding: 0.2rem 0.5rem;
+        border-radius: 4px;
+        border: 1px solid var(--border-color);
+        background: var(--bg-primary);
+        color: var(--text-primary);
+        width: 120px;
+    }
+
+    /* Screenshot */
+    .screenshot-container {
+        flex: 1;
+        overflow: auto;
+        display: flex;
+        align-items: flex-start;
+        justify-content: center;
+        padding: 0.5rem;
+    }
+
+    .screenshot-img {
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
+        border-radius: 4px;
+    }
+
+    .screenshot-placeholder {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.5rem;
+        color: var(--text-tertiary);
+        font-size: 0.8rem;
+        padding-top: 3rem;
+    }
+
+    .screenshot-placeholder i {
+        font-size: 2rem;
+        opacity: 0.3;
+    }
+
+    /* Tree nodes */
+    .tree-container {
+        flex: 1;
+        overflow: auto;
+        font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+        font-size: 0.8rem;
+    }
+
+    .tree-node {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.2rem 0.4rem;
+        cursor: pointer;
+        white-space: nowrap;
+    }
+
+    .tree-node:hover {
+        background: var(--bg-tertiary);
+    }
+
+    .tree-node.selected {
+        background: rgba(139, 92, 246, 0.2);
+        border-left: 2px solid var(--accent-color, #8b5cf6);
+    }
+
+    .tree-toggle {
+        width: 14px;
+        text-align: center;
+        cursor: pointer;
+        color: var(--text-tertiary);
+        flex-shrink: 0;
+    }
+
+    .tree-toggle-space {
+        width: 14px;
+        flex-shrink: 0;
+    }
+
+    .tree-type {
+        color: #2196F3;
+        font-weight: 500;
+    }
+
+    .tree-text {
+        color: #4caf50;
+        font-style: italic;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .tree-aid {
+        color: #ff9800;
+        font-size: 0.75rem;
+    }
+
+    .tree-hidden {
+        color: var(--text-tertiary);
+        font-size: 0.7rem;
+    }
+
+    .tree-loading, .tree-empty {
+        padding: 2rem;
+        text-align: center;
+        color: var(--text-tertiary);
+    }
+
+    /* Properties */
+    .props-container {
+        flex: 1;
+        overflow: auto;
+        font-size: 0.8rem;
+    }
+
+    .prop-section {
+        border-bottom: 1px solid var(--border-color);
+        padding: 0.5rem 0;
+    }
+
+    .prop-section-title {
+        font-weight: 600;
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        color: var(--text-tertiary);
+        padding: 0.25rem 0.75rem;
+        letter-spacing: 0.05em;
+    }
+
+    .prop-row {
+        display: flex;
+        align-items: center;
+        padding: 0.2rem 0.75rem;
+        gap: 0.5rem;
+    }
+
+    .prop-row.editable {
+        cursor: pointer;
+    }
+
+    .prop-row.editable:hover {
+        background: var(--bg-tertiary);
+    }
+
+    .prop-key {
+        color: var(--text-secondary);
+        min-width: 80px;
+        flex-shrink: 0;
+        font-size: 0.75rem;
+    }
+
+    .prop-value {
+        color: var(--text-primary);
+        word-break: break-all;
+    }
+
+    .prop-value.mono {
+        font-family: 'SF Mono', 'Cascadia Code', monospace;
+        font-size: 0.75rem;
+    }
+
+    .prop-value.val-true {
+        color: #22c55e;
+    }
+
+    .prop-value.val-false {
+        color: #ef4444;
+    }
+
+    .prop-edit-input {
+        flex: 1;
+        font-size: 0.8rem;
+        padding: 0.15rem 0.4rem;
+        border: 1px solid var(--accent-color, #8b5cf6);
+        border-radius: 3px;
+        background: var(--bg-primary);
+        color: var(--text-primary);
+    }
+
+    .props-empty {
+        padding: 2rem 1rem;
+        text-align: center;
+        color: var(--text-tertiary);
+        font-size: 0.85rem;
+    }
+</style>
