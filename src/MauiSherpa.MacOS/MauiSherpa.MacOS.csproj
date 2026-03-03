@@ -89,4 +89,21 @@
     <Exec Command="chmod +x &quot;$(_CopilotAppBundle)/copilot&quot;" Condition="Exists('$(_CopilotSourceBinary)')" />
   </Target>
 
+  <!-- Bundle Copilot Skills into the macOS app.
+       MauiAsset items are not processed by Platform.Maui.MacOS, so we
+       copy Skills into Contents/Resources/Skills manually. -->
+  <Target Name="_BundleSkillsForMacOS" AfterTargets="Build">
+    <PropertyGroup>
+      <_SkillsSource>$([MSBuild]::NormalizePath('$(MSBuildProjectDirectory)', '..', 'MauiSherpa', 'Resources', 'Raw', 'Skills'))</_SkillsSource>
+      <_SkillsDest>$(OutDir)$(ApplicationTitle).app/Contents/Resources/Skills</_SkillsDest>
+    </PropertyGroup>
+    <ItemGroup>
+      <_SkillFiles Include="$(_SkillsSource)/**/*" Condition="Exists('$(_SkillsSource)')" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_SkillFiles)"
+          DestinationFiles="@(_SkillFiles->'$(_SkillsDest)/%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true"
+          Condition="'@(_SkillFiles)' != ''" />
+  </Target>
+
 </Project>
