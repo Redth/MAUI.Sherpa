@@ -1,5 +1,6 @@
 @using MauiSherpa.Core.Models.DevFlow
 @using MauiSherpa.Core.Services
+@inject IJSRuntime JS
 @implements IDisposable
 
 <div class="network-layout">
@@ -94,7 +95,7 @@
                                     <span>Content-Type: @(selectedDetail.RequestContentType ?? "unknown")</span>
                                     @if (selectedDetail.RequestBodyTruncated) { <span class="truncated-badge">Truncated</span> }
                                 </div>
-                                <pre class="body-content text-selectable">@FormatBody(selectedDetail.RequestBody, selectedDetail.RequestContentType)</pre>
+                                <pre class="body-content text-selectable"><code id="request-body" class="@GetLanguageClass(selectedDetail.RequestContentType)">@FormatBody(selectedDetail.RequestBody, selectedDetail.RequestContentType)</code></pre>
                             </div>
                         }
                         else
@@ -112,7 +113,7 @@
                                     @if (selectedDetail.ResponseSize != null) { <span>@FormatSize(selectedDetail.ResponseSize) </span> }
                                     @if (selectedDetail.ResponseBodyTruncated) { <span class="truncated-badge">Truncated</span> }
                                 </div>
-                                <pre class="body-content text-selectable">@FormatBody(selectedDetail.ResponseBody, selectedDetail.ResponseContentType)</pre>
+                                <pre class="body-content text-selectable"><code id="response-body" class="@GetLanguageClass(selectedDetail.ResponseContentType)">@FormatBody(selectedDetail.ResponseBody, selectedDetail.ResponseContentType)</code></pre>
                             </div>
                         }
                         else if (selectedDetail.Error != null)
@@ -279,6 +280,16 @@
         StartPolling();
     }
 
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (selectedDetail != null && (detailTab == "request" || detailTab == "response"))
+        {
+            var elementId = detailTab == "request" ? "request-body" : "response-body";
+            try { await JS.InvokeVoidAsync("highlightCode", elementId); }
+            catch { }
+        }
+    }
+
     private async Task FetchNetworkRequests()
     {
         try
@@ -387,6 +398,17 @@
             catch { }
         }
         return body;
+    }
+
+    private static string GetLanguageClass(string? contentType)
+    {
+        if (contentType == null) return "";
+        if (contentType.Contains("json")) return "language-json";
+        if (contentType.Contains("xml")) return "language-xml";
+        if (contentType.Contains("html")) return "language-html";
+        if (contentType.Contains("javascript")) return "language-javascript";
+        if (contentType.Contains("css")) return "language-css";
+        return "";
     }
 
     private void StartResize(MouseEventArgs e)
@@ -633,6 +655,10 @@
 
     .body-viewer {
         padding: 0.5rem;
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
     }
 
     .body-meta {
@@ -651,16 +677,23 @@
     }
 
     .body-content {
-        padding: 0.5rem;
+        padding: 0;
         background: var(--bg-secondary);
         border-radius: 4px;
         overflow: auto;
-        max-height: 400px;
+        flex: 1;
+        min-height: 0;
         font-family: 'SF Mono', 'Cascadia Code', monospace;
         font-size: 0.75rem;
         white-space: pre-wrap;
         word-break: break-all;
         margin: 0;
+    }
+
+    .body-content code {
+        padding: 0.5rem;
+        display: block;
+        background: transparent !important;
     }
 
     .body-empty, .body-error {
