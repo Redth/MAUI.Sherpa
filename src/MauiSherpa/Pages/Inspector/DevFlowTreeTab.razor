@@ -107,34 +107,6 @@
                         <span class="prop-key">ID</span>
                         <span class="prop-value mono">@selectedElement.Id</span>
                     </div>
-                    @if (selectedElement.AutomationId != null)
-                    {
-                        <div class="prop-row editable" @onclick='@(() => StartEditing("AutomationId", selectedElement.AutomationId))'>
-                            <span class="prop-key">AutomationId</span>
-                            @if (editingProperty == "AutomationId")
-                            {
-                                <input type="text" @bind="editValue" @bind:event="oninput" @onkeydown="OnEditKeyDown" @onfocusout="OnEditBlur" @ref="editInput" class="prop-edit-input" />
-                            }
-                            else
-                            {
-                                <span class="prop-value">@selectedElement.AutomationId</span>
-                            }
-                        </div>
-                    }
-                    @if (selectedElement.Text != null)
-                    {
-                        <div class="prop-row editable" @onclick='@(() => StartEditing("Text", selectedElement.Text))'>
-                            <span class="prop-key">Text</span>
-                            @if (editingProperty == "Text")
-                            {
-                                <input type="text" @bind="editValue" @bind:event="oninput" @onkeydown="OnEditKeyDown" @onfocusout="OnEditBlur" @ref="editInput" class="prop-edit-input" />
-                            }
-                            else
-                            {
-                                <span class="prop-value">"@selectedElement.Text"</span>
-                            }
-                        </div>
-                    }
                     @if (selectedElement.Bounds != null)
                     {
                         <div class="prop-row">
@@ -146,18 +118,6 @@
                             <span class="prop-value">@($"{selectedElement.Bounds.Width:F0} × {selectedElement.Bounds.Height:F0}")</span>
                         </div>
                     }
-                    <div class="prop-row">
-                        <span class="prop-key">Focused</span>
-                        <span class="prop-value @(selectedElement.IsFocused ? "val-true" : "val-false")">
-                            @selectedElement.IsFocused
-                            @if (!selectedElement.IsFocused)
-                            {
-                                <button class="btn-focus" @onclick="FocusSelected" title="Focus this element">
-                                    <i class="fas fa-crosshairs"></i>
-                                </button>
-                            }
-                        </span>
-                    </div>
                 </div>
 
                 <!-- Gestures -->
@@ -196,6 +156,21 @@
                             {
                                 <div @key="prop.Name">
                                     @RenderPropertyEditor(prop)
+                                </div>
+                            }
+                            @if (group.Key == "Behavior")
+                            {
+                                <div class="prop-row">
+                                    <span class="prop-key">Focused</span>
+                                    <span class="prop-value @(selectedElement.IsFocused ? "val-true" : "val-false")">
+                                        @selectedElement.IsFocused
+                                        @if (!selectedElement.IsFocused)
+                                        {
+                                            <button class="btn-focus" @onclick="FocusSelected" title="Focus this element">
+                                                <i class="fas fa-crosshairs"></i>
+                                            </button>
+                                        }
+                                    </span>
                                 </div>
                             }
                         </div>
@@ -366,13 +341,11 @@
             EnumValues: new[] { "MatchParent", "LeftToRight", "RightToLeft" }),
         ["Keyboard"] = new(EditorType.Enum, "Behavior",
             EnumValues: new[] { "Default", "Chat", "Email", "Numeric", "Plain", "Telephone", "Text", "Url" }),
-        ["AutomationId"] = new(EditorType.Text, "Element"),
-        ["Text"] = new(EditorType.Text, "Element"),
+        ["AutomationId"] = new(EditorType.Text, "Behavior", SortOrder: 0),
+        ["Text"] = new(EditorType.Text, "Appearance", SortOrder: 0),
     };
 
-    private static readonly string[] CommonProperties = PropertyRegistry.Keys
-        .Where(k => k != "AutomationId" && k != "Text") // These come from tree node
-        .ToArray();
+    private static readonly string[] CommonProperties = PropertyRegistry.Keys.ToArray();
 
     private static readonly string[] GroupOrder = new[] { "Appearance", "Layout", "Behavior", "Transform", "Other" };
 
@@ -1621,7 +1594,7 @@
         var (top, right, bottom, left) = ParseThickness(prop.Value);
 
         __builder.OpenElement(0, "div");
-        __builder.AddAttribute(1, "class", "prop-row thickness-row");
+        __builder.AddAttribute(1, "class", "prop-row");
 
         __builder.OpenElement(2, "span");
         __builder.AddAttribute(3, "class", "prop-key");
@@ -1629,66 +1602,65 @@
         __builder.CloseElement();
 
         __builder.OpenElement(5, "div");
-        __builder.AddAttribute(6, "class", "thickness-editor");
+        __builder.AddAttribute(6, "class", "thickness-inline");
 
-        // Box model visual
-        __builder.OpenElement(7, "div");
-        __builder.AddAttribute(8, "class", "thickness-box");
-
-        // Top
-        __builder.OpenElement(10, "div");
-        __builder.AddAttribute(11, "class", "thickness-val thickness-top");
-        __builder.OpenElement(12, "input");
-        __builder.AddAttribute(13, "type", "number");
-        __builder.AddAttribute(14, "value", top);
-        __builder.AddAttribute(15, "class", "thickness-input");
-        __builder.AddAttribute(16, "step", "1");
-        __builder.AddAttribute(17, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, (e) =>
-            CommitThickness(prop.Name, e.Value?.ToString() ?? "0", right, bottom, left)));
+        // L
+        __builder.OpenElement(10, "span");
+        __builder.AddAttribute(11, "class", "thickness-label");
+        __builder.AddContent(12, "L");
         __builder.CloseElement();
-        __builder.CloseElement();
-
-        // Right
-        __builder.OpenElement(20, "div");
-        __builder.AddAttribute(21, "class", "thickness-val thickness-right");
-        __builder.OpenElement(22, "input");
-        __builder.AddAttribute(23, "type", "number");
-        __builder.AddAttribute(24, "value", right);
-        __builder.AddAttribute(25, "class", "thickness-input");
-        __builder.AddAttribute(26, "step", "1");
-        __builder.AddAttribute(27, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, (e) =>
-            CommitThickness(prop.Name, top, e.Value?.ToString() ?? "0", bottom, left)));
-        __builder.CloseElement();
-        __builder.CloseElement();
-
-        // Bottom
-        __builder.OpenElement(30, "div");
-        __builder.AddAttribute(31, "class", "thickness-val thickness-bottom");
-        __builder.OpenElement(32, "input");
-        __builder.AddAttribute(33, "type", "number");
-        __builder.AddAttribute(34, "value", bottom);
-        __builder.AddAttribute(35, "class", "thickness-input");
-        __builder.AddAttribute(36, "step", "1");
-        __builder.AddAttribute(37, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, (e) =>
-            CommitThickness(prop.Name, top, right, e.Value?.ToString() ?? "0", left)));
-        __builder.CloseElement();
-        __builder.CloseElement();
-
-        // Left
-        __builder.OpenElement(40, "div");
-        __builder.AddAttribute(41, "class", "thickness-val thickness-left");
-        __builder.OpenElement(42, "input");
-        __builder.AddAttribute(43, "type", "number");
-        __builder.AddAttribute(44, "value", left);
-        __builder.AddAttribute(45, "class", "thickness-input");
-        __builder.AddAttribute(46, "step", "1");
-        __builder.AddAttribute(47, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, (e) =>
+        __builder.OpenElement(13, "input");
+        __builder.AddAttribute(14, "type", "number");
+        __builder.AddAttribute(15, "value", left);
+        __builder.AddAttribute(16, "class", "thickness-input-sm");
+        __builder.AddAttribute(17, "step", "1");
+        __builder.AddAttribute(18, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, (e) =>
             CommitThickness(prop.Name, top, right, bottom, e.Value?.ToString() ?? "0")));
         __builder.CloseElement();
+
+        // T
+        __builder.OpenElement(20, "span");
+        __builder.AddAttribute(21, "class", "thickness-label");
+        __builder.AddContent(22, "T");
+        __builder.CloseElement();
+        __builder.OpenElement(23, "input");
+        __builder.AddAttribute(24, "type", "number");
+        __builder.AddAttribute(25, "value", top);
+        __builder.AddAttribute(26, "class", "thickness-input-sm");
+        __builder.AddAttribute(27, "step", "1");
+        __builder.AddAttribute(28, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, (e) =>
+            CommitThickness(prop.Name, e.Value?.ToString() ?? "0", right, bottom, left)));
         __builder.CloseElement();
 
-        __builder.CloseElement(); // thickness-box
-        __builder.CloseElement(); // thickness-editor
+        // R
+        __builder.OpenElement(30, "span");
+        __builder.AddAttribute(31, "class", "thickness-label");
+        __builder.AddContent(32, "R");
+        __builder.CloseElement();
+        __builder.OpenElement(33, "input");
+        __builder.AddAttribute(34, "type", "number");
+        __builder.AddAttribute(35, "value", right);
+        __builder.AddAttribute(36, "class", "thickness-input-sm");
+        __builder.AddAttribute(37, "step", "1");
+        __builder.AddAttribute(38, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, (e) =>
+            CommitThickness(prop.Name, top, e.Value?.ToString() ?? "0", bottom, left)));
+        __builder.CloseElement();
+
+        // B
+        __builder.OpenElement(40, "span");
+        __builder.AddAttribute(41, "class", "thickness-label");
+        __builder.AddContent(42, "B");
+        __builder.CloseElement();
+        __builder.OpenElement(43, "input");
+        __builder.AddAttribute(44, "type", "number");
+        __builder.AddAttribute(45, "value", bottom);
+        __builder.AddAttribute(46, "class", "thickness-input-sm");
+        __builder.AddAttribute(47, "step", "1");
+        __builder.AddAttribute(48, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, (e) =>
+            CommitThickness(prop.Name, top, right, e.Value?.ToString() ?? "0", left)));
+        __builder.CloseElement();
+
+        __builder.CloseElement(); // thickness-inline
         __builder.CloseElement(); // prop-row
     };
 
@@ -2357,55 +2329,36 @@
     }
 
     /* Thickness editor */
-    .thickness-row {
-        flex-direction: column;
-        align-items: flex-start !important;
-    }
-
-    .thickness-editor {
-        width: 100%;
-        padding: 0.25rem 0;
-    }
-
-    .thickness-box {
-        position: relative;
-        width: 100%;
-        height: 56px;
-        border: 2px dashed var(--border-color);
-        border-radius: 4px;
+    /* Thickness inline editor */
+    .thickness-inline {
         display: flex;
         align-items: center;
-        justify-content: center;
+        gap: 0.2rem;
+        flex: 1;
     }
 
-    .thickness-val {
-        position: absolute;
-        display: flex;
-        align-items: center;
-        justify-content: center;
+    .thickness-label {
+        font-size: 0.65rem;
+        color: var(--text-tertiary);
+        font-weight: 600;
+        min-width: 10px;
     }
 
-    .thickness-top { top: 2px; left: 50%; transform: translateX(-50%); }
-    .thickness-right { right: 4px; top: 50%; transform: translateY(-50%); }
-    .thickness-bottom { bottom: 2px; left: 50%; transform: translateX(-50%); }
-    .thickness-left { left: 4px; top: 50%; transform: translateY(-50%); }
-
-    .thickness-input {
+    .thickness-input-sm {
         width: 36px;
         text-align: center;
         font-size: 0.7rem;
         font-family: 'SF Mono', 'Cascadia Code', monospace;
-        border: 1px solid transparent;
+        border: 1px solid var(--border-color);
         border-radius: 2px;
-        background: transparent;
+        background: var(--bg-primary);
         color: var(--text-primary);
         padding: 0.1rem;
     }
 
-    .thickness-input:hover,
-    .thickness-input:focus {
+    .thickness-input-sm:hover,
+    .thickness-input-sm:focus {
         border-color: var(--accent-color, #8b5cf6);
-        background: var(--bg-primary);
         outline: none;
     }
 
