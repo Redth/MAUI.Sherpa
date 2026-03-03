@@ -488,30 +488,30 @@
         try
         {
             // Get click position relative to the image content area via JS
-            var info = await JS.InvokeAsync<ScreenshotClickInfo>("eval", """
-                (function() {
-                    var img = document.querySelector('.screenshot-img');
-                    if (!img) return null;
-                    var rect = img.getBoundingClientRect();
-                    var natW = img.naturalWidth, natH = img.naturalHeight;
-                    var renW = rect.width, renH = rect.height;
-                    // object-fit: contain — compute actual content area
-                    var imgAspect = natW / natH;
-                    var boxAspect = renW / renH;
-                    var actW, actH, offX, offY;
-                    if (imgAspect > boxAspect) {
-                        actW = renW; actH = renW / imgAspect;
-                        offX = 0; offY = (renH - actH) / 2;
-                    } else {
-                        actH = renH; actW = renH * imgAspect;
-                        offX = (renW - actW) / 2; offY = 0;
-                    }
-                    var mx = arguments[0] - rect.left - offX;
-                    var my = arguments[1] - rect.top - offY;
-                    return { clickX: mx, clickY: my, renderedWidth: actW, renderedHeight: actH,
-                             naturalWidth: natW, naturalHeight: natH };
-                })()
-            """, e.ClientX, e.ClientY);
+            var clientX = e.ClientX;
+            var clientY = e.ClientY;
+            var js = "(function() {" +
+                "var img = document.querySelector('.screenshot-img');" +
+                "if (!img) return null;" +
+                "var rect = img.getBoundingClientRect();" +
+                "var natW = img.naturalWidth, natH = img.naturalHeight;" +
+                "var renW = rect.width, renH = rect.height;" +
+                "var imgAspect = natW / natH;" +
+                "var boxAspect = renW / renH;" +
+                "var actW, actH, offX, offY;" +
+                "if (imgAspect > boxAspect) {" +
+                "  actW = renW; actH = renW / imgAspect;" +
+                "  offX = 0; offY = (renH - actH) / 2;" +
+                "} else {" +
+                "  actH = renH; actW = renH * imgAspect;" +
+                "  offX = (renW - actW) / 2; offY = 0;" +
+                "}" +
+                $"var mx = {clientX} - rect.left - offX;" +
+                $"var my = {clientY} - rect.top - offY;" +
+                "return { clickX: mx, clickY: my, renderedWidth: actW, renderedHeight: actH," +
+                "         naturalWidth: natW, naturalHeight: natH };" +
+                "})()";
+            var info = await JS.InvokeAsync<ScreenshotClickInfo>("eval", js);
 
             if (info == null || info.RenderedWidth <= 0) return;
 
@@ -2166,7 +2166,7 @@
     }
 
     .screenshot-img.inspect-cursor {
-        cursor: crosshairs;
+        cursor: crosshair;
     }
 
     .inspect-active {
