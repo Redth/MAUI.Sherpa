@@ -59,6 +59,7 @@
             <div class="agent-card @GetPlatformColorClass(agent.Platform)" @onclick="@(() => OpenInspector(agent))">
                 <div class="agent-icon">
                     <i class="fas @GetPlatformIcon(agent.Platform)"></i>
+                    <i class="fab @GetBrandIcon(agent.Platform) brand-overlay"></i>
                 </div>
                 <div class="agent-info">
                     <div class="agent-name">@(agent.AppName ?? "Unknown App")</div>
@@ -225,6 +226,15 @@ else if (brokerConnected == null)
         _ => "platform-other"
     };
 
+    private static string GetBrandIcon(string? platform) => platform?.ToLowerInvariant() switch
+    {
+        "ios" or "maccatalyst" or "macos" => "fa-apple",
+        "android" => "fa-android",
+        "winui" or "windows" => "fa-windows",
+        "linux" or "gtk" => "fa-linux",
+        _ => ""
+    };
+
     private static string GetProjectName(string projectPath)
     {
         var name = System.IO.Path.GetFileNameWithoutExtension(projectPath);
@@ -382,6 +392,22 @@ else if (brokerConnected == null)
         justify-content: center;
         border-radius: 12px;
         flex-shrink: 0;
+        position: relative;
+    }
+
+    .brand-overlay {
+        position: absolute;
+        bottom: 3px;
+        right: 3px;
+        font-size: 0.6rem;
+        color: #000;
+        opacity: 0.45;
+        line-height: 1;
+    }
+
+    :global(.theme-dark) .brand-overlay {
+        color: #fff;
+        opacity: 0.5;
     }
 
     /* Platform colors */
