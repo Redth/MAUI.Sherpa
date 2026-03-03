@@ -236,7 +236,7 @@ public class DevFlowAgentClient : IDisposable
                     sb.Clear();
                     try
                     {
-                        var entry = JsonSerializer.Deserialize<DevFlowNetworkRequest>(json);
+                        var entry = JsonSerializer.Deserialize<DevFlowNetworkRequest>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
                         if (entry != null) onRequest(entry);
                     }
                     catch { /* skip malformed messages */ }

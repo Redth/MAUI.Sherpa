@@ -71,7 +71,7 @@
                 var rowItem = item;
                 var isSelected = SelectedItem != null && EqualityComparer<TItem>.Default.Equals(rowItem, SelectedItem);
                 <div class="dg-row @(isSelected ? "selected" : "") @(RowCssClass?.Invoke(rowItem) ?? "")"
-                     @onclick="() => OnRowClick.InvokeAsync(rowItem)">
+                     @onclick="() => HandleRowClick(rowItem)">
                     @for (int i = 0; i < Columns.Count; i++)
                     {
                         var col = Columns[i];
@@ -207,6 +207,11 @@
         sortAscending = true;
         Recompute();
         StateHasChanged();
+    }
+
+    private async Task HandleRowClick(TItem item)
+    {
+        await OnRowClick.InvokeAsync(item);
     }
 
     private void StartColResize(MouseEventArgs e, int colIndex)
