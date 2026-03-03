@@ -56,8 +56,17 @@
         <div class="tree-container">
             @if (treeItems.Count > 0)
             {
-                @foreach (var item in treeItems)
+                @for (int i = 0; i < treeItems.Count; i++)
                 {
+                    var windowIndex = i;
+                    var item = treeItems[i];
+                    @if (treeItems.Count > 1)
+                    {
+                        <div class="window-header @(selectedWindowIndex == windowIndex ? "active" : "")">
+                            <i class="fas fa-window-maximize"></i>
+                            Window @windowIndex: @item.Type
+                        </div>
+                    }
                     @RenderNode(item, 0)
                 }
             }
@@ -210,6 +219,7 @@
     private List<DevFlowElementInfo> treeItems = new();
     private DevFlowElementInfo? selectedElement;
     private string? selectedElementId;
+    private int? selectedWindowIndex;
     private HashSet<string> expandedNodes = new();
     private string searchQuery = "";
     private string? screenshotData;
@@ -309,23 +319,58 @@
         return null;
     }
 
-    private async Task RefreshScreenshot()
+    private async Task RefreshScreenshot(int? window = null)
     {
         try
         {
-            var bytes = await Client.GetScreenshotAsync();
+            var bytes = await Client.GetScreenshotAsync(window: window ?? selectedWindowIndex);
             screenshotData = bytes != null ? Convert.ToBase64String(bytes) : null;
             StateHasChanged();
         }
         catch { }
     }
 
-    private void SelectElement(DevFlowElementInfo element)
+    private async Task SelectElement(DevFlowElementInfo element)
     {
         selectedElement = element;
         selectedElementId = element.Id;
         editingProperty = null;
-        StateHasChanged();
+
+        var windowIndex = GetWindowIndex(element);
+        if (windowIndex != selectedWindowIndex)
+        {
+            selectedWindowIndex = windowIndex;
+            StateHasChanged();
+            await RefreshScreenshot(windowIndex);
+        }
+        else
+        {
+            StateHasChanged();
+        }
+    }
+
+    private int? GetWindowIndex(DevFlowElementInfo element)
+    {
+        for (int i = 0; i < treeItems.Count; i++)
+        {
+            if (ContainsElement(treeItems[i], element.Id))
+                return i;
+        }
+        return null;
+    }
+
+    private bool ContainsElement(DevFlowElementInfo root, string id)
+    {
+        if (root.Id == id) return true;
+        if (root.Children != null)
+        {
+            foreach (var child in root.Children)
+            {
+                if (ContainsElement(child, id))
+                    return true;
+            }
+        }
+        return false;
     }
 
     private void ToggleExpand(string id)
@@ -778,6 +823,29 @@
         padding: 2rem;
         text-align: center;
         color: var(--text-tertiary);
+    }
+
+    .window-header {
+        padding: 4px 8px;
+        font-size: 0.7rem;
+        font-weight: 600;
+        color: var(--text-secondary);
+        background: var(--bg-secondary);
+        border-bottom: 1px solid var(--border-color);
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        user-select: none;
+    }
+
+    .window-header.active {
+        color: var(--accent-color, #2196F3);
+        background: color-mix(in srgb, var(--accent-color, #2196F3) 8%, var(--bg-secondary));
+    }
+
+    .window-header i {
+        font-size: 0.65rem;
+        opacity: 0.6;
     }
 
     /* Properties */
