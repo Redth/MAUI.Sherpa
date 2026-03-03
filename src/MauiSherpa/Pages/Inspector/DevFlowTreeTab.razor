@@ -311,8 +311,18 @@
     private ElementReference editInput;
     private List<PropertyEntry> fetchedProperties = new();
     private string customPropertyName = "";
+    private List<GradientStop> gradientStops = new();
+    private int? selectedStopIndex;
+    private double gradientAngle = 90;
 
     private record PropertyEntry(string Name, string? Value, PropertyMeta Meta);
+
+    private class GradientStop
+    {
+        public string Color { get; set; } = "#ffffff";
+        public double Offset { get; set; }
+        public double Opacity { get; set; } = 1.0;
+    }
 
     // --- Property Metadata Registry ---
 
@@ -1007,7 +1017,11 @@
         __builder.AddAttribute(1, "class", "prop-row brush-row");
         if (!isEditing)
         {
-            __builder.AddAttribute(2, "onclick", EventCallback.Factory.Create<MouseEventArgs>(this, () => StartEditing(prop.Name, value)));
+            __builder.AddAttribute(2, "onclick", EventCallback.Factory.Create<MouseEventArgs>(this, () =>
+            {
+                StartEditing(prop.Name, value);
+                InitGradientStops(brushInfo);
+            }));
         }
 
         __builder.OpenElement(3, "span");
@@ -1018,79 +1032,492 @@
         __builder.OpenElement(6, "div");
         __builder.AddAttribute(7, "class", "brush-value");
 
-        // Gradient/Color preview bar
-        __builder.OpenElement(8, "div");
-        __builder.AddAttribute(9, "class", "brush-preview");
-        __builder.AddAttribute(10, "style", $"background: {brushInfo.CssPreview}");
-        __builder.CloseElement();
-
         if (isEditing)
         {
+            var currentType = DetectEditBrushType();
+
             // Brush type selector
-            __builder.OpenElement(11, "select");
-            __builder.AddAttribute(12, "class", "brush-type-select");
-            __builder.AddAttribute(13, "value", brushInfo.Type);
-            __builder.AddAttribute(14, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, (e) =>
+            __builder.OpenElement(10, "select");
+            __builder.AddAttribute(11, "class", "brush-type-select");
+            __builder.AddAttribute(12, "value", currentType);
+            __builder.AddAttribute(13, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, (e) =>
             {
                 var newType = e.Value?.ToString() ?? "solid";
-                editValue = newType switch
+                if (newType == "solid")
                 {
-                    "linear" => "linear-gradient(90deg, #ff0000 0%, #0000ff 100%)",
-                    "radial" => "radial-gradient(circle, #ff0000 0%, #0000ff 100%)",
-                    _ => brushInfo.Type == "solid" ? editValue : "#ffffff"
-                };
+                    gradientStops.Clear();
+                    selectedStopIndex = null;
+                    editValue = "#ffffff";
+                }
+                else
+                {
+                    gradientStops = new List<GradientStop>
+                    {
+                        new() { Color = "#ff0000", Offset = 0, Opacity = 1 },
+                        new() { Color = "#0000ff", Offset = 1, Opacity = 1 }
+                    };
+                    selectedStopIndex = 0;
+                    gradientAngle = 90;
+                    editValue = BuildGradientCss(newType);
+                }
                 StateHasChanged();
             }));
-            __builder.OpenElement(15, "option"); __builder.AddAttribute(16, "value", "solid"); __builder.AddContent(17, "Solid"); __builder.CloseElement();
-            __builder.OpenElement(18, "option"); __builder.AddAttribute(19, "value", "linear"); __builder.AddContent(20, "Linear"); __builder.CloseElement();
-            __builder.OpenElement(21, "option"); __builder.AddAttribute(22, "value", "radial"); __builder.AddContent(23, "Radial"); __builder.CloseElement();
+            __builder.OpenElement(14, "option"); __builder.AddAttribute(15, "value", "solid"); __builder.AddContent(16, "Solid"); __builder.CloseElement();
+            __builder.OpenElement(17, "option"); __builder.AddAttribute(18, "value", "linear"); __builder.AddContent(19, "Linear"); __builder.CloseElement();
+            __builder.OpenElement(20, "option"); __builder.AddAttribute(21, "value", "radial"); __builder.AddContent(22, "Radial"); __builder.CloseElement();
             __builder.CloseElement(); // select
 
-            if (brushInfo.Type == "solid")
+            if (currentType == "solid")
             {
-                // Solid color: color picker + text
-                __builder.OpenElement(24, "input");
-                __builder.AddAttribute(25, "type", "color");
-                __builder.AddAttribute(26, "value", MauiColorToHex(editValue));
-                __builder.AddAttribute(27, "class", "color-picker-input");
-                __builder.AddAttribute(28, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, async (e) =>
+                // Solid: preview + color picker + text
+                __builder.OpenElement(23, "div");
+                __builder.AddAttribute(24, "class", "brush-preview");
+                __builder.AddAttribute(25, "style", $"background: {MauiColorToCss(editValue)}");
+                __builder.CloseElement();
+
+                __builder.OpenElement(26, "div");
+                __builder.AddAttribute(27, "class", "solid-color-row");
+
+                __builder.OpenElement(28, "input");
+                __builder.AddAttribute(29, "type", "color");
+                __builder.AddAttribute(30, "value", MauiColorToHex(editValue));
+                __builder.AddAttribute(31, "class", "color-picker-input");
+                __builder.AddAttribute(32, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, async (e) =>
                 {
                     editValue = e.Value?.ToString() ?? "";
                     await CommitEdit();
                 }));
                 __builder.CloseElement();
-            }
 
-            // CSS text input (works for all brush types)
-            __builder.OpenElement(30, "input");
-            __builder.AddAttribute(31, "type", "text");
-            __builder.AddAttribute(32, "value", editValue);
-            __builder.AddAttribute(33, "class", "prop-edit-input brush-css-input");
-            __builder.AddAttribute(34, "placeholder", "CSS gradient or color...");
-            __builder.AddAttribute(35, "onkeydown", EventCallback.Factory.Create<KeyboardEventArgs>(this, async (e) =>
+                __builder.OpenElement(33, "input");
+                __builder.AddAttribute(34, "type", "text");
+                __builder.AddAttribute(35, "value", editValue);
+                __builder.AddAttribute(36, "class", "prop-edit-input brush-css-input");
+                __builder.AddAttribute(37, "onkeydown", EventCallback.Factory.Create<KeyboardEventArgs>(this, async (e) =>
+                {
+                    if (e.Key == "Enter") await CommitEdit();
+                    else if (e.Key == "Escape") { editingProperty = null; StateHasChanged(); }
+                }));
+                __builder.AddAttribute(38, "onfocusout", EventCallback.Factory.Create(this, OnEditBlur));
+                __builder.CloseElement();
+
+                __builder.CloseElement(); // solid-color-row
+            }
+            else
             {
-                if (e.Key == "Enter") await CommitEdit();
-                else if (e.Key == "Escape") { editingProperty = null; StateHasChanged(); }
-            }));
-            __builder.AddAttribute(36, "onfocusout", EventCallback.Factory.Create(this, OnEditBlur));
-            __builder.CloseElement();
+                // Gradient editor
+                var gradientCss = BuildGradientCss(currentType);
+
+                // Live preview
+                __builder.OpenElement(40, "div");
+                __builder.AddAttribute(41, "class", currentType == "radial" ? "brush-preview brush-preview-radial" : "brush-preview");
+                __builder.AddAttribute(42, "style", $"background: {gradientCss}");
+                __builder.CloseElement();
+
+                // Gradient stop track
+                __builder.OpenElement(43, "div");
+                __builder.AddAttribute(44, "class", "gradient-track-container");
+
+                // Track bar showing gradient
+                __builder.OpenElement(45, "div");
+                __builder.AddAttribute(46, "class", "gradient-track");
+                __builder.AddAttribute(47, "style", $"background: linear-gradient(90deg, {BuildLinearStopsCss()})");
+                // Click track to add new stop
+                __builder.AddAttribute(48, "onclick", EventCallback.Factory.Create<MouseEventArgs>(this, (e) =>
+                {
+                    // Can't get precise click position from MouseEventArgs offset in RenderFragment,
+                    // so we use the "Add" button instead
+                }));
+                __builder.CloseElement();
+
+                // Stop handles on the track
+                for (var si = 0; si < gradientStops.Count; si++)
+                {
+                    var idx = si;
+                    var stop = gradientStops[si];
+                    var colorWithOpacity = stop.Opacity < 1
+                        ? $"rgba({HexToRgb(stop.Color)}, {stop.Opacity:F2})"
+                        : stop.Color;
+
+                    __builder.OpenElement(50, "div");
+                    __builder.AddAttribute(51, "class", $"gradient-stop-handle {(selectedStopIndex == idx ? "selected" : "")}");
+                    __builder.AddAttribute(52, "style", $"left: {stop.Offset * 100:F1}%; background: {colorWithOpacity}");
+                    __builder.AddAttribute(53, "onclick", EventCallback.Factory.Create<MouseEventArgs>(this, () =>
+                    {
+                        selectedStopIndex = idx;
+                        StateHasChanged();
+                    }));
+                    __builder.AddAttribute(54, "title", $"{stop.Offset * 100:F0}%");
+                    __builder.CloseElement();
+                }
+
+                __builder.CloseElement(); // gradient-track-container
+
+                // Stop controls row
+                __builder.OpenElement(60, "div");
+                __builder.AddAttribute(61, "class", "gradient-stop-controls");
+
+                // Add stop button
+                __builder.OpenElement(62, "button");
+                __builder.AddAttribute(63, "class", "btn-icon-sm");
+                __builder.AddAttribute(64, "title", "Add stop");
+                __builder.AddAttribute(65, "onclick", EventCallback.Factory.Create<MouseEventArgs>(this, () =>
+                {
+                    var newOffset = 0.5;
+                    if (gradientStops.Count >= 2)
+                    {
+                        // Insert midpoint between last two stops
+                        var sorted = gradientStops.OrderBy(s => s.Offset).ToList();
+                        var lastIdx = sorted.Count - 1;
+                        newOffset = (sorted[lastIdx - 1].Offset + sorted[lastIdx].Offset) / 2;
+                    }
+                    gradientStops.Add(new GradientStop { Color = "#888888", Offset = newOffset, Opacity = 1 });
+                    selectedStopIndex = gradientStops.Count - 1;
+                    editValue = BuildGradientCss(currentType);
+                    StateHasChanged();
+                }));
+                __builder.OpenElement(66, "i");
+                __builder.AddAttribute(67, "class", "fas fa-plus");
+                __builder.CloseElement();
+                __builder.CloseElement(); // button add
+
+                // Remove stop button
+                __builder.OpenElement(68, "button");
+                __builder.AddAttribute(69, "class", "btn-icon-sm");
+                __builder.AddAttribute(70, "title", "Remove stop");
+                __builder.AddAttribute(71, "disabled", gradientStops.Count <= 2);
+                __builder.AddAttribute(72, "onclick", EventCallback.Factory.Create<MouseEventArgs>(this, () =>
+                {
+                    if (gradientStops.Count > 2 && selectedStopIndex.HasValue && selectedStopIndex.Value < gradientStops.Count)
+                    {
+                        gradientStops.RemoveAt(selectedStopIndex.Value);
+                        selectedStopIndex = Math.Min(selectedStopIndex.Value, gradientStops.Count - 1);
+                        editValue = BuildGradientCss(currentType);
+                        StateHasChanged();
+                    }
+                }));
+                __builder.OpenElement(73, "i");
+                __builder.AddAttribute(74, "class", "fas fa-minus");
+                __builder.CloseElement();
+                __builder.CloseElement(); // button remove
+
+                // Stop count label
+                __builder.OpenElement(75, "span");
+                __builder.AddAttribute(76, "class", "gradient-stop-count");
+                __builder.AddContent(77, $"{gradientStops.Count} stops");
+                __builder.CloseElement();
+
+                __builder.CloseElement(); // gradient-stop-controls
+
+                // Selected stop editor
+                if (selectedStopIndex.HasValue && selectedStopIndex.Value < gradientStops.Count)
+                {
+                    var selStop = gradientStops[selectedStopIndex.Value];
+                    var selIdx = selectedStopIndex.Value;
+
+                    __builder.OpenElement(80, "div");
+                    __builder.AddAttribute(81, "class", "gradient-stop-editor");
+
+                    // Color picker
+                    __builder.OpenElement(82, "div");
+                    __builder.AddAttribute(83, "class", "stop-editor-field");
+                    __builder.OpenElement(84, "label");
+                    __builder.AddContent(85, "Color");
+                    __builder.CloseElement();
+                    __builder.OpenElement(86, "input");
+                    __builder.AddAttribute(87, "type", "color");
+                    __builder.AddAttribute(88, "value", selStop.Color);
+                    __builder.AddAttribute(89, "class", "color-picker-input");
+                    __builder.AddAttribute(90, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, (e) =>
+                    {
+                        gradientStops[selIdx].Color = e.Value?.ToString() ?? "#ffffff";
+                        editValue = BuildGradientCss(currentType);
+                        StateHasChanged();
+                    }));
+                    __builder.CloseElement();
+                    __builder.CloseElement(); // stop-editor-field color
+
+                    // Offset slider
+                    __builder.OpenElement(92, "div");
+                    __builder.AddAttribute(93, "class", "stop-editor-field");
+                    __builder.OpenElement(94, "label");
+                    __builder.AddContent(95, $"Offset {selStop.Offset * 100:F0}%");
+                    __builder.CloseElement();
+                    __builder.OpenElement(96, "input");
+                    __builder.AddAttribute(97, "type", "range");
+                    __builder.AddAttribute(98, "min", "0");
+                    __builder.AddAttribute(99, "max", "100");
+                    __builder.AddAttribute(100, "step", "1");
+                    __builder.AddAttribute(101, "value", $"{selStop.Offset * 100:F0}");
+                    __builder.AddAttribute(102, "class", "gradient-offset-slider");
+                    __builder.AddAttribute(103, "oninput", EventCallback.Factory.Create<ChangeEventArgs>(this, (e) =>
+                    {
+                        if (double.TryParse(e.Value?.ToString(), out var pct))
+                        {
+                            gradientStops[selIdx].Offset = pct / 100.0;
+                            editValue = BuildGradientCss(currentType);
+                            StateHasChanged();
+                        }
+                    }));
+                    __builder.CloseElement();
+                    __builder.CloseElement(); // stop-editor-field offset
+
+                    // Opacity slider
+                    __builder.OpenElement(105, "div");
+                    __builder.AddAttribute(106, "class", "stop-editor-field");
+                    __builder.OpenElement(107, "label");
+                    __builder.AddContent(108, $"Opacity {selStop.Opacity * 100:F0}%");
+                    __builder.CloseElement();
+                    __builder.OpenElement(109, "input");
+                    __builder.AddAttribute(110, "type", "range");
+                    __builder.AddAttribute(111, "min", "0");
+                    __builder.AddAttribute(112, "max", "100");
+                    __builder.AddAttribute(113, "step", "1");
+                    __builder.AddAttribute(114, "value", $"{selStop.Opacity * 100:F0}");
+                    __builder.AddAttribute(115, "class", "gradient-opacity-slider");
+                    __builder.AddAttribute(116, "oninput", EventCallback.Factory.Create<ChangeEventArgs>(this, (e) =>
+                    {
+                        if (double.TryParse(e.Value?.ToString(), out var pct))
+                        {
+                            gradientStops[selIdx].Opacity = pct / 100.0;
+                            editValue = BuildGradientCss(currentType);
+                            StateHasChanged();
+                        }
+                    }));
+                    __builder.CloseElement();
+                    __builder.CloseElement(); // stop-editor-field opacity
+
+                    __builder.CloseElement(); // gradient-stop-editor
+                }
+
+                // Angle control for linear
+                if (currentType == "linear")
+                {
+                    __builder.OpenElement(120, "div");
+                    __builder.AddAttribute(121, "class", "gradient-angle-row");
+                    __builder.OpenElement(122, "label");
+                    __builder.AddContent(123, $"Angle {gradientAngle:F0}°");
+                    __builder.CloseElement();
+                    __builder.OpenElement(124, "input");
+                    __builder.AddAttribute(125, "type", "range");
+                    __builder.AddAttribute(126, "min", "0");
+                    __builder.AddAttribute(127, "max", "360");
+                    __builder.AddAttribute(128, "step", "1");
+                    __builder.AddAttribute(129, "value", $"{gradientAngle:F0}");
+                    __builder.AddAttribute(130, "class", "gradient-angle-slider");
+                    __builder.AddAttribute(131, "oninput", EventCallback.Factory.Create<ChangeEventArgs>(this, (e) =>
+                    {
+                        if (double.TryParse(e.Value?.ToString(), out var deg))
+                        {
+                            gradientAngle = deg;
+                            editValue = BuildGradientCss("linear");
+                            StateHasChanged();
+                        }
+                    }));
+                    __builder.CloseElement();
+                    __builder.CloseElement(); // gradient-angle-row
+                }
+
+                // Apply button
+                __builder.OpenElement(140, "div");
+                __builder.AddAttribute(141, "class", "gradient-actions");
+                __builder.OpenElement(142, "button");
+                __builder.AddAttribute(143, "class", "btn-apply-sm");
+                __builder.AddAttribute(144, "onclick", EventCallback.Factory.Create<MouseEventArgs>(this, async () =>
+                {
+                    editValue = BuildGradientCss(currentType);
+                    await CommitEdit();
+                }));
+                __builder.OpenElement(145, "i");
+                __builder.AddAttribute(146, "class", "fas fa-check");
+                __builder.CloseElement();
+                __builder.AddContent(147, " Apply");
+                __builder.CloseElement(); // button
+                __builder.OpenElement(148, "button");
+                __builder.AddAttribute(149, "class", "btn-cancel-sm");
+                __builder.AddAttribute(150, "onclick", EventCallback.Factory.Create<MouseEventArgs>(this, () =>
+                {
+                    editingProperty = null;
+                    gradientStops.Clear();
+                    selectedStopIndex = null;
+                    StateHasChanged();
+                }));
+                __builder.OpenElement(151, "i");
+                __builder.AddAttribute(152, "class", "fas fa-times");
+                __builder.CloseElement();
+                __builder.AddContent(153, " Cancel");
+                __builder.CloseElement(); // cancel button
+                __builder.CloseElement(); // gradient-actions
+            }
         }
         else
         {
-            // Display mode: type badge + value
-            __builder.OpenElement(40, "span");
-            __builder.AddAttribute(41, "class", "brush-type-badge");
-            __builder.AddContent(42, brushInfo.Type);
+            // Display mode: preview + type badge + value
+            __builder.OpenElement(160, "div");
+            __builder.AddAttribute(161, "class", "brush-preview");
+            __builder.AddAttribute(162, "style", $"background: {brushInfo.CssPreview}");
             __builder.CloseElement();
 
-            __builder.OpenElement(43, "span");
-            __builder.AddAttribute(44, "class", "mono brush-text");
-            __builder.AddContent(45, brushInfo.DisplayText);
+            __builder.OpenElement(163, "span");
+            __builder.AddAttribute(164, "class", "brush-type-badge");
+            __builder.AddContent(165, brushInfo.Type);
+            __builder.CloseElement();
+
+            __builder.OpenElement(166, "span");
+            __builder.AddAttribute(167, "class", "mono brush-text");
+            __builder.AddContent(168, brushInfo.DisplayText);
             __builder.CloseElement();
         }
 
         __builder.CloseElement(); // div.brush-value
         __builder.CloseElement(); // div.prop-row
+    };
+
+    // --- Gradient editor helpers ---
+
+    private void InitGradientStops(BrushInfo info)
+    {
+        gradientStops.Clear();
+        selectedStopIndex = null;
+        gradientAngle = 90;
+
+        if (info.Type == "linear" || info.Type == "radial")
+        {
+            // Parse stops from CSS gradient string
+            var css = info.CssPreview;
+            var stopsStr = css;
+            var parenStart = css.IndexOf('(');
+            var parenEnd = css.LastIndexOf(')');
+            if (parenStart >= 0 && parenEnd > parenStart)
+                stopsStr = css[(parenStart + 1)..parenEnd];
+
+            // Extract angle for linear
+            if (info.Type == "linear")
+            {
+                var angleMatch = System.Text.RegularExpressions.Regex.Match(stopsStr, @"(\d+(?:\.\d+)?)\s*deg");
+                if (angleMatch.Success && double.TryParse(angleMatch.Groups[1].Value, out var deg))
+                    gradientAngle = deg;
+            }
+
+            // Extract color stops: #hex pct%, rgba(...) pct%, colorname pct%
+            var stopMatches = System.Text.RegularExpressions.Regex.Matches(stopsStr,
+                @"(#[0-9A-Fa-f]{3,8}|rgba?\([^)]+\)|[a-zA-Z]+)\s*(\d+(?:\.\d+)?)%");
+            foreach (System.Text.RegularExpressions.Match m in stopMatches)
+            {
+                var colorStr = m.Groups[1].Value.Trim();
+                var offset = double.Parse(m.Groups[2].Value) / 100.0;
+                var opacity = 1.0;
+
+                // Parse rgba opacity
+                var rgbaMatch = System.Text.RegularExpressions.Regex.Match(colorStr, @"rgba?\(\s*(\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)");
+                if (rgbaMatch.Success)
+                {
+                    var r = int.Parse(rgbaMatch.Groups[1].Value);
+                    var g = int.Parse(rgbaMatch.Groups[2].Value);
+                    var b = int.Parse(rgbaMatch.Groups[3].Value);
+                    colorStr = $"#{r:X2}{g:X2}{b:X2}";
+                    if (rgbaMatch.Groups[4].Success && double.TryParse(rgbaMatch.Groups[4].Value, System.Globalization.CultureInfo.InvariantCulture, out var a))
+                        opacity = a;
+                }
+
+                // Skip non-color tokens like "circle", "deg" numbers
+                if (colorStr.Equals("circle", StringComparison.OrdinalIgnoreCase)
+                    || colorStr.Equals("ellipse", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                gradientStops.Add(new GradientStop { Color = colorStr.StartsWith("#") ? colorStr : NamedColorToHex(colorStr), Offset = offset, Opacity = opacity });
+            }
+
+            // Fallback: extract just hex colors without percentages
+            if (gradientStops.Count < 2)
+            {
+                gradientStops.Clear();
+                var hexMatches = System.Text.RegularExpressions.Regex.Matches(stopsStr, @"#[0-9A-Fa-f]{3,8}");
+                for (int i = 0; i < hexMatches.Count; i++)
+                {
+                    gradientStops.Add(new GradientStop
+                    {
+                        Color = hexMatches[i].Value,
+                        Offset = hexMatches.Count > 1 ? (double)i / (hexMatches.Count - 1) : 0,
+                        Opacity = 1
+                    });
+                }
+            }
+
+            // Ensure at least 2 stops
+            if (gradientStops.Count < 2)
+            {
+                gradientStops = new List<GradientStop>
+                {
+                    new() { Color = "#ff0000", Offset = 0, Opacity = 1 },
+                    new() { Color = "#0000ff", Offset = 1, Opacity = 1 }
+                };
+            }
+
+            selectedStopIndex = 0;
+        }
+    }
+
+    private string DetectEditBrushType()
+    {
+        var v = editValue.Trim();
+        if (v.StartsWith("linear-gradient", StringComparison.OrdinalIgnoreCase)) return "linear";
+        if (v.StartsWith("radial-gradient", StringComparison.OrdinalIgnoreCase)) return "radial";
+        if (gradientStops.Count >= 2) return "linear"; // default for gradient mode
+        return "solid";
+    }
+
+    private string BuildGradientCss(string type)
+    {
+        if (gradientStops.Count == 0) return editValue;
+        var sorted = gradientStops.OrderBy(s => s.Offset).ToList();
+        var stops = string.Join(", ", sorted.Select(s =>
+        {
+            var c = s.Opacity < 1
+                ? $"rgba({HexToRgb(s.Color)}, {s.Opacity.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)})"
+                : s.Color;
+            return $"{c} {(s.Offset * 100).ToString("F0", System.Globalization.CultureInfo.InvariantCulture)}%";
+        }));
+        return type == "radial"
+            ? $"radial-gradient(circle, {stops})"
+            : $"linear-gradient({gradientAngle.ToString("F0", System.Globalization.CultureInfo.InvariantCulture)}deg, {stops})";
+    }
+
+    private string BuildLinearStopsCss()
+    {
+        if (gradientStops.Count == 0) return "#888, #ccc";
+        var sorted = gradientStops.OrderBy(s => s.Offset).ToList();
+        return string.Join(", ", sorted.Select(s =>
+        {
+            var c = s.Opacity < 1
+                ? $"rgba({HexToRgb(s.Color)}, {s.Opacity.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)})"
+                : s.Color;
+            return $"{c} {(s.Offset * 100).ToString("F0", System.Globalization.CultureInfo.InvariantCulture)}%";
+        }));
+    }
+
+    private static string HexToRgb(string hex)
+    {
+        hex = hex.TrimStart('#');
+        if (hex.Length == 3) hex = $"{hex[0]}{hex[0]}{hex[1]}{hex[1]}{hex[2]}{hex[2]}";
+        if (hex.Length >= 6)
+        {
+            var r = Convert.ToInt32(hex[..2], 16);
+            var g = Convert.ToInt32(hex[2..4], 16);
+            var b = Convert.ToInt32(hex[4..6], 16);
+            return $"{r}, {g}, {b}";
+        }
+        return "0, 0, 0";
+    }
+
+    private static string NamedColorToHex(string name) => name.ToLowerInvariant() switch
+    {
+        "red" => "#ff0000", "green" => "#008000", "blue" => "#0000ff",
+        "white" => "#ffffff", "black" => "#000000", "yellow" => "#ffff00",
+        "cyan" => "#00ffff", "magenta" => "#ff00ff", "orange" => "#ffa500",
+        "purple" => "#800080", "pink" => "#ffc0cb", "gray" or "grey" => "#808080",
+        "transparent" => "#00000000",
+        _ => "#888888"
     };
 
     // --- Brush value parsing ---
@@ -1938,6 +2365,11 @@
         border: 1px solid var(--border-color);
     }
 
+    .brush-preview-radial {
+        height: 40px;
+        border-radius: 6px;
+    }
+
     .brush-type-badge {
         font-size: 0.65rem;
         font-weight: 600;
@@ -1967,5 +2399,186 @@
 
     .brush-css-input {
         font-size: 0.7rem;
+    }
+
+    .solid-color-row {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+    }
+
+    .solid-color-row .brush-css-input {
+        flex: 1;
+    }
+
+    /* Gradient track */
+    .gradient-track-container {
+        position: relative;
+        width: 100%;
+        height: 24px;
+        margin: 0.25rem 0;
+    }
+
+    .gradient-track {
+        width: 100%;
+        height: 12px;
+        border-radius: 6px;
+        border: 1px solid var(--border-color);
+        position: absolute;
+        top: 6px;
+    }
+
+    .gradient-stop-handle {
+        position: absolute;
+        top: 0;
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        border: 2px solid #fff;
+        box-shadow: 0 0 0 1px rgba(0,0,0,0.3), 0 1px 3px rgba(0,0,0,0.2);
+        transform: translateX(-50%);
+        cursor: pointer;
+        z-index: 1;
+        top: 5px;
+    }
+
+    .gradient-stop-handle.selected {
+        border-color: var(--accent-color, #8b5cf6);
+        box-shadow: 0 0 0 1px var(--accent-color, #8b5cf6), 0 1px 4px rgba(139,92,246,0.4);
+        z-index: 2;
+    }
+
+    /* Stop controls */
+    .gradient-stop-controls {
+        display: flex;
+        align-items: center;
+        gap: 0.3rem;
+    }
+
+    .btn-icon-sm {
+        width: 22px;
+        height: 22px;
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+        background: var(--bg-primary);
+        color: var(--text-secondary);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.6rem;
+        padding: 0;
+    }
+
+    .btn-icon-sm:hover {
+        background: var(--bg-tertiary);
+        color: var(--text-primary);
+    }
+
+    .btn-icon-sm:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+    }
+
+    .gradient-stop-count {
+        font-size: 0.65rem;
+        color: var(--text-tertiary);
+        margin-left: auto;
+    }
+
+    /* Stop editor */
+    .gradient-stop-editor {
+        display: flex;
+        flex-direction: column;
+        gap: 0.3rem;
+        padding: 0.4rem;
+        background: var(--bg-tertiary);
+        border-radius: 4px;
+    }
+
+    .stop-editor-field {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+    }
+
+    .stop-editor-field label {
+        font-size: 0.65rem;
+        color: var(--text-secondary);
+        min-width: 70px;
+        flex-shrink: 0;
+    }
+
+    .gradient-offset-slider,
+    .gradient-opacity-slider,
+    .gradient-angle-slider {
+        flex: 1;
+        height: 4px;
+        -webkit-appearance: none;
+        appearance: none;
+        background: var(--border-color);
+        border-radius: 2px;
+        outline: none;
+    }
+
+    .gradient-offset-slider::-webkit-slider-thumb,
+    .gradient-opacity-slider::-webkit-slider-thumb,
+    .gradient-angle-slider::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: var(--accent-color, #8b5cf6);
+        cursor: pointer;
+    }
+
+    /* Angle row */
+    .gradient-angle-row {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+    }
+
+    .gradient-angle-row label {
+        font-size: 0.65rem;
+        color: var(--text-secondary);
+        min-width: 70px;
+        flex-shrink: 0;
+    }
+
+    /* Actions */
+    .gradient-actions {
+        display: flex;
+        gap: 0.3rem;
+        margin-top: 0.2rem;
+    }
+
+    .btn-apply-sm, .btn-cancel-sm {
+        font-size: 0.65rem;
+        padding: 0.2rem 0.5rem;
+        border-radius: 4px;
+        border: none;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 0.25rem;
+    }
+
+    .btn-apply-sm {
+        background: var(--accent-color, #8b5cf6);
+        color: white;
+    }
+
+    .btn-apply-sm:hover {
+        opacity: 0.9;
+    }
+
+    .btn-cancel-sm {
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+    }
+
+    .btn-cancel-sm:hover {
+        background: var(--border-color);
     }
 </style>
