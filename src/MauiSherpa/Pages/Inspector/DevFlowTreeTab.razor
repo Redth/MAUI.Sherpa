@@ -181,6 +181,40 @@
                     </div>
                 }
 
+                <div class="prop-section">
+                    <div class="prop-section-title">
+                        Properties
+                        @if (isLoadingProps)
+                        {
+                            <i class="fas fa-spinner fa-spin prop-loading-icon"></i>
+                        }
+                        <button class="btn-icon prop-refresh-btn" @onclick="RefreshProperties" title="Refresh properties">
+                            <i class="fas fa-sync-alt"></i>
+                        </button>
+                    </div>
+                    @if (fetchedProperties.Count > 0)
+                    {
+                        @foreach (var prop in fetchedProperties)
+                        {
+                            <div class="prop-row editable" @onclick='@(() => StartEditing(prop.Name, prop.Value))'>
+                                <span class="prop-key">@prop.Name</span>
+                                @if (editingProperty == prop.Name)
+                                {
+                                    <input type="text" @bind="editValue" @bind:event="oninput" @onkeydown="OnEditKeyDown" @onfocusout="OnEditBlur" @ref="editInput" class="prop-edit-input" />
+                                }
+                                else
+                                {
+                                    <span class="prop-value @(GetPropertyValueClass(prop.Value))">@(prop.Value ?? "null")</span>
+                                }
+                            </div>
+                        }
+                    }
+                    else if (!isLoadingProps)
+                    {
+                        <div class="prop-row"><span class="prop-value" style="color: var(--text-tertiary);">No properties found</span></div>
+                    }
+                </div>
+
                 @if (selectedElement.NativeType != null)
                 {
                     <div class="prop-section">
@@ -224,11 +258,29 @@
     private string searchQuery = "";
     private string? screenshotData;
     private bool isLoadingTree;
+    private bool isLoadingProps;
     private int autoRefreshInterval;
     private Timer? _screenshotTimer;
     private string? editingProperty;
     private string editValue = "";
     private ElementReference editInput;
+    private List<PropertyEntry> fetchedProperties = new();
+
+    private record PropertyEntry(string Name, string? Value, bool IsEditable = true);
+
+    // Common VisualElement properties worth fetching
+    private static readonly string[] CommonProperties = new[]
+    {
+        "BackgroundColor", "Background",
+        "TextColor", "FontSize", "FontFamily", "FontAttributes",
+        "WidthRequest", "HeightRequest", "MinimumWidthRequest", "MinimumHeightRequest",
+        "MaximumWidthRequest", "MaximumHeightRequest",
+        "Margin", "Padding",
+        "HorizontalOptions", "VerticalOptions",
+        "InputTransparent", "ZIndex", "Rotation", "Scale",
+        "TranslationX", "TranslationY",
+        "FlowDirection", "StyleClass",
+    };
 
     // Resize state
     private double screenshotPaneWidth = 280;
@@ -335,17 +387,62 @@
         selectedElement = element;
         selectedElementId = element.Id;
         editingProperty = null;
+        fetchedProperties.Clear();
 
         var windowIndex = GetWindowIndex(element);
         if (windowIndex != selectedWindowIndex)
         {
             selectedWindowIndex = windowIndex;
-            StateHasChanged();
-            await RefreshScreenshot(windowIndex);
         }
-        else
+
+        StateHasChanged();
+
+        // Fetch detailed element info and properties in parallel
+        _ = Task.Run(async () =>
         {
-            StateHasChanged();
+            await InvokeAsync(async () =>
+            {
+                isLoadingProps = true;
+                StateHasChanged();
+
+                try
+                {
+                    // Get full element details
+                    var detailed = await Client.GetElementAsync(element.Id);
+                    if (detailed != null && selectedElementId == element.Id)
+                    {
+                        selectedElement = detailed;
+                    }
+
+                    // Fetch common properties in parallel batches
+                    var tasks = CommonProperties.Select(async prop =>
+                    {
+                        var val = await Client.GetPropertyAsync(element.Id, prop);
+                        return new PropertyEntry(prop, val);
+                    });
+
+                    var results = await Task.WhenAll(tasks);
+
+                    if (selectedElementId == element.Id)
+                    {
+                        fetchedProperties = results
+                            .Where(p => p.Value != null)
+                            .OrderBy(p => p.Name)
+                            .ToList();
+                    }
+                }
+                catch { }
+                finally
+                {
+                    isLoadingProps = false;
+                    StateHasChanged();
+                }
+            });
+        });
+
+        if (windowIndex != selectedWindowIndex || screenshotData == null)
+        {
+            await RefreshScreenshot(windowIndex);
         }
     }
 
@@ -571,10 +668,55 @@
         if (selectedElement == null || editingProperty == null) return;
         var prop = editingProperty;
         var val = editValue;
+        var elementId = selectedElement.Id;
         editingProperty = null;
         StateHasChanged();
-        await Client.SetPropertyAsync(selectedElement.Id, prop, val);
+        await Client.SetPropertyAsync(elementId, prop, val);
         await RefreshTree();
+        await RefreshProperties();
+    }
+
+    private async Task RefreshProperties()
+    {
+        if (selectedElement == null) return;
+        var elementId = selectedElement.Id;
+
+        isLoadingProps = true;
+        StateHasChanged();
+
+        try
+        {
+            var tasks = CommonProperties.Select(async prop =>
+            {
+                var val = await Client.GetPropertyAsync(elementId, prop);
+                return new PropertyEntry(prop, val);
+            });
+
+            var results = await Task.WhenAll(tasks);
+
+            if (selectedElementId == elementId)
+            {
+                fetchedProperties = results
+                    .Where(p => p.Value != null)
+                    .OrderBy(p => p.Name)
+                    .ToList();
+            }
+        }
+        catch { }
+        finally
+        {
+            isLoadingProps = false;
+            StateHasChanged();
+        }
+    }
+
+    private static string GetPropertyValueClass(string? value)
+    {
+        if (value == null) return "";
+        if (value.Equals("True", StringComparison.OrdinalIgnoreCase)) return "val-true";
+        if (value.Equals("False", StringComparison.OrdinalIgnoreCase)) return "val-false";
+        if (value.StartsWith("#") || value.StartsWith("Color ") || value.Contains("rgba", StringComparison.OrdinalIgnoreCase)) return "val-color";
+        return "";
     }
 
     private void OnAutoRefreshChanged()
@@ -862,6 +1004,9 @@
     }
 
     .prop-section-title {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
         font-weight: 600;
         font-size: 0.75rem;
         text-transform: uppercase;
@@ -925,5 +1070,21 @@
         text-align: center;
         color: var(--text-tertiary);
         font-size: 0.85rem;
+    }
+
+    .prop-loading-icon {
+        font-size: 0.65rem;
+        color: var(--text-tertiary);
+    }
+
+    .prop-refresh-btn {
+        margin-left: auto;
+        font-size: 0.65rem;
+        padding: 0.1rem 0.3rem;
+    }
+
+    .prop-value.val-color {
+        font-family: 'SF Mono', 'Cascadia Code', monospace;
+        font-size: 0.75rem;
     }
 </style>

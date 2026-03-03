@@ -86,18 +86,23 @@
             </div>
             @if (queryResults.Count > 0)
             {
+                <div class="query-results-header">@queryResults.Count match@(queryResults.Count != 1 ? "es" : "")</div>
                 <div class="query-results">
                     @foreach (var el in queryResults)
                     {
                         <div class="query-result-item">
-                            <span class="tree-type">@el.Type</span>
-                            @if (!string.IsNullOrEmpty(el.Text))
+                            <span class="tree-type">&lt;@el.Tag&gt;</span>
+                            @if (!string.IsNullOrEmpty(el.Id))
                             {
-                                <span class="tree-text">"@el.Text"</span>
+                                <span class="tree-aid">#@el.Id</span>
                             }
-                            @if (!string.IsNullOrEmpty(el.AutomationId))
+                            @if (!string.IsNullOrEmpty(el.ClassName))
                             {
-                                <span class="tree-aid">#@el.AutomationId</span>
+                                <span class="tree-class">.@el.ClassName.Split(' ')[0]</span>
+                            }
+                            @if (!string.IsNullOrEmpty(el.TextPreview))
+                            {
+                                <span class="tree-text">"@el.TextPreview"</span>
                             }
                         </div>
                     }
@@ -135,7 +140,9 @@
     private string jsExpression = "";
     private List<JsResult> jsResults = new();
     private string cssSelector = "";
-    private List<DevFlowElementInfo> queryResults = new();
+    private List<DomQueryResult> queryResults = new();
+
+    private record DomQueryResult(string Tag, string? Id, string? ClassName, string? TextPreview);
     private string? pageSource;
     private Timer? _pollTimer;
     private double toolsPaneWidth = 420;
@@ -294,10 +301,44 @@
     private async Task RunQuery()
     {
         if (string.IsNullOrWhiteSpace(cssSelector)) return;
+        queryResults.Clear();
 
         try
         {
-            queryResults = await Client.QueryAsync(selector: cssSelector);
+            // Use CDP Runtime.evaluate with querySelectorAll to get element info
+            var js = $$"""
+                (function() {
+                    var els = document.querySelectorAll('{{cssSelector.Replace("'", "\\'")}}');
+                    return Array.from(els).slice(0, 50).map(function(el) {
+                        var text = el.textContent || '';
+                        if (text.length > 60) text = text.substring(0, 60) + '...';
+                        return {
+                            tag: el.tagName.toLowerCase(),
+                            id: el.id || null,
+                            className: el.className && typeof el.className === 'string' ? el.className : null,
+                            text: text.trim() || null
+                        };
+                    });
+                })()
+                """;
+            var response = await Client.SendCdpCommandAsync("Runtime.evaluate",
+                new Dictionary<string, object?> { ["expression"] = js, ["returnByValue"] = true },
+                selectedTargetId);
+
+            if (response?.Result is JsonElement resultEl)
+            {
+                if (resultEl.TryGetProperty("result", out var inner) && inner.TryGetProperty("value", out var arr) && arr.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var item in arr.EnumerateArray())
+                    {
+                        var tag = item.GetProperty("tag").GetString() ?? "?";
+                        var id = item.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
+                        var cls = item.TryGetProperty("className", out var clsEl) ? clsEl.GetString() : null;
+                        var text = item.TryGetProperty("text", out var txtEl) ? txtEl.GetString() : null;
+                        queryResults.Add(new DomQueryResult(tag, id, cls, text));
+                    }
+                }
+            }
         }
         catch
         {
@@ -588,8 +629,14 @@
         color: #ef4444;
     }
 
+    .query-results-header {
+        margin-top: 0.4rem;
+        font-size: 0.7rem;
+        color: var(--text-tertiary);
+    }
+
     .query-results {
-        margin-top: 0.5rem;
+        margin-top: 0.25rem;
         max-height: 150px;
         overflow: auto;
     }
@@ -599,7 +646,13 @@
         gap: 0.4rem;
         padding: 0.2rem 0.4rem;
         font-size: 0.8rem;
+        font-family: 'SF Mono', 'Cascadia Code', monospace;
     }
+
+    .tree-type { color: #e06c75; }
+    .tree-aid { color: #61afef; }
+    .tree-class { color: #c678dd; }
+    .tree-text { color: var(--text-tertiary); font-style: italic; }
 
     .page-source {
         flex: 1;
