@@ -135,29 +135,17 @@
                             }
                         </div>
                     }
-                </div>
-
-                <!-- State -->
-                <div class="prop-section">
-                    <div class="prop-section-title">State</div>
-                    <div class="prop-row editable" @onclick='@(() => ToggleBoolProperty("IsVisible", selectedElement.IsVisible))'>
-                        <span class="prop-key">Visible</span>
-                        <span class="prop-value">
-                            <label class="bool-toggle">
-                                <input type="checkbox" checked="@selectedElement.IsVisible" @onclick:preventDefault @onclick:stopPropagation />
-                                <span class="@(selectedElement.IsVisible ? "val-true" : "val-false")">@selectedElement.IsVisible</span>
-                            </label>
-                        </span>
-                    </div>
-                    <div class="prop-row editable" @onclick='@(() => ToggleBoolProperty("IsEnabled", selectedElement.IsEnabled))'>
-                        <span class="prop-key">Enabled</span>
-                        <span class="prop-value">
-                            <label class="bool-toggle">
-                                <input type="checkbox" checked="@selectedElement.IsEnabled" @onclick:preventDefault @onclick:stopPropagation />
-                                <span class="@(selectedElement.IsEnabled ? "val-true" : "val-false")">@selectedElement.IsEnabled</span>
-                            </label>
-                        </span>
-                    </div>
+                    @if (selectedElement.Bounds != null)
+                    {
+                        <div class="prop-row">
+                            <span class="prop-key">Position</span>
+                            <span class="prop-value">@($"{selectedElement.Bounds.X:F0}, {selectedElement.Bounds.Y:F0}")</span>
+                        </div>
+                        <div class="prop-row">
+                            <span class="prop-key">Size</span>
+                            <span class="prop-value">@($"{selectedElement.Bounds.Width:F0} × {selectedElement.Bounds.Height:F0}")</span>
+                        </div>
+                    }
                     <div class="prop-row">
                         <span class="prop-key">Focused</span>
                         <span class="prop-value @(selectedElement.IsFocused ? "val-true" : "val-false")">
@@ -170,35 +158,7 @@
                             }
                         </span>
                     </div>
-                    <div class="prop-row editable" @onclick='@(() => StartEditing("Opacity", selectedElement.Opacity.ToString("F2")))'>
-                        <span class="prop-key">Opacity</span>
-                        @if (editingProperty == "Opacity")
-                        {
-                            <input type="number" @bind="editValue" @bind:event="oninput" @onkeydown="OnEditKeyDown" @onfocusout="OnEditBlur" @ref="editInput"
-                                   class="prop-edit-input" min="0" max="1" step="0.05" />
-                        }
-                        else
-                        {
-                            <span class="prop-value">@selectedElement.Opacity.ToString("F2")</span>
-                        }
-                    </div>
                 </div>
-
-                <!-- Bounds -->
-                @if (selectedElement.Bounds != null)
-                {
-                    <div class="prop-section">
-                        <div class="prop-section-title">Bounds</div>
-                        <div class="prop-row">
-                            <span class="prop-key">Position</span>
-                            <span class="prop-value">@($"{selectedElement.Bounds.X:F0}, {selectedElement.Bounds.Y:F0}")</span>
-                        </div>
-                        <div class="prop-row">
-                            <span class="prop-key">Size</span>
-                            <span class="prop-value">@($"{selectedElement.Bounds.Width:F0} × {selectedElement.Bounds.Height:F0}")</span>
-                        </div>
-                    </div>
-                }
 
                 <!-- Gestures -->
                 @if (selectedElement.Gestures?.Count > 0)
@@ -1079,7 +1039,7 @@
         __builder.CloseElement();
 
         __builder.OpenElement(6, "div");
-        __builder.AddAttribute(7, "class", "brush-value");
+        __builder.AddAttribute(7, "class", isEditing ? "brush-value brush-editing" : "brush-value");
 
         if (isEditing)
         {
@@ -1375,7 +1335,7 @@
         }
         else
         {
-            // Display mode: preview + type badge + value
+            // Display mode: compact swatch + type badge (no ToString text)
             __builder.OpenElement(160, "div");
             __builder.AddAttribute(161, "class", "brush-preview");
             __builder.AddAttribute(162, "style", $"background: {brushInfo.CssPreview}");
@@ -1384,11 +1344,6 @@
             __builder.OpenElement(163, "span");
             __builder.AddAttribute(164, "class", "brush-type-badge");
             __builder.AddContent(165, brushInfo.Type);
-            __builder.CloseElement();
-
-            __builder.OpenElement(166, "span");
-            __builder.AddAttribute(167, "class", "mono brush-text");
-            __builder.AddContent(168, brushInfo.DisplayText);
             __builder.CloseElement();
         }
 
@@ -2262,10 +2217,13 @@
     /* Property group sub-headers */
     .prop-group-title {
         font-size: 0.7rem;
-        font-weight: 500;
-        color: var(--text-tertiary);
-        padding: 0.2rem 0.75rem;
-        opacity: 0.8;
+        font-weight: 600;
+        color: var(--text-secondary);
+        padding: 0.4rem 0.75rem 0.2rem;
+        margin-top: 0.15rem;
+        border-left: 3px solid var(--accent-color, #8b5cf6);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
     }
 
     /* Boolean toggle */
@@ -2410,22 +2368,39 @@
 
     /* Brush editor */
     .brush-row {
-        flex-direction: column;
-        align-items: flex-start !important;
+        flex-wrap: wrap;
+    }
+
+    .brush-row .prop-key {
+        flex-shrink: 0;
     }
 
     .brush-value {
-        width: 100%;
         display: flex;
+        align-items: center;
+        gap: 0.35rem;
+        flex: 1;
+        min-width: 0;
+    }
+
+    .brush-value.brush-editing {
+        flex-basis: 100%;
         flex-direction: column;
+        align-items: stretch;
         gap: 0.3rem;
     }
 
     .brush-preview {
-        width: 100%;
+        width: 20px;
         height: 20px;
         border-radius: 3px;
         border: 1px solid var(--border-color);
+        flex-shrink: 0;
+    }
+
+    .brush-editing .brush-preview {
+        width: 100%;
+        height: 20px;
     }
 
     .brush-preview-radial {
