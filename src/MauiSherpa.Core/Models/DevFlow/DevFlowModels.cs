@@ -27,6 +27,9 @@ public class BrokerAgent
 
     [JsonPropertyName("connectedAt")]
     public DateTimeOffset? ConnectedAt { get; set; }
+
+    [JsonPropertyName("version")]
+    public string? Version { get; set; }
 }
 
 /// <summary>

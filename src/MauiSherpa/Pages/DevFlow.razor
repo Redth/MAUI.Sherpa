@@ -40,13 +40,22 @@
 <div class="agent-grid">
     @foreach (var agent in agents)
     {
-        <div class="agent-card @GetPlatformColorClass(agent.Platform)" @onclick="@(() => OpenInspector(agent))">
+        var supported = IsAgentSupported(agent);
+        <div class="agent-card @GetPlatformColorClass(agent.Platform) @(!supported ? "agent-unsupported" : "")"
+             @onclick="@(() => { if (supported) OpenInspector(agent); })"
+             title="@(!supported ? $"Agent version {agent.Version} is below minimum {MinSupportedAgentVersion}. Update MauiDevFlow packages." : "")">
             <div class="agent-icon">
                 <i class="fas @GetPlatformIcon(agent.Platform)"></i>
                 <i class="fab @GetBrandIcon(agent.Platform) brand-overlay"></i>
             </div>
             <div class="agent-info">
-                <div class="agent-name">@(agent.AppName ?? "Unknown App")</div>
+                <div class="agent-name">
+                    @(agent.AppName ?? "Unknown App")
+                    @if (!supported)
+                    {
+                        <span class="agent-outdated-badge"><i class="fas fa-triangle-exclamation"></i> Update required</span>
+                    }
+                </div>
                 <div class="agent-meta">
                     <span class="agent-platform">@(agent.Platform ?? "Unknown")</span>
                     @if (agent.Project != null)
@@ -60,10 +69,21 @@
                     {
                         <span class="agent-time"><i class="fas fa-clock"></i> @FormatTimeAgo(agent.ConnectedAt.Value)</span>
                     }
+                    @if (!string.IsNullOrEmpty(agent.Version))
+                    {
+                        <span class="agent-version"><i class="fas fa-code-branch"></i> v@(agent.Version)</span>
+                    }
                 </div>
             </div>
             <div class="agent-arrow">
-                <i class="fas fa-chevron-right"></i>
+                @if (supported)
+                {
+                    <i class="fas fa-chevron-right"></i>
+                }
+                else
+                {
+                    <i class="fas fa-ban" style="color: var(--text-tertiary);"></i>
+                }
             </div>
         </div>
     }
@@ -117,6 +137,8 @@
     private List<BrokerAgent> agents = new();
     private Timer? _refreshTimer;
 
+    private static readonly Version MinSupportedAgentVersion = new("0.14.0");
+
     protected override async Task OnInitializedAsync()
     {
         await RefreshAgents();
@@ -135,6 +157,20 @@
             if (healthy)
             {
                 agents = await DevFlowAgentClient.GetBrokerAgentsAsync(brokerHost, brokerPort);
+
+                // Fetch version from each agent's status endpoint (parallel)
+                var tasks = agents.Select(async agent =>
+                {
+                    try
+                    {
+                        var client = new DevFlowAgentClient(brokerHost, agent.Port);
+                        var status = await client.GetStatusAsync();
+                        if (status?.Version != null)
+                            agent.Version = status.Version;
+                    }
+                    catch { /* agent unreachable */ }
+                });
+                await Task.WhenAll(tasks);
             }
             else
             {
@@ -151,6 +187,12 @@
             isLoading = false;
             StateHasChanged();
         }
+    }
+
+    private bool IsAgentSupported(BrokerAgent agent)
+    {
+        if (string.IsNullOrEmpty(agent.Version)) return true; // unknown version = allow
+        return Version.TryParse(agent.Version, out var v) && v >= MinSupportedAgentVersion;
     }
 
     private void OpenInspector(BrokerAgent agent)
@@ -445,6 +487,28 @@
     .agent-card:hover {
         box-shadow: 0 2px 12px rgba(0,0,0,0.12);
         transform: translateY(-1px);
+    }
+
+    /* Unsupported (outdated) agent cards */
+    .agent-card.agent-unsupported {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    .agent-card.agent-unsupported:hover {
+        transform: none;
+        box-shadow: none;
+    }
+
+    .agent-outdated-badge {
+        font-size: 0.7rem;
+        color: #ef4444;
+        font-weight: 500;
+        margin-left: 0.5rem;
+    }
+
+    .agent-version {
+        color: var(--text-tertiary);
     }
 
     .agent-icon {
