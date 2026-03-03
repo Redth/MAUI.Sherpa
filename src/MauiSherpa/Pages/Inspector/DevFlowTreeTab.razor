@@ -229,11 +229,13 @@
                 {
                     @foreach (var group in fetchedProperties.GroupBy(p => p.Meta.Group).OrderBy(g => Array.IndexOf(GroupOrder, g.Key)))
                     {
-                        <div class="prop-section">
+                        <div class="prop-section" @key="group.Key">
                             <div class="prop-group-title">@group.Key</div>
                             @foreach (var prop in group)
                             {
-                                @RenderPropertyEditor(prop)
+                                <div @key="prop.Name">
+                                    @RenderPropertyEditor(prop)
+                                </div>
                             }
                         </div>
                     }
@@ -842,27 +844,16 @@
 
     private RenderFragment RenderPropertyEditor(PropertyEntry prop) => __builder =>
     {
-        switch (prop.Meta.Editor)
+        var fragment = prop.Meta.Editor switch
         {
-            case EditorType.Boolean:
-                RenderBoolEditor(prop)(__builder);
-                break;
-            case EditorType.Enum:
-                RenderEnumEditor(prop)(__builder);
-                break;
-            case EditorType.Color:
-                RenderColorEditor(prop)(__builder);
-                break;
-            case EditorType.Thickness:
-                RenderThicknessEditor(prop)(__builder);
-                break;
-            case EditorType.Number:
-                RenderNumberEditor(prop)(__builder);
-                break;
-            default:
-                RenderTextEditor(prop)(__builder);
-                break;
-        }
+            EditorType.Boolean => RenderBoolEditor(prop),
+            EditorType.Enum => RenderEnumEditor(prop),
+            EditorType.Color => RenderColorEditor(prop),
+            EditorType.Thickness => RenderThicknessEditor(prop),
+            EditorType.Number => RenderNumberEditor(prop),
+            _ => RenderTextEditor(prop),
+        };
+        __builder.AddContent(0, fragment);
     };
 
     private RenderFragment RenderBoolEditor(PropertyEntry prop) => __builder =>
@@ -938,31 +929,36 @@
     {
         var cssColor = MauiColorToCss(prop.Value);
         var hexColor = MauiColorToHex(prop.Value);
+        var isEditing = editingProperty == prop.Name;
 
         __builder.OpenElement(0, "div");
         __builder.AddAttribute(1, "class", "prop-row editable");
+        if (!isEditing)
+        {
+            __builder.AddAttribute(2, "onclick", EventCallback.Factory.Create<MouseEventArgs>(this, () => StartEditing(prop.Name, prop.Value)));
+        }
 
-        __builder.OpenElement(2, "span");
-        __builder.AddAttribute(3, "class", "prop-key");
-        __builder.AddContent(4, prop.Name);
+        __builder.OpenElement(3, "span");
+        __builder.AddAttribute(4, "class", "prop-key");
+        __builder.AddContent(5, prop.Name);
         __builder.CloseElement();
 
-        __builder.OpenElement(5, "span");
-        __builder.AddAttribute(6, "class", "prop-value color-value");
+        __builder.OpenElement(6, "span");
+        __builder.AddAttribute(7, "class", "prop-value color-value");
 
         // Color swatch
-        __builder.OpenElement(7, "span");
-        __builder.AddAttribute(8, "class", "color-swatch");
-        __builder.AddAttribute(9, "style", $"background: {cssColor}");
+        __builder.OpenElement(8, "span");
+        __builder.AddAttribute(9, "class", "color-swatch");
+        __builder.AddAttribute(10, "style", $"background: {cssColor}");
         __builder.CloseElement();
 
-        if (editingProperty == prop.Name)
+        if (isEditing)
         {
-            __builder.OpenElement(10, "input");
-            __builder.AddAttribute(11, "type", "color");
-            __builder.AddAttribute(12, "value", hexColor);
-            __builder.AddAttribute(13, "class", "color-picker-input");
-            __builder.AddAttribute(14, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, async (e) =>
+            __builder.OpenElement(11, "input");
+            __builder.AddAttribute(12, "type", "color");
+            __builder.AddAttribute(13, "value", hexColor);
+            __builder.AddAttribute(14, "class", "color-picker-input");
+            __builder.AddAttribute(15, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, async (e) =>
             {
                 if (selectedElement != null)
                 {
@@ -974,21 +970,20 @@
             }));
             __builder.CloseElement();
 
-            __builder.OpenElement(15, "input");
-            __builder.AddAttribute(16, "type", "text");
-            __builder.AddAttribute(17, "value", prop.Value);
-            __builder.AddAttribute(18, "class", "prop-edit-input color-text-input");
-            __builder.AddAttribute(19, "onkeydown", EventCallback.Factory.Create<KeyboardEventArgs>(this, async (e) =>
+            __builder.OpenElement(16, "input");
+            __builder.AddAttribute(17, "type", "text");
+            __builder.AddAttribute(18, "value", prop.Value);
+            __builder.AddAttribute(19, "class", "prop-edit-input color-text-input");
+            __builder.AddAttribute(20, "onkeydown", EventCallback.Factory.Create<KeyboardEventArgs>(this, async (e) =>
             {
                 if (e.Key == "Enter") await CommitEdit();
                 else if (e.Key == "Escape") { editingProperty = null; StateHasChanged(); }
             }));
-            __builder.AddAttribute(20, "onfocusout", EventCallback.Factory.Create(this, OnEditBlur));
+            __builder.AddAttribute(21, "onfocusout", EventCallback.Factory.Create(this, OnEditBlur));
             __builder.CloseElement();
         }
         else
         {
-            __builder.AddAttribute(21, "onclick", EventCallback.Factory.Create<MouseEventArgs>(this, () => StartEditing(prop.Name, prop.Value)));
             __builder.OpenElement(22, "span");
             __builder.AddAttribute(23, "class", "mono");
             __builder.AddContent(24, prop.Value);
