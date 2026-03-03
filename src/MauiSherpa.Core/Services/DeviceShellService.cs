@@ -12,6 +12,7 @@ public class DeviceShellService : IDeviceShellService
     private Process? _process;
     private Channel<string>? _channel;
     private CancellationTokenSource? _readCts;
+    private int _activeReaders;
 
     public bool IsRunning => _process is { HasExited: false };
     public string? ActiveSerial { get; private set; }
@@ -55,6 +56,9 @@ public class DeviceShellService : IDeviceShellService
             throw new InvalidOperationException("Failed to start adb shell process");
 
         _logger.LogInformation($"Shell started for device {serial} (PID: {_process.Id})");
+
+        // Track both readers so the channel only completes when both are done
+        _activeReaders = 2;
 
         // Read stdout char-by-char for real-time output (prompts, partial lines)
         _ = ReadStreamCharsAsync(_process.StandardOutput, _readCts.Token);
@@ -129,7 +133,9 @@ public class DeviceShellService : IDeviceShellService
         }
         finally
         {
-            _channel?.Writer.TryComplete();
+            // Only complete the channel when ALL readers are done
+            if (Interlocked.Decrement(ref _activeReaders) <= 0)
+                _channel?.Writer.TryComplete();
         }
     }
 
