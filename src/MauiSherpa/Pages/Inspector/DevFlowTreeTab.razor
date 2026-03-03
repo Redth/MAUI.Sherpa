@@ -316,7 +316,7 @@
 
     // --- Property Metadata Registry ---
 
-    private enum EditorType { Text, Boolean, Enum, Color, Thickness, Number }
+    private enum EditorType { Text, Boolean, Enum, Color, Thickness, Number, Brush }
 
     private record PropertyMeta(
         EditorType Editor,
@@ -329,13 +329,15 @@
     {
         // --- Appearance ---
         ["BackgroundColor"] = new(EditorType.Color, "Appearance"),
-        ["Background"] = new(EditorType.Text, "Appearance"), // Brush - complex, text fallback
+        ["Background"] = new(EditorType.Brush, "Appearance"),
         ["TextColor"] = new(EditorType.Color, "Appearance"),
         ["PlaceholderColor"] = new(EditorType.Color, "Appearance"),
         ["BorderColor"] = new(EditorType.Color, "Appearance"),
         ["Color"] = new(EditorType.Color, "Appearance"),
         ["BarBackgroundColor"] = new(EditorType.Color, "Appearance"),
         ["BarTextColor"] = new(EditorType.Color, "Appearance"),
+        ["Stroke"] = new(EditorType.Brush, "Appearance"),
+        ["Fill"] = new(EditorType.Brush, "Appearance"),
         ["Opacity"] = new(EditorType.Number, "Appearance", NumMin: 0, NumMax: 1, NumStep: 0.05, IsDouble: true),
         ["FontSize"] = new(EditorType.Number, "Appearance", NumMin: 1, NumMax: 200, NumStep: 1, IsDouble: true),
         ["FontFamily"] = new(EditorType.Text, "Appearance"),
@@ -849,6 +851,7 @@
             EditorType.Boolean => RenderBoolEditor(prop),
             EditorType.Enum => RenderEnumEditor(prop),
             EditorType.Color => RenderColorEditor(prop),
+            EditorType.Brush => RenderBrushEditor(prop),
             EditorType.Thickness => RenderThicknessEditor(prop),
             EditorType.Number => RenderNumberEditor(prop),
             _ => RenderTextEditor(prop),
@@ -993,6 +996,163 @@
         __builder.CloseElement(); // span.prop-value
         __builder.CloseElement(); // div.prop-row
     };
+
+    private RenderFragment RenderBrushEditor(PropertyEntry prop) => __builder =>
+    {
+        var value = prop.Value ?? "";
+        var brushInfo = ParseBrushValue(value);
+        var isEditing = editingProperty == prop.Name;
+
+        __builder.OpenElement(0, "div");
+        __builder.AddAttribute(1, "class", "prop-row brush-row");
+        if (!isEditing)
+        {
+            __builder.AddAttribute(2, "onclick", EventCallback.Factory.Create<MouseEventArgs>(this, () => StartEditing(prop.Name, value)));
+        }
+
+        __builder.OpenElement(3, "span");
+        __builder.AddAttribute(4, "class", "prop-key");
+        __builder.AddContent(5, prop.Name);
+        __builder.CloseElement();
+
+        __builder.OpenElement(6, "div");
+        __builder.AddAttribute(7, "class", "brush-value");
+
+        // Gradient/Color preview bar
+        __builder.OpenElement(8, "div");
+        __builder.AddAttribute(9, "class", "brush-preview");
+        __builder.AddAttribute(10, "style", $"background: {brushInfo.CssPreview}");
+        __builder.CloseElement();
+
+        if (isEditing)
+        {
+            // Brush type selector
+            __builder.OpenElement(11, "select");
+            __builder.AddAttribute(12, "class", "brush-type-select");
+            __builder.AddAttribute(13, "value", brushInfo.Type);
+            __builder.AddAttribute(14, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, (e) =>
+            {
+                var newType = e.Value?.ToString() ?? "solid";
+                editValue = newType switch
+                {
+                    "linear" => "linear-gradient(90deg, #ff0000 0%, #0000ff 100%)",
+                    "radial" => "radial-gradient(circle, #ff0000 0%, #0000ff 100%)",
+                    _ => brushInfo.Type == "solid" ? editValue : "#ffffff"
+                };
+                StateHasChanged();
+            }));
+            __builder.OpenElement(15, "option"); __builder.AddAttribute(16, "value", "solid"); __builder.AddContent(17, "Solid"); __builder.CloseElement();
+            __builder.OpenElement(18, "option"); __builder.AddAttribute(19, "value", "linear"); __builder.AddContent(20, "Linear"); __builder.CloseElement();
+            __builder.OpenElement(21, "option"); __builder.AddAttribute(22, "value", "radial"); __builder.AddContent(23, "Radial"); __builder.CloseElement();
+            __builder.CloseElement(); // select
+
+            if (brushInfo.Type == "solid")
+            {
+                // Solid color: color picker + text
+                __builder.OpenElement(24, "input");
+                __builder.AddAttribute(25, "type", "color");
+                __builder.AddAttribute(26, "value", MauiColorToHex(editValue));
+                __builder.AddAttribute(27, "class", "color-picker-input");
+                __builder.AddAttribute(28, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, async (e) =>
+                {
+                    editValue = e.Value?.ToString() ?? "";
+                    await CommitEdit();
+                }));
+                __builder.CloseElement();
+            }
+
+            // CSS text input (works for all brush types)
+            __builder.OpenElement(30, "input");
+            __builder.AddAttribute(31, "type", "text");
+            __builder.AddAttribute(32, "value", editValue);
+            __builder.AddAttribute(33, "class", "prop-edit-input brush-css-input");
+            __builder.AddAttribute(34, "placeholder", "CSS gradient or color...");
+            __builder.AddAttribute(35, "onkeydown", EventCallback.Factory.Create<KeyboardEventArgs>(this, async (e) =>
+            {
+                if (e.Key == "Enter") await CommitEdit();
+                else if (e.Key == "Escape") { editingProperty = null; StateHasChanged(); }
+            }));
+            __builder.AddAttribute(36, "onfocusout", EventCallback.Factory.Create(this, OnEditBlur));
+            __builder.CloseElement();
+        }
+        else
+        {
+            // Display mode: type badge + value
+            __builder.OpenElement(40, "span");
+            __builder.AddAttribute(41, "class", "brush-type-badge");
+            __builder.AddContent(42, brushInfo.Type);
+            __builder.CloseElement();
+
+            __builder.OpenElement(43, "span");
+            __builder.AddAttribute(44, "class", "mono brush-text");
+            __builder.AddContent(45, brushInfo.DisplayText);
+            __builder.CloseElement();
+        }
+
+        __builder.CloseElement(); // div.brush-value
+        __builder.CloseElement(); // div.prop-row
+    };
+
+    // --- Brush value parsing ---
+
+    private record BrushInfo(string Type, string CssPreview, string DisplayText);
+
+    private static BrushInfo ParseBrushValue(string value)
+    {
+        if (string.IsNullOrEmpty(value) || value == "null")
+            return new BrushInfo("none", "transparent", "none");
+
+        var trimmed = value.Trim();
+
+        // CSS gradient syntax (what BrushTypeConverter accepts)
+        if (trimmed.StartsWith("linear-gradient", StringComparison.OrdinalIgnoreCase))
+            return new BrushInfo("linear", trimmed, TruncateBrush(trimmed));
+
+        if (trimmed.StartsWith("radial-gradient", StringComparison.OrdinalIgnoreCase))
+            return new BrushInfo("radial", trimmed, TruncateBrush(trimmed));
+
+        // MAUI LinearGradientBrush ToString format
+        if (trimmed.Contains("LinearGradientBrush", StringComparison.OrdinalIgnoreCase))
+            return new BrushInfo("linear", ParseMauiGradientToCss(trimmed, "linear"), TruncateBrush(trimmed));
+
+        if (trimmed.Contains("RadialGradientBrush", StringComparison.OrdinalIgnoreCase))
+            return new BrushInfo("radial", ParseMauiGradientToCss(trimmed, "radial"), TruncateBrush(trimmed));
+
+        // SolidColorBrush ToString or plain color
+        if (trimmed.Contains("SolidColorBrush", StringComparison.OrdinalIgnoreCase))
+        {
+            var colorMatch = System.Text.RegularExpressions.Regex.Match(trimmed, @"Color\s*=\s*(\S+)");
+            var color = colorMatch.Success ? colorMatch.Groups[1].Value.TrimEnd(']', '}', ')') : trimmed;
+            return new BrushInfo("solid", MauiColorToCss(color), color);
+        }
+
+        // Hex color or named color → solid brush
+        if (trimmed.StartsWith("#") || trimmed.StartsWith("Color ") || char.IsLetter(trimmed[0]))
+            return new BrushInfo("solid", MauiColorToCss(trimmed), trimmed);
+
+        return new BrushInfo("unknown", "transparent", trimmed);
+    }
+
+    private static string ParseMauiGradientToCss(string value, string type)
+    {
+        // Try to extract gradient stop colors from the ToString representation
+        // Format varies but often includes color info. Fall back to a placeholder gradient.
+        var colorMatches = System.Text.RegularExpressions.Regex.Matches(value, @"#[0-9A-Fa-f]{6,8}");
+        if (colorMatches.Count >= 2)
+        {
+            var colors = string.Join(", ", colorMatches.Select(m => m.Value));
+            return type == "linear"
+                ? $"linear-gradient(90deg, {colors})"
+                : $"radial-gradient(circle, {colors})";
+        }
+        // Fallback
+        return type == "linear"
+            ? "linear-gradient(90deg, #888, #ccc)"
+            : "radial-gradient(circle, #888, #ccc)";
+    }
+
+    private static string TruncateBrush(string text)
+        => text.Length <= 40 ? text : text[..40] + "…";
 
     private RenderFragment RenderThicknessEditor(PropertyEntry prop) => __builder =>
     {
@@ -1756,5 +1916,56 @@
         border-radius: 3px;
         background: var(--bg-primary);
         color: var(--text-primary);
+    }
+
+    /* Brush editor */
+    .brush-row {
+        flex-direction: column;
+        align-items: flex-start !important;
+    }
+
+    .brush-value {
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+        gap: 0.3rem;
+    }
+
+    .brush-preview {
+        width: 100%;
+        height: 20px;
+        border-radius: 3px;
+        border: 1px solid var(--border-color);
+    }
+
+    .brush-type-badge {
+        font-size: 0.65rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        padding: 0.1rem 0.35rem;
+        border-radius: 3px;
+        background: var(--bg-tertiary);
+        color: var(--text-tertiary);
+        letter-spacing: 0.03em;
+        flex-shrink: 0;
+    }
+
+    .brush-text {
+        font-size: 0.7rem;
+        color: var(--text-secondary);
+        word-break: break-all;
+    }
+
+    .brush-type-select {
+        font-size: 0.7rem;
+        padding: 0.15rem 0.3rem;
+        border: 1px solid var(--border-color);
+        border-radius: 3px;
+        background: var(--bg-primary);
+        color: var(--text-primary);
+    }
+
+    .brush-css-input {
+        font-size: 0.7rem;
     }
 </style>
