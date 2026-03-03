@@ -1679,16 +1679,17 @@
             if (prop.Meta.NumMin.HasValue) __builder.AddAttribute(10, "min", prop.Meta.NumMin.Value.ToString());
             if (prop.Meta.NumMax.HasValue) __builder.AddAttribute(11, "max", prop.Meta.NumMax.Value.ToString());
             __builder.AddAttribute(12, "value", editValue);
-            __builder.AddAttribute(13, "onkeydown", EventCallback.Factory.Create<KeyboardEventArgs>(this, OnEditKeyDown));
-            __builder.AddAttribute(14, "onfocusout", EventCallback.Factory.Create(this, OnEditBlur));
-            __builder.AddElementReferenceCapture(15, (r) => editInput = r);
+            __builder.AddAttribute(13, "oninput", EventCallback.Factory.Create<ChangeEventArgs>(this, (e) => { editValue = e.Value?.ToString() ?? ""; }));
+            __builder.AddAttribute(14, "onkeydown", EventCallback.Factory.Create<KeyboardEventArgs>(this, OnEditKeyDown));
+            __builder.AddAttribute(15, "onfocusout", EventCallback.Factory.Create(this, OnEditBlur));
+            __builder.AddElementReferenceCapture(16, (r) => editInput = r);
             __builder.CloseElement();
         }
         else
         {
-            __builder.OpenElement(16, "span");
-            __builder.AddAttribute(17, "class", "prop-value");
-            __builder.AddContent(18, prop.Value);
+            __builder.OpenElement(17, "span");
+            __builder.AddAttribute(18, "class", "prop-value");
+            __builder.AddContent(19, prop.Value);
             __builder.CloseElement();
 
             if (hasDefault && !isDefault)
@@ -1729,8 +1730,9 @@
             __builder.AddAttribute(7, "type", "text");
             __builder.AddAttribute(8, "class", "prop-edit-input");
             __builder.AddAttribute(9, "value", editValue);
-            __builder.AddAttribute(10, "onkeydown", EventCallback.Factory.Create<KeyboardEventArgs>(this, OnEditKeyDown));
-            __builder.AddAttribute(11, "onfocusout", EventCallback.Factory.Create(this, OnEditBlur));
+            __builder.AddAttribute(10, "oninput", EventCallback.Factory.Create<ChangeEventArgs>(this, (e) => { editValue = e.Value?.ToString() ?? ""; }));
+            __builder.AddAttribute(11, "onkeydown", EventCallback.Factory.Create<KeyboardEventArgs>(this, OnEditKeyDown));
+            __builder.AddAttribute(12, "onfocusout", EventCallback.Factory.Create(this, OnEditBlur));
             __builder.AddElementReferenceCapture(12, (r) => editInput = r);
             __builder.CloseElement();
         }
