@@ -1,5 +1,7 @@
 @using MauiSherpa.Core.Models.DevFlow
 @using MauiSherpa.Core.Services
+@using System.Text.Json
+@using System.Text.RegularExpressions
 @implements IDisposable
 
 <div class="webview-layout">
@@ -113,7 +115,7 @@
         </div>
         @if (pageSource != null)
         {
-            <pre class="page-source text-selectable">@pageSource</pre>
+            <pre class="page-source text-selectable">@((MarkupString)HighlightHtml(pageSource))</pre>
         }
     </div>
 </div>
@@ -269,7 +271,7 @@
 
             if (response?.Success == true)
             {
-                var output = response.Result?.ToString() ?? "undefined";
+                var output = ExtractCdpValue(response) ?? "undefined";
                 jsResults.Add(new JsResult(expr, output, false));
             }
             else
@@ -318,13 +320,35 @@
                 ["expression"] = "document.documentElement.outerHTML",
                 ["returnByValue"] = true
             }, targetId: selectedTargetId);
-            pageSource = response?.Result?.ToString() ?? "Could not fetch page source";
+            pageSource = ExtractCdpValue(response) ?? "Could not fetch page source";
         }
         catch (Exception ex)
         {
             pageSource = $"Error: {ex.Message}";
         }
         StateHasChanged();
+    }
+
+    /// <summary>
+    /// Extracts the actual value from a CDP Runtime.evaluate response.
+    /// The result structure is: { result: { type: "string", value: "..." } }
+    /// </summary>
+    private static string? ExtractCdpValue(CdpResponse? response)
+    {
+        if (response?.Result is not JsonElement root) return response?.Result?.ToString();
+        // Navigate: result.result.value (CDP wraps in a result object)
+        if (root.TryGetProperty("result", out var resultObj))
+        {
+            if (resultObj.TryGetProperty("value", out var valueEl))
+                return valueEl.ValueKind == JsonValueKind.String ? valueEl.GetString() : valueEl.ToString();
+            if (resultObj.TryGetProperty("description", out var descEl))
+                return descEl.GetString();
+            return resultObj.ToString();
+        }
+        // Fallback: try direct value
+        if (root.TryGetProperty("value", out var directVal))
+            return directVal.ValueKind == JsonValueKind.String ? directVal.GetString() : directVal.ToString();
+        return root.ToString();
     }
 
     private void StartResize(MouseEventArgs e)
@@ -352,6 +376,31 @@
     }
 
     private record JsResult(string Expression, string Output, bool IsError);
+
+    private static string HighlightHtml(string html)
+    {
+        var escaped = System.Net.WebUtility.HtmlEncode(html);
+        // Comments: &lt;!-- ... --&gt;
+        escaped = Regex.Replace(escaped, @"(&lt;!--.*?--&gt;)", "<span class=\"hl-comment\">$1</span>", RegexOptions.Singleline);
+        // DOCTYPE
+        escaped = Regex.Replace(escaped, @"(&lt;!DOCTYPE[^&]*?&gt;)", "<span class=\"hl-doctype\">$1</span>", RegexOptions.IgnoreCase);
+        // Tags with attributes: &lt;tagname attr="val"&gt; or &lt;/tagname&gt;
+        escaped = Regex.Replace(escaped, @"(&lt;/?)(\w[\w\-]*)([^&]*?)(/?\s*&gt;)", m =>
+        {
+            var open = m.Groups[1].Value;
+            var tag = m.Groups[2].Value;
+            var attrs = m.Groups[3].Value;
+            var close = m.Groups[4].Value;
+            // Highlight attributes within the tag
+            if (!string.IsNullOrEmpty(attrs))
+            {
+                attrs = Regex.Replace(attrs, @"(\s)([\w\-:]+)(=)(&quot;[^&]*?&quot;|&#39;[^&]*?&#39;|\S+)",
+                    "$1<span class=\"hl-attr\">$2</span>$3<span class=\"hl-val\">$4</span>");
+            }
+            return $"<span class=\"hl-bracket\">{open}</span><span class=\"hl-tag\">{tag}</span>{attrs}<span class=\"hl-bracket\">{close}</span>";
+        });
+        return escaped;
+    }
 }
 
 <style>
@@ -560,8 +609,20 @@
         font-size: 0.7rem;
         background: var(--bg-secondary);
         margin: 0;
-        max-height: 300px;
+        min-height: 100px;
         white-space: pre-wrap;
         word-break: break-all;
     }
+
+    /* Syntax highlighting */
+    .hl-bracket { color: var(--text-muted); }
+    .hl-tag { color: #e06c75; }
+    .hl-attr { color: #d19a66; }
+    .hl-val { color: #98c379; }
+    .hl-comment { color: var(--text-tertiary, #6a737d); font-style: italic; }
+    .hl-doctype { color: var(--text-tertiary, #6a737d); }
+
+    :global(.theme-light) .hl-tag { color: #d73a49; }
+    :global(.theme-light) .hl-attr { color: #e36209; }
+    :global(.theme-light) .hl-val { color: #22863a; }
 </style>
