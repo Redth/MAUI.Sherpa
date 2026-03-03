@@ -56,9 +56,9 @@
     <div class="agent-grid">
         @foreach (var agent in agents)
         {
-            <div class="agent-card" @onclick="@(() => OpenInspector(agent))">
+            <div class="agent-card @GetPlatformColorClass(agent.Platform)" @onclick="@(() => OpenInspector(agent))">
                 <div class="agent-icon">
-                    <i class="fab @GetPlatformIcon(agent.Platform)"></i>
+                    <i class="fas @GetPlatformIcon(agent.Platform)"></i>
                 </div>
                 <div class="agent-info">
                     <div class="agent-name">@(agent.AppName ?? "Unknown App")</div>
@@ -207,13 +207,22 @@ else if (brokerConnected == null)
 
     private static string GetPlatformIcon(string? platform) => platform?.ToLowerInvariant() switch
     {
-        "maccatalyst" => "fa-apple",
-        "macos" => "fa-apple",
-        "ios" => "fa-apple",
-        "android" => "fa-android",
-        "winui" or "windows" => "fa-windows",
-        "linux" or "gtk" => "fa-linux",
+        "ios" => "fa-mobile-alt",
+        "android" => "fa-mobile-alt",
+        "maccatalyst" => "fa-laptop",
+        "macos" => "fa-laptop",
+        "winui" or "windows" => "fa-desktop",
+        "linux" or "gtk" => "fa-display",
         _ => "fa-microchip"
+    };
+
+    private static string GetPlatformColorClass(string? platform) => platform?.ToLowerInvariant() switch
+    {
+        "ios" or "maccatalyst" or "macos" => "platform-apple",
+        "android" => "platform-android",
+        "winui" or "windows" => "platform-windows",
+        "linux" or "gtk" => "platform-linux",
+        _ => "platform-other"
     };
 
     private static string GetProjectName(string projectPath)
@@ -350,42 +359,93 @@ else if (brokerConnected == null)
     .agent-card {
         display: flex;
         align-items: center;
-        gap: 1rem;
-        padding: 1rem 1.25rem;
+        gap: 0.75rem;
+        padding: 0.75rem 1rem;
         background: var(--card-bg);
-        border: 1px solid var(--border-color);
+        border: none;
         border-radius: 22px;
         cursor: pointer;
         transition: all 0.2s ease;
     }
 
     .agent-card:hover {
-        border-color: var(--accent-color, #8b5cf6);
-        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        box-shadow: 0 2px 12px rgba(0,0,0,0.12);
+        transform: translateY(-1px);
     }
 
     .agent-icon {
-        font-size: 1.8rem;
-        color: var(--text-secondary);
-        width: 48px;
-        text-align: center;
+        font-size: 1.5rem;
+        width: 42px;
+        height: 42px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 12px;
         flex-shrink: 0;
     }
 
-    .agent-icon .fa-apple {
-        color: #999;
+    /* Platform colors */
+    .platform-apple .agent-icon {
+        background: rgba(147, 51, 234, 0.12);
+        color: #9333ea;
+    }
+    .platform-android .agent-icon {
+        background: rgba(34, 197, 94, 0.12);
+        color: #22c55e;
+    }
+    .platform-windows .agent-icon {
+        background: rgba(59, 130, 246, 0.12);
+        color: #3b82f6;
+    }
+    .platform-linux .agent-icon {
+        background: rgba(234, 179, 8, 0.12);
+        color: #eab308;
+    }
+    .platform-other .agent-icon {
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
     }
 
-    .agent-icon .fa-android {
-        color: #3ddc84;
+    .platform-apple .agent-platform {
+        background: rgba(147, 51, 234, 0.12);
+        color: #9333ea;
+    }
+    .platform-android .agent-platform {
+        background: rgba(34, 197, 94, 0.12);
+        color: #16a34a;
+    }
+    .platform-windows .agent-platform {
+        background: rgba(59, 130, 246, 0.12);
+        color: #3b82f6;
+    }
+    .platform-linux .agent-platform {
+        background: rgba(234, 179, 8, 0.12);
+        color: #ca8a04;
     }
 
-    .agent-icon .fa-windows {
-        color: #0078d4;
+    :global(.theme-dark) .platform-apple .agent-platform {
+        color: #c084fc;
     }
-
-    .agent-icon .fa-linux {
-        color: #fcc624;
+    :global(.theme-dark) .platform-android .agent-platform {
+        color: #4ade80;
+    }
+    :global(.theme-dark) .platform-windows .agent-platform {
+        color: #60a5fa;
+    }
+    :global(.theme-dark) .platform-linux .agent-platform {
+        color: #facc15;
+    }
+    :global(.theme-dark) .platform-apple .agent-icon {
+        color: #c084fc;
+    }
+    :global(.theme-dark) .platform-android .agent-icon {
+        color: #4ade80;
+    }
+    :global(.theme-dark) .platform-windows .agent-icon {
+        color: #60a5fa;
+    }
+    :global(.theme-dark) .platform-linux .agent-icon {
+        color: #facc15;
     }
 
     .agent-info {
@@ -409,8 +469,12 @@ else if (brokerConnected == null)
         font-size: 0.75rem;
         padding: 0.1rem 0.5rem;
         border-radius: 4px;
-        background: var(--bg-tertiary);
         color: var(--text-secondary);
+        font-weight: 500;
+    }
+
+    .agent-tfm {
+        background: var(--bg-tertiary);
     }
 
     .agent-project {
