@@ -274,7 +274,23 @@
             }
         };
 
+        // Initial fetch via REST, then try WebSocket streaming
+        await FetchNetworkRequests();
         _ = StartStreamingAsync();
+    }
+
+    private async Task FetchNetworkRequests()
+    {
+        try
+        {
+            var latest = await Client.GetNetworkRequestsAsync();
+            if (latest.Count > 0)
+            {
+                requests = latest;
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch { }
     }
 
     private async Task StartStreamingAsync()
@@ -289,11 +305,14 @@
             {
                 InvokeAsync(() =>
                 {
-                    requests.Add(req);
-                    // Keep max 500
-                    while (requests.Count > 500)
-                        requests.RemoveAt(0);
-                    StateHasChanged();
+                    // Only add if not a duplicate (initial REST fetch may overlap)
+                    if (!string.IsNullOrEmpty(req.Id) && !requests.Any(r => r.Id == req.Id))
+                    {
+                        requests.Add(req);
+                        while (requests.Count > 500)
+                            requests.RemoveAt(0);
+                        StateHasChanged();
+                    }
                 });
             }, _streamCts.Token);
         }
@@ -308,17 +327,9 @@
     {
         while (!(_streamCts?.Token.IsCancellationRequested ?? true))
         {
-            try
-            {
-                var latest = await Client.GetNetworkRequestsAsync(_streamCts!.Token);
-                if (latest.Count > 0)
-                {
-                    requests = latest;
-                    await InvokeAsync(StateHasChanged);
-                }
-            }
-            catch { }
-            await Task.Delay(2000, _streamCts?.Token ?? CancellationToken.None);
+            await FetchNetworkRequests();
+            try { await Task.Delay(2000, _streamCts?.Token ?? CancellationToken.None); }
+            catch (OperationCanceledException) { break; }
         }
     }
 
