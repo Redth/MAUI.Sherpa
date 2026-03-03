@@ -477,9 +477,7 @@
 
     // --- Inspect Mode: Screenshot click → element selection ---
 
-    private record ScreenshotClickInfo(double ClickX, double ClickY,
-        double RenderedWidth, double RenderedHeight,
-        double NaturalWidth, double NaturalHeight);
+    private record ImageDimensions(double Width, double Height, double NaturalWidth, double NaturalHeight);
 
     private async Task OnScreenshotClick(MouseEventArgs e)
     {
@@ -487,44 +485,46 @@
 
         try
         {
-            // Get click position relative to the image content area via JS
-            var clientX = e.ClientX;
-            var clientY = e.ClientY;
-            var js = "(function() {" +
-                "var img = document.querySelector('.screenshot-img');" +
+            // Get image element and natural dimensions via JS
+            var dims = await JS.InvokeAsync<ImageDimensions>("eval",
+                "(function() { var img = document.querySelector('.screenshot-img');" +
                 "if (!img) return null;" +
-                "var rect = img.getBoundingClientRect();" +
-                "var natW = img.naturalWidth, natH = img.naturalHeight;" +
-                "var renW = rect.width, renH = rect.height;" +
-                "var imgAspect = natW / natH;" +
-                "var boxAspect = renW / renH;" +
-                "var actW, actH, offX, offY;" +
-                "if (imgAspect > boxAspect) {" +
-                "  actW = renW; actH = renW / imgAspect;" +
-                "  offX = 0; offY = (renH - actH) / 2;" +
-                "} else {" +
-                "  actH = renH; actW = renH * imgAspect;" +
-                "  offX = (renW - actW) / 2; offY = 0;" +
-                "}" +
-                $"var mx = {clientX} - rect.left - offX;" +
-                $"var my = {clientY} - rect.top - offY;" +
-                "return { clickX: mx, clickY: my, renderedWidth: actW, renderedHeight: actH," +
-                "         naturalWidth: natW, naturalHeight: natH };" +
-                "})()";
-            var info = await JS.InvokeAsync<ScreenshotClickInfo>("eval", js);
+                "var r = img.getBoundingClientRect();" +
+                "return { width: r.width, height: r.height, naturalWidth: img.naturalWidth, naturalHeight: img.naturalHeight }; })()");
 
-            if (info == null || info.RenderedWidth <= 0) return;
+            if (dims == null || dims.NaturalWidth <= 0 || dims.NaturalHeight <= 0) return;
+
+            // e.OffsetX/OffsetY are relative to the img element's border box
+            // Account for object-fit: contain letterboxing
+            var imgAspect = dims.NaturalWidth / dims.NaturalHeight;
+            var boxAspect = dims.Width / dims.Height;
+            double actW, actH, offX, offY;
+            if (imgAspect > boxAspect)
+            {
+                actW = dims.Width; actH = dims.Width / imgAspect;
+                offX = 0; offY = (dims.Height - actH) / 2;
+            }
+            else
+            {
+                actH = dims.Height; actW = dims.Height * imgAspect;
+                offX = (dims.Width - actW) / 2; offY = 0;
+            }
+
+            // Click position within the actual image content
+            var mx = e.OffsetX - offX;
+            var my = e.OffsetY - offY;
+            if (mx < 0 || my < 0 || mx > actW || my > actH) return; // outside image
 
             // Compute DPI scale from root element bounds vs screenshot natural size
             var rootBounds = GetRootBounds();
             if (rootBounds == null) return;
 
-            var dpiScale = info.NaturalWidth / rootBounds.Width;
+            var dpiScale = dims.NaturalWidth / rootBounds.Width;
             if (dpiScale <= 0) dpiScale = 1;
 
             // Map click to logical MAUI points
-            var logicalX = (info.ClickX / info.RenderedWidth) * info.NaturalWidth / dpiScale;
-            var logicalY = (info.ClickY / info.RenderedHeight) * info.NaturalHeight / dpiScale;
+            var logicalX = (mx / actW) * dims.NaturalWidth / dpiScale;
+            var logicalY = (my / actH) * dims.NaturalHeight / dpiScale;
 
             // Hit test
             var hit = HitTest(treeItems, logicalX, logicalY);
@@ -533,7 +533,10 @@
                 await RevealAndSelectElement(hit);
             }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Inspect click error: {ex}");
+        }
     }
 
     private DevFlowBoundsInfo? GetRootBounds()
