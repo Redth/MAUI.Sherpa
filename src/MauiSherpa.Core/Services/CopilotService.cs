@@ -56,9 +56,10 @@ public class CopilotService : ICopilotService, IAsyncDisposable
         
         // For MAUI apps, Raw assets are placed in different locations:
         // - Mac Catalyst: MauiSherpa.app/Contents/Resources/Skills
+        // - macOS AppKit: MauiSherpa.app/Contents/Resources/Skills
         // - Windows: alongside the executable
         
-        // First check Resources folder (Mac Catalyst bundle structure)
+        // First check Resources folder (Mac Catalyst / macOS bundle structure)
         var resourcesPath = Path.Combine(baseDir, "..", "Resources", "Skills");
         if (Directory.Exists(resourcesPath))
         {
@@ -84,8 +85,9 @@ public class CopilotService : ICopilotService, IAsyncDisposable
             parent = Path.GetDirectoryName(parent);
         }
 
-        // Fallback to base directory
-        return skillsPath;
+        // No Skills directory found — fall back to base directory so the process
+        // can still start (Skills are optional, Copilot works without them)
+        return baseDir;
     }
 
     /// <summary>

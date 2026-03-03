@@ -85,10 +85,15 @@
       <_CopilotOsxRid Condition="'$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)' == 'X64'">osx-x64</_CopilotOsxRid>
       <_CopilotSourceBinary>$(OutDir)runtimes/$(_CopilotOsxRid)/native/copilot</_CopilotSourceBinary>
       <_CopilotAppBundle>$(OutDir)$(ApplicationTitle).app/Contents/MonoBundle/runtimes/$(_CopilotMacCatRid)/native</_CopilotAppBundle>
+      <!-- Also copy to osx-{arch} since RuntimeIdentifier reports osx-arm64 at runtime on Mac Catalyst -->
+      <_CopilotAppBundleOsx>$(OutDir)$(ApplicationTitle).app/Contents/MonoBundle/runtimes/$(_CopilotOsxRid)/native</_CopilotAppBundleOsx>
     </PropertyGroup>
     <MakeDir Directories="$(_CopilotAppBundle)" Condition="Exists('$(_CopilotSourceBinary)')" />
     <Copy SourceFiles="$(_CopilotSourceBinary)" DestinationFolder="$(_CopilotAppBundle)" SkipUnchangedFiles="true" Condition="Exists('$(_CopilotSourceBinary)')" />
     <Exec Command="chmod +x &quot;$(_CopilotAppBundle)/copilot&quot;" Condition="Exists('$(_CopilotSourceBinary)')" />
+    <MakeDir Directories="$(_CopilotAppBundleOsx)" Condition="Exists('$(_CopilotSourceBinary)')" />
+    <Copy SourceFiles="$(_CopilotSourceBinary)" DestinationFolder="$(_CopilotAppBundleOsx)" SkipUnchangedFiles="true" Condition="Exists('$(_CopilotSourceBinary)')" />
+    <Exec Command="chmod +x &quot;$(_CopilotAppBundleOsx)/copilot&quot;" Condition="Exists('$(_CopilotSourceBinary)')" />
   </Target>
 
 </Project>
