@@ -47,7 +47,8 @@ else
         {
             <div class="simulator-card running">
                 <div class="simulator-icon">
-                    <span><i class="fas fa-mobile-alt"></i></span>
+                    <i class="fas @GetPhysicalDeviceIcon(device)"></i>
+                    <i class="fab fa-apple brand-overlay"></i>
                 </div>
                 <div class="simulator-details">
                     <div class="simulator-name">@device.Name</div>
@@ -181,8 +182,9 @@ else
                     }
                     else
                     {
-                        <span><i class="fas @GetDeviceIcon(sim.ProductFamily)"></i></span>
+                        <i class="fas @GetDeviceIcon(sim.ProductFamily)"></i>
                     }
+                    <i class="fab fa-apple brand-overlay"></i>
                 </div>
                 <div class="simulator-details">
                     <div class="simulator-name">@sim.Name</div>
@@ -372,16 +374,35 @@ else
     }
 
     .simulator-icon {
-        font-size: 1.5rem;
-        width: 1.75rem;
-        height: 1.75rem;
+        width: 42px;
+        height: 42px;
+        border-radius: 12px;
         display: flex;
         align-items: center;
         justify-content: center;
-        color: var(--accent-primary);
+        font-size: 1.25rem;
+        background: rgba(147, 51, 234, 0.12);
+        color: #9333ea;
+        position: relative;
+        flex-shrink: 0;
     }
 
-    .simulator-icon i { font-size: 1.375rem; }
+    :global(.theme-dark) .simulator-icon {
+        color: #c084fc;
+    }
+
+    .simulator-icon .brand-overlay {
+        position: absolute;
+        bottom: 3px;
+        right: 3px;
+        font-size: 0.7rem;
+        color: #999;
+        line-height: 1;
+    }
+
+    :global(.theme-dark) .simulator-icon .brand-overlay {
+        color: #888;
+    }
 
     .simulator-details {
         flex: 1;
@@ -842,6 +863,17 @@ else
         "apple vision" => "fa-vr-cardboard",
         _ => "fa-mobile-screen"
     };
+
+    private static string GetPhysicalDeviceIcon(PhysicalDevice device)
+    {
+        var dt = (device.DeviceType ?? "").ToLowerInvariant();
+        if (dt.Contains("ipad") || dt.Contains("tablet")) return "fa-tablet-screen-button";
+        if (dt.Contains("watch")) return "fa-clock";
+        if (dt.Contains("tv")) return "fa-tv";
+        if (dt.Contains("vision") || dt.Contains("xr")) return "fa-vr-cardboard";
+        if (dt.Contains("mac")) return "fa-laptop";
+        return "fa-mobile-screen";
+    }
 
     private async Task CloneSimulator(SimulatorDevice sim)
     {

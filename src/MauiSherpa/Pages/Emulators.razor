@@ -86,8 +86,9 @@
                     }
                     else
                     {
-                        <span><i class="fas fa-mobile-alt"></i></span>
+                        <i class="fas @GetEmulatorFormIcon(emulator)"></i>
                     }
+                    <i class="fab fa-android brand-overlay"></i>
                 </div>
                 <div class="emulator-details">
                     <div class="emulator-name">@emulator.Name</div>
@@ -274,16 +275,35 @@
     }
 
     .emulator-icon {
-        font-size: 1.5rem;
-        width: 1.75rem;
-        height: 1.75rem;
+        width: 42px;
+        height: 42px;
+        border-radius: 12px;
         display: flex;
         align-items: center;
         justify-content: center;
-        color: var(--accent-primary);
+        font-size: 1.25rem;
+        background: rgba(34, 197, 94, 0.12);
+        color: #22c55e;
+        position: relative;
+        flex-shrink: 0;
     }
 
-    .emulator-icon i { font-size: 1.375rem; }
+    :global(.theme-dark) .emulator-icon {
+        color: #4ade80;
+    }
+
+    .emulator-icon .brand-overlay {
+        position: absolute;
+        bottom: 3px;
+        right: 3px;
+        font-size: 0.7rem;
+        color: #999;
+        line-height: 1;
+    }
+
+    :global(.theme-dark) .emulator-icon .brand-overlay {
+        color: #888;
+    }
 
     .emulator-details {
         flex: 1;
@@ -750,6 +770,16 @@
             return $"{api} ({variant}, {arch})";
         }
         return path;
+    }
+
+    private static string GetEmulatorFormIcon(AvdInfo emu)
+    {
+        var d = (emu.Device ?? emu.Name ?? "").ToLowerInvariant();
+        if (d.Contains("tv") || d.Contains("television")) return "fa-tv";
+        if (d.Contains("wear") || d.Contains("watch")) return "fa-clock";
+        if (d.Contains("tablet") || d.Contains("tab")) return "fa-tablet-screen-button";
+        if (d.Contains("auto") || d.Contains("car")) return "fa-car";
+        return "fa-mobile-screen";
     }
 
     private async Task CopyToClipboard(string text)
