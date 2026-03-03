@@ -794,26 +794,6 @@
 
         if (hasChildren)
         {
-            __builder.OpenElement(10, "span");
-            __builder.AddAttribute(11, "class", "tree-collapse-all");
-            __builder.AddAttribute(12, "title", "Collapse all children");
-            __builder.AddAttribute(13, "onclick", EventCallback.Factory.Create<Microsoft.AspNetCore.Components.Web.MouseEventArgs>(this, () => CollapseAllDescendants(item)));
-            __builder.AddEventStopPropagationAttribute(14, "onclick", true);
-            __builder.OpenElement(15, "i");
-            __builder.AddAttribute(16, "class", "fas fa-angles-up");
-            __builder.CloseElement();
-            __builder.CloseElement();
-
-            __builder.OpenElement(20, "span");
-            __builder.AddAttribute(21, "class", "tree-expand-all");
-            __builder.AddAttribute(22, "title", "Expand all children");
-            __builder.AddAttribute(23, "onclick", EventCallback.Factory.Create<Microsoft.AspNetCore.Components.Web.MouseEventArgs>(this, () => ExpandAllDescendants(item)));
-            __builder.AddEventStopPropagationAttribute(24, "onclick", true);
-            __builder.OpenElement(25, "i");
-            __builder.AddAttribute(26, "class", "fas fa-angles-down");
-            __builder.CloseElement();
-            __builder.CloseElement();
-
             __builder.OpenElement(30, "span");
             __builder.AddAttribute(31, "class", "tree-toggle");
             __builder.AddAttribute(32, "onclick", EventCallback.Factory.Create<Microsoft.AspNetCore.Components.Web.MouseEventArgs>(this, () => ToggleExpand(item.Id)));
@@ -825,26 +805,8 @@
         }
         else
         {
-            // Invisible placeholders matching collapse-all + expand-all + toggle for alignment
             __builder.OpenElement(40, "span");
-            __builder.AddAttribute(41, "class", "tree-collapse-all tree-control-hidden");
-            __builder.OpenElement(42, "i");
-            __builder.AddAttribute(43, "class", "fas fa-angles-up");
-            __builder.CloseElement();
-            __builder.CloseElement();
-
-            __builder.OpenElement(44, "span");
-            __builder.AddAttribute(45, "class", "tree-expand-all tree-control-hidden");
-            __builder.OpenElement(46, "i");
-            __builder.AddAttribute(47, "class", "fas fa-angles-down");
-            __builder.CloseElement();
-            __builder.CloseElement();
-
-            __builder.OpenElement(48, "span");
-            __builder.AddAttribute(49, "class", "tree-toggle tree-control-hidden");
-            __builder.OpenElement(50, "i");
-            __builder.AddAttribute(51, "class", "fas fa-caret-right");
-            __builder.CloseElement();
+            __builder.AddAttribute(41, "class", "tree-toggle-space");
             __builder.CloseElement();
         }
 
@@ -878,6 +840,35 @@
             __builder.AddAttribute(84, "class", "fas fa-eye-slash");
             __builder.CloseElement();
             __builder.CloseElement();
+        }
+
+        // Right-side hover buttons for expand/collapse all (only for parent nodes)
+        if (hasChildren)
+        {
+            __builder.OpenElement(85, "span");
+            __builder.AddAttribute(86, "class", "tree-actions");
+
+            __builder.OpenElement(87, "span");
+            __builder.AddAttribute(88, "class", "tree-expand-all");
+            __builder.AddAttribute(89, "title", "Expand all children");
+            __builder.AddAttribute(90, "onclick", EventCallback.Factory.Create<Microsoft.AspNetCore.Components.Web.MouseEventArgs>(this, () => ExpandAllDescendants(item)));
+            __builder.AddEventStopPropagationAttribute(91, "onclick", true);
+            __builder.OpenElement(92, "i");
+            __builder.AddAttribute(93, "class", "fas fa-angles-down");
+            __builder.CloseElement();
+            __builder.CloseElement();
+
+            __builder.OpenElement(94, "span");
+            __builder.AddAttribute(95, "class", "tree-collapse-all");
+            __builder.AddAttribute(96, "title", "Collapse all children");
+            __builder.AddAttribute(97, "onclick", EventCallback.Factory.Create<Microsoft.AspNetCore.Components.Web.MouseEventArgs>(this, () => CollapseAllDescendants(item)));
+            __builder.AddEventStopPropagationAttribute(98, "onclick", true);
+            __builder.OpenElement(99, "i");
+            __builder.AddAttribute(100, "class", "fas fa-angles-up");
+            __builder.CloseElement();
+            __builder.CloseElement();
+
+            __builder.CloseElement(); // span.tree-actions
         }
 
         __builder.CloseElement(); // div.tree-node
@@ -2274,9 +2265,17 @@
         flex-shrink: 0;
     }
 
-    .tree-control-hidden {
-        visibility: hidden;
-        pointer-events: none;
+    .tree-toggle-space {
+        width: 14px;
+        flex-shrink: 0;
+    }
+
+    .tree-actions {
+        margin-left: auto;
+        display: flex;
+        align-items: center;
+        gap: 0.25rem;
+        flex-shrink: 0;
     }
 
     .tree-expand-all, .tree-collapse-all {
