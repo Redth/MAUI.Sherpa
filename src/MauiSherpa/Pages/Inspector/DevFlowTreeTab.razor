@@ -9,6 +9,11 @@
         <div class="pane-header">
             <span>Screenshot</span>
             <div class="pane-actions">
+                <button class="btn-icon @(inspectMode ? "inspect-active" : "")"
+                        @onclick="() => { inspectMode = !inspectMode; }"
+                        title="@(inspectMode ? "Exit inspect mode" : "Inspect element (click on screenshot)")">
+                    <i class="fas fa-crosshairs"></i>
+                </button>
                 <select @bind="autoRefreshInterval" @bind:after="OnAutoRefreshChanged" class="auto-refresh-select">
                     <option value="0">Manual</option>
                     <option value="1">1s</option>
@@ -23,7 +28,15 @@
         <div class="screenshot-container">
             @if (screenshotData != null)
             {
-                <img src="@($"data:image/png;base64,{screenshotData}")" alt="App screenshot" class="screenshot-img" />
+                <div class="screenshot-wrapper" style="position: relative; display: inline-block;">
+                    <img src="@($"data:image/png;base64,{screenshotData}")" alt="App screenshot"
+                         class="screenshot-img @(inspectMode ? "inspect-cursor" : "")"
+                         @onclick="OnScreenshotClick" />
+                    @if (selectedElement?.Bounds != null && screenshotData != null)
+                    {
+                        @RenderHighlightOverlay
+                    }
+                </div>
             }
             else
             {
@@ -238,6 +251,7 @@
     private bool isLoadingProps;
     private int autoRefreshInterval;
     private Timer? _screenshotTimer;
+    private bool inspectMode;
     private string? editingProperty;
     private string editValue = "";
     private ElementReference editInput;
@@ -460,6 +474,143 @@
         }
         catch { }
     }
+
+    // --- Inspect Mode: Screenshot click → element selection ---
+
+    private record ScreenshotClickInfo(double ClickX, double ClickY,
+        double RenderedWidth, double RenderedHeight,
+        double NaturalWidth, double NaturalHeight);
+
+    private async Task OnScreenshotClick(MouseEventArgs e)
+    {
+        if (!inspectMode || treeItems.Count == 0) return;
+
+        try
+        {
+            // Get click position relative to the image content area via JS
+            var info = await JS.InvokeAsync<ScreenshotClickInfo>("eval", """
+                (function() {
+                    var img = document.querySelector('.screenshot-img');
+                    if (!img) return null;
+                    var rect = img.getBoundingClientRect();
+                    var natW = img.naturalWidth, natH = img.naturalHeight;
+                    var renW = rect.width, renH = rect.height;
+                    // object-fit: contain — compute actual content area
+                    var imgAspect = natW / natH;
+                    var boxAspect = renW / renH;
+                    var actW, actH, offX, offY;
+                    if (imgAspect > boxAspect) {
+                        actW = renW; actH = renW / imgAspect;
+                        offX = 0; offY = (renH - actH) / 2;
+                    } else {
+                        actH = renH; actW = renH * imgAspect;
+                        offX = (renW - actW) / 2; offY = 0;
+                    }
+                    var mx = arguments[0] - rect.left - offX;
+                    var my = arguments[1] - rect.top - offY;
+                    return { clickX: mx, clickY: my, renderedWidth: actW, renderedHeight: actH,
+                             naturalWidth: natW, naturalHeight: natH };
+                })()
+            """, e.ClientX, e.ClientY);
+
+            if (info == null || info.RenderedWidth <= 0) return;
+
+            // Compute DPI scale from root element bounds vs screenshot natural size
+            var rootBounds = GetRootBounds();
+            if (rootBounds == null) return;
+
+            var dpiScale = info.NaturalWidth / rootBounds.Width;
+            if (dpiScale <= 0) dpiScale = 1;
+
+            // Map click to logical MAUI points
+            var logicalX = (info.ClickX / info.RenderedWidth) * info.NaturalWidth / dpiScale;
+            var logicalY = (info.ClickY / info.RenderedHeight) * info.NaturalHeight / dpiScale;
+
+            // Hit test
+            var hit = HitTest(treeItems, logicalX, logicalY);
+            if (hit != null)
+            {
+                await RevealAndSelectElement(hit);
+            }
+        }
+        catch { }
+    }
+
+    private DevFlowBoundsInfo? GetRootBounds()
+    {
+        foreach (var item in treeItems)
+        {
+            if (item.Bounds != null && item.Bounds.Width > 0)
+                return item.Bounds;
+        }
+        return null;
+    }
+
+    private DevFlowElementInfo? HitTest(List<DevFlowElementInfo> items, double x, double y)
+    {
+        DevFlowElementInfo? best = null;
+        foreach (var item in items)
+        {
+            if (item.Bounds == null || !item.IsVisible) continue;
+            var b = item.Bounds;
+            if (x >= b.X && x <= b.X + b.Width && y >= b.Y && y <= b.Y + b.Height)
+            {
+                best = item;
+                if (item.Children?.Count > 0)
+                {
+                    var childHit = HitTest(item.Children, x, y);
+                    if (childHit != null) best = childHit;
+                }
+            }
+        }
+        return best;
+    }
+
+    private bool ExpandPathTo(List<DevFlowElementInfo> items, string targetId)
+    {
+        foreach (var item in items)
+        {
+            if (item.Id == targetId) return true;
+            if (item.Children?.Count > 0 && ExpandPathTo(item.Children, targetId))
+            {
+                expandedNodes.Add(item.Id);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private async Task RevealAndSelectElement(DevFlowElementInfo element)
+    {
+        ExpandPathTo(treeItems, element.Id);
+        await SelectElement(element);
+        StateHasChanged();
+
+        // Scroll the selected tree node into view after render
+        await Task.Delay(50);
+        await JS.InvokeVoidAsync("eval",
+            "document.querySelector('.tree-node.selected')?.scrollIntoView({ block: 'center', behavior: 'smooth' })");
+    }
+
+    private RenderFragment RenderHighlightOverlay => __builder =>
+    {
+        if (selectedElement?.Bounds == null) return;
+
+        var rootBounds = GetRootBounds();
+        if (rootBounds == null || rootBounds.Width <= 0) return;
+
+        var b = selectedElement.Bounds;
+        var leftPct = (b.X / rootBounds.Width) * 100;
+        var topPct = (b.Y / rootBounds.Height) * 100;
+        var widthPct = (b.Width / rootBounds.Width) * 100;
+        var heightPct = (b.Height / rootBounds.Height) * 100;
+
+        __builder.OpenElement(0, "div");
+        __builder.AddAttribute(1, "class", "highlight-overlay");
+        __builder.AddAttribute(2, "style",
+            $"left: {leftPct:F2}%; top: {topPct:F2}%; width: {widthPct:F2}%; height: {heightPct:F2}%;");
+        __builder.CloseElement();
+    };
 
     private async Task SelectElement(DevFlowElementInfo element)
     {
@@ -2015,6 +2166,32 @@
         max-height: 100%;
         object-fit: contain;
         border-radius: 4px;
+    }
+
+    .screenshot-img.inspect-cursor {
+        cursor: crosshairs;
+    }
+
+    .inspect-active {
+        color: #8b5cf6 !important;
+        background: rgba(139, 92, 246, 0.15) !important;
+        border-radius: 4px;
+    }
+
+    .screenshot-wrapper {
+        position: relative;
+        display: inline-block;
+        max-width: 100%;
+        max-height: 100%;
+    }
+
+    .highlight-overlay {
+        position: absolute;
+        background: rgba(139, 92, 246, 0.2);
+        border: 2px solid rgba(139, 92, 246, 0.7);
+        border-radius: 2px;
+        pointer-events: none;
+        z-index: 1;
     }
 
     .screenshot-placeholder {
