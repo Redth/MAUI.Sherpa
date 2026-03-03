@@ -165,18 +165,31 @@ public class DevFlowAgentClient : IDisposable
 
     // --- CDP ---
 
-    public async Task<CdpResponse?> SendCdpCommandAsync(string method, Dictionary<string, object?>? parameters = null, CancellationToken ct = default)
+    public async Task<CdpResponse?> SendCdpCommandAsync(string method, Dictionary<string, object?>? parameters = null, string? targetId = null, CancellationToken ct = default)
     {
         try
         {
-            var body = new CdpRequest { Method = method, Params = parameters };
-            var json = JsonSerializer.Serialize(body);
+            var bodyObj = new Dictionary<string, object?>
+            {
+                ["method"] = method,
+            };
+            if (parameters != null)
+                bodyObj["params"] = parameters;
+            if (targetId != null)
+                bodyObj["targetId"] = targetId;
+
+            var json = JsonSerializer.Serialize(bodyObj);
             var content = new StringContent(json, Encoding.UTF8, "application/json");
             var response = await _http.PostAsync($"{BaseUrl}/api/cdp", content, ct);
             var responseBody = await response.Content.ReadAsStringAsync(ct);
             return JsonSerializer.Deserialize<CdpResponse>(responseBody);
         }
         catch { return null; }
+    }
+
+    public async Task<List<CdpTarget>> GetCdpTargetsAsync(CancellationToken ct = default)
+    {
+        return await GetAsync<List<CdpTarget>>("/api/cdp/targets", ct) ?? new();
     }
 
     // --- Network ---

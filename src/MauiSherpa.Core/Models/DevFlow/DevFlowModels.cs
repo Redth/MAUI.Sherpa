@@ -244,3 +244,21 @@ public class CdpResponse
     [JsonPropertyName("error")]
     public string? Error { get; set; }
 }
+
+/// <summary>
+/// Represents a Blazor WebView CDP target from /api/cdp/targets.
+/// </summary>
+public class CdpTarget
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = string.Empty;
+
+    [JsonPropertyName("title")]
+    public string? Title { get; set; }
+
+    [JsonPropertyName("url")]
+    public string? Url { get; set; }
+
+    [JsonPropertyName("ready")]
+    public bool Ready { get; set; }
+}

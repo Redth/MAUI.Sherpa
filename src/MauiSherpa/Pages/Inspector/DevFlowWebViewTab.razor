@@ -8,6 +8,15 @@
         <div class="pane-header">
             <span>Console</span>
             <div class="pane-actions">
+                @if (cdpTargets.Count > 1)
+                {
+                    <select @bind="selectedTargetId" @bind:after="OnTargetChanged" class="target-selector" title="Select WebView target">
+                        @foreach (var t in cdpTargets)
+                        {
+                            <option value="@t.Id">@(string.IsNullOrEmpty(t.Title) ? t.Id : t.Title)</option>
+                        }
+                    </select>
+                }
                 <select @bind="logLevelFilter" class="level-filter">
                     <option value="">All</option>
                     <option value="info">Info</option>
@@ -132,6 +141,8 @@
     private double resizeStartX;
     private double resizeStartWidth;
     private List<DataGridColumnDef<DevFlowLogEntry>> consoleColumns = null!;
+    private List<CdpTarget> cdpTargets = new();
+    private string? selectedTargetId;
 
     private IEnumerable<DevFlowLogEntry> FilteredLogs
     {
@@ -176,6 +187,8 @@
         };
 
         await RefreshLogs();
+        // Fetch CDP targets
+        await RefreshTargets();
         // Start polling for new logs
         _pollTimer = new Timer(async _ =>
         {
@@ -222,6 +235,23 @@
         gridRef?.ResetAll();
     }
 
+    private async Task RefreshTargets()
+    {
+        try
+        {
+            cdpTargets = await Client.GetCdpTargetsAsync();
+            if (cdpTargets.Count > 0 && selectedTargetId == null)
+                selectedTargetId = cdpTargets.First().Id;
+        }
+        catch { }
+    }
+
+    private async Task OnTargetChanged()
+    {
+        // Re-fetch page source for the new target
+        await FetchPageSource();
+    }
+
     private async Task EvaluateJs()
     {
         if (string.IsNullOrWhiteSpace(jsExpression)) return;
@@ -235,7 +265,7 @@
             {
                 ["expression"] = expr,
                 ["returnByValue"] = true
-            });
+            }, targetId: selectedTargetId);
 
             if (response?.Success == true)
             {
@@ -287,7 +317,7 @@
             {
                 ["expression"] = "document.documentElement.outerHTML",
                 ["returnByValue"] = true
-            });
+            }, targetId: selectedTargetId);
             pageSource = response?.Result?.ToString() ?? "Could not fetch page source";
         }
         catch (Exception ex)
@@ -435,6 +465,16 @@
         border: 1px solid var(--border-color);
         background: var(--bg-primary);
         color: var(--text-primary);
+    }
+
+    .target-selector {
+        font-size: 0.7rem;
+        padding: 0.15rem 0.4rem;
+        border-radius: 4px;
+        border: 1px solid var(--accent-color, #2196F3);
+        background: color-mix(in srgb, var(--accent-color, #2196F3) 8%, var(--bg-primary));
+        color: var(--text-primary);
+        max-width: 160px;
     }
 
     /* JS Eval */
