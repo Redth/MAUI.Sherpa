@@ -88,13 +88,23 @@
     <div class="tree-props-pane" style="width: @(propsPaneWidth)px;">
         <div class="pane-header">
             <span>Properties</span>
+            @if (selectedElement != null)
+            {
+                @if (isLoadingProps)
+                {
+                    <i class="fas fa-spinner fa-spin prop-loading-icon"></i>
+                }
+                <button class="btn-icon prop-refresh-btn" @onclick="RefreshProperties" title="Refresh properties">
+                    <i class="fas fa-sync-alt"></i>
+                </button>
+            }
         </div>
         <div class="props-container">
             @if (selectedElement != null)
             {
                 <!-- Element identity -->
                 <div class="prop-section">
-                    <div class="prop-section-title">Element</div>
+                    <div class="prop-group-title">Element</div>
                     <div class="prop-row">
                         <span class="prop-key">Type</span>
                         <span class="prop-value">@selectedElement.Type</span>
@@ -131,20 +141,6 @@
                         }
                     </div>
                 }
-
-                <!-- Fetched Properties by Group -->
-                <div class="prop-section">
-                    <div class="prop-section-title">
-                        Properties
-                        @if (isLoadingProps)
-                        {
-                            <i class="fas fa-spinner fa-spin prop-loading-icon"></i>
-                        }
-                        <button class="btn-icon prop-refresh-btn" @onclick="RefreshProperties" title="Refresh properties">
-                            <i class="fas fa-sync-alt"></i>
-                        </button>
-                    </div>
-                </div>
 
                 @if (fetchedProperties.Count > 0)
                 {
