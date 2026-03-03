@@ -81,7 +81,7 @@
                             Window @windowIndex: @item.Type
                         </div>
                     }
-                    @RenderNode(item, 0)
+                    @RenderNode(item, 0, new List<bool>())
                 }
             }
             else if (isLoadingTree)
@@ -772,7 +772,7 @@
         return item.Children.Any(c => HasMatchingDescendant(c));
     }
 
-    private RenderFragment RenderNode(DevFlowElementInfo item, int depth, bool isLast = false) => __builder =>
+    private RenderFragment RenderNode(DevFlowElementInfo item, int depth, List<bool> ancestorIsLast) => __builder =>
     {
         if (!string.IsNullOrEmpty(searchQuery) && !HasMatchingDescendant(item))
             return;
@@ -780,18 +780,30 @@
         var hasChildren = item.Children?.Count > 0;
         var isExpanded = expandedNodes.Contains(item.Id);
         var isSelected = selectedElementId == item.Id;
-        var indent = depth * 16;
 
-        // Wrapper for node + children (provides vertical guide line)
+        // The node row
         __builder.OpenElement(0, "div");
-        __builder.AddAttribute(1, "class", $"tree-item {(isLast ? "last-child" : "")}");
-        __builder.AddAttribute(2, "style", depth > 0 ? $"margin-left: {16}px" : "");
+        __builder.AddAttribute(1, "class", $"tree-node {(isSelected ? "selected" : "")}");
+        __builder.AddAttribute(2, "onclick", EventCallback.Factory.Create<Microsoft.AspNetCore.Components.Web.MouseEventArgs>(this, () => SelectElement(item)));
 
-        // The node row itself
-        __builder.OpenElement(3, "div");
-        __builder.AddAttribute(4, "class", $"tree-node {(isSelected ? "selected" : "")} {(depth > 0 ? "has-guide" : "")}");
-        __builder.AddAttribute(5, "onclick", EventCallback.Factory.Create<Microsoft.AspNetCore.Components.Web.MouseEventArgs>(this, () => SelectElement(item)));
+        // Indent guide spans for each depth level
+        for (int d = 0; d < depth; d++)
+        {
+            __builder.OpenElement(10, "span");
+            if (d < depth - 1)
+            {
+                // Ancestor level: vertical line if ancestor has more siblings, blank if last
+                __builder.AddAttribute(11, "class", ancestorIsLast[d] ? "indent-guide" : "indent-guide guide-line");
+            }
+            else
+            {
+                // Current level connector: L if last child, T if not
+                __builder.AddAttribute(11, "class", ancestorIsLast[d] ? "indent-guide guide-last" : "indent-guide guide-mid");
+            }
+            __builder.CloseElement();
+        }
 
+        // Toggle caret (only for nodes with children)
         if (hasChildren)
         {
             __builder.OpenElement(30, "span");
@@ -801,12 +813,6 @@
             __builder.OpenElement(34, "i");
             __builder.AddAttribute(35, "class", $"fas {(isExpanded ? "fa-caret-down" : "fa-caret-right")}");
             __builder.CloseElement();
-            __builder.CloseElement();
-        }
-        else
-        {
-            __builder.OpenElement(40, "span");
-            __builder.AddAttribute(41, "class", "tree-toggle-space");
             __builder.CloseElement();
         }
 
@@ -873,16 +879,16 @@
 
         __builder.CloseElement(); // div.tree-node
 
+        // Render children
         if (hasChildren && (isExpanded || !string.IsNullOrEmpty(searchQuery)))
         {
             var children = item.Children!;
             for (int i = 0; i < children.Count; i++)
             {
-                __builder.AddContent(90, RenderNode(children[i], depth + 1, i == children.Count - 1));
+                var childAncestry = new List<bool>(ancestorIsLast) { i == children.Count - 1 };
+                __builder.AddContent(110, RenderNode(children[i], depth + 1, childAncestry));
             }
         }
-
-        __builder.CloseElement(); // div.tree-item
     };
 
     private void StartEditing(string property, string? currentValue)
@@ -2208,42 +2214,66 @@
         font-size: 0.8rem;
     }
 
-    /* Tree item wrapper (provides guide lines) */
-    .tree-item {
+    /* Indent guide spans (one per depth level) */
+    .indent-guide {
+        width: 16px;
+        flex-shrink: 0;
+        align-self: stretch;
         position: relative;
     }
 
-    .tree-item:not(.last-child) {
-        border-left: 1px solid var(--tree-guide-color, rgba(128,128,128,0.18));
-    }
-
-    .tree-node.has-guide::before {
+    /* Vertical line through full height (ancestor has more siblings) */
+    .indent-guide.guide-line::before {
         content: '';
         position: absolute;
-        left: 0;
-        top: 50%;
-        width: 12px;
-        height: 0;
-        border-top: 1px solid var(--tree-guide-color, rgba(128,128,128,0.18));
+        left: 7px;
+        top: 0;
+        bottom: 0;
+        border-left: 1px solid var(--tree-guide-color, rgba(128,128,128,0.2));
     }
 
-    .tree-item.last-child > .tree-node.has-guide::before {
-        left: -1px;
-        border-left: 1px solid var(--tree-guide-color, rgba(128,128,128,0.18));
-        height: 50%;
+    /* T-junction: full vertical + horizontal at center (not last child) */
+    .indent-guide.guide-mid::before {
+        content: '';
+        position: absolute;
+        left: 7px;
         top: 0;
-        width: 12px;
-        border-top: 1px solid var(--tree-guide-color, rgba(128,128,128,0.18));
-        border-bottom: none;
+        bottom: 0;
+        border-left: 1px solid var(--tree-guide-color, rgba(128,128,128,0.2));
+    }
+    .indent-guide.guide-mid::after {
+        content: '';
+        position: absolute;
+        left: 7px;
+        top: 50%;
+        width: 9px;
+        border-top: 1px solid var(--tree-guide-color, rgba(128,128,128,0.2));
+    }
+
+    /* L-junction: vertical top half + horizontal at center (last child) */
+    .indent-guide.guide-last::before {
+        content: '';
+        position: absolute;
+        left: 7px;
+        top: 0;
+        height: 50%;
+        border-left: 1px solid var(--tree-guide-color, rgba(128,128,128,0.2));
+    }
+    .indent-guide.guide-last::after {
+        content: '';
+        position: absolute;
+        left: 7px;
+        top: 50%;
+        width: 9px;
+        border-top: 1px solid var(--tree-guide-color, rgba(128,128,128,0.2));
     }
 
     .tree-node {
-        position: relative;
         display: flex;
         align-items: center;
-        gap: 0.4rem;
+        gap: 0.3rem;
         padding: 0.2rem 0.4rem;
-        padding-left: 14px;
+        padding-left: 4px;
         cursor: pointer;
         white-space: nowrap;
     }
@@ -2254,7 +2284,6 @@
 
     .tree-node.selected {
         background: rgba(139, 92, 246, 0.2);
-        border-left: 2px solid var(--accent-color, #8b5cf6);
     }
 
     .tree-toggle {
@@ -2262,11 +2291,6 @@
         text-align: center;
         cursor: pointer;
         color: var(--text-tertiary);
-        flex-shrink: 0;
-    }
-
-    .tree-toggle-space {
-        width: 14px;
         flex-shrink: 0;
     }
 
