@@ -317,6 +317,7 @@
     private double gradientAngle = 90;
     private bool isDraggingStop;
     private ElementReference gradientTrackRef;
+    private Dictionary<string, string> brushValueCache = new();
 
     private record PropertyEntry(string Name, string? Value, PropertyMeta Meta);
 
@@ -522,6 +523,7 @@
         selectedElementId = element.Id;
         editingProperty = null;
         fetchedProperties.Clear();
+        brushValueCache.Clear();
 
         var windowIndex = GetWindowIndex(element);
         if (windowIndex != selectedWindowIndex)
@@ -804,6 +806,14 @@
         var prop = editingProperty;
         var val = editValue;
         var elementId = selectedElement.Id;
+
+        // Cache CSS value for brush properties (MAUI ToString doesn't preserve gradient stops)
+        var meta = GetMeta(prop);
+        if (meta.Editor == EditorType.Brush && !string.IsNullOrEmpty(val))
+        {
+            brushValueCache[$"{elementId}:{prop}"] = val;
+        }
+
         editingProperty = null;
         gradientStops.Clear();
         selectedStopIndex = null;
@@ -851,7 +861,17 @@
             var tasks = CommonProperties.Select(async prop =>
             {
                 var val = await Client.GetPropertyAsync(elementId, prop);
-                return new PropertyEntry(prop, val, GetMeta(prop));
+                // Use cached CSS value for brush properties (MAUI ToString loses gradient stop details)
+                var meta = GetMeta(prop);
+                if (meta.Editor == EditorType.Brush && val != null
+                    && !val.StartsWith("linear-gradient", StringComparison.OrdinalIgnoreCase)
+                    && !val.StartsWith("radial-gradient", StringComparison.OrdinalIgnoreCase))
+                {
+                    var cacheKey = $"{elementId}:{prop}";
+                    if (brushValueCache.TryGetValue(cacheKey, out var cached))
+                        val = cached;
+                }
+                return new PropertyEntry(prop, val, meta);
             });
 
             var results = await Task.WhenAll(tasks);
