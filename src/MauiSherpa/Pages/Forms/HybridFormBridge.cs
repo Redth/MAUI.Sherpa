@@ -98,11 +98,21 @@ public class HybridFormBridge
 
 /// <summary>
 /// Singleton holder for the active HybridFormBridge.
-/// Since only one modal is open at a time, a single slot suffices.
-/// The MAUI page sets Current before creating the BlazorWebView;
-/// the Blazor component reads it on initialization.
+/// Uses a stack to support nested modals — each modal pushes its bridge
+/// on open and pops it on close, restoring the parent's bridge.
 /// </summary>
 public class HybridFormBridgeHolder
 {
-    public HybridFormBridge? Current { get; set; }
+    private readonly Stack<HybridFormBridge> _stack = new();
+
+    public HybridFormBridge? Current => _stack.Count > 0 ? _stack.Peek() : null;
+
+    /// <summary>Push a new bridge for a nested modal.</summary>
+    public void Push(HybridFormBridge bridge) => _stack.Push(bridge);
+
+    /// <summary>Pop the current bridge when a modal closes, restoring the parent's.</summary>
+    public void Pop()
+    {
+        if (_stack.Count > 0) _stack.Pop();
+    }
 }

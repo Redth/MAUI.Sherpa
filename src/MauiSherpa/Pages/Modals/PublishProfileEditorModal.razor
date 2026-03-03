@@ -14,6 +14,7 @@
 @inject ILocalCertificateService LocalCertService
 @inject ICertificateSyncService CertSyncService
 @inject IMediator Mediator
+@inject IFormModalService FormModal
 @implements IDisposable
 
 <div class="profile-editor">
@@ -327,51 +328,12 @@
             <div class="form-content">
                 <div class="section-header">
                     <span>Secret Mappings</span>
-                    <button class="btn-action small" @onclick="@(() => showSecretPicker = true)">
+                    <button class="btn-action small" @onclick="OpenSecretPicker">
                         <i class="fa-solid fa-plus"></i> Add Secret
                     </button>
                 </div>
 
-                @if (showSecretPicker)
-                {
-                    <div class="secret-picker-overlay" @onclick="@(() => showSecretPicker = false)">
-                        <div class="secret-picker-dialog" @onclick:stopPropagation="true">
-                            <div class="secret-picker-header">
-                                <span><i class="fa-solid fa-key"></i> Add Secret Mapping</span>
-                                <button class="btn-icon-action" @onclick="@(() => showSecretPicker = false)">
-                                    <i class="fa-solid fa-xmark"></i>
-                                </button>
-                            </div>
-                            <div class="secret-picker-body">
-                                <div class="search-box">
-                                    <i class="fas fa-search"></i>
-                                    <input type="text" @bind="secretSearch" @bind:event="oninput" placeholder="Search managed secrets..." />
-                                    @if (!string.IsNullOrEmpty(secretSearch))
-                                    {
-                                        <button class="clear-search" @onclick="@(() => secretSearch = "")">×</button>
-                                    }
-                                </div>
-                                <div class="selection-list compact">
-                                    @foreach (var secret in filteredManagedSecrets)
-                                    {
-                                        <label class="selection-item" @onclick="@(() => AddSecretMapping(secret.Key))">
-                                            <div class="item-content">
-                                                <div class="item-name mono">@secret.Key</div>
-                                                <div class="item-detail">@(string.IsNullOrEmpty(secret.Description) ? "\u00A0" : secret.Description)</div>
-                                            </div>
-                                        </label>
-                                    }
-                                    @if (!filteredManagedSecrets.Any())
-                                    {
-                                        <div class="empty-hint">No matching secrets</div>
-                                    }
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                }
-
-                @if (!secretMappings.Any() && !showSecretPicker)
+                @if (!secretMappings.Any())
                 {
                     <div class="empty-state">
                         <i class="fa-solid fa-key"></i>
@@ -1962,8 +1924,6 @@
     // Secrets
     private List<SecretMappingVM> secretMappings = new();
     private List<ManagedSecret> managedSecrets = new();
-    private bool showSecretPicker;
-    private string secretSearch = "";
 
     // Publishers
     private List<SecretsPublisherConfig> publishers = new();
@@ -1974,19 +1934,6 @@
             ? repos
             : repos.Where(r => r.FullName.Contains(repoSearch, StringComparison.OrdinalIgnoreCase)
                 || (r.Description?.Contains(repoSearch, StringComparison.OrdinalIgnoreCase) ?? false));
-
-    private IEnumerable<ManagedSecret> filteredManagedSecrets
-    {
-        get
-        {
-            var existingKeys = secretMappings.Select(m => m.SourceKey).ToHashSet();
-            var available = managedSecrets.Where(s => !existingKeys.Contains(s.Key));
-            return string.IsNullOrWhiteSpace(secretSearch)
-                ? available
-                : available.Where(s => s.Key.Contains(secretSearch, StringComparison.OrdinalIgnoreCase)
-                    || (s.Description?.Contains(secretSearch, StringComparison.OrdinalIgnoreCase) ?? false));
-        }
-    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -2418,6 +2365,15 @@
     }
 
     // Secrets helpers
+    private async Task OpenSecretPicker()
+    {
+        var existingKeys = secretMappings.Select(m => m.SourceKey).ToList();
+        var page = new SecretPickerPage(BridgeHolder, managedSecrets, existingKeys);
+        var selectedKey = await FormModal.ShowAsync(page);
+        if (!string.IsNullOrEmpty(selectedKey))
+            AddSecretMapping(selectedKey);
+    }
+
     private void AddSecretMapping(string sourceKey)
     {
         if (secretMappings.Any(m => m.SourceKey == sourceKey)) return;
@@ -2426,7 +2382,6 @@
             SourceKey = sourceKey,
             DestinationKeys = new List<string> { sourceKey }
         });
-        showSecretPicker = false;
     }
 
     // Key mapping helpers

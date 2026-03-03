@@ -57,7 +57,7 @@ public abstract class WizardFormPage<TResult> : ContentPage, IFormPage<TResult>,
 
     private void BuildPage()
     {
-        _bridgeHolder.Current = _bridge;
+        _bridgeHolder.Push(_bridge);
 
         // Listen for wizard state changes from Blazor
         _bridge.WizardStateChanged += OnWizardStateChanged;
@@ -267,6 +267,7 @@ public abstract class WizardFormPage<TResult> : ContentPage, IFormPage<TResult>,
             {
                 await _bridge.RequestSubmitAsync();
                 var result = (TResult?)_bridge.Result;
+                _bridgeHolder.Pop();
                 _tcs.TrySetResult(result);
             }
             catch (Exception ex)
@@ -283,6 +284,7 @@ public abstract class WizardFormPage<TResult> : ContentPage, IFormPage<TResult>,
     private void OnCancelClicked(object? sender, EventArgs e)
     {
         _bridge.RequestCancel();
+        _bridgeHolder.Pop();
         _tcs.TrySetResult(default);
     }
 

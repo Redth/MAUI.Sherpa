@@ -48,6 +48,7 @@ public class SettingsPage : ContentPage
 
     public void Complete(bool saved)
     {
+        _bridgeHolder.Pop();
         _tcs?.TrySetResult(saved);
     }
 
@@ -60,7 +61,7 @@ public class SettingsPage : ContentPage
 
     private void BuildPage()
     {
-        _bridgeHolder.Current = _bridge;
+        _bridgeHolder.Push(_bridge);
         _bridge.CancelRequested += () => Complete(false);
 
         // Title
