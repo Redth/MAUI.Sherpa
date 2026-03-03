@@ -1,5 +1,6 @@
 @using MauiSherpa.Core.Models.DevFlow
 @using MauiSherpa.Core.Services
+@inject IJSRuntime JS
 @implements IDisposable
 
 <div class="tree-layout">
@@ -314,6 +315,8 @@
     private List<GradientStop> gradientStops = new();
     private int? selectedStopIndex;
     private double gradientAngle = 90;
+    private bool isDraggingStop;
+    private ElementReference gradientTrackRef;
 
     private record PropertyEntry(string Name, string? Value, PropertyMeta Meta);
 
@@ -338,7 +341,6 @@
     private static readonly Dictionary<string, PropertyMeta> PropertyRegistry = new(StringComparer.OrdinalIgnoreCase)
     {
         // --- Appearance ---
-        ["BackgroundColor"] = new(EditorType.Color, "Appearance"),
         ["Background"] = new(EditorType.Brush, "Appearance"),
         ["TextColor"] = new(EditorType.Color, "Appearance"),
         ["PlaceholderColor"] = new(EditorType.Color, "Appearance"),
@@ -354,7 +356,7 @@
         ["FontAttributes"] = new(EditorType.Enum, "Appearance", EnumValues: new[] { "None", "Bold", "Italic" }),
         ["TextDecorations"] = new(EditorType.Enum, "Appearance", EnumValues: new[] { "None", "Underline", "Strikethrough" }),
         ["StyleClass"] = new(EditorType.Text, "Appearance"),
-        ["CornerRadius"] = new(EditorType.Thickness, "Appearance"),
+        ["CornerRadius"] = new(EditorType.Number, "Appearance", NumMin: 0, NumMax: 500, NumStep: 1, IsDouble: true),
 
         // --- Layout ---
         ["WidthRequest"] = new(EditorType.Number, "Layout", NumMin: -1, NumMax: 10000, NumStep: 1, IsDouble: true),
@@ -803,11 +805,38 @@
         var val = editValue;
         var elementId = selectedElement.Id;
         editingProperty = null;
+        gradientStops.Clear();
+        selectedStopIndex = null;
+        isDraggingStop = false;
         StateHasChanged();
         await Client.SetPropertyAsync(elementId, prop, val);
         await RefreshTree();
         await RefreshProperties();
     }
+
+    private async Task OnTrackPointerMove(PointerEventArgs e)
+    {
+        if (!isDraggingStop || !selectedStopIndex.HasValue || selectedStopIndex.Value >= gradientStops.Count)
+            return;
+
+        try
+        {
+            var rect = await JS.InvokeAsync<TrackRect>("eval",
+                $"(function(){{ var el=document.querySelector('.gradient-track-container'); if(!el) return null; var r=el.getBoundingClientRect(); return {{ left: r.left, width: r.width }}; }})()");
+            if (rect != null && rect.Width > 0)
+            {
+                var offset = (e.ClientX - rect.Left) / rect.Width;
+                offset = Math.Clamp(offset, 0, 1);
+                gradientStops[selectedStopIndex.Value].Offset = offset;
+                var currentType = DetectEditBrushType();
+                editValue = BuildGradientCss(currentType);
+                StateHasChanged();
+            }
+        }
+        catch { }
+    }
+
+    private record TrackRect(double Left, double Width);
 
     private async Task RefreshProperties()
     {
@@ -1117,17 +1146,17 @@
                 // Gradient stop track
                 __builder.OpenElement(43, "div");
                 __builder.AddAttribute(44, "class", "gradient-track-container");
+                __builder.AddElementReferenceCapture(45, (r) => gradientTrackRef = r);
+                __builder.AddAttribute(46, "onpointermove", EventCallback.Factory.Create<PointerEventArgs>(this, OnTrackPointerMove));
+                __builder.AddAttribute(47, "onpointerup", EventCallback.Factory.Create<PointerEventArgs>(this, (e) =>
+                {
+                    isDraggingStop = false;
+                }));
 
                 // Track bar showing gradient
-                __builder.OpenElement(45, "div");
-                __builder.AddAttribute(46, "class", "gradient-track");
-                __builder.AddAttribute(47, "style", $"background: linear-gradient(90deg, {BuildLinearStopsCss()})");
-                // Click track to add new stop
-                __builder.AddAttribute(48, "onclick", EventCallback.Factory.Create<MouseEventArgs>(this, (e) =>
-                {
-                    // Can't get precise click position from MouseEventArgs offset in RenderFragment,
-                    // so we use the "Add" button instead
-                }));
+                __builder.OpenElement(48, "div");
+                __builder.AddAttribute(49, "class", "gradient-track");
+                __builder.AddAttribute(50, "style", $"background: linear-gradient(90deg, {BuildLinearStopsCss()})");
                 __builder.CloseElement();
 
                 // Stop handles on the track
@@ -1139,15 +1168,16 @@
                         ? $"rgba({HexToRgb(stop.Color)}, {stop.Opacity:F2})"
                         : stop.Color;
 
-                    __builder.OpenElement(50, "div");
-                    __builder.AddAttribute(51, "class", $"gradient-stop-handle {(selectedStopIndex == idx ? "selected" : "")}");
-                    __builder.AddAttribute(52, "style", $"left: {stop.Offset * 100:F1}%; background: {colorWithOpacity}");
-                    __builder.AddAttribute(53, "onclick", EventCallback.Factory.Create<MouseEventArgs>(this, () =>
+                    __builder.OpenElement(52, "div");
+                    __builder.AddAttribute(53, "class", $"gradient-stop-handle {(selectedStopIndex == idx ? "selected" : "")} {(isDraggingStop && selectedStopIndex == idx ? "dragging" : "")}");
+                    __builder.AddAttribute(54, "style", $"left: {stop.Offset * 100:F1}%; background: {colorWithOpacity}");
+                    __builder.AddAttribute(55, "onpointerdown", EventCallback.Factory.Create<PointerEventArgs>(this, (e) =>
                     {
                         selectedStopIndex = idx;
+                        isDraggingStop = true;
                         StateHasChanged();
                     }));
-                    __builder.AddAttribute(54, "title", $"{stop.Offset * 100:F0}%");
+                    __builder.AddAttribute(56, "title", $"{stop.Offset * 100:F0}%");
                     __builder.CloseElement();
                 }
 
@@ -1219,63 +1249,35 @@
                     __builder.AddAttribute(81, "class", "gradient-stop-editor");
 
                     // Color picker
+                    // Color picker + opacity on same row
                     __builder.OpenElement(82, "div");
-                    __builder.AddAttribute(83, "class", "stop-editor-field");
-                    __builder.OpenElement(84, "label");
-                    __builder.AddContent(85, "Color");
-                    __builder.CloseElement();
-                    __builder.OpenElement(86, "input");
-                    __builder.AddAttribute(87, "type", "color");
-                    __builder.AddAttribute(88, "value", selStop.Color);
-                    __builder.AddAttribute(89, "class", "color-picker-input");
-                    __builder.AddAttribute(90, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, (e) =>
+                    __builder.AddAttribute(83, "class", "stop-color-opacity-row");
+
+                    __builder.OpenElement(84, "input");
+                    __builder.AddAttribute(85, "type", "color");
+                    __builder.AddAttribute(86, "value", selStop.Color);
+                    __builder.AddAttribute(87, "class", "color-picker-input");
+                    __builder.AddAttribute(88, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, (e) =>
                     {
                         gradientStops[selIdx].Color = e.Value?.ToString() ?? "#ffffff";
                         editValue = BuildGradientCss(currentType);
                         StateHasChanged();
                     }));
                     __builder.CloseElement();
-                    __builder.CloseElement(); // stop-editor-field color
 
-                    // Offset slider
-                    __builder.OpenElement(92, "div");
-                    __builder.AddAttribute(93, "class", "stop-editor-field");
-                    __builder.OpenElement(94, "label");
-                    __builder.AddContent(95, $"Offset {selStop.Offset * 100:F0}%");
+                    __builder.OpenElement(90, "label");
+                    __builder.AddAttribute(91, "class", "opacity-label");
+                    __builder.AddContent(92, $"{selStop.Opacity * 100:F0}%");
                     __builder.CloseElement();
-                    __builder.OpenElement(96, "input");
-                    __builder.AddAttribute(97, "type", "range");
-                    __builder.AddAttribute(98, "min", "0");
-                    __builder.AddAttribute(99, "max", "100");
-                    __builder.AddAttribute(100, "step", "1");
-                    __builder.AddAttribute(101, "value", $"{selStop.Offset * 100:F0}");
-                    __builder.AddAttribute(102, "class", "gradient-offset-slider");
-                    __builder.AddAttribute(103, "oninput", EventCallback.Factory.Create<ChangeEventArgs>(this, (e) =>
-                    {
-                        if (double.TryParse(e.Value?.ToString(), out var pct))
-                        {
-                            gradientStops[selIdx].Offset = pct / 100.0;
-                            editValue = BuildGradientCss(currentType);
-                            StateHasChanged();
-                        }
-                    }));
-                    __builder.CloseElement();
-                    __builder.CloseElement(); // stop-editor-field offset
 
-                    // Opacity slider
-                    __builder.OpenElement(105, "div");
-                    __builder.AddAttribute(106, "class", "stop-editor-field");
-                    __builder.OpenElement(107, "label");
-                    __builder.AddContent(108, $"Opacity {selStop.Opacity * 100:F0}%");
-                    __builder.CloseElement();
-                    __builder.OpenElement(109, "input");
-                    __builder.AddAttribute(110, "type", "range");
-                    __builder.AddAttribute(111, "min", "0");
-                    __builder.AddAttribute(112, "max", "100");
-                    __builder.AddAttribute(113, "step", "1");
-                    __builder.AddAttribute(114, "value", $"{selStop.Opacity * 100:F0}");
-                    __builder.AddAttribute(115, "class", "gradient-opacity-slider");
-                    __builder.AddAttribute(116, "oninput", EventCallback.Factory.Create<ChangeEventArgs>(this, (e) =>
+                    __builder.OpenElement(93, "input");
+                    __builder.AddAttribute(94, "type", "range");
+                    __builder.AddAttribute(95, "min", "0");
+                    __builder.AddAttribute(96, "max", "100");
+                    __builder.AddAttribute(97, "step", "1");
+                    __builder.AddAttribute(98, "value", $"{selStop.Opacity * 100:F0}");
+                    __builder.AddAttribute(99, "class", "gradient-opacity-slider");
+                    __builder.AddAttribute(100, "oninput", EventCallback.Factory.Create<ChangeEventArgs>(this, (e) =>
                     {
                         if (double.TryParse(e.Value?.ToString(), out var pct))
                         {
@@ -1285,7 +1287,8 @@
                         }
                     }));
                     __builder.CloseElement();
-                    __builder.CloseElement(); // stop-editor-field opacity
+
+                    __builder.CloseElement(); // stop-color-opacity-row
 
                     __builder.CloseElement(); // gradient-stop-editor
                 }
@@ -1562,17 +1565,57 @@
 
     private static string ParseMauiGradientToCss(string value, string type)
     {
-        // Try to extract gradient stop colors from the ToString representation
-        // Format varies but often includes color info. Fall back to a placeholder gradient.
-        var colorMatches = System.Text.RegularExpressions.Regex.Matches(value, @"#[0-9A-Fa-f]{6,8}");
-        if (colorMatches.Count >= 2)
+        // MAUI gradient ToString formats:
+        // 1) Contains hex colors: "#FF0000", "#0000FF"
+        // 2) Contains Color descriptors: "Color [A=1, R=1, G=0, B=0, ...]" with Offset values
+        // 3) Just the type name: "Microsoft.Maui.Controls.LinearGradientBrush"
+
+        var stops = new List<(string hex, double offset)>();
+
+        // Try to extract "Color [A=..., R=..., G=..., B=...]" with optional "Offset=..." nearby
+        var colorDescMatches = System.Text.RegularExpressions.Regex.Matches(value,
+            @"Color\s*\[\s*A=([^,\]]+),\s*R=([^,\]]+),\s*G=([^,\]]+),\s*B=([^,\]]+)");
+        var offsetMatches = System.Text.RegularExpressions.Regex.Matches(value,
+            @"Offset=([0-9.]+)");
+
+        if (colorDescMatches.Count >= 2)
         {
-            var colors = string.Join(", ", colorMatches.Select(m => m.Value));
-            return type == "linear"
-                ? $"linear-gradient(90deg, {colors})"
-                : $"radial-gradient(circle, {colors})";
+            for (int i = 0; i < colorDescMatches.Count; i++)
+            {
+                var m = colorDescMatches[i];
+                if (double.TryParse(m.Groups[2].Value, System.Globalization.CultureInfo.InvariantCulture, out var r) &&
+                    double.TryParse(m.Groups[3].Value, System.Globalization.CultureInfo.InvariantCulture, out var g) &&
+                    double.TryParse(m.Groups[4].Value, System.Globalization.CultureInfo.InvariantCulture, out var b))
+                {
+                    var hex = $"#{(int)(r * 255):X2}{(int)(g * 255):X2}{(int)(b * 255):X2}";
+                    var offset = i < offsetMatches.Count && double.TryParse(offsetMatches[i].Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture, out var o)
+                        ? o : (colorDescMatches.Count > 1 ? (double)i / (colorDescMatches.Count - 1) : 0);
+                    stops.Add((hex, offset));
+                }
+            }
         }
-        // Fallback
+
+        // Fallback: extract hex colors
+        if (stops.Count < 2)
+        {
+            stops.Clear();
+            var hexMatches = System.Text.RegularExpressions.Regex.Matches(value, @"#[0-9A-Fa-f]{6,8}");
+            for (int i = 0; i < hexMatches.Count; i++)
+            {
+                var offset = hexMatches.Count > 1 ? (double)i / (hexMatches.Count - 1) : 0;
+                stops.Add((hexMatches[i].Value, offset));
+            }
+        }
+
+        if (stops.Count >= 2)
+        {
+            var cssStops = string.Join(", ", stops.Select(s => $"{s.hex} {s.offset * 100:F0}%"));
+            return type == "linear"
+                ? $"linear-gradient(90deg, {cssStops})"
+                : $"radial-gradient(circle, {cssStops})";
+        }
+
+        // Final fallback
         return type == "linear"
             ? "linear-gradient(90deg, #888, #ccc)"
             : "radial-gradient(circle, #888, #ccc)";
@@ -2448,6 +2491,15 @@
         z-index: 2;
     }
 
+    .gradient-stop-handle.dragging {
+        cursor: grabbing;
+        transform: translateX(-50%) scale(1.2);
+    }
+
+    .gradient-track-container {
+        touch-action: none;
+    }
+
     /* Stop controls */
     .gradient-stop-controls {
         display: flex;
@@ -2494,6 +2546,28 @@
         padding: 0.4rem;
         background: var(--bg-tertiary);
         border-radius: 4px;
+    }
+
+    .stop-color-opacity-row {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+    }
+
+    .stop-color-opacity-row .color-picker-input {
+        flex-shrink: 0;
+    }
+
+    .opacity-label {
+        font-size: 0.6rem;
+        color: var(--text-tertiary);
+        min-width: 28px;
+        text-align: right;
+        flex-shrink: 0;
+    }
+
+    .stop-color-opacity-row .gradient-opacity-slider {
+        flex: 1;
     }
 
     .stop-editor-field {
