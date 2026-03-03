@@ -621,7 +621,7 @@
         return item.Children.Any(c => HasMatchingDescendant(c));
     }
 
-    private RenderFragment RenderNode(DevFlowElementInfo item, int depth) => __builder =>
+    private RenderFragment RenderNode(DevFlowElementInfo item, int depth, bool isLast = false) => __builder =>
     {
         if (!string.IsNullOrEmpty(searchQuery) && !HasMatchingDescendant(item))
             return;
@@ -629,92 +629,100 @@
         var hasChildren = item.Children?.Count > 0;
         var isExpanded = expandedNodes.Contains(item.Id);
         var isSelected = selectedElementId == item.Id;
-        var indent = depth * 10;
+        var indent = depth * 16;
 
+        // Wrapper for node + children (provides vertical guide line)
         __builder.OpenElement(0, "div");
-        __builder.AddAttribute(1, "class", $"tree-node {(isSelected ? "selected" : "")}");
-        __builder.AddAttribute(2, "style", $"padding-left: {indent + 4}px");
-        __builder.AddAttribute(3, "onclick", EventCallback.Factory.Create<Microsoft.AspNetCore.Components.Web.MouseEventArgs>(this, () => SelectElement(item)));
+        __builder.AddAttribute(1, "class", $"tree-item {(isLast ? "last-child" : "")}");
+        __builder.AddAttribute(2, "style", depth > 0 ? $"margin-left: {16}px" : "");
+
+        // The node row itself
+        __builder.OpenElement(3, "div");
+        __builder.AddAttribute(4, "class", $"tree-node {(isSelected ? "selected" : "")} {(depth > 0 ? "has-guide" : "")}");
+        __builder.AddAttribute(5, "onclick", EventCallback.Factory.Create<Microsoft.AspNetCore.Components.Web.MouseEventArgs>(this, () => SelectElement(item)));
 
         if (hasChildren)
         {
-            __builder.OpenElement(5, "span");
-            __builder.AddAttribute(6, "class", "tree-collapse-all");
-            __builder.AddAttribute(7, "title", "Collapse all children");
-            __builder.AddAttribute(8, "onclick", EventCallback.Factory.Create<Microsoft.AspNetCore.Components.Web.MouseEventArgs>(this, () => CollapseAllDescendants(item)));
-            __builder.AddEventStopPropagationAttribute(9, "onclick", true);
-            __builder.OpenElement(10, "i");
-            __builder.AddAttribute(11, "class", "fas fa-angles-up");
-            __builder.CloseElement(); // i
-            __builder.CloseElement(); // span
-
-            __builder.OpenElement(16, "span");
-            __builder.AddAttribute(17, "class", "tree-expand-all");
-            __builder.AddAttribute(18, "title", "Expand all children");
-            __builder.AddAttribute(19, "onclick", EventCallback.Factory.Create<Microsoft.AspNetCore.Components.Web.MouseEventArgs>(this, () => ExpandAllDescendants(item)));
-            __builder.AddEventStopPropagationAttribute(20, "onclick", true);
-            __builder.OpenElement(21, "i");
-            __builder.AddAttribute(22, "class", "fas fa-angles-down");
-            __builder.CloseElement(); // i
-            __builder.CloseElement(); // span
-
             __builder.OpenElement(10, "span");
-            __builder.AddAttribute(11, "class", "tree-toggle");
-            __builder.AddAttribute(12, "onclick", EventCallback.Factory.Create<Microsoft.AspNetCore.Components.Web.MouseEventArgs>(this, () => ToggleExpand(item.Id)));
-            __builder.AddEventStopPropagationAttribute(13, "onclick", true);
-            __builder.OpenElement(14, "i");
-            __builder.AddAttribute(15, "class", $"fas {(isExpanded ? "fa-caret-down" : "fa-caret-right")}");
-            __builder.CloseElement(); // i
-            __builder.CloseElement(); // span
+            __builder.AddAttribute(11, "class", "tree-collapse-all");
+            __builder.AddAttribute(12, "title", "Collapse all children");
+            __builder.AddAttribute(13, "onclick", EventCallback.Factory.Create<Microsoft.AspNetCore.Components.Web.MouseEventArgs>(this, () => CollapseAllDescendants(item)));
+            __builder.AddEventStopPropagationAttribute(14, "onclick", true);
+            __builder.OpenElement(15, "i");
+            __builder.AddAttribute(16, "class", "fas fa-angles-up");
+            __builder.CloseElement();
+            __builder.CloseElement();
+
+            __builder.OpenElement(20, "span");
+            __builder.AddAttribute(21, "class", "tree-expand-all");
+            __builder.AddAttribute(22, "title", "Expand all children");
+            __builder.AddAttribute(23, "onclick", EventCallback.Factory.Create<Microsoft.AspNetCore.Components.Web.MouseEventArgs>(this, () => ExpandAllDescendants(item)));
+            __builder.AddEventStopPropagationAttribute(24, "onclick", true);
+            __builder.OpenElement(25, "i");
+            __builder.AddAttribute(26, "class", "fas fa-angles-down");
+            __builder.CloseElement();
+            __builder.CloseElement();
+
+            __builder.OpenElement(30, "span");
+            __builder.AddAttribute(31, "class", "tree-toggle");
+            __builder.AddAttribute(32, "onclick", EventCallback.Factory.Create<Microsoft.AspNetCore.Components.Web.MouseEventArgs>(this, () => ToggleExpand(item.Id)));
+            __builder.AddEventStopPropagationAttribute(33, "onclick", true);
+            __builder.OpenElement(34, "i");
+            __builder.AddAttribute(35, "class", $"fas {(isExpanded ? "fa-caret-down" : "fa-caret-right")}");
+            __builder.CloseElement();
+            __builder.CloseElement();
         }
         else
         {
-            __builder.OpenElement(20, "span");
-            __builder.AddAttribute(21, "class", "tree-toggle-space");
+            __builder.OpenElement(40, "span");
+            __builder.AddAttribute(41, "class", "tree-toggle-space");
             __builder.CloseElement();
         }
 
-        __builder.OpenElement(30, "span");
-        __builder.AddAttribute(31, "class", "tree-type");
-        __builder.AddContent(32, item.Type);
+        __builder.OpenElement(50, "span");
+        __builder.AddAttribute(51, "class", "tree-type");
+        __builder.AddContent(52, item.Type);
         __builder.CloseElement();
 
         if (!string.IsNullOrEmpty(item.Text))
         {
-            __builder.OpenElement(40, "span");
-            __builder.AddAttribute(41, "class", "tree-text");
-            __builder.AddContent(42, $"\"{Truncate(item.Text, 30)}\"");
+            __builder.OpenElement(60, "span");
+            __builder.AddAttribute(61, "class", "tree-text");
+            __builder.AddContent(62, $"\"{Truncate(item.Text, 30)}\"");
             __builder.CloseElement();
         }
 
         if (!string.IsNullOrEmpty(item.AutomationId))
         {
-            __builder.OpenElement(50, "span");
-            __builder.AddAttribute(51, "class", "tree-aid");
-            __builder.AddContent(52, $"#{item.AutomationId}");
+            __builder.OpenElement(70, "span");
+            __builder.AddAttribute(71, "class", "tree-aid");
+            __builder.AddContent(72, $"#{item.AutomationId}");
             __builder.CloseElement();
         }
 
         if (!item.IsVisible)
         {
-            __builder.OpenElement(60, "span");
-            __builder.AddAttribute(61, "class", "tree-hidden");
-            __builder.AddAttribute(62, "title", "Hidden");
-            __builder.OpenElement(63, "i");
-            __builder.AddAttribute(64, "class", "fas fa-eye-slash");
-            __builder.CloseElement(); // i
-            __builder.CloseElement(); // span
+            __builder.OpenElement(80, "span");
+            __builder.AddAttribute(81, "class", "tree-hidden");
+            __builder.AddAttribute(82, "title", "Hidden");
+            __builder.OpenElement(83, "i");
+            __builder.AddAttribute(84, "class", "fas fa-eye-slash");
+            __builder.CloseElement();
+            __builder.CloseElement();
         }
 
         __builder.CloseElement(); // div.tree-node
 
         if (hasChildren && (isExpanded || !string.IsNullOrEmpty(searchQuery)))
         {
-            foreach (var child in item.Children!)
+            var children = item.Children!;
+            for (int i = 0; i < children.Count; i++)
             {
-                __builder.AddContent(70, RenderNode(child, depth + 1));
+                __builder.AddContent(90, RenderNode(children[i], depth + 1, i == children.Count - 1));
             }
         }
+
+        __builder.CloseElement(); // div.tree-item
     };
 
     private void StartEditing(string property, string? currentValue)
@@ -2012,11 +2020,42 @@
         font-size: 0.8rem;
     }
 
+    /* Tree item wrapper (provides guide lines) */
+    .tree-item {
+        position: relative;
+    }
+
+    .tree-item:not(.last-child) {
+        border-left: 1px solid var(--border-color, rgba(128,128,128,0.2));
+    }
+
+    .tree-node.has-guide::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        top: 50%;
+        width: 10px;
+        height: 0;
+        border-top: 1px solid var(--border-color, rgba(128,128,128,0.2));
+    }
+
+    .tree-item.last-child > .tree-node.has-guide::before {
+        left: -1px;
+        border-left: 1px solid var(--border-color, rgba(128,128,128,0.2));
+        height: 50%;
+        top: 0;
+        width: 10px;
+        border-top: 1px solid var(--border-color, rgba(128,128,128,0.2));
+        border-bottom: none;
+    }
+
     .tree-node {
+        position: relative;
         display: flex;
         align-items: center;
         gap: 0.4rem;
         padding: 0.2rem 0.4rem;
+        padding-left: 12px;
         cursor: pointer;
         white-space: nowrap;
     }
@@ -2041,7 +2080,6 @@
     .tree-toggle-space {
         width: 14px;
         flex-shrink: 0;
-        margin-left: 20px;
     }
 
     .tree-expand-all, .tree-collapse-all {
