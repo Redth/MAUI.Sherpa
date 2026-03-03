@@ -33,7 +33,7 @@ public class VaultwardenProvider : ICloudSecretsProvider
     public const string ServerModeCustom = "custom";
 
     public const string BitwardenCloudUrl = "https://vault.bitwarden.com";
-    public const string VaultwardenNetUrl = "https://vaultwarden.net";
+    public const string VaultwardenNetUrl = "https://vault.vaultwarden.net";
 
     public VaultwardenProvider(CloudSecretsProviderConfig config, ILoggingService logger)
         : this(config, logger, null) { }
@@ -68,8 +68,13 @@ public class VaultwardenProvider : ICloudSecretsProvider
         _ => CustomServerUrl
     };
 
-    private string ApiBaseUrl => $"{ServerUrl}/api";
-    private string IdentityUrl => $"{ServerUrl}/identity";
+    private string ApiBaseUrl => ServerMode == ServerModeBitwarden
+        ? "https://api.bitwarden.com"
+        : $"{ServerUrl}/api";
+
+    private string IdentityUrl => ServerMode == ServerModeBitwarden
+        ? "https://identity.bitwarden.com"
+        : $"{ServerUrl}/identity";
 
     #endregion
 
@@ -85,7 +90,7 @@ public class VaultwardenProvider : ICloudSecretsProvider
         }
         catch (Exception ex)
         {
-            _logger.LogError($"Vaultwarden connection test error: {ex.Message}", ex);
+            _logger.LogError($"Vaultwarden connection test error for {ApiBaseUrl}: {ex.Message}", ex);
             return false;
         }
     }

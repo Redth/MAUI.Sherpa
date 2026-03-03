@@ -39,6 +39,11 @@ public class ModalParameterService
         _tcs = null;
     }
 
-    /// <summary>Clears all parameters.</summary>
-    public void Clear() => _params.Clear();
+    /// <summary>Clears all parameters and cancels any pending result.</summary>
+    public void Clear()
+    {
+        _params.Clear();
+        _tcs?.TrySetResult(null);
+        _tcs = null;
+    }
 }

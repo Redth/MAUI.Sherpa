@@ -36,9 +36,25 @@
 
         @foreach (var setting in CloudSecretsProviderFactory.GetProviderSettings(providerType))
         {
+            if (setting.DependsOn != null && providerSettings.GetValueOrDefault(setting.DependsOn) != setting.DependsOnValue)
+                continue;
+
             <div class="form-group">
                 <label>@setting.DisplayName @(setting.IsRequired ? "*" : "")</label>
-                @if (setting.IsSecret)
+                @if (setting.Options?.Length > 0)
+                {
+                    <select value="@(providerSettings.GetValueOrDefault(setting.Key, setting.DefaultValue ?? ""))"
+                            @onchange="@(e => { providerSettings[setting.Key] = e.Value?.ToString() ?? ""; StateHasChanged(); })">
+                        @foreach (var opt in setting.Options)
+                        {
+                            var parts = opt.Split('|', 2);
+                            var val = parts[0];
+                            var label = parts.Length > 1 ? parts[1] : parts[0];
+                            <option value="@val">@label</option>
+                        }
+                    </select>
+                }
+                else if (setting.IsSecret)
                 {
                     <input type="password"
                            value="@(providerSettings.GetValueOrDefault(setting.Key, ""))"
@@ -86,7 +102,9 @@
         get
         {
             if (string.IsNullOrWhiteSpace(providerName)) return false;
-            var requiredSettings = CloudSecretsProviderFactory.GetProviderSettings(providerType).Where(s => s.IsRequired);
+            var settings = CloudSecretsProviderFactory.GetProviderSettings(providerType);
+            var requiredSettings = settings.Where(s => s.IsRequired &&
+                (s.DependsOn == null || providerSettings.GetValueOrDefault(s.DependsOn) == s.DependsOnValue));
             return requiredSettings.All(s => !string.IsNullOrWhiteSpace(providerSettings.GetValueOrDefault(s.Key)));
         }
     }
@@ -144,6 +162,7 @@
         CloudSecretsProviderType.AwsSecretsManager => "fab fa-aws",
         CloudSecretsProviderType.GoogleSecretManager => "fab fa-google",
         CloudSecretsProviderType.OnePassword => "fas fa-lock",
+        CloudSecretsProviderType.Vaultwarden => "fas fa-vault",
         _ => "fas fa-lock"
     };
 }
@@ -159,6 +178,8 @@
     .form-group label { display: block; margin-bottom: 0.5rem; font-weight: 500; color: var(--text-secondary); }
     .form-group input { width: 100%; padding: 0.625rem 0.75rem; border: 1px solid var(--border-color); border-radius: 0.375rem; font-size: 0.875rem; box-sizing: border-box; background: var(--bg-tertiary); color: var(--text-primary); }
     .form-group input:focus { outline: none; border-color: var(--accent-primary); box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.1); }
+    .form-group select { width: 100%; padding: 0.625rem 0.75rem; border: 1px solid var(--border-color); border-radius: 0.375rem; font-size: 0.875rem; box-sizing: border-box; background: var(--bg-tertiary); color: var(--text-primary); }
+    .form-group select:focus { outline: none; border-color: var(--accent-primary); box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.1); }
     .help-text { margin-top: 0.375rem; font-size: 0.75rem; color: var(--text-muted); }
 
     .provider-type-selector { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.75rem; margin-top: 0.5rem; }

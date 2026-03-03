@@ -8,6 +8,7 @@
 @inject IDialogService DialogService
 @inject BlazorToastService ToastService
 @inject IUpdateService UpdateService
+@inject MauiSherpa.Pages.Forms.ModalParameterService ModalParams
 @inject IAndroidSdkService AndroidSdkService
 @inject IDebugFlagService DebugFlags
 
@@ -204,12 +205,6 @@
 
 </div>
 
-<UpdateAvailableModal
-    UpdateResult="@mockUpdateResult"
-    IsVisible="@showUpdateModal"
-    OnAccept="@(() => { showUpdateModal = false; })"
-    OnDecline="@(() => { showUpdateModal = false; })" />
-
 <style>
     .debug-sections {
         display: flex;
@@ -372,14 +367,12 @@
 @code {
     private bool? lastConfirmResult;
     private string? lastInputResult;
-    private bool showUpdateModal;
-    private UpdateCheckResult? mockUpdateResult;
 
     // === Update Available Modal ===
 
-    private void ShowUpdateModal()
+    private async Task ShowUpdateModal()
     {
-        mockUpdateResult = new UpdateCheckResult(
+        var mockResult = new UpdateCheckResult(
             UpdateAvailable: true,
             CurrentVersion: "0.2.3+dev",
             LatestRelease: new GitHubRelease(
@@ -393,7 +386,18 @@
                 Assets: Array.Empty<GitHubReleaseAsset>()
             )
         );
-        showUpdateModal = true;
+
+        ModalParams.Clear();
+        ModalParams.Set("UpdateResult", mockResult);
+
+        var nav = Application.Current?.Windows.FirstOrDefault()?.Page?.Navigation;
+        if (nav == null) return;
+
+        var resultTask = ModalParams.WaitForResultAsync();
+        var page = new MauiSherpa.Pages.Forms.ProgressModalPage("/modal/update-available", 600, 500);
+        await nav.PushModalAsync(page, animated: true);
+        await resultTask;
+        await nav.PopModalAsync(animated: true);
     }
 
     // === Process Execution Modal ===

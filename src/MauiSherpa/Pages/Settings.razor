@@ -27,7 +27,9 @@
 @inject ILauncher AppLauncher
 @inject IToolbarService ToolbarService
 @inject IPlatformService PlatformInfo
+@inject ILoggingService Logger
 @inject MauiSherpa.Pages.Forms.ModalParameterService ModalParams
+@inject MauiSherpa.Pages.Forms.HybridFormBridgeHolder BridgeHolder
 
 @if (!PlatformInfo.HasNativeToolbar)
 {
@@ -460,18 +462,9 @@
                         }
                         @if (provider.ProviderType == CloudSecretsProviderType.Vaultwarden)
                         {
-                            @{
-                                var serverMode = provider.Settings.GetValueOrDefault("ServerMode", "custom");
-                                var serverDisplay = serverMode switch
-                                {
-                                    "bitwarden" => "Bitwarden Cloud",
-                                    "vaultwarden" => "Vaultwarden.net",
-                                    _ => provider.Settings.GetValueOrDefault("ServerUrl", "")
-                                };
-                            }
                             <div class="detail-item">
                                 <span class="detail-label">SERVER</span>
-                                <span class="detail-value mono"><span class="@(demoMode ? "demo-blur" : "")">@serverDisplay</span></span>
+                                <span class="detail-value mono"><span class="@(demoMode ? "demo-blur" : "")">@GetVaultwardenServerDisplay(provider)</span></span>
                             </div>
                             <div class="detail-item">
                                 <span class="detail-label">EMAIL</span>
@@ -628,13 +621,6 @@
         </div>
 </div>
 
-<UpdateAvailableModal
-    @ref="updateModal"
-    UpdateResult="@updateResult"
-    IsVisible="@showUpdateDialog"
-    OnAccept="@HandleSettingsUpdateAccept"
-    OnDecline="@HandleSettingsUpdateDecline"
-    OnAutoUpdate="@HandleSettingsAutoUpdate" />
 
 <style>
     h1 { margin-bottom: 1.25rem; font-size: 1.75rem; color: var(--text-primary); font-weight: 600; }
@@ -1151,7 +1137,7 @@
 
 @code {
     private List<AppleIdentity> appleIdentities = new();
-    
+
     private async Task OpenUrl(string url)
     {
         await AppLauncher.OpenAsync(new Uri(url));
@@ -1160,8 +1146,6 @@
     private bool demoMode = false;
     private string appVersion = "";
     private UpdateCheckResult? updateResult;
-    private bool showUpdateDialog = false;
-    private UpdateAvailableModal? updateModal;
 
     // Google identity state
     private List<GoogleIdentity> googleIdentities = new();
@@ -1197,6 +1181,10 @@
                 new ToolbarAction("reset", "Reset to Defaults", "trash")
             );
             ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
+        }
+        else if (BridgeHolder.Current is { } bridge)
+        {
+            bridge.ActionRequested += OnBridgeActionRequested;
         }
 
         // Sync ViewModel with current theme service state
@@ -1308,6 +1296,8 @@
     public void Dispose()
     {
         ToolbarService.ToolbarItemClicked -= OnToolbarItemClicked;
+        if (BridgeHolder.Current is { } bridge)
+            bridge.ActionRequested -= OnBridgeActionRequested;
         SdkSettings.SdkPathChanged -= OnSdkPathChanged;
         JdkSettings.JdkPathChanged -= OnJdkPathChanged;
         CloudSecretsService.OnActiveProviderChanged -= OnCloudProviderChanged;
@@ -1401,6 +1391,23 @@
             }
             StateHasChanged();
         });
+    }
+
+    private async Task OnBridgeActionRequested(string actionId)
+    {
+        switch (actionId)
+        {
+            case "save":
+                await SaveSettings();
+                // Signal completion to dismiss the sheet
+                var nav = Application.Current?.Windows.FirstOrDefault()?.Page?.Navigation;
+                var settingsPage = nav?.ModalStack.OfType<MauiSherpa.Pages.Forms.SettingsPage>().FirstOrDefault();
+                settingsPage?.Complete(true);
+                break;
+            case "reset":
+                await ResetSettings();
+                break;
+        }
     }
 
     private async Task SaveSettings()
@@ -1764,6 +1771,17 @@
         CloudSecretsProviderType.Vaultwarden => "fas fa-vault",
         _ => "fas fa-lock"
     };
+
+    private static string GetVaultwardenServerDisplay(CloudSecretsProviderConfig provider)
+    {
+        var serverMode = provider.Settings.GetValueOrDefault("ServerMode", "custom");
+        return serverMode switch
+        {
+            "bitwarden" => "Bitwarden Cloud",
+            "vaultwarden" => "Vaultwarden.net",
+            _ => provider.Settings.GetValueOrDefault("ServerUrl", "")
+        };
+    }
 
     private string? GetProviderUrl(CloudSecretsProviderConfig provider)
     {
@@ -2136,43 +2154,20 @@
 
     // === Update Dialog ===
 
-    private void ShowUpdateDialog()
+    private async Task ShowUpdateDialog()
     {
-        showUpdateDialog = true;
-    }
+        if (updateResult == null) return;
 
-    private async Task HandleSettingsUpdateAccept()
-    {
-        if (updateResult?.LatestRelease?.HtmlUrl is { Length: > 0 } url)
-        {
-            try { await AppLauncher.OpenAsync(new Uri(url)); } catch { }
-        }
-        showUpdateDialog = false;
-    }
+        ModalParams.Clear();
+        ModalParams.Set("UpdateResult", updateResult);
 
-    private Task HandleSettingsUpdateDecline()
-    {
-        showUpdateDialog = false;
-        StateHasChanged();
-        return Task.CompletedTask;
-    }
+        var nav = Application.Current?.Windows.FirstOrDefault()?.Page?.Navigation;
+        if (nav == null) return;
 
-    private async Task HandleSettingsAutoUpdate()
-    {
-        if (updateResult?.LatestRelease == null) return;
-        try
-        {
-            var progress = new Progress<(double Percent, string Message)>(update =>
-            {
-                updateModal?.UpdateProgress(update.Percent, update.Message);
-            });
-            await UpdateService.DownloadAndApplyUpdateAsync(updateResult.LatestRelease, progress);
-        }
-        catch (Exception ex)
-        {
-            await AlertService.ShowAlertAsync("Update Failed", ex.Message);
-            showUpdateDialog = false;
-            StateHasChanged();
-        }
+        var resultTask = ModalParams.WaitForResultAsync();
+        var page = new MauiSherpa.Pages.Forms.ProgressModalPage("/modal/update-available", 600, 500);
+        await nav.PushModalAsync(page, animated: true);
+        await resultTask;
+        await nav.PopModalAsync(animated: true);
     }
 }

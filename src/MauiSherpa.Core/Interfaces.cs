@@ -2795,7 +2795,10 @@ public record PublishProfileData(
     List<PublishProfileAppleConfig> AppleConfigs,
     List<PublishProfileAndroidConfig> AndroidConfigs,
     List<PublishProfileSecretMapping> SecretMappings
-);
+)
+{
+    public List<PublishProfilePublisher> Publishers { get; init; } = new();
+}
 
 public record AppPreferences
 {

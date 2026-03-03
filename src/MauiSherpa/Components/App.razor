@@ -2,6 +2,7 @@
 @using MauiSherpa.Core.Interfaces
 @inject IUpdateService UpdateService
 @inject ILoggingService Logger
+@inject MauiSherpa.Pages.Forms.ModalParameterService ModalParams
 @implements IDisposable
 
 <Router AppAssembly="@typeof(App).Assembly">
@@ -17,19 +18,8 @@
     </NotFound>
 </Router>
 
-<UpdateAvailableModal 
-    @ref="_updateModal"
-    UpdateResult="@_updateCheckResult" 
-    IsVisible="@_showUpdateModal"
-    OnAccept="@HandleUpdateAccept"
-    OnDecline="@HandleUpdateDecline"
-    OnAutoUpdate="@HandleAutoUpdate" />
-
 @code {
-    private UpdateCheckResult? _updateCheckResult;
-    private bool _showUpdateModal;
     private CancellationTokenSource _cts = new();
-    private UpdateAvailableModal? _updateModal;
 
     protected override async Task OnInitializedAsync()
     {
@@ -49,13 +39,10 @@
             if (result.UpdateAvailable && result.LatestRelease != null)
             {
                 var isDismissed = UpdateService.DismissedVersion == result.LatestRelease.TagName;
-
-                await InvokeAsync(() =>
+                if (!isDismissed)
                 {
-                    _updateCheckResult = result;
-                    _showUpdateModal = !isDismissed;
-                    StateHasChanged();
-                });
+                    await InvokeAsync(async () => await ShowUpdateModal(result));
+                }
             }
         }
         catch (OperationCanceledException) { }
@@ -65,53 +52,19 @@
         }
     }
 
-    private async Task HandleUpdateAccept()
+    private async Task ShowUpdateModal(UpdateCheckResult updateResult)
     {
-        if (_updateCheckResult?.LatestRelease?.HtmlUrl is { Length: > 0 } url)
-        {
-            try
-            {
-                await Launcher.OpenAsync(new Uri(url));
-            }
-            catch (Exception ex)
-            {
-                Logger.LogError("Failed to open release URL", ex);
-            }
-        }
+        ModalParams.Clear();
+        ModalParams.Set("UpdateResult", updateResult);
 
-        _showUpdateModal = false;
-        StateHasChanged();
-    }
+        var nav = Application.Current?.Windows.FirstOrDefault()?.Page?.Navigation;
+        if (nav == null) return;
 
-    private Task HandleUpdateDecline()
-    {
-        if (_updateCheckResult?.LatestRelease != null)
-            UpdateService.DismissVersion(_updateCheckResult.LatestRelease.TagName);
-
-        _showUpdateModal = false;
-        StateHasChanged();
-        return Task.CompletedTask;
-    }
-
-    private async Task HandleAutoUpdate()
-    {
-        if (_updateCheckResult?.LatestRelease == null) return;
-
-        try
-        {
-            var progress = new Progress<(double Percent, string Message)>(update =>
-            {
-                _updateModal?.UpdateProgress(update.Percent, update.Message);
-            });
-
-            await UpdateService.DownloadAndApplyUpdateAsync(_updateCheckResult.LatestRelease, progress, _cts.Token);
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError("Auto-update failed", ex);
-            _showUpdateModal = false;
-            StateHasChanged();
-        }
+        var resultTask = ModalParams.WaitForResultAsync();
+        var page = new MauiSherpa.Pages.Forms.ProgressModalPage("/modal/update-available", 600, 500);
+        await nav.PushModalAsync(page, animated: true);
+        await resultTask;
+        await nav.PopModalAsync(animated: true);
     }
 
     public void Dispose()

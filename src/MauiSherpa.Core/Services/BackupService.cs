@@ -234,7 +234,8 @@ public class BackupService : IBackupService
                     RepositoryFullName: p.RepositoryFullName,
                     AppleConfigs: p.AppleConfigs,
                     AndroidConfigs: p.AndroidConfigs,
-                    SecretMappings: p.SecretMappings))
+                    SecretMappings: p.SecretMappings)
+                { Publishers = p.Publishers })
                 .ToList()
         };
     }
