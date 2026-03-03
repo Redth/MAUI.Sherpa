@@ -22,6 +22,12 @@
             <label class="auto-scroll-toggle">
                 <input type="checkbox" @bind="autoScroll" /> Auto-scroll
             </label>
+            <button class="btn-icon @(showColumnFilters ? "active" : "")" @onclick="() => showColumnFilters = !showColumnFilters" title="Column filters">
+                <i class="fas fa-filter"></i>
+            </button>
+            <button class="btn-icon" @onclick="ResetGrid" title="Reset grid">
+                <i class="fas fa-undo"></i>
+            </button>
             <button class="btn-icon" @onclick="RefreshLogs" title="Refresh">
                 <i class="fas fa-sync-alt"></i>
             </button>
@@ -30,62 +36,25 @@
             </button>
         </div>
     </div>
-    <div class="log-table-header">
-        <span class="col-log-time">Time</span>
-        <span class="col-log-level">Level</span>
-        <span class="col-log-source">Source</span>
-        <span class="col-log-message">Message</span>
-    </div>
-    <div class="log-list" @ref="logContainer">
-        @foreach (var log in FilteredLogs)
-        {
-            var normLevel = NormalizeLevel(log.Level);
-            <div class="log-row level-@normLevel">
-                <span class="col-log-time">@log.Timestamp.ToLocalTime().ToString("HH:mm:ss.fff")</span>
-                <span class="col-log-level">
-                    <span class="level-badge">@normLevel.ToUpperInvariant()</span>
-                </span>
-                <span class="col-log-source">
-                    <span class="source-badge source-@(log.Source?.ToLowerInvariant() ?? "native")">@(log.Source ?? "native")</span>
-                </span>
-                <span class="col-log-message text-selectable">
-                    @if (!string.IsNullOrEmpty(log.Category))
-                    {
-                        <span class="log-category">[@log.Category]</span>
-                    }
-                    @log.Message
-                    @if (!string.IsNullOrEmpty(log.Exception))
-                    {
-                        <pre class="log-exception">@log.Exception</pre>
-                    }
-                </span>
-            </div>
-        }
-        @if (logs.Count == 0 && !isLoading)
-        {
-            <div class="log-empty">
-                <i class="fas fa-scroll"></i>
-                <span>No logs captured yet</span>
-            </div>
-        }
-        @if (isLoading)
-        {
-            <div class="log-loading"><i class="fas fa-spinner fa-spin"></i> Loading...</div>
-        }
-    </div>
+    <DataGrid @ref="gridRef" TItem="DevFlowLogEntry" Items="@FilteredLogs" Columns="@logColumns"
+              ShowFilterRow="@showColumnFilters" MonospaceFont="true"
+              EmptyMessage="No logs captured yet" IsLoading="@isLoading"
+              RowCssClass="@(item => $"level-{NormalizeLevel(item.Level)}")" />
 </div>
 
 @code {
     [Parameter] public DevFlowAgentClient Client { get; set; } = null!;
 
+    private DataGrid<DevFlowLogEntry>? gridRef;
     private List<DevFlowLogEntry> logs = new();
     private string sourceFilter = "";
     private string levelFilter = "";
     private string searchQuery = "";
     private bool autoScroll = true;
     private bool isLoading;
+    private bool showColumnFilters;
     private Timer? _pollTimer;
-    private ElementReference logContainer;
+    private List<DataGridColumnDef<DevFlowLogEntry>> logColumns = null!;
 
     private IEnumerable<DevFlowLogEntry> FilteredLogs
     {
@@ -114,6 +83,67 @@
 
     protected override async Task OnInitializedAsync()
     {
+        logColumns = new()
+        {
+            new()
+            {
+                Header = "Time", DefaultWidth = 100, MinWidth = 60,
+                ValueAccessor = l => l.Timestamp.ToLocalTime().ToString("HH:mm:ss.fff"),
+                SortAccessor = l => l.Timestamp,
+                CssClass = "col-time"
+            },
+            new()
+            {
+                Header = "Level", DefaultWidth = 60, MinWidth = 40,
+                ValueAccessor = l => NormalizeLevel(l.Level),
+                CellTemplate = item => builder =>
+                {
+                    var norm = NormalizeLevel(item.Level);
+                    builder.OpenElement(0, "span");
+                    builder.AddAttribute(1, "class", $"level-badge");
+                    builder.AddContent(2, norm.ToUpperInvariant());
+                    builder.CloseElement();
+                }
+            },
+            new()
+            {
+                Header = "Source", DefaultWidth = 70, MinWidth = 50,
+                ValueAccessor = l => l.Source ?? "native",
+                CellTemplate = item => builder =>
+                {
+                    var src = item.Source?.ToLowerInvariant() ?? "native";
+                    builder.OpenElement(0, "span");
+                    builder.AddAttribute(1, "class", $"source-badge source-{src}");
+                    builder.AddContent(2, src);
+                    builder.CloseElement();
+                }
+            },
+            new()
+            {
+                Header = "Message", DefaultWidth = 0, MinWidth = 100,
+                ValueAccessor = l => l.Message ?? "",
+                CellTemplate = item => builder =>
+                {
+                    if (!string.IsNullOrEmpty(item.Category))
+                    {
+                        builder.OpenElement(0, "span");
+                        builder.AddAttribute(1, "class", "log-category");
+                        builder.AddContent(2, $"[{item.Category}]");
+                        builder.CloseElement();
+                    }
+                    builder.AddContent(10, item.Message);
+                    if (!string.IsNullOrEmpty(item.Exception))
+                    {
+                        builder.OpenElement(20, "pre");
+                        builder.AddAttribute(21, "class", "log-exception");
+                        builder.AddContent(22, item.Exception);
+                        builder.CloseElement();
+                    }
+                },
+                CssClass = "col-message"
+            }
+        };
+
         await RefreshLogs();
         _pollTimer = new Timer(async _ =>
         {
@@ -158,6 +188,12 @@
     {
         logs.Clear();
         StateHasChanged();
+    }
+
+    private void ResetGrid()
+    {
+        showColumnFilters = false;
+        gridRef?.ResetAll();
     }
 
     public void Dispose()
@@ -207,6 +243,10 @@
         background: var(--bg-tertiary);
     }
 
+    .btn-icon.active {
+        color: var(--accent-color, #3b82f6);
+    }
+
     .log-count {
         font-weight: 400;
         color: var(--text-tertiary);
@@ -240,62 +280,15 @@
         cursor: pointer;
     }
 
-    .log-table-header {
-        display: flex;
-        padding: 0.3rem 0.75rem;
-        background: var(--bg-secondary);
-        border-bottom: 1px solid var(--border-color);
-        font-size: 0.7rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        color: var(--text-tertiary);
-        letter-spacing: 0.05em;
-    }
-
-    .log-list {
-        flex: 1;
-        overflow: auto;
-        font-family: 'SF Mono', 'Cascadia Code', monospace;
-        font-size: 0.8rem;
-    }
-
-    .log-row {
-        display: flex;
-        align-items: flex-start;
-        padding: 0.2rem 0.75rem;
-        border-bottom: 1px solid var(--border-color);
-        gap: 0.5rem;
-    }
-
-    .log-row.level-warn, .log-row.level-warning {
-        background: rgba(245, 158, 11, 0.05);
-    }
-
-    .log-row.level-error {
-        background: rgba(239, 68, 68, 0.05);
-    }
-
-    .col-log-time {
-        width: 90px;
-        flex-shrink: 0;
+    .col-time {
         color: var(--text-tertiary);
         font-size: 0.75rem;
     }
 
-    .col-log-level {
-        width: 55px;
-        flex-shrink: 0;
-    }
-
-    .col-log-source {
-        width: 65px;
-        flex-shrink: 0;
-    }
-
-    .col-log-message {
-        flex: 1;
+    .col-message {
         word-break: break-all;
         color: var(--text-primary);
+        white-space: normal;
     }
 
     .level-badge {
@@ -310,6 +303,9 @@
     .level-warn .level-badge, .level-warning .level-badge { color: #f59e0b; }
     .level-error .level-badge { color: #ef4444; }
 
+    .level-warn, .level-warning { background: rgba(245, 158, 11, 0.05); }
+    .level-error { background: rgba(239, 68, 68, 0.05); }
+
     .source-badge {
         font-size: 0.65rem;
         padding: 0.05rem 0.3rem;
@@ -317,28 +313,8 @@
         font-weight: 500;
     }
 
-    .source-native {
-        color: #8b5cf6;
-    }
-
-    .source-webview {
-        color: #06b6d4;
-    }
-
-    .log-empty {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 0.5rem;
-        padding: 3rem;
-        color: var(--text-tertiary);
-    }
-
-    .log-loading {
-        padding: 1rem;
-        text-align: center;
-        color: var(--text-tertiary);
-    }
+    .source-native { color: #8b5cf6; }
+    .source-webview { color: #06b6d4; }
 
     .log-category {
         color: var(--text-tertiary);

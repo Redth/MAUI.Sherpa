@@ -1,0 +1,382 @@
+@typeparam TItem
+
+<div class="data-grid @(MonospaceFont ? "dg-mono" : "")">
+    <div class="dg-header-row">
+        @for (int i = 0; i < Columns.Count; i++)
+        {
+            var idx = i;
+            var col = Columns[idx];
+            <div class="dg-header-cell @(sortColumnIndex == idx ? "dg-sorted" : "") @col.CssClass"
+                 style="@GetCellStyle(idx)"
+                 @onclick="() => ToggleSort(idx)">
+                <span class="dg-header-text">@col.Header</span>
+                @if (col.IsSortable)
+                {
+                    @if (sortColumnIndex == idx)
+                    {
+                        <i class="fas @(sortAscending ? "fa-caret-up" : "fa-caret-down") dg-sort-active"></i>
+                    }
+                    else
+                    {
+                        <i class="fas fa-sort dg-sort-idle"></i>
+                    }
+                }
+                @if (col.DefaultWidth > 0)
+                {
+                    <div class="dg-col-resize"
+                         @onmousedown="e => StartColResize(e, idx)"
+                         @onmousedown:preventDefault
+                         @onmousedown:stopPropagation></div>
+                }
+            </div>
+        }
+    </div>
+
+    @if (ShowFilterRow)
+    {
+        <div class="dg-filter-row">
+            @for (int i = 0; i < Columns.Count; i++)
+            {
+                var idx = i;
+                <div class="dg-filter-cell" style="@GetCellStyle(idx)">
+                    @if (Columns[idx].IsFilterable)
+                    {
+                        <input type="text"
+                               value="@filterValues[idx]"
+                               @oninput="e => SetFilter(idx, e.Value?.ToString())"
+                               placeholder="Filter..."
+                               class="dg-filter-input" />
+                    }
+                </div>
+            }
+        </div>
+    }
+
+    <div class="dg-body">
+        @if (IsLoading)
+        {
+            <div class="dg-status"><i class="fas fa-spinner fa-spin"></i> Loading...</div>
+        }
+        else if (displayItems.Count == 0)
+        {
+            <div class="dg-status">
+                <i class="fas fa-inbox"></i>
+                <span>@(EmptyMessage ?? "No data")</span>
+            </div>
+        }
+        else
+        {
+            @foreach (var item in displayItems)
+            {
+                var rowItem = item;
+                var isSelected = SelectedItem != null && EqualityComparer<TItem>.Default.Equals(rowItem, SelectedItem);
+                <div class="dg-row @(isSelected ? "selected" : "") @(RowCssClass?.Invoke(rowItem) ?? "")"
+                     @onclick="() => OnRowClick.InvokeAsync(rowItem)">
+                    @for (int i = 0; i < Columns.Count; i++)
+                    {
+                        var col = Columns[i];
+                        <div class="dg-cell @col.CssClass" style="@GetCellStyle(i)">
+                            @if (col.CellTemplate != null)
+                            {
+                                @col.CellTemplate(rowItem)
+                            }
+                            else
+                            {
+                                @(col.ValueAccessor(rowItem))
+                            }
+                        </div>
+                    }
+                </div>
+            }
+        }
+    </div>
+</div>
+
+@if (isResizing)
+{
+    <div class="dg-resize-overlay"
+         @onmousemove="OnResizeMove" @onmousemove:preventDefault
+         @onmouseup="StopResize" @onmouseup:preventDefault></div>
+}
+
+@code {
+    [Parameter] public IEnumerable<TItem>? Items { get; set; }
+    [Parameter] public List<DataGridColumnDef<TItem>> Columns { get; set; } = new();
+    [Parameter] public EventCallback<TItem> OnRowClick { get; set; }
+    [Parameter] public TItem? SelectedItem { get; set; }
+    [Parameter] public Func<TItem, string?>? RowCssClass { get; set; }
+    [Parameter] public string? EmptyMessage { get; set; }
+    [Parameter] public bool IsLoading { get; set; }
+    [Parameter] public bool ShowFilterRow { get; set; }
+    [Parameter] public bool MonospaceFont { get; set; }
+
+    private double[] columnWidths = Array.Empty<double>();
+    private string[] filterValues = Array.Empty<string>();
+    private int? sortColumnIndex;
+    private bool sortAscending = true;
+    private List<TItem> displayItems = new();
+
+    private bool isResizing;
+    private int resizingColIndex;
+    private double resizeStartX;
+    private double resizeStartWidth;
+
+    protected override void OnParametersSet()
+    {
+        EnsureColumnState();
+        Recompute();
+    }
+
+    private void EnsureColumnState()
+    {
+        if (columnWidths.Length != Columns.Count)
+        {
+            columnWidths = Columns.Select(c => c.DefaultWidth).ToArray();
+            filterValues = new string[Columns.Count];
+        }
+    }
+
+    private void Recompute()
+    {
+        var result = Items?.AsEnumerable() ?? Enumerable.Empty<TItem>();
+
+        for (int i = 0; i < filterValues.Length && i < Columns.Count; i++)
+        {
+            if (!string.IsNullOrEmpty(filterValues[i]) && Columns[i].IsFilterable)
+            {
+                var idx = i;
+                var text = filterValues[i];
+                result = result.Where(item =>
+                    Columns[idx].ValueAccessor(item)?.Contains(text, StringComparison.OrdinalIgnoreCase) == true);
+            }
+        }
+
+        if (sortColumnIndex is int sci && sci >= 0 && sci < Columns.Count && Columns[sci].IsSortable)
+        {
+            var col = Columns[sci];
+            if (col.SortAccessor != null)
+                result = sortAscending ? result.OrderBy(col.SortAccessor) : result.OrderByDescending(col.SortAccessor);
+            else
+                result = sortAscending ? result.OrderBy(col.ValueAccessor) : result.OrderByDescending(col.ValueAccessor);
+        }
+
+        displayItems = result.ToList();
+    }
+
+    private string GetCellStyle(int index)
+    {
+        if (index >= Columns.Count) return "";
+        var w = columnWidths[index];
+        if (w <= 0)
+            return $"flex: 1; min-width: {Columns[index].MinWidth}px;";
+        return $"width: {w}px; flex-shrink: 0;";
+    }
+
+    private void ToggleSort(int colIndex)
+    {
+        if (colIndex >= Columns.Count || !Columns[colIndex].IsSortable) return;
+        if (sortColumnIndex == colIndex)
+        {
+            if (sortAscending)
+                sortAscending = false;
+            else
+                sortColumnIndex = null;
+        }
+        else
+        {
+            sortColumnIndex = colIndex;
+            sortAscending = true;
+        }
+        Recompute();
+    }
+
+    private void SetFilter(int colIndex, string? value)
+    {
+        if (colIndex >= 0 && colIndex < filterValues.Length)
+        {
+            filterValues[colIndex] = value ?? "";
+            Recompute();
+        }
+    }
+
+    public void ResetAll()
+    {
+        columnWidths = Columns.Select(c => c.DefaultWidth).ToArray();
+        filterValues = new string[Columns.Count];
+        sortColumnIndex = null;
+        sortAscending = true;
+        Recompute();
+        StateHasChanged();
+    }
+
+    private void StartColResize(MouseEventArgs e, int colIndex)
+    {
+        isResizing = true;
+        resizingColIndex = colIndex;
+        resizeStartX = e.ClientX;
+        resizeStartWidth = columnWidths[colIndex];
+    }
+
+    private void OnResizeMove(MouseEventArgs e)
+    {
+        if (!isResizing) return;
+        var delta = e.ClientX - resizeStartX;
+        var minW = Columns[resizingColIndex].MinWidth;
+        columnWidths[resizingColIndex] = Math.Max(minW, resizeStartWidth + delta);
+    }
+
+    private void StopResize(MouseEventArgs e)
+    {
+        isResizing = false;
+    }
+}
+
+<style>
+    .data-grid {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        overflow: hidden;
+    }
+
+    .dg-header-row {
+        display: flex;
+        align-items: stretch;
+        background: var(--bg-secondary);
+        border-bottom: 1px solid var(--border-color);
+        font-size: 0.7rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        color: var(--text-tertiary);
+        letter-spacing: 0.05em;
+        flex-shrink: 0;
+        user-select: none;
+    }
+
+    .dg-header-cell {
+        padding: 0.35rem 0.5rem;
+        cursor: pointer;
+        position: relative;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        overflow: hidden;
+    }
+
+    .dg-header-cell:hover {
+        color: var(--text-primary);
+        background: var(--bg-tertiary);
+    }
+
+    .dg-header-cell.dg-sorted {
+        color: var(--text-primary);
+    }
+
+    .dg-sort-idle {
+        font-size: 0.55rem;
+        opacity: 0;
+        transition: opacity 0.15s;
+    }
+
+    .dg-header-cell:hover .dg-sort-idle {
+        opacity: 0.4;
+    }
+
+    .dg-sort-active {
+        font-size: 0.6rem;
+        color: var(--accent-color, #3b82f6);
+    }
+
+    .dg-col-resize {
+        position: absolute;
+        right: -2px;
+        top: 0;
+        bottom: 0;
+        width: 5px;
+        cursor: col-resize;
+        z-index: 2;
+    }
+
+    .dg-col-resize:hover,
+    .dg-col-resize:active {
+        background: var(--accent-color, #3b82f6);
+        opacity: 0.5;
+    }
+
+    .dg-filter-row {
+        display: flex;
+        align-items: center;
+        background: var(--bg-secondary);
+        border-bottom: 1px solid var(--border-color);
+        flex-shrink: 0;
+        padding: 0.15rem 0;
+    }
+
+    .dg-filter-cell {
+        padding: 0 0.3rem;
+    }
+
+    .dg-filter-input {
+        width: 100%;
+        font-size: 0.7rem;
+        padding: 0.15rem 0.3rem;
+        border: 1px solid var(--border-color);
+        border-radius: 3px;
+        background: var(--bg-primary);
+        color: var(--text-primary);
+        box-sizing: border-box;
+    }
+
+    .dg-filter-input:focus {
+        outline: none;
+        border-color: var(--accent-color, #3b82f6);
+    }
+
+    .dg-body {
+        flex: 1;
+        overflow: auto;
+    }
+
+    .dg-mono .dg-body {
+        font-family: 'SF Mono', 'Cascadia Code', monospace;
+        font-size: 0.8rem;
+    }
+
+    .dg-row {
+        display: flex;
+        align-items: flex-start;
+        border-bottom: 1px solid var(--border-color);
+        padding: 0.2rem 0;
+    }
+
+    .dg-row:hover {
+        background: var(--bg-tertiary);
+    }
+
+    .dg-row.selected {
+        background: rgba(59, 130, 246, 0.08);
+    }
+
+    .dg-cell {
+        padding: 0 0.5rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .dg-status {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 2rem;
+        color: var(--text-tertiary);
+        font-size: 0.85rem;
+    }
+
+    .dg-resize-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        cursor: col-resize;
+    }
+</style>

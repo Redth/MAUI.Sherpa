@@ -17,6 +17,12 @@
                     <option value="DELETE">DELETE</option>
                     <option value="PATCH">PATCH</option>
                 </select>
+                <button class="btn-icon @(showColumnFilters ? "active" : "")" @onclick="() => showColumnFilters = !showColumnFilters" title="Column filters">
+                    <i class="fas fa-filter"></i>
+                </button>
+                <button class="btn-icon" @onclick="ResetGrid" title="Reset grid">
+                    <i class="fas fa-undo"></i>
+                </button>
                 <button class="btn-icon" @onclick="ToggleStreaming" title="@(isStreaming ? "Pause" : "Resume")">
                     <i class="fas @(isStreaming ? "fa-pause" : "fa-play")"></i>
                 </button>
@@ -25,45 +31,11 @@
                 </button>
             </div>
         </div>
-        <div class="request-table-header">
-            <span class="col-status">Status</span>
-            <span class="col-method">Method</span>
-            <span class="col-url">URL</span>
-            <span class="col-duration">Time</span>
-            <span class="col-size">Size</span>
-        </div>
-        <div class="request-list">
-            @foreach (var req in FilteredRequests)
-            {
-                <div class="request-row @(selectedRequest?.Id == req.Id ? "selected" : "") @GetStatusClass(req)" @onclick="@(() => SelectRequest(req))">
-                    <span class="col-status">
-                        @if (req.Error != null)
-                        {
-                            <span class="status-badge status-error" title="@req.Error">ERR</span>
-                        }
-                        else if (req.StatusCode != null)
-                        {
-                            <span class="status-badge status-@GetStatusCategory(req.StatusCode.Value)">@req.StatusCode</span>
-                        }
-                        else
-                        {
-                            <span class="status-badge status-pending">...</span>
-                        }
-                    </span>
-                    <span class="col-method method-@req.Method.ToLowerInvariant()">@req.Method</span>
-                    <span class="col-url" title="@req.Url">@(req.Path ?? req.Url)</span>
-                    <span class="col-duration">@(req.DurationMs)ms</span>
-                    <span class="col-size">@FormatSize(req.ResponseSize)</span>
-                </div>
-            }
-            @if (requests.Count == 0)
-            {
-                <div class="request-list-empty">
-                    <i class="fas fa-network-wired"></i>
-                    <span>@(isStreaming ? "Waiting for requests..." : "No requests captured")</span>
-                </div>
-            }
-        </div>
+        <DataGrid @ref="gridRef" TItem="DevFlowNetworkRequest" Items="@FilteredRequests" Columns="@networkColumns"
+                  ShowFilterRow="@showColumnFilters"
+                  OnRowClick="@SelectRequest" SelectedItem="@selectedRequest"
+                  EmptyMessage="@(isStreaming ? "Waiting for requests..." : "No requests captured")"
+                  RowCssClass="@(r => GetStatusClass(r))" />
     </div>
 
     <div class="resize-handle" @onmousedown="@(e => StartResize(e))" @onmousedown:preventDefault></div>
@@ -203,6 +175,7 @@
 @code {
     [Parameter] public DevFlowAgentClient Client { get; set; } = null!;
 
+    private DataGrid<DevFlowNetworkRequest>? gridRef;
     private List<DevFlowNetworkRequest> requests = new();
     private DevFlowNetworkRequest? selectedRequest;
     private DevFlowNetworkRequest? selectedDetail;
@@ -210,11 +183,13 @@
     private string methodFilter = "";
     private string detailTab = "headers";
     private bool isStreaming = true;
+    private bool showColumnFilters;
     private CancellationTokenSource? _streamCts;
     private double detailPaneWidth = 420;
     private bool isResizing;
     private double resizeStartX;
     private double resizeStartWidth;
+    private List<DataGridColumnDef<DevFlowNetworkRequest>> networkColumns = null!;
 
     private IEnumerable<DevFlowNetworkRequest> FilteredRequests
     {
@@ -231,7 +206,74 @@
 
     protected override async Task OnInitializedAsync()
     {
-        // Try WebSocket streaming first, fall back to polling
+        networkColumns = new()
+        {
+            new()
+            {
+                Header = "Status", DefaultWidth = 60, MinWidth = 40,
+                ValueAccessor = r => r.StatusCode?.ToString() ?? (r.Error != null ? "ERR" : "..."),
+                SortAccessor = r => r.StatusCode ?? 0,
+                CellTemplate = item => builder =>
+                {
+                    if (item.Error != null)
+                    {
+                        builder.OpenElement(0, "span");
+                        builder.AddAttribute(1, "class", "status-badge status-error");
+                        builder.AddAttribute(2, "title", item.Error);
+                        builder.AddContent(3, "ERR");
+                        builder.CloseElement();
+                    }
+                    else if (item.StatusCode != null)
+                    {
+                        builder.OpenElement(0, "span");
+                        builder.AddAttribute(1, "class", $"status-badge status-{GetStatusCategory(item.StatusCode.Value)}");
+                        builder.AddContent(2, item.StatusCode.ToString());
+                        builder.CloseElement();
+                    }
+                    else
+                    {
+                        builder.OpenElement(0, "span");
+                        builder.AddAttribute(1, "class", "status-badge status-pending");
+                        builder.AddContent(2, "...");
+                        builder.CloseElement();
+                    }
+                }
+            },
+            new()
+            {
+                Header = "Method", DefaultWidth = 65, MinWidth = 45,
+                ValueAccessor = r => r.Method,
+                CellTemplate = item => builder =>
+                {
+                    builder.OpenElement(0, "span");
+                    builder.AddAttribute(1, "class", $"method-label method-{item.Method.ToLowerInvariant()}");
+                    builder.AddContent(2, item.Method);
+                    builder.CloseElement();
+                },
+                CssClass = "col-method-cell"
+            },
+            new()
+            {
+                Header = "URL", DefaultWidth = 0, MinWidth = 120,
+                ValueAccessor = r => r.Path ?? r.Url,
+                CssClass = "col-url"
+            },
+            new()
+            {
+                Header = "Time", DefaultWidth = 70, MinWidth = 45,
+                ValueAccessor = r => $"{r.DurationMs}ms",
+                SortAccessor = r => r.DurationMs,
+                CssClass = "col-duration"
+            },
+            new()
+            {
+                Header = "Size", DefaultWidth = 65, MinWidth = 45,
+                ValueAccessor = r => FormatSize(r.ResponseSize),
+                SortAccessor = r => r.ResponseSize ?? 0,
+                CssClass = "col-size"
+            }
+        };
+
         _ = StartStreamingAsync();
     }
 
@@ -318,6 +360,12 @@
         selectedRequest = null;
         selectedDetail = null;
         StateHasChanged();
+    }
+
+    private void ResetGrid()
+    {
+        showColumnFilters = false;
+        gridRef?.ResetAll();
     }
 
     private static string GetStatusCategory(int code) => code switch
@@ -437,6 +485,10 @@
         background: var(--bg-tertiary);
     }
 
+    .btn-icon.active {
+        color: var(--accent-color, #3b82f6);
+    }
+
     .network-search {
         font-size: 0.75rem;
         padding: 0.2rem 0.5rem;
@@ -461,51 +513,28 @@
         color: var(--text-tertiary);
     }
 
-    .request-table-header {
-        display: flex;
-        padding: 0.4rem 0.75rem;
-        background: var(--bg-secondary);
-        border-bottom: 1px solid var(--border-color);
-        font-size: 0.7rem;
+    .col-method-cell {
         font-weight: 600;
-        text-transform: uppercase;
+        font-size: 0.75rem;
+    }
+
+    .col-url {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .col-duration {
+        text-align: right;
+        color: var(--text-secondary);
+        font-size: 0.75rem;
+    }
+
+    .col-size {
+        text-align: right;
         color: var(--text-tertiary);
-        letter-spacing: 0.05em;
-        gap: 0.5rem;
+        font-size: 0.75rem;
     }
-
-    .request-list {
-        flex: 1;
-        overflow: auto;
-        font-size: 0.8rem;
-    }
-
-    .request-row {
-        display: flex;
-        align-items: center;
-        padding: 0.4rem 0.75rem;
-        cursor: pointer;
-        border-bottom: 1px solid var(--border-color);
-        gap: 0.5rem;
-    }
-
-    .request-row:hover {
-        background: var(--bg-tertiary);
-    }
-
-    .request-row.selected {
-        background: rgba(139, 92, 246, 0.15);
-    }
-
-    .request-row.row-error {
-        background: rgba(239, 68, 68, 0.05);
-    }
-
-    .col-status { width: 55px; flex-shrink: 0; }
-    .col-method { width: 60px; flex-shrink: 0; font-weight: 600; font-size: 0.75rem; }
-    .col-url { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-    .col-duration { width: 65px; flex-shrink: 0; text-align: right; color: var(--text-secondary); font-size: 0.75rem; }
-    .col-size { width: 60px; flex-shrink: 0; text-align: right; color: var(--text-tertiary); font-size: 0.75rem; }
 
     .status-badge {
         font-size: 0.7rem;
@@ -521,19 +550,19 @@
     .status-error { color: #ef4444; }
     .status-pending { color: var(--text-tertiary); }
 
+    .method-label {
+        font-weight: 600;
+        font-size: 0.75rem;
+    }
+
     .method-get { color: #22c55e; }
     .method-post { color: #3b82f6; }
     .method-put { color: #f59e0b; }
     .method-delete { color: #ef4444; }
     .method-patch { color: #a855f7; }
 
-    .request-list-empty {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 0.5rem;
-        padding: 3rem;
-        color: var(--text-tertiary);
+    .row-error {
+        background: rgba(239, 68, 68, 0.05);
     }
 
     /* Detail pane */

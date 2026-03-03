@@ -14,6 +14,12 @@
                     <option value="warn">Warning</option>
                     <option value="error">Error</option>
                 </select>
+                <button class="btn-icon @(showColumnFilters ? "active" : "")" @onclick="() => showColumnFilters = !showColumnFilters" title="Column filters">
+                    <i class="fas fa-filter"></i>
+                </button>
+                <button class="btn-icon" @onclick="ResetGrid" title="Reset grid">
+                    <i class="fas fa-undo"></i>
+                </button>
                 <button class="btn-icon" @onclick="RefreshLogs" title="Refresh">
                     <i class="fas fa-sync-alt"></i>
                 </button>
@@ -22,20 +28,10 @@
                 </button>
             </div>
         </div>
-        <div class="console-output">
-            @foreach (var log in FilteredLogs)
-            {
-                <div class="console-entry level-@(log.Level?.ToLowerInvariant() ?? "info")">
-                    <span class="console-time">@log.Timestamp.ToString("HH:mm:ss.fff")</span>
-                    <span class="console-level">@(log.Level ?? "info")</span>
-                    <span class="console-message text-selectable">@log.Message</span>
-                </div>
-            }
-            @if (logs.Count == 0)
-            {
-                <div class="console-empty">No console messages</div>
-            }
-        </div>
+        <DataGrid @ref="gridRef" TItem="DevFlowLogEntry" Items="@FilteredLogs" Columns="@consoleColumns"
+                  ShowFilterRow="@showColumnFilters" MonospaceFont="true"
+                  EmptyMessage="No console messages"
+                  RowCssClass="@(item => $"level-{(item.Level?.ToLowerInvariant() ?? "info")}")" />
     </div>
 
     <div class="resize-handle" @onmousedown="@(e => StartResize(e))" @onmousedown:preventDefault></div>
@@ -121,8 +117,10 @@
 @code {
     [Parameter] public DevFlowAgentClient Client { get; set; } = null!;
 
+    private DataGrid<DevFlowLogEntry>? gridRef;
     private List<DevFlowLogEntry> logs = new();
     private string logLevelFilter = "";
+    private bool showColumnFilters;
     private string jsExpression = "";
     private List<JsResult> jsResults = new();
     private string cssSelector = "";
@@ -133,6 +131,7 @@
     private bool isResizing;
     private double resizeStartX;
     private double resizeStartWidth;
+    private List<DataGridColumnDef<DevFlowLogEntry>> consoleColumns = null!;
 
     private IEnumerable<DevFlowLogEntry> FilteredLogs
     {
@@ -147,6 +146,35 @@
 
     protected override async Task OnInitializedAsync()
     {
+        consoleColumns = new()
+        {
+            new()
+            {
+                Header = "Time", DefaultWidth = 90, MinWidth = 60,
+                ValueAccessor = l => l.Timestamp.ToString("HH:mm:ss.fff"),
+                SortAccessor = l => l.Timestamp,
+                CssClass = "col-time"
+            },
+            new()
+            {
+                Header = "Level", DefaultWidth = 50, MinWidth = 35,
+                ValueAccessor = l => l.Level ?? "info",
+                CellTemplate = item => builder =>
+                {
+                    builder.OpenElement(0, "span");
+                    builder.AddAttribute(1, "class", "console-level-text");
+                    builder.AddContent(2, (item.Level ?? "info").ToUpperInvariant());
+                    builder.CloseElement();
+                }
+            },
+            new()
+            {
+                Header = "Message", DefaultWidth = 0, MinWidth = 100,
+                ValueAccessor = l => l.Message ?? "",
+                CssClass = "col-message"
+            }
+        };
+
         await RefreshLogs();
         // Start polling for new logs
         _pollTimer = new Timer(async _ =>
@@ -186,6 +214,12 @@
     {
         logs.Clear();
         StateHasChanged();
+    }
+
+    private void ResetGrid()
+    {
+        showColumnFilters = false;
+        gridRef?.ResetAll();
     }
 
     private async Task EvaluateJs()
@@ -367,51 +401,32 @@
         overflow: auto;
     }
 
-    .console-output {
-        flex: 1;
-        overflow: auto;
-        font-family: 'SF Mono', 'Cascadia Code', monospace;
-        font-size: 0.8rem;
+    .btn-icon.active {
+        color: var(--accent-color, #3b82f6);
     }
 
-    .console-entry {
-        display: flex;
-        gap: 0.5rem;
-        padding: 0.2rem 0.75rem;
-        border-bottom: 1px solid var(--border-color);
-    }
-
-    .console-time {
+    .col-time {
         color: var(--text-tertiary);
         font-size: 0.7rem;
-        flex-shrink: 0;
-        width: 80px;
     }
 
-    .console-level {
+    .col-message {
+        color: var(--text-primary);
+        word-break: break-all;
+        white-space: normal;
+    }
+
+    .console-level-text {
         font-size: 0.7rem;
         font-weight: 600;
-        width: 40px;
-        flex-shrink: 0;
         text-transform: uppercase;
     }
 
-    .level-info .console-level { color: #3b82f6; }
-    .level-warn .console-level, .level-warning .console-level { color: #f59e0b; }
-    .level-error .console-level { color: #ef4444; }
+    .level-info .console-level-text { color: #3b82f6; }
+    .level-warn .console-level-text, .level-warning .console-level-text { color: #f59e0b; }
+    .level-error .console-level-text { color: #ef4444; }
     .level-warn, .level-warning { background: rgba(245, 158, 11, 0.05); }
     .level-error { background: rgba(239, 68, 68, 0.05); }
-
-    .console-message {
-        color: var(--text-primary);
-        word-break: break-all;
-    }
-
-    .console-empty {
-        padding: 2rem;
-        text-align: center;
-        color: var(--text-tertiary);
-    }
 
     .level-filter {
         font-size: 0.75rem;
