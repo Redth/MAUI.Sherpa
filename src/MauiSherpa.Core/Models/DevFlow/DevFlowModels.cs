@@ -199,20 +199,23 @@ public class DevFlowNetworkRequest
 /// </summary>
 public class DevFlowLogEntry
 {
-    [JsonPropertyName("timestamp")]
+    [JsonPropertyName("t")]
     public DateTimeOffset Timestamp { get; set; }
 
-    [JsonPropertyName("level")]
+    [JsonPropertyName("l")]
     public string? Level { get; set; }
 
-    [JsonPropertyName("source")]
+    [JsonPropertyName("s")]
     public string? Source { get; set; }
 
-    [JsonPropertyName("message")]
+    [JsonPropertyName("m")]
     public string? Message { get; set; }
 
-    [JsonPropertyName("category")]
+    [JsonPropertyName("c")]
     public string? Category { get; set; }
+
+    [JsonPropertyName("e")]
+    public string? Exception { get; set; }
 }
 
 /// <summary>

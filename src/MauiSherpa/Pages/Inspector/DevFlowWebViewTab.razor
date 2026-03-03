@@ -38,8 +38,10 @@
         </div>
     </div>
 
+    <div class="resize-handle" @onmousedown="@(e => StartResize(e))" @onmousedown:preventDefault></div>
+
     <!-- JS Eval + DOM Query -->
-    <div class="webview-tools-pane">
+    <div class="webview-tools-pane" style="width: @(toolsPaneWidth)px;">
         <div class="pane-header">
             <span>JavaScript</span>
         </div>
@@ -111,6 +113,11 @@
     </div>
 </div>
 
+@if (isResizing)
+{
+    <div class="resize-overlay" @onmousemove="OnResizeMove" @onmousemove:preventDefault @onmouseup="StopResize" @onmouseup:preventDefault></div>
+}
+
 @code {
     [Parameter] public DevFlowAgentClient Client { get; set; } = null!;
 
@@ -122,6 +129,10 @@
     private List<DevFlowElementInfo> queryResults = new();
     private string? pageSource;
     private Timer? _pollTimer;
+    private double toolsPaneWidth = 420;
+    private bool isResizing;
+    private double resizeStartX;
+    private double resizeStartWidth;
 
     private IEnumerable<DevFlowLogEntry> FilteredLogs
     {
@@ -252,6 +263,25 @@
         StateHasChanged();
     }
 
+    private void StartResize(MouseEventArgs e)
+    {
+        isResizing = true;
+        resizeStartX = e.ClientX;
+        resizeStartWidth = toolsPaneWidth;
+    }
+
+    private void OnResizeMove(MouseEventArgs e)
+    {
+        if (!isResizing) return;
+        var delta = e.ClientX - resizeStartX;
+        toolsPaneWidth = Math.Clamp(resizeStartWidth - delta, 250, 700);
+    }
+
+    private void StopResize(MouseEventArgs e)
+    {
+        isResizing = false;
+    }
+
     public void Dispose()
     {
         _pollTimer?.Dispose();
@@ -266,16 +296,71 @@
         height: 100%;
     }
 
+    .pane-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.5rem 0.75rem;
+        background: var(--bg-secondary);
+        border-bottom: 1px solid var(--border-color);
+        font-size: 0.85rem;
+        font-weight: 600;
+        flex-shrink: 0;
+        gap: 0.5rem;
+    }
+
+    .pane-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+    }
+
+    .btn-icon {
+        background: none;
+        border: none;
+        color: var(--text-secondary);
+        cursor: pointer;
+        padding: 0.25rem 0.4rem;
+        border-radius: 4px;
+        font-size: 0.8rem;
+    }
+
+    .btn-icon:hover {
+        color: var(--text-primary);
+        background: var(--bg-tertiary);
+    }
+
+    .resize-handle {
+        width: 5px;
+        cursor: col-resize;
+        background: transparent;
+        flex-shrink: 0;
+        position: relative;
+        z-index: 10;
+        margin: 0 -2px;
+    }
+
+    .resize-handle:hover,
+    .resize-handle:active {
+        background: var(--accent-color, #3b82f6);
+        opacity: 0.5;
+    }
+
+    .resize-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        cursor: col-resize;
+    }
+
     .webview-console-pane {
         flex: 1;
-        border-right: 1px solid var(--border-color);
         display: flex;
         flex-direction: column;
         min-width: 0;
     }
 
     .webview-tools-pane {
-        width: 420px;
         display: flex;
         flex-direction: column;
         flex-shrink: 0;

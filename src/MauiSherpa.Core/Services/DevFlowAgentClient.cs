@@ -114,8 +114,16 @@ public class DevFlowAgentClient : IDisposable
 
     public async Task<bool> SetPropertyAsync(string elementId, string propertyName, string value, CancellationToken ct = default)
     {
-        return await PostActionAsync($"/api/property/{Uri.EscapeDataString(elementId)}/{Uri.EscapeDataString(propertyName)}",
-            new { value }, ct);
+        try
+        {
+            var json = JsonSerializer.Serialize(new { value });
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            var response = await _http.PostAsync(
+                $"{BaseUrl}/api/property/{Uri.EscapeDataString(elementId)}/{Uri.EscapeDataString(propertyName)}",
+                content, ct);
+            return response.IsSuccessStatusCode;
+        }
+        catch { return false; }
     }
 
     public async Task<byte[]?> GetScreenshotAsync(int? window = null, string? elementId = null, CancellationToken ct = default)
@@ -259,7 +267,7 @@ public class DevFlowAgentClient : IDisposable
         try
         {
             var response = await _http.GetStringAsync($"{BaseUrl}{path}", ct);
-            return JsonSerializer.Deserialize<T>(response);
+            return JsonSerializer.Deserialize<T>(response, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
         }
         catch { return null; }
     }

@@ -4,7 +4,7 @@
 
 <div class="tree-layout">
     <!-- Left: Screenshot -->
-    <div class="tree-screenshot-pane">
+    <div class="tree-screenshot-pane" style="width: @(screenshotPaneWidth)px;">
         <div class="pane-header">
             <span>Screenshot</span>
             <div class="pane-actions">
@@ -34,12 +34,20 @@
         </div>
     </div>
 
+    <div class="resize-handle" @onmousedown="@(e => StartResize(e, "left"))" @onmousedown:preventDefault></div>
+
     <!-- Center: Tree View -->
     <div class="tree-view-pane">
         <div class="pane-header">
             <span>Visual Tree</span>
             <div class="pane-actions">
                 <input type="text" @bind="searchQuery" @bind:event="oninput" placeholder="Filter..." class="tree-search" />
+                <button class="btn-icon" @onclick="ExpandAll" title="Expand all">
+                    <i class="fas fa-angles-down"></i>
+                </button>
+                <button class="btn-icon" @onclick="CollapseAll" title="Collapse all">
+                    <i class="fas fa-angles-up"></i>
+                </button>
                 <button class="btn-icon" @onclick="RefreshTree" title="Refresh tree">
                     <i class="fas @(isLoadingTree ? "fa-spinner fa-spin" : "fa-sync-alt")"></i>
                 </button>
@@ -64,8 +72,10 @@
         </div>
     </div>
 
+    <div class="resize-handle" @onmousedown="@(e => StartResize(e, "right"))" @onmousedown:preventDefault></div>
+
     <!-- Right: Properties -->
-    <div class="tree-props-pane">
+    <div class="tree-props-pane" style="width: @(propsPaneWidth)px;">
         <div class="pane-header">
             <span>Properties</span>
         </div>
@@ -99,7 +109,7 @@
                             <span class="prop-key">Text</span>
                             @if (editingProperty == "text")
                             {
-                                <input type="text" @bind="editValue" @onkeydown="OnEditKeyDown" @ref="editInput" class="prop-edit-input" />
+                                <input type="text" @bind="editValue" @bind:event="oninput" @onkeydown="OnEditKeyDown" @onfocusout="OnEditBlur" @ref="editInput" class="prop-edit-input" />
                             }
                             else
                             {
@@ -127,7 +137,7 @@
                         <span class="prop-key">Opacity</span>
                         @if (editingProperty == "opacity")
                         {
-                            <input type="text" @bind="editValue" @onkeydown="OnEditKeyDown" @ref="editInput" class="prop-edit-input" />
+                            <input type="text" @bind="editValue" @bind:event="oninput" @onkeydown="OnEditKeyDown" @onfocusout="OnEditBlur" @ref="editInput" class="prop-edit-input" />
                         }
                         else
                         {
@@ -187,6 +197,13 @@
     </div>
 </div>
 
+@if (isResizing)
+{
+    <div class="resize-overlay"
+         @onmousemove="OnResizeMove" @onmousemove:preventDefault
+         @onmouseup="StopResize" @onmouseup:preventDefault></div>
+}
+
 @code {
     [Parameter] public DevFlowAgentClient Client { get; set; } = null!;
 
@@ -202,6 +219,44 @@
     private string? editingProperty;
     private string editValue = "";
     private ElementReference editInput;
+
+    // Resize state
+    private double screenshotPaneWidth = 280;
+    private double propsPaneWidth = 300;
+    private bool isResizing;
+    private string? resizingHandle;
+    private double resizeStartX;
+    private double resizeStartWidth;
+
+    private void StartResize(MouseEventArgs e, string handle)
+    {
+        isResizing = true;
+        resizingHandle = handle;
+        resizeStartX = e.ClientX;
+        resizeStartWidth = handle == "left" ? screenshotPaneWidth : propsPaneWidth;
+    }
+
+    private void OnResizeMove(MouseEventArgs e)
+    {
+        if (!isResizing || resizingHandle == null) return;
+
+        var delta = e.ClientX - resizeStartX;
+
+        if (resizingHandle == "left")
+        {
+            screenshotPaneWidth = Math.Clamp(resizeStartWidth + delta, 120, 600);
+        }
+        else
+        {
+            propsPaneWidth = Math.Clamp(resizeStartWidth - delta, 150, 600);
+        }
+    }
+
+    private void StopResize(MouseEventArgs e)
+    {
+        isResizing = false;
+        resizingHandle = null;
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -294,6 +349,39 @@
         StateHasChanged();
     }
 
+    private void ExpandAll()
+    {
+        AddAllNodeIds(treeItems);
+        StateHasChanged();
+    }
+
+    private void CollapseAll()
+    {
+        expandedNodes.Clear();
+        StateHasChanged();
+    }
+
+    private void ExpandAllDescendants(DevFlowElementInfo item)
+    {
+        expandedNodes.Add(item.Id);
+        if (item.Children != null)
+        {
+            foreach (var child in item.Children)
+                ExpandAllDescendants(child);
+        }
+        StateHasChanged();
+    }
+
+    private void AddAllNodeIds(List<DevFlowElementInfo> items)
+    {
+        foreach (var item in items)
+        {
+            expandedNodes.Add(item.Id);
+            if (item.Children?.Count > 0)
+                AddAllNodeIds(item.Children);
+        }
+    }
+
     private bool MatchesSearch(DevFlowElementInfo item)
     {
         if (string.IsNullOrEmpty(searchQuery)) return true;
@@ -333,6 +421,16 @@
             __builder.AddEventStopPropagationAttribute(13, "onclick", true);
             __builder.OpenElement(14, "i");
             __builder.AddAttribute(15, "class", $"fas {(isExpanded ? "fa-caret-down" : "fa-caret-right")}");
+            __builder.CloseElement(); // i
+            __builder.CloseElement(); // span
+
+            __builder.OpenElement(16, "span");
+            __builder.AddAttribute(17, "class", "tree-expand-all");
+            __builder.AddAttribute(18, "title", "Expand all children");
+            __builder.AddAttribute(19, "onclick", EventCallback.Factory.Create<Microsoft.AspNetCore.Components.Web.MouseEventArgs>(this, () => ExpandAllDescendants(item)));
+            __builder.AddEventStopPropagationAttribute(20, "onclick", true);
+            __builder.OpenElement(21, "i");
+            __builder.AddAttribute(22, "class", "fas fa-angles-down");
             __builder.CloseElement(); // i
             __builder.CloseElement(); // span
         }
@@ -377,7 +475,7 @@
 
         __builder.CloseElement(); // div.tree-node
 
-        if (hasChildren && isExpanded)
+        if (hasChildren && (isExpanded || !string.IsNullOrEmpty(searchQuery)))
         {
             foreach (var child in item.Children!)
             {
@@ -397,15 +495,32 @@
     {
         if (e.Key == "Enter" && selectedElement != null && editingProperty != null)
         {
-            await Client.SetPropertyAsync(selectedElement.Id, editingProperty, editValue);
-            editingProperty = null;
-            await RefreshTree();
+            await CommitEdit();
         }
         else if (e.Key == "Escape")
         {
             editingProperty = null;
             StateHasChanged();
         }
+    }
+
+    private async Task OnEditBlur()
+    {
+        if (selectedElement != null && editingProperty != null)
+        {
+            await CommitEdit();
+        }
+    }
+
+    private async Task CommitEdit()
+    {
+        if (selectedElement == null || editingProperty == null) return;
+        var prop = editingProperty;
+        var val = editValue;
+        editingProperty = null;
+        StateHasChanged();
+        await Client.SetPropertyAsync(selectedElement.Id, prop, val);
+        await RefreshTree();
     }
 
     private void OnAutoRefreshChanged()
@@ -442,7 +557,6 @@
     }
 
     .tree-screenshot-pane {
-        width: 280px;
         border-right: 1px solid var(--border-color);
         display: flex;
         flex-direction: column;
@@ -458,10 +572,32 @@
     }
 
     .tree-props-pane {
-        width: 300px;
         display: flex;
         flex-direction: column;
         flex-shrink: 0;
+    }
+
+    .resize-handle {
+        width: 5px;
+        cursor: col-resize;
+        background: transparent;
+        flex-shrink: 0;
+        position: relative;
+        z-index: 10;
+        margin: 0 -2px;
+    }
+
+    .resize-handle:hover,
+    .resize-handle:active {
+        background: var(--accent-color, #3b82f6);
+        opacity: 0.5;
+    }
+
+    .resize-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        cursor: col-resize;
     }
 
     .pane-header {
@@ -585,6 +721,25 @@
     .tree-toggle-space {
         width: 14px;
         flex-shrink: 0;
+    }
+
+    .tree-expand-all {
+        font-size: 0.65rem;
+        color: var(--text-tertiary);
+        cursor: pointer;
+        opacity: 0.0;
+        transition: opacity 0.15s;
+        flex-shrink: 0;
+        padding: 0 2px;
+    }
+
+    .tree-node:hover .tree-expand-all {
+        opacity: 0.3;
+    }
+
+    .tree-expand-all:hover {
+        opacity: 0.8 !important;
+        color: var(--text-primary);
     }
 
     .tree-type {

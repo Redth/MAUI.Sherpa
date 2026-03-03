@@ -4,7 +4,7 @@
 
 <div class="logs-layout">
     <div class="pane-header">
-        <span>Application Logs <span class="log-count">(@logs.Count)</span></span>
+        <span>Logs <span class="log-count">(@logs.Count)</span></span>
         <div class="pane-actions">
             <select @bind="sourceFilter" class="source-filter">
                 <option value="">All Sources</option>
@@ -19,9 +19,8 @@
                 <option value="debug">Debug</option>
             </select>
             <input type="text" @bind="searchQuery" @bind:event="oninput" placeholder="Search..." class="log-search" />
-            <label class="auto-scroll-label">
-                <input type="checkbox" @bind="autoScroll" />
-                Auto-scroll
+            <label class="auto-scroll-toggle">
+                <input type="checkbox" @bind="autoScroll" /> Auto-scroll
             </label>
             <button class="btn-icon" @onclick="RefreshLogs" title="Refresh">
                 <i class="fas fa-sync-alt"></i>
@@ -40,15 +39,26 @@
     <div class="log-list" @ref="logContainer">
         @foreach (var log in FilteredLogs)
         {
-            <div class="log-row level-@(log.Level?.ToLowerInvariant() ?? "info")">
+            var normLevel = NormalizeLevel(log.Level);
+            <div class="log-row level-@normLevel">
                 <span class="col-log-time">@log.Timestamp.ToLocalTime().ToString("HH:mm:ss.fff")</span>
                 <span class="col-log-level">
-                    <span class="level-badge">@(log.Level?.ToUpperInvariant() ?? "INFO")</span>
+                    <span class="level-badge">@normLevel.ToUpperInvariant()</span>
                 </span>
                 <span class="col-log-source">
                     <span class="source-badge source-@(log.Source?.ToLowerInvariant() ?? "native")">@(log.Source ?? "native")</span>
                 </span>
-                <span class="col-log-message text-selectable">@log.Message</span>
+                <span class="col-log-message text-selectable">
+                    @if (!string.IsNullOrEmpty(log.Category))
+                    {
+                        <span class="log-category">[@log.Category]</span>
+                    }
+                    @log.Message
+                    @if (!string.IsNullOrEmpty(log.Exception))
+                    {
+                        <pre class="log-exception">@log.Exception</pre>
+                    }
+                </span>
             </div>
         }
         @if (logs.Count == 0 && !isLoading)
@@ -85,13 +95,22 @@
             if (!string.IsNullOrEmpty(sourceFilter))
                 result = result.Where(l => l.Source?.Equals(sourceFilter, StringComparison.OrdinalIgnoreCase) == true);
             if (!string.IsNullOrEmpty(levelFilter))
-                result = result.Where(l => l.Level?.Equals(levelFilter, StringComparison.OrdinalIgnoreCase) == true);
+                result = result.Where(l => NormalizeLevel(l.Level) == levelFilter);
             if (!string.IsNullOrEmpty(searchQuery))
                 result = result.Where(l => l.Message?.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) == true
                     || l.Category?.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) == true);
             return result;
         }
     }
+
+    private static string NormalizeLevel(string? level) => level?.ToLowerInvariant() switch
+    {
+        "information" or "info" => "info",
+        "warning" or "warn" => "warn",
+        "error" or "critical" or "fatal" => "error",
+        "debug" or "trace" or "verbose" => "debug",
+        _ => level?.ToLowerInvariant() ?? "info"
+    };
 
     protected override async Task OnInitializedAsync()
     {
@@ -154,6 +173,40 @@
         height: 100%;
     }
 
+    .pane-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.5rem 0.75rem;
+        background: var(--bg-secondary);
+        border-bottom: 1px solid var(--border-color);
+        font-size: 0.85rem;
+        font-weight: 600;
+        flex-shrink: 0;
+        gap: 0.5rem;
+    }
+
+    .pane-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+    }
+
+    .btn-icon {
+        background: none;
+        border: none;
+        color: var(--text-secondary);
+        cursor: pointer;
+        padding: 0.25rem 0.4rem;
+        border-radius: 4px;
+        font-size: 0.8rem;
+    }
+
+    .btn-icon:hover {
+        color: var(--text-primary);
+        background: var(--bg-tertiary);
+    }
+
     .log-count {
         font-weight: 400;
         color: var(--text-tertiary);
@@ -178,10 +231,10 @@
         width: 120px;
     }
 
-    .auto-scroll-label {
-        display: flex;
+    .auto-scroll-toggle {
+        display: inline-flex;
         align-items: center;
-        gap: 0.3rem;
+        gap: 0.25rem;
         font-size: 0.75rem;
         color: var(--text-secondary);
         cursor: pointer;
@@ -285,5 +338,22 @@
         padding: 1rem;
         text-align: center;
         color: var(--text-tertiary);
+    }
+
+    .log-category {
+        color: var(--text-tertiary);
+        font-size: 0.7rem;
+        margin-right: 0.4rem;
+    }
+
+    .log-exception {
+        margin: 0.25rem 0 0;
+        padding: 0.3rem 0.5rem;
+        background: rgba(239, 68, 68, 0.08);
+        border-radius: 3px;
+        font-size: 0.75rem;
+        color: #ef4444;
+        white-space: pre-wrap;
+        word-break: break-all;
     }
 </style>
