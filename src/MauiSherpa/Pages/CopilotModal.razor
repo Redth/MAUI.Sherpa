@@ -6,11 +6,13 @@
 
 <MauiSherpa.Pages.Copilot 
     IsEmbedded="true"
-    HideInputArea="@(!PlatformInfo.IsLinux)"
+    ShowHeader="true"
+    HideInputArea="false"
     PendingMessage="@pendingMessage"
     PendingContext="@pendingContext"
     OnPendingHandled="ClearPending"
-    OnReady="OnChatReady" />
+    OnReady="OnChatReady"
+    OnClose="HandleClose" />
 
 @code {
     private string? pendingMessage;
@@ -50,6 +52,11 @@
     }
 
     private void OnChatReady() { }
+
+    private void HandleClose()
+    {
+        ContextService.CloseOverlay();
+    }
 
     private void ClearPending()
     {

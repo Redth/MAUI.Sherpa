@@ -12,6 +12,41 @@
 
 <div class="copilot-page @(IsEmbedded ? "embedded" : "")">
 
+@if (ShowHeader)
+{
+    <div class="copilot-header">
+        <div class="copilot-header__left">
+            <img src="_content/MauiSherpa/ghcp_icon_white.png" alt="" class="copilot-header__icon" onerror="this.style.display='none'" />
+            <span class="copilot-header__title">Copilot</span>
+            <span class="copilot-header__dot @(CopilotService.IsConnected ? "connected" : "")"></span>
+            <span class="copilot-header__status">@(CopilotService.IsConnected ? "Connected" : "Disconnected")</span>
+            @if (availability?.Login != null)
+            {
+                <span class="copilot-header__badge">@@@(availability.Login)</span>
+            }
+            @if (availability?.Version != null)
+            {
+                <span class="copilot-header__version">v@(availability.Version)</span>
+            }
+        </div>
+        <div class="copilot-header__right">
+            @if (isConnecting)
+            {
+                <span class="copilot-header__connecting"><i class="fas fa-spinner fa-spin"></i></span>
+            }
+            else if (!CopilotService.IsConnected)
+            {
+                <button class="copilot-header__btn copilot-header__btn--connect" @onclick="Connect">Connect</button>
+            }
+            else
+            {
+                <button class="copilot-header__btn copilot-header__btn--disconnect" @onclick="Disconnect">Disconnect</button>
+            }
+            <button class="copilot-header__btn copilot-header__btn--close" @onclick="OnClose">✕</button>
+        </div>
+    </div>
+}
+
 @if (!IsEmbedded)
 {
     <h1><i class="fas fa-robot"></i> GitHub Copilot</h1>
@@ -1984,6 +2019,121 @@ else
         background: rgba(99, 102, 241, 0.2);
         color: #a78bfa;
     }
+
+    /* ─── Blazor Header Bar ─── */
+    .copilot-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        background: linear-gradient(135deg, #6366f1, #4f46e5);
+        padding: 0.625rem 1rem;
+        flex-shrink: 0;
+        min-height: 44px;
+        box-sizing: border-box;
+    }
+
+    .copilot-header__left {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        min-width: 0;
+    }
+
+    .copilot-header__icon {
+        width: 20px;
+        height: 20px;
+        flex-shrink: 0;
+    }
+
+    .copilot-header__title {
+        font-size: 0.9375rem;
+        font-weight: 700;
+        color: #fff;
+        white-space: nowrap;
+    }
+
+    .copilot-header__dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #f56565;
+        flex-shrink: 0;
+    }
+
+    .copilot-header__dot.connected {
+        background: #48bb78;
+    }
+
+    .copilot-header__status {
+        font-size: 0.75rem;
+        color: rgba(255, 255, 255, 0.7);
+        white-space: nowrap;
+    }
+
+    .copilot-header__badge {
+        font-size: 0.6875rem;
+        color: #fff;
+        background: rgba(255, 255, 255, 0.15);
+        padding: 0.125rem 0.5rem;
+        border-radius: 0.75rem;
+        white-space: nowrap;
+    }
+
+    .copilot-header__version {
+        font-size: 0.6875rem;
+        color: rgba(255, 255, 255, 0.5);
+        white-space: nowrap;
+    }
+
+    .copilot-header__right {
+        display: flex;
+        align-items: center;
+        gap: 0.375rem;
+        flex-shrink: 0;
+    }
+
+    .copilot-header__connecting {
+        color: #fff;
+        font-size: 0.875rem;
+    }
+
+    .copilot-header__btn {
+        border: none;
+        border-radius: 0.25rem;
+        padding: 0.25rem 0.75rem;
+        font-size: 0.75rem;
+        font-weight: 500;
+        cursor: pointer;
+        transition: opacity 0.15s;
+        line-height: 1.4;
+    }
+
+    .copilot-header__btn:hover {
+        opacity: 0.85;
+    }
+
+    .copilot-header__btn--connect {
+        background: #fff;
+        color: #6366f1;
+    }
+
+    .copilot-header__btn--disconnect {
+        background: rgba(255, 255, 255, 0.15);
+        color: #fff;
+    }
+
+    .copilot-header__btn--close {
+        background: transparent;
+        color: rgba(255, 255, 255, 0.7);
+        font-size: 1rem;
+        padding: 0.125rem 0.375rem;
+        line-height: 1;
+    }
+
+    .copilot-header__btn--close:hover {
+        color: #fff;
+        opacity: 1;
+    }
 </style>
 
 <script suppress-error="BL9992">
@@ -2027,10 +2177,12 @@ else
 @code {
     // Parameters for embedded mode (overlay)
     [Parameter] public bool IsEmbedded { get; set; } = false;
+    [Parameter] public bool ShowHeader { get; set; } = false;
     [Parameter] public bool HideInputArea { get; set; } = false;
     [Parameter] public string? PendingMessage { get; set; }
     [Parameter] public CopilotContext? PendingContext { get; set; }
     [Parameter] public EventCallback OnPendingHandled { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
 
     private async Task OpenUrl(string url)
     {
