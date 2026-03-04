@@ -254,6 +254,7 @@
     private Timer? _screenshotTimer;
     private bool inspectMode;
     private string? inspectDebug;
+    private string? overlayStyle;
     private string? editingProperty;
     private string editValue = "";
     private ElementReference editInput;
@@ -617,7 +618,8 @@
         return null;
     }
 
-    private DevFlowElementInfo? HitTest(List<DevFlowElementInfo> items, double x, double y, double absOffX = 0, double absOffY = 0)
+    private DevFlowElementInfo? HitTest(List<DevFlowElementInfo> items, double x, double y,
+        double absOffX = 0, double absOffY = 0, DevFlowBoundsInfo? parentBounds = null)
     {
         DevFlowElementInfo? best = null;
         foreach (var item in items)
@@ -625,9 +627,19 @@
             var b = item.Bounds;
             var validBounds = b != null && b.Width > 0 && b.Height > 0;
 
-            // Compute absolute position for this element
-            var itemAbsX = absOffX + (validBounds ? b!.X : 0);
-            var itemAbsY = absOffY + (validBounds ? b!.Y : 0);
+            // Compute absolute position, skipping duplicate offsets (same position+size as parent)
+            var itemAbsX = absOffX;
+            var itemAbsY = absOffY;
+            if (validBounds)
+            {
+                if (parentBounds == null ||
+                    Math.Abs(b!.X - parentBounds.X) > 0.5 || Math.Abs(b.Y - parentBounds.Y) > 0.5 ||
+                    Math.Abs(b.Width - parentBounds.Width) > 0.5 || Math.Abs(b.Height - parentBounds.Height) > 0.5)
+                {
+                    itemAbsX += b!.X;
+                    itemAbsY += b.Y;
+                }
+            }
 
             if (validBounds && item.IsVisible &&
                 x >= itemAbsX && x <= itemAbsX + b!.Width &&
@@ -639,7 +651,7 @@
             // Always recurse into children (hidden containers like Window/Shell have visible content)
             if (item.Children?.Count > 0)
             {
-                var childHit = HitTest(item.Children, x, y, itemAbsX, itemAbsY);
+                var childHit = HitTest(item.Children, x, y, itemAbsX, itemAbsY, validBounds ? b : parentBounds);
                 if (childHit != null) best = childHit;
             }
         }
@@ -681,12 +693,22 @@
         if (path == null) return null;
 
         double absX = 0, absY = 0;
+        DevFlowBoundsInfo? prevBounds = null;
         foreach (var ancestor in path)
         {
-            if (ancestor.Bounds != null && ancestor.Bounds.Width > 0 && ancestor.Bounds.Height > 0)
+            var b = ancestor.Bounds;
+            if (b != null && b.Width > 0 && b.Height > 0)
             {
-                absX += ancestor.Bounds.X;
-                absY += ancestor.Bounds.Y;
+                // Skip duplicate offsets: when child has same position+size as parent,
+                // MAUI's Frame is reporting absolute-ish coords, not relative-to-parent
+                if (prevBounds == null ||
+                    Math.Abs(b.X - prevBounds.X) > 0.5 || Math.Abs(b.Y - prevBounds.Y) > 0.5 ||
+                    Math.Abs(b.Width - prevBounds.Width) > 0.5 || Math.Abs(b.Height - prevBounds.Height) > 0.5)
+                {
+                    absX += b.X;
+                    absY += b.Y;
+                }
+                prevBounds = b;
             }
         }
         return (absX, absY, element.Bounds.Width, element.Bounds.Height);
@@ -713,6 +735,7 @@
     {
         ExpandPathTo(treeItems, element.Id);
         await SelectElement(element);
+        await UpdateOverlayAsync();
         StateHasChanged();
 
         // Scroll the selected tree node into view after render
@@ -723,29 +746,53 @@
 
     private RenderFragment RenderHighlightOverlay => __builder =>
     {
-        if (selectedElement?.Bounds == null) return;
+        if (string.IsNullOrEmpty(overlayStyle)) return;
+
+        __builder.OpenElement(0, "div");
+        __builder.AddAttribute(1, "class", "highlight-overlay");
+        __builder.AddAttribute(2, "style", overlayStyle);
+        __builder.CloseElement();
+    };
+
+    private async Task UpdateOverlayAsync()
+    {
+        overlayStyle = null;
+        if (selectedElement?.Bounds == null || screenshotData == null) return;
 
         var absBounds = GetAbsoluteBounds(selectedElement);
         if (absBounds == null) return;
 
         var rootBounds = GetRootBounds();
         if (rootBounds == null) return;
-        // Full window in logical points
+
         var windowWidth = rootBounds.Width + rootBounds.X;
         var windowHeight = rootBounds.Height + rootBounds.Y;
         if (windowWidth <= 0 || windowHeight <= 0) return;
 
-        var leftPct = (absBounds.Value.x / windowWidth) * 100;
-        var topPct = (absBounds.Value.y / windowHeight) * 100;
-        var widthPct = (absBounds.Value.w / windowWidth) * 100;
-        var heightPct = (absBounds.Value.h / windowHeight) * 100;
+        try
+        {
+            // Get actual image rendering dimensions via JS
+            var dims = await JS.InvokeAsync<ImageDimensions>("eval",
+                "(function() { var img = document.querySelector('.screenshot-img');" +
+                "if (!img) return null;" +
+                "var r = img.getBoundingClientRect();" +
+                "return { width: r.width, height: r.height, naturalWidth: img.naturalWidth, naturalHeight: img.naturalHeight }; })()");
 
-        __builder.OpenElement(0, "div");
-        __builder.AddAttribute(1, "class", "highlight-overlay");
-        __builder.AddAttribute(2, "style",
-            $"left: {leftPct:F2}%; top: {topPct:F2}%; width: {widthPct:F2}%; height: {heightPct:F2}%;");
-        __builder.CloseElement();
-    };
+            if (dims == null || dims.NaturalWidth <= 0 || dims.NaturalHeight <= 0) return;
+
+            var dpiScale = dims.NaturalWidth / windowWidth;
+            if (dpiScale <= 0) dpiScale = 1;
+
+            // Convert logical bounds to pixels in the rendered image
+            var pxLeft = (absBounds.Value.x / windowWidth) * dims.Width;
+            var pxTop = (absBounds.Value.y / windowHeight) * dims.Height;
+            var pxWidth = (absBounds.Value.w / windowWidth) * dims.Width;
+            var pxHeight = (absBounds.Value.h / windowHeight) * dims.Height;
+
+            overlayStyle = $"left: {pxLeft:F1}px; top: {pxTop:F1}px; width: {pxWidth:F1}px; height: {pxHeight:F1}px;";
+        }
+        catch { }
+    }
 
     private async Task SelectElement(DevFlowElementInfo element)
     {
@@ -919,7 +966,7 @@
         // The node row
         __builder.OpenElement(0, "div");
         __builder.AddAttribute(1, "class", $"tree-node {(isSelected ? "selected" : "")}");
-        __builder.AddAttribute(2, "onclick", EventCallback.Factory.Create<Microsoft.AspNetCore.Components.Web.MouseEventArgs>(this, () => SelectElement(item)));
+        __builder.AddAttribute(2, "onclick", EventCallback.Factory.Create<Microsoft.AspNetCore.Components.Web.MouseEventArgs>(this, async () => { await SelectElement(item); await UpdateOverlayAsync(); StateHasChanged(); }));
 
         // Indent guide spans for each depth level
         for (int d = 0; d < depth; d++)
@@ -983,12 +1030,32 @@
             __builder.CloseElement();
         }
 
-        // Right-side hover buttons for expand/collapse all (only for parent nodes)
+        // Right-side hover buttons: locate in screenshot (all nodes) + expand/collapse (parent nodes only)
+        __builder.OpenElement(85, "span");
+        __builder.AddAttribute(86, "class", "tree-actions");
+
+        // Locate in screenshot button (all nodes)
+        __builder.OpenElement(83, "span");
+        __builder.AddAttribute(84, "class", "tree-locate");
+        __builder.AddAttribute(841, "title", "Locate in screenshot");
+        __builder.AddAttribute(842, "onclick", EventCallback.Factory.Create<Microsoft.AspNetCore.Components.Web.MouseEventArgs>(this, async () =>
+        {
+            await SelectElement(item);
+            await UpdateOverlayAsync();
+            StateHasChanged();
+            // Scroll screenshot to show the overlay
+            await Task.Delay(50);
+            await JS.InvokeVoidAsync("eval",
+                "document.querySelector('.highlight-overlay')?.scrollIntoView({ block: 'center', behavior: 'smooth' })");
+        }));
+        __builder.AddEventStopPropagationAttribute(843, "onclick", true);
+        __builder.OpenElement(844, "i");
+        __builder.AddAttribute(845, "class", "fas fa-crosshairs");
+        __builder.CloseElement();
+        __builder.CloseElement();
+
         if (hasChildren)
         {
-            __builder.OpenElement(85, "span");
-            __builder.AddAttribute(86, "class", "tree-actions");
-
             __builder.OpenElement(87, "span");
             __builder.AddAttribute(88, "class", "tree-expand-all");
             __builder.AddAttribute(89, "title", "Expand all children");
@@ -1008,9 +1075,9 @@
             __builder.AddAttribute(100, "class", "fas fa-angles-up");
             __builder.CloseElement();
             __builder.CloseElement();
-
-            __builder.CloseElement(); // span.tree-actions
         }
+
+        __builder.CloseElement(); // span.tree-actions
 
         __builder.CloseElement(); // div.tree-node
 
@@ -2437,7 +2504,7 @@
         flex-shrink: 0;
     }
 
-    .tree-expand-all, .tree-collapse-all {
+    .tree-locate, .tree-expand-all, .tree-collapse-all {
         font-size: 0.65rem;
         color: var(--text-tertiary);
         cursor: pointer;
@@ -2447,12 +2514,13 @@
         padding: 0 2px;
     }
 
+    .tree-node:hover .tree-locate,
     .tree-node:hover .tree-expand-all,
     .tree-node:hover .tree-collapse-all {
         opacity: 0.3;
     }
 
-    .tree-expand-all:hover, .tree-collapse-all:hover {
+    .tree-locate:hover, .tree-expand-all:hover, .tree-collapse-all:hover {
         opacity: 0.8 !important;
         color: var(--text-primary);
     }
