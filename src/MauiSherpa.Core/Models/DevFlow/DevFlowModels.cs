@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace MauiSherpa.Core.Models.DevFlow;
@@ -280,14 +281,28 @@ public class CdpRequest
 /// </summary>
 public class CdpResponse
 {
-    [JsonPropertyName("success")]
-    public bool Success { get; set; }
+    [JsonPropertyName("id")]
+    public int? Id { get; set; }
 
     [JsonPropertyName("result")]
     public object? Result { get; set; }
 
     [JsonPropertyName("error")]
-    public string? Error { get; set; }
+    public object? Error { get; set; }
+
+    [JsonIgnore]
+    public bool Success => Error == null && Result != null;
+
+    public string? GetErrorMessage()
+    {
+        if (Error is JsonElement el)
+        {
+            if (el.TryGetProperty("message", out var msg))
+                return msg.GetString();
+            return el.ToString();
+        }
+        return Error?.ToString();
+    }
 }
 
 /// <summary>

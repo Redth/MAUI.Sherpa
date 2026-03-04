@@ -311,7 +311,7 @@
             }
             else
             {
-                jsResults.Add(new JsResult(expr, response?.Error ?? "Unknown error", true));
+                jsResults.Add(new JsResult(expr, response?.GetErrorMessage() ?? "Unknown error", true));
             }
         }
         catch (Exception ex)
@@ -408,6 +408,9 @@
         // Navigate: result.result.value (CDP wraps in a result object)
         if (root.TryGetProperty("result", out var resultObj))
         {
+            // Check type first — "undefined" has no value property
+            if (resultObj.TryGetProperty("type", out var typeEl) && typeEl.GetString() == "undefined")
+                return "undefined";
             if (resultObj.TryGetProperty("value", out var valueEl))
                 return valueEl.ValueKind == JsonValueKind.String ? valueEl.GetString() : valueEl.ToString();
             if (resultObj.TryGetProperty("description", out var descEl))
