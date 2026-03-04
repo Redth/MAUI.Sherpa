@@ -135,6 +135,7 @@
 
     private DataGrid<DevFlowLogEntry>? gridRef;
     private List<DevFlowLogEntry> logs = new();
+    private int _skipOffset;
     private string logLevelFilter = "";
     private bool showColumnFilters;
     private string jsExpression = "";
@@ -210,6 +211,7 @@
 
     private async Task RefreshLogs()
     {
+        _skipOffset = 0;
         try
         {
             logs = await Client.GetLogsAsync(limit: 200, source: "webview");
@@ -222,7 +224,7 @@
     {
         try
         {
-            var newLogs = await Client.GetLogsAsync(limit: 50, skip: logs.Count, source: "webview");
+            var newLogs = await Client.GetLogsAsync(limit: 50, skip: _skipOffset + logs.Count, source: "webview");
             if (newLogs.Count > 0)
             {
                 logs.AddRange(newLogs);
@@ -234,6 +236,7 @@
 
     private void ClearLogs()
     {
+        _skipOffset += logs.Count;
         logs.Clear();
         StateHasChanged();
     }

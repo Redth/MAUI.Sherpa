@@ -47,6 +47,7 @@
 
     private DataGrid<DevFlowLogEntry>? gridRef;
     private List<DevFlowLogEntry> logs = new();
+    private int _skipOffset; // tracks cleared logs so polling doesn't re-fetch them
     private string sourceFilter = "";
     private string levelFilter = "";
     private string searchQuery = "";
@@ -154,6 +155,7 @@
     private async Task RefreshLogs()
     {
         isLoading = true;
+        _skipOffset = 0;
         StateHasChanged();
 
         try
@@ -174,7 +176,7 @@
         try
         {
             var source = string.IsNullOrEmpty(sourceFilter) ? null : sourceFilter;
-            var newLogs = await Client.GetLogsAsync(limit: 50, skip: logs.Count, source: source);
+            var newLogs = await Client.GetLogsAsync(limit: 50, skip: _skipOffset + logs.Count, source: source);
             if (newLogs.Count > 0)
             {
                 logs.AddRange(newLogs);
@@ -186,6 +188,7 @@
 
     private void ClearLogs()
     {
+        _skipOffset += logs.Count;
         logs.Clear();
         StateHasChanged();
     }
