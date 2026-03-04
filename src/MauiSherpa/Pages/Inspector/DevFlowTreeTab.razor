@@ -785,11 +785,12 @@
             var dpiScale = dims.NaturalWidth / windowWidth;
             if (dpiScale <= 0) dpiScale = 1;
 
-            // Convert logical bounds to pixels in the rendered image
-            var pxLeft = (absBounds.Value.x / windowWidth) * dims.Width;
-            var pxTop = (absBounds.Value.y / windowHeight) * dims.Height;
-            var pxWidth = (absBounds.Value.w / windowWidth) * dims.Width;
-            var pxHeight = (absBounds.Value.h / windowHeight) * dims.Height;
+            // Convert logical bounds to pixels in the rendered image, with padding so border sits outside the element
+            var pad = 3.0;
+            var pxLeft = (absBounds.Value.x / windowWidth) * dims.Width - pad;
+            var pxTop = (absBounds.Value.y / windowHeight) * dims.Height - pad;
+            var pxWidth = (absBounds.Value.w / windowWidth) * dims.Width + pad * 2;
+            var pxHeight = (absBounds.Value.h / windowHeight) * dims.Height + pad * 2;
 
             overlayStyle = $"left: {pxLeft:F1}px; top: {pxTop:F1}px; width: {pxWidth:F1}px; height: {pxHeight:F1}px;";
         }
@@ -2405,7 +2406,7 @@
         position: absolute;
         background: rgba(139, 92, 246, 0.2);
         border: 2px solid rgba(139, 92, 246, 0.7);
-        border-radius: 2px;
+        border-radius: 6px;
         pointer-events: none;
         z-index: 1;
     }
