@@ -45,10 +45,6 @@
                 </div>
             }
         </div>
-        @if (inspectDebug != null)
-        {
-            <div style="padding: 4px 8px; font-size: 0.7rem; color: var(--text-secondary); background: var(--bg-tertiary); font-family: monospace;">@inspectDebug</div>
-        }
     </div>
 
     <!-- Center: Tree View -->
@@ -263,6 +259,7 @@
     private string? editingProperty;
     private string editValue = "";
     private ElementReference editInput;
+    private HashSet<string> _activeShellItemIds = new();
     private List<PropertyEntry> fetchedProperties = new();
     private string customPropertyName = "";
     private List<GradientStop> gradientStops = new();
@@ -438,6 +435,9 @@
         {
             treeItems = await Client.GetTreeAsync();
 
+            // Detect active Shell page to filter hit tests
+            _activeShellItemIds = await DetectActiveShellItemIds(treeItems);
+
             // Always expand all nodes
             expandedNodes.Clear();
             AddAllNodeIds(treeItems);
@@ -567,10 +567,17 @@
                 if (hitResult?.Elements.Count > 0)
                 {
                     // Elements are deepest-first; find the first match in our tree
-                    var hitId = hitResult.Elements[0].Id;
-                    hit = FindElementById(treeItems, hitId);
-                    if (hit != null)
-                        inspectDebug = $"HIT (server): {hit.Type} [{hitId}] at ({logicalX:F0},{logicalY:F0})";
+                    // that isn't under an inactive Shell page
+                    foreach (var hitElement in hitResult.Elements)
+                    {
+                        var candidate = FindElementById(treeItems, hitElement.Id);
+                        if (candidate != null && !IsUnderInactiveShellItem(candidate))
+                        {
+                            hit = candidate;
+                            inspectDebug = $"HIT (server): {hit.Type} [{hitElement.Id}] at ({logicalX:F0},{logicalY:F0})";
+                            break;
+                        }
+                    }
                 }
             }
             catch
@@ -605,22 +612,100 @@
 
     private DevFlowBoundsInfo? GetRootBounds()
     {
-        return FindFirstValidBounds(treeItems);
+        return FindLargestBounds(treeItems);
     }
 
-    private DevFlowBoundsInfo? FindFirstValidBounds(List<DevFlowElementInfo> items)
+    private DevFlowBoundsInfo? FindLargestBounds(List<DevFlowElementInfo> items)
+    {
+        DevFlowBoundsInfo? best = null;
+        double bestArea = 0;
+        FindLargestBoundsRecursive(items, ref best, ref bestArea);
+        return best;
+    }
+
+    private void FindLargestBoundsRecursive(List<DevFlowElementInfo> items, ref DevFlowBoundsInfo? best, ref double bestArea)
     {
         foreach (var item in items)
         {
+            // Skip inactive ShellItem subtrees
+            if (_activeShellItemIds.Count > 0 && item.Type.Contains("ShellItem") && !_activeShellItemIds.Contains(item.Id))
+                continue;
+
             if (item.Bounds != null && item.Bounds.Width > 0 && item.Bounds.Height > 0)
-                return item.Bounds;
+            {
+                var area = item.Bounds.Width * item.Bounds.Height;
+                if (area > bestArea)
+                {
+                    bestArea = area;
+                    best = item.Bounds;
+                }
+            }
+            if (item.Children?.Count > 0)
+                FindLargestBoundsRecursive(item.Children, ref best, ref bestArea);
+        }
+    }
+
+    /// <summary>
+    /// Detects the active ShellItem in a Shell app by querying Shell.CurrentItem.Title.
+    /// Returns a set of ShellItem IDs that are considered "active" (should be hit-tested).
+    /// For non-Shell apps, returns an empty set (no filtering needed).
+    /// </summary>
+    private async Task<HashSet<string>> DetectActiveShellItemIds(List<DevFlowElementInfo> items)
+    {
+        var result = new HashSet<string>();
+        try
+        {
+            // Find Shell element and its ShellItem children
+            var shell = FindElementByType(items, "AppShell") ?? FindElementByType(items, "Shell");
+            if (shell?.Children == null) return result;
+
+            var shellItems = shell.Children.Where(c => c.Type.Contains("ShellItem")).ToList();
+            if (shellItems.Count <= 1) return result; // Single page or no Shell — no filtering needed
+
+            // Query Shell.CurrentItem.Title to find the active tab
+            var currentTitle = await Client.GetPropertyAsync(shell.Id, "CurrentItem.Title");
+            if (string.IsNullOrEmpty(currentTitle)) return result;
+
+            foreach (var si in shellItems)
+            {
+                if (string.Equals(si.Text, currentTitle, StringComparison.OrdinalIgnoreCase))
+                    result.Add(si.Id);
+            }
+        }
+        catch { }
+        return result;
+    }
+
+    private DevFlowElementInfo? FindElementByType(List<DevFlowElementInfo> items, string type)
+    {
+        foreach (var item in items)
+        {
+            if (item.Type.Contains(type)) return item;
             if (item.Children?.Count > 0)
             {
-                var childBounds = FindFirstValidBounds(item.Children);
-                if (childBounds != null) return childBounds;
+                var found = FindElementByType(item.Children, type);
+                if (found != null) return found;
             }
         }
         return null;
+    }
+
+    /// <summary>
+    /// Checks if an element is under an inactive ShellItem (should be skipped during hit testing).
+    /// </summary>
+    private bool IsUnderInactiveShellItem(DevFlowElementInfo element)
+    {
+        if (_activeShellItemIds.Count == 0) return false; // No Shell filtering needed
+
+        var path = FindPathTo(treeItems, element.Id);
+        if (path == null) return false;
+
+        foreach (var ancestor in path)
+        {
+            if (ancestor.Type.Contains("ShellItem") && !_activeShellItemIds.Contains(ancestor.Id))
+                return true;
+        }
+        return false;
     }
 
     private DevFlowElementInfo? HitTest(List<DevFlowElementInfo> items, double x, double y,
@@ -629,6 +714,10 @@
         DevFlowElementInfo? best = null;
         foreach (var item in items)
         {
+            // Skip inactive ShellItem subtrees entirely
+            if (_activeShellItemIds.Count > 0 && item.Type.Contains("ShellItem") && !_activeShellItemIds.Contains(item.Id))
+                continue;
+
             var b = item.Bounds;
             var validBounds = b != null && b.Width > 0 && b.Height > 0;
 
