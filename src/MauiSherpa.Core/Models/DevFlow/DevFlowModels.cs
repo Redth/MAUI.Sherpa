@@ -57,6 +57,12 @@ public class DevFlowAgentStatus
 
     [JsonPropertyName("running")]
     public bool Running { get; set; }
+
+    [JsonPropertyName("cdpReady")]
+    public bool CdpReady { get; set; }
+
+    [JsonPropertyName("cdpWebViewCount")]
+    public int CdpWebViewCount { get; set; }
 }
 
 /// <summary>

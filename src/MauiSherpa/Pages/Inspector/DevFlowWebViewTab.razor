@@ -49,6 +49,19 @@
 
     <!-- JS Eval + DOM Query -->
     <div class="webview-tools-pane" style="width: @(toolsPaneWidth)px;">
+        @if (!cdpAvailable)
+        {
+            <div class="cdp-unavailable">
+                <i class="fas fa-globe" style="font-size: 1.5rem; opacity: 0.4;"></i>
+                <div style="font-weight: 500;">No WebView Available</div>
+                <div style="font-size: 0.75rem; opacity: 0.6;">Navigate to a page with a BlazorWebView to use JavaScript, DOM queries, and page source.</div>
+                <button class="btn btn-sm btn-secondary" @onclick="RefreshTargets" style="margin-top: 0.5rem;">
+                    <i class="fas fa-sync-alt"></i> Retry
+                </button>
+            </div>
+        }
+        else
+        {
         <div class="pane-header">
             <span>JavaScript</span>
         </div>
@@ -122,6 +135,7 @@
         {
             <pre class="page-source text-selectable">@((MarkupString)HighlightHtml(pageSource))</pre>
         }
+        }
     </div>
 </div>
 
@@ -153,6 +167,7 @@
     private List<DataGridColumnDef<DevFlowLogEntry>> consoleColumns = null!;
     private List<CdpTarget> cdpTargets = new();
     private string? selectedTargetId;
+    private bool cdpAvailable;
 
     private IEnumerable<DevFlowLogEntry> FilteredLogs
     {
@@ -251,9 +266,19 @@
     {
         try
         {
-            cdpTargets = await Client.GetCdpTargetsAsync();
-            if (cdpTargets.Count > 0 && selectedTargetId == null)
-                selectedTargetId = cdpTargets.First().Id;
+            var status = await Client.GetStatusAsync();
+            cdpAvailable = status?.CdpReady ?? false;
+            if (cdpAvailable)
+            {
+                cdpTargets = await Client.GetCdpTargetsAsync();
+                if (cdpTargets.Count > 0 && selectedTargetId == null)
+                    selectedTargetId = cdpTargets.First().Id;
+            }
+            else
+            {
+                cdpTargets.Clear();
+                selectedTargetId = null;
+            }
         }
         catch { }
     }
@@ -681,4 +706,16 @@
     :global(.theme-light) .hl-tag { color: #d73a49; }
     :global(.theme-light) .hl-attr { color: #e36209; }
     :global(.theme-light) .hl-val { color: #22863a; }
+
+    .cdp-unavailable {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        padding: 2rem 1rem;
+        color: var(--text-secondary);
+        text-align: center;
+        height: 100%;
+    }
 </style>
