@@ -243,13 +243,12 @@
     {
         try
         {
-            var fetchCount = Math.Max(50, logs.Count + 20);
-            var freshLogs = await Client.GetLogsAsync(limit: fetchCount, source: "webview");
-            var newestTimestamp = logs.Count > 0 ? logs.Max(l => l.Timestamp) : _clearedAfter;
-            var newEntries = freshLogs.Where(l => l.Timestamp > newestTimestamp && l.Timestamp > _clearedAfter).ToList();
-            if (newEntries.Count > 0)
+            var freshLogs = await Client.GetLogsAsync(limit: 500, source: "webview");
+            if (_clearedAfter != DateTimeOffset.MinValue)
+                freshLogs = freshLogs.Where(l => l.Timestamp > _clearedAfter).ToList();
+            if (freshLogs.Count != logs.Count)
             {
-                logs.AddRange(newEntries);
+                logs = freshLogs;
                 StateHasChanged();
             }
         }
