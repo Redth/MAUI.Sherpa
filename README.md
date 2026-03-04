@@ -5,7 +5,7 @@
 <h1 align="center">MAUI Sherpa</h1>
 
 <p align="center">
-  <em>Let MAUI Sherpa guide you through all your .NET MAUI dev environment needs!</em>
+  <em>Your guide to .NET MAUI development</em>
 </p>
 
 <p align="center">
@@ -13,16 +13,13 @@
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
 </p>
 
-MAUI Sherpa is a desktop application for **macOS** and **Windows** that helps manage your .NET MAUI development environment. It provides a unified interface for Android SDK management, Apple Developer tools, environment diagnostics, and GitHub Copilot integration.
+MAUI Sherpa is a desktop application for **macOS**, **Windows**, and **Linux** that helps manage your .NET MAUI development environment. It provides a unified interface for Android SDK management, Apple Developer tools, environment diagnostics, DevFlow app inspection, and GitHub Copilot integration.
 
-![MAUI Sherpa Dashboard](docs/screenshots/MAUI.Sherpa_Dashboard.png)
+🌐 **[Visit the website →](https://redth.github.io/MAUI.Sherpa/)**
+
+![MAUI Sherpa Dashboard](website/images/screenshots/Dashboard.png)
 
 ## ✨ Features
-
-### 🤖 GitHub Copilot Integration
-- Chat with Copilot directly in the app
-- Get AI-assisted help with your development environment
-- Suggested prompts for common tasks
 
 ### 🩺 MAUI Doctor
 - Check your development environment health
@@ -60,187 +57,194 @@ MAUI Sherpa is a desktop application for **macOS** and **Windows** that helps ma
 - **Android**: Logcat viewer, file browser, shell, screen capture, and device tools
 - **iOS Simulator**: Log viewer, app manager, screen capture, and simulator tools
 
+### 🔬 DevFlow App Inspector
+- Remote visual tree inspection of running MAUI apps
+- Interactive screenshot with element highlighting
+- Network request monitoring with detailed views
+- Application log streaming (native + WebView)
+- Blazor WebView DOM inspection via CDP
+- Live property editing (colors, sizes, brushes)
+
+### 📋 Publish Profiles
+- Bundle Apple + Android signing configs into reusable profiles
+- Publish secrets to GitHub, GitLab, Azure DevOps repositories
+- Multi-destination publishing with review workflow
+
+### 🤖 GitHub Copilot Integration
+- Chat with Copilot directly in the app
+- Get AI-assisted help with your development environment
+- Suggested prompts for common tasks
+
 ## 📸 Screenshots
 
 <details>
 <summary><strong>🩺 Doctor</strong></summary>
 
-![Doctor](docs/screenshots/MAUI.Sherpa_Doctor.png)
-![Doctor Results](docs/screenshots/MAUI.Sherpa_Doctor_Results.png)
+![Doctor Analyzing](website/images/screenshots/Doctor-Analyzing.png)
+![Doctor Results](website/images/screenshots/Doctor-Results.png)
 
 </details>
 
 <details>
 <summary><strong>📦 Android SDK Packages</strong></summary>
 
-![Android SDK](docs/screenshots/MAUI.Sherpa_Android_SDK.png)
+![Android SDK](website/images/screenshots/Android-SDK-Packages-List.png)
 
 </details>
 
 <details>
 <summary><strong>📱 Android Emulators</strong></summary>
 
-![Emulators](docs/screenshots/MAUI.Sherpa_Emulators.png)
-![Create Emulator](docs/screenshots/MAUI.Sherpa_Create_Emulator.png)
+![Emulators](website/images/screenshots/Android-Emulators-List.png)
 
 </details>
 
 <details>
 <summary><strong>📲 Android Devices</strong></summary>
 
-![Android Devices](docs/screenshots/MAUI.Sherpa_Android_Devices.png)
+![Android Devices](website/images/screenshots/Android-Devices-List.png)
 
 </details>
 
 <details>
 <summary><strong>🔑 Android Keystores</strong></summary>
 
-![Keystores](docs/screenshots/MAUI.Sherpa_Keystores.png)
-![Create Keystore](docs/screenshots/MAUI.Sherpa_Create_Keystore.png)
-![Keystore Signatures](docs/screenshots/MAUI.Sherpa_Keystore_Signatures.png)
-![PEPK Export](docs/screenshots/MAUI.Sherpa_Keystore_PEPK.png)
+![Keystores](website/images/screenshots/Android-Keystores-List.png)
+![Create Keystore](website/images/screenshots/Android-Keystores-Create.png)
+![Keystore Signatures](website/images/screenshots/Android-Keystores-Signatures.png)
 
 </details>
 
 <details>
 <summary><strong>🍎 Apple Simulators</strong></summary>
 
-![Apple Simulators](docs/screenshots/MAUI.Sherpa_Apple_Simulators.png)
-![Create Simulator](docs/screenshots/MAUI.Sherpa_Create_Simulator.png)
+![Apple Simulators](website/images/screenshots/Apple-Simulators-Devices-List.png)
 
 </details>
 
 <details>
 <summary><strong>🍎 Apple Registered Devices</strong></summary>
 
-![Apple Devices](docs/screenshots/MAUI.Sherpa_Apple_Devices.png)
-![Register Device](docs/screenshots/MAUI.Sherpa_Register_Device.png)
+![Apple Devices](website/images/screenshots/Apple-Registered-Devices-List.png)
+![Register Device](website/images/screenshots/Apple-Registered-Devices-Create.png)
 
 </details>
 
 <details>
 <summary><strong>🍎 Apple Bundle IDs</strong></summary>
 
-![Bundle IDs](docs/screenshots/MAUI.Sherpa_Bundle_IDs.png)
-![Register Bundle ID](docs/screenshots/MAUI.Sherpa_Register_Bundle_ID.png)
-![Bundle Capabilities](docs/screenshots/MAUI.Sherpa_Bundle_Capabilities.png)
+![Bundle IDs](website/images/screenshots/Apple-BundleIDs-List.png)
+![Register Bundle ID](website/images/screenshots/Apple-BundleIDs-Create.png)
+![Bundle Capabilities](website/images/screenshots/Apple-BundleIDs-Edit-Capabilities.png)
 
 </details>
 
 <details>
 <summary><strong>🍎 Apple Certificates</strong></summary>
 
-![Certificates](docs/screenshots/MAUI.Sherpa_Certificates.png)
-![Create Certificate](docs/screenshots/MAUI.Sherpa_Create_Certificate.png)
-![Export Certificate](docs/screenshots/MAUI.Sherpa_Certificate_Export.png)
+![Certificates](website/images/screenshots/Apple-Certificates-List.png)
 
 </details>
 
 <details>
 <summary><strong>🍎 Apple Provisioning Profiles</strong></summary>
 
-![Provisioning Profiles](docs/screenshots/MAUI.Sherpa_Profiles.png)
-![Edit Profile](docs/screenshots/MAUI.Sherpa_Edit_Profile.png)
-
-</details>
-
-<details>
-<summary><strong>🍎 Create Provisioning Profile Wizard</strong></summary>
-
-![Step 1 - Type](docs/screenshots/MAUI.Sherpa_Create_Profile_01.png)
-![Step 2 - Bundle ID](docs/screenshots/MAUI.Sherpa_Create_Profile_02.png)
-![Step 3 - Certificates](docs/screenshots/MAUI.Sherpa_Create_Profile_03.png)
-![Step 4 - Devices](docs/screenshots/MAUI.Sherpa_Create_Profile_04.png)
-![Step 5 - Name](docs/screenshots/MAUI.Sherpa_Create_Profile_05.png)
-
-</details>
-
-<details>
-<summary><strong>🔐 CI Secrets Wizard</strong></summary>
-
-![Step 1 - Platform](docs/screenshots/MAUI.Sherpa_CI_Secrets_01.png)
-![Step 2 - Distribution](docs/screenshots/MAUI.Sherpa_CI_Secrets_02.png)
-![Step 3 - Resources](docs/screenshots/MAUI.Sherpa_CI_Secrets_03.png)
-![Step 4 - Export](docs/screenshots/MAUI.Sherpa_CI_Secrets_04.png)
-![Publish 1 - Provider](docs/screenshots/MAUI.Sherpa_CI_Secrets_Publish_01.png)
-![Publish 2 - Repository](docs/screenshots/MAUI.Sherpa_CI_Secrets_Publish_02.png)
-![Publish 3 - Secrets](docs/screenshots/MAUI.Sherpa_CI_Secrets_Publish_03.png)
+![Provisioning Profiles](website/images/screenshots/Apple-Profiles-List.png)
+![Edit Profile](website/images/screenshots/Apple-Profiles-Edit.png)
 
 </details>
 
 <details>
 <summary><strong>🍎 Root Certificates</strong></summary>
 
-![Root Certificates](docs/screenshots/MAUI.Sherpa_Root_Certificates.png)
+![Root Certificates](website/images/screenshots/Apple-Root-Intermediate-Certificates.png)
 
 </details>
 
 <details>
 <summary><strong>🔍 Android Device Inspector</strong></summary>
 
-![Logcat](docs/screenshots/MAUI.Sherpa_Inspector_Android_Logcat.png)
-![Files](docs/screenshots/MAUI.Sherpa_Inspector_Android_Files.png)
-![Shell](docs/screenshots/MAUI.Sherpa_Inspector_Android_Shell.png)
-![Capture](docs/screenshots/MAUI.Sherpa_Inspector_Android_Capture.png)
-![Tools](docs/screenshots/MAUI.Sherpa_Inspector_Android_Tools.png)
+![Logcat](website/images/screenshots/Android-Inspector-Logcat.png)
+![Files](website/images/screenshots/Android-Inspector-Files.png)
+![Shell](website/images/screenshots/Android-Inspector-Shell.png)
+![Capture](website/images/screenshots/Android-Inspector-Capture.png)
+![Tools](website/images/screenshots/Android-Inspector-Tools.png)
+![Apps](website/images/screenshots/Android-Inspector-Apps.png)
 
 </details>
 
 <details>
 <summary><strong>🔍 iOS Simulator Inspector</strong></summary>
 
-![Logs](docs/screenshots/MAUI.Sherpa_Inspector_iOS_Logs.png)
-![Apps](docs/screenshots/MAUI.Sherpa_Inspector_iOS_Apps.png)
-![Capture](docs/screenshots/MAUI.Sherpa_Inspector_iOS_Capture.png)
-![Tools](docs/screenshots/MAUI.Sherpa_Inspector_iOS_Tools.png)
+![Logs](website/images/screenshots/Apple-Inspector-Logs.png)
+![Apps](website/images/screenshots/Apple-Inspector-Apps.png)
+![Capture](website/images/screenshots/Apple-Inspector-Capture.png)
+![Tools](website/images/screenshots/Apple-Inspector-Tools.png)
+
+</details>
+
+<details>
+<summary><strong>🔬 DevFlow App Inspector</strong></summary>
+
+![Agent List](website/images/screenshots/DevFlow-Agent-List.png)
+![Visual Tree](website/images/screenshots/DevFlow-VisualTree.png)
+![Network](website/images/screenshots/DevFlow-Network.png)
+![Logs](website/images/screenshots/DevFlow-Logs.png)
+![WebView](website/images/screenshots/DevFlow-WebView.png)
+
+</details>
+
+<details>
+<summary><strong>📋 Publish Profiles</strong></summary>
+
+![Publish Profiles](website/images/screenshots/Publish-Profiles-List.png)
+![Create Profile](website/images/screenshots/Publish-Profiles-Create-General-Tab.png)
 
 </details>
 
 <details>
 <summary><strong>⚙️ Settings</strong></summary>
 
-![Settings](docs/screenshots/MAUI.Sherpa_Settings.png)
-![Settings - Cloud Secrets](docs/screenshots/MAUI.Sherpa_Settings_02.png)
-![Add Apple Identity](docs/screenshots/MAUI.Sherpa_Settings_Add_Identity.png)
-![Add Cloud Provider](docs/screenshots/MAUI.Sherpa_Settings_Add_Cloud.png)
+![Settings](website/images/screenshots/Settings.png)
 
 </details>
 
 <details>
 <summary><strong>🤖 GitHub Copilot</strong></summary>
 
-![Copilot Overlay](docs/screenshots/MAUI.Sherpa_Copilot.png)
+![Copilot Chat](website/images/screenshots/Copilot-Chat.png)
 
 </details>
 
 ## 🚀 Getting Started
 
-### Prerequisites
-
-- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
-- .NET MAUI workload (`dotnet workload install maui`)
-- **macOS**: Xcode (for Apple tools and Mac Catalyst)
-- **Windows**: Visual Studio 2022 or Windows App SDK
-
 ### Installation
 
-Download the latest release from the [Releases](https://github.com/Redth/MAUI.Sherpa/releases) page.
+Download the latest release from the [Releases](https://github.com/Redth/MAUI.Sherpa/releases) page, or see the [Getting Started guide](https://redth.github.io/MAUI.Sherpa/getting-started.html) for detailed instructions.
 
-#### macOS
-1. Download `MAUI.Sherpa-macOS.zip`
+#### macOS (Homebrew)
+```bash
+brew install --cask redth/tap/maui-sherpa
+```
+
+#### macOS (Manual)
+1. Download `MAUI-Sherpa.macos.zip`
 2. Extract and move `MAUI Sherpa.app` to Applications
 3. Right-click and select "Open" on first launch (to bypass Gatekeeper)
 
 #### Windows
-1. Download `MAUI.Sherpa-Windows.zip`
+1. Download `MAUI-Sherpa.windows-x64.zip` or `MAUI-Sherpa.windows-arm64.zip`
 2. Extract to your preferred location
 3. Run `MauiSherpa.exe`
+
+#### Linux
+Download AppImage, .deb, or Flatpak from the releases page for your architecture (x64 or arm64).
 
 ### Apple Developer Tools Setup
 
 To use the Apple Developer tools, you'll need to configure your App Store Connect credentials:
 
-1. Go to [App Store Connect](https://appstoreconnect.apple.com/) → Users and Access → Keys
+1. Go to [App Store Connect](https://appstoreconnect.apple.com/) → Users and Access → Integrations → Individual Keys
 2. Create a new API key with "Developer" access
 3. Download the `.p8` key file
 4. In MAUI Sherpa, click the identity picker and add your credentials:
@@ -268,27 +272,17 @@ cd MAUI.Sherpa
 # Restore dependencies
 dotnet restore
 
+# Build for macOS (AppKit)
+dotnet build src/MauiSherpa.MacOS -f net10.0-macos
+
 # Build for Mac Catalyst
 dotnet build src/MauiSherpa -f net10.0-maccatalyst
 
 # Build for Windows
 dotnet build src/MauiSherpa -f net10.0-windows10.0.19041.0
 
-# Run on Mac Catalyst
-dotnet run --project src/MauiSherpa -f net10.0-maccatalyst
-
 # Run tests
 dotnet test
-```
-
-### Publishing
-
-```bash
-# Publish Mac Catalyst (Release)
-dotnet publish src/MauiSherpa -f net10.0-maccatalyst -c Release
-
-# Publish Windows (Release)
-dotnet publish src/MauiSherpa -f net10.0-windows10.0.19041.0 -c Release
 ```
 
 ## 🏗️ Project Structure
@@ -301,6 +295,8 @@ MAUI.Sherpa/
 │   │   ├── Pages/                # Blazor page components
 │   │   ├── Services/             # Platform-specific services
 │   │   └── Platforms/            # Platform code (MacCatalyst, Windows)
+│   ├── MauiSherpa.MacOS/         # macOS AppKit app head
+│   ├── MauiSherpa.LinuxGtk/      # Linux GTK4 app head
 │   ├── MauiSherpa.Core/          # Business logic library
 │   │   ├── Handlers/             # Mediator request handlers
 │   │   ├── Requests/             # Request records
@@ -310,7 +306,8 @@ MAUI.Sherpa/
 ├── tests/
 │   ├── MauiSherpa.Core.Tests/    # Core library tests
 │   └── MauiSherpa.Workloads.Tests/ # Workloads library tests
-└── docs/                         # Documentation and screenshots
+├── website/                      # GitHub Pages website
+└── docs/                         # Documentation
 ```
 
 ## 🧪 Running Tests
@@ -343,7 +340,10 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## 🙏 Acknowledgments
 
 - [.NET MAUI](https://github.com/dotnet/maui) - Cross-platform UI framework
+- [Platform.Maui.MacOS](https://github.com/nicoleeldridge/mauiplatforms) - macOS AppKit backend for .NET MAUI
+- [Platform.Maui.Linux.Gtk4](https://github.com/nicoleeldridge/Maui.Gtk) - Linux GTK4 backend for .NET MAUI
 - [Shiny.Mediator](https://github.com/shinyorg/mediator) - Mediator pattern with caching
 - [AndroidSdk](https://github.com/redth/androidsdk.tool) - Android SDK management APIs
 - [AppleDev.Tools](https://github.com/redth/appledev.tools) - Apple Developer Tools APIs and AppStoreConnect API client
+- [MauiDevFlow](https://github.com/Redth/MauiDevFlow) - Remote app inspection agent
 - [GitHub Copilot](https://github.com/github/copilot-sdk) - AI-powered assistance via Copilot SDK
