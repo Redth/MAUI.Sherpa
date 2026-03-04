@@ -1,19 +1,15 @@
 @page "/modal/publish-profile-editor"
 @using MauiSherpa.Core.Interfaces
-@using MauiSherpa.Core.Requests.Apple
 @using MauiSherpa.Pages.Forms
 @using Shiny.Mediator
 @inject HybridFormBridgeHolder BridgeHolder
-@inject IAppleConnectService AppleService
 @inject IAppleIdentityService AppleIdentityService
-@inject IAppleIdentityStateService AppleIdentityState
 @inject IKeystoreService KeystoreService
 @inject IManagedSecretsService ManagedSecrets
 @inject ISecretsPublisherService PublisherService
 @inject IPublishProfileService ProfileService
-@inject ILocalCertificateService LocalCertService
-@inject ICertificateSyncService CertSyncService
 @inject IMediator Mediator
+@inject IFormModalService FormModal
 @implements IDisposable
 
 <div class="profile-editor">
@@ -66,7 +62,7 @@
                         <span>Publishers</span>
                         @if (publishers.Any())
                         {
-                            <button class="btn-action small" @onclick="@(() => OpenPublisherDialog())">
+                            <button class="btn-action small" @onclick="OpenPublisherModal">
                                 <i class="fa-solid fa-plus"></i> Add Publisher
                             </button>
                         }
@@ -115,7 +111,7 @@
                 @* ── Config List + Add Button ── *@
                 <div class="section-header">
                     <span>Apple Configurations</span>
-                    <button class="btn-action small" @onclick="StartAppleWizard">
+                    <button class="btn-action small" @onclick="OpenAppleConfigWizard">
                         <i class="fa-solid fa-plus"></i> Add Config
                     </button>
                 </div>
@@ -145,7 +141,7 @@
                                         }
                                     </div>
                                     <div class="config-actions">
-                                        <button class="btn-icon-action" @onclick="@(() => EditAppleConfig(config))" title="Edit">
+                                        <button class="btn-icon-action" @onclick="@(() => EditAppleConfigModal(config))" title="Edit">
                                             <i class="fa-solid fa-pen"></i>
                                         </button>
                                         <button class="btn-icon-action danger" @onclick="@(() => appleConfigs.Remove(config))" title="Remove">
@@ -161,18 +157,15 @@
                                     }
                                     @if (!string.IsNullOrEmpty(config.CertificateSerialNumber))
                                     {
-                                        var cert = certificates.FirstOrDefault(c => c.SerialNumber == config.CertificateSerialNumber);
-                                        <div class="summary-item"><i class="fa-solid fa-stamp"></i> @(cert?.Name ?? config.CertificateSerialNumber)</div>
+                                        <div class="summary-item"><i class="fa-solid fa-stamp"></i> @(config.CertificateName ?? config.CertificateSerialNumber)</div>
                                     }
                                     @if (!string.IsNullOrEmpty(config.InstallerCertSerialNumber))
                                     {
-                                        var cert = certificates.FirstOrDefault(c => c.SerialNumber == config.InstallerCertSerialNumber);
-                                        <div class="summary-item"><i class="fa-solid fa-box"></i> @(cert?.Name ?? "Installer")</div>
+                                        <div class="summary-item"><i class="fa-solid fa-box"></i> @(config.InstallerCertName ?? "Installer")</div>
                                     }
                                     @if (!string.IsNullOrEmpty(config.ProfileId))
                                     {
-                                        var prof = profiles.FirstOrDefault(p => p.Id == config.ProfileId);
-                                        <div class="summary-item"><i class="fa-solid fa-file-signature"></i> @(prof?.Name ?? config.ProfileId)</div>
+                                        <div class="summary-item"><i class="fa-solid fa-file-signature"></i> @(config.ProfileName ?? config.ProfileId)</div>
                                     }
                                     @if (config.IncludeNotarization)
                                     {
@@ -327,51 +320,12 @@
             <div class="form-content">
                 <div class="section-header">
                     <span>Secret Mappings</span>
-                    <button class="btn-action small" @onclick="@(() => showSecretPicker = true)">
+                    <button class="btn-action small" @onclick="OpenSecretPicker">
                         <i class="fa-solid fa-plus"></i> Add Secret
                     </button>
                 </div>
 
-                @if (showSecretPicker)
-                {
-                    <div class="secret-picker-overlay" @onclick="@(() => showSecretPicker = false)">
-                        <div class="secret-picker-dialog" @onclick:stopPropagation="true">
-                            <div class="secret-picker-header">
-                                <span><i class="fa-solid fa-key"></i> Add Secret Mapping</span>
-                                <button class="btn-icon-action" @onclick="@(() => showSecretPicker = false)">
-                                    <i class="fa-solid fa-xmark"></i>
-                                </button>
-                            </div>
-                            <div class="secret-picker-body">
-                                <div class="search-box">
-                                    <i class="fas fa-search"></i>
-                                    <input type="text" @bind="secretSearch" @bind:event="oninput" placeholder="Search managed secrets..." />
-                                    @if (!string.IsNullOrEmpty(secretSearch))
-                                    {
-                                        <button class="clear-search" @onclick="@(() => secretSearch = "")">×</button>
-                                    }
-                                </div>
-                                <div class="selection-list compact">
-                                    @foreach (var secret in filteredManagedSecrets)
-                                    {
-                                        <label class="selection-item" @onclick="@(() => AddSecretMapping(secret.Key))">
-                                            <div class="item-content">
-                                                <div class="item-name mono">@secret.Key</div>
-                                                <div class="item-detail">@(string.IsNullOrEmpty(secret.Description) ? "\u00A0" : secret.Description)</div>
-                                            </div>
-                                        </label>
-                                    }
-                                    @if (!filteredManagedSecrets.Any())
-                                    {
-                                        <div class="empty-hint">No matching secrets</div>
-                                    }
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                }
-
-                @if (!secretMappings.Any() && !showSecretPicker)
+                @if (!secretMappings.Any())
                 {
                     <div class="empty-state">
                         <i class="fa-solid fa-key"></i>
@@ -422,470 +376,6 @@
             </div>
         }
     </div>
-
-    @* ── Publisher Picker Dialog Overlay ── *@
-    @if (showPublisherDialog)
-    {
-        <div class="secret-picker-overlay" @onclick="@(() => ClosePublisherDialog())">
-            <div class="secret-picker-dialog" style="width: 520px;" @onclick:stopPropagation="true">
-                <div class="secret-picker-header">
-                    <span>
-                        @if (publisherDialogStep == 0)
-                        {
-                            <i class="fa-solid fa-cloud-arrow-up"></i> @:Choose Provider
-                        }
-                        else
-                        {
-                            <i class="@GetProviderIcon(dialogSelectedPublisher?.ProviderId ?? "")"></i> @:Choose Repository
-                        }
-                    </span>
-                    <button class="btn-icon-action" @onclick="@(() => ClosePublisherDialog())">
-                        <i class="fa-solid fa-xmark"></i>
-                    </button>
-                </div>
-                <div class="secret-picker-body">
-                    @if (publisherDialogStep == 0)
-                    {
-                        <div class="selection-list compact">
-                            @foreach (var pub in publishers)
-                            {
-                                <label class="selection-item" @onclick="@(() => SelectDialogPublisher(pub))">
-                                    <div class="item-content">
-                                        <div class="item-name"><i class="@GetProviderIcon(pub.ProviderId)" style="margin-right: 6px;"></i>@pub.Name</div>
-                                        <div class="item-detail">@pub.ProviderId</div>
-                                    </div>
-                                    <i class="fa-solid fa-chevron-right" style="color: var(--text-muted); font-size: 11px;"></i>
-                                </label>
-                            }
-                        </div>
-                    }
-                    else
-                    {
-                        <button class="btn-text-action" style="margin-bottom: 8px;" @onclick="@(() => { publisherDialogStep = 0; dialogSelectedPublisher = null; })">
-                            <i class="fa-solid fa-arrow-left"></i> Back
-                        </button>
-
-                        <div class="search-box">
-                            <i class="fas fa-search"></i>
-                            <input type="text" @bind="repoSearch" @bind:event="oninput"
-                                   placeholder="Search repositories..." />
-                            @if (!string.IsNullOrEmpty(repoSearch))
-                            {
-                                <button class="clear-search" @onclick="@(() => { repoSearch = ""; })">×</button>
-                            }
-                        </div>
-                        @if (loadingRepos)
-                        {
-                            <div class="loading-hint"><i class="fa-solid fa-spinner fa-spin"></i> Loading repositories...</div>
-                        }
-                        else if (filteredRepos.Any())
-                        {
-                            <div class="selection-list compact">
-                                @foreach (var repo in filteredRepos.Take(30))
-                                {
-                                    <label class="selection-item" @onclick="@(() => AddPublisherFromDialog(repo))">
-                                        <div class="item-content">
-                                            <div class="item-name">@repo.FullName</div>
-                                            <div class="item-detail">@(string.IsNullOrEmpty(repo.Description) ? "\u00A0" : repo.Description)</div>
-                                        </div>
-                                    </label>
-                                }
-                            </div>
-                        }
-                        else if (!loadingRepos)
-                        {
-                            <div class="empty-hint">No repositories found</div>
-                        }
-                    }
-                </div>
-            </div>
-        </div>
-    }
-
-    @* ── Apple Wizard Popup Overlay ── *@
-    @if (appleWizardActive is not null)
-    {
-        <div class="wizard-overlay" @onclick="CancelAppleWizard">
-            <div class="wizard-popup" @onclick:stopPropagation="true">
-                <div class="wizard-popup-header">
-                    <i class="fa-brands fa-apple"></i>
-                    <span>Apple Configuration</span>
-                </div>
-
-                <div class="step-indicator">
-                    @for (int i = 1; i <= appleWizardActive.TotalSteps; i++)
-                    {
-                        var step = i;
-                        <div class="step @(appleWizardActive.WizardStep >= step ? "active" : "") @(appleWizardActive.WizardStep > step ? "completed" : "")">
-                            <div class="step-number">@(appleWizardActive.WizardStep > step ? "✓" : step.ToString())</div>
-                            <div class="step-label">@appleWizardActive.GetStepLabel(step)</div>
-                        </div>
-                        @if (i < appleWizardActive.TotalSteps)
-                        {
-                            <div class="step-line @(appleWizardActive.WizardStep > step ? "active" : "")"></div>
-                        }
-                    }
-                </div>
-
-                <div class="wizard-content">
-                    @* Step 1: Apple Identity *@
-                    @if (appleWizardActive.WizardStep == 1)
-                    {
-                        <h4>Select Apple Identity</h4>
-                        @if (appleIdentities.Any())
-                        {
-                            <div class="cert-list">
-                                @foreach (var identity in appleIdentities)
-                                {
-                                    <label class="cert-item @(appleWizardActive.IdentityId == identity.Id ? "selected" : "")">
-                                        <input type="radio" name="wizardIdentity"
-                                               checked="@(appleWizardActive.IdentityId == identity.Id)"
-                                               @onchange="@(() => SelectAppleIdentity(identity.Id))" />
-                                        <div class="cert-info">
-                                            <div class="cert-name">@identity.Name</div>
-                                            <div class="cert-detail">
-                                                <span>Key ID: @identity.KeyId</span>
-                                            </div>
-                                        </div>
-                                        <span style="font-size: 14px; color: var(--text-muted);"><i class="fa-brands fa-apple"></i></span>
-                                    </label>
-                                }
-                            </div>
-                        }
-                        else
-                        {
-                            <div class="empty-list">
-                                <i class="fa-solid fa-user-slash"></i>
-                                <span>No Apple identities configured. Add one in Settings → Apple.</span>
-                            </div>
-                        }
-                        @if (loadingAppleData)
-                        {
-                            <div class="loading-indicator" style="margin-top: 0.75rem; color: var(--text-secondary); font-size: 0.85rem;">
-                                <i class="fa-solid fa-spinner fa-spin"></i> Loading certificates &amp; profiles…
-                            </div>
-                        }
-                    }
-
-                    @* Step 2: Platform *@
-                    @if (appleWizardActive.WizardStep == 2)
-                    {
-                        <h4>Select Platform</h4>
-                        <div class="option-cards">
-                            <div class="option-card @(appleWizardActive.Platform == ApplePlatformType.iOS ? "selected" : "")"
-                                 @onclick="@(() => { appleWizardActive.Platform = ApplePlatformType.iOS; appleWizardActive.DistributionType = null; appleWizardActive.CertificateSerialNumber = null; appleWizardActive.InstallerCertSerialNumber = null; appleWizardActive.ProfileId = null; appleWizardActive.ProfileUuid = null; })">
-                                <i class="fa-brands fa-apple"></i>
-                                <div class="option-label">iOS</div>
-                                <div class="option-desc">iPhone &amp; iPad</div>
-                            </div>
-                            <div class="option-card @(appleWizardActive.Platform == ApplePlatformType.MacCatalyst ? "selected" : "")"
-                                 @onclick="@(() => { appleWizardActive.Platform = ApplePlatformType.MacCatalyst; appleWizardActive.DistributionType = null; appleWizardActive.CertificateSerialNumber = null; appleWizardActive.InstallerCertSerialNumber = null; appleWizardActive.ProfileId = null; appleWizardActive.ProfileUuid = null; })">
-                                <i class="fa-solid fa-laptop"></i>
-                                <div class="option-label">Mac Catalyst</div>
-                                <div class="option-desc">iPad app on Mac</div>
-                            </div>
-                            <div class="option-card @(appleWizardActive.Platform == ApplePlatformType.macOS ? "selected" : "")"
-                                 @onclick="@(() => { appleWizardActive.Platform = ApplePlatformType.macOS; appleWizardActive.DistributionType = null; appleWizardActive.CertificateSerialNumber = null; appleWizardActive.InstallerCertSerialNumber = null; appleWizardActive.ProfileId = null; appleWizardActive.ProfileUuid = null; })">
-                                <i class="fa-solid fa-display"></i>
-                                <div class="option-label">macOS</div>
-                                <div class="option-desc">Native Mac app</div>
-                            </div>
-                        </div>
-                    }
-
-                    @* Step 3: Distribution Type *@
-                    @if (appleWizardActive.WizardStep == 3)
-                    {
-                        <h4>Select Distribution Type</h4>
-                        <div class="option-cards">
-                            @foreach (var dist in GetAvailableDistributionTypes())
-                            {
-                                <div class="option-card @(appleWizardActive.DistributionType == dist.Type ? "selected" : "")"
-                                     @onclick="@(() => { appleWizardActive.DistributionType = dist.Type; appleWizardActive.CertificateSerialNumber = null; appleWizardActive.InstallerCertSerialNumber = null; appleWizardActive.ProfileId = null; appleWizardActive.ProfileUuid = null; })">
-                                    <i class="@dist.Icon"></i>
-                                    <div class="option-label">@dist.Name</div>
-                                    <div class="option-desc">@dist.Description</div>
-                                </div>
-                            }
-                        </div>
-                    }
-
-                    @* Step 4: Signing Certificate *@
-                    @if (appleWizardActive.WizardStep == 4)
-                    {
-                        <div class="step-header-row">
-                            <h4>Signing Certificate <span class="optional-badge">Optional</span></h4>
-                            @if (appleWizardActive.CertificateSerialNumber is not null)
-                            {
-                                <button class="btn-text-action" @onclick="@(() => appleWizardActive.CertificateSerialNumber = null)">
-                                    <i class="fa-solid fa-times"></i> Clear
-                                </button>
-                            }
-                        </div>
-                        @if (FilteredSigningCerts.Any())
-                        {
-                            <div class="cert-list">
-                                @foreach (var cert in FilteredSigningCerts)
-                                {
-                                    var syncLoc = GetCertSyncLocation(cert);
-                                    var hasLocal = syncLoc == SecretLocation.LocalOnly || syncLoc == SecretLocation.Both;
-                                    <label class="cert-item @(appleWizardActive.CertificateSerialNumber == cert.SerialNumber ? "selected" : "") @(!hasLocal ? "no-key" : "")"
-                                           title="@(!hasLocal ? "Private key not available locally" : "")">
-                                        <input type="radio" name="wizardSigningCert"
-                                               disabled="@(!hasLocal)"
-                                               checked="@(appleWizardActive.CertificateSerialNumber == cert.SerialNumber)"
-                                               @onchange="@(() => appleWizardActive.CertificateSerialNumber = cert.SerialNumber)" />
-                                        <div class="cert-info">
-                                            <div class="cert-name">@cert.Name</div>
-                                            <div class="cert-detail">
-                                                <span>@cert.CertificateType</span>
-                                                <span>Expires: @cert.ExpirationDate.ToString("MMM dd, yyyy")</span>
-                                            </div>
-                                        </div>
-                                        @switch (syncLoc)
-                                        {
-                                            case SecretLocation.Both:
-                                                <span class="sync-badge synced" title="Synced — private key in keychain and cloud"><i class="fa-solid fa-cloud-arrow-up"></i> Synced</span>
-                                                break;
-                                            case SecretLocation.LocalOnly:
-                                                <span class="sync-badge local-only" title="Local only — private key in keychain"><i class="fa-solid fa-key"></i> Local</span>
-                                                break;
-                                            case SecretLocation.CloudOnly:
-                                                <span class="sync-badge cloud-only" title="Cloud only — not installed locally"><i class="fa-solid fa-cloud"></i> Cloud</span>
-                                                break;
-                                            default:
-                                                <span class="sync-badge no-key" title="No private key available"><i class="fa-solid fa-key"></i> No Key</span>
-                                                break;
-                                        }
-                                    </label>
-                                }
-                            </div>
-                        }
-                        else
-                        {
-                            <div class="empty-list">
-                                <i class="fa-solid fa-inbox"></i>
-                                <span>No matching certificates found</span>
-                            </div>
-                        }
-                    }
-
-                    @* Step 5+ (conditional): Installer Certificate — only for Mac Direct *@
-                    @if (appleWizardActive.NeedsInstallerStep && appleWizardActive.WizardStep == 5)
-                    {
-                        <div class="step-header-row">
-                            <h4>Installer Certificate <span class="optional-badge">Optional</span></h4>
-                            @if (appleWizardActive.InstallerCertSerialNumber is not null)
-                            {
-                                <button class="btn-text-action" @onclick="@(() => appleWizardActive.InstallerCertSerialNumber = null)">
-                                    <i class="fa-solid fa-times"></i> Clear
-                                </button>
-                            }
-                        </div>
-                        @if (FilteredInstallerCerts.Any())
-                        {
-                            <div class="cert-list">
-                                @foreach (var cert in FilteredInstallerCerts)
-                                {
-                                    var syncLoc = GetCertSyncLocation(cert);
-                                    var hasLocal = syncLoc == SecretLocation.LocalOnly || syncLoc == SecretLocation.Both;
-                                    <label class="cert-item @(appleWizardActive.InstallerCertSerialNumber == cert.SerialNumber ? "selected" : "") @(!hasLocal ? "no-key" : "")"
-                                           title="@(!hasLocal ? "Private key not available locally" : "")">
-                                        <input type="radio" name="wizardInstallerCert"
-                                               disabled="@(!hasLocal)"
-                                               checked="@(appleWizardActive.InstallerCertSerialNumber == cert.SerialNumber)"
-                                               @onchange="@(() => appleWizardActive.InstallerCertSerialNumber = cert.SerialNumber)" />
-                                        <div class="cert-info">
-                                            <div class="cert-name">@cert.Name</div>
-                                            <div class="cert-detail">
-                                                <span>@cert.CertificateType</span>
-                                                <span>Expires: @cert.ExpirationDate.ToString("MMM dd, yyyy")</span>
-                                            </div>
-                                        </div>
-                                        @switch (syncLoc)
-                                        {
-                                            case SecretLocation.Both:
-                                                <span class="sync-badge synced" title="Synced — private key in keychain and cloud"><i class="fa-solid fa-cloud-arrow-up"></i> Synced</span>
-                                                break;
-                                            case SecretLocation.LocalOnly:
-                                                <span class="sync-badge local-only" title="Local only — private key in keychain"><i class="fa-solid fa-key"></i> Local</span>
-                                                break;
-                                            case SecretLocation.CloudOnly:
-                                                <span class="sync-badge cloud-only" title="Cloud only — not installed locally"><i class="fa-solid fa-cloud"></i> Cloud</span>
-                                                break;
-                                            default:
-                                                <span class="sync-badge no-key" title="No private key available"><i class="fa-solid fa-key"></i> No Key</span>
-                                                break;
-                                        }
-                                    </label>
-                                }
-                            </div>
-                        }
-                        else
-                        {
-                            <div class="empty-list">
-                                <i class="fa-solid fa-inbox"></i>
-                                <span>No installer certificates found</span>
-                            </div>
-                        }
-                    }
-
-                    @* Profile step — computed position varies *@
-                    @{
-                        var profileStep = appleWizardActive.NeedsInstallerStep ? 6 : 5;
-                        var notarizationStep = profileStep + (appleWizardActive.NeedsProfileStep ? 1 : 0);
-                    }
-                    @if (appleWizardActive.NeedsProfileStep && appleWizardActive.WizardStep == profileStep)
-                    {
-                        <div class="step-header-row">
-                            <h4>Provisioning Profile <span class="optional-badge">Optional</span></h4>
-                            @if (appleWizardActive.ProfileId is not null)
-                            {
-                                <button class="btn-text-action" @onclick="@(() => { appleWizardActive.ProfileId = null; appleWizardActive.ProfileUuid = null; })">
-                                    <i class="fa-solid fa-times"></i> Clear
-                                </button>
-                            }
-                        </div>
-                        @if (FilteredProfiles.Any())
-                        {
-                            <div class="cert-list">
-                                @foreach (var prof in FilteredProfiles)
-                                {
-                                    <label class="cert-item @(appleWizardActive.ProfileId == prof.Id ? "selected" : "")">
-                                        <input type="radio" name="wizardProfile"
-                                               checked="@(appleWizardActive.ProfileId == prof.Id)"
-                                               @onchange="@(() => { appleWizardActive.ProfileId = prof.Id; appleWizardActive.ProfileUuid = prof.Uuid; })" />
-                                        <div class="cert-info">
-                                            <div class="cert-name">@prof.Name</div>
-                                            <div class="cert-detail">
-                                                <span>@prof.ProfileType</span>
-                                                <span>Expires: @prof.ExpirationDate.ToString("MMM dd, yyyy")</span>
-                                            </div>
-                                        </div>
-                                    </label>
-                                }
-                            </div>
-                        }
-                        else
-                        {
-                            <div class="empty-list">
-                                <i class="fa-solid fa-inbox"></i>
-                                <span>No matching provisioning profiles found</span>
-                            </div>
-                        }
-                    }
-
-                    @* Notarization step — only for Direct *@
-                    @if (appleWizardActive.NeedsNotarizationStep && appleWizardActive.WizardStep == notarizationStep)
-                    {
-                        <h4>Notarization Credentials <span class="optional-badge">Optional</span></h4>
-                        <p class="step-description">Link managed secrets or enter values manually for notarization credentials, or skip to omit.</p>
-                        <div class="notarization-fields">
-                            <div class="form-field">
-                                <div class="notarization-label-row">
-                                    <label>Apple ID</label>
-                                    <button class="btn-toggle-source" @onclick="@(() => { appleWizardActive.NotarizationAppleIdUseManual = !appleWizardActive.NotarizationAppleIdUseManual; })">
-                                        <i class="fa-solid @(appleWizardActive.NotarizationAppleIdUseManual ? "fa-list" : "fa-keyboard")"></i>
-                                        @(appleWizardActive.NotarizationAppleIdUseManual ? "Pick from secrets" : "Enter manually")
-                                    </button>
-                                </div>
-                                @if (appleWizardActive.NotarizationAppleIdUseManual)
-                                {
-                                    <input type="text" class="form-control compact" placeholder="apple@example.com"
-                                           @bind="appleWizardActive.NotarizationAppleIdManualValue" />
-                                }
-                                else
-                                {
-                                    <select class="form-control compact" @bind="appleWizardActive.NotarizationAppleIdSecretKey">
-                                        <option value="">— None —</option>
-                                        @foreach (var secret in managedSecrets)
-                                        {
-                                            <option value="@secret.Key">@secret.Key</option>
-                                        }
-                                    </select>
-                                }
-                            </div>
-                            <div class="form-field">
-                                <div class="notarization-label-row">
-                                    <label>App-Specific Password</label>
-                                    <button class="btn-toggle-source" @onclick="@(() => { appleWizardActive.NotarizationPasswordUseManual = !appleWizardActive.NotarizationPasswordUseManual; })">
-                                        <i class="fa-solid @(appleWizardActive.NotarizationPasswordUseManual ? "fa-list" : "fa-keyboard")"></i>
-                                        @(appleWizardActive.NotarizationPasswordUseManual ? "Pick from secrets" : "Enter manually")
-                                    </button>
-                                </div>
-                                @if (appleWizardActive.NotarizationPasswordUseManual)
-                                {
-                                    <input type="password" class="form-control compact" placeholder="App-specific password"
-                                           @bind="appleWizardActive.NotarizationPasswordManualValue" />
-                                }
-                                else
-                                {
-                                    <select class="form-control compact" @bind="appleWizardActive.NotarizationPasswordSecretKey">
-                                        <option value="">— None —</option>
-                                        @foreach (var secret in managedSecrets)
-                                        {
-                                            <option value="@secret.Key">@secret.Key</option>
-                                        }
-                                    </select>
-                                }
-                            </div>
-                            <div class="form-field">
-                                <div class="notarization-label-row">
-                                    <label>Team ID</label>
-                                    <button class="btn-toggle-source" @onclick="@(() => { appleWizardActive.NotarizationTeamIdUseManual = !appleWizardActive.NotarizationTeamIdUseManual; })">
-                                        <i class="fa-solid @(appleWizardActive.NotarizationTeamIdUseManual ? "fa-list" : "fa-keyboard")"></i>
-                                        @(appleWizardActive.NotarizationTeamIdUseManual ? "Pick from secrets" : "Enter manually")
-                                    </button>
-                                </div>
-                                @if (appleWizardActive.NotarizationTeamIdUseManual)
-                                {
-                                    <input type="text" class="form-control compact" placeholder="e.g. ABC123DEF4"
-                                           @bind="appleWizardActive.NotarizationTeamIdManualValue" />
-                                }
-                                else
-                                {
-                                    <select class="form-control compact" @bind="appleWizardActive.NotarizationTeamIdSecretKey">
-                                        <option value="">— None —</option>
-                                        @foreach (var secret in managedSecrets)
-                                        {
-                                            <option value="@secret.Key">@secret.Key</option>
-                                        }
-                                    </select>
-                                }
-                            </div>
-                        </div>
-                        <label class="config-toggle" style="margin-top: 0.5rem;">
-                            <input type="checkbox" @bind="appleWizardActive.IncludeNotarization" />
-                            <span>Include notarization in key mappings</span>
-                        </label>
-                    }
-                </div>
-
-                <div class="wizard-footer">
-                    @if (appleWizardActive.WizardStep > 1)
-                    {
-                        <button class="btn-action small" @onclick="AppleWizardBack">
-                            <i class="fa-solid fa-arrow-left"></i> Back
-                        </button>
-                    }
-                    <div class="spacer"></div>
-                    <button class="btn-text-action" @onclick="CancelAppleWizard">Cancel</button>
-                    @if (appleWizardActive.WizardStep < appleWizardActive.TotalSteps)
-                    {
-                        <button class="btn-action small primary" @onclick="AppleWizardNext" disabled="@(!CanAppleWizardProceed())">
-                            Next <i class="fa-solid fa-arrow-right"></i>
-                        </button>
-                    }
-                    else
-                    {
-                        <button class="btn-action small primary" @onclick="FinishAppleWizard" disabled="@(!CanAppleWizardProceed())">
-                            <i class="fa-solid fa-check"></i> Done
-                        </button>
-                    }
-                </div>
-            </div>
-        </div>
-    }
 </div>
 
 <style>
@@ -1468,353 +958,6 @@
         color: var(--text-muted);
     }
 
-    /* Wizard overlay */
-    .wizard-overlay {
-        position: fixed;
-        inset: 0;
-        background: rgba(0, 0, 0, 0.4);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        z-index: 1000;
-    }
-
-    .wizard-popup {
-        background: #ffffff;
-        border-radius: 0.75rem;
-        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(0, 0, 0, 0.08);
-        width: 580px;
-        max-height: 80vh;
-        display: flex;
-        flex-direction: column;
-        overflow: hidden;
-    }
-
-    :global(.theme-dark) .wizard-popup {
-        background: #2d3748;
-    }
-
-    .wizard-popup-header {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        padding: 16px 20px;
-        border-bottom: 1px solid var(--border-color, #e2e8f0);
-        font-size: 16px;
-        font-weight: 600;
-        color: var(--text-primary);
-    }
-
-    .wizard-popup-header i {
-        font-size: 18px;
-        color: var(--text-muted);
-    }
-
-    .wizard-popup .step-indicator {
-        padding: 16px 20px 8px;
-    }
-
-    .wizard-popup .wizard-content {
-        padding: 8px 20px 16px;
-        overflow-y: auto;
-        flex: 1;
-    }
-
-    .wizard-popup .wizard-footer {
-        padding: 12px 20px;
-        border-top: 1px solid var(--border-color, #e2e8f0);
-        margin: 0;
-    }
-
-    .step-indicator {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 0;
-        padding: 8px 0;
-    }
-
-    .step-indicator .step {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 4px;
-        min-width: 60px;
-    }
-
-    .step-indicator .step-number {
-        width: 28px;
-        height: 28px;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 12px;
-        font-weight: 600;
-        background: var(--bg-tertiary, #e2e8f0);
-        color: var(--text-muted);
-        transition: all 0.2s;
-    }
-
-    .step-indicator .step.active .step-number {
-        background: var(--accent-color, #3b82f6);
-        color: #fff;
-    }
-
-    .step-indicator .step.completed .step-number {
-        background: var(--success-color, #22c55e);
-        color: #fff;
-    }
-
-    .step-indicator .step-label {
-        font-size: 10px;
-        color: var(--text-muted);
-        text-align: center;
-    }
-
-    .step-indicator .step.active .step-label {
-        color: var(--text-primary);
-        font-weight: 600;
-    }
-
-    .step-indicator .step-line {
-        flex: 1;
-        height: 2px;
-        background: var(--bg-tertiary, #e2e8f0);
-        margin: 0 4px;
-        margin-bottom: 18px;
-        min-width: 16px;
-        transition: background 0.2s;
-    }
-
-    .step-indicator .step-line.active {
-        background: var(--success-color, #22c55e);
-    }
-
-    .wizard-content {
-        min-height: 200px;
-    }
-
-    .wizard-content h4 {
-        font-size: 15px;
-        font-weight: 600;
-        color: var(--text-primary);
-        margin: 0 0 12px 0;
-    }
-
-    .wizard-content h4 .optional-badge {
-        font-size: 10px;
-        font-weight: 500;
-        color: var(--text-muted);
-        background: var(--bg-tertiary, #e2e8f0);
-        padding: 2px 6px;
-        border-radius: 0.25rem;
-        margin-left: 6px;
-        vertical-align: middle;
-    }
-
-    .wizard-footer {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        padding-top: 8px;
-        border-top: 1px solid var(--border-color, #e2e8f0);
-    }
-
-    .wizard-footer .spacer {
-        flex: 1;
-    }
-
-    .btn-text-action {
-        background: none;
-        border: none;
-        color: var(--accent-color, #3b82f6);
-        font-size: 13px;
-        font-weight: 500;
-        cursor: pointer;
-        padding: 6px 12px;
-        border-radius: 6px;
-    }
-
-    .btn-text-action:hover {
-        background: rgba(59, 130, 246, 0.08);
-    }
-
-    .step-header-row {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-    }
-
-    .step-header-row h4 {
-        margin: 0;
-    }
-
-    /* Option cards */
-    .option-cards {
-        display: flex;
-        gap: 10px;
-        flex-wrap: wrap;
-    }
-
-    .option-card {
-        flex: 1;
-        min-width: 120px;
-        padding: 16px;
-        border-radius: 0.75rem;
-        background: var(--card-bg, #fff);
-        border: 2px solid var(--border-color, #e2e8f0);
-        cursor: pointer;
-        text-align: center;
-        transition: all 0.15s;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 6px;
-    }
-
-    .option-card:hover {
-        border-color: var(--accent-color, #3b82f6);
-        background: var(--bg-secondary, #f8f9fa);
-    }
-
-    .option-card.selected {
-        border-color: var(--accent-color, #3b82f6);
-        background: rgba(59, 130, 246, 0.08);
-    }
-
-    .option-card i {
-        font-size: 24px;
-        color: var(--text-muted);
-    }
-
-    .option-card.selected i {
-        color: var(--accent-color, #3b82f6);
-    }
-
-    .option-label {
-        font-size: 13px;
-        font-weight: 600;
-        color: var(--text-primary);
-    }
-
-    .option-desc {
-        font-size: 11px;
-        color: var(--text-muted);
-    }
-
-    /* Cert list */
-    .cert-list {
-        display: flex;
-        flex-direction: column;
-        gap: 6px;
-        max-height: 300px;
-        overflow-y: auto;
-    }
-
-    .cert-item {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        padding: 10px 12px;
-        border-radius: 0.75rem;
-        background: var(--card-bg, #fff);
-        border: 2px solid var(--border-color, #e2e8f0);
-        cursor: pointer;
-        transition: all 0.15s;
-    }
-
-    .cert-item:hover {
-        border-color: var(--accent-color, #3b82f6);
-    }
-
-    .cert-item.selected {
-        border-color: var(--accent-color, #3b82f6);
-        background: rgba(59, 130, 246, 0.08);
-    }
-
-    .cert-item.no-key {
-        opacity: 0.6;
-    }
-
-    .cert-item input[type="radio"] {
-        accent-color: var(--accent-color, #3b82f6);
-        margin: 0;
-    }
-
-    .cert-info {
-        flex: 1;
-        min-width: 0;
-    }
-
-    .cert-name {
-        font-size: 13px;
-        font-weight: 500;
-        color: var(--text-primary);
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-
-    .cert-detail {
-        display: flex;
-        gap: 12px;
-        font-size: 11px;
-        color: var(--text-muted);
-    }
-
-    .sync-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: 4px;
-        font-size: 10px;
-        font-weight: 500;
-        padding: 2px 8px;
-        border-radius: 10px;
-        white-space: nowrap;
-        flex-shrink: 0;
-    }
-
-    .sync-badge.synced {
-        color: var(--success-color, #22c55e);
-        background: rgba(34, 197, 94, 0.1);
-    }
-
-    .sync-badge.local-only {
-        color: var(--accent-color, #3b82f6);
-        background: rgba(59, 130, 246, 0.1);
-    }
-
-    .sync-badge.cloud-only {
-        color: var(--warning-color, #f59e0b);
-        background: rgba(245, 158, 11, 0.1);
-    }
-
-    .sync-badge.no-key {
-        color: var(--danger-color, #ef4444);
-        background: rgba(239, 68, 68, 0.08);
-        opacity: 0.7;
-    }
-
-    .sync-badge i {
-        font-size: 10px;
-    }
-
-    .empty-list {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        padding: 24px;
-        color: var(--text-muted);
-        font-size: 13px;
-        justify-content: center;
-    }
-
-    .empty-list i {
-        font-size: 18px;
-        opacity: 0.4;
-    }
-
     /* Config summary cards */
     .config-badges {
         display: flex;
@@ -1878,54 +1021,6 @@
         font-size: 11px;
     }
 
-    /* Notarization fields */
-    .notarization-fields {
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-    }
-
-    .notarization-label-row {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        margin-bottom: 2px;
-    }
-
-    .notarization-label-row label {
-        margin-bottom: 0;
-    }
-
-    .btn-toggle-source {
-        background: none;
-        border: none;
-        color: var(--accent-color, #3b82f6);
-        font-size: 11px;
-        cursor: pointer;
-        padding: 2px 6px;
-        border-radius: 4px;
-        display: flex;
-        align-items: center;
-        gap: 4px;
-    }
-
-    .btn-toggle-source:hover {
-        background: rgba(59, 130, 246, 0.08);
-    }
-
-    .form-field label {
-        font-size: 12px;
-        font-weight: 500;
-        color: var(--text-secondary);
-        margin-bottom: 2px;
-        display: block;
-    }
-
-    .step-description {
-        font-size: 12px;
-        color: var(--text-muted);
-        margin: 0 0 10px 0;
-    }
 </style>
 
 @code {
@@ -1934,26 +1029,13 @@
     // General
     private string profileName = "";
     private string profileDescription = "";
-    private string repoSearch = "";
-    private bool loadingRepos;
     private string? existingProfileId;
     private List<PublishProfilePublisher> profilePublishers = new();
     private bool isSaving;
 
-    // Publisher dialog
-    private bool showPublisherDialog;
-    private int publisherDialogStep; // 0 = pick provider, 1 = pick repo
-    private SecretsPublisherConfig? dialogSelectedPublisher;
-
     // Apple
     private List<AppleConfigVM> appleConfigs = new();
     private List<AppleIdentity> appleIdentities = new();
-    private List<AppleCertificate> certificates = new();
-    private List<AppleProfile> profiles = new();
-    private List<LocalSigningIdentity> localIdentities = new();
-    private Dictionary<string, CertificateSecretInfo> certStatuses = new();
-    private AppleConfigVM? appleWizardActive;
-    private bool loadingAppleData;
 
     // Android
     private List<AndroidConfigVM> androidConfigs = new();
@@ -1962,31 +1044,9 @@
     // Secrets
     private List<SecretMappingVM> secretMappings = new();
     private List<ManagedSecret> managedSecrets = new();
-    private bool showSecretPicker;
-    private string secretSearch = "";
 
     // Publishers
     private List<SecretsPublisherConfig> publishers = new();
-    private List<PublisherRepository> repos = new();
-
-    private IEnumerable<PublisherRepository> filteredRepos =>
-        string.IsNullOrWhiteSpace(repoSearch)
-            ? repos
-            : repos.Where(r => r.FullName.Contains(repoSearch, StringComparison.OrdinalIgnoreCase)
-                || (r.Description?.Contains(repoSearch, StringComparison.OrdinalIgnoreCase) ?? false));
-
-    private IEnumerable<ManagedSecret> filteredManagedSecrets
-    {
-        get
-        {
-            var existingKeys = secretMappings.Select(m => m.SourceKey).ToHashSet();
-            var available = managedSecrets.Where(s => !existingKeys.Contains(s.Key));
-            return string.IsNullOrWhiteSpace(secretSearch)
-                ? available
-                : available.Where(s => s.Key.Contains(secretSearch, StringComparison.OrdinalIgnoreCase)
-                    || (s.Description?.Contains(secretSearch, StringComparison.OrdinalIgnoreCase) ?? false));
-        }
-    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -2071,55 +1131,21 @@
             try { appleIdentities = (await AppleIdentityService.GetIdentitiesAsync()).ToList(); }
             catch { }
 
-            // Load local signing identities for private key matching
-            try { localIdentities = (await LocalCertService.GetSigningIdentitiesAsync()).ToList(); }
-            catch { }
         }
         catch { }
 
         StateHasChanged();
     }
 
-    private void OpenPublisherDialog()
+    private async Task OpenPublisherModal()
     {
-        publisherDialogStep = 0;
-        dialogSelectedPublisher = null;
-        repoSearch = "";
-        repos = new();
-        showPublisherDialog = true;
-    }
-
-    private void ClosePublisherDialog()
-    {
-        showPublisherDialog = false;
-        dialogSelectedPublisher = null;
-        repoSearch = "";
-    }
-
-    private async Task SelectDialogPublisher(SecretsPublisherConfig pub)
-    {
-        dialogSelectedPublisher = pub;
-        publisherDialogStep = 1;
-        repoSearch = "";
-        repos = new();
-        await LoadReposAsync(pub.Id);
-    }
-
-    private void AddPublisherFromDialog(PublisherRepository repo)
-    {
-        if (dialogSelectedPublisher is null) return;
-        // Don't add duplicates
-        if (profilePublishers.Any(p => p.PublisherId == dialogSelectedPublisher.Id && p.RepositoryId == repo.Id))
-            return;
-
-        profilePublishers.Add(new PublishProfilePublisher(
-            dialogSelectedPublisher.Id,
-            dialogSelectedPublisher.Name,
-            dialogSelectedPublisher.ProviderId,
-            repo.Id,
-            repo.FullName));
-
-        ClosePublisherDialog();
+        var page = new AddPublisherPage(BridgeHolder, publishers, profilePublishers);
+        var result = await FormModal.ShowAsync(page);
+        if (result != null)
+        {
+            if (!profilePublishers.Any(p => p.PublisherId == result.PublisherId && p.RepositoryId == result.RepositoryId))
+                profilePublishers.Add(result);
+        }
     }
 
     private string GetProviderIcon(string providerId) => providerId switch
@@ -2131,33 +1157,11 @@
         _ => "fa-solid fa-cloud"
     };
 
-    private async Task LoadReposAsync(string publisherId)
-    {
-        loadingRepos = true;
-        StateHasChanged();
-
-        try
-        {
-            var result = await Mediator.Request(new MauiSherpa.Core.Requests.Publisher.ListPublisherRepositoriesRequest(publisherId));
-            repos = result.Result?.ToList() ?? new();
-        }
-        catch { repos = new(); }
-
-        loadingRepos = false;
-        StateHasChanged();
-    }
-
     private void ValidateForm()
     {
         var bridge = BridgeHolder.Current;
         // Disable native Save/Cancel when wizard popup is open
-        bridge?.SetValid(appleWizardActive is null && !string.IsNullOrWhiteSpace(profileName));
-    }
-
-    private void DisableNativeButtons()
-    {
-        var bridge = BridgeHolder.Current;
-        bridge?.SetValid(false);
+        bridge?.SetValid(!string.IsNullOrWhiteSpace(profileName));
     }
 
     private async Task OnSubmitRequested()
@@ -2225,190 +1229,27 @@
     }
 
     // Apple wizard helpers
-    private void StartAppleWizard()
+    private async Task OpenAppleConfigWizard()
     {
-        appleWizardActive = new AppleConfigVM();
-        DisableNativeButtons();
-    }
-
-    private async Task SelectAppleIdentity(string identityId)
-    {
-        if (appleWizardActive is null) return;
-        appleWizardActive.IdentityId = identityId;
-        loadingAppleData = true;
-        StateHasChanged();
-        try
-        {
-            // Set the active identity so AppleConnectService uses it
-            var identity = appleIdentities.FirstOrDefault(i => i.Id == identityId);
-            if (identity is not null)
-                AppleIdentityState.SetSelectedIdentity(identity);
-
-            var certResult = await Mediator.Request(new GetCertificatesRequest(identityId));
-            certificates = certResult.Result?.ToList() ?? new();
-            var profileResult = await Mediator.Request(new GetProfilesRequest(identityId));
-            profiles = profileResult.Result?.ToList() ?? new();
-
-            // Load sync statuses for certificates
-            if (certificates.Any())
-            {
-                try
-                {
-                    var statuses = await CertSyncService.GetCertificateStatusesAsync(certificates);
-                    certStatuses = statuses.ToDictionary(s => s.SerialNumber, StringComparer.OrdinalIgnoreCase);
-                }
-                catch { certStatuses = new(); }
-            }
-            else
-            {
-                certStatuses = new();
-            }
-        }
-        catch { certificates = new(); profiles = new(); }
-        finally { loadingAppleData = false; StateHasChanged(); }
-    }
-
-    private async Task EditAppleConfig(AppleConfigVM config)
-    {
-        config.WizardStep = 1;
-        config.IsEditing = true;
-        appleWizardActive = config;
-        DisableNativeButtons();
-        if (config.IdentityId is not null)
-            await SelectAppleIdentity(config.IdentityId);
-    }
-
-    private void CancelAppleWizard()
-    {
-        if (appleWizardActive is not null)
-        {
-            if (appleWizardActive.IsEditing)
-            {
-                appleWizardActive.IsEditing = false;
-            }
-            appleWizardActive = null;
-        }
+        var page = new AppleConfigWizardPage(BridgeHolder, appleIdentities, managedSecrets);
+        var result = await FormModal.ShowAsync(page);
+        if (result != null && !appleConfigs.Contains(result))
+            appleConfigs.Add(result);
         ValidateForm();
     }
 
-    private void AppleWizardBack()
+    private async Task EditAppleConfigModal(AppleConfigVM config)
     {
-        if (appleWizardActive is null) return;
-        appleWizardActive.WizardStep = Math.Max(1, appleWizardActive.WizardStep - 1);
-    }
-
-    private void AppleWizardNext()
-    {
-        if (appleWizardActive is null || !CanAppleWizardProceed()) return;
-        if (appleWizardActive.WizardStep == 3 && string.IsNullOrEmpty(appleWizardActive.Label))
+        var page = new AppleConfigWizardPage(BridgeHolder, appleIdentities, managedSecrets, config);
+        var result = await FormModal.ShowAsync(page);
+        // The config is mutated in-place by the wizard; if cancelled, original state is already changed
+        // but if result is non-null, mark it complete
+        if (result != null)
         {
-            appleWizardActive.Label = $"{appleWizardActive.PlatformLabel} {appleWizardActive.DistributionLabel}";
+            if (!appleConfigs.Contains(result))
+                appleConfigs.Add(result);
         }
-        appleWizardActive.WizardStep = Math.Min(appleWizardActive.TotalSteps, appleWizardActive.WizardStep + 1);
-    }
-
-    private void FinishAppleWizard()
-    {
-        if (appleWizardActive is null || !CanAppleWizardProceed()) return;
-        appleWizardActive.IsComplete = true;
-        appleWizardActive.IsEditing = false;
-        if (string.IsNullOrEmpty(appleWizardActive.Label))
-            appleWizardActive.Label = $"{appleWizardActive.PlatformLabel} {appleWizardActive.DistributionLabel}";
-        appleWizardActive.GetDefaultKeys();
-        if (!appleConfigs.Contains(appleWizardActive))
-            appleConfigs.Add(appleWizardActive);
-        appleWizardActive = null;
         ValidateForm();
-    }
-
-    private bool CanAppleWizardProceed()
-    {
-        if (appleWizardActive is null) return false;
-        return appleWizardActive.WizardStep switch
-        {
-            1 => appleWizardActive.IdentityId is not null,
-            2 => appleWizardActive.Platform is not null,
-            3 => appleWizardActive.DistributionType is not null,
-            _ => true // cert, installer, profile, notarization are all optional
-        };
-    }
-
-    private bool IsSigningCertCompatible(string certType)
-    {
-        if (appleWizardActive is null) return false;
-        var ct = certType.ToUpperInvariant();
-        return appleWizardActive.DistributionType switch
-        {
-            AppleDistributionType.Development => ct.Contains("DEVELOPMENT"),
-            AppleDistributionType.AdHoc => ct.Contains("DISTRIBUTION") && !ct.Contains("DEVELOPER_ID"),
-            AppleDistributionType.AppStore => ct.Contains("DISTRIBUTION") && !ct.Contains("DEVELOPER_ID"),
-            AppleDistributionType.Direct => ct.Contains("DEVELOPER_ID_APPLICATION"),
-            _ => false
-        };
-    }
-
-    private bool IsProfileCompatible(string profileType)
-    {
-        if (appleWizardActive is null) return false;
-        var pt = profileType.ToUpperInvariant();
-        var platformMatch = appleWizardActive.Platform switch
-        {
-            ApplePlatformType.iOS => pt.StartsWith("IOS_"),
-            ApplePlatformType.MacCatalyst => pt.StartsWith("MAC_CATALYST_"),
-            ApplePlatformType.macOS => pt.StartsWith("MAC_APP_"),
-            _ => false
-        };
-        if (!platformMatch) return false;
-        return appleWizardActive.DistributionType switch
-        {
-            AppleDistributionType.Development => pt.Contains("DEVELOPMENT"),
-            AppleDistributionType.AdHoc => pt.Contains("ADHOC"),
-            AppleDistributionType.AppStore => pt.Contains("STORE"),
-            AppleDistributionType.Direct => pt.Contains("DIRECT"),
-            _ => false
-        };
-    }
-
-    private bool HasPrivateKey(AppleCertificate cert)
-        => localIdentities.Any(li =>
-            (li.SerialNumber is not null && li.SerialNumber.Equals(cert.SerialNumber, StringComparison.OrdinalIgnoreCase)) ||
-            li.CommonName.Contains(cert.Name, StringComparison.OrdinalIgnoreCase) ||
-            cert.Name.Contains(li.CommonName, StringComparison.OrdinalIgnoreCase));
-
-    private SecretLocation GetCertSyncLocation(AppleCertificate cert)
-    {
-        if (certStatuses.TryGetValue(cert.SerialNumber, out var info))
-            return info.Location;
-        // Fall back to local key check
-        return HasPrivateKey(cert) ? SecretLocation.LocalOnly : SecretLocation.None;
-    }
-
-    private bool CertHasLocalKey(AppleCertificate cert)
-    {
-        var loc = GetCertSyncLocation(cert);
-        return loc == SecretLocation.LocalOnly || loc == SecretLocation.Both;
-    }
-
-    private IEnumerable<AppleCertificate> FilteredSigningCerts =>
-        certificates.Where(c => IsSigningCertCompatible(c.CertificateType) && c.ExpirationDate > DateTime.UtcNow)
-                    .OrderByDescending(c => CertHasLocalKey(c));
-
-    private IEnumerable<AppleCertificate> FilteredInstallerCerts =>
-        certificates.Where(c => c.CertificateType.Contains("INSTALLER", StringComparison.OrdinalIgnoreCase) && c.ExpirationDate > DateTime.UtcNow)
-                    .OrderByDescending(c => CertHasLocalKey(c));
-
-    private IEnumerable<AppleProfile> FilteredProfiles =>
-        profiles.Where(p => p.State == "ACTIVE" && IsProfileCompatible(p.ProfileType));
-
-    private IEnumerable<(AppleDistributionType Type, string Name, string Description, string Icon)> GetAvailableDistributionTypes()
-    {
-        if (appleWizardActive is null) yield break;
-        yield return (AppleDistributionType.Development, "Development", "Build and test on registered devices", "fa-solid fa-code");
-        if (appleWizardActive.Platform == ApplePlatformType.iOS)
-            yield return (AppleDistributionType.AdHoc, "Ad Hoc", "Distribute to specific registered devices", "fa-solid fa-users");
-        yield return (AppleDistributionType.AppStore, "App Store / TestFlight", "Submit to the App Store or TestFlight", "fa-brands fa-app-store");
-        if (appleWizardActive.Platform != ApplePlatformType.iOS)
-            yield return (AppleDistributionType.Direct, "Direct Distribution", "Distribute outside the App Store (notarized)", "fa-solid fa-box-open");
     }
 
     // Android helpers
@@ -2418,6 +1259,15 @@
     }
 
     // Secrets helpers
+    private async Task OpenSecretPicker()
+    {
+        var existingKeys = secretMappings.Select(m => m.SourceKey).ToList();
+        var page = new SecretPickerPage(BridgeHolder, managedSecrets, existingKeys);
+        var selectedKey = await FormModal.ShowAsync(page);
+        if (!string.IsNullOrEmpty(selectedKey))
+            AddSecretMapping(selectedKey);
+    }
+
     private void AddSecretMapping(string sourceKey)
     {
         if (secretMappings.Any(m => m.SourceKey == sourceKey)) return;
@@ -2426,7 +1276,6 @@
             SourceKey = sourceKey,
             DestinationKeys = new List<string> { sourceKey }
         });
-        showSecretPicker = false;
     }
 
     // Key mapping helpers
@@ -2462,139 +1311,6 @@
         var bridge = BridgeHolder.Current;
         if (bridge is not null)
             bridge.SubmitRequested -= OnSubmitRequested;
-    }
-
-    // View models for mutable editing
-    private class AppleConfigVM
-    {
-        public string Label { get; set; } = "";
-        public string? IdentityId { get; set; }
-        public ApplePlatformType? Platform { get; set; }
-        public AppleDistributionType? DistributionType { get; set; }
-        public string? CertificateSerialNumber { get; set; }
-        public string? InstallerCertSerialNumber { get; set; }
-        public string? ProfileId { get; set; }
-        public string? ProfileUuid { get; set; }
-        public bool IncludeNotarization { get; set; }
-        public string? NotarizationAppleIdSecretKey { get; set; }
-        public string? NotarizationPasswordSecretKey { get; set; }
-        public string? NotarizationTeamIdSecretKey { get; set; }
-        public string? NotarizationAppleIdManualValue { get; set; }
-        public string? NotarizationPasswordManualValue { get; set; }
-        public string? NotarizationTeamIdManualValue { get; set; }
-        public bool NotarizationAppleIdUseManual { get; set; }
-        public bool NotarizationPasswordUseManual { get; set; }
-        public bool NotarizationTeamIdUseManual { get; set; }
-        public Dictionary<string, List<string>> KeyMappings { get; set; } = new();
-
-        // Wizard state
-        public int WizardStep { get; set; } = 1;
-        public bool IsEditing { get; set; }
-        public bool IsComplete { get; set; }
-
-        public bool NeedsInstallerStep =>
-            DistributionType == AppleDistributionType.Direct &&
-            (Platform == ApplePlatformType.MacCatalyst || Platform == ApplePlatformType.macOS);
-
-        public bool NeedsProfileStep =>
-            !(Platform == ApplePlatformType.macOS && DistributionType == AppleDistributionType.Direct);
-
-        public bool NeedsNotarizationStep =>
-            DistributionType == AppleDistributionType.Direct;
-
-        public int TotalSteps
-        {
-            get
-            {
-                int steps = 4; // identity + platform + distribution + signing cert
-                if (NeedsInstallerStep) steps++;
-                if (NeedsProfileStep) steps++;
-                if (NeedsNotarizationStep) steps++;
-                return steps;
-            }
-        }
-
-        public string GetStepLabel(int step)
-        {
-            int s = 0;
-            s++; if (step == s) return "Identity";
-            s++; if (step == s) return "Platform";
-            s++; if (step == s) return "Distribution";
-            s++; if (step == s) return "Certificate";
-            if (NeedsInstallerStep) { s++; if (step == s) return "Installer"; }
-            if (NeedsProfileStep) { s++; if (step == s) return "Profile"; }
-            if (NeedsNotarizationStep) { s++; if (step == s) return "Notarization"; }
-            return "";
-        }
-
-        public string PlatformLabel => Platform switch
-        {
-            ApplePlatformType.iOS => "iOS",
-            ApplePlatformType.MacCatalyst => "Mac Catalyst",
-            ApplePlatformType.macOS => "macOS",
-            _ => ""
-        };
-
-        public string DistributionLabel => DistributionType switch
-        {
-            AppleDistributionType.Development => "Development",
-            AppleDistributionType.AdHoc => "Ad Hoc",
-            AppleDistributionType.AppStore => "App Store",
-            AppleDistributionType.Direct => "Direct",
-            _ => ""
-        };
-
-        public List<string> GetDefaultKeys()
-        {
-            var keys = new List<string>();
-            var platLabel = Platform switch
-            {
-                ApplePlatformType.iOS => "IOS",
-                ApplePlatformType.MacCatalyst => "MACCATALYST",
-                ApplePlatformType.macOS => "MACOS",
-                _ => Label.ToUpperInvariant().Replace(' ', '_').Replace('-', '_')
-            };
-            var distLabel = DistributionType switch
-            {
-                AppleDistributionType.Development => "DEV",
-                AppleDistributionType.AdHoc => "ADHOC",
-                AppleDistributionType.AppStore => "APPSTORE",
-                AppleDistributionType.Direct => "DIRECT",
-                _ => ""
-            };
-            var prefix = $"APPLE_{platLabel}_{distLabel}";
-
-            if (!string.IsNullOrEmpty(CertificateSerialNumber))
-            {
-                keys.Add($"{prefix}_CERTIFICATE_P12");
-                keys.Add($"{prefix}_CERTIFICATE_PASSWORD");
-            }
-            if (!string.IsNullOrEmpty(InstallerCertSerialNumber))
-            {
-                keys.Add($"{prefix}_INSTALLER_P12");
-                keys.Add($"{prefix}_INSTALLER_PASSWORD");
-            }
-            if (!string.IsNullOrEmpty(ProfileId))
-                keys.Add($"{prefix}_PROFILE");
-            if (IncludeNotarization)
-            {
-                keys.Add("APPLE_NOTARIZATION_APPLE_ID");
-                keys.Add("APPLE_NOTARIZATION_PASSWORD");
-                keys.Add("APPLE_NOTARIZATION_TEAM_ID");
-            }
-
-            foreach (var key in keys)
-            {
-                if (!KeyMappings.ContainsKey(key))
-                    KeyMappings[key] = new List<string> { key };
-            }
-            foreach (var k in KeyMappings.Keys.ToList())
-            {
-                if (!keys.Contains(k))
-                    KeyMappings.Remove(k);
-            }
-            return keys;
-        }
     }
 
     private class AndroidConfigVM

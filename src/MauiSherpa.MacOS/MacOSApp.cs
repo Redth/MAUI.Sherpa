@@ -200,6 +200,14 @@ class MacOSApp : Application
                     new() { Title = "Publish", SystemImage = "square.and.arrow.up", Tag = "/secrets/publish" },
                 }
             },
+            new MacOSSidebarItem
+            {
+                Title = "DevFlow",
+                Children = new List<MacOSSidebarItem>
+                {
+                    new() { Title = "App Inspector", SystemImage = "wand.and.stars", Tag = "/devflow" },
+                }
+            },
         };
 
 #if DEBUG

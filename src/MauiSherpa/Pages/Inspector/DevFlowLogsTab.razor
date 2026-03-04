@@ -1,0 +1,280 @@
+@using MauiSherpa.Core.Models.DevFlow
+@using MauiSherpa.Core.Services
+
+<div class="logs-layout">
+    <div class="pane-header">
+        <span>Logs <span class="log-count">(@FilteredLogs.Count())</span></span>
+        <div class="pane-actions">
+            <select @bind="sourceFilter" class="source-filter">
+                <option value="">All Sources</option>
+                <option value="native">Native</option>
+                <option value="webview">WebView</option>
+            </select>
+            <select @bind="levelFilter" class="level-filter">
+                <option value="">All Levels</option>
+                <option value="info">Info</option>
+                <option value="warn">Warning</option>
+                <option value="error">Error</option>
+                <option value="debug">Debug</option>
+            </select>
+            <input type="text" @bind="searchQuery" @bind:event="oninput" placeholder="Search..." class="log-search" />
+            <label class="auto-scroll-toggle">
+                <input type="checkbox" @bind="autoScroll" /> Auto-scroll
+            </label>
+            <button class="btn-icon @(showColumnFilters ? "active" : "")" @onclick="() => showColumnFilters = !showColumnFilters" title="Column filters">
+                <i class="fas fa-filter"></i>
+            </button>
+            <button class="btn-icon" @onclick="ResetGrid" title="Reset grid">
+                <i class="fas fa-undo"></i>
+            </button>
+            <button class="btn-icon" @onclick="@(() => OnClearLogs.InvokeAsync())" title="Clear">
+                <i class="fas fa-trash"></i>
+            </button>
+        </div>
+    </div>
+    <DataGrid @ref="gridRef" TItem="DevFlowLogEntry" Items="@FilteredLogs" Columns="@logColumns"
+              ShowFilterRow="@showColumnFilters" MonospaceFont="true"
+              EmptyMessage="No logs captured yet"
+              RowCssClass="@(item => $"level-{NormalizeLevel(item.Level)}")" />
+</div>
+
+@code {
+    [Parameter] public DevFlowAgentClient Client { get; set; } = null!;
+    [Parameter] public List<DevFlowLogEntry> Logs { get; set; } = new();
+    [Parameter] public EventCallback OnClearLogs { get; set; }
+
+    private DataGrid<DevFlowLogEntry>? gridRef;
+    private string sourceFilter = "";
+    private string levelFilter = "";
+    private string searchQuery = "";
+    private bool autoScroll = true;
+    private bool showColumnFilters;
+    private List<DataGridColumnDef<DevFlowLogEntry>> logColumns = null!;
+
+    private IEnumerable<DevFlowLogEntry> FilteredLogs
+    {
+        get
+        {
+            var result = Logs.AsEnumerable();
+            if (!string.IsNullOrEmpty(sourceFilter))
+                result = result.Where(l => l.Source?.Equals(sourceFilter, StringComparison.OrdinalIgnoreCase) == true);
+            if (!string.IsNullOrEmpty(levelFilter))
+                result = result.Where(l => NormalizeLevel(l.Level) == levelFilter);
+            if (!string.IsNullOrEmpty(searchQuery))
+                result = result.Where(l => l.Message?.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) == true
+                    || l.Category?.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) == true);
+            return result;
+        }
+    }
+
+    private static string NormalizeLevel(string? level) => level?.ToLowerInvariant() switch
+    {
+        "information" or "info" => "info",
+        "warning" or "warn" => "warn",
+        "error" or "critical" or "fatal" => "error",
+        "debug" or "trace" or "verbose" => "debug",
+        _ => level?.ToLowerInvariant() ?? "info"
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        logColumns = new()
+        {
+            new()
+            {
+                Header = "Time", DefaultWidth = 100, MinWidth = 60,
+                ValueAccessor = l => l.Timestamp.ToLocalTime().ToString("HH:mm:ss.fff"),
+                SortAccessor = l => l.Timestamp,
+                CssClass = "col-time"
+            },
+            new()
+            {
+                Header = "Level", DefaultWidth = 60, MinWidth = 40,
+                ValueAccessor = l => NormalizeLevel(l.Level),
+                CellTemplate = item => builder =>
+                {
+                    var norm = NormalizeLevel(item.Level);
+                    builder.OpenElement(0, "span");
+                    builder.AddAttribute(1, "class", $"level-badge");
+                    builder.AddContent(2, norm.ToUpperInvariant());
+                    builder.CloseElement();
+                }
+            },
+            new()
+            {
+                Header = "Source", DefaultWidth = 70, MinWidth = 50,
+                ValueAccessor = l => l.Source ?? "native",
+                CellTemplate = item => builder =>
+                {
+                    var src = item.Source?.ToLowerInvariant() ?? "native";
+                    builder.OpenElement(0, "span");
+                    builder.AddAttribute(1, "class", $"source-badge source-{src}");
+                    builder.AddContent(2, src);
+                    builder.CloseElement();
+                }
+            },
+            new()
+            {
+                Header = "Message", DefaultWidth = 0, MinWidth = 100,
+                ValueAccessor = l => l.Message ?? "",
+                CellTemplate = item => builder =>
+                {
+                    if (!string.IsNullOrEmpty(item.Category))
+                    {
+                        builder.OpenElement(0, "span");
+                        builder.AddAttribute(1, "class", "log-category");
+                        builder.AddContent(2, $"[{item.Category}]");
+                        builder.CloseElement();
+                    }
+                    builder.AddContent(10, item.Message);
+                    if (!string.IsNullOrEmpty(item.Exception))
+                    {
+                        builder.OpenElement(20, "pre");
+                        builder.AddAttribute(21, "class", "log-exception");
+                        builder.AddContent(22, item.Exception);
+                        builder.CloseElement();
+                    }
+                },
+                CssClass = "col-message"
+            }
+        };
+    }
+
+    private void ResetGrid()
+    {
+        showColumnFilters = false;
+        gridRef?.ResetAll();
+    }
+}
+
+<style>
+    .logs-layout {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+    }
+
+    .pane-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.5rem 0.75rem;
+        background: var(--bg-secondary);
+        border-bottom: 1px solid var(--border-color);
+        font-size: 0.85rem;
+        font-weight: 600;
+        flex-shrink: 0;
+        gap: 0.5rem;
+    }
+
+    .pane-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+    }
+
+    .btn-icon {
+        background: none;
+        border: none;
+        color: var(--text-secondary);
+        cursor: pointer;
+        padding: 0.25rem 0.4rem;
+        border-radius: 4px;
+        font-size: 0.8rem;
+    }
+
+    .btn-icon:hover {
+        color: var(--text-primary);
+        background: var(--bg-tertiary);
+    }
+
+    .btn-icon.active {
+        color: var(--accent-color, #3b82f6);
+    }
+
+    .log-count {
+        font-weight: 400;
+        color: var(--text-tertiary);
+    }
+
+    .source-filter, .level-filter {
+        font-size: 0.75rem;
+        padding: 0.15rem 0.4rem;
+        border-radius: 4px;
+        border: 1px solid var(--border-color);
+        background: var(--bg-primary);
+        color: var(--text-primary);
+    }
+
+    .log-search {
+        font-size: 0.75rem;
+        padding: 0.2rem 0.5rem;
+        border-radius: 4px;
+        border: 1px solid var(--border-color);
+        background: var(--bg-primary);
+        color: var(--text-primary);
+        width: 120px;
+    }
+
+    .auto-scroll-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        cursor: pointer;
+    }
+
+    .col-time {
+        color: var(--text-tertiary);
+        font-size: 0.75rem;
+    }
+
+    .col-message {
+        word-break: break-all;
+        color: var(--text-primary);
+        white-space: normal;
+    }
+
+    .level-badge {
+        font-size: 0.65rem;
+        font-weight: 700;
+        padding: 0.05rem 0.3rem;
+        border-radius: 3px;
+    }
+
+    .level-info .level-badge { color: #3b82f6; }
+    .level-debug .level-badge { color: #6b7280; }
+    .level-warn .level-badge, .level-warning .level-badge { color: #f59e0b; }
+    .level-error .level-badge { color: #ef4444; }
+
+    .level-warn, .level-warning { background: rgba(245, 158, 11, 0.05); }
+    .level-error { background: rgba(239, 68, 68, 0.05); }
+
+    .source-badge {
+        font-size: 0.65rem;
+        padding: 0.05rem 0.3rem;
+        border-radius: 3px;
+        font-weight: 500;
+    }
+
+    .source-native { color: #8b5cf6; }
+    .source-webview { color: #06b6d4; }
+
+    .log-category {
+        color: var(--text-tertiary);
+        font-size: 0.7rem;
+        margin-right: 0.4rem;
+    }
+
+    .log-exception {
+        margin: 0.25rem 0 0;
+        padding: 0.3rem 0.5rem;
+        background: rgba(239, 68, 68, 0.08);
+        border-radius: 3px;
+        font-size: 0.75rem;
+        color: #ef4444;
+        white-space: pre-wrap;
+        word-break: break-all;
+    }
+</style>

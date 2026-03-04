@@ -1,0 +1,355 @@
+@page "/inspector/devflow/{AgentId}/{TabName?}"
+@using MauiSherpa.Core.Models.DevFlow
+@using MauiSherpa.Core.Services
+@using MauiSherpa.Services
+@layout MauiSherpa.Components.InspectorLayout
+@inject DevFlowInspectorService InspectorService
+@inject NavigationManager NavManager
+@implements IDisposable
+
+<div class="devflow-inspector">
+    <div class="inspector-toolbar">
+        <div class="inspector-title">
+            <i class="fas fa-wand-magic-sparkles"></i>
+            <span>@(agentStatus?.AppName ?? "DevFlow")</span>
+            @if (agentStatus != null)
+            {
+                <span class="toolbar-platform">@agentStatus.Platform</span>
+            }
+            <span class="toolbar-connection @(isConnected ? "connected" : "disconnected")">
+                <i class="fas fa-circle"></i>
+            </span>
+        </div>
+        <div class="inspector-tabs">
+            <button class="tab-btn @(activeTab == "tree" ? "active" : "")" @onclick='@(() => SwitchTab("tree"))'>
+                <i class="fas fa-sitemap"></i> Visual Tree
+            </button>
+            <button class="tab-btn @(activeTab == "network" ? "active" : "")" @onclick='@(() => SwitchTab("network"))'>
+                <i class="fas fa-network-wired"></i> Network
+            </button>
+            <button class="tab-btn @(activeTab == "webview" ? "active" : "")" @onclick='@(() => SwitchTab("webview"))'>
+                <i class="fas fa-globe"></i> WebView
+            </button>
+            <button class="tab-btn @(activeTab == "logs" ? "active" : "")" @onclick='@(() => SwitchTab("logs"))'>
+                <i class="fas fa-scroll"></i> Logs
+            </button>
+        </div>
+    </div>
+
+    <div class="inspector-content">
+        @if (!isConnected)
+        {
+            <div class="connecting-overlay">
+                <i class="fas fa-spinner fa-spin"></i>
+                <p>Connecting to agent at @agentHost:@agentPort...</p>
+            </div>
+        }
+        else
+        {
+            @switch (activeTab)
+            {
+                case "tree":
+                    <DevFlowTreeTab Client="@client" />
+                    break;
+                case "network":
+                    <DevFlowNetworkTab Client="@client" />
+                    break;
+                case "webview":
+                    <DevFlowWebViewTab Client="@client" Logs="@webviewLogs" OnClearLogs="ClearWebViewLogs" />
+                    break;
+                case "logs":
+                    <DevFlowLogsTab Client="@client" Logs="@allLogs" OnClearLogs="ClearAllLogs" />
+                    break;
+            }
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public string AgentId { get; set; } = "";
+    [Parameter] public string? TabName { get; set; }
+
+    [SupplyParameterFromQuery(Name = "host")]
+    public string? QueryHost { get; set; }
+
+    [SupplyParameterFromQuery(Name = "port")]
+    public int? QueryPort { get; set; }
+
+    private DevFlowAgentClient? client;
+    private DevFlowAgentStatus? agentStatus;
+    private string agentHost = "localhost";
+    private int agentPort = 9223;
+    private string activeTab = "tree";
+    private bool isConnected;
+
+    // Shared log state — stream lives at inspector level, survives tab switches
+    private List<DevFlowLogEntry> allLogs = new();
+    private DateTimeOffset _allLogsClearedAfter = DateTimeOffset.MinValue;
+    private DateTimeOffset _webviewLogsClearedAfter = DateTimeOffset.MinValue;
+    private CancellationTokenSource? _logStreamCts;
+    private Timer? _pollTimer;
+
+    private List<DevFlowLogEntry> webviewLogs =>
+        allLogs.Where(l => l.Source?.Equals("webview", StringComparison.OrdinalIgnoreCase) == true
+            && (_webviewLogsClearedAfter == DateTimeOffset.MinValue || l.Timestamp > _webviewLogsClearedAfter))
+            .ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        agentHost = QueryHost ?? "localhost";
+        agentPort = QueryPort ?? 9223;
+        activeTab = TabName ?? "tree";
+
+        client = new DevFlowAgentClient(agentHost, agentPort);
+        await ConnectAsync();
+    }
+
+    private async Task ConnectAsync()
+    {
+        try
+        {
+            agentStatus = await client!.GetStatusAsync();
+            isConnected = agentStatus != null;
+        }
+        catch
+        {
+            isConnected = false;
+        }
+        StateHasChanged();
+
+        if (isConnected)
+            StartLogStream();
+    }
+
+    private void StartLogStream()
+    {
+        _logStreamCts?.Cancel();
+        _pollTimer?.Dispose();
+        _pollTimer = null;
+        _logStreamCts = new CancellationTokenSource();
+        var ct = _logStreamCts.Token;
+
+        _ = Task.Run(async () =>
+        {
+            var reconnectDelay = 1;
+            var fastFailCount = 0;
+            while (!ct.IsCancellationRequested)
+            {
+                var startTime = DateTimeOffset.UtcNow;
+                try
+                {
+                    await client!.StreamLogsAsync(
+                        onReplay: entries =>
+                        {
+                            InvokeAsync(() =>
+                            {
+                                if (_allLogsClearedAfter != DateTimeOffset.MinValue)
+                                    entries = entries.Where(l => l.Timestamp > _allLogsClearedAfter).ToList();
+                                allLogs = entries;
+                                StateHasChanged();
+                            });
+                        },
+                        onEntry: entry =>
+                        {
+                            InvokeAsync(() =>
+                            {
+                                if (_allLogsClearedAfter != DateTimeOffset.MinValue && entry.Timestamp <= _allLogsClearedAfter)
+                                    return;
+                                allLogs.Add(entry);
+                                StateHasChanged();
+                            });
+                        },
+                        source: null,
+                        replay: 500,
+                        ct: ct);
+                }
+                catch (OperationCanceledException) { return; }
+                catch { }
+
+                if (ct.IsCancellationRequested) return;
+
+                // If stream failed very quickly (<2s), agent likely doesn't support /ws/logs
+                var elapsed = DateTimeOffset.UtcNow - startTime;
+                if (elapsed.TotalSeconds < 2)
+                {
+                    fastFailCount++;
+                    if (fastFailCount >= 3)
+                    {
+                        // Fall back to REST polling for this agent
+                        await InvokeAsync(() => StartPolling());
+                        return;
+                    }
+                }
+                else
+                {
+                    fastFailCount = 0;
+                    reconnectDelay = 1; // reset backoff after a successful connection
+                }
+
+                // Wait and retry with backoff (1s, 2s, 4s, 8s max)
+                try { await Task.Delay(TimeSpan.FromSeconds(reconnectDelay), ct); }
+                catch (OperationCanceledException) { return; }
+                reconnectDelay = Math.Min(reconnectDelay * 2, 8);
+            }
+        }, ct);
+    }
+
+    private void StartPolling()
+    {
+        _pollTimer?.Dispose();
+        // Initial fetch
+        _ = InvokeAsync(FetchLogsViaRest);
+        _pollTimer = new Timer(async _ =>
+        {
+            try { await InvokeAsync(FetchLogsViaRest); }
+            catch { }
+        }, null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
+    }
+
+    private async Task FetchLogsViaRest()
+    {
+        try
+        {
+            var freshLogs = await client!.GetLogsAsync(limit: 500);
+            if (_allLogsClearedAfter != DateTimeOffset.MinValue)
+                freshLogs = freshLogs.Where(l => l.Timestamp > _allLogsClearedAfter).ToList();
+            if (freshLogs.Count != allLogs.Count)
+            {
+                allLogs = freshLogs;
+                StateHasChanged();
+            }
+        }
+        catch { }
+    }
+
+    private void ClearAllLogs()
+    {
+        if (allLogs.Count > 0)
+            _allLogsClearedAfter = allLogs.Max(l => l.Timestamp);
+        else
+            _allLogsClearedAfter = DateTimeOffset.UtcNow;
+        allLogs.Clear();
+        StateHasChanged();
+    }
+
+    private void ClearWebViewLogs()
+    {
+        var wvLogs = webviewLogs;
+        if (wvLogs.Count > 0)
+            _webviewLogsClearedAfter = wvLogs.Max(l => l.Timestamp);
+        else
+            _webviewLogsClearedAfter = DateTimeOffset.UtcNow;
+        StateHasChanged();
+    }
+
+    private void SwitchTab(string tab)
+    {
+        if (activeTab == tab) return;
+        activeTab = tab;
+        StateHasChanged();
+    }
+
+    public void Dispose()
+    {
+        _logStreamCts?.Cancel();
+        _pollTimer?.Dispose();
+        client?.Dispose();
+    }
+}
+
+<style>
+    .devflow-inspector {
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+        background: var(--bg-primary);
+        color: var(--text-primary);
+    }
+
+    .inspector-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.5rem 1rem;
+        background: var(--bg-secondary);
+        border-bottom: 1px solid var(--border-color);
+        flex-shrink: 0;
+    }
+
+    .inspector-title {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-weight: 600;
+        font-size: 0.95rem;
+    }
+
+    .toolbar-platform {
+        font-size: 0.75rem;
+        padding: 0.1rem 0.5rem;
+        border-radius: 4px;
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+        font-weight: 400;
+    }
+
+    .toolbar-connection {
+        font-size: 0.4rem;
+    }
+
+    .toolbar-connection.connected {
+        color: #22c55e;
+    }
+
+    .toolbar-connection.disconnected {
+        color: #ef4444;
+    }
+
+    .inspector-tabs {
+        display: flex;
+        gap: 0;
+    }
+
+    .tab-btn {
+        padding: 0.5rem 1rem;
+        background: none;
+        border: none;
+        border-bottom: 2px solid transparent;
+        color: var(--text-secondary);
+        cursor: pointer;
+        font-size: 0.85rem;
+        transition: all 0.2s ease;
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+    }
+
+    .tab-btn:hover {
+        color: var(--text-primary);
+        background: var(--bg-tertiary);
+    }
+
+    .tab-btn.active {
+        color: var(--accent-color, #8b5cf6);
+        border-bottom-color: var(--accent-color, #8b5cf6);
+    }
+
+    .inspector-content {
+        flex: 1;
+        overflow: hidden;
+    }
+
+    .connecting-overlay {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        gap: 1rem;
+        color: var(--text-secondary);
+    }
+
+    .connecting-overlay i {
+        font-size: 2rem;
+    }
+</style>

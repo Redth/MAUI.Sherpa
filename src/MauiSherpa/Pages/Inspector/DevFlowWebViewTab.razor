@@ -1,0 +1,672 @@
+@using MauiSherpa.Core.Models.DevFlow
+@using MauiSherpa.Core.Services
+@using System.Text.Json
+@using System.Text.RegularExpressions
+
+<div class="webview-layout">
+    <!-- Console / Logs -->
+    <div class="webview-console-pane">
+        <div class="pane-header">
+            <span>Console</span>
+            <div class="pane-actions">
+                @if (cdpTargets.Count > 1)
+                {
+                    <select @bind="selectedTargetId" @bind:after="OnTargetChanged" class="target-selector" title="Select WebView target">
+                        @foreach (var t in cdpTargets)
+                        {
+                            <option value="@t.Id">@(string.IsNullOrEmpty(t.Title) ? t.Id : t.Title)</option>
+                        }
+                    </select>
+                }
+                <select @bind="logLevelFilter" class="level-filter">
+                    <option value="">All</option>
+                    <option value="info">Info</option>
+                    <option value="warn">Warning</option>
+                    <option value="error">Error</option>
+                </select>
+                <button class="btn-icon @(showColumnFilters ? "active" : "")" @onclick="() => showColumnFilters = !showColumnFilters" title="Column filters">
+                    <i class="fas fa-filter"></i>
+                </button>
+                <button class="btn-icon" @onclick="ResetGrid" title="Reset grid">
+                    <i class="fas fa-undo"></i>
+                </button>
+                <button class="btn-icon" @onclick="@(() => OnClearLogs.InvokeAsync())" title="Clear">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </div>
+        </div>
+        <DataGrid @ref="gridRef" TItem="DevFlowLogEntry" Items="@FilteredLogs" Columns="@consoleColumns"
+                  ShowFilterRow="@showColumnFilters" MonospaceFont="true"
+                  EmptyMessage="No console messages"
+                  RowCssClass="@(item => $"level-{(item.Level?.ToLowerInvariant() ?? "info")}")" />
+    </div>
+
+    <div class="resize-handle" @onmousedown="@(e => StartResize(e))" @onmousedown:preventDefault></div>
+
+    <!-- JS Eval + DOM Query -->
+    <div class="webview-tools-pane" style="width: @(toolsPaneWidth)px;">
+        @if (!cdpAvailable)
+        {
+            <div class="cdp-unavailable">
+                <i class="fas fa-globe" style="font-size: 1.5rem; opacity: 0.4;"></i>
+                <div style="font-weight: 500;">No WebView Available</div>
+                <div style="font-size: 0.75rem; opacity: 0.6;">Navigate to a page with a BlazorWebView to use JavaScript, DOM queries, and page source.</div>
+                <button class="btn btn-sm btn-secondary" @onclick="RefreshTargets" style="margin-top: 0.5rem;">
+                    <i class="fas fa-sync-alt"></i> Retry
+                </button>
+            </div>
+        }
+        else
+        {
+        <div class="pane-header">
+            <span>JavaScript</span>
+        </div>
+        <div class="js-eval-section">
+            <div class="js-input-row">
+                <input type="text" @bind="jsExpression" @onkeydown="OnJsKeyDown" placeholder="Enter JavaScript expression..." class="js-input" spellcheck="false" autocorrect="off" autocapitalize="off" data-form-type="other" />
+                <button class="btn btn-sm btn-primary" @onclick="EvaluateJs">
+                    <i class="fas fa-play"></i>
+                </button>
+            </div>
+            @if (jsResults.Count > 0)
+            {
+                <div class="js-results">
+                    @foreach (var result in jsResults)
+                    {
+                        <div class="js-result-entry @(result.IsError ? "js-error" : "")">
+                            <span class="js-prompt">@(result.IsError ? "✗" : "›")</span>
+                            <span class="js-expr">@result.Expression</span>
+                            <div class="js-output text-selectable">@result.Output</div>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+
+        <div class="pane-header">
+            <span>DOM Query</span>
+        </div>
+        <div class="dom-query-section">
+            <div class="js-input-row">
+                <input type="text" @bind="cssSelector" @onkeydown="OnSelectorKeyDown" placeholder="CSS selector (e.g. .my-class, #id)" class="js-input" spellcheck="false" autocorrect="off" autocapitalize="off" data-form-type="other" />
+                <button class="btn btn-sm btn-secondary" @onclick="RunQuery">
+                    <i class="fas fa-search"></i>
+                </button>
+            </div>
+            @if (queryResults.Count > 0)
+            {
+                <div class="query-results-header">@queryResults.Count match@(queryResults.Count != 1 ? "es" : "")</div>
+                <div class="query-results">
+                    @foreach (var el in queryResults)
+                    {
+                        <div class="query-result-item">
+                            <span class="tree-type">&lt;@el.Tag&gt;</span>
+                            @if (!string.IsNullOrEmpty(el.Id))
+                            {
+                                <span class="tree-aid">#@el.Id</span>
+                            }
+                            @if (!string.IsNullOrEmpty(el.ClassName))
+                            {
+                                <span class="tree-class">.@el.ClassName.Split(' ')[0]</span>
+                            }
+                            @if (!string.IsNullOrEmpty(el.TextPreview))
+                            {
+                                <span class="tree-text">"@el.TextPreview"</span>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+
+        <div class="pane-header">
+            <span>Page Source</span>
+            <div class="pane-actions">
+                <button class="btn-icon" @onclick="FetchPageSource" title="Fetch page source">
+                    <i class="fas fa-code"></i>
+                </button>
+            </div>
+        </div>
+        @if (pageSource != null)
+        {
+            <pre class="page-source text-selectable">@((MarkupString)HighlightHtml(pageSource))</pre>
+        }
+        }
+    </div>
+</div>
+
+@if (isResizing)
+{
+    <div class="resize-overlay" @onmousemove="OnResizeMove" @onmousemove:preventDefault @onmouseup="StopResize" @onmouseup:preventDefault></div>
+}
+
+@code {
+    [Parameter] public DevFlowAgentClient Client { get; set; } = null!;
+    [Parameter] public List<DevFlowLogEntry> Logs { get; set; } = new();
+    [Parameter] public EventCallback OnClearLogs { get; set; }
+
+    private DataGrid<DevFlowLogEntry>? gridRef;
+    private string logLevelFilter = "";
+    private bool showColumnFilters;
+    private string jsExpression = "";
+    private List<JsResult> jsResults = new();
+    private string cssSelector = "";
+    private List<DomQueryResult> queryResults = new();
+
+    private record DomQueryResult(string Tag, string? Id, string? ClassName, string? TextPreview);
+    private string? pageSource;
+    private double toolsPaneWidth = 420;
+    private bool isResizing;
+    private double resizeStartX;
+    private double resizeStartWidth;
+    private List<DataGridColumnDef<DevFlowLogEntry>> consoleColumns = null!;
+    private List<CdpTarget> cdpTargets = new();
+    private string? selectedTargetId;
+    private bool cdpAvailable;
+
+    private IEnumerable<DevFlowLogEntry> FilteredLogs
+    {
+        get
+        {
+            var result = Logs.AsEnumerable();
+            if (!string.IsNullOrEmpty(logLevelFilter))
+                result = result.Where(l => l.Level?.Equals(logLevelFilter, StringComparison.OrdinalIgnoreCase) == true);
+            return result;
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        consoleColumns = new()
+        {
+            new()
+            {
+                Header = "Time", DefaultWidth = 90, MinWidth = 60,
+                ValueAccessor = l => l.Timestamp.ToLocalTime().ToString("HH:mm:ss.fff"),
+                SortAccessor = l => l.Timestamp,
+                CssClass = "col-time"
+            },
+            new()
+            {
+                Header = "Level", DefaultWidth = 50, MinWidth = 35,
+                ValueAccessor = l => l.Level ?? "info",
+                CellTemplate = item => builder =>
+                {
+                    builder.OpenElement(0, "span");
+                    builder.AddAttribute(1, "class", "console-level-text");
+                    builder.AddContent(2, (item.Level ?? "info").ToUpperInvariant());
+                    builder.CloseElement();
+                }
+            },
+            new()
+            {
+                Header = "Message", DefaultWidth = 0, MinWidth = 100,
+                ValueAccessor = l => l.Message ?? "",
+                CssClass = "col-message"
+            }
+        };
+
+        await RefreshTargets();
+    }
+
+    private void ResetGrid()
+    {
+        showColumnFilters = false;
+        gridRef?.ResetAll();
+    }
+
+    private async Task RefreshTargets()
+    {
+        try
+        {
+            var status = await Client.GetStatusAsync();
+            cdpAvailable = status?.CdpReady ?? false;
+            if (cdpAvailable)
+            {
+                cdpTargets = await Client.GetCdpTargetsAsync();
+                if (cdpTargets.Count > 0 && selectedTargetId == null)
+                    selectedTargetId = cdpTargets.First().Id;
+            }
+            else
+            {
+                cdpTargets.Clear();
+                selectedTargetId = null;
+            }
+        }
+        catch { }
+    }
+
+    private async Task OnTargetChanged()
+    {
+        // Re-fetch page source for the new target
+        await FetchPageSource();
+    }
+
+    private async Task EvaluateJs()
+    {
+        if (string.IsNullOrWhiteSpace(jsExpression)) return;
+
+        var expr = jsExpression;
+        jsExpression = "";
+
+        try
+        {
+            var response = await Client.SendCdpCommandAsync("Runtime.evaluate", new Dictionary<string, object?>
+            {
+                ["expression"] = expr,
+                ["returnByValue"] = true
+            }, targetId: selectedTargetId);
+
+            if (response?.Success == true)
+            {
+                var output = ExtractCdpValue(response) ?? "undefined";
+                jsResults.Add(new JsResult(expr, output, false));
+            }
+            else
+            {
+                jsResults.Add(new JsResult(expr, response?.GetErrorMessage() ?? "Unknown error", true));
+            }
+        }
+        catch (Exception ex)
+        {
+            jsResults.Add(new JsResult(expr, ex.Message, true));
+        }
+        StateHasChanged();
+    }
+
+    private async Task OnJsKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await EvaluateJs();
+    }
+
+    private async Task RunQuery()
+    {
+        if (string.IsNullOrWhiteSpace(cssSelector)) return;
+        queryResults.Clear();
+
+        try
+        {
+            // Use CDP Runtime.evaluate with querySelectorAll to get element info
+            var js = $$"""
+                (function() {
+                    var els = document.querySelectorAll('{{cssSelector.Replace("'", "\\'")}}');
+                    return Array.from(els).slice(0, 50).map(function(el) {
+                        var text = el.textContent || '';
+                        if (text.length > 60) text = text.substring(0, 60) + '...';
+                        return {
+                            tag: el.tagName.toLowerCase(),
+                            id: el.id || null,
+                            className: el.className && typeof el.className === 'string' ? el.className : null,
+                            text: text.trim() || null
+                        };
+                    });
+                })()
+                """;
+            var response = await Client.SendCdpCommandAsync("Runtime.evaluate",
+                new Dictionary<string, object?> { ["expression"] = js, ["returnByValue"] = true },
+                selectedTargetId);
+
+            if (response?.Result is JsonElement resultEl)
+            {
+                if (resultEl.TryGetProperty("result", out var inner) && inner.TryGetProperty("value", out var arr) && arr.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var item in arr.EnumerateArray())
+                    {
+                        var tag = item.GetProperty("tag").GetString() ?? "?";
+                        var id = item.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
+                        var cls = item.TryGetProperty("className", out var clsEl) ? clsEl.GetString() : null;
+                        var text = item.TryGetProperty("text", out var txtEl) ? txtEl.GetString() : null;
+                        queryResults.Add(new DomQueryResult(tag, id, cls, text));
+                    }
+                }
+            }
+        }
+        catch
+        {
+            queryResults.Clear();
+        }
+        StateHasChanged();
+    }
+
+    private async Task OnSelectorKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await RunQuery();
+    }
+
+    private async Task FetchPageSource()
+    {
+        try
+        {
+            var response = await Client.SendCdpCommandAsync("Runtime.evaluate", new Dictionary<string, object?>
+            {
+                ["expression"] = "document.documentElement.outerHTML",
+                ["returnByValue"] = true
+            }, targetId: selectedTargetId);
+            pageSource = ExtractCdpValue(response) ?? "Could not fetch page source";
+        }
+        catch (Exception ex)
+        {
+            pageSource = $"Error: {ex.Message}";
+        }
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Extracts the actual value from a CDP Runtime.evaluate response.
+    /// The result structure is: { result: { type: "string", value: "..." } }
+    /// </summary>
+    private static string? ExtractCdpValue(CdpResponse? response)
+    {
+        if (response?.Result is not JsonElement root) return response?.Result?.ToString();
+        // Navigate: result.result.value (CDP wraps in a result object)
+        if (root.TryGetProperty("result", out var resultObj))
+        {
+            // Check type first — "undefined" has no value property
+            if (resultObj.TryGetProperty("type", out var typeEl) && typeEl.GetString() == "undefined")
+                return "undefined";
+            if (resultObj.TryGetProperty("value", out var valueEl))
+                return valueEl.ValueKind == JsonValueKind.String ? valueEl.GetString() : valueEl.ToString();
+            if (resultObj.TryGetProperty("description", out var descEl))
+                return descEl.GetString();
+            return resultObj.ToString();
+        }
+        // Fallback: try direct value
+        if (root.TryGetProperty("value", out var directVal))
+            return directVal.ValueKind == JsonValueKind.String ? directVal.GetString() : directVal.ToString();
+        return root.ToString();
+    }
+
+    private void StartResize(MouseEventArgs e)
+    {
+        isResizing = true;
+        resizeStartX = e.ClientX;
+        resizeStartWidth = toolsPaneWidth;
+    }
+
+    private void OnResizeMove(MouseEventArgs e)
+    {
+        if (!isResizing) return;
+        var delta = e.ClientX - resizeStartX;
+        toolsPaneWidth = Math.Clamp(resizeStartWidth - delta, 250, 700);
+    }
+
+    private void StopResize(MouseEventArgs e)
+    {
+        isResizing = false;
+    }
+
+    private record JsResult(string Expression, string Output, bool IsError);
+
+    private static string HighlightHtml(string html)
+    {
+        var escaped = System.Net.WebUtility.HtmlEncode(html);
+        // Comments: &lt;!-- ... --&gt;
+        escaped = Regex.Replace(escaped, @"(&lt;!--.*?--&gt;)", "<span class=\"hl-comment\">$1</span>", RegexOptions.Singleline);
+        // DOCTYPE
+        escaped = Regex.Replace(escaped, @"(&lt;!DOCTYPE[^&]*?&gt;)", "<span class=\"hl-doctype\">$1</span>", RegexOptions.IgnoreCase);
+        // Tags with attributes: &lt;tagname attr="val"&gt; or &lt;/tagname&gt;
+        escaped = Regex.Replace(escaped, @"(&lt;/?)(\w[\w\-]*)([^&]*?)(/?\s*&gt;)", m =>
+        {
+            var open = m.Groups[1].Value;
+            var tag = m.Groups[2].Value;
+            var attrs = m.Groups[3].Value;
+            var close = m.Groups[4].Value;
+            // Highlight attributes within the tag
+            if (!string.IsNullOrEmpty(attrs))
+            {
+                attrs = Regex.Replace(attrs, @"(\s)([\w\-:]+)(=)(&quot;[^&]*?&quot;|&#39;[^&]*?&#39;|\S+)",
+                    "$1<span class=\"hl-attr\">$2</span>$3<span class=\"hl-val\">$4</span>");
+            }
+            return $"<span class=\"hl-bracket\">{open}</span><span class=\"hl-tag\">{tag}</span>{attrs}<span class=\"hl-bracket\">{close}</span>";
+        });
+        return escaped;
+    }
+}
+
+<style>
+    .webview-layout {
+        display: flex;
+        height: 100%;
+    }
+
+    .pane-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.5rem 0.75rem;
+        background: var(--bg-secondary);
+        border-bottom: 1px solid var(--border-color);
+        font-size: 0.85rem;
+        font-weight: 600;
+        flex-shrink: 0;
+        gap: 0.5rem;
+    }
+
+    .pane-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+    }
+
+    .btn-icon {
+        background: none;
+        border: none;
+        color: var(--text-secondary);
+        cursor: pointer;
+        padding: 0.25rem 0.4rem;
+        border-radius: 4px;
+        font-size: 0.8rem;
+    }
+
+    .btn-icon:hover {
+        color: var(--text-primary);
+        background: var(--bg-tertiary);
+    }
+
+    .resize-handle {
+        width: 5px;
+        cursor: col-resize;
+        background: transparent;
+        flex-shrink: 0;
+        position: relative;
+        z-index: 10;
+        margin: 0 -2px;
+    }
+
+    .resize-handle:hover,
+    .resize-handle:active {
+        background: var(--accent-color, #3b82f6);
+        opacity: 0.5;
+    }
+
+    .resize-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        cursor: col-resize;
+    }
+
+    .webview-console-pane {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+    }
+
+    .webview-tools-pane {
+        display: flex;
+        flex-direction: column;
+        flex-shrink: 0;
+        overflow: auto;
+    }
+
+    .btn-icon.active {
+        color: var(--accent-color, #3b82f6);
+    }
+
+    .col-time {
+        color: var(--text-tertiary);
+        font-size: 0.7rem;
+    }
+
+    .col-message {
+        color: var(--text-primary);
+        word-break: break-all;
+        white-space: normal;
+    }
+
+    .console-level-text {
+        font-size: 0.7rem;
+        font-weight: 600;
+        text-transform: uppercase;
+    }
+
+    .level-info .console-level-text { color: #3b82f6; }
+    .level-warn .console-level-text, .level-warning .console-level-text { color: #f59e0b; }
+    .level-error .console-level-text { color: #ef4444; }
+    .level-warn, .level-warning { background: rgba(245, 158, 11, 0.05); }
+    .level-error { background: rgba(239, 68, 68, 0.05); }
+
+    .level-filter {
+        font-size: 0.75rem;
+        padding: 0.15rem 0.4rem;
+        border-radius: 4px;
+        border: 1px solid var(--border-color);
+        background: var(--bg-primary);
+        color: var(--text-primary);
+    }
+
+    .target-selector {
+        font-size: 0.7rem;
+        padding: 0.15rem 0.4rem;
+        border-radius: 4px;
+        border: 1px solid var(--accent-color, #2196F3);
+        background: color-mix(in srgb, var(--accent-color, #2196F3) 8%, var(--bg-primary));
+        color: var(--text-primary);
+        max-width: 160px;
+    }
+
+    /* JS Eval */
+    .js-eval-section, .dom-query-section {
+        padding: 0.5rem;
+    }
+
+    .js-input-row {
+        display: flex;
+        gap: 0.4rem;
+    }
+
+    .js-input {
+        flex: 1;
+        font-family: 'SF Mono', 'Cascadia Code', monospace;
+        font-size: 0.8rem;
+        padding: 0.4rem 0.6rem;
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+        background: var(--bg-primary);
+        color: var(--text-primary);
+    }
+
+    .btn-sm {
+        padding: 0.3rem 0.6rem;
+        font-size: 0.8rem;
+    }
+
+    .js-results {
+        margin-top: 0.5rem;
+        max-height: 200px;
+        overflow: auto;
+    }
+
+    .js-result-entry {
+        padding: 0.3rem 0.5rem;
+        border-bottom: 1px solid var(--border-color);
+        font-family: 'SF Mono', 'Cascadia Code', monospace;
+        font-size: 0.75rem;
+    }
+
+    .js-prompt {
+        color: #22c55e;
+        margin-right: 0.3rem;
+    }
+
+    .js-error .js-prompt {
+        color: #ef4444;
+    }
+
+    .js-expr {
+        color: var(--text-secondary);
+    }
+
+    .js-output {
+        color: var(--text-primary);
+        padding-left: 1rem;
+        word-break: break-all;
+    }
+
+    .js-error .js-output {
+        color: #ef4444;
+    }
+
+    .query-results-header {
+        margin-top: 0.4rem;
+        font-size: 0.7rem;
+        color: var(--text-tertiary);
+    }
+
+    .query-results {
+        margin-top: 0.25rem;
+        max-height: 150px;
+        overflow: auto;
+    }
+
+    .query-result-item {
+        display: flex;
+        gap: 0.4rem;
+        padding: 0.2rem 0.4rem;
+        font-size: 0.8rem;
+        font-family: 'SF Mono', 'Cascadia Code', monospace;
+    }
+
+    .tree-type { color: #e06c75; }
+    .tree-aid { color: #61afef; }
+    .tree-class { color: #c678dd; }
+    .tree-text { color: var(--text-tertiary); font-style: italic; }
+
+    .page-source {
+        flex: 1;
+        overflow: auto;
+        padding: 0.5rem;
+        font-family: 'SF Mono', 'Cascadia Code', monospace;
+        font-size: 0.7rem;
+        background: var(--bg-secondary);
+        margin: 0;
+        min-height: 100px;
+        white-space: pre-wrap;
+        word-break: break-all;
+    }
+
+    /* Syntax highlighting */
+    .hl-bracket { color: var(--text-muted); }
+    .hl-tag { color: #e06c75; }
+    .hl-attr { color: #d19a66; }
+    .hl-val { color: #98c379; }
+    .hl-comment { color: var(--text-tertiary, #6a737d); font-style: italic; }
+    .hl-doctype { color: var(--text-tertiary, #6a737d); }
+
+    :global(.theme-light) .hl-tag { color: #d73a49; }
+    :global(.theme-light) .hl-attr { color: #e36209; }
+    :global(.theme-light) .hl-val { color: #22863a; }
+
+    .cdp-unavailable {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        padding: 2rem 1rem;
+        color: var(--text-secondary);
+        text-align: center;
+        height: 100%;
+    }
+</style>

@@ -1,0 +1,258 @@
+@page "/modal/add-publisher"
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Core.Requests.Publisher
+@using MauiSherpa.Pages.Forms
+@using Shiny.Mediator
+@inject HybridFormBridgeHolder BridgeHolder
+@inject IMediator Mediator
+@implements IDisposable
+
+@{
+    var bridge = BridgeHolder.Current;
+}
+
+@if (bridge != null)
+{
+    <div class="form-content">
+        @if (step == 0)
+        {
+            <div class="selection-list">
+                @foreach (var pub in publishers)
+                {
+                    <label class="selection-item" @onclick="@(() => SelectPublisher(pub))">
+                        <div class="item-content">
+                            <div class="item-name"><i class="@GetProviderIcon(pub.ProviderId)" style="margin-right: 6px;"></i>@pub.Name</div>
+                            <div class="item-detail">@pub.ProviderId</div>
+                        </div>
+                        <i class="fa-solid fa-chevron-right" style="color: var(--text-muted); font-size: 11px;"></i>
+                    </label>
+                }
+                @if (!publishers.Any())
+                {
+                    <div class="empty-hint">
+                        <i class="fa-solid fa-cloud-arrow-up"></i>
+                        <p>No publishers configured. Add one in Settings.</p>
+                    </div>
+                }
+            </div>
+        }
+        else
+        {
+            <button class="btn-text-action" style="margin-bottom: 8px;" @onclick="GoBack">
+                <i class="fa-solid fa-arrow-left"></i> Back
+            </button>
+
+            <div class="search-box">
+                <i class="fas fa-search"></i>
+                <input type="text" @bind="repoSearch" @bind:event="oninput" placeholder="Search repositories..." />
+                @if (!string.IsNullOrEmpty(repoSearch))
+                {
+                    <button class="clear-search" @onclick="@(() => repoSearch = "")">×</button>
+                }
+            </div>
+
+            @if (loadingRepos)
+            {
+                <div class="loading-hint"><i class="fa-solid fa-spinner fa-spin"></i> Loading repositories...</div>
+            }
+            else if (FilteredRepos.Any())
+            {
+                <div class="selection-list">
+                    @foreach (var repo in FilteredRepos.Take(30))
+                    {
+                        var isExisting = existingPublishers.Any(p => p.PublisherId == selectedPublisher!.Id && p.RepositoryId == repo.Id);
+                        <label class="selection-item @(selectedRepo?.Id == repo.Id ? "selected" : "") @(isExisting ? "disabled" : "")"
+                               @onclick="@(() => { if (!isExisting) SelectRepo(repo); })">
+                            <div class="item-content">
+                                <div class="item-name">@repo.FullName</div>
+                                <div class="item-detail">
+                                    @if (isExisting)
+                                    {
+                                        <span class="already-added">Already added</span>
+                                    }
+                                    else
+                                    {
+                                        @(string.IsNullOrEmpty(repo.Description) ? "\u00A0" : repo.Description)
+                                    }
+                                </div>
+                            </div>
+                            @if (selectedRepo?.Id == repo.Id)
+                            {
+                                <i class="fas fa-check" style="color: var(--accent-color, #8b5cf6);"></i>
+                            }
+                        </label>
+                    }
+                </div>
+            }
+            else
+            {
+                <div class="empty-hint">No repositories found</div>
+            }
+        }
+    </div>
+}
+
+<style>
+    .form-content { display: flex; flex-direction: column; gap: 0.75rem; }
+    .search-box {
+        display: flex; align-items: center; gap: 0.5rem;
+        background: var(--input-bg, #edf2f7); border-radius: 6px; padding: 0.5rem 0.75rem;
+        border: 1px solid var(--border-color, #e2e8f0);
+    }
+    .search-box i { color: var(--text-muted, #a0aec0); font-size: 0.8rem; flex-shrink: 0; }
+    .search-box input {
+        flex: 1; border: none; background: transparent; outline: none; font-size: 0.85rem;
+        color: var(--text-primary, #1a202c);
+    }
+    .clear-search {
+        background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1rem;
+        padding: 0 4px; line-height: 1;
+    }
+    .selection-list {
+        display: flex; flex-direction: column; gap: 2px;
+        max-height: 320px; overflow-y: auto;
+    }
+    .selection-item {
+        display: flex; align-items: center; gap: 0.75rem;
+        padding: 0.5rem 0.75rem; border-radius: 6px; cursor: pointer;
+        transition: background 0.15s;
+    }
+    .selection-item:hover:not(.disabled) { background: var(--hover-bg, rgba(0,0,0,0.04)); }
+    .selection-item.selected { background: var(--accent-bg, rgba(139,92,246,0.08)); }
+    .selection-item.disabled { opacity: 0.5; cursor: not-allowed; }
+    .item-content { flex: 1; min-width: 0; }
+    .item-name { font-size: 0.85rem; font-weight: 500; color: var(--text-primary); }
+    .item-detail { font-size: 0.75rem; color: var(--text-secondary, #718096); margin-top: 2px; }
+    .already-added { color: var(--text-muted, #a0aec0); font-style: italic; }
+    .empty-hint {
+        text-align: center; color: var(--text-muted); padding: 2rem; font-size: 0.85rem;
+    }
+    .loading-hint {
+        text-align: center; color: var(--text-secondary); padding: 2rem; font-size: 0.85rem;
+    }
+    .btn-text-action {
+        background: none; border: none; color: var(--accent-color, #8b5cf6);
+        cursor: pointer; font-size: 0.8rem; padding: 0; display: inline-flex; align-items: center; gap: 4px;
+    }
+    .btn-text-action:hover { text-decoration: underline; }
+</style>
+
+@code {
+    private int step; // 0 = pick provider, 1 = pick repo
+    private string repoSearch = "";
+    private bool loadingRepos;
+    private SecretsPublisherConfig? selectedPublisher;
+    private PublisherRepository? selectedRepo;
+    private IReadOnlyList<SecretsPublisherConfig> publishers = Array.Empty<SecretsPublisherConfig>();
+    private IReadOnlyList<PublishProfilePublisher> existingPublishers = Array.Empty<PublishProfilePublisher>();
+    private List<PublisherRepository> repos = new();
+
+    private IEnumerable<PublisherRepository> FilteredRepos =>
+        string.IsNullOrEmpty(repoSearch)
+            ? repos
+            : repos.Where(r => r.FullName.Contains(repoSearch, StringComparison.OrdinalIgnoreCase)
+                || (r.Description?.Contains(repoSearch, StringComparison.OrdinalIgnoreCase) ?? false));
+
+    protected override void OnInitialized()
+    {
+        var bridge = BridgeHolder.Current;
+        if (bridge == null) return;
+
+        if (bridge.Parameters.TryGetValue("Publishers", out var p) && p is IReadOnlyList<SecretsPublisherConfig> pubs)
+            publishers = pubs;
+
+        if (bridge.Parameters.TryGetValue("ExistingPublishers", out var ep) && ep is IReadOnlyList<PublishProfilePublisher> existing)
+            existingPublishers = existing;
+
+        bridge.SubmitRequested += OnSubmit;
+        bridge.CancelRequested += OnCancel;
+
+        // Initially invalid until a repo is selected
+        bridge.SetValid(false);
+    }
+
+    private async Task SelectPublisher(SecretsPublisherConfig pub)
+    {
+        selectedPublisher = pub;
+        selectedRepo = null;
+        step = 1;
+        repoSearch = "";
+        repos = new();
+        StateHasChanged();
+        await LoadReposAsync(pub.Id);
+    }
+
+    private void GoBack()
+    {
+        step = 0;
+        selectedPublisher = null;
+        selectedRepo = null;
+        repoSearch = "";
+        BridgeHolder.Current?.SetValid(false);
+        StateHasChanged();
+    }
+
+    private void SelectRepo(PublisherRepository repo)
+    {
+        selectedRepo = repo;
+        var bridge = BridgeHolder.Current;
+        if (bridge != null && selectedPublisher != null)
+        {
+            bridge.Result = new PublishProfilePublisher(
+                selectedPublisher.Id,
+                selectedPublisher.Name,
+                selectedPublisher.ProviderId,
+                repo.Id,
+                repo.FullName);
+            bridge.SetValid(true);
+        }
+        StateHasChanged();
+    }
+
+    private async Task LoadReposAsync(string publisherId)
+    {
+        loadingRepos = true;
+        StateHasChanged();
+
+        try
+        {
+            var result = await Mediator.Request(new ListPublisherRepositoriesRequest(publisherId));
+            repos = result.Result?.ToList() ?? new();
+        }
+        catch { repos = new(); }
+
+        loadingRepos = false;
+        StateHasChanged();
+    }
+
+    private Task OnSubmit()
+    {
+        // Result already set in SelectRepo
+        return Task.CompletedTask;
+    }
+
+    private void OnCancel()
+    {
+        var bridge = BridgeHolder.Current;
+        if (bridge != null) bridge.Result = null;
+    }
+
+    private string GetProviderIcon(string providerId) => providerId switch
+    {
+        "github" => "fa-brands fa-github",
+        "gitlab" => "fa-brands fa-gitlab",
+        "gitea" => "fa-solid fa-mug-hot",
+        "azuredevops" => "fa-brands fa-microsoft",
+        _ => "fa-solid fa-cloud"
+    };
+
+    public void Dispose()
+    {
+        var bridge = BridgeHolder.Current;
+        if (bridge != null)
+        {
+            bridge.SubmitRequested -= OnSubmit;
+            bridge.CancelRequested -= OnCancel;
+        }
+    }
+}

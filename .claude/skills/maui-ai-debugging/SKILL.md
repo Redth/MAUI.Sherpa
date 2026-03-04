@@ -188,6 +188,18 @@ until the app restarts — safe for experimentation.
 3. `maui-devflow cdp Input dispatchClickEvent "css-selector"` — click elements
 4. `maui-devflow cdp Runtime evaluate "js-expression"` — run JS
 
+**Multiple BlazorWebViews:** If the app has more than one `BlazorWebView`, each is
+registered independently with its `AutomationId`. Use `cdp webviews` to list them,
+then target a specific one with `--webview` (or `-w`):
+
+```bash
+maui-devflow cdp webviews                                  # list all WebViews
+maui-devflow cdp -w BlazorLeft snapshot                    # snapshot of a specific WebView
+maui-devflow cdp -w 1 Runtime evaluate "document.title"    # target by index
+```
+
+Without `--webview`, commands target the first (index 0) WebView.
+
 **Live CSS/DOM editing in Blazor (no rebuild needed):**
 ```bash
 maui-devflow cdp Runtime evaluate "document.querySelector('h1').style.color = 'tomato'"
@@ -204,6 +216,9 @@ maui-devflow MAUI logs                   # fetch 100 most recent log entries
 maui-devflow MAUI logs --limit 50        # fetch 50 entries
 maui-devflow MAUI logs --source webview  # only WebView/Blazor console logs
 maui-devflow MAUI logs --source native   # only native ILogger logs
+maui-devflow MAUI logs --follow          # stream logs in real-time (Ctrl+C to stop)
+maui-devflow MAUI logs -f --source native  # stream only native logs
+maui-devflow MAUI logs -f --json         # stream as JSONL (machine-readable)
 ```
 
 **Debugging workflow:** Reproduce the issue → `maui-devflow MAUI logs --limit 20` → check for
@@ -236,6 +251,49 @@ maui-devflow MAUI recording stop
 **Options:** `--timeout <seconds>` (default 30), `--output <path>` (default `recording_<timestamp>.mp4`).
 Only one recording at a time — stop before starting a new one.
 
+### 7. Network Request Monitoring
+
+Monitor HTTP requests made by the app in real-time. MauiDevFlow automatically intercepts
+all `IHttpClientFactory`-based HTTP traffic via a `DelegatingHandler` — no app code changes
+needed beyond the standard `AddMauiDevFlowAgent()` setup.
+
+```bash
+# Live monitor — streams requests as they happen (Ctrl+C to stop)
+maui-devflow MAUI network
+
+# JSONL streaming — machine-readable, one JSON object per line
+maui-devflow MAUI network --json
+
+# One-shot: list recent captured requests
+maui-devflow MAUI network list
+
+# Filter by method or host
+maui-devflow MAUI network list --method POST
+maui-devflow MAUI network list --host api.example.com
+
+# Full request/response details (headers + body)
+maui-devflow MAUI network detail <requestId>
+
+# Clear captured requests
+maui-devflow MAUI network clear
+```
+
+**How it works:**
+- A `DelegatingHandler` wraps the platform's HTTP handler (AndroidMessageHandler,
+  NSUrlSessionHandler, etc.), capturing request/response metadata, headers, and bodies
+- Auto-injected via `ConfigureHttpClientDefaults` — works for all `IHttpClientFactory` clients
+- For `new HttpClient()` outside DI, use `DevFlowHttp.CreateClient()` helper
+- Bodies up to 256KB are captured (configurable via `AgentOptions.MaxNetworkBodySize`)
+- A ring buffer (default 500 entries) stores recent requests in-memory
+
+**JSONL output** is ideal for AI parsing — pipe to `jq` or process programmatically:
+```bash
+maui-devflow MAUI network --json | jq 'select(.statusCode >= 400)'
+```
+
+**WebSocket streaming:** The live monitor uses WebSocket (`/ws/network`) for real-time push.
+Connecting clients receive a replay of buffered history, then live entries as they arrive.
+
 ## Command Reference
 
 ### maui-devflow MAUI (Native Agent)
@@ -250,6 +308,7 @@ or `maui-devflow --agent-port 10224 MAUI status` — both are valid.
 | `MAUI status [--window W]` | Agent connection status, platform, app name, window count |
 | `MAUI tree [--depth N] [--window W]` | Visual tree (IDs, types, text, bounds). Depth 0=unlimited. Window is 0-based index; omit for all windows |
 | `MAUI query --type T --automationId A --text T` | Find elements (any/all filters) |
+| `MAUI hittest <x> <y> [--window W]` | Find elements at a point (deepest first). Returns IDs, types, bounds |
 | `MAUI tap <elementId>` | Tap an element |
 | `MAUI fill <elementId> <text>` | Fill text into Entry/Editor |
 | `MAUI clear <elementId>` | Clear text from element |
@@ -261,10 +320,14 @@ or `maui-devflow --agent-port 10224 MAUI status` — both are valid.
 | `MAUI scroll [--element id] [--dx N] [--dy N] [--window W]` | Scroll by delta or scroll element into view |
 | `MAUI focus <elementId>` | Set focus to element |
 | `MAUI resize <width> <height> [--window W]` | Resize app window. Window is 0-based index; default first window |
-| `MAUI logs [--limit N] [--skip N] [--source S]` | Fetch application logs (newest first). Source: native, webview, or omit for all |
+| `MAUI logs [--limit N] [--skip N] [--source S] [--follow] [--json]` | Fetch or stream application logs. `--follow` / `-f` streams in real-time via WebSocket (Ctrl+C to stop). `--json` outputs JSONL. Source: native, webview, or omit for all |
 | `MAUI recording start [--output path] [--timeout 30]` | Start screen recording. Default timeout 30s. Uses platform-native tools (adb screenrecord, xcrun simctl, screencapture, ffmpeg) |
 | `MAUI recording stop` | Stop active recording and save the video file |
 | `MAUI recording status` | Check if a recording is currently in progress |
+| `MAUI network` | Live network monitor — streams HTTP requests in real-time (Ctrl+C to stop). Use `--json` for JSONL output |
+| `MAUI network list [--host H] [--method M] [--json]` | One-shot: dump recent captured HTTP requests as table or JSONL |
+| `MAUI network detail <requestId>` | Full request/response details: headers, body, timing |
+| `MAUI network clear` | Clear the captured request buffer |
 
 Element IDs come from `MAUI tree` or `MAUI query`. AutomationId-based elements use their
 AutomationId directly. Others use generated hex IDs. When multiple elements share the same
@@ -274,11 +337,15 @@ AutomationId, suffixes are appended: `TodoCheckBox`, `TodoCheckBox_1`, `TodoChec
 
 Global options: `--agent-host` (default localhost), `--agent-port` (auto-discovered via broker).
 CDP commands use the same agent port — all communication goes through a single port.
+Use `--webview <id>` (or `-w <id>`) on any CDP command to target a specific WebView
+by index, AutomationId, or element ID. Default: first WebView.
 
 | Command | Description |
 |---------|-------------|
-| `cdp status` | CDP connection status |
+| `cdp status` | CDP connection status and WebView count |
+| `cdp webviews [--json]` | List available CDP WebViews (index, AutomationId, ready status) |
 | `cdp snapshot` | Accessible DOM text (best for AI agents) |
+| `cdp source` | Get full page HTML source |
 | `cdp Browser getVersion` | Browser/WebView version info |
 | `cdp Runtime evaluate <expr>` | Evaluate JavaScript |
 | `cdp DOM getDocument` | Full DOM document |
@@ -291,6 +358,10 @@ CDP commands use the same agent port — all communication goes through a single
 | `cdp Input dispatchClickEvent <sel>` | Click element by CSS selector |
 | `cdp Input insertText <text>` | Insert text at focused element |
 | `cdp Input fill <selector> <text>` | Focus + fill text into element |
+
+**Multi-WebView targeting:** If the app has multiple BlazorWebViews, use `cdp webviews`
+to list them, then `--webview <index-or-automationId>` on any command to target a specific one.
+Example: `maui-devflow cdp --webview 1 snapshot` or `maui-devflow cdp -w MyWebView Runtime evaluate "1+1"`.
 
 ### maui-devflow Broker & Discovery
 

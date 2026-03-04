@@ -78,7 +78,7 @@ public abstract class HybridFormPage<TResult> : ContentPage, IFormPage<TResult>,
     {
         // Set up bridge
         ConfigureBridge(_bridge);
-        _bridgeHolder.Current = _bridge;
+        _bridgeHolder.Push(_bridge);
         _bridge.ValidationChanged += () =>
             Dispatcher.Dispatch(() =>
             {
@@ -227,6 +227,7 @@ public abstract class HybridFormPage<TResult> : ContentPage, IFormPage<TResult>,
         {
             await _bridge.RequestSubmitAsync();
             var result = (TResult?)_bridge.Result;
+            _bridgeHolder.Pop();
             _tcs.TrySetResult(result);
         }
         catch (Exception ex)
@@ -244,6 +245,7 @@ public abstract class HybridFormPage<TResult> : ContentPage, IFormPage<TResult>,
     private void OnCancelClicked(object? sender, EventArgs e)
     {
         _bridge.RequestCancel();
+        _bridgeHolder.Pop();
         _tcs.TrySetResult(default);
     }
 

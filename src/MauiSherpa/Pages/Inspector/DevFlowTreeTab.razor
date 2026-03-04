@@ -1,0 +1,3137 @@
+@using MauiSherpa.Core.Models.DevFlow
+@using MauiSherpa.Core.Services
+@inject IJSRuntime JS
+@implements IDisposable
+
+<div class="tree-layout">
+    <!-- Left: Screenshot -->
+    <div class="tree-screenshot-pane" style="width: @(screenshotPaneWidth)px;">
+        <div class="pane-header">
+            <span>Screenshot</span>
+            <div class="pane-actions">
+                <button class="btn-icon @(inspectMode ? "inspect-active" : "")"
+                        @onclick="() => { inspectMode = !inspectMode; }"
+                        title="@(inspectMode ? "Exit inspect mode" : "Inspect element (click on screenshot)")">
+                    <i class="fas fa-crosshairs"></i>
+                </button>
+                <select @bind="autoRefreshInterval" @bind:after="OnAutoRefreshChanged" class="auto-refresh-select">
+                    <option value="0">Manual</option>
+                    <option value="1">1s</option>
+                    <option value="2">2s</option>
+                    <option value="5">5s</option>
+                </select>
+                <button class="btn-icon" @onclick="() => RefreshScreenshot()" title="Refresh screenshot">
+                    <i class="fas fa-camera"></i>
+                </button>
+            </div>
+        </div>
+        <div class="screenshot-container">
+            @if (screenshotData != null)
+            {
+                <div class="screenshot-wrapper" @onclick="OnScreenshotClick" style="position: relative; display: inline-block;">
+                    <img src="@($"data:image/png;base64,{screenshotData}")" alt="App screenshot"
+                         class="screenshot-img @(inspectMode ? "inspect-cursor" : "")" />
+                    @if (locateElementId != null && selectedElement?.Bounds != null && screenshotData != null)
+                    {
+                        @RenderHighlightOverlay
+                    }
+                </div>
+            }
+            else
+            {
+                <div class="screenshot-placeholder">
+                    <i class="fas fa-image"></i>
+                    <span>Click refresh to capture</span>
+                </div>
+            }
+        </div>
+        @if (inspectDebug != null)
+        {
+            <div style="padding: 4px 8px; font-size: 0.7rem; color: var(--text-secondary); background: var(--bg-tertiary); font-family: monospace;">@inspectDebug</div>
+        }
+    </div>
+
+    <!-- Center: Tree View -->
+    <div class="tree-view-pane">
+        <div class="pane-header">
+            <span>Visual Tree</span>
+            <div class="pane-actions">
+                <input type="text" @bind="searchQuery" @bind:event="oninput" placeholder="Filter..." class="tree-search" />
+                <button class="btn-icon" @onclick="ExpandAll" title="Expand all">
+                    <i class="fas fa-angles-down"></i>
+                </button>
+                <button class="btn-icon" @onclick="CollapseAll" title="Collapse all">
+                    <i class="fas fa-angles-up"></i>
+                </button>
+                <button class="btn-icon" @onclick="RefreshTree" title="Refresh tree">
+                    <i class="fas @(isLoadingTree ? "fa-spinner fa-spin" : "fa-sync-alt")"></i>
+                </button>
+            </div>
+        </div>
+        <div class="tree-container">
+            @if (treeItems.Count > 0)
+            {
+                @for (int i = 0; i < treeItems.Count; i++)
+                {
+                    var windowIndex = i;
+                    var item = treeItems[i];
+                    @if (treeItems.Count > 1)
+                    {
+                        <div class="window-header @(selectedWindowIndex == windowIndex ? "active" : "")">
+                            <i class="fas fa-window-maximize"></i>
+                            Window @windowIndex: @item.Type
+                        </div>
+                    }
+                    @RenderNode(item, 0, new List<bool>())
+                }
+            }
+            else if (isLoadingTree)
+            {
+                <div class="tree-loading"><i class="fas fa-spinner fa-spin"></i> Loading tree...</div>
+            }
+            else
+            {
+                <div class="tree-empty">No elements found</div>
+            }
+        </div>
+    </div>
+
+    <div class="resize-handle" @onmousedown="@(e => StartResize(e, "right"))" @onmousedown:preventDefault></div>
+
+    <!-- Right: Properties -->
+    <div class="tree-props-pane" style="width: @(propsPaneWidth)px;">
+        <div class="pane-header">
+            <span>Properties</span>
+            @if (selectedElement != null)
+            {
+                @if (isLoadingProps)
+                {
+                    <i class="fas fa-spinner fa-spin prop-loading-icon"></i>
+                }
+                <button class="btn-icon prop-refresh-btn" @onclick="RefreshProperties" title="Refresh properties">
+                    <i class="fas fa-sync-alt"></i>
+                </button>
+            }
+        </div>
+        <div class="props-container">
+            @if (selectedElement != null)
+            {
+                <!-- Element identity -->
+                <div class="prop-section">
+                    <div class="prop-group-title">Element</div>
+                    @{ var ns = selectedElement.FullType.Contains('.') ? selectedElement.FullType[..selectedElement.FullType.LastIndexOf('.')] : ""; }
+                    @if (!string.IsNullOrEmpty(ns))
+                    {
+                        <div class="prop-row">
+                            <span class="prop-key">Namespace</span>
+                            <span class="prop-value mono">@ns</span>
+                        </div>
+                    }
+                    <div class="prop-row">
+                        <span class="prop-key">Type</span>
+                        <span class="prop-value">@selectedElement.Type</span>
+                    </div>
+                    <div class="prop-row">
+                        <span class="prop-key">ID</span>
+                        <span class="prop-value mono">@selectedElement.Id</span>
+                    </div>
+                    @if (selectedElement.Bounds != null)
+                    {
+                        <div class="prop-row">
+                            <span class="prop-key">Position</span>
+                            <span class="prop-value">@($"{selectedElement.Bounds.X:F0}, {selectedElement.Bounds.Y:F0}")</span>
+                        </div>
+                        <div class="prop-row">
+                            <span class="prop-key">Size</span>
+                            <span class="prop-value">@($"{selectedElement.Bounds.Width:F0} × {selectedElement.Bounds.Height:F0}")</span>
+                        </div>
+                    }
+                </div>
+
+                <!-- Gestures -->
+                @if (selectedElement.Gestures?.Count > 0)
+                {
+                    <div class="prop-section">
+                        <div class="prop-section-title">Gestures</div>
+                        @foreach (var gesture in selectedElement.Gestures)
+                        {
+                            <div class="prop-row"><span class="prop-value">@gesture</span></div>
+                        }
+                    </div>
+                }
+
+                @if (fetchedProperties.Count > 0)
+                {
+                    @foreach (var group in fetchedProperties.GroupBy(p => p.Meta.Group).OrderBy(g => Array.IndexOf(GroupOrder, g.Key)))
+                    {
+                        <div class="prop-section" @key="group.Key">
+                            <div class="prop-group-title">@group.Key</div>
+                            @foreach (var prop in group)
+                            {
+                                <div @key="prop.Name">
+                                    @RenderPropertyEditor(prop)
+                                </div>
+                            }
+                            @if (group.Key == "Behavior")
+                            {
+                                <div class="prop-row">
+                                    <span class="prop-key">Focused</span>
+                                    <span class="prop-value @(selectedElement.IsFocused ? "val-true" : "val-false")">
+                                        @selectedElement.IsFocused
+                                        @if (!selectedElement.IsFocused)
+                                        {
+                                            <button class="btn-focus" @onclick="FocusSelected" title="Focus this element">
+                                                <i class="fas fa-crosshairs"></i>
+                                            </button>
+                                        }
+                                    </span>
+                                </div>
+                            }
+                        </div>
+                    }
+                }
+                else if (!isLoadingProps)
+                {
+                    <div class="prop-section">
+                        <div class="prop-row"><span class="prop-value" style="color: var(--text-tertiary);">No properties found</span></div>
+                    </div>
+                }
+
+                <!-- Custom property query -->
+                <div class="prop-section">
+                    <div class="prop-section-title">Query Property</div>
+                    <div class="prop-row">
+                        <input type="text" @bind="customPropertyName" @bind:event="oninput" @onkeydown="OnCustomPropertyKeyDown"
+                               placeholder="PropertyName" class="prop-custom-input" />
+                        <button class="btn-icon" @onclick="FetchCustomProperty" title="Fetch property">
+                            <i class="fas fa-search"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Native -->
+                @if (selectedElement.NativeType != null)
+                {
+                    <div class="prop-section">
+                        <div class="prop-section-title">Native (@selectedElement.NativeType)</div>
+                        @if (selectedElement.NativeProperties != null)
+                        {
+                            @foreach (var kvp in selectedElement.NativeProperties)
+                            {
+                                <div class="prop-row">
+                                    <span class="prop-key">@kvp.Key</span>
+                                    <span class="prop-value">@(kvp.Value ?? "null")</span>
+                                </div>
+                            }
+                        }
+                    </div>
+                }
+            }
+            else
+            {
+                <div class="props-empty">Select an element in the tree to view its properties</div>
+            }
+        </div>
+    </div>
+</div>
+
+@if (isResizing)
+{
+    <div class="resize-overlay"
+         @onmousemove="OnResizeMove" @onmousemove:preventDefault
+         @onmouseup="StopResize" @onmouseup:preventDefault></div>
+}
+
+@code {
+    [Parameter] public DevFlowAgentClient Client { get; set; } = null!;
+
+    private List<DevFlowElementInfo> treeItems = new();
+    private DevFlowElementInfo? selectedElement;
+    private string? selectedElementId;
+    private int? selectedWindowIndex;
+    private HashSet<string> expandedNodes = new();
+    private string searchQuery = "";
+    private string? screenshotData;
+    private bool isLoadingTree;
+    private bool isLoadingProps;
+    private int autoRefreshInterval;
+    private Timer? _screenshotTimer;
+    private bool inspectMode;
+    private string? inspectDebug;
+    private string? overlayStyle;
+    private string? locateElementId;
+    private string? editingProperty;
+    private string editValue = "";
+    private ElementReference editInput;
+    private List<PropertyEntry> fetchedProperties = new();
+    private string customPropertyName = "";
+    private List<GradientStop> gradientStops = new();
+    private int? selectedStopIndex;
+    private double gradientAngle = 90;
+    private bool isDraggingStop;
+    private ElementReference gradientTrackRef;
+    private Dictionary<string, string> brushValueCache = new();
+
+    private record PropertyEntry(string Name, string? Value, PropertyMeta Meta);
+
+    private class GradientStop
+    {
+        public string Color { get; set; } = "#ffffff";
+        public double Offset { get; set; }
+        public double Opacity { get; set; } = 1.0;
+    }
+
+    // --- Property Metadata Registry ---
+
+    private enum EditorType { Text, Boolean, Enum, Color, Thickness, Number, Brush }
+
+    private record PropertyMeta(
+        EditorType Editor,
+        string Group = "Other",
+        string[]? EnumValues = null,
+        double? NumMin = null, double? NumMax = null, double NumStep = 1,
+        bool IsDouble = false,
+        int SortOrder = 100,
+        string? DefaultValue = null);
+
+    private static readonly Dictionary<string, PropertyMeta> PropertyRegistry = new(StringComparer.OrdinalIgnoreCase)
+    {
+        // --- Appearance ---
+        ["Background"] = new(EditorType.Brush, "Appearance"),
+        ["TextColor"] = new(EditorType.Color, "Appearance"),
+        ["PlaceholderColor"] = new(EditorType.Color, "Appearance"),
+        ["BorderColor"] = new(EditorType.Color, "Appearance"),
+        ["Color"] = new(EditorType.Color, "Appearance"),
+        ["BarBackgroundColor"] = new(EditorType.Color, "Appearance"),
+        ["BarTextColor"] = new(EditorType.Color, "Appearance"),
+        ["Stroke"] = new(EditorType.Brush, "Appearance"),
+        ["Fill"] = new(EditorType.Brush, "Appearance"),
+        ["Opacity"] = new(EditorType.Number, "Appearance", NumMin: 0, NumMax: 1, NumStep: 0.05, IsDouble: true),
+        ["FontSize"] = new(EditorType.Number, "Appearance", NumMin: 1, NumMax: 200, NumStep: 1, IsDouble: true),
+        ["FontFamily"] = new(EditorType.Text, "Appearance"),
+        ["FontAttributes"] = new(EditorType.Enum, "Appearance", EnumValues: new[] { "None", "Bold", "Italic" }),
+        ["TextDecorations"] = new(EditorType.Enum, "Appearance", EnumValues: new[] { "None", "Underline", "Strikethrough" }),
+        ["StyleClass"] = new(EditorType.Text, "Appearance"),
+        ["CornerRadius"] = new(EditorType.Number, "Appearance", NumMin: 0, NumMax: 500, NumStep: 1),
+
+        // --- Layout ---
+        ["Margin"] = new(EditorType.Thickness, "Layout", SortOrder: 1),
+        ["Padding"] = new(EditorType.Thickness, "Layout", SortOrder: 2),
+        ["HorizontalOptions"] = new(EditorType.Enum, "Layout", SortOrder: 3,
+            EnumValues: new[] { "Start", "Center", "End", "Fill", "StartAndExpand", "CenterAndExpand", "EndAndExpand", "FillAndExpand" }),
+        ["VerticalOptions"] = new(EditorType.Enum, "Layout", SortOrder: 4,
+            EnumValues: new[] { "Start", "Center", "End", "Fill", "StartAndExpand", "CenterAndExpand", "EndAndExpand", "FillAndExpand" }),
+        ["WidthRequest"] = new(EditorType.Number, "Layout", NumMin: -1, NumMax: 10000, NumStep: 1, IsDouble: true, SortOrder: 5),
+        ["HeightRequest"] = new(EditorType.Number, "Layout", NumMin: -1, NumMax: 10000, NumStep: 1, IsDouble: true, SortOrder: 6),
+        ["MinimumWidthRequest"] = new(EditorType.Number, "Layout", NumMin: -1, NumMax: 10000, NumStep: 1, IsDouble: true, SortOrder: 7, DefaultValue: "-1"),
+        ["MinimumHeightRequest"] = new(EditorType.Number, "Layout", NumMin: -1, NumMax: 10000, NumStep: 1, IsDouble: true, SortOrder: 8, DefaultValue: "-1"),
+        ["MaximumWidthRequest"] = new(EditorType.Number, "Layout", NumMin: -1, NumMax: 10000, NumStep: 1, IsDouble: true, SortOrder: 9, DefaultValue: "Infinity"),
+        ["MaximumHeightRequest"] = new(EditorType.Number, "Layout", NumMin: -1, NumMax: 10000, NumStep: 1, IsDouble: true, SortOrder: 10, DefaultValue: "Infinity"),
+        ["HorizontalTextAlignment"] = new(EditorType.Enum, "Layout", SortOrder: 11,
+            EnumValues: new[] { "Start", "Center", "End" }),
+        ["VerticalTextAlignment"] = new(EditorType.Enum, "Layout", SortOrder: 12,
+            EnumValues: new[] { "Start", "Center", "End" }),
+        ["LineBreakMode"] = new(EditorType.Enum, "Layout", SortOrder: 13,
+            EnumValues: new[] { "NoWrap", "WordWrap", "CharacterWrap", "HeadTruncation", "TailTruncation", "MiddleTruncation" }),
+        ["Spacing"] = new(EditorType.Number, "Layout", NumMin: 0, NumMax: 1000, NumStep: 1, IsDouble: true, SortOrder: 14),
+
+        // --- Transform ---
+        ["Rotation"] = new(EditorType.Number, "Transform", NumMin: 0, NumMax: 360, NumStep: 1, IsDouble: true),
+        ["RotationX"] = new(EditorType.Number, "Transform", NumMin: 0, NumMax: 360, NumStep: 1, IsDouble: true),
+        ["RotationY"] = new(EditorType.Number, "Transform", NumMin: 0, NumMax: 360, NumStep: 1, IsDouble: true),
+        ["Scale"] = new(EditorType.Number, "Transform", NumMin: 0, NumMax: 10, NumStep: 0.1, IsDouble: true),
+        ["ScaleX"] = new(EditorType.Number, "Transform", NumMin: 0, NumMax: 10, NumStep: 0.1, IsDouble: true),
+        ["ScaleY"] = new(EditorType.Number, "Transform", NumMin: 0, NumMax: 10, NumStep: 0.1, IsDouble: true),
+        ["TranslationX"] = new(EditorType.Number, "Transform", NumMin: -10000, NumMax: 10000, NumStep: 1, IsDouble: true),
+        ["TranslationY"] = new(EditorType.Number, "Transform", NumMin: -10000, NumMax: 10000, NumStep: 1, IsDouble: true),
+        ["AnchorX"] = new(EditorType.Number, "Transform", NumMin: 0, NumMax: 1, NumStep: 0.1, IsDouble: true),
+        ["AnchorY"] = new(EditorType.Number, "Transform", NumMin: 0, NumMax: 1, NumStep: 0.1, IsDouble: true),
+
+        // --- Behavior ---
+        ["IsVisible"] = new(EditorType.Boolean, "Appearance", SortOrder: -2),
+        ["IsEnabled"] = new(EditorType.Boolean, "Appearance", SortOrder: -1),
+        ["InputTransparent"] = new(EditorType.Boolean, "Behavior"),
+        ["IsReadOnly"] = new(EditorType.Boolean, "Behavior"),
+        ["IsSpellCheckEnabled"] = new(EditorType.Boolean, "Behavior"),
+        ["IsTextPredictionEnabled"] = new(EditorType.Boolean, "Behavior"),
+        ["ZIndex"] = new(EditorType.Number, "Behavior", NumMin: -1000, NumMax: 1000, NumStep: 1),
+        ["FlowDirection"] = new(EditorType.Enum, "Behavior",
+            EnumValues: new[] { "MatchParent", "LeftToRight", "RightToLeft" }),
+        ["Keyboard"] = new(EditorType.Enum, "Behavior",
+            EnumValues: new[] { "Default", "Chat", "Email", "Numeric", "Plain", "Telephone", "Text", "Url" }),
+        ["AutomationId"] = new(EditorType.Text, "Behavior", SortOrder: 0),
+        ["Text"] = new(EditorType.Text, "Appearance", SortOrder: 0),
+    };
+
+    private static readonly string[] CommonProperties = PropertyRegistry.Keys.ToArray();
+
+    private static readonly string[] GroupOrder = new[] { "Appearance", "Layout", "Behavior", "Transform", "Other" };
+
+    private static PropertyMeta GetMeta(string propName)
+        => PropertyRegistry.TryGetValue(propName, out var meta) ? meta : new PropertyMeta(EditorType.Text, "Other");
+
+    private static bool IsDefaultValue(string? value, string defaultValue)
+    {
+        if (string.IsNullOrEmpty(value)) return true;
+        // Handle infinity comparisons
+        if (defaultValue == "Infinity")
+            return value.Contains("Infinity", StringComparison.OrdinalIgnoreCase)
+                || (double.TryParse(value, out var v) && double.IsPositiveInfinity(v));
+        // Numeric comparison
+        if (double.TryParse(value, out var current) && double.TryParse(defaultValue, out var def))
+            return Math.Abs(current - def) < 0.001;
+        return string.Equals(value, defaultValue, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // Resize state
+    private double screenshotPaneWidth = 280;
+    private double propsPaneWidth = 320;
+    private bool isResizing;
+    private string? resizingHandle;
+    private double resizeStartX;
+    private double resizeStartWidth;
+
+    private void StartResize(MouseEventArgs e, string handle)
+    {
+        isResizing = true;
+        resizingHandle = handle;
+        resizeStartX = e.ClientX;
+        resizeStartWidth = handle == "left" ? screenshotPaneWidth : propsPaneWidth;
+    }
+
+    private void OnResizeMove(MouseEventArgs e)
+    {
+        if (!isResizing || resizingHandle == null) return;
+
+        var delta = e.ClientX - resizeStartX;
+
+        if (resizingHandle == "left")
+        {
+            screenshotPaneWidth = Math.Clamp(resizeStartWidth + delta, 120, 600);
+        }
+        else
+        {
+            propsPaneWidth = Math.Clamp(resizeStartWidth - delta, 150, 600);
+        }
+    }
+
+    private void StopResize(MouseEventArgs e)
+    {
+        isResizing = false;
+        resizingHandle = null;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshTree();
+        await RefreshScreenshot();
+    }
+
+    private async Task RefreshTree()
+    {
+        isLoadingTree = true;
+        StateHasChanged();
+
+        var previousSelected = selectedElementId;
+
+        try
+        {
+            treeItems = await Client.GetTreeAsync();
+
+            // Always expand all nodes
+            expandedNodes.Clear();
+            AddAllNodeIds(treeItems);
+
+            // Re-select previous element
+            if (previousSelected != null)
+            {
+                selectedElement = FindElement(treeItems, previousSelected);
+                if (selectedElement == null)
+                    selectedElementId = null;
+            }
+        }
+        catch { }
+        finally
+        {
+            isLoadingTree = false;
+            StateHasChanged();
+        }
+    }
+
+    private DevFlowElementInfo? FindElement(List<DevFlowElementInfo> items, string id)
+    {
+        foreach (var item in items)
+        {
+            if (item.Id == id) return item;
+            if (item.Children?.Count > 0)
+            {
+                var found = FindElement(item.Children, id);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
+    private async Task RefreshScreenshot(int? window = null)
+    {
+        try
+        {
+            var bytes = await Client.GetScreenshotAsync(window: window ?? selectedWindowIndex);
+            screenshotData = bytes != null ? Convert.ToBase64String(bytes) : null;
+            StateHasChanged();
+        }
+        catch { }
+    }
+
+    // --- Inspect Mode: Screenshot click → element selection ---
+
+    private record ImageDimensions(double Width, double Height, double NaturalWidth, double NaturalHeight);
+
+    private async Task OnScreenshotClick(MouseEventArgs e)
+    {
+        if (!inspectMode || treeItems.Count == 0)
+        {
+            inspectDebug = $"Skip: inspectMode={inspectMode}, treeItems={treeItems.Count}";
+            StateHasChanged();
+            return;
+        }
+
+        try
+        {
+            inspectDebug = $"Click at offset=({e.OffsetX:F0},{e.OffsetY:F0})";
+            StateHasChanged();
+
+            // Get image element and natural dimensions via JS
+            var dims = await JS.InvokeAsync<ImageDimensions>("eval",
+                "(function() { var img = document.querySelector('.screenshot-img');" +
+                "if (!img) return null;" +
+                "var r = img.getBoundingClientRect();" +
+                "return { width: r.width, height: r.height, naturalWidth: img.naturalWidth, naturalHeight: img.naturalHeight }; })()");
+
+            if (dims == null || dims.NaturalWidth <= 0 || dims.NaturalHeight <= 0)
+            {
+                inspectDebug = $"No dims: {(dims == null ? "null" : $"natW={dims.NaturalWidth}")}";
+                StateHasChanged();
+                return;
+            }
+
+            // e.OffsetX/OffsetY are relative to the clicked element's border box
+            // Account for object-fit: contain letterboxing
+            var imgAspect = dims.NaturalWidth / dims.NaturalHeight;
+            var boxAspect = dims.Width / dims.Height;
+            double actW, actH, offX, offY;
+            if (imgAspect > boxAspect)
+            {
+                actW = dims.Width; actH = dims.Width / imgAspect;
+                offX = 0; offY = (dims.Height - actH) / 2;
+            }
+            else
+            {
+                actH = dims.Height; actW = dims.Height * imgAspect;
+                offX = (dims.Width - actW) / 2; offY = 0;
+            }
+
+            // Click position within the actual image content
+            var mx = e.OffsetX - offX;
+            var my = e.OffsetY - offY;
+            if (mx < 0 || my < 0 || mx > actW || my > actH)
+            {
+                inspectDebug = $"Outside: mx={mx:F0} my={my:F0} actW={actW:F0} actH={actH:F0}";
+                StateHasChanged();
+                return;
+            }
+
+            // Compute DPI scale from root element bounds vs screenshot natural size
+            var rootBounds = GetRootBounds();
+            if (rootBounds == null)
+            {
+                inspectDebug = "No root bounds found";
+                StateHasChanged();
+                return;
+            }
+
+            // Window width in logical points (root bounds X offset + width = full window width)
+            var windowWidth = rootBounds.X + rootBounds.Width;
+            var dpiScale = dims.NaturalWidth / windowWidth;
+            if (dpiScale <= 0) dpiScale = 1;
+
+            // Map click to logical MAUI points (full window coordinate space)
+            var logicalX = (mx / actW) * dims.NaturalWidth / dpiScale;
+            var logicalY = (my / actH) * dims.NaturalHeight / dpiScale;
+
+            // Try server-side hit test first (uses MAUI's native GetVisualTreeElements)
+            DevFlowElementInfo? hit = null;
+            try
+            {
+                var hitResult = await Client.HitTestAsync(logicalX, logicalY, selectedWindowIndex);
+                if (hitResult?.Elements.Count > 0)
+                {
+                    // Elements are deepest-first; find the first match in our tree
+                    var hitId = hitResult.Elements[0].Id;
+                    hit = FindElementById(treeItems, hitId);
+                    if (hit != null)
+                        inspectDebug = $"HIT (server): {hit.Type} [{hitId}] at ({logicalX:F0},{logicalY:F0})";
+                }
+            }
+            catch
+            {
+                // Server-side hit test not available; fall through to client-side
+            }
+
+            // Fall back to client-side hit test
+            if (hit == null)
+            {
+                hit = HitTest(treeItems, logicalX, logicalY);
+                if (hit != null)
+                    inspectDebug = $"HIT (client): {hit.Type} at ({logicalX:F0},{logicalY:F0})";
+            }
+
+            if (hit != null)
+            {
+                await RevealAndSelectElement(hit);
+            }
+            else
+            {
+                inspectDebug = $"No hit at ({logicalX:F0},{logicalY:F0}) dpi={dpiScale:F1}";
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            inspectDebug = $"ERROR: {ex.Message}";
+            StateHasChanged();
+        }
+    }
+
+    private DevFlowBoundsInfo? GetRootBounds()
+    {
+        return FindFirstValidBounds(treeItems);
+    }
+
+    private DevFlowBoundsInfo? FindFirstValidBounds(List<DevFlowElementInfo> items)
+    {
+        foreach (var item in items)
+        {
+            if (item.Bounds != null && item.Bounds.Width > 0 && item.Bounds.Height > 0)
+                return item.Bounds;
+            if (item.Children?.Count > 0)
+            {
+                var childBounds = FindFirstValidBounds(item.Children);
+                if (childBounds != null) return childBounds;
+            }
+        }
+        return null;
+    }
+
+    private DevFlowElementInfo? HitTest(List<DevFlowElementInfo> items, double x, double y,
+        double absOffX = 0, double absOffY = 0, DevFlowBoundsInfo? parentBounds = null)
+    {
+        DevFlowElementInfo? best = null;
+        foreach (var item in items)
+        {
+            var b = item.Bounds;
+            var validBounds = b != null && b.Width > 0 && b.Height > 0;
+
+            // Compute absolute position, skipping duplicate offsets (same position+size as parent)
+            var itemAbsX = absOffX;
+            var itemAbsY = absOffY;
+            if (validBounds)
+            {
+                if (parentBounds == null ||
+                    Math.Abs(b!.X - parentBounds.X) > 0.5 || Math.Abs(b.Y - parentBounds.Y) > 0.5 ||
+                    Math.Abs(b.Width - parentBounds.Width) > 0.5 || Math.Abs(b.Height - parentBounds.Height) > 0.5)
+                {
+                    itemAbsX += b!.X;
+                    itemAbsY += b.Y;
+                }
+            }
+
+            if (validBounds && item.IsVisible &&
+                x >= itemAbsX && x <= itemAbsX + b!.Width &&
+                y >= itemAbsY && y <= itemAbsY + b.Height)
+            {
+                best = item;
+            }
+
+            // Always recurse into children (hidden containers like Window/Shell have visible content)
+            if (item.Children?.Count > 0)
+            {
+                var childHit = HitTest(item.Children, x, y, itemAbsX, itemAbsY, validBounds ? b : parentBounds);
+                if (childHit != null) best = childHit;
+            }
+        }
+        return best;
+    }
+
+    private DevFlowElementInfo? FindElementById(List<DevFlowElementInfo> items, string id)
+    {
+        foreach (var item in items)
+        {
+            if (item.Id == id) return item;
+            if (item.Children?.Count > 0)
+            {
+                var found = FindElementById(item.Children, id);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
+    private bool ExpandPathTo(List<DevFlowElementInfo> items, string targetId)
+    {
+        foreach (var item in items)
+        {
+            if (item.Id == targetId) return true;
+            if (item.Children?.Count > 0 && ExpandPathTo(item.Children, targetId))
+            {
+                expandedNodes.Add(item.Id);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private (double x, double y, double w, double h)? GetAbsoluteBounds(DevFlowElementInfo element)
+    {
+        if (element.Bounds == null || element.Bounds.Width <= 0) return null;
+        var path = FindPathTo(treeItems, element.Id);
+        if (path == null) return null;
+
+        double absX = 0, absY = 0;
+        DevFlowBoundsInfo? prevBounds = null;
+        foreach (var ancestor in path)
+        {
+            var b = ancestor.Bounds;
+            if (b != null && b.Width > 0 && b.Height > 0)
+            {
+                // Skip duplicate offsets: when child has same position+size as parent,
+                // MAUI's Frame is reporting absolute-ish coords, not relative-to-parent
+                if (prevBounds == null ||
+                    Math.Abs(b.X - prevBounds.X) > 0.5 || Math.Abs(b.Y - prevBounds.Y) > 0.5 ||
+                    Math.Abs(b.Width - prevBounds.Width) > 0.5 || Math.Abs(b.Height - prevBounds.Height) > 0.5)
+                {
+                    absX += b.X;
+                    absY += b.Y;
+                }
+                prevBounds = b;
+            }
+        }
+        return (absX, absY, element.Bounds.Width, element.Bounds.Height);
+    }
+
+    private List<DevFlowElementInfo>? FindPathTo(List<DevFlowElementInfo> items, string targetId, List<DevFlowElementInfo>? path = null)
+    {
+        path ??= new();
+        foreach (var item in items)
+        {
+            path.Add(item);
+            if (item.Id == targetId) return path;
+            if (item.Children?.Count > 0)
+            {
+                var result = FindPathTo(item.Children, targetId, path);
+                if (result != null) return result;
+            }
+            path.RemoveAt(path.Count - 1);
+        }
+        return null;
+    }
+
+    private async Task RevealAndSelectElement(DevFlowElementInfo element)
+    {
+        ExpandPathTo(treeItems, element.Id);
+        await SelectElement(element);
+        locateElementId = element.Id; // show overlay for inspect-mode hits
+        await UpdateOverlayAsync();
+        StateHasChanged();
+
+        // Scroll the selected tree node into view after render
+        await Task.Delay(50);
+        await JS.InvokeVoidAsync("eval",
+            "document.querySelector('.tree-node.selected')?.scrollIntoView({ block: 'center', behavior: 'smooth' })");
+    }
+
+    private RenderFragment RenderHighlightOverlay => __builder =>
+    {
+        if (string.IsNullOrEmpty(overlayStyle)) return;
+
+        __builder.OpenElement(0, "div");
+        __builder.AddAttribute(1, "class", "highlight-overlay");
+        __builder.AddAttribute(2, "style", overlayStyle);
+        __builder.CloseElement();
+    };
+
+    private async Task UpdateOverlayAsync()
+    {
+        overlayStyle = null;
+        if (selectedElement?.Bounds == null || screenshotData == null) return;
+
+        var absBounds = GetAbsoluteBounds(selectedElement);
+        if (absBounds == null) return;
+
+        var rootBounds = GetRootBounds();
+        if (rootBounds == null) return;
+
+        var windowWidth = rootBounds.Width + rootBounds.X;
+        var windowHeight = rootBounds.Height + rootBounds.Y;
+        if (windowWidth <= 0 || windowHeight <= 0) return;
+
+        try
+        {
+            // Get actual image rendering dimensions via JS
+            var dims = await JS.InvokeAsync<ImageDimensions>("eval",
+                "(function() { var img = document.querySelector('.screenshot-img');" +
+                "if (!img) return null;" +
+                "var r = img.getBoundingClientRect();" +
+                "return { width: r.width, height: r.height, naturalWidth: img.naturalWidth, naturalHeight: img.naturalHeight }; })()");
+
+            if (dims == null || dims.NaturalWidth <= 0 || dims.NaturalHeight <= 0) return;
+
+            var dpiScale = dims.NaturalWidth / windowWidth;
+            if (dpiScale <= 0) dpiScale = 1;
+
+            // Convert logical bounds to pixels in the rendered image, with padding so border sits outside the element
+            var pad = 3.0;
+            var pxLeft = (absBounds.Value.x / windowWidth) * dims.Width - pad;
+            var pxTop = (absBounds.Value.y / windowHeight) * dims.Height - pad;
+            var pxWidth = (absBounds.Value.w / windowWidth) * dims.Width + pad * 2;
+            var pxHeight = (absBounds.Value.h / windowHeight) * dims.Height + pad * 2;
+
+            overlayStyle = $"left: {pxLeft:F1}px; top: {pxTop:F1}px; width: {pxWidth:F1}px; height: {pxHeight:F1}px;";
+        }
+        catch { }
+    }
+
+    private async Task SelectElement(DevFlowElementInfo element)
+    {
+        selectedElement = element;
+        selectedElementId = element.Id;
+        editingProperty = null;
+        locateElementId = null;
+        overlayStyle = null;
+        fetchedProperties.Clear();
+        brushValueCache.Clear();
+
+        var windowIndex = GetWindowIndex(element);
+        if (windowIndex != selectedWindowIndex)
+        {
+            selectedWindowIndex = windowIndex;
+        }
+
+        StateHasChanged();
+
+        // Fetch detailed element info and properties in parallel
+        _ = Task.Run(async () =>
+        {
+            await InvokeAsync(async () =>
+            {
+                isLoadingProps = true;
+                StateHasChanged();
+
+                try
+                {
+                    // Get full element details
+                    var detailed = await Client.GetElementAsync(element.Id);
+                    if (detailed != null && selectedElementId == element.Id)
+                    {
+                        selectedElement = detailed;
+                    }
+
+                    // Fetch common properties in parallel batches
+                    var tasks = CommonProperties.Select(async prop =>
+                    {
+                        var val = await Client.GetPropertyAsync(element.Id, prop);
+                        return new PropertyEntry(prop, val, GetMeta(prop));
+                    });
+
+                    var results = await Task.WhenAll(tasks);
+
+                    if (selectedElementId == element.Id)
+                    {
+                        fetchedProperties = results
+                            .Where(p => p.Value != null)
+                            .OrderBy(p => Array.IndexOf(GroupOrder, p.Meta.Group))
+                            .ThenBy(p => p.Meta.SortOrder)
+                            .ThenBy(p => p.Name)
+                            .ToList();
+                    }
+                }
+                catch { }
+                finally
+                {
+                    isLoadingProps = false;
+                    StateHasChanged();
+                }
+            });
+        });
+
+        if (windowIndex != selectedWindowIndex || screenshotData == null)
+        {
+            await RefreshScreenshot(windowIndex);
+        }
+    }
+
+    private int? GetWindowIndex(DevFlowElementInfo element)
+    {
+        for (int i = 0; i < treeItems.Count; i++)
+        {
+            if (ContainsElement(treeItems[i], element.Id))
+                return i;
+        }
+        return null;
+    }
+
+    private bool ContainsElement(DevFlowElementInfo root, string id)
+    {
+        if (root.Id == id) return true;
+        if (root.Children != null)
+        {
+            foreach (var child in root.Children)
+            {
+                if (ContainsElement(child, id))
+                    return true;
+            }
+        }
+        return false;
+    }
+
+    private void ToggleExpand(string id)
+    {
+        if (expandedNodes.Contains(id))
+            expandedNodes.Remove(id);
+        else
+            expandedNodes.Add(id);
+        StateHasChanged();
+    }
+
+    private void ExpandAll()
+    {
+        AddAllNodeIds(treeItems);
+        StateHasChanged();
+    }
+
+    private void CollapseAll()
+    {
+        expandedNodes.Clear();
+        StateHasChanged();
+    }
+
+    private void ExpandAllDescendants(DevFlowElementInfo item)
+    {
+        expandedNodes.Add(item.Id);
+        if (item.Children != null)
+        {
+            foreach (var child in item.Children)
+                ExpandAllDescendants(child);
+        }
+        StateHasChanged();
+    }
+
+    private void CollapseAllDescendants(DevFlowElementInfo item)
+    {
+        expandedNodes.Remove(item.Id);
+        if (item.Children != null)
+        {
+            foreach (var child in item.Children)
+                CollapseAllDescendants(child);
+        }
+        StateHasChanged();
+    }
+
+    private void AddAllNodeIds(List<DevFlowElementInfo> items)
+    {
+        foreach (var item in items)
+        {
+            expandedNodes.Add(item.Id);
+            if (item.Children?.Count > 0)
+                AddAllNodeIds(item.Children);
+        }
+    }
+
+    private bool MatchesSearch(DevFlowElementInfo item)
+    {
+        if (string.IsNullOrEmpty(searchQuery)) return true;
+        var q = searchQuery.ToLowerInvariant();
+        return (item.Type?.ToLowerInvariant().Contains(q) == true)
+            || (item.Text?.ToLowerInvariant().Contains(q) == true)
+            || (item.AutomationId?.ToLowerInvariant().Contains(q) == true);
+    }
+
+    private bool HasMatchingDescendant(DevFlowElementInfo item)
+    {
+        if (MatchesSearch(item)) return true;
+        if (item.Children == null) return false;
+        return item.Children.Any(c => HasMatchingDescendant(c));
+    }
+
+    private RenderFragment RenderNode(DevFlowElementInfo item, int depth, List<bool> ancestorIsLast) => __builder =>
+    {
+        if (!string.IsNullOrEmpty(searchQuery) && !HasMatchingDescendant(item))
+            return;
+
+        var hasChildren = item.Children?.Count > 0;
+        var isExpanded = expandedNodes.Contains(item.Id);
+        var isSelected = selectedElementId == item.Id;
+
+        // The node row
+        __builder.OpenElement(0, "div");
+        __builder.AddAttribute(1, "class", $"tree-node {(isSelected ? "selected" : "")}");
+        __builder.AddAttribute(2, "onclick", EventCallback.Factory.Create<Microsoft.AspNetCore.Components.Web.MouseEventArgs>(this, () => SelectElement(item)));
+
+        // Indent guide spans for each depth level
+        for (int d = 0; d < depth; d++)
+        {
+            __builder.OpenElement(10, "span");
+            if (d < depth - 1)
+            {
+                // Ancestor level: vertical line if ancestor has more siblings, blank if last
+                __builder.AddAttribute(11, "class", ancestorIsLast[d] ? "indent-guide" : "indent-guide guide-line");
+            }
+            else
+            {
+                // Current level connector: L if last child, T if not
+                __builder.AddAttribute(11, "class", ancestorIsLast[d] ? "indent-guide guide-last" : "indent-guide guide-mid");
+            }
+            __builder.CloseElement();
+        }
+
+        // Toggle caret (only for nodes with children)
+        if (hasChildren)
+        {
+            __builder.OpenElement(30, "span");
+            __builder.AddAttribute(31, "class", "tree-toggle");
+            __builder.AddAttribute(32, "onclick", EventCallback.Factory.Create<Microsoft.AspNetCore.Components.Web.MouseEventArgs>(this, () => ToggleExpand(item.Id)));
+            __builder.AddEventStopPropagationAttribute(33, "onclick", true);
+            __builder.OpenElement(34, "i");
+            __builder.AddAttribute(35, "class", $"fas {(isExpanded ? "fa-caret-down" : "fa-caret-right")}");
+            __builder.CloseElement();
+            __builder.CloseElement();
+        }
+
+        __builder.OpenElement(50, "span");
+        __builder.AddAttribute(51, "class", "tree-type");
+        __builder.AddContent(52, item.Type);
+        __builder.CloseElement();
+
+        if (!string.IsNullOrEmpty(item.Text))
+        {
+            __builder.OpenElement(60, "span");
+            __builder.AddAttribute(61, "class", "tree-text");
+            __builder.AddContent(62, $"\"{Truncate(item.Text, 30)}\"");
+            __builder.CloseElement();
+        }
+
+        if (!string.IsNullOrEmpty(item.AutomationId))
+        {
+            __builder.OpenElement(70, "span");
+            __builder.AddAttribute(71, "class", "tree-aid");
+            __builder.AddContent(72, $"#{item.AutomationId}");
+            __builder.CloseElement();
+        }
+
+        if (!item.IsVisible)
+        {
+            __builder.OpenElement(80, "span");
+            __builder.AddAttribute(81, "class", "tree-hidden");
+            __builder.AddAttribute(82, "title", "Hidden");
+            __builder.OpenElement(83, "i");
+            __builder.AddAttribute(84, "class", "fas fa-eye-slash");
+            __builder.CloseElement();
+            __builder.CloseElement();
+        }
+
+        // Right-side hover buttons: expand/collapse (parent nodes only) + locate in screenshot (all nodes)
+        __builder.OpenElement(85, "span");
+        __builder.AddAttribute(86, "class", "tree-actions");
+
+        if (hasChildren)
+        {
+            __builder.OpenElement(87, "span");
+            __builder.AddAttribute(88, "class", "tree-expand-all");
+            __builder.AddAttribute(89, "title", "Expand all children");
+            __builder.AddAttribute(90, "onclick", EventCallback.Factory.Create<Microsoft.AspNetCore.Components.Web.MouseEventArgs>(this, () => ExpandAllDescendants(item)));
+            __builder.AddEventStopPropagationAttribute(91, "onclick", true);
+            __builder.OpenElement(92, "i");
+            __builder.AddAttribute(93, "class", "fas fa-angles-down");
+            __builder.CloseElement();
+            __builder.CloseElement();
+
+            __builder.OpenElement(94, "span");
+            __builder.AddAttribute(95, "class", "tree-collapse-all");
+            __builder.AddAttribute(96, "title", "Collapse all children");
+            __builder.AddAttribute(97, "onclick", EventCallback.Factory.Create<Microsoft.AspNetCore.Components.Web.MouseEventArgs>(this, () => CollapseAllDescendants(item)));
+            __builder.AddEventStopPropagationAttribute(98, "onclick", true);
+            __builder.OpenElement(99, "i");
+            __builder.AddAttribute(100, "class", "fas fa-angles-up");
+            __builder.CloseElement();
+            __builder.CloseElement();
+        }
+
+        // Locate in screenshot toggle (all nodes)
+        var isLocating = locateElementId == item.Id;
+        __builder.OpenElement(83, "span");
+        __builder.AddAttribute(84, "class", $"tree-locate{(isLocating ? " active" : "")}");
+        __builder.AddAttribute(841, "title", isLocating ? "Hide highlight" : "Locate in screenshot");
+        __builder.AddAttribute(842, "onclick", EventCallback.Factory.Create<Microsoft.AspNetCore.Components.Web.MouseEventArgs>(this, async () =>
+        {
+            if (locateElementId == item.Id)
+            {
+                // Toggle off
+                locateElementId = null;
+                overlayStyle = null;
+                StateHasChanged();
+            }
+            else
+            {
+                // Toggle on
+                locateElementId = item.Id;
+                await SelectElement(item);
+                locateElementId = item.Id; // re-set after SelectElement clears it
+                await UpdateOverlayAsync();
+                StateHasChanged();
+                await Task.Delay(50);
+                await JS.InvokeVoidAsync("eval",
+                    "document.querySelector('.highlight-overlay')?.scrollIntoView({ block: 'center', behavior: 'smooth' })");
+            }
+        }));
+        __builder.AddEventStopPropagationAttribute(843, "onclick", true);
+        __builder.OpenElement(844, "i");
+        __builder.AddAttribute(845, "class", "fas fa-crosshairs");
+        __builder.CloseElement();
+        __builder.CloseElement();
+
+        __builder.CloseElement(); // span.tree-actions
+
+        __builder.CloseElement(); // div.tree-node
+
+        // Render children
+        if (hasChildren && (isExpanded || !string.IsNullOrEmpty(searchQuery)))
+        {
+            var children = item.Children!;
+            for (int i = 0; i < children.Count; i++)
+            {
+                var childAncestry = new List<bool>(ancestorIsLast) { i == children.Count - 1 };
+                __builder.AddContent(110, RenderNode(children[i], depth + 1, childAncestry));
+            }
+        }
+    };
+
+    private void StartEditing(string property, string? currentValue)
+    {
+        editingProperty = property;
+        editValue = currentValue ?? "";
+        StateHasChanged();
+    }
+
+    private async Task OnEditKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && selectedElement != null && editingProperty != null)
+        {
+            await CommitEdit();
+        }
+        else if (e.Key == "Escape")
+        {
+            editingProperty = null;
+            StateHasChanged();
+        }
+    }
+
+    private async Task OnEditBlur()
+    {
+        if (selectedElement != null && editingProperty != null)
+        {
+            await CommitEdit();
+        }
+    }
+
+    private async Task CommitEdit()
+    {
+        if (selectedElement == null || editingProperty == null) return;
+        var prop = editingProperty;
+        var val = editValue;
+        var elementId = selectedElement.Id;
+
+        // Cache CSS value for brush properties (MAUI ToString doesn't preserve gradient stops)
+        var meta = GetMeta(prop);
+        if (meta.Editor == EditorType.Brush && !string.IsNullOrEmpty(val))
+        {
+            brushValueCache[$"{elementId}:{prop}"] = val;
+        }
+
+        editingProperty = null;
+        gradientStops.Clear();
+        selectedStopIndex = null;
+        isDraggingStop = false;
+        StateHasChanged();
+        await Client.SetPropertyAsync(elementId, prop, val);
+        await RefreshTree();
+        await RefreshProperties();
+    }
+
+    private async Task OnTrackPointerMove(PointerEventArgs e)
+    {
+        if (!isDraggingStop || !selectedStopIndex.HasValue || selectedStopIndex.Value >= gradientStops.Count)
+            return;
+
+        try
+        {
+            var rect = await JS.InvokeAsync<TrackRect>("eval",
+                $"(function(){{ var el=document.querySelector('.gradient-track-container'); if(!el) return null; var r=el.getBoundingClientRect(); return {{ left: r.left, width: r.width }}; }})()");
+            if (rect != null && rect.Width > 0)
+            {
+                var offset = (e.ClientX - rect.Left) / rect.Width;
+                offset = Math.Clamp(offset, 0, 1);
+                gradientStops[selectedStopIndex.Value].Offset = offset;
+                var currentType = DetectEditBrushType();
+                editValue = BuildGradientCss(currentType);
+                StateHasChanged();
+            }
+        }
+        catch { }
+    }
+
+    private record TrackRect(double Left, double Width);
+
+    private async Task RefreshProperties()
+    {
+        if (selectedElement == null) return;
+        var elementId = selectedElement.Id;
+
+        isLoadingProps = true;
+        StateHasChanged();
+
+        try
+        {
+            var tasks = CommonProperties.Select(async prop =>
+            {
+                var val = await Client.GetPropertyAsync(elementId, prop);
+                // Use cached CSS value for brush properties (MAUI ToString loses gradient stop details)
+                var meta = GetMeta(prop);
+                if (meta.Editor == EditorType.Brush && val != null
+                    && !val.StartsWith("linear-gradient", StringComparison.OrdinalIgnoreCase)
+                    && !val.StartsWith("radial-gradient", StringComparison.OrdinalIgnoreCase))
+                {
+                    var cacheKey = $"{elementId}:{prop}";
+                    if (brushValueCache.TryGetValue(cacheKey, out var cached))
+                        val = cached;
+                }
+                return new PropertyEntry(prop, val, meta);
+            });
+
+            var results = await Task.WhenAll(tasks);
+
+            if (selectedElementId == elementId)
+            {
+                fetchedProperties = results
+                    .Where(p => p.Value != null)
+                    .OrderBy(p => Array.IndexOf(GroupOrder, p.Meta.Group))
+                    .ThenBy(p => p.Meta.SortOrder)
+                    .ThenBy(p => p.Name)
+                    .ToList();
+            }
+        }
+        catch { }
+        finally
+        {
+            isLoadingProps = false;
+            StateHasChanged();
+        }
+    }
+
+    private static string GetPropertyValueClass(string? value)
+    {
+        if (value == null) return "";
+        if (value.Equals("True", StringComparison.OrdinalIgnoreCase)) return "val-true";
+        if (value.Equals("False", StringComparison.OrdinalIgnoreCase)) return "val-false";
+        return "";
+    }
+
+    // --- Specialized property editors ---
+
+    private RenderFragment RenderPropertyEditor(PropertyEntry prop) => __builder =>
+    {
+        var fragment = prop.Meta.Editor switch
+        {
+            EditorType.Boolean => RenderBoolEditor(prop),
+            EditorType.Enum => RenderEnumEditor(prop),
+            EditorType.Color => RenderColorEditor(prop),
+            EditorType.Brush => RenderBrushEditor(prop),
+            EditorType.Thickness => RenderThicknessEditor(prop),
+            EditorType.Number => RenderNumberEditor(prop),
+            _ => RenderTextEditor(prop),
+        };
+        __builder.AddContent(0, fragment);
+    };
+
+    private RenderFragment RenderBoolEditor(PropertyEntry prop) => __builder =>
+    {
+        var isTrue = prop.Value?.Equals("True", StringComparison.OrdinalIgnoreCase) == true;
+        __builder.OpenElement(0, "div");
+        __builder.AddAttribute(1, "class", "prop-row editable");
+        __builder.AddAttribute(2, "onclick", EventCallback.Factory.Create<MouseEventArgs>(this, () => ToggleBoolProperty(prop.Name, isTrue)));
+
+        __builder.OpenElement(3, "span");
+        __builder.AddAttribute(4, "class", "prop-key");
+        __builder.AddContent(5, prop.Name);
+        __builder.CloseElement();
+
+        __builder.OpenElement(6, "span");
+        __builder.AddAttribute(7, "class", "prop-value");
+        __builder.OpenElement(8, "label");
+        __builder.AddAttribute(9, "class", "bool-toggle");
+        __builder.OpenElement(10, "input");
+        __builder.AddAttribute(11, "type", "checkbox");
+        if (isTrue) __builder.AddAttribute(12, "checked", true);
+        __builder.CloseElement();
+        __builder.OpenElement(13, "span");
+        __builder.AddAttribute(14, "class", isTrue ? "val-true" : "val-false");
+        __builder.AddContent(15, prop.Value);
+        __builder.CloseElement();
+        __builder.CloseElement(); // label
+        __builder.CloseElement(); // span.prop-value
+
+        __builder.CloseElement(); // div.prop-row
+    };
+
+    private RenderFragment RenderEnumEditor(PropertyEntry prop) => __builder =>
+    {
+        __builder.OpenElement(0, "div");
+        __builder.AddAttribute(1, "class", "prop-row");
+
+        __builder.OpenElement(2, "span");
+        __builder.AddAttribute(3, "class", "prop-key");
+        __builder.AddContent(4, prop.Name);
+        __builder.CloseElement();
+
+        __builder.OpenElement(5, "select");
+        __builder.AddAttribute(6, "class", "prop-enum-select");
+        __builder.AddAttribute(7, "value", prop.Value ?? "");
+        __builder.AddAttribute(8, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, async (e) =>
+        {
+            if (selectedElement != null)
+            {
+                await Client.SetPropertyAsync(selectedElement.Id, prop.Name, e.Value?.ToString() ?? "");
+                await RefreshTree();
+                await RefreshProperties();
+            }
+        }));
+
+        if (prop.Meta.EnumValues != null)
+        {
+            foreach (var val in prop.Meta.EnumValues)
+            {
+                __builder.OpenElement(10, "option");
+                __builder.AddAttribute(11, "value", val);
+                if (val.Equals(prop.Value, StringComparison.OrdinalIgnoreCase))
+                    __builder.AddAttribute(12, "selected", true);
+                __builder.AddContent(13, val);
+                __builder.CloseElement();
+            }
+        }
+        __builder.CloseElement(); // select
+        __builder.CloseElement(); // div
+    };
+
+    private RenderFragment RenderColorEditor(PropertyEntry prop) => __builder =>
+    {
+        var cssColor = MauiColorToCss(prop.Value);
+        var hexColor = MauiColorToHex(prop.Value);
+        var isEditing = editingProperty == prop.Name;
+
+        __builder.OpenElement(0, "div");
+        __builder.AddAttribute(1, "class", "prop-row editable");
+        if (!isEditing)
+        {
+            __builder.AddAttribute(2, "onclick", EventCallback.Factory.Create<MouseEventArgs>(this, () => StartEditing(prop.Name, prop.Value)));
+        }
+
+        __builder.OpenElement(3, "span");
+        __builder.AddAttribute(4, "class", "prop-key");
+        __builder.AddContent(5, prop.Name);
+        __builder.CloseElement();
+
+        __builder.OpenElement(6, "span");
+        __builder.AddAttribute(7, "class", "prop-value color-value");
+
+        // Color swatch
+        __builder.OpenElement(8, "span");
+        __builder.AddAttribute(9, "class", "color-swatch");
+        __builder.AddAttribute(10, "style", $"background: {cssColor}");
+        __builder.CloseElement();
+
+        if (isEditing)
+        {
+            __builder.OpenElement(11, "input");
+            __builder.AddAttribute(12, "type", "color");
+            __builder.AddAttribute(13, "value", hexColor);
+            __builder.AddAttribute(14, "class", "color-picker-input");
+            __builder.AddAttribute(15, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, async (e) =>
+            {
+                if (selectedElement != null)
+                {
+                    await Client.SetPropertyAsync(selectedElement.Id, prop.Name, e.Value?.ToString() ?? "");
+                    editingProperty = null;
+                    await RefreshTree();
+                    await RefreshProperties();
+                }
+            }));
+            __builder.CloseElement();
+
+            __builder.OpenElement(16, "input");
+            __builder.AddAttribute(17, "type", "text");
+            __builder.AddAttribute(18, "value", prop.Value);
+            __builder.AddAttribute(19, "class", "prop-edit-input color-text-input");
+            __builder.AddAttribute(20, "onkeydown", EventCallback.Factory.Create<KeyboardEventArgs>(this, async (e) =>
+            {
+                if (e.Key == "Enter") await CommitEdit();
+                else if (e.Key == "Escape") { editingProperty = null; StateHasChanged(); }
+            }));
+            __builder.AddAttribute(21, "onfocusout", EventCallback.Factory.Create(this, OnEditBlur));
+            __builder.CloseElement();
+        }
+        else
+        {
+            __builder.OpenElement(22, "span");
+            __builder.AddAttribute(23, "class", "mono");
+            __builder.AddContent(24, prop.Value);
+            __builder.CloseElement();
+        }
+
+        __builder.CloseElement(); // span.prop-value
+        __builder.CloseElement(); // div.prop-row
+    };
+
+    private RenderFragment RenderBrushEditor(PropertyEntry prop) => __builder =>
+    {
+        var value = prop.Value ?? "";
+        var brushInfo = ParseBrushValue(value);
+        var isEditing = editingProperty == prop.Name;
+
+        __builder.OpenElement(0, "div");
+        __builder.AddAttribute(1, "class", "prop-row brush-row");
+        if (!isEditing)
+        {
+            __builder.AddAttribute(2, "onclick", EventCallback.Factory.Create<MouseEventArgs>(this, () =>
+            {
+                StartEditing(prop.Name, value);
+                InitGradientStops(brushInfo);
+            }));
+        }
+
+        __builder.OpenElement(3, "span");
+        __builder.AddAttribute(4, "class", "prop-key");
+        __builder.AddContent(5, prop.Name);
+        __builder.CloseElement();
+
+        __builder.OpenElement(6, "div");
+        __builder.AddAttribute(7, "class", isEditing ? "brush-value brush-editing" : "brush-value");
+
+        if (isEditing)
+        {
+            var currentType = DetectEditBrushType();
+
+            // Brush type selector
+            __builder.OpenElement(10, "select");
+            __builder.AddAttribute(11, "class", "brush-type-select");
+            __builder.AddAttribute(12, "value", currentType);
+            __builder.AddAttribute(13, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, (e) =>
+            {
+                var newType = e.Value?.ToString() ?? "solid";
+                if (newType == "solid")
+                {
+                    gradientStops.Clear();
+                    selectedStopIndex = null;
+                    editValue = "#ffffff";
+                }
+                else
+                {
+                    gradientStops = new List<GradientStop>
+                    {
+                        new() { Color = "#ff0000", Offset = 0, Opacity = 1 },
+                        new() { Color = "#0000ff", Offset = 1, Opacity = 1 }
+                    };
+                    selectedStopIndex = 0;
+                    gradientAngle = 90;
+                    editValue = BuildGradientCss(newType);
+                }
+                StateHasChanged();
+            }));
+            __builder.OpenElement(14, "option"); __builder.AddAttribute(15, "value", "solid"); __builder.AddContent(16, "Solid"); __builder.CloseElement();
+            __builder.OpenElement(17, "option"); __builder.AddAttribute(18, "value", "linear"); __builder.AddContent(19, "Linear"); __builder.CloseElement();
+            __builder.OpenElement(20, "option"); __builder.AddAttribute(21, "value", "radial"); __builder.AddContent(22, "Radial"); __builder.CloseElement();
+            __builder.CloseElement(); // select
+
+            if (currentType == "solid")
+            {
+                // Solid: preview + color picker + text
+                __builder.OpenElement(23, "div");
+                __builder.AddAttribute(24, "class", "brush-preview");
+                __builder.AddAttribute(25, "style", $"background: {MauiColorToCss(editValue)}");
+                __builder.CloseElement();
+
+                __builder.OpenElement(26, "div");
+                __builder.AddAttribute(27, "class", "solid-color-row");
+
+                __builder.OpenElement(28, "input");
+                __builder.AddAttribute(29, "type", "color");
+                __builder.AddAttribute(30, "value", MauiColorToHex(editValue));
+                __builder.AddAttribute(31, "class", "color-picker-input");
+                __builder.AddAttribute(32, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, async (e) =>
+                {
+                    editValue = e.Value?.ToString() ?? "";
+                    await CommitEdit();
+                }));
+                __builder.CloseElement();
+
+                __builder.CloseElement(); // solid-color-row
+            }
+            else
+            {
+                // Gradient editor
+                var gradientCss = BuildGradientCss(currentType);
+
+                // Live preview
+                __builder.OpenElement(40, "div");
+                __builder.AddAttribute(41, "class", currentType == "radial" ? "brush-preview brush-preview-radial" : "brush-preview");
+                __builder.AddAttribute(42, "style", $"background: {gradientCss}");
+                __builder.CloseElement();
+
+                // Gradient stop track
+                __builder.OpenElement(43, "div");
+                __builder.AddAttribute(44, "class", "gradient-track-container");
+                __builder.AddAttribute(45, "onpointermove", EventCallback.Factory.Create<PointerEventArgs>(this, OnTrackPointerMove));
+                __builder.AddAttribute(46, "onpointerup", EventCallback.Factory.Create<PointerEventArgs>(this, (e) =>
+                {
+                    isDraggingStop = false;
+                }));
+                __builder.AddElementReferenceCapture(47, (r) => gradientTrackRef = r);
+
+                // Track bar showing gradient
+                __builder.OpenElement(48, "div");
+                __builder.AddAttribute(49, "class", "gradient-track");
+                __builder.AddAttribute(50, "style", $"background: linear-gradient(90deg, {BuildLinearStopsCss()})");
+                __builder.CloseElement();
+
+                // Stop handles on the track
+                for (var si = 0; si < gradientStops.Count; si++)
+                {
+                    var idx = si;
+                    var stop = gradientStops[si];
+                    var colorWithOpacity = stop.Opacity < 1
+                        ? $"rgba({HexToRgb(stop.Color)}, {stop.Opacity:F2})"
+                        : stop.Color;
+
+                    __builder.OpenElement(52, "div");
+                    __builder.AddAttribute(53, "class", $"gradient-stop-handle {(selectedStopIndex == idx ? "selected" : "")} {(isDraggingStop && selectedStopIndex == idx ? "dragging" : "")}");
+                    __builder.AddAttribute(54, "style", $"left: {stop.Offset * 100:F1}%; background: {colorWithOpacity}");
+                    __builder.AddAttribute(55, "onpointerdown", EventCallback.Factory.Create<PointerEventArgs>(this, (e) =>
+                    {
+                        selectedStopIndex = idx;
+                        isDraggingStop = true;
+                        StateHasChanged();
+                    }));
+                    __builder.AddAttribute(56, "title", $"{stop.Offset * 100:F0}%");
+                    __builder.CloseElement();
+                }
+
+                __builder.CloseElement(); // gradient-track-container
+
+                // Stop controls row
+                __builder.OpenElement(60, "div");
+                __builder.AddAttribute(61, "class", "gradient-stop-controls");
+
+                // Add stop button
+                __builder.OpenElement(62, "button");
+                __builder.AddAttribute(63, "class", "btn-icon-sm");
+                __builder.AddAttribute(64, "title", "Add stop");
+                __builder.AddAttribute(65, "onclick", EventCallback.Factory.Create<MouseEventArgs>(this, () =>
+                {
+                    var newOffset = 0.5;
+                    if (gradientStops.Count >= 2)
+                    {
+                        // Insert midpoint between last two stops
+                        var sorted = gradientStops.OrderBy(s => s.Offset).ToList();
+                        var lastIdx = sorted.Count - 1;
+                        newOffset = (sorted[lastIdx - 1].Offset + sorted[lastIdx].Offset) / 2;
+                    }
+                    gradientStops.Add(new GradientStop { Color = "#888888", Offset = newOffset, Opacity = 1 });
+                    selectedStopIndex = gradientStops.Count - 1;
+                    editValue = BuildGradientCss(currentType);
+                    StateHasChanged();
+                }));
+                __builder.OpenElement(66, "i");
+                __builder.AddAttribute(67, "class", "fas fa-plus");
+                __builder.CloseElement();
+                __builder.CloseElement(); // button add
+
+                // Remove stop button
+                __builder.OpenElement(68, "button");
+                __builder.AddAttribute(69, "class", "btn-icon-sm");
+                __builder.AddAttribute(70, "title", "Remove stop");
+                __builder.AddAttribute(71, "disabled", gradientStops.Count <= 2);
+                __builder.AddAttribute(72, "onclick", EventCallback.Factory.Create<MouseEventArgs>(this, () =>
+                {
+                    if (gradientStops.Count > 2 && selectedStopIndex.HasValue && selectedStopIndex.Value < gradientStops.Count)
+                    {
+                        gradientStops.RemoveAt(selectedStopIndex.Value);
+                        selectedStopIndex = Math.Min(selectedStopIndex.Value, gradientStops.Count - 1);
+                        editValue = BuildGradientCss(currentType);
+                        StateHasChanged();
+                    }
+                }));
+                __builder.OpenElement(73, "i");
+                __builder.AddAttribute(74, "class", "fas fa-minus");
+                __builder.CloseElement();
+                __builder.CloseElement(); // button remove
+
+                // Stop count label
+                __builder.OpenElement(75, "span");
+                __builder.AddAttribute(76, "class", "gradient-stop-count");
+                __builder.AddContent(77, $"{gradientStops.Count} stops");
+                __builder.CloseElement();
+
+                __builder.CloseElement(); // gradient-stop-controls
+
+                // Selected stop editor
+                if (selectedStopIndex.HasValue && selectedStopIndex.Value < gradientStops.Count)
+                {
+                    var selStop = gradientStops[selectedStopIndex.Value];
+                    var selIdx = selectedStopIndex.Value;
+
+                    __builder.OpenElement(80, "div");
+                    __builder.AddAttribute(81, "class", "gradient-stop-editor");
+
+                    // Color picker
+                    // Color picker + opacity on same row
+                    __builder.OpenElement(82, "div");
+                    __builder.AddAttribute(83, "class", "stop-color-opacity-row");
+
+                    __builder.OpenElement(84, "input");
+                    __builder.AddAttribute(85, "type", "color");
+                    __builder.AddAttribute(86, "value", selStop.Color);
+                    __builder.AddAttribute(87, "class", "color-picker-input");
+                    __builder.AddAttribute(88, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, (e) =>
+                    {
+                        gradientStops[selIdx].Color = e.Value?.ToString() ?? "#ffffff";
+                        editValue = BuildGradientCss(currentType);
+                        StateHasChanged();
+                    }));
+                    __builder.CloseElement();
+
+                    __builder.OpenElement(90, "label");
+                    __builder.AddAttribute(91, "class", "opacity-label");
+                    __builder.AddContent(92, $"{selStop.Opacity * 100:F0}%");
+                    __builder.CloseElement();
+
+                    __builder.OpenElement(93, "input");
+                    __builder.AddAttribute(94, "type", "range");
+                    __builder.AddAttribute(95, "min", "0");
+                    __builder.AddAttribute(96, "max", "100");
+                    __builder.AddAttribute(97, "step", "1");
+                    __builder.AddAttribute(98, "value", $"{selStop.Opacity * 100:F0}");
+                    __builder.AddAttribute(99, "class", "gradient-opacity-slider");
+                    __builder.AddAttribute(100, "oninput", EventCallback.Factory.Create<ChangeEventArgs>(this, (e) =>
+                    {
+                        if (double.TryParse(e.Value?.ToString(), out var pct))
+                        {
+                            gradientStops[selIdx].Opacity = pct / 100.0;
+                            editValue = BuildGradientCss(currentType);
+                            StateHasChanged();
+                        }
+                    }));
+                    __builder.CloseElement();
+
+                    __builder.CloseElement(); // stop-color-opacity-row
+
+                    __builder.CloseElement(); // gradient-stop-editor
+                }
+
+                // Angle control for linear
+                if (currentType == "linear")
+                {
+                    __builder.OpenElement(120, "div");
+                    __builder.AddAttribute(121, "class", "gradient-angle-row");
+                    __builder.OpenElement(122, "label");
+                    __builder.AddContent(123, $"Angle {gradientAngle:F0}°");
+                    __builder.CloseElement();
+                    __builder.OpenElement(124, "input");
+                    __builder.AddAttribute(125, "type", "range");
+                    __builder.AddAttribute(126, "min", "0");
+                    __builder.AddAttribute(127, "max", "360");
+                    __builder.AddAttribute(128, "step", "1");
+                    __builder.AddAttribute(129, "value", $"{gradientAngle:F0}");
+                    __builder.AddAttribute(130, "class", "gradient-angle-slider");
+                    __builder.AddAttribute(131, "oninput", EventCallback.Factory.Create<ChangeEventArgs>(this, (e) =>
+                    {
+                        if (double.TryParse(e.Value?.ToString(), out var deg))
+                        {
+                            gradientAngle = deg;
+                            editValue = BuildGradientCss("linear");
+                            StateHasChanged();
+                        }
+                    }));
+                    __builder.CloseElement();
+                    __builder.CloseElement(); // gradient-angle-row
+                }
+
+                // Apply button
+                __builder.OpenElement(140, "div");
+                __builder.AddAttribute(141, "class", "gradient-actions");
+                __builder.OpenElement(142, "button");
+                __builder.AddAttribute(143, "class", "btn-apply-sm");
+                __builder.AddAttribute(144, "onclick", EventCallback.Factory.Create<MouseEventArgs>(this, async () =>
+                {
+                    editValue = BuildGradientCss(currentType);
+                    await CommitEdit();
+                }));
+                __builder.OpenElement(145, "i");
+                __builder.AddAttribute(146, "class", "fas fa-check");
+                __builder.CloseElement();
+                __builder.AddContent(147, " Apply");
+                __builder.CloseElement(); // button
+                __builder.OpenElement(148, "button");
+                __builder.AddAttribute(149, "class", "btn-cancel-sm");
+                __builder.AddAttribute(150, "onclick", EventCallback.Factory.Create<MouseEventArgs>(this, () =>
+                {
+                    editingProperty = null;
+                    gradientStops.Clear();
+                    selectedStopIndex = null;
+                    StateHasChanged();
+                }));
+                __builder.OpenElement(151, "i");
+                __builder.AddAttribute(152, "class", "fas fa-times");
+                __builder.CloseElement();
+                __builder.AddContent(153, " Cancel");
+                __builder.CloseElement(); // cancel button
+                __builder.CloseElement(); // gradient-actions
+            }
+        }
+        else
+        {
+            // Display mode: compact swatch + type badge (no ToString text)
+            __builder.OpenElement(160, "div");
+            __builder.AddAttribute(161, "class", "brush-preview");
+            __builder.AddAttribute(162, "style", $"background: {brushInfo.CssPreview}");
+            __builder.CloseElement();
+
+            __builder.OpenElement(163, "span");
+            __builder.AddAttribute(164, "class", "brush-type-badge");
+            __builder.AddContent(165, brushInfo.Type);
+            __builder.CloseElement();
+        }
+
+        __builder.CloseElement(); // div.brush-value
+        __builder.CloseElement(); // div.prop-row
+    };
+
+    // --- Gradient editor helpers ---
+
+    private void InitGradientStops(BrushInfo info)
+    {
+        gradientStops.Clear();
+        selectedStopIndex = null;
+        gradientAngle = 90;
+
+        if (info.Type == "linear" || info.Type == "radial")
+        {
+            // Parse stops from CSS gradient string
+            var css = info.CssPreview;
+            var stopsStr = css;
+            var parenStart = css.IndexOf('(');
+            var parenEnd = css.LastIndexOf(')');
+            if (parenStart >= 0 && parenEnd > parenStart)
+                stopsStr = css[(parenStart + 1)..parenEnd];
+
+            // Extract angle for linear
+            if (info.Type == "linear")
+            {
+                var angleMatch = System.Text.RegularExpressions.Regex.Match(stopsStr, @"(\d+(?:\.\d+)?)\s*deg");
+                if (angleMatch.Success && double.TryParse(angleMatch.Groups[1].Value, out var deg))
+                    gradientAngle = deg;
+            }
+
+            // Extract color stops: #hex pct%, rgba(...) pct%, colorname pct%
+            var stopMatches = System.Text.RegularExpressions.Regex.Matches(stopsStr,
+                @"(#[0-9A-Fa-f]{3,8}|rgba?\([^)]+\)|[a-zA-Z]+)\s*(\d+(?:\.\d+)?)%");
+            foreach (System.Text.RegularExpressions.Match m in stopMatches)
+            {
+                var colorStr = m.Groups[1].Value.Trim();
+                var offset = double.Parse(m.Groups[2].Value) / 100.0;
+                var opacity = 1.0;
+
+                // Parse rgba opacity
+                var rgbaMatch = System.Text.RegularExpressions.Regex.Match(colorStr, @"rgba?\(\s*(\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)");
+                if (rgbaMatch.Success)
+                {
+                    var r = int.Parse(rgbaMatch.Groups[1].Value);
+                    var g = int.Parse(rgbaMatch.Groups[2].Value);
+                    var b = int.Parse(rgbaMatch.Groups[3].Value);
+                    colorStr = $"#{r:X2}{g:X2}{b:X2}";
+                    if (rgbaMatch.Groups[4].Success && double.TryParse(rgbaMatch.Groups[4].Value, System.Globalization.CultureInfo.InvariantCulture, out var a))
+                        opacity = a;
+                }
+
+                // Skip non-color tokens like "circle", "deg" numbers
+                if (colorStr.Equals("circle", StringComparison.OrdinalIgnoreCase)
+                    || colorStr.Equals("ellipse", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                gradientStops.Add(new GradientStop { Color = colorStr.StartsWith("#") ? colorStr : NamedColorToHex(colorStr), Offset = offset, Opacity = opacity });
+            }
+
+            // Fallback: extract just hex colors without percentages
+            if (gradientStops.Count < 2)
+            {
+                gradientStops.Clear();
+                var hexMatches = System.Text.RegularExpressions.Regex.Matches(stopsStr, @"#[0-9A-Fa-f]{3,8}");
+                for (int i = 0; i < hexMatches.Count; i++)
+                {
+                    gradientStops.Add(new GradientStop
+                    {
+                        Color = hexMatches[i].Value,
+                        Offset = hexMatches.Count > 1 ? (double)i / (hexMatches.Count - 1) : 0,
+                        Opacity = 1
+                    });
+                }
+            }
+
+            // Ensure at least 2 stops
+            if (gradientStops.Count < 2)
+            {
+                gradientStops = new List<GradientStop>
+                {
+                    new() { Color = "#ff0000", Offset = 0, Opacity = 1 },
+                    new() { Color = "#0000ff", Offset = 1, Opacity = 1 }
+                };
+            }
+
+            selectedStopIndex = 0;
+        }
+    }
+
+    private string DetectEditBrushType()
+    {
+        var v = editValue.Trim();
+        if (v.StartsWith("linear-gradient", StringComparison.OrdinalIgnoreCase)) return "linear";
+        if (v.StartsWith("radial-gradient", StringComparison.OrdinalIgnoreCase)) return "radial";
+        if (gradientStops.Count >= 2) return "linear"; // default for gradient mode
+        return "solid";
+    }
+
+    private string BuildGradientCss(string type)
+    {
+        if (gradientStops.Count == 0) return editValue;
+        var sorted = gradientStops.OrderBy(s => s.Offset).ToList();
+        var stops = string.Join(", ", sorted.Select(s =>
+        {
+            var c = s.Opacity < 1
+                ? $"rgba({HexToRgb(s.Color)}, {s.Opacity.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)})"
+                : s.Color;
+            return $"{c} {(s.Offset * 100).ToString("F0", System.Globalization.CultureInfo.InvariantCulture)}%";
+        }));
+        return type == "radial"
+            ? $"radial-gradient(circle, {stops})"
+            : $"linear-gradient({gradientAngle.ToString("F0", System.Globalization.CultureInfo.InvariantCulture)}deg, {stops})";
+    }
+
+    private string BuildLinearStopsCss()
+    {
+        if (gradientStops.Count == 0) return "#888, #ccc";
+        var sorted = gradientStops.OrderBy(s => s.Offset).ToList();
+        return string.Join(", ", sorted.Select(s =>
+        {
+            var c = s.Opacity < 1
+                ? $"rgba({HexToRgb(s.Color)}, {s.Opacity.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)})"
+                : s.Color;
+            return $"{c} {(s.Offset * 100).ToString("F0", System.Globalization.CultureInfo.InvariantCulture)}%";
+        }));
+    }
+
+    private static string HexToRgb(string hex)
+    {
+        hex = hex.TrimStart('#');
+        if (hex.Length == 3) hex = $"{hex[0]}{hex[0]}{hex[1]}{hex[1]}{hex[2]}{hex[2]}";
+        if (hex.Length >= 6)
+        {
+            var r = Convert.ToInt32(hex[..2], 16);
+            var g = Convert.ToInt32(hex[2..4], 16);
+            var b = Convert.ToInt32(hex[4..6], 16);
+            return $"{r}, {g}, {b}";
+        }
+        return "0, 0, 0";
+    }
+
+    private static string NamedColorToHex(string name) => name.ToLowerInvariant() switch
+    {
+        "red" => "#ff0000", "green" => "#008000", "blue" => "#0000ff",
+        "white" => "#ffffff", "black" => "#000000", "yellow" => "#ffff00",
+        "cyan" => "#00ffff", "magenta" => "#ff00ff", "orange" => "#ffa500",
+        "purple" => "#800080", "pink" => "#ffc0cb", "gray" or "grey" => "#808080",
+        "transparent" => "#00000000",
+        _ => "#888888"
+    };
+
+    // --- Brush value parsing ---
+
+    private record BrushInfo(string Type, string CssPreview, string DisplayText);
+
+    private static BrushInfo ParseBrushValue(string value)
+    {
+        if (string.IsNullOrEmpty(value) || value == "null")
+            return new BrushInfo("none", "transparent", "none");
+
+        var trimmed = value.Trim();
+
+        // CSS gradient syntax (what BrushTypeConverter accepts)
+        if (trimmed.StartsWith("linear-gradient", StringComparison.OrdinalIgnoreCase))
+            return new BrushInfo("linear", trimmed, TruncateBrush(trimmed));
+
+        if (trimmed.StartsWith("radial-gradient", StringComparison.OrdinalIgnoreCase))
+            return new BrushInfo("radial", trimmed, TruncateBrush(trimmed));
+
+        // MAUI LinearGradientBrush ToString format
+        if (trimmed.Contains("LinearGradientBrush", StringComparison.OrdinalIgnoreCase))
+            return new BrushInfo("linear", ParseMauiGradientToCss(trimmed, "linear"), TruncateBrush(trimmed));
+
+        if (trimmed.Contains("RadialGradientBrush", StringComparison.OrdinalIgnoreCase))
+            return new BrushInfo("radial", ParseMauiGradientToCss(trimmed, "radial"), TruncateBrush(trimmed));
+
+        // SolidColorBrush ToString or plain color
+        if (trimmed.Contains("SolidColorBrush", StringComparison.OrdinalIgnoreCase))
+        {
+            var colorMatch = System.Text.RegularExpressions.Regex.Match(trimmed, @"Color\s*=\s*(\S+)");
+            var color = colorMatch.Success ? colorMatch.Groups[1].Value.TrimEnd(']', '}', ')') : trimmed;
+            return new BrushInfo("solid", MauiColorToCss(color), color);
+        }
+
+        // Hex color or named color → solid brush
+        if (trimmed.StartsWith("#") || trimmed.StartsWith("Color ") || char.IsLetter(trimmed[0]))
+            return new BrushInfo("solid", MauiColorToCss(trimmed), trimmed);
+
+        return new BrushInfo("unknown", "transparent", trimmed);
+    }
+
+    private static string ParseMauiGradientToCss(string value, string type)
+    {
+        // MAUI gradient ToString formats:
+        // 1) Contains hex colors: "#FF0000", "#0000FF"
+        // 2) Contains Color descriptors: "Color [A=1, R=1, G=0, B=0, ...]" with Offset values
+        // 3) Just the type name: "Microsoft.Maui.Controls.LinearGradientBrush"
+
+        var stops = new List<(string hex, double offset)>();
+
+        // Try to extract "Color [A=..., R=..., G=..., B=...]" with optional "Offset=..." nearby
+        var colorDescMatches = System.Text.RegularExpressions.Regex.Matches(value,
+            @"Color\s*\[\s*A=([^,\]]+),\s*R=([^,\]]+),\s*G=([^,\]]+),\s*B=([^,\]]+)");
+        var offsetMatches = System.Text.RegularExpressions.Regex.Matches(value,
+            @"Offset=([0-9.]+)");
+
+        if (colorDescMatches.Count >= 2)
+        {
+            for (int i = 0; i < colorDescMatches.Count; i++)
+            {
+                var m = colorDescMatches[i];
+                if (double.TryParse(m.Groups[2].Value, System.Globalization.CultureInfo.InvariantCulture, out var r) &&
+                    double.TryParse(m.Groups[3].Value, System.Globalization.CultureInfo.InvariantCulture, out var g) &&
+                    double.TryParse(m.Groups[4].Value, System.Globalization.CultureInfo.InvariantCulture, out var b))
+                {
+                    var hex = $"#{(int)(r * 255):X2}{(int)(g * 255):X2}{(int)(b * 255):X2}";
+                    var offset = i < offsetMatches.Count && double.TryParse(offsetMatches[i].Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture, out var o)
+                        ? o : (colorDescMatches.Count > 1 ? (double)i / (colorDescMatches.Count - 1) : 0);
+                    stops.Add((hex, offset));
+                }
+            }
+        }
+
+        // Fallback: extract hex colors
+        if (stops.Count < 2)
+        {
+            stops.Clear();
+            var hexMatches = System.Text.RegularExpressions.Regex.Matches(value, @"#[0-9A-Fa-f]{6,8}");
+            for (int i = 0; i < hexMatches.Count; i++)
+            {
+                var offset = hexMatches.Count > 1 ? (double)i / (hexMatches.Count - 1) : 0;
+                stops.Add((hexMatches[i].Value, offset));
+            }
+        }
+
+        if (stops.Count >= 2)
+        {
+            var cssStops = string.Join(", ", stops.Select(s => $"{s.hex} {s.offset * 100:F0}%"));
+            return type == "linear"
+                ? $"linear-gradient(90deg, {cssStops})"
+                : $"radial-gradient(circle, {cssStops})";
+        }
+
+        // Final fallback
+        return type == "linear"
+            ? "linear-gradient(90deg, #888, #ccc)"
+            : "radial-gradient(circle, #888, #ccc)";
+    }
+
+    private static string TruncateBrush(string text)
+        => text.Length <= 40 ? text : text[..40] + "…";
+
+    private RenderFragment RenderThicknessEditor(PropertyEntry prop) => __builder =>
+    {
+        var (top, right, bottom, left) = ParseThickness(prop.Value);
+
+        __builder.OpenElement(0, "div");
+        __builder.AddAttribute(1, "class", "prop-row");
+
+        __builder.OpenElement(2, "span");
+        __builder.AddAttribute(3, "class", "prop-key");
+        __builder.AddContent(4, prop.Name);
+        __builder.CloseElement();
+
+        __builder.OpenElement(5, "div");
+        __builder.AddAttribute(6, "class", "thickness-inline");
+
+        // L
+        __builder.OpenElement(10, "span");
+        __builder.AddAttribute(11, "class", "thickness-label");
+        __builder.AddContent(12, "L");
+        __builder.CloseElement();
+        __builder.OpenElement(13, "input");
+        __builder.AddAttribute(14, "type", "number");
+        __builder.AddAttribute(15, "value", left);
+        __builder.AddAttribute(16, "class", "thickness-input-sm");
+        __builder.AddAttribute(17, "step", "1");
+        __builder.AddAttribute(18, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, (e) =>
+            CommitThickness(prop.Name, top, right, bottom, e.Value?.ToString() ?? "0")));
+        __builder.CloseElement();
+
+        // T
+        __builder.OpenElement(20, "span");
+        __builder.AddAttribute(21, "class", "thickness-label");
+        __builder.AddContent(22, "T");
+        __builder.CloseElement();
+        __builder.OpenElement(23, "input");
+        __builder.AddAttribute(24, "type", "number");
+        __builder.AddAttribute(25, "value", top);
+        __builder.AddAttribute(26, "class", "thickness-input-sm");
+        __builder.AddAttribute(27, "step", "1");
+        __builder.AddAttribute(28, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, (e) =>
+            CommitThickness(prop.Name, e.Value?.ToString() ?? "0", right, bottom, left)));
+        __builder.CloseElement();
+
+        // R
+        __builder.OpenElement(30, "span");
+        __builder.AddAttribute(31, "class", "thickness-label");
+        __builder.AddContent(32, "R");
+        __builder.CloseElement();
+        __builder.OpenElement(33, "input");
+        __builder.AddAttribute(34, "type", "number");
+        __builder.AddAttribute(35, "value", right);
+        __builder.AddAttribute(36, "class", "thickness-input-sm");
+        __builder.AddAttribute(37, "step", "1");
+        __builder.AddAttribute(38, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, (e) =>
+            CommitThickness(prop.Name, top, e.Value?.ToString() ?? "0", bottom, left)));
+        __builder.CloseElement();
+
+        // B
+        __builder.OpenElement(40, "span");
+        __builder.AddAttribute(41, "class", "thickness-label");
+        __builder.AddContent(42, "B");
+        __builder.CloseElement();
+        __builder.OpenElement(43, "input");
+        __builder.AddAttribute(44, "type", "number");
+        __builder.AddAttribute(45, "value", bottom);
+        __builder.AddAttribute(46, "class", "thickness-input-sm");
+        __builder.AddAttribute(47, "step", "1");
+        __builder.AddAttribute(48, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, (e) =>
+            CommitThickness(prop.Name, top, right, e.Value?.ToString() ?? "0", left)));
+        __builder.CloseElement();
+
+        __builder.CloseElement(); // thickness-inline
+        __builder.CloseElement(); // prop-row
+    };
+
+    private RenderFragment RenderNumberEditor(PropertyEntry prop) => __builder =>
+    {
+        var hasDefault = prop.Meta.DefaultValue != null;
+        var isDefault = hasDefault && IsDefaultValue(prop.Value, prop.Meta.DefaultValue!);
+
+        __builder.OpenElement(0, "div");
+        __builder.AddAttribute(1, "class", "prop-row editable");
+        __builder.AddAttribute(2, "onclick", EventCallback.Factory.Create<MouseEventArgs>(this, () => StartEditing(prop.Name, prop.Value)));
+
+        __builder.OpenElement(3, "span");
+        __builder.AddAttribute(4, "class", "prop-key");
+        __builder.AddContent(5, prop.Name);
+        __builder.CloseElement();
+
+        if (editingProperty == prop.Name)
+        {
+            __builder.OpenElement(6, "input");
+            __builder.AddAttribute(7, "type", "number");
+            __builder.AddAttribute(8, "class", "prop-edit-input");
+            __builder.AddAttribute(9, "step", prop.Meta.NumStep.ToString());
+            if (prop.Meta.NumMin.HasValue) __builder.AddAttribute(10, "min", prop.Meta.NumMin.Value.ToString());
+            if (prop.Meta.NumMax.HasValue) __builder.AddAttribute(11, "max", prop.Meta.NumMax.Value.ToString());
+            __builder.AddAttribute(12, "value", editValue);
+            __builder.AddAttribute(13, "oninput", EventCallback.Factory.Create<ChangeEventArgs>(this, (e) => { editValue = e.Value?.ToString() ?? ""; }));
+            __builder.AddAttribute(14, "onkeydown", EventCallback.Factory.Create<KeyboardEventArgs>(this, OnEditKeyDown));
+            __builder.AddAttribute(15, "onfocusout", EventCallback.Factory.Create(this, OnEditBlur));
+            __builder.AddElementReferenceCapture(16, (r) => editInput = r);
+            __builder.CloseElement();
+        }
+        else
+        {
+            __builder.OpenElement(17, "span");
+            __builder.AddAttribute(18, "class", "prop-value");
+            __builder.AddContent(19, prop.Value);
+            __builder.CloseElement();
+
+            if (hasDefault && !isDefault)
+            {
+                __builder.OpenElement(19, "button");
+                __builder.AddAttribute(20, "class", "btn-reset");
+                __builder.AddAttribute(21, "title", $"Reset to {prop.Meta.DefaultValue}");
+                __builder.AddAttribute(22, "onclick", EventCallback.Factory.Create<MouseEventArgs>(this, async (e) =>
+                {
+                    editingProperty = prop.Name;
+                    editValue = prop.Meta.DefaultValue!;
+                    await CommitEdit();
+                }));
+                __builder.OpenElement(23, "i");
+                __builder.AddAttribute(24, "class", "fas fa-undo");
+                __builder.CloseElement();
+                __builder.CloseElement();
+            }
+        }
+
+        __builder.CloseElement(); // div.prop-row
+    };
+
+    private RenderFragment RenderTextEditor(PropertyEntry prop) => __builder =>
+    {
+        __builder.OpenElement(0, "div");
+        __builder.AddAttribute(1, "class", "prop-row editable");
+        __builder.AddAttribute(2, "onclick", EventCallback.Factory.Create<MouseEventArgs>(this, () => StartEditing(prop.Name, prop.Value)));
+
+        __builder.OpenElement(3, "span");
+        __builder.AddAttribute(4, "class", "prop-key");
+        __builder.AddContent(5, prop.Name);
+        __builder.CloseElement();
+
+        if (editingProperty == prop.Name)
+        {
+            __builder.OpenElement(6, "input");
+            __builder.AddAttribute(7, "type", "text");
+            __builder.AddAttribute(8, "class", "prop-edit-input");
+            __builder.AddAttribute(9, "value", editValue);
+            __builder.AddAttribute(10, "oninput", EventCallback.Factory.Create<ChangeEventArgs>(this, (e) => { editValue = e.Value?.ToString() ?? ""; }));
+            __builder.AddAttribute(11, "onkeydown", EventCallback.Factory.Create<KeyboardEventArgs>(this, OnEditKeyDown));
+            __builder.AddAttribute(12, "onfocusout", EventCallback.Factory.Create(this, OnEditBlur));
+            __builder.AddElementReferenceCapture(12, (r) => editInput = r);
+            __builder.CloseElement();
+        }
+        else
+        {
+            __builder.OpenElement(13, "span");
+            __builder.AddAttribute(14, "class", "prop-value");
+            __builder.AddContent(15, prop.Value ?? "null");
+            __builder.CloseElement();
+        }
+
+        __builder.CloseElement(); // div.prop-row
+    };
+
+    // --- Toggle, Focus, Custom query ---
+
+    private async Task ToggleBoolProperty(string propertyName, bool currentValue)
+    {
+        if (selectedElement == null) return;
+        await Client.SetPropertyAsync(selectedElement.Id, propertyName, (!currentValue).ToString());
+        await RefreshTree();
+        await RefreshProperties();
+    }
+
+    private async Task FocusSelected()
+    {
+        if (selectedElement == null) return;
+        await Client.FocusAsync(selectedElement.Id);
+        await RefreshTree();
+    }
+
+    private async Task FetchCustomProperty()
+    {
+        if (selectedElement == null || string.IsNullOrWhiteSpace(customPropertyName)) return;
+        var name = customPropertyName.Trim();
+        var val = await Client.GetPropertyAsync(selectedElement.Id, name);
+        if (val != null)
+        {
+            var meta = GetMeta(name);
+            // Remove existing entry with same name if any
+            fetchedProperties.RemoveAll(p => p.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+            fetchedProperties.Insert(0, new PropertyEntry(name, val, meta));
+        }
+        customPropertyName = "";
+        StateHasChanged();
+    }
+
+    private async Task OnCustomPropertyKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await FetchCustomProperty();
+    }
+
+    private async Task CommitThickness(string propName, string top, string right, string bottom, string left)
+    {
+        if (selectedElement == null) return;
+        await Client.SetPropertyAsync(selectedElement.Id, propName, $"{left},{top},{right},{bottom}");
+        await RefreshTree();
+        await RefreshProperties();
+    }
+
+    // --- Color parsing helpers ---
+
+    private static string MauiColorToCss(string? value)
+    {
+        if (string.IsNullOrEmpty(value)) return "transparent";
+        if (value.StartsWith("#")) return value;
+        // Parse "Color [A=1, R=0.5, G=0.5, B=0.5, ...]" format
+        if (value.StartsWith("Color [") || value.StartsWith("[Color:"))
+        {
+            var parts = value.Split(new[] { 'A', 'R', 'G', 'B', '=', ',', '[', ']', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            var nums = parts.Where(p => double.TryParse(p, out _)).Select(p => double.Parse(p)).ToArray();
+            if (nums.Length >= 4)
+            {
+                var a = nums[0]; var r = (int)(nums[1] * 255); var g = (int)(nums[2] * 255); var b = (int)(nums[3] * 255);
+                return $"rgba({r},{g},{b},{a:F2})";
+            }
+        }
+        // Named colors
+        return value.ToLowerInvariant() switch
+        {
+            "transparent" => "transparent",
+            _ => value.ToLowerInvariant()
+        };
+    }
+
+    private static string MauiColorToHex(string? value)
+    {
+        if (string.IsNullOrEmpty(value)) return "#000000";
+        if (value.StartsWith("#") && value.Length >= 7) return value[..7];
+        if (value.StartsWith("Color [") || value.StartsWith("[Color:"))
+        {
+            var parts = value.Split(new[] { 'A', 'R', 'G', 'B', '=', ',', '[', ']', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            var nums = parts.Where(p => double.TryParse(p, out _)).Select(p => double.Parse(p)).ToArray();
+            if (nums.Length >= 4)
+            {
+                var r = (int)(nums[1] * 255); var g = (int)(nums[2] * 255); var b = (int)(nums[3] * 255);
+                return $"#{r:X2}{g:X2}{b:X2}";
+            }
+        }
+        return "#000000";
+    }
+
+    // --- Thickness parsing ---
+
+    private static (string top, string right, string bottom, string left) ParseThickness(string? value)
+    {
+        if (string.IsNullOrEmpty(value)) return ("0", "0", "0", "0");
+        // Format: "{Left=0 Top=0 Right=0 Bottom=0}" or "L, T, R, B" or uniform "X"
+        var nums = System.Text.RegularExpressions.Regex.Matches(value, @"-?[\d.]+")
+            .Select(m => m.Value).ToArray();
+        return nums.Length switch
+        {
+            >= 4 => (nums[1], nums[2], nums[3], nums[0]), // MAUI order: Left, Top, Right, Bottom
+            3 => (nums[1], nums[2], nums[1], nums[0]),
+            2 => (nums[1], nums[0], nums[1], nums[0]),
+            1 => (nums[0], nums[0], nums[0], nums[0]),
+            _ => ("0", "0", "0", "0")
+        };
+    }
+
+    private void OnAutoRefreshChanged()
+    {
+        _screenshotTimer?.Dispose();
+        _screenshotTimer = null;
+
+        if (autoRefreshInterval > 0)
+        {
+            var interval = TimeSpan.FromSeconds(autoRefreshInterval);
+            _screenshotTimer = new Timer(async _ =>
+            {
+                await InvokeAsync(async () =>
+                {
+                    await RefreshScreenshot();
+                });
+            }, null, interval, interval);
+        }
+    }
+
+    private static string Truncate(string text, int max)
+        => text.Length <= max ? text : text[..max] + "…";
+
+    public void Dispose()
+    {
+        _screenshotTimer?.Dispose();
+    }
+}
+
+<style>
+    .tree-layout {
+        display: flex;
+        height: 100%;
+    }
+
+    .tree-screenshot-pane {
+        border-right: 1px solid var(--border-color);
+        display: flex;
+        flex-direction: column;
+        flex-shrink: 0;
+    }
+
+    .tree-view-pane {
+        flex: 1;
+        border-right: 1px solid var(--border-color);
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+    }
+
+    .tree-props-pane {
+        display: flex;
+        flex-direction: column;
+        flex-shrink: 0;
+    }
+
+    .resize-handle {
+        width: 5px;
+        cursor: col-resize;
+        background: transparent;
+        flex-shrink: 0;
+        position: relative;
+        z-index: 10;
+        margin: 0 -2px;
+    }
+
+    .resize-handle:hover,
+    .resize-handle:active {
+        background: var(--accent-color, #3b82f6);
+        opacity: 0.5;
+    }
+
+    .resize-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        cursor: col-resize;
+    }
+
+    .pane-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.5rem 0.75rem;
+        background: var(--bg-secondary);
+        border-bottom: 1px solid var(--border-color);
+        font-size: 0.8rem;
+        font-weight: 600;
+        flex-shrink: 0;
+    }
+
+    .pane-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+    }
+
+    .btn-icon {
+        background: none;
+        border: none;
+        color: var(--text-secondary);
+        cursor: pointer;
+        padding: 0.25rem 0.5rem;
+        border-radius: 4px;
+        font-size: 0.8rem;
+    }
+
+    .btn-icon:hover {
+        background: var(--bg-tertiary);
+        color: var(--text-primary);
+    }
+
+    .auto-refresh-select {
+        font-size: 0.75rem;
+        padding: 0.15rem 0.4rem;
+        border-radius: 4px;
+        border: 1px solid var(--border-color);
+        background: var(--bg-primary);
+        color: var(--text-primary);
+    }
+
+    .tree-search {
+        font-size: 0.75rem;
+        padding: 0.2rem 0.5rem;
+        border-radius: 4px;
+        border: 1px solid var(--border-color);
+        background: var(--bg-primary);
+        color: var(--text-primary);
+        width: 120px;
+    }
+
+    /* Screenshot */
+    .screenshot-container {
+        flex: 1;
+        overflow: auto;
+        display: flex;
+        align-items: flex-start;
+        justify-content: center;
+        padding: 0.5rem;
+    }
+
+    .screenshot-img {
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
+        border-radius: 4px;
+    }
+
+    .screenshot-img.inspect-cursor {
+        cursor: crosshair;
+    }
+
+    .inspect-active {
+        color: #8b5cf6 !important;
+        background: rgba(139, 92, 246, 0.15) !important;
+        border-radius: 4px;
+    }
+
+    .screenshot-wrapper {
+        position: relative;
+        display: inline-block;
+        max-width: 100%;
+        max-height: 100%;
+    }
+
+    .highlight-overlay {
+        position: absolute;
+        background: rgba(139, 92, 246, 0.2);
+        border: 2px solid rgba(139, 92, 246, 0.7);
+        border-radius: 6px;
+        pointer-events: none;
+        z-index: 1;
+    }
+
+    .screenshot-placeholder {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.5rem;
+        color: var(--text-tertiary);
+        font-size: 0.8rem;
+        padding-top: 3rem;
+    }
+
+    .screenshot-placeholder i {
+        font-size: 2rem;
+        opacity: 0.3;
+    }
+
+    /* Tree nodes */
+    .tree-container {
+        flex: 1;
+        overflow: auto;
+        font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+        font-size: 0.8rem;
+    }
+
+    /* Indent guide spans (one per depth level) */
+    .indent-guide {
+        width: 16px;
+        flex-shrink: 0;
+        align-self: stretch;
+        position: relative;
+    }
+
+    /* Vertical line through full height (ancestor has more siblings) */
+    .indent-guide.guide-line::before {
+        content: '';
+        position: absolute;
+        left: 7px;
+        top: 0;
+        bottom: 0;
+        border-left: 1px solid var(--tree-guide-color, rgba(128,128,128,0.2));
+    }
+
+    /* T-junction: full vertical + horizontal at center (not last child) */
+    .indent-guide.guide-mid::before {
+        content: '';
+        position: absolute;
+        left: 7px;
+        top: 0;
+        bottom: 0;
+        border-left: 1px solid var(--tree-guide-color, rgba(128,128,128,0.2));
+    }
+    .indent-guide.guide-mid::after {
+        content: '';
+        position: absolute;
+        left: 7px;
+        top: 50%;
+        width: 9px;
+        border-top: 1px solid var(--tree-guide-color, rgba(128,128,128,0.2));
+    }
+
+    /* L-junction: vertical top half + horizontal at center (last child) */
+    .indent-guide.guide-last::before {
+        content: '';
+        position: absolute;
+        left: 7px;
+        top: 0;
+        height: 50%;
+        border-left: 1px solid var(--tree-guide-color, rgba(128,128,128,0.2));
+    }
+    .indent-guide.guide-last::after {
+        content: '';
+        position: absolute;
+        left: 7px;
+        top: 50%;
+        width: 9px;
+        border-top: 1px solid var(--tree-guide-color, rgba(128,128,128,0.2));
+    }
+
+    .tree-node {
+        display: flex;
+        align-items: center;
+        gap: 0.3rem;
+        padding: 0.2rem 0.4rem;
+        padding-left: 4px;
+        cursor: pointer;
+        white-space: nowrap;
+    }
+
+    .tree-node:hover {
+        background: var(--bg-tertiary);
+    }
+
+    .tree-node.selected {
+        background: rgba(139, 92, 246, 0.2);
+    }
+
+    .tree-toggle {
+        width: 14px;
+        text-align: center;
+        cursor: pointer;
+        color: var(--text-tertiary);
+        flex-shrink: 0;
+    }
+
+    .tree-actions {
+        margin-left: auto;
+        display: flex;
+        align-items: center;
+        gap: 0.25rem;
+        flex-shrink: 0;
+    }
+
+    .tree-locate, .tree-expand-all, .tree-collapse-all {
+        font-size: 0.65rem;
+        color: var(--text-tertiary);
+        cursor: pointer;
+        opacity: 0.0;
+        transition: opacity 0.15s;
+        flex-shrink: 0;
+        padding: 0 2px;
+    }
+
+    .tree-node:hover .tree-locate,
+    .tree-node:hover .tree-expand-all,
+    .tree-node:hover .tree-collapse-all {
+        opacity: 0.3;
+    }
+
+    .tree-locate:hover, .tree-expand-all:hover, .tree-collapse-all:hover {
+        opacity: 0.8 !important;
+        color: var(--text-primary);
+    }
+
+    .tree-locate.active {
+        opacity: 1 !important;
+        color: #8b5cf6;
+    }
+
+    .tree-type {
+        color: #2196F3;
+        font-weight: 500;
+    }
+
+    .tree-text {
+        color: #4caf50;
+        font-style: italic;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .tree-aid {
+        color: #ff9800;
+        font-size: 0.75rem;
+    }
+
+    .tree-hidden {
+        color: var(--text-tertiary);
+        font-size: 0.7rem;
+    }
+
+    .tree-loading, .tree-empty {
+        padding: 2rem;
+        text-align: center;
+        color: var(--text-tertiary);
+    }
+
+    .window-header {
+        padding: 4px 8px;
+        font-size: 0.7rem;
+        font-weight: 600;
+        color: var(--text-secondary);
+        background: var(--bg-secondary);
+        border-bottom: 1px solid var(--border-color);
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        user-select: none;
+    }
+
+    .window-header.active {
+        color: var(--accent-color, #2196F3);
+        background: color-mix(in srgb, var(--accent-color, #2196F3) 8%, var(--bg-secondary));
+    }
+
+    .window-header i {
+        font-size: 0.65rem;
+        opacity: 0.6;
+    }
+
+    /* Properties */
+    .props-container {
+        flex: 1;
+        overflow: auto;
+        font-size: 0.8rem;
+    }
+
+    .prop-section {
+        border-bottom: 1px solid var(--border-color);
+        padding: 0.5rem 0;
+    }
+
+    .prop-section-title {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        font-weight: 600;
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        color: var(--text-tertiary);
+        padding: 0.25rem 0.75rem;
+        letter-spacing: 0.05em;
+    }
+
+    .prop-row {
+        display: flex;
+        align-items: center;
+        padding: 0.2rem 0.75rem;
+        gap: 0.5rem;
+    }
+
+    .prop-row.editable {
+        cursor: pointer;
+    }
+
+    .prop-row.editable:hover {
+        background: var(--bg-tertiary);
+    }
+
+    .prop-key {
+        color: var(--text-secondary);
+        min-width: 80px;
+        flex-shrink: 0;
+        font-size: 0.75rem;
+    }
+
+    .prop-value {
+        color: var(--text-primary);
+        word-break: break-all;
+    }
+
+    .prop-value.mono {
+        font-family: 'SF Mono', 'Cascadia Code', monospace;
+        font-size: 0.75rem;
+    }
+
+    .prop-value.val-true {
+        color: #22c55e;
+    }
+
+    .prop-value.val-false {
+        color: #ef4444;
+    }
+
+    .prop-edit-input {
+        flex: 1;
+        font-size: 0.8rem;
+        padding: 0.15rem 0.4rem;
+        border: 1px solid var(--accent-color, #8b5cf6);
+        border-radius: 3px;
+        background: var(--bg-primary);
+        color: var(--text-primary);
+    }
+
+    .props-empty {
+        padding: 2rem 1rem;
+        text-align: center;
+        color: var(--text-tertiary);
+        font-size: 0.85rem;
+    }
+
+    .prop-loading-icon {
+        font-size: 0.65rem;
+        color: var(--text-tertiary);
+    }
+
+    .prop-refresh-btn {
+        margin-left: auto;
+        font-size: 0.65rem;
+        padding: 0.1rem 0.3rem;
+    }
+
+    /* Property group sub-headers */
+    .prop-group-title {
+        font-size: 0.7rem;
+        font-weight: 600;
+        color: var(--text-secondary);
+        padding: 0.4rem 0.75rem 0.2rem;
+        margin-top: 0.15rem;
+        border-left: 3px solid var(--accent-color, #8b5cf6);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+    }
+
+    /* Boolean toggle */
+    .bool-toggle {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        cursor: pointer;
+    }
+
+    .bool-toggle input[type="checkbox"] {
+        width: 14px;
+        height: 14px;
+        accent-color: var(--accent-color, #8b5cf6);
+        cursor: pointer;
+    }
+
+    /* Focus button */
+    .btn-focus {
+        background: none;
+        border: 1px solid var(--border-color);
+        color: var(--text-secondary);
+        cursor: pointer;
+        padding: 0.1rem 0.35rem;
+        border-radius: 3px;
+        font-size: 0.65rem;
+        margin-left: 0.4rem;
+    }
+
+    .btn-focus:hover {
+        background: var(--bg-tertiary);
+        color: var(--accent-color, #8b5cf6);
+    }
+
+    /* Reset button */
+    .btn-reset {
+        background: none;
+        border: 1px solid var(--border-color);
+        color: var(--text-tertiary);
+        cursor: pointer;
+        padding: 0.1rem 0.35rem;
+        border-radius: 3px;
+        font-size: 0.6rem;
+        margin-left: 0.3rem;
+        flex-shrink: 0;
+    }
+
+    .btn-reset:hover {
+        background: var(--bg-tertiary);
+        color: var(--accent-color, #8b5cf6);
+    }
+
+    /* Enum select */
+    .prop-enum-select {
+        flex: 1;
+        font-size: 0.75rem;
+        padding: 0.15rem 0.3rem;
+        border: 1px solid var(--border-color);
+        border-radius: 3px;
+        background: var(--bg-primary);
+        color: var(--text-primary);
+        cursor: pointer;
+    }
+
+    /* Color editor */
+    .color-value {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+    }
+
+    .color-swatch {
+        display: inline-block;
+        width: 16px;
+        height: 16px;
+        border-radius: 3px;
+        border: 1px solid var(--border-color);
+        flex-shrink: 0;
+    }
+
+    .color-picker-input {
+        width: 28px;
+        height: 22px;
+        padding: 0;
+        border: 1px solid var(--border-color);
+        border-radius: 3px;
+        cursor: pointer;
+        background: transparent;
+    }
+
+    .color-text-input {
+        flex: 1;
+        min-width: 0;
+    }
+
+    /* Thickness editor */
+    /* Thickness inline editor */
+    .thickness-inline {
+        display: flex;
+        align-items: center;
+        gap: 0.2rem;
+        flex: 1;
+    }
+
+    .thickness-label {
+        font-size: 0.65rem;
+        color: var(--text-tertiary);
+        font-weight: 600;
+        min-width: 10px;
+    }
+
+    .thickness-input-sm {
+        width: 36px;
+        text-align: center;
+        font-size: 0.7rem;
+        font-family: 'SF Mono', 'Cascadia Code', monospace;
+        border: 1px solid var(--border-color);
+        border-radius: 2px;
+        background: var(--bg-primary);
+        color: var(--text-primary);
+        padding: 0.1rem;
+    }
+
+    .thickness-input-sm:hover,
+    .thickness-input-sm:focus {
+        border-color: var(--accent-color, #8b5cf6);
+        outline: none;
+    }
+
+    /* Custom property query */
+    .prop-custom-input {
+        flex: 1;
+        font-size: 0.75rem;
+        font-family: 'SF Mono', 'Cascadia Code', monospace;
+        padding: 0.2rem 0.4rem;
+        border: 1px solid var(--border-color);
+        border-radius: 3px;
+        background: var(--bg-primary);
+        color: var(--text-primary);
+    }
+
+    /* Brush editor */
+    .brush-row {
+        flex-wrap: wrap;
+    }
+
+    .brush-row .prop-key {
+        flex-shrink: 0;
+    }
+
+    .brush-value {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+        flex: 1;
+        min-width: 0;
+    }
+
+    .brush-value.brush-editing {
+        flex-basis: 100%;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.3rem;
+        background: var(--bg-tertiary);
+        border-radius: 6px;
+        padding: 0.5rem;
+        margin-top: 0.25rem;
+    }
+
+    .brush-preview {
+        width: 20px;
+        height: 20px;
+        border-radius: 3px;
+        border: 1px solid var(--border-color);
+        flex-shrink: 0;
+    }
+
+    .brush-editing .brush-preview {
+        width: 100%;
+        height: 20px;
+    }
+
+    .brush-preview-radial {
+        height: 40px;
+        border-radius: 6px;
+    }
+
+    .brush-type-badge {
+        font-size: 0.65rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        padding: 0.1rem 0.35rem;
+        border-radius: 3px;
+        background: var(--bg-tertiary);
+        color: var(--text-tertiary);
+        letter-spacing: 0.03em;
+        flex-shrink: 0;
+    }
+
+    .brush-text {
+        font-size: 0.7rem;
+        color: var(--text-secondary);
+        word-break: break-all;
+    }
+
+    .brush-type-select {
+        font-size: 0.7rem;
+        padding: 0.15rem 0.3rem;
+        border: 1px solid var(--border-color);
+        border-radius: 3px;
+        background: var(--bg-primary);
+        color: var(--text-primary);
+    }
+
+    .brush-css-input {
+        font-size: 0.7rem;
+    }
+
+    .solid-color-row {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+    }
+
+    .solid-color-row .brush-css-input {
+        flex: 1;
+    }
+
+    /* Gradient track */
+    .gradient-track-container {
+        position: relative;
+        width: 100%;
+        height: 24px;
+        margin: 0.25rem 0;
+    }
+
+    .gradient-track {
+        width: 100%;
+        height: 12px;
+        border-radius: 6px;
+        border: 1px solid var(--border-color);
+        position: absolute;
+        top: 6px;
+    }
+
+    .gradient-stop-handle {
+        position: absolute;
+        top: 0;
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        border: 2px solid #fff;
+        box-shadow: 0 0 0 1px rgba(0,0,0,0.3), 0 1px 3px rgba(0,0,0,0.2);
+        transform: translateX(-50%);
+        cursor: pointer;
+        z-index: 1;
+        top: 5px;
+    }
+
+    .gradient-stop-handle.selected {
+        border-color: var(--accent-color, #8b5cf6);
+        box-shadow: 0 0 0 1px var(--accent-color, #8b5cf6), 0 1px 4px rgba(139,92,246,0.4);
+        z-index: 2;
+    }
+
+    .gradient-stop-handle.dragging {
+        cursor: grabbing;
+        transform: translateX(-50%) scale(1.2);
+    }
+
+    .gradient-track-container {
+        touch-action: none;
+    }
+
+    /* Stop controls */
+    .gradient-stop-controls {
+        display: flex;
+        align-items: center;
+        gap: 0.3rem;
+    }
+
+    .btn-icon-sm {
+        width: 22px;
+        height: 22px;
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+        background: var(--bg-primary);
+        color: var(--text-secondary);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.6rem;
+        padding: 0;
+    }
+
+    .btn-icon-sm:hover {
+        background: var(--bg-tertiary);
+        color: var(--text-primary);
+    }
+
+    .btn-icon-sm:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+    }
+
+    .gradient-stop-count {
+        font-size: 0.65rem;
+        color: var(--text-tertiary);
+        margin-left: auto;
+    }
+
+    /* Stop editor */
+    .gradient-stop-editor {
+        display: flex;
+        flex-direction: column;
+        gap: 0.3rem;
+        padding: 0.4rem;
+        background: var(--bg-tertiary);
+        border-radius: 4px;
+    }
+
+    .stop-color-opacity-row {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+    }
+
+    .stop-color-opacity-row .color-picker-input {
+        flex-shrink: 0;
+    }
+
+    .opacity-label {
+        font-size: 0.6rem;
+        color: var(--text-tertiary);
+        min-width: 28px;
+        text-align: right;
+        flex-shrink: 0;
+    }
+
+    .stop-color-opacity-row .gradient-opacity-slider {
+        flex: 1;
+    }
+
+    .stop-editor-field {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+    }
+
+    .stop-editor-field label {
+        font-size: 0.65rem;
+        color: var(--text-secondary);
+        min-width: 70px;
+        flex-shrink: 0;
+    }
+
+    .gradient-offset-slider,
+    .gradient-opacity-slider,
+    .gradient-angle-slider {
+        flex: 1;
+        height: 4px;
+        -webkit-appearance: none;
+        appearance: none;
+        background: var(--border-color);
+        border-radius: 2px;
+        outline: none;
+    }
+
+    .gradient-offset-slider::-webkit-slider-thumb,
+    .gradient-opacity-slider::-webkit-slider-thumb,
+    .gradient-angle-slider::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: var(--accent-color, #8b5cf6);
+        cursor: pointer;
+    }
+
+    /* Angle row */
+    .gradient-angle-row {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+    }
+
+    .gradient-angle-row label {
+        font-size: 0.65rem;
+        color: var(--text-secondary);
+        min-width: 70px;
+        flex-shrink: 0;
+    }
+
+    /* Actions */
+    .gradient-actions {
+        display: flex;
+        gap: 0.3rem;
+        margin-top: 0.2rem;
+    }
+
+    .btn-apply-sm, .btn-cancel-sm {
+        font-size: 0.65rem;
+        padding: 0.2rem 0.5rem;
+        border-radius: 4px;
+        border: none;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 0.25rem;
+    }
+
+    .btn-apply-sm {
+        background: var(--accent-color, #8b5cf6);
+        color: white;
+    }
+
+    .btn-apply-sm:hover {
+        opacity: 0.9;
+    }
+
+    .btn-cancel-sm {
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+    }
+
+    .btn-cancel-sm:hover {
+        background: var(--border-color);
+    }
+</style>

@@ -1,0 +1,695 @@
+@page "/devflow"
+@using MauiSherpa.Core.Models.DevFlow
+@using MauiSherpa.Core.Services
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Services
+@inject DevFlowInspectorService InspectorService
+@inject IAlertService AlertService
+@implements IDisposable
+
+<h1><i class="fas fa-wand-magic-sparkles"></i> MauiDevFlow Inspector</h1>
+
+<div class="broker-card">
+    <div class="connection-row">
+        <label>Broker</label>
+        <input type="text" @bind="brokerHost" placeholder="localhost" class="input-field broker-input" />
+        <span class="port-sep">:</span>
+        <input type="number" @bind="brokerPort" placeholder="19223" class="input-field port-input" />
+        <button class="btn btn-primary" @onclick="RefreshAgents" disabled="@isLoading">
+            <i class="fas @(isLoading ? "fa-spinner fa-spin" : "fa-plug")"></i>
+            @(isLoading ? "Connecting..." : "Connect")
+        </button>
+        <label class="auto-refresh-label">
+            <input type="checkbox" @bind="autoRefresh" @bind:after="OnAutoRefreshChanged" />
+            Auto-refresh
+        </label>
+    </div>
+
+    <div class="connection-status">
+        @if (brokerConnected == true)
+        {
+            <span class="status-badge status-connected"><i class="fas fa-circle"></i> Broker connected — @agents.Count agent(s)</span>
+        }
+        else if (brokerConnected == false)
+        {
+            <span class="status-badge status-disconnected"><i class="fas fa-circle"></i> Broker not reachable at @brokerHost:@brokerPort</span>
+        }
+    </div>
+</div>
+
+<div class="agent-grid">
+    @foreach (var agent in agents)
+    {
+        var supported = IsAgentSupported(agent);
+        var outdated = IsAgentOutdated(agent);
+        <div class="agent-card @GetPlatformColorClass(agent.Platform) @(!supported ? "agent-unsupported" : "")"
+             @onclick="@(() => { if (supported) OpenInspector(agent); })"
+             title="@(outdated ? $"Agent version {agent.Version} is below minimum {MinSupportedAgentVersion}. Update MauiDevFlow packages." : !supported ? $"Agent version {agent.Version} is not supported." : "")">
+            <div class="agent-icon">
+                <i class="fas @GetPlatformIcon(agent.Platform)"></i>
+                <i class="fab @GetBrandIcon(agent.Platform) brand-overlay"></i>
+            </div>
+            <div class="agent-info">
+                <div class="agent-name">
+                    @(agent.AppName ?? "Unknown App")
+                    @if (!supported)
+                    {
+                        <span class="agent-outdated-badge"><i class="fas fa-triangle-exclamation"></i> Update required</span>
+                    }
+                    else if (outdated)
+                    {
+                        <span class="agent-outdated-badge"><i class="fas fa-triangle-exclamation"></i> Outdated</span>
+                    }
+                </div>
+                <div class="agent-meta">
+                    <span class="agent-platform">@(agent.Platform ?? "Unknown")</span>
+                    @if (agent.Project != null)
+                    {
+                        <span class="agent-tfm">@GetProjectName(agent.Project)</span>
+                    }
+                </div>
+                <div class="agent-details">
+                    <span class="agent-port"><i class="fas fa-network-wired"></i> Port @agent.Port</span>
+                    @if (agent.ConnectedAt != null)
+                    {
+                        <span class="agent-time"><i class="fas fa-clock"></i> @FormatTimeAgo(agent.ConnectedAt.Value)</span>
+                    }
+                    @if (!string.IsNullOrEmpty(agent.Version))
+                    {
+                        <span class="agent-version"><i class="fas fa-code-branch"></i> @FormatVersion(agent.Version)</span>
+                    }
+                </div>
+            </div>
+            <div class="agent-arrow">
+                @if (supported)
+                {
+                    <i class="fas fa-chevron-right"></i>
+                }
+                else
+                {
+                    <i class="fas fa-ban" style="color: var(--text-tertiary);"></i>
+                }
+            </div>
+        </div>
+    }
+
+    @if (agents.Count == 0)
+    {
+        <div class="agent-card hint-card">
+            <div class="agent-icon hint-icon">
+                <i class="fas fa-wand-magic-sparkles"></i>
+            </div>
+            <div class="agent-info">
+                <div class="agent-name">@(brokerConnected == true ? "No agents connected" : "Get started")</div>
+                <div class="agent-details hint-text">
+                    Add <code>builder.AddMauiDevFlowAgent();</code> to your MauiProgram.cs, then run your app.
+                </div>
+                <div class="agent-details">
+                    <a href="https://redth.github.io/MAUI.Sherpa/devflow" target="_blank" class="hint-link">
+                        <i class="fas fa-book"></i> Quick Start guide
+                    </a>
+                </div>
+            </div>
+        </div>
+    }
+
+    <div class="agent-card direct-connect-card" @onclick:stopPropagation>
+        <div class="agent-icon direct-icon">
+            <i class="fas fa-plug"></i>
+        </div>
+        <div class="agent-info">
+            <div class="agent-name">Direct Connect</div>
+            <div class="agent-details direct-connect-row">
+                <input type="text" @bind="manualHost" placeholder="localhost" class="input-field broker-input direct-input" />
+                <span class="port-sep">:</span>
+                <input type="number" @bind="manualPort" placeholder="9223" class="input-field port-input direct-port" />
+                <button class="btn btn-secondary btn-sm" @onclick="ManualConnect">
+                    <i class="fas fa-arrow-right"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private string brokerHost = "localhost";
+    private int brokerPort = 19223;
+    private string manualHost = "localhost";
+    private int manualPort = 9223;
+    private bool isLoading;
+    private bool? brokerConnected;
+    private bool autoRefresh;
+    private List<BrokerAgent> agents = new();
+    private Timer? _refreshTimer;
+
+    private static readonly Version MinSupportedAgentVersion = new("0.16.0");
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAgents();
+    }
+
+    private async Task RefreshAgents()
+    {
+        isLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            var healthy = await DevFlowAgentClient.IsBrokerHealthyAsync(brokerHost, brokerPort);
+            brokerConnected = healthy;
+
+            if (healthy)
+            {
+                agents = await DevFlowAgentClient.GetBrokerAgentsAsync(brokerHost, brokerPort);
+
+                // Fetch version from each agent's status endpoint (parallel)
+                var tasks = agents.Select(async agent =>
+                {
+                    try
+                    {
+                        var client = new DevFlowAgentClient(brokerHost, agent.Port);
+                        var status = await client.GetStatusAsync();
+                        if (status?.Version != null)
+                            agent.Version = status.Version;
+                    }
+                    catch { /* agent unreachable */ }
+                });
+                await Task.WhenAll(tasks);
+            }
+            else
+            {
+                agents.Clear();
+            }
+        }
+        catch
+        {
+            brokerConnected = false;
+            agents.Clear();
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private bool IsAgentSupported(BrokerAgent agent)
+    {
+        if (string.IsNullOrEmpty(agent.Version)) return true; // unknown version = allow
+#if DEBUG
+        return true; // allow connecting to any version in debug builds
+#else
+        return TryParseAgentVersion(agent.Version, out var v) && v >= MinSupportedAgentVersion;
+#endif
+    }
+
+    private bool IsAgentOutdated(BrokerAgent agent)
+    {
+        if (string.IsNullOrEmpty(agent.Version)) return false;
+        return TryParseAgentVersion(agent.Version, out var v) && v < MinSupportedAgentVersion;
+    }
+
+    private static bool TryParseAgentVersion(string versionStr, out Version version)
+    {
+        // Handle semver-like strings: "v0.14.0+hash", "0.14.0-beta.1", "v1.2.3"
+        var s = versionStr.TrimStart('v');
+        var plusIdx = s.IndexOf('+');
+        if (plusIdx >= 0) s = s[..plusIdx];
+        var dashIdx = s.IndexOf('-');
+        if (dashIdx >= 0) s = s[..dashIdx];
+        return Version.TryParse(s, out version!);
+    }
+
+    private static string FormatVersion(string version)
+    {
+        // Show clean version: "v0.14.0+hash" → "v0.14.0", "0.14.0" → "v0.14.0"
+        var s = version.TrimStart('v');
+        var plusIdx = s.IndexOf('+');
+        if (plusIdx >= 0) s = s[..plusIdx];
+        return $"v{s}";
+    }
+
+    private void OpenInspector(BrokerAgent agent)
+    {
+        InspectorService.Open(agent.Id, brokerHost, agent.Port, agent.AppName);
+    }
+
+    private async Task ManualConnect()
+    {
+        var client = new DevFlowAgentClient(manualHost, manualPort);
+        try
+        {
+            var status = await client.GetStatusAsync();
+            if (status != null)
+            {
+                var id = $"manual-{manualHost}-{manualPort}";
+                InspectorService.Open(id, manualHost, manualPort, status.AppName ?? $"{manualHost}:{manualPort}");
+            }
+            else
+            {
+                await AlertService.ShowToastAsync($"Could not reach agent at {manualHost}:{manualPort}");
+            }
+        }
+        catch
+        {
+            await AlertService.ShowToastAsync($"Connection failed: {manualHost}:{manualPort}");
+        }
+        finally
+        {
+            client.Dispose();
+        }
+    }
+
+    private void OnAutoRefreshChanged()
+    {
+        _refreshTimer?.Dispose();
+        _refreshTimer = null;
+
+        if (autoRefresh)
+        {
+            _refreshTimer = new Timer(async _ =>
+            {
+                await InvokeAsync(async () =>
+                {
+                    await RefreshAgents();
+                });
+            }, null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
+        }
+    }
+
+    private static string GetPlatformIcon(string? platform) => platform?.ToLowerInvariant() switch
+    {
+        "ios" => "fa-mobile-alt",
+        "android" => "fa-mobile-alt",
+        "maccatalyst" => "fa-laptop",
+        "macos" => "fa-laptop",
+        "winui" or "windows" => "fa-desktop",
+        "linux" or "gtk" => "fa-display",
+        _ => "fa-microchip"
+    };
+
+    private static string GetPlatformColorClass(string? platform) => platform?.ToLowerInvariant() switch
+    {
+        "ios" or "maccatalyst" or "macos" => "platform-apple",
+        "android" => "platform-android",
+        "winui" or "windows" => "platform-windows",
+        "linux" or "gtk" => "platform-linux",
+        _ => "platform-other"
+    };
+
+    private static string GetBrandIcon(string? platform) => platform?.ToLowerInvariant() switch
+    {
+        "ios" or "maccatalyst" or "macos" => "fa-apple",
+        "android" => "fa-android",
+        "winui" or "windows" => "fa-windows",
+        "linux" or "gtk" => "fa-linux",
+        _ => ""
+    };
+
+    private static string GetProjectName(string projectPath)
+    {
+        var name = System.IO.Path.GetFileNameWithoutExtension(projectPath);
+        return name ?? projectPath;
+    }
+
+    private static string FormatTimeAgo(DateTimeOffset time)
+    {
+        var elapsed = DateTimeOffset.UtcNow - time;
+        if (elapsed.TotalSeconds < 60) return "just now";
+        if (elapsed.TotalMinutes < 60) return $"{(int)elapsed.TotalMinutes}m ago";
+        if (elapsed.TotalHours < 24) return $"{(int)elapsed.TotalHours}h ago";
+        return $"{(int)elapsed.TotalDays}d ago";
+    }
+
+    public void Dispose()
+    {
+        _refreshTimer?.Dispose();
+    }
+}
+
+<style>
+    .broker-card {
+        background: rgba(59, 130, 246, 0.08);
+        border-radius: 12px;
+        padding: 1rem 1.25rem;
+        margin-bottom: 1rem;
+        margin-top: 0.75rem;
+    }
+
+    :deep(.theme-dark) .broker-card {
+        background: rgba(59, 130, 246, 0.12);
+    }
+
+    .connection-row {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+    }
+
+    .connection-row label:first-child {
+        font-weight: 600;
+        color: var(--text-secondary);
+    }
+
+    .broker-input {
+        width: 160px;
+        padding: 0.35rem 0.6rem;
+        border: 1px solid var(--input-border);
+        border-radius: 6px;
+        background: var(--input-bg);
+        color: var(--text-primary);
+        font-size: 0.85rem;
+    }
+
+    .port-input {
+        width: 80px;
+        padding: 0.35rem 0.6rem;
+        border: 1px solid var(--input-border);
+        border-radius: 6px;
+        background: var(--input-bg);
+        color: var(--text-primary);
+        font-size: 0.85rem;
+        -moz-appearance: textfield;
+    }
+
+    .port-input::-webkit-inner-spin-button,
+    .port-input::-webkit-outer-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+    }
+
+    .port-sep {
+        color: var(--text-tertiary);
+        font-weight: 600;
+        font-size: 0.9rem;
+    }
+
+    .auto-refresh-label {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+        cursor: pointer;
+    }
+
+    .connection-status {
+        margin-top: 0.5rem;
+    }
+
+    .status-badge {
+        font-size: 0.85rem;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+    }
+
+    .status-connected {
+        color: #22c55e;
+    }
+
+    .status-connected i {
+        font-size: 0.5rem;
+    }
+
+    .status-disconnected {
+        color: #ef4444;
+    }
+
+    .status-disconnected i {
+        font-size: 0.5rem;
+    }
+
+    /* Direct connect card */
+    .direct-connect-card {
+        cursor: default;
+        background: var(--bg-tertiary);
+    }
+
+    .direct-connect-card:hover {
+        transform: none;
+        box-shadow: none;
+    }
+
+    .direct-icon {
+        background: rgba(107, 114, 128, 0.12);
+        color: #6b7280;
+    }
+
+    .direct-connect-row {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+        margin-top: 0.15rem;
+    }
+
+    .direct-input {
+        width: 100px !important;
+        padding: 0.25rem 0.4rem !important;
+        font-size: 0.8rem !important;
+    }
+
+    .direct-port {
+        width: 60px !important;
+        padding: 0.25rem 0.4rem !important;
+        font-size: 0.8rem !important;
+    }
+
+    .btn-sm {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.8rem;
+    }
+
+    /* Hint card */
+    .hint-card {
+        cursor: default;
+        background: var(--bg-tertiary);
+    }
+
+    .hint-card:hover {
+        transform: none;
+        box-shadow: none;
+    }
+
+    .hint-icon {
+        background: rgba(234, 179, 8, 0.12);
+        color: #eab308;
+    }
+
+    .hint-text {
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+        line-height: 1.4;
+    }
+
+    .hint-text code {
+        font-size: 0.75rem;
+        background: var(--bg-primary);
+        padding: 0.1rem 0.3rem;
+        border-radius: 3px;
+    }
+
+    .hint-link {
+        font-size: 0.8rem;
+        color: var(--accent-color, #8b5cf6);
+        text-decoration: none;
+    }
+
+    .hint-link:hover {
+        text-decoration: underline;
+    }
+
+    .agent-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+        gap: 1rem;
+    }
+
+    .agent-card {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 0.75rem 1rem;
+        background: var(--card-bg);
+        border: none;
+        border-radius: 22px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+
+    .agent-card:hover {
+        box-shadow: 0 2px 12px rgba(0,0,0,0.12);
+        transform: translateY(-1px);
+    }
+
+    /* Unsupported (outdated) agent cards */
+    .agent-card.agent-unsupported {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    .agent-card.agent-unsupported:hover {
+        transform: none;
+        box-shadow: none;
+    }
+
+    .agent-outdated-badge {
+        font-size: 0.7rem;
+        color: #ef4444;
+        font-weight: 500;
+        margin-left: 0.5rem;
+    }
+
+    .agent-version {
+        color: var(--text-tertiary);
+    }
+
+    .agent-icon {
+        font-size: 1.5rem;
+        width: 42px;
+        height: 42px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 12px;
+        flex-shrink: 0;
+        position: relative;
+    }
+
+    .brand-overlay {
+        position: absolute;
+        bottom: 4px;
+        right: 4px;
+        font-size: 1.1rem;
+        color: #999;
+        opacity: 1;
+        line-height: 1;
+    }
+
+    :global(.theme-dark) .brand-overlay {
+        color: #888;
+        opacity: 1;
+    }
+
+    /* Platform colors */
+    .platform-apple .agent-icon {
+        background: rgba(147, 51, 234, 0.12);
+        color: #9333ea;
+    }
+    .platform-android .agent-icon {
+        background: rgba(34, 197, 94, 0.12);
+        color: #22c55e;
+    }
+    .platform-windows .agent-icon {
+        background: rgba(59, 130, 246, 0.12);
+        color: #3b82f6;
+    }
+    .platform-linux .agent-icon {
+        background: rgba(234, 179, 8, 0.12);
+        color: #eab308;
+    }
+    .platform-other .agent-icon {
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+    }
+
+    .platform-apple .agent-platform {
+        background: rgba(147, 51, 234, 0.12);
+        color: #9333ea;
+    }
+    .platform-android .agent-platform {
+        background: rgba(34, 197, 94, 0.12);
+        color: #16a34a;
+    }
+    .platform-windows .agent-platform {
+        background: rgba(59, 130, 246, 0.12);
+        color: #3b82f6;
+    }
+    .platform-linux .agent-platform {
+        background: rgba(234, 179, 8, 0.12);
+        color: #ca8a04;
+    }
+
+    :global(.theme-dark) .platform-apple .agent-platform {
+        color: #c084fc;
+    }
+    :global(.theme-dark) .platform-android .agent-platform {
+        color: #4ade80;
+    }
+    :global(.theme-dark) .platform-windows .agent-platform {
+        color: #60a5fa;
+    }
+    :global(.theme-dark) .platform-linux .agent-platform {
+        color: #facc15;
+    }
+    :global(.theme-dark) .platform-apple .agent-icon {
+        color: #c084fc;
+    }
+    :global(.theme-dark) .platform-android .agent-icon {
+        color: #4ade80;
+    }
+    :global(.theme-dark) .platform-windows .agent-icon {
+        color: #60a5fa;
+    }
+    :global(.theme-dark) .platform-linux .agent-icon {
+        color: #facc15;
+    }
+
+    .agent-info {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .agent-name {
+        font-weight: 600;
+        font-size: 1rem;
+        color: var(--text-primary);
+    }
+
+    .agent-meta {
+        display: flex;
+        gap: 0.5rem;
+        margin-top: 0.25rem;
+    }
+
+    .agent-platform, .agent-tfm {
+        font-size: 0.75rem;
+        padding: 0.1rem 0.5rem;
+        border-radius: 4px;
+        color: var(--text-secondary);
+        font-weight: 500;
+    }
+
+    .agent-tfm {
+        background: var(--bg-tertiary);
+    }
+
+    .agent-project {
+        font-size: 0.8rem;
+        color: var(--text-tertiary);
+        margin-top: 0.25rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .agent-details {
+        display: flex;
+        gap: 1rem;
+        margin-top: 0.4rem;
+        font-size: 0.8rem;
+        color: var(--text-tertiary);
+    }
+
+    .agent-details i {
+        margin-right: 0.25rem;
+    }
+
+    .agent-arrow {
+        color: var(--text-tertiary);
+        font-size: 1rem;
+    }
+
+</style>
