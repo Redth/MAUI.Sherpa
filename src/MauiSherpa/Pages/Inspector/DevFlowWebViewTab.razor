@@ -217,10 +217,15 @@
         // Start polling for new logs
         _pollTimer = new Timer(async _ =>
         {
-            await InvokeAsync(async () =>
+            try
             {
-                await PollNewLogs();
-            });
+                await InvokeAsync(async () =>
+                {
+                    await PollNewLogs();
+                    await RefreshTargets();
+                });
+            }
+            catch { }
         }, null, TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(3));
     }
 
