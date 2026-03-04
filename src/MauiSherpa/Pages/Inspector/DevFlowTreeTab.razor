@@ -31,7 +31,7 @@
                 <div class="screenshot-wrapper" @onclick="OnScreenshotClick" style="position: relative; display: inline-block;">
                     <img src="@($"data:image/png;base64,{screenshotData}")" alt="App screenshot"
                          class="screenshot-img @(inspectMode ? "inspect-cursor" : "")" />
-                    @if (selectedElement?.Bounds != null && screenshotData != null)
+                    @if (locateElementId != null && selectedElement?.Bounds != null && screenshotData != null)
                     {
                         @RenderHighlightOverlay
                     }
@@ -255,6 +255,7 @@
     private bool inspectMode;
     private string? inspectDebug;
     private string? overlayStyle;
+    private string? locateElementId;
     private string? editingProperty;
     private string editValue = "";
     private ElementReference editInput;
@@ -735,6 +736,7 @@
     {
         ExpandPathTo(treeItems, element.Id);
         await SelectElement(element);
+        locateElementId = element.Id; // show overlay for inspect-mode hits
         await UpdateOverlayAsync();
         StateHasChanged();
 
@@ -799,6 +801,8 @@
         selectedElement = element;
         selectedElementId = element.Id;
         editingProperty = null;
+        locateElementId = null;
+        overlayStyle = null;
         fetchedProperties.Clear();
         brushValueCache.Clear();
 
@@ -966,7 +970,7 @@
         // The node row
         __builder.OpenElement(0, "div");
         __builder.AddAttribute(1, "class", $"tree-node {(isSelected ? "selected" : "")}");
-        __builder.AddAttribute(2, "onclick", EventCallback.Factory.Create<Microsoft.AspNetCore.Components.Web.MouseEventArgs>(this, async () => { await SelectElement(item); await UpdateOverlayAsync(); StateHasChanged(); }));
+        __builder.AddAttribute(2, "onclick", EventCallback.Factory.Create<Microsoft.AspNetCore.Components.Web.MouseEventArgs>(this, () => SelectElement(item)));
 
         // Indent guide spans for each depth level
         for (int d = 0; d < depth; d++)
@@ -1030,29 +1034,9 @@
             __builder.CloseElement();
         }
 
-        // Right-side hover buttons: locate in screenshot (all nodes) + expand/collapse (parent nodes only)
+        // Right-side hover buttons: expand/collapse (parent nodes only) + locate in screenshot (all nodes)
         __builder.OpenElement(85, "span");
         __builder.AddAttribute(86, "class", "tree-actions");
-
-        // Locate in screenshot button (all nodes)
-        __builder.OpenElement(83, "span");
-        __builder.AddAttribute(84, "class", "tree-locate");
-        __builder.AddAttribute(841, "title", "Locate in screenshot");
-        __builder.AddAttribute(842, "onclick", EventCallback.Factory.Create<Microsoft.AspNetCore.Components.Web.MouseEventArgs>(this, async () =>
-        {
-            await SelectElement(item);
-            await UpdateOverlayAsync();
-            StateHasChanged();
-            // Scroll screenshot to show the overlay
-            await Task.Delay(50);
-            await JS.InvokeVoidAsync("eval",
-                "document.querySelector('.highlight-overlay')?.scrollIntoView({ block: 'center', behavior: 'smooth' })");
-        }));
-        __builder.AddEventStopPropagationAttribute(843, "onclick", true);
-        __builder.OpenElement(844, "i");
-        __builder.AddAttribute(845, "class", "fas fa-crosshairs");
-        __builder.CloseElement();
-        __builder.CloseElement();
 
         if (hasChildren)
         {
@@ -1076,6 +1060,39 @@
             __builder.CloseElement();
             __builder.CloseElement();
         }
+
+        // Locate in screenshot toggle (all nodes)
+        var isLocating = locateElementId == item.Id;
+        __builder.OpenElement(83, "span");
+        __builder.AddAttribute(84, "class", $"tree-locate{(isLocating ? " active" : "")}");
+        __builder.AddAttribute(841, "title", isLocating ? "Hide highlight" : "Locate in screenshot");
+        __builder.AddAttribute(842, "onclick", EventCallback.Factory.Create<Microsoft.AspNetCore.Components.Web.MouseEventArgs>(this, async () =>
+        {
+            if (locateElementId == item.Id)
+            {
+                // Toggle off
+                locateElementId = null;
+                overlayStyle = null;
+                StateHasChanged();
+            }
+            else
+            {
+                // Toggle on
+                locateElementId = item.Id;
+                await SelectElement(item);
+                locateElementId = item.Id; // re-set after SelectElement clears it
+                await UpdateOverlayAsync();
+                StateHasChanged();
+                await Task.Delay(50);
+                await JS.InvokeVoidAsync("eval",
+                    "document.querySelector('.highlight-overlay')?.scrollIntoView({ block: 'center', behavior: 'smooth' })");
+            }
+        }));
+        __builder.AddEventStopPropagationAttribute(843, "onclick", true);
+        __builder.OpenElement(844, "i");
+        __builder.AddAttribute(845, "class", "fas fa-crosshairs");
+        __builder.CloseElement();
+        __builder.CloseElement();
 
         __builder.CloseElement(); // span.tree-actions
 
@@ -2523,6 +2540,11 @@
     .tree-locate:hover, .tree-expand-all:hover, .tree-collapse-all:hover {
         opacity: 0.8 !important;
         color: var(--text-primary);
+    }
+
+    .tree-locate.active {
+        opacity: 1 !important;
+        color: #8b5cf6;
     }
 
     .tree-type {
