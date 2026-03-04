@@ -41,9 +41,10 @@
     @foreach (var agent in agents)
     {
         var supported = IsAgentSupported(agent);
+        var outdated = IsAgentOutdated(agent);
         <div class="agent-card @GetPlatformColorClass(agent.Platform) @(!supported ? "agent-unsupported" : "")"
              @onclick="@(() => { if (supported) OpenInspector(agent); })"
-             title="@(!supported ? $"Agent version {agent.Version} is below minimum {MinSupportedAgentVersion}. Update MauiDevFlow packages." : "")">
+             title="@(outdated ? $"Agent version {agent.Version} is below minimum {MinSupportedAgentVersion}. Update MauiDevFlow packages." : !supported ? $"Agent version {agent.Version} is not supported." : "")">
             <div class="agent-icon">
                 <i class="fas @GetPlatformIcon(agent.Platform)"></i>
                 <i class="fab @GetBrandIcon(agent.Platform) brand-overlay"></i>
@@ -54,6 +55,10 @@
                     @if (!supported)
                     {
                         <span class="agent-outdated-badge"><i class="fas fa-triangle-exclamation"></i> Update required</span>
+                    }
+                    else if (outdated)
+                    {
+                        <span class="agent-outdated-badge"><i class="fas fa-triangle-exclamation"></i> Outdated</span>
                     }
                 </div>
                 <div class="agent-meta">
@@ -192,7 +197,17 @@
     private bool IsAgentSupported(BrokerAgent agent)
     {
         if (string.IsNullOrEmpty(agent.Version)) return true; // unknown version = allow
+#if DEBUG
+        return true; // allow connecting to any version in debug builds
+#else
         return TryParseAgentVersion(agent.Version, out var v) && v >= MinSupportedAgentVersion;
+#endif
+    }
+
+    private bool IsAgentOutdated(BrokerAgent agent)
+    {
+        if (string.IsNullOrEmpty(agent.Version)) return false;
+        return TryParseAgentVersion(agent.Version, out var v) && v < MinSupportedAgentVersion;
     }
 
     private static bool TryParseAgentVersion(string versionStr, out Version version)
