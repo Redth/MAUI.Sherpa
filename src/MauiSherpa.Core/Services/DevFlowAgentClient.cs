@@ -152,6 +152,16 @@ public class DevFlowAgentClient : IDisposable
     public async Task<bool> FocusAsync(string elementId, CancellationToken ct = default)
         => await PostActionAsync("/api/action/focus", new { elementId }, ct);
 
+    // --- Hit Test ---
+
+    public async Task<DevFlowHitTestResult?> HitTestAsync(double x, double y, int? window = null, CancellationToken ct = default)
+    {
+        var parts = new List<string> { $"x={x}", $"y={y}" };
+        if (window != null) parts.Add($"window={window}");
+        var url = $"/api/hittest?{string.Join("&", parts)}";
+        return await GetAsync<DevFlowHitTestResult>(url, ct);
+    }
+
     // --- Logs ---
 
     public async Task<List<DevFlowLogEntry>> GetLogsAsync(int limit = 100, int skip = 0, string? source = null, CancellationToken ct = default)

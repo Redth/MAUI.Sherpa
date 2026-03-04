@@ -553,16 +553,40 @@
             var logicalX = (mx / actW) * dims.NaturalWidth / dpiScale;
             var logicalY = (my / actH) * dims.NaturalHeight / dpiScale;
 
-            // Hit test (bounds are relative to parent, so pass absolute offsets)
-            var hit = HitTest(treeItems, logicalX, logicalY);
+            // Try server-side hit test first (uses MAUI's native GetVisualTreeElements)
+            DevFlowElementInfo? hit = null;
+            try
+            {
+                var hitResult = await Client.HitTestAsync(logicalX, logicalY, selectedWindowIndex);
+                if (hitResult?.Elements.Count > 0)
+                {
+                    // Elements are deepest-first; find the first match in our tree
+                    var hitId = hitResult.Elements[0].Id;
+                    hit = FindElementById(treeItems, hitId);
+                    if (hit != null)
+                        inspectDebug = $"HIT (server): {hit.Type} [{hitId}] at ({logicalX:F0},{logicalY:F0})";
+                }
+            }
+            catch
+            {
+                // Server-side hit test not available; fall through to client-side
+            }
+
+            // Fall back to client-side hit test
+            if (hit == null)
+            {
+                hit = HitTest(treeItems, logicalX, logicalY);
+                if (hit != null)
+                    inspectDebug = $"HIT (client): {hit.Type} at ({logicalX:F0},{logicalY:F0})";
+            }
+
             if (hit != null)
             {
-                inspectDebug = $"HIT: {hit.Type} at ({logicalX:F0},{logicalY:F0})";
                 await RevealAndSelectElement(hit);
             }
             else
             {
-                inspectDebug = $"No hit at ({logicalX:F0},{logicalY:F0}) dpi={dpiScale:F1} win=({dims.NaturalWidth/dpiScale:F0}x{dims.NaturalHeight/dpiScale:F0})";
+                inspectDebug = $"No hit at ({logicalX:F0},{logicalY:F0}) dpi={dpiScale:F1}";
                 StateHasChanged();
             }
         }
@@ -620,6 +644,20 @@
             }
         }
         return best;
+    }
+
+    private DevFlowElementInfo? FindElementById(List<DevFlowElementInfo> items, string id)
+    {
+        foreach (var item in items)
+        {
+            if (item.Id == id) return item;
+            if (item.Children?.Count > 0)
+            {
+                var found = FindElementById(item.Children, id);
+                if (found != null) return found;
+            }
+        }
+        return null;
     }
 
     private bool ExpandPathTo(List<DevFlowElementInfo> items, string targetId)

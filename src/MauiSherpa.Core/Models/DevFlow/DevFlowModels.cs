@@ -126,6 +126,42 @@ public class DevFlowBoundsInfo
 }
 
 /// <summary>
+/// Hit test result from /api/hittest.
+/// </summary>
+public class DevFlowHitTestResult
+{
+    [JsonPropertyName("x")]
+    public double X { get; set; }
+
+    [JsonPropertyName("y")]
+    public double Y { get; set; }
+
+    [JsonPropertyName("window")]
+    public int Window { get; set; }
+
+    [JsonPropertyName("elements")]
+    public List<DevFlowHitTestElement> Elements { get; set; } = new();
+}
+
+public class DevFlowHitTestElement
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = string.Empty;
+
+    [JsonPropertyName("type")]
+    public string? Type { get; set; }
+
+    [JsonPropertyName("automationId")]
+    public string? AutomationId { get; set; }
+
+    [JsonPropertyName("bounds")]
+    public DevFlowBoundsInfo? Bounds { get; set; }
+
+    [JsonPropertyName("text")]
+    public string? Text { get; set; }
+}
+
+/// <summary>
 /// Captured HTTP request/response from /api/network.
 /// </summary>
 public class DevFlowNetworkRequest
