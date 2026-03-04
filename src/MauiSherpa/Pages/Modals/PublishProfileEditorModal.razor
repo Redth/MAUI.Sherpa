@@ -10,6 +10,7 @@
 @inject IPublishProfileService ProfileService
 @inject IMediator Mediator
 @inject IFormModalService FormModal
+@inject IEncryptedSettingsService SettingsService
 @implements IDisposable
 
 <div class="profile-editor">
@@ -153,19 +154,19 @@
                                     @if (config.IdentityId is not null)
                                     {
                                         var identityName = appleIdentities.FirstOrDefault(i => i.Id == config.IdentityId)?.Name ?? config.IdentityId;
-                                        <div class="summary-item"><i class="fa-solid fa-id-badge"></i> @identityName</div>
+                                        <div class="summary-item"><i class="fa-solid fa-id-badge"></i> <span class="@(demoMode ? "demo-blur" : "")">@identityName</span></div>
                                     }
                                     @if (!string.IsNullOrEmpty(config.CertificateSerialNumber))
                                     {
-                                        <div class="summary-item"><i class="fa-solid fa-stamp"></i> @(config.CertificateName ?? config.CertificateSerialNumber)</div>
+                                        <div class="summary-item"><i class="fa-solid fa-stamp"></i> <span class="@(demoMode ? "demo-blur" : "")">@(config.CertificateName ?? config.CertificateSerialNumber)</span></div>
                                     }
                                     @if (!string.IsNullOrEmpty(config.InstallerCertSerialNumber))
                                     {
-                                        <div class="summary-item"><i class="fa-solid fa-box"></i> @(config.InstallerCertName ?? "Installer")</div>
+                                        <div class="summary-item"><i class="fa-solid fa-box"></i> <span class="@(demoMode ? "demo-blur" : "")">@(config.InstallerCertName ?? "Installer")</span></div>
                                     }
                                     @if (!string.IsNullOrEmpty(config.ProfileId))
                                     {
-                                        <div class="summary-item"><i class="fa-solid fa-file-signature"></i> @(config.ProfileName ?? config.ProfileId)</div>
+                                        <div class="summary-item"><i class="fa-solid fa-file-signature"></i> <span class="@(demoMode ? "demo-blur" : "")">@(config.ProfileName ?? config.ProfileId)</span></div>
                                     }
                                     @if (config.IncludeNotarization)
                                     {
@@ -1047,6 +1048,7 @@
 
     // Publishers
     private List<SecretsPublisherConfig> publishers = new();
+    private bool demoMode;
 
     protected override async Task OnInitializedAsync()
     {
@@ -1054,6 +1056,8 @@
         if (bridge is null) return;
 
         bridge.SubmitRequested += OnSubmitRequested;
+
+        demoMode = (await SettingsService.GetSettingsAsync()).Preferences.DemoMode;
 
         // Load existing profile if editing
         if (bridge.Parameters.TryGetValue("Profile", out var profileObj) && profileObj is PublishProfile existing)
