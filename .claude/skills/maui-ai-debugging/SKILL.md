@@ -216,6 +216,9 @@ maui-devflow MAUI logs                   # fetch 100 most recent log entries
 maui-devflow MAUI logs --limit 50        # fetch 50 entries
 maui-devflow MAUI logs --source webview  # only WebView/Blazor console logs
 maui-devflow MAUI logs --source native   # only native ILogger logs
+maui-devflow MAUI logs --follow          # stream logs in real-time (Ctrl+C to stop)
+maui-devflow MAUI logs -f --source native  # stream only native logs
+maui-devflow MAUI logs -f --json         # stream as JSONL (machine-readable)
 ```
 
 **Debugging workflow:** Reproduce the issue → `maui-devflow MAUI logs --limit 20` → check for
@@ -317,7 +320,7 @@ or `maui-devflow --agent-port 10224 MAUI status` — both are valid.
 | `MAUI scroll [--element id] [--dx N] [--dy N] [--window W]` | Scroll by delta or scroll element into view |
 | `MAUI focus <elementId>` | Set focus to element |
 | `MAUI resize <width> <height> [--window W]` | Resize app window. Window is 0-based index; default first window |
-| `MAUI logs [--limit N] [--skip N] [--source S]` | Fetch application logs (newest first). Source: native, webview, or omit for all |
+| `MAUI logs [--limit N] [--skip N] [--source S] [--follow] [--json]` | Fetch or stream application logs. `--follow` / `-f` streams in real-time via WebSocket (Ctrl+C to stop). `--json` outputs JSONL. Source: native, webview, or omit for all |
 | `MAUI recording start [--output path] [--timeout 30]` | Start screen recording. Default timeout 30s. Uses platform-native tools (adb screenrecord, xcrun simctl, screencapture, ffmpeg) |
 | `MAUI recording stop` | Stop active recording and save the video file |
 | `MAUI recording status` | Check if a recording is currently in progress |

@@ -55,10 +55,10 @@
                     <DevFlowNetworkTab Client="@client" />
                     break;
                 case "webview":
-                    <DevFlowWebViewTab Client="@client" />
+                    <DevFlowWebViewTab Client="@client" Logs="@webviewLogs" OnClearLogs="ClearWebViewLogs" />
                     break;
                 case "logs":
-                    <DevFlowLogsTab Client="@client" />
+                    <DevFlowLogsTab Client="@client" Logs="@allLogs" OnClearLogs="ClearAllLogs" />
                     break;
             }
         }
@@ -82,6 +82,18 @@
     private string activeTab = "tree";
     private bool isConnected;
 
+    // Shared log state — stream lives at inspector level, survives tab switches
+    private List<DevFlowLogEntry> allLogs = new();
+    private DateTimeOffset _allLogsClearedAfter = DateTimeOffset.MinValue;
+    private DateTimeOffset _webviewLogsClearedAfter = DateTimeOffset.MinValue;
+    private CancellationTokenSource? _logStreamCts;
+    private Timer? _pollTimer;
+
+    private List<DevFlowLogEntry> webviewLogs =>
+        allLogs.Where(l => l.Source?.Equals("webview", StringComparison.OrdinalIgnoreCase) == true
+            && (_webviewLogsClearedAfter == DateTimeOffset.MinValue || l.Timestamp > _webviewLogsClearedAfter))
+            .ToList();
+
     protected override async Task OnInitializedAsync()
     {
         agentHost = QueryHost ?? "localhost";
@@ -104,6 +116,130 @@
             isConnected = false;
         }
         StateHasChanged();
+
+        if (isConnected)
+            StartLogStream();
+    }
+
+    private void StartLogStream()
+    {
+        _logStreamCts?.Cancel();
+        _pollTimer?.Dispose();
+        _pollTimer = null;
+        _logStreamCts = new CancellationTokenSource();
+        var ct = _logStreamCts.Token;
+
+        _ = Task.Run(async () =>
+        {
+            var reconnectDelay = 1;
+            var fastFailCount = 0;
+            while (!ct.IsCancellationRequested)
+            {
+                var startTime = DateTimeOffset.UtcNow;
+                try
+                {
+                    await client!.StreamLogsAsync(
+                        onReplay: entries =>
+                        {
+                            InvokeAsync(() =>
+                            {
+                                if (_allLogsClearedAfter != DateTimeOffset.MinValue)
+                                    entries = entries.Where(l => l.Timestamp > _allLogsClearedAfter).ToList();
+                                allLogs = entries;
+                                StateHasChanged();
+                            });
+                        },
+                        onEntry: entry =>
+                        {
+                            InvokeAsync(() =>
+                            {
+                                if (_allLogsClearedAfter != DateTimeOffset.MinValue && entry.Timestamp <= _allLogsClearedAfter)
+                                    return;
+                                allLogs.Add(entry);
+                                StateHasChanged();
+                            });
+                        },
+                        source: null,
+                        replay: 500,
+                        ct: ct);
+                }
+                catch (OperationCanceledException) { return; }
+                catch { }
+
+                if (ct.IsCancellationRequested) return;
+
+                // If stream failed very quickly (<2s), agent likely doesn't support /ws/logs
+                var elapsed = DateTimeOffset.UtcNow - startTime;
+                if (elapsed.TotalSeconds < 2)
+                {
+                    fastFailCount++;
+                    if (fastFailCount >= 3)
+                    {
+                        // Fall back to REST polling for this agent
+                        await InvokeAsync(() => StartPolling());
+                        return;
+                    }
+                }
+                else
+                {
+                    fastFailCount = 0;
+                    reconnectDelay = 1; // reset backoff after a successful connection
+                }
+
+                // Wait and retry with backoff (1s, 2s, 4s, 8s max)
+                try { await Task.Delay(TimeSpan.FromSeconds(reconnectDelay), ct); }
+                catch (OperationCanceledException) { return; }
+                reconnectDelay = Math.Min(reconnectDelay * 2, 8);
+            }
+        }, ct);
+    }
+
+    private void StartPolling()
+    {
+        _pollTimer?.Dispose();
+        // Initial fetch
+        _ = InvokeAsync(FetchLogsViaRest);
+        _pollTimer = new Timer(async _ =>
+        {
+            try { await InvokeAsync(FetchLogsViaRest); }
+            catch { }
+        }, null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
+    }
+
+    private async Task FetchLogsViaRest()
+    {
+        try
+        {
+            var freshLogs = await client!.GetLogsAsync(limit: 500);
+            if (_allLogsClearedAfter != DateTimeOffset.MinValue)
+                freshLogs = freshLogs.Where(l => l.Timestamp > _allLogsClearedAfter).ToList();
+            if (freshLogs.Count != allLogs.Count)
+            {
+                allLogs = freshLogs;
+                StateHasChanged();
+            }
+        }
+        catch { }
+    }
+
+    private void ClearAllLogs()
+    {
+        if (allLogs.Count > 0)
+            _allLogsClearedAfter = allLogs.Max(l => l.Timestamp);
+        else
+            _allLogsClearedAfter = DateTimeOffset.UtcNow;
+        allLogs.Clear();
+        StateHasChanged();
+    }
+
+    private void ClearWebViewLogs()
+    {
+        var wvLogs = webviewLogs;
+        if (wvLogs.Count > 0)
+            _webviewLogsClearedAfter = wvLogs.Max(l => l.Timestamp);
+        else
+            _webviewLogsClearedAfter = DateTimeOffset.UtcNow;
+        StateHasChanged();
     }
 
     private void SwitchTab(string tab)
@@ -115,6 +251,8 @@
 
     public void Dispose()
     {
+        _logStreamCts?.Cancel();
+        _pollTimer?.Dispose();
         client?.Dispose();
     }
 }

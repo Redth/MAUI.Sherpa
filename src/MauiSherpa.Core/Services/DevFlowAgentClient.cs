@@ -13,6 +13,8 @@ public class DevFlowAgentClient : IDisposable
     private readonly HttpClient _http;
     private ClientWebSocket? _networkWs;
     private CancellationTokenSource? _networkWsCts;
+    private ClientWebSocket? _logsWs;
+    private CancellationTokenSource? _logsWsCts;
     private bool _disposed;
 
     public string AgentHost { get; }
@@ -283,6 +285,90 @@ public class DevFlowAgentClient : IDisposable
         _networkWsCts?.Cancel();
     }
 
+    // --- Log Streaming ---
+
+    /// <summary>
+    /// Connect to the /ws/logs WebSocket for live log streaming.
+    /// Calls onReplay with the initial batch of recent entries, then onEntry for each live entry.
+    /// Returns when cancelled or disconnected.
+    /// </summary>
+    public async Task StreamLogsAsync(
+        Action<List<DevFlowLogEntry>> onReplay,
+        Action<DevFlowLogEntry> onEntry,
+        string? source = null,
+        int replay = 100,
+        CancellationToken ct = default)
+    {
+        _logsWsCts?.Cancel();
+        _logsWsCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var token = _logsWsCts.Token;
+
+        _logsWs?.Dispose();
+        _logsWs = new ClientWebSocket();
+
+        try
+        {
+            var parts = new List<string>();
+            if (source != null) parts.Add($"source={Uri.EscapeDataString(source)}");
+            parts.Add($"replay={replay}");
+            var query = string.Join("&", parts);
+            var wsUrl = $"ws://{AgentHost}:{AgentPort}/ws/logs?{query}";
+            await _logsWs.ConnectAsync(new Uri(wsUrl), token);
+
+            var buffer = new byte[64 * 1024];
+            var sb = new StringBuilder();
+
+            while (_logsWs.State == WebSocketState.Open && !token.IsCancellationRequested)
+            {
+                var result = await _logsWs.ReceiveAsync(buffer, token);
+                if (result.MessageType == WebSocketMessageType.Close)
+                    break;
+
+                sb.Append(Encoding.UTF8.GetString(buffer, 0, result.Count));
+                if (result.EndOfMessage)
+                {
+                    var json = sb.ToString();
+                    sb.Clear();
+                    try
+                    {
+                        using var doc = JsonDocument.Parse(json);
+                        var type = doc.RootElement.TryGetProperty("type", out var typeProp)
+                            ? typeProp.GetString() : null;
+
+                        if (type == "replay" && doc.RootElement.TryGetProperty("entries", out var entries))
+                        {
+                            var list = JsonSerializer.Deserialize<List<DevFlowLogEntry>>(
+                                entries.GetRawText()) ?? new();
+                            onReplay(list);
+                        }
+                        else if (type == "log" && doc.RootElement.TryGetProperty("entry", out var entry))
+                        {
+                            var logEntry = JsonSerializer.Deserialize<DevFlowLogEntry>(
+                                entry.GetRawText());
+                            if (logEntry != null) onEntry(logEntry);
+                        }
+                    }
+                    catch { /* skip malformed messages */ }
+                }
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (WebSocketException) { }
+        finally
+        {
+            if (_logsWs?.State == WebSocketState.Open)
+            {
+                try { await _logsWs.CloseAsync(WebSocketCloseStatus.NormalClosure, null, CancellationToken.None); }
+                catch { }
+            }
+        }
+    }
+
+    public void StopLogStream()
+    {
+        _logsWsCts?.Cancel();
+    }
+
     // --- Helpers ---
 
     private async Task<T?> GetAsync<T>(string path, CancellationToken ct = default) where T : class
@@ -316,6 +402,8 @@ public class DevFlowAgentClient : IDisposable
         _disposed = true;
         _networkWsCts?.Cancel();
         _networkWs?.Dispose();
+        _logsWsCts?.Cancel();
+        _logsWs?.Dispose();
         _http.Dispose();
     }
 }

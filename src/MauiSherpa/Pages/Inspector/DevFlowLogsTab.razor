@@ -1,10 +1,9 @@
 @using MauiSherpa.Core.Models.DevFlow
 @using MauiSherpa.Core.Services
-@implements IDisposable
 
 <div class="logs-layout">
     <div class="pane-header">
-        <span>Logs <span class="log-count">(@logs.Count)</span></span>
+        <span>Logs <span class="log-count">(@FilteredLogs.Count())</span></span>
         <div class="pane-actions">
             <select @bind="sourceFilter" class="source-filter">
                 <option value="">All Sources</option>
@@ -28,40 +27,35 @@
             <button class="btn-icon" @onclick="ResetGrid" title="Reset grid">
                 <i class="fas fa-undo"></i>
             </button>
-            <button class="btn-icon" @onclick="RefreshLogs" title="Refresh">
-                <i class="fas fa-sync-alt"></i>
-            </button>
-            <button class="btn-icon" @onclick="ClearLogs" title="Clear">
+            <button class="btn-icon" @onclick="@(() => OnClearLogs.InvokeAsync())" title="Clear">
                 <i class="fas fa-trash"></i>
             </button>
         </div>
     </div>
     <DataGrid @ref="gridRef" TItem="DevFlowLogEntry" Items="@FilteredLogs" Columns="@logColumns"
               ShowFilterRow="@showColumnFilters" MonospaceFont="true"
-              EmptyMessage="No logs captured yet" IsLoading="@isLoading"
+              EmptyMessage="No logs captured yet"
               RowCssClass="@(item => $"level-{NormalizeLevel(item.Level)}")" />
 </div>
 
 @code {
     [Parameter] public DevFlowAgentClient Client { get; set; } = null!;
+    [Parameter] public List<DevFlowLogEntry> Logs { get; set; } = new();
+    [Parameter] public EventCallback OnClearLogs { get; set; }
 
     private DataGrid<DevFlowLogEntry>? gridRef;
-    private List<DevFlowLogEntry> logs = new();
-    private DateTimeOffset _clearedAfter = DateTimeOffset.MinValue;
     private string sourceFilter = "";
     private string levelFilter = "";
     private string searchQuery = "";
     private bool autoScroll = true;
-    private bool isLoading;
     private bool showColumnFilters;
-    private Timer? _pollTimer;
     private List<DataGridColumnDef<DevFlowLogEntry>> logColumns = null!;
 
     private IEnumerable<DevFlowLogEntry> FilteredLogs
     {
         get
         {
-            var result = logs.AsEnumerable();
+            var result = Logs.AsEnumerable();
             if (!string.IsNullOrEmpty(sourceFilter))
                 result = result.Where(l => l.Source?.Equals(sourceFilter, StringComparison.OrdinalIgnoreCase) == true);
             if (!string.IsNullOrEmpty(levelFilter))
@@ -144,69 +138,12 @@
                 CssClass = "col-message"
             }
         };
-
-        await RefreshLogs();
-        _pollTimer = new Timer(async _ =>
-        {
-            await InvokeAsync(async () => await PollNewLogs());
-        }, null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
-    }
-
-    private async Task RefreshLogs()
-    {
-        isLoading = true;
-        _clearedAfter = DateTimeOffset.MinValue;
-        StateHasChanged();
-
-        try
-        {
-            var source = string.IsNullOrEmpty(sourceFilter) ? null : sourceFilter;
-            logs = await Client.GetLogsAsync(limit: 500, source: source);
-        }
-        catch { }
-        finally
-        {
-            isLoading = false;
-            StateHasChanged();
-        }
-    }
-
-    private async Task PollNewLogs()
-    {
-        try
-        {
-            var source = string.IsNullOrEmpty(sourceFilter) ? null : sourceFilter;
-            var freshLogs = await Client.GetLogsAsync(limit: 500, source: source);
-            if (_clearedAfter != DateTimeOffset.MinValue)
-                freshLogs = freshLogs.Where(l => l.Timestamp > _clearedAfter).ToList();
-            if (freshLogs.Count != logs.Count)
-            {
-                logs = freshLogs;
-                StateHasChanged();
-            }
-        }
-        catch { }
-    }
-
-    private void ClearLogs()
-    {
-        if (logs.Count > 0)
-            _clearedAfter = logs.Max(l => l.Timestamp);
-        else
-            _clearedAfter = DateTimeOffset.UtcNow;
-        logs.Clear();
-        StateHasChanged();
     }
 
     private void ResetGrid()
     {
         showColumnFilters = false;
         gridRef?.ResetAll();
-    }
-
-    public void Dispose()
-    {
-        _pollTimer?.Dispose();
     }
 }
 
