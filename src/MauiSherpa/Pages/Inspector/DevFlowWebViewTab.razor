@@ -67,7 +67,7 @@
         </div>
         <div class="js-eval-section">
             <div class="js-input-row">
-                <input type="text" @bind="jsExpression" @onkeydown="OnJsKeyDown" placeholder="Enter JavaScript expression..." class="js-input" />
+                <input type="text" @bind="jsExpression" @onkeydown="OnJsKeyDown" placeholder="Enter JavaScript expression..." class="js-input" spellcheck="false" autocorrect="off" autocapitalize="off" data-form-type="other" />
                 <button class="btn btn-sm btn-primary" @onclick="EvaluateJs">
                     <i class="fas fa-play"></i>
                 </button>
@@ -92,7 +92,7 @@
         </div>
         <div class="dom-query-section">
             <div class="js-input-row">
-                <input type="text" @bind="cssSelector" @onkeydown="OnSelectorKeyDown" placeholder="CSS selector (e.g. .my-class, #id)" class="js-input" />
+                <input type="text" @bind="cssSelector" @onkeydown="OnSelectorKeyDown" placeholder="CSS selector (e.g. .my-class, #id)" class="js-input" spellcheck="false" autocorrect="off" autocapitalize="off" data-form-type="other" />
                 <button class="btn btn-sm btn-secondary" @onclick="RunQuery">
                     <i class="fas fa-search"></i>
                 </button>
@@ -149,7 +149,7 @@
 
     private DataGrid<DevFlowLogEntry>? gridRef;
     private List<DevFlowLogEntry> logs = new();
-    private int _skipOffset;
+    private DateTimeOffset _clearedAfter = DateTimeOffset.MinValue;
     private string logLevelFilter = "";
     private bool showColumnFilters;
     private string jsExpression = "";
@@ -226,7 +226,7 @@
 
     private async Task RefreshLogs()
     {
-        _skipOffset = 0;
+        _clearedAfter = DateTimeOffset.MinValue;
         try
         {
             logs = await Client.GetLogsAsync(limit: 200, source: "webview");
@@ -239,10 +239,13 @@
     {
         try
         {
-            var newLogs = await Client.GetLogsAsync(limit: 50, skip: _skipOffset + logs.Count, source: "webview");
-            if (newLogs.Count > 0)
+            var fetchCount = Math.Max(50, logs.Count + 20);
+            var freshLogs = await Client.GetLogsAsync(limit: fetchCount, source: "webview");
+            var newestTimestamp = logs.Count > 0 ? logs.Max(l => l.Timestamp) : _clearedAfter;
+            var newEntries = freshLogs.Where(l => l.Timestamp > newestTimestamp && l.Timestamp > _clearedAfter).ToList();
+            if (newEntries.Count > 0)
             {
-                logs.AddRange(newLogs);
+                logs.AddRange(newEntries);
                 StateHasChanged();
             }
         }
@@ -251,7 +254,10 @@
 
     private void ClearLogs()
     {
-        _skipOffset += logs.Count;
+        if (logs.Count > 0)
+            _clearedAfter = logs.Max(l => l.Timestamp);
+        else
+            _clearedAfter = DateTimeOffset.UtcNow;
         logs.Clear();
         StateHasChanged();
     }

@@ -47,7 +47,7 @@
 
     private DataGrid<DevFlowLogEntry>? gridRef;
     private List<DevFlowLogEntry> logs = new();
-    private int _skipOffset; // tracks cleared logs so polling doesn't re-fetch them
+    private DateTimeOffset _clearedAfter = DateTimeOffset.MinValue;
     private string sourceFilter = "";
     private string levelFilter = "";
     private string searchQuery = "";
@@ -155,7 +155,7 @@
     private async Task RefreshLogs()
     {
         isLoading = true;
-        _skipOffset = 0;
+        _clearedAfter = DateTimeOffset.MinValue;
         StateHasChanged();
 
         try
@@ -176,10 +176,13 @@
         try
         {
             var source = string.IsNullOrEmpty(sourceFilter) ? null : sourceFilter;
-            var newLogs = await Client.GetLogsAsync(limit: 50, skip: _skipOffset + logs.Count, source: source);
-            if (newLogs.Count > 0)
+            var fetchCount = Math.Max(50, logs.Count + 20);
+            var freshLogs = await Client.GetLogsAsync(limit: fetchCount, source: source);
+            var newestTimestamp = logs.Count > 0 ? logs.Max(l => l.Timestamp) : _clearedAfter;
+            var newEntries = freshLogs.Where(l => l.Timestamp > newestTimestamp && l.Timestamp > _clearedAfter).ToList();
+            if (newEntries.Count > 0)
             {
-                logs.AddRange(newLogs);
+                logs.AddRange(newEntries);
                 StateHasChanged();
             }
         }
@@ -188,7 +191,10 @@
 
     private void ClearLogs()
     {
-        _skipOffset += logs.Count;
+        if (logs.Count > 0)
+            _clearedAfter = logs.Max(l => l.Timestamp);
+        else
+            _clearedAfter = DateTimeOffset.UtcNow;
         logs.Clear();
         StateHasChanged();
     }
