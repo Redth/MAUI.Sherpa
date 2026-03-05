@@ -222,8 +222,29 @@ public class DeviceMonitorService : IDeviceMonitorService, IDisposable
             using var proc = Process.Start(psi);
             if (proc == null) return;
 
-            var output = await proc.StandardOutput.ReadToEndAsync(ct);
-            await proc.WaitForExitAsync(ct);
+            // Ensure process is killed if cancelled or takes too long
+            using var killOnCancel = ct.Register(() =>
+            {
+                try { if (!proc.HasExited) proc.Kill(); } catch { }
+            });
+
+            // Use a combined timeout: xcdevice should finish quickly with --timeout=1
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeoutCts.CancelAfter(TimeSpan.FromSeconds(10));
+
+            string output;
+            try
+            {
+                output = await proc.StandardOutput.ReadToEndAsync(timeoutCts.Token);
+                await proc.WaitForExitAsync(timeoutCts.Token);
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                // Timed out — kill the hung process
+                try { if (!proc.HasExited) proc.Kill(); } catch { }
+                _logger.LogWarning("xcdevice list timed out after 10s, killed process.");
+                return;
+            }
 
             var xcDevices = JsonSerializer.Deserialize<List<XcdeviceEntry>>(output) ?? new();
 
@@ -293,8 +314,26 @@ public class DeviceMonitorService : IDeviceMonitorService, IDisposable
             using var proc = Process.Start(psi);
             if (proc == null) return states;
 
-            var output = await proc.StandardOutput.ReadToEndAsync(ct);
-            await proc.WaitForExitAsync(ct);
+            // Ensure process is killed on cancel or timeout
+            using var killOnCancel = ct.Register(() =>
+            {
+                try { if (!proc.HasExited) proc.Kill(); } catch { }
+            });
+
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeoutCts.CancelAfter(TimeSpan.FromSeconds(10));
+
+            string output;
+            try
+            {
+                output = await proc.StandardOutput.ReadToEndAsync(timeoutCts.Token);
+                await proc.WaitForExitAsync(timeoutCts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                try { if (!proc.HasExited) proc.Kill(); } catch { }
+                return states;
+            }
 
             using var doc = JsonDocument.Parse(output);
             if (doc.RootElement.TryGetProperty("devices", out var devicesObj))
@@ -333,6 +372,11 @@ public class DeviceMonitorService : IDeviceMonitorService, IDisposable
             };
             using var proc = Process.Start(psi);
             if (proc == null) return null;
+
+            using var killOnCancel = ct.Register(() =>
+            {
+                try { if (!proc.HasExited) proc.Kill(); } catch { }
+            });
 
             var xcodePath = (await proc.StandardOutput.ReadToEndAsync(ct)).Trim();
             await proc.WaitForExitAsync(ct);
