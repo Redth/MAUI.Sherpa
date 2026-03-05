@@ -211,16 +211,16 @@ public class AzureKeyVaultProvider : ICloudSecretsProvider
             var client = GetClient();
             var allSecrets = new List<string>();
 
+            // Sanitize the prefix so it matches the stored (sanitized) key names
+            var sanitizedPrefix = string.IsNullOrEmpty(prefix) ? null : SanitizeKey(prefix);
+
             await foreach (var secretProperties in client.GetPropertiesOfSecretsAsync(cancellationToken))
             {
                 var secretName = secretProperties.Name;
-                
-                // Convert back from sanitized format (hyphens back to underscores for prefix matching)
-                var originalKey = secretName.Replace("-", "_").ToUpperInvariant();
-                
-                if (string.IsNullOrEmpty(prefix) || originalKey.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+
+                if (sanitizedPrefix == null || secretName.StartsWith(sanitizedPrefix, StringComparison.OrdinalIgnoreCase))
                 {
-                    allSecrets.Add(originalKey);
+                    allSecrets.Add(secretName);
                 }
             }
 
