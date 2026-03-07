@@ -723,6 +723,13 @@ public class SimulatorService : ISimulatorService
             if (string.IsNullOrWhiteSpace(output))
                 return Array.Empty<AppPermission>();
 
+            // Get installed apps to resolve bundle paths for Info.plist checking
+            var installedApps = await GetInstalledAppsAsync(udid);
+            var appsByBundleId = installedApps.ToDictionary(a => a.BundleId, a => a);
+
+            // Cache plist keys per bundle ID
+            var plistKeysCache = new Dictionary<string, HashSet<string>>();
+
             var permissions = new List<AppPermission>();
             foreach (var line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
             {
@@ -747,7 +754,23 @@ public class SimulatorService : ISimulatorService
                     _ => PermissionStatus.NotDetermined,
                 };
 
-                permissions.Add(new AppPermission(bundleId, definition, status));
+                // Check Info.plist for usage description key
+                bool? hasPlistKey = null;
+                string? usageDescription = null;
+
+                if (definition.PlistKey is not null &&
+                    appsByBundleId.TryGetValue(bundleId, out var app) &&
+                    app.BundlePath is not null)
+                {
+                    var plistData = await GetPlistUsageDescriptionsAsync(app.BundlePath, plistKeysCache);
+                    if (plistData is not null)
+                    {
+                        hasPlistKey = plistData.TryGetValue(definition.PlistKey, out var desc);
+                        usageDescription = desc;
+                    }
+                }
+
+                permissions.Add(new AppPermission(bundleId, definition, status, usageDescription, hasPlistKey));
             }
 
             return permissions;
@@ -756,6 +779,50 @@ public class SimulatorService : ISimulatorService
         {
             _logger.LogError($"Failed to read permissions for simulator {udid}: {ex.Message}", ex);
             return Array.Empty<AppPermission>();
+        }
+    }
+
+    private async Task<Dictionary<string, string>?> GetPlistUsageDescriptionsAsync(
+        string bundlePath, Dictionary<string, HashSet<string>> cache)
+    {
+        var plistPath = Path.Combine(bundlePath, "Info.plist");
+        if (!File.Exists(plistPath))
+            return null;
+
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = "plutil",
+                Arguments = $"-convert json -o - \"{plistPath}\"",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using var process = Process.Start(psi);
+            if (process == null) return null;
+
+            var json = await process.StandardOutput.ReadToEndAsync();
+            await process.WaitForExitAsync();
+            if (process.ExitCode != 0) return null;
+
+            using var doc = JsonDocument.Parse(json);
+            var result = new Dictionary<string, string>();
+            foreach (var prop in doc.RootElement.EnumerateObject())
+            {
+                if (prop.Name.StartsWith("NS") && prop.Name.EndsWith("UsageDescription"))
+                {
+                    result[prop.Name] = prop.Value.GetString() ?? "";
+                }
+            }
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Failed to read Info.plist at {plistPath}: {ex.Message}", ex);
+            return null;
         }
     }
 

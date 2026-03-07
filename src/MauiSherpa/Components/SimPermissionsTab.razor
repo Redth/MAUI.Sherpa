@@ -40,6 +40,14 @@
                                 <div class="perm-info">
                                     <i class="fas @perm.Permission.Icon perm-icon"></i>
                                     <span class="perm-name">@perm.Permission.DisplayName</span>
+                                    @if (perm.HasPlistKey == true)
+                                    {
+                                        <i class="fas fa-file-circle-check perm-plist-ok" title="@($"{perm.Permission.PlistKey}: \"{perm.UsageDescription}\"")"></i>
+                                    }
+                                    else if (perm.HasPlistKey == false)
+                                    {
+                                        <i class="fas fa-triangle-exclamation perm-plist-missing" title="@($"Missing {perm.Permission.PlistKey} in Info.plist — required for App Store submission")"></i>
+                                    }
                                 </div>
                                 <div class="perm-status">
                                     <span class="perm-badge perm-badge--@perm.Status.ToString().ToLower()">
@@ -90,9 +98,25 @@
             @if (showQuickActions)
             {
                 <div class="tool-body">
-                    <div class="tool-row">
+                    <div class="tool-row combobox-container">
                         <label>Bundle ID</label>
-                        <input type="text" class="tool-input" @bind="quickBundleId" placeholder="com.example.app" />
+                        <input type="text" class="tool-input" value="@quickBundleId"
+                               @oninput="OnQuickBundleIdInput"
+                               @onfocus="() => showBundleDropdown = true"
+                               @onblur="OnBundleInputBlur"
+                               placeholder="Type or select a bundle ID..." />
+                        @if (showBundleDropdown && filteredBundleIds.Any())
+                        {
+                            <div class="combobox-dropdown">
+                                @foreach (var id in filteredBundleIds)
+                                {
+                                    <button class="combobox-option" @onmousedown="() => SelectBundleId(id)"
+                                            @onmousedown:preventDefault>
+                                        @id
+                                    </button>
+                                }
+                            </div>
+                        }
                     </div>
                     <div class="tool-row">
                         <label>Permission</label>
@@ -222,6 +246,8 @@
     }
     .perm-icon { font-size: 0.6875rem; color: var(--text-muted); width: 1rem; text-align: center; }
     .perm-name { font-size: 0.75rem; color: var(--text-primary); }
+    .perm-plist-ok { font-size: 0.5625rem; color: #22c55e; cursor: help; margin-left: 0.125rem; }
+    .perm-plist-missing { font-size: 0.5625rem; color: #f59e0b; cursor: help; margin-left: 0.125rem; }
 
     .perm-status { min-width: 80px; }
     .perm-badge {
@@ -266,6 +292,35 @@
     }
     .tool-input:focus { border-color: var(--accent-primary); }
     .tool-actions { display: flex; gap: 0.25rem; margin-top: 2px; }
+
+    .combobox-container { position: relative; }
+    .combobox-dropdown {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        z-index: 10;
+        max-height: 160px;
+        overflow-y: auto;
+        background: var(--bg-primary, #fff);
+        border: 1px solid var(--border-color);
+        border-top: none;
+        border-radius: 0 0 0.25rem 0.25rem;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+    }
+    .combobox-option {
+        display: block;
+        width: 100%;
+        padding: 0.3125rem 0.5rem;
+        border: none;
+        background: none;
+        color: var(--text-primary);
+        font-family: 'SF Mono', 'Consolas', monospace;
+        font-size: 0.6875rem;
+        text-align: left;
+        cursor: pointer;
+    }
+    .combobox-option:hover { background: var(--accent-primary); color: white; }
 </style>
 
 @code {
@@ -281,7 +336,14 @@
     // Quick actions
     private string quickBundleId = "";
     private string quickService = "";
+    private bool showBundleDropdown;
+    private List<string> installedBundleIds = new();
     private bool CanQuickAction => !string.IsNullOrWhiteSpace(quickBundleId) && !string.IsNullOrWhiteSpace(quickService);
+
+    private IEnumerable<string> filteredBundleIds =>
+        string.IsNullOrWhiteSpace(quickBundleId)
+            ? installedBundleIds
+            : installedBundleIds.Where(id => id.Contains(quickBundleId, StringComparison.OrdinalIgnoreCase));
 
     private IReadOnlyList<AppPermissionGroup> filteredGroups => appGroups;
 
@@ -304,6 +366,14 @@
                 .OrderBy(g => g.BundleId)
                 .ToList();
 
+            // Load installed apps for the combobox
+            var apps = await SimulatorService.GetInstalledAppsAsync(Udid);
+            installedBundleIds = apps
+                .Where(a => a.ApplicationType != "System")
+                .Select(a => a.BundleId)
+                .OrderBy(id => id)
+                .ToList();
+
             // Auto-expand if few apps
             if (appGroups.Count <= 3)
             {
@@ -322,6 +392,26 @@
     {
         if (!expandedApps.Remove(bundleId))
             expandedApps.Add(bundleId);
+    }
+
+    private void OnQuickBundleIdInput(ChangeEventArgs e)
+    {
+        quickBundleId = e.Value?.ToString() ?? "";
+        showBundleDropdown = true;
+    }
+
+    private void SelectBundleId(string bundleId)
+    {
+        quickBundleId = bundleId;
+        showBundleDropdown = false;
+    }
+
+    private async Task OnBundleInputBlur()
+    {
+        // Small delay to allow mousedown on dropdown option to fire first
+        await Task.Delay(150);
+        showBundleDropdown = false;
+        StateHasChanged();
     }
 
     private static string StatusIcon(PermissionStatus status) => status switch

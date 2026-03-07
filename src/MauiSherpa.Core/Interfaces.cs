@@ -901,7 +901,8 @@ public record PermissionDefinition(
     string DisplayName,
     string Icon,
     string? SimctlService,
-    string TccServiceKey
+    string TccServiceKey,
+    string? PlistKey
 )
 {
     public bool CanModify => SimctlService is not null;
@@ -913,7 +914,9 @@ public record PermissionDefinition(
 public record AppPermission(
     string BundleId,
     PermissionDefinition Permission,
-    PermissionStatus Status
+    PermissionStatus Status,
+    string? UsageDescription = null,
+    bool? HasPlistKey = null
 );
 
 /// <summary>
@@ -923,21 +926,21 @@ public static class SimulatorPermissions
 {
     public static readonly IReadOnlyList<PermissionDefinition> All = new[]
     {
-        new PermissionDefinition("Calendar",          "fa-calendar",       "calendar",         "kTCCServiceCalendar"),
-        new PermissionDefinition("Camera",            "fa-camera",         null,               "kTCCServiceCamera"),
-        new PermissionDefinition("Contacts",          "fa-address-book",   "contacts",         "kTCCServiceAddressBook"),
-        new PermissionDefinition("Face ID",           "fa-face-viewfinder", null,              "kTCCServiceFaceID"),
-        new PermissionDefinition("Location (In Use)", "fa-location-dot",   "location",         "kTCCServiceLocation"),
-        new PermissionDefinition("Location (Always)", "fa-location-crosshairs", "location-always", "kTCCServiceLocationAlways"),
-        new PermissionDefinition("Media Library",     "fa-music",          "media-library",    "kTCCServiceMediaLibrary"),
-        new PermissionDefinition("Microphone",        "fa-microphone",     "microphone",       "kTCCServiceMicrophone"),
-        new PermissionDefinition("Motion & Fitness",  "fa-person-running", "motion",           "kTCCServiceMotion"),
-        new PermissionDefinition("Photos",            "fa-images",         "photos",           "kTCCServicePhotos"),
-        new PermissionDefinition("Photos (Add Only)", "fa-image",          "photos-add",       "kTCCServicePhotosAdd"),
-        new PermissionDefinition("Reminders",         "fa-list-check",     "reminders",        "kTCCServiceReminders"),
-        new PermissionDefinition("Siri",              "fa-waveform-lines", "siri",             "kTCCServiceSiri"),
-        new PermissionDefinition("Speech Recognition","fa-comment-dots",   null,               "kTCCServiceSpeechRecognition"),
-        new PermissionDefinition("Bluetooth",         "fa-bluetooth-b",    null,               "kTCCServiceBluetoothAlways"),
+        new PermissionDefinition("Calendar",          "fa-calendar",       "calendar",         "kTCCServiceCalendar",          "NSCalendarsUsageDescription"),
+        new PermissionDefinition("Camera",            "fa-camera",         null,               "kTCCServiceCamera",            "NSCameraUsageDescription"),
+        new PermissionDefinition("Contacts",          "fa-address-book",   "contacts",         "kTCCServiceAddressBook",       "NSContactsUsageDescription"),
+        new PermissionDefinition("Face ID",           "fa-face-viewfinder", null,              "kTCCServiceFaceID",            "NSFaceIDUsageDescription"),
+        new PermissionDefinition("Location (In Use)", "fa-location-dot",   "location",         "kTCCServiceLocation",          "NSLocationWhenInUseUsageDescription"),
+        new PermissionDefinition("Location (Always)", "fa-location-crosshairs", "location-always", "kTCCServiceLocationAlways", "NSLocationAlwaysUsageDescription"),
+        new PermissionDefinition("Media Library",     "fa-music",          "media-library",    "kTCCServiceMediaLibrary",      "NSAppleMusicUsageDescription"),
+        new PermissionDefinition("Microphone",        "fa-microphone",     "microphone",       "kTCCServiceMicrophone",        "NSMicrophoneUsageDescription"),
+        new PermissionDefinition("Motion & Fitness",  "fa-person-running", "motion",           "kTCCServiceMotion",            "NSMotionUsageDescription"),
+        new PermissionDefinition("Photos",            "fa-images",         "photos",           "kTCCServicePhotos",            "NSPhotoLibraryUsageDescription"),
+        new PermissionDefinition("Photos (Add Only)", "fa-image",          "photos-add",       "kTCCServicePhotosAdd",         "NSPhotoLibraryAddUsageDescription"),
+        new PermissionDefinition("Reminders",         "fa-list-check",     "reminders",        "kTCCServiceReminders",         "NSRemindersUsageDescription"),
+        new PermissionDefinition("Siri",              "fa-waveform-lines", "siri",             "kTCCServiceSiri",              "NSSiriUsageDescription"),
+        new PermissionDefinition("Speech Recognition","fa-comment-dots",   null,               "kTCCServiceSpeechRecognition", "NSSpeechRecognitionUsageDescription"),
+        new PermissionDefinition("Bluetooth",         "fa-bluetooth-b",    null,               "kTCCServiceBluetoothAlways",   "NSBluetoothAlwaysUsageDescription"),
     };
 
     public static readonly IReadOnlyDictionary<string, PermissionDefinition> ByTccKey =
