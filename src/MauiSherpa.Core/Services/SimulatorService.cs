@@ -701,6 +701,173 @@ public class SimulatorService : ISimulatorService
             : null;
     }
 
+    // ─── Privacy Permissions ─────────────────────────────────────────────────
+
+    public async Task<IReadOnlyList<AppPermission>> GetPermissionsAsync(string udid, bool includeSystemApps = false)
+    {
+        if (!IsSupported) return Array.Empty<AppPermission>();
+
+        try
+        {
+            var dataPath = GetSimulatorDataPath(udid);
+            var tccDbPath = Path.Combine(dataPath, "Library", "TCC", "TCC.db");
+
+            if (!File.Exists(tccDbPath))
+            {
+                _logger.LogWarning($"TCC database not found for simulator {udid}");
+                return Array.Empty<AppPermission>();
+            }
+
+            var query = "SELECT service, client, auth_value FROM access ORDER BY client, service;";
+            var output = await RunSqliteQueryAsync(tccDbPath, query);
+            if (string.IsNullOrWhiteSpace(output))
+                return Array.Empty<AppPermission>();
+
+            var permissions = new List<AppPermission>();
+            foreach (var line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+            {
+                var parts = line.Split('|');
+                if (parts.Length < 3) continue;
+
+                var tccService = parts[0].Trim();
+                var bundleId = parts[1].Trim();
+                var authValue = int.TryParse(parts[2].Trim(), out var v) ? v : -1;
+
+                if (!includeSystemApps && bundleId.StartsWith("com.apple."))
+                    continue;
+
+                if (!SimulatorPermissions.ByTccKey.TryGetValue(tccService, out var definition))
+                    continue;
+
+                var status = authValue switch
+                {
+                    0 => PermissionStatus.Denied,
+                    2 => PermissionStatus.Allowed,
+                    3 => PermissionStatus.Limited,
+                    _ => PermissionStatus.NotDetermined,
+                };
+
+                permissions.Add(new AppPermission(bundleId, definition, status));
+            }
+
+            return permissions;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Failed to read permissions for simulator {udid}: {ex.Message}", ex);
+            return Array.Empty<AppPermission>();
+        }
+    }
+
+    public async Task<bool> GrantPermissionAsync(string udid, string bundleId, string simctlService, IProgress<string>? progress = null)
+    {
+        if (!IsSupported) return false;
+        try
+        {
+            progress?.Report($"Granting {simctlService} to {bundleId}...");
+            var result = await RunSimctlWithExitCodeAsync($"privacy {udid} grant {simctlService} {bundleId}");
+            if (result)
+            {
+                progress?.Report($"Granted {simctlService}");
+                _logger.LogInformation($"Granted {simctlService} to {bundleId} on simulator {udid}");
+            }
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Failed to grant {simctlService} to {bundleId}: {ex.Message}", ex);
+            progress?.Report($"Failed to grant: {ex.Message}");
+            return false;
+        }
+    }
+
+    public async Task<bool> RevokePermissionAsync(string udid, string bundleId, string simctlService, IProgress<string>? progress = null)
+    {
+        if (!IsSupported) return false;
+        try
+        {
+            progress?.Report($"Revoking {simctlService} from {bundleId}...");
+            var result = await RunSimctlWithExitCodeAsync($"privacy {udid} revoke {simctlService} {bundleId}");
+            if (result)
+            {
+                progress?.Report($"Revoked {simctlService}");
+                _logger.LogInformation($"Revoked {simctlService} from {bundleId} on simulator {udid}");
+            }
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Failed to revoke {simctlService} from {bundleId}: {ex.Message}", ex);
+            progress?.Report($"Failed to revoke: {ex.Message}");
+            return false;
+        }
+    }
+
+    public async Task<bool> ResetPermissionAsync(string udid, string bundleId, string simctlService, IProgress<string>? progress = null)
+    {
+        if (!IsSupported) return false;
+        try
+        {
+            progress?.Report($"Resetting {simctlService} for {bundleId}...");
+            var result = await RunSimctlWithExitCodeAsync($"privacy {udid} reset {simctlService} {bundleId}");
+            if (result)
+            {
+                progress?.Report($"Reset {simctlService}");
+                _logger.LogInformation($"Reset {simctlService} for {bundleId} on simulator {udid}");
+            }
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Failed to reset {simctlService} for {bundleId}: {ex.Message}", ex);
+            progress?.Report($"Failed to reset: {ex.Message}");
+            return false;
+        }
+    }
+
+    public async Task<bool> ResetAllPermissionsAsync(string udid, IProgress<string>? progress = null)
+    {
+        if (!IsSupported) return false;
+        try
+        {
+            progress?.Report("Resetting all permissions...");
+            var result = await RunSimctlWithExitCodeAsync($"privacy {udid} reset all");
+            if (result)
+            {
+                progress?.Report("All permissions reset");
+                _logger.LogInformation($"Reset all permissions on simulator {udid}");
+            }
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Failed to reset all permissions on simulator {udid}: {ex.Message}", ex);
+            progress?.Report($"Failed to reset: {ex.Message}");
+            return false;
+        }
+    }
+
+    private async Task<string?> RunSqliteQueryAsync(string dbPath, string query)
+    {
+        var psi = new ProcessStartInfo
+        {
+            FileName = "sqlite3",
+            Arguments = $"\"{dbPath}\" \"{query}\"",
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+
+        using var process = Process.Start(psi);
+        if (process == null) return null;
+
+        var output = await process.StandardOutput.ReadToEndAsync();
+        await process.WaitForExitAsync();
+
+        return process.ExitCode == 0 ? output : null;
+    }
+
     private async Task<string?> ConvertPlistToJsonAsync(string plistContent)
     {
         try

@@ -1,0 +1,452 @@
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Services
+@inject ISimulatorService SimulatorService
+@inject SimInspectorService Inspector
+@inject IAlertService AlertService
+
+<div class="sim-permissions-tab">
+    @if (isLoading)
+    {
+        <div class="perm-loading">
+            <i class="fas fa-spinner fa-spin"></i> Loading permissions...
+        </div>
+    }
+    else
+    {
+        <!-- Per-app permissions -->
+        @if (appGroups.Count == 0 && !showQuickActions)
+        {
+            <div class="perm-empty">
+                <i class="fas fa-shield-halved"></i>
+                <span>No permissions have been set for any apps yet.</span>
+                <span class="perm-empty-hint">Use Quick Grant below to pre-grant permissions, or permissions will appear here after apps request them.</span>
+            </div>
+        }
+
+        @foreach (var group in filteredGroups)
+        {
+            <div class="perm-app-section">
+                <button class="perm-app-header" @onclick="() => ToggleApp(group.BundleId)">
+                    <i class="fas @(expandedApps.Contains(group.BundleId) ? "fa-chevron-down" : "fa-chevron-right") perm-chevron"></i>
+                    <span class="perm-app-id">@group.BundleId</span>
+                    <span class="perm-badge-count">@group.Permissions.Count</span>
+                </button>
+                @if (expandedApps.Contains(group.BundleId))
+                {
+                    <div class="perm-table">
+                        @foreach (var perm in group.Permissions)
+                        {
+                            <div class="perm-row">
+                                <div class="perm-info">
+                                    <i class="fas @perm.Permission.Icon perm-icon"></i>
+                                    <span class="perm-name">@perm.Permission.DisplayName</span>
+                                </div>
+                                <div class="perm-status">
+                                    <span class="perm-badge perm-badge--@perm.Status.ToString().ToLower()">
+                                        @StatusIcon(perm.Status) @perm.Status
+                                    </span>
+                                </div>
+                                <div class="perm-actions">
+                                    @if (perm.Permission.CanModify)
+                                    {
+                                        @if (perm.Status != PermissionStatus.Allowed)
+                                        {
+                                            <button class="btn btn-sm btn-success" disabled="@isBusy"
+                                                    @onclick="() => GrantAsync(perm)">
+                                                <i class="fas fa-check"></i> Grant
+                                            </button>
+                                        }
+                                        @if (perm.Status == PermissionStatus.Allowed || perm.Status == PermissionStatus.Limited)
+                                        {
+                                            <button class="btn btn-sm btn-danger" disabled="@isBusy"
+                                                    @onclick="() => RevokeAsync(perm)">
+                                                <i class="fas fa-ban"></i> Revoke
+                                            </button>
+                                        }
+                                        <button class="btn btn-sm btn-ghost" disabled="@isBusy"
+                                                @onclick="() => ResetAsync(perm)" title="Reset to 'not determined' — app will prompt again">
+                                            <i class="fas fa-rotate-left"></i>
+                                        </button>
+                                    }
+                                    else
+                                    {
+                                        <span class="perm-readonly" title="This permission can't be modified via simctl">read-only</span>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        }
+
+        <!-- Quick Actions -->
+        <div class="perm-app-section">
+            <button class="perm-app-header perm-quick-header" @onclick="() => showQuickActions = !showQuickActions">
+                <i class="fas @(showQuickActions ? "fa-chevron-down" : "fa-chevron-right") perm-chevron"></i>
+                <i class="fas fa-bolt" style="color: var(--accent-primary);"></i>
+                <span class="perm-app-id">Quick Grant / Revoke</span>
+            </button>
+            @if (showQuickActions)
+            {
+                <div class="tool-body">
+                    <div class="tool-row">
+                        <label>Bundle ID</label>
+                        <input type="text" class="tool-input" @bind="quickBundleId" placeholder="com.example.app" />
+                    </div>
+                    <div class="tool-row">
+                        <label>Permission</label>
+                        <select class="tool-input" @bind="quickService">
+                            <option value="">Select...</option>
+                            @foreach (var p in SimulatorPermissions.All.Where(p => p.CanModify))
+                            {
+                                <option value="@p.SimctlService">@p.DisplayName</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="tool-actions">
+                        <button class="btn btn-sm btn-success" disabled="@(!CanQuickAction || isBusy)" @onclick="QuickGrantAsync">
+                            <i class="fas fa-check"></i> Grant
+                        </button>
+                        <button class="btn btn-sm btn-danger" disabled="@(!CanQuickAction || isBusy)" @onclick="QuickRevokeAsync">
+                            <i class="fas fa-ban"></i> Revoke
+                        </button>
+                        <button class="btn btn-sm btn-secondary" disabled="@(!CanQuickAction || isBusy)" @onclick="QuickResetAsync">
+                            <i class="fas fa-rotate-left"></i> Reset
+                        </button>
+                    </div>
+                </div>
+            }
+        </div>
+
+        <!-- Reset All -->
+        <div class="perm-reset-all">
+            <button class="btn btn-sm btn-danger" disabled="@isBusy" @onclick="ResetAllAsync">
+                <i class="fas fa-triangle-exclamation"></i> Reset All Permissions
+            </button>
+        </div>
+    }
+</div>
+
+<style>
+    .sim-permissions-tab {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        overflow-y: auto;
+        padding: 0.5rem;
+        gap: 0.5rem;
+    }
+
+    .sim-permissions-tab .btn { padding: 0.375rem 0.875rem; border: none; border-radius: 0.3125rem; font-size: 0.75rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3125rem; transition: all 0.15s; }
+    .sim-permissions-tab .btn i { font-size: 0.6875rem; }
+    .sim-permissions-tab .btn-sm { padding: 0.25rem 0.5rem; font-size: 0.6875rem; }
+    .sim-permissions-tab .btn-primary { background: var(--accent-primary); color: white; }
+    .sim-permissions-tab .btn-secondary { background: var(--btn-secondary-bg); color: var(--text-secondary); border: none; }
+    .sim-permissions-tab .btn-success { background: #22c55e; color: white; }
+    .sim-permissions-tab .btn-danger { background: #ef4444; color: white; }
+    .sim-permissions-tab .btn-ghost { background: transparent; color: var(--text-secondary); border: 1px solid var(--border-color); font-size: 0.625rem; padding: 2px 0.375rem; }
+    .sim-permissions-tab .btn-ghost:hover { background: var(--bg-tertiary); }
+    .sim-permissions-tab .btn:hover:not(:disabled) { filter: brightness(1.1); }
+    .sim-permissions-tab .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .perm-loading, .perm-empty {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        padding: 2rem;
+        color: var(--text-muted);
+        font-size: 0.8125rem;
+        text-align: center;
+    }
+    .perm-loading i, .perm-empty i { font-size: 1.25rem; }
+    .perm-empty-hint { font-size: 0.6875rem; color: var(--text-tertiary); max-width: 300px; }
+
+    .perm-app-section {
+        background: var(--bg-secondary, #fff);
+        border: 1px solid var(--border-color, #e2e8f0);
+        border-radius: 0.5rem;
+        overflow: hidden;
+        flex-shrink: 0;
+    }
+
+    .perm-app-header {
+        display: flex;
+        align-items: center;
+        gap: 0.375rem;
+        padding: 0.375rem 0.625rem;
+        background: var(--bg-tertiary, #edf2f7);
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        border: none;
+        border-bottom: 1px solid var(--border-color, #e2e8f0);
+        width: 100%;
+        cursor: pointer;
+        text-align: left;
+    }
+    .perm-app-header:hover { background: var(--bg-hover, #e2e8f0); }
+    .perm-chevron { font-size: 0.5rem; color: var(--text-muted); width: 0.625rem; }
+    .perm-app-id { font-family: 'SF Mono', 'Consolas', monospace; font-size: 0.6875rem; }
+    .perm-badge-count {
+        margin-left: auto;
+        font-size: 0.625rem;
+        background: var(--bg-primary);
+        color: var(--text-muted);
+        padding: 1px 0.375rem;
+        border-radius: 0.625rem;
+        font-weight: 500;
+    }
+
+    .perm-table {
+        display: flex;
+        flex-direction: column;
+    }
+    .perm-row {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.3125rem 0.625rem;
+        border-bottom: 1px solid var(--border-subtle, rgba(0,0,0,0.04));
+    }
+    .perm-row:last-child { border-bottom: none; }
+    .perm-row:hover { background: var(--bg-hover, rgba(0,0,0,0.02)); }
+
+    .perm-info {
+        display: flex;
+        align-items: center;
+        gap: 0.375rem;
+        min-width: 140px;
+    }
+    .perm-icon { font-size: 0.6875rem; color: var(--text-muted); width: 1rem; text-align: center; }
+    .perm-name { font-size: 0.75rem; color: var(--text-primary); }
+
+    .perm-status { min-width: 80px; }
+    .perm-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        font-size: 0.625rem;
+        font-weight: 600;
+        padding: 2px 0.375rem;
+        border-radius: 0.25rem;
+        text-transform: uppercase;
+        letter-spacing: 0.02em;
+    }
+    .perm-badge--allowed { background: rgba(34, 197, 94, 0.12); color: #16a34a; }
+    .perm-badge--denied { background: rgba(239, 68, 68, 0.12); color: #dc2626; }
+    .perm-badge--limited { background: rgba(245, 158, 11, 0.12); color: #d97706; }
+    .perm-badge--notdetermined { background: var(--bg-tertiary); color: var(--text-muted); }
+
+    :global(.theme-dark) .perm-badge--allowed { color: #4ade80; }
+    :global(.theme-dark) .perm-badge--denied { color: #f87171; }
+    :global(.theme-dark) .perm-badge--limited { color: #fbbf24; }
+
+    .perm-actions { margin-left: auto; display: flex; gap: 0.25rem; align-items: center; }
+    .perm-readonly { font-size: 0.5625rem; color: var(--text-tertiary); font-style: italic; }
+
+    .perm-quick-header i:nth-child(2) { margin-right: 0.125rem; }
+
+    .perm-reset-all {
+        display: flex;
+        justify-content: center;
+        padding: 0.5rem 0;
+    }
+
+    .tool-body { padding: 0.5rem 0.625rem; display: flex; flex-direction: column; gap: 0.375rem; }
+    .tool-row { display: flex; flex-direction: column; gap: 2px; }
+    .tool-row label { font-size: 0.6875rem; color: var(--text-secondary); font-weight: 500; }
+    .tool-input {
+        padding: 0.25rem 0.5rem; font-size: 0.75rem;
+        border: 1px solid var(--border-color); border-radius: 0.25rem;
+        background: var(--bg-primary, #fff); color: var(--text-primary);
+        outline: none; width: 100%; box-sizing: border-box;
+    }
+    .tool-input:focus { border-color: var(--accent-primary); }
+    .tool-actions { display: flex; gap: 0.25rem; margin-top: 2px; }
+</style>
+
+@code {
+    [Parameter] public string Udid { get; set; } = "";
+
+    private bool isLoading = true;
+    private bool isBusy;
+    private bool showQuickActions;
+
+    private List<AppPermissionGroup> appGroups = new();
+    private HashSet<string> expandedApps = new();
+
+    // Quick actions
+    private string quickBundleId = "";
+    private string quickService = "";
+    private bool CanQuickAction => !string.IsNullOrWhiteSpace(quickBundleId) && !string.IsNullOrWhiteSpace(quickService);
+
+    private IReadOnlyList<AppPermissionGroup> filteredGroups => appGroups;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadPermissionsAsync();
+    }
+
+    private async Task LoadPermissionsAsync()
+    {
+        isLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            var permissions = await SimulatorService.GetPermissionsAsync(Udid);
+            appGroups = permissions
+                .GroupBy(p => p.BundleId)
+                .Select(g => new AppPermissionGroup(g.Key, g.OrderBy(p => p.Permission.DisplayName).ToList()))
+                .OrderBy(g => g.BundleId)
+                .ToList();
+
+            // Auto-expand if few apps
+            if (appGroups.Count <= 3)
+            {
+                foreach (var g in appGroups)
+                    expandedApps.Add(g.BundleId);
+            }
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void ToggleApp(string bundleId)
+    {
+        if (!expandedApps.Remove(bundleId))
+            expandedApps.Add(bundleId);
+    }
+
+    private static string StatusIcon(PermissionStatus status) => status switch
+    {
+        PermissionStatus.Allowed => "●",
+        PermissionStatus.Denied => "●",
+        PermissionStatus.Limited => "◐",
+        _ => "○",
+    };
+
+    private async Task GrantAsync(AppPermission perm)
+    {
+        if (perm.Permission.SimctlService is null) return;
+        isBusy = true;
+        StateHasChanged();
+
+        try
+        {
+            var ok = await SimulatorService.GrantPermissionAsync(Udid, perm.BundleId, perm.Permission.SimctlService);
+            if (!ok)
+                await AlertService.ShowAlertAsync("Error", $"Failed to grant {perm.Permission.DisplayName}.");
+            await LoadPermissionsAsync();
+        }
+        finally { isBusy = false; }
+    }
+
+    private async Task RevokeAsync(AppPermission perm)
+    {
+        if (perm.Permission.SimctlService is null) return;
+        isBusy = true;
+        StateHasChanged();
+
+        try
+        {
+            var ok = await SimulatorService.RevokePermissionAsync(Udid, perm.BundleId, perm.Permission.SimctlService);
+            if (!ok)
+                await AlertService.ShowAlertAsync("Error", $"Failed to revoke {perm.Permission.DisplayName}.");
+            await LoadPermissionsAsync();
+        }
+        finally { isBusy = false; }
+    }
+
+    private async Task ResetAsync(AppPermission perm)
+    {
+        if (perm.Permission.SimctlService is null) return;
+        isBusy = true;
+        StateHasChanged();
+
+        try
+        {
+            var ok = await SimulatorService.ResetPermissionAsync(Udid, perm.BundleId, perm.Permission.SimctlService);
+            if (!ok)
+                await AlertService.ShowAlertAsync("Error", $"Failed to reset {perm.Permission.DisplayName}.");
+            await LoadPermissionsAsync();
+        }
+        finally { isBusy = false; }
+    }
+
+    private async Task QuickGrantAsync()
+    {
+        if (!CanQuickAction) return;
+        isBusy = true;
+        StateHasChanged();
+
+        try
+        {
+            var ok = await SimulatorService.GrantPermissionAsync(Udid, quickBundleId, quickService!);
+            if (!ok)
+                await AlertService.ShowAlertAsync("Error", "Failed to grant permission.");
+            await LoadPermissionsAsync();
+        }
+        finally { isBusy = false; }
+    }
+
+    private async Task QuickRevokeAsync()
+    {
+        if (!CanQuickAction) return;
+        isBusy = true;
+        StateHasChanged();
+
+        try
+        {
+            var ok = await SimulatorService.RevokePermissionAsync(Udid, quickBundleId, quickService!);
+            if (!ok)
+                await AlertService.ShowAlertAsync("Error", "Failed to revoke permission.");
+            await LoadPermissionsAsync();
+        }
+        finally { isBusy = false; }
+    }
+
+    private async Task QuickResetAsync()
+    {
+        if (!CanQuickAction) return;
+        isBusy = true;
+        StateHasChanged();
+
+        try
+        {
+            var ok = await SimulatorService.ResetPermissionAsync(Udid, quickBundleId, quickService!);
+            if (!ok)
+                await AlertService.ShowAlertAsync("Error", "Failed to reset permission.");
+            await LoadPermissionsAsync();
+        }
+        finally { isBusy = false; }
+    }
+
+    private async Task ResetAllAsync()
+    {
+        var confirmed = await AlertService.ShowConfirmAsync(
+            "Reset All Permissions",
+            "This will reset all privacy permissions for every app on this simulator. Apps will prompt for permission again on next use. Continue?");
+        if (!confirmed) return;
+
+        isBusy = true;
+        StateHasChanged();
+
+        try
+        {
+            var ok = await SimulatorService.ResetAllPermissionsAsync(Udid);
+            if (!ok)
+                await AlertService.ShowAlertAsync("Error", "Failed to reset all permissions.");
+            await LoadPermissionsAsync();
+        }
+        finally { isBusy = false; }
+    }
+
+    private record AppPermissionGroup(string BundleId, List<AppPermission> Permissions);
+}

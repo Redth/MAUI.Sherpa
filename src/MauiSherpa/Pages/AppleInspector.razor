@@ -29,6 +29,10 @@
                         @onclick="@(() => SetTab(SimInspectorTab.Tools))">
                     <i class="fas fa-wrench"></i> Tools
                 </button>
+                <button class="inspector-tab @(ActiveTab == SimInspectorTab.Permissions ? "active" : "")"
+                        @onclick="@(() => SetTab(SimInspectorTab.Permissions))">
+                    <i class="fas fa-shield-halved"></i> Permissions
+                </button>
             }
         </div>
         <div class="inspector-device-selector">
@@ -72,6 +76,12 @@
                 @if (!InspectorService.IsPhysicalDevice)
                 {
                     <SimToolsTab Udid="@Udid" />
+                }
+                break;
+            case SimInspectorTab.Permissions:
+                @if (!InspectorService.IsPhysicalDevice)
+                {
+                    <SimPermissionsTab Udid="@Udid" />
                 }
                 break;
         }
@@ -264,6 +274,7 @@
         "apps" => SimInspectorTab.Apps,
         "capture" => SimInspectorTab.Capture,
         "tools" => SimInspectorTab.Tools,
+        "permissions" => SimInspectorTab.Permissions,
         _ => SimInspectorTab.Logs,
     };
 
