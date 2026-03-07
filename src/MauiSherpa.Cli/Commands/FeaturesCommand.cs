@@ -114,6 +114,19 @@ public static class FeaturesCommand
                 },
                 new
                 {
+                    id = "apple.profiles",
+                    name = "Provisioning Profile Management",
+                    description = "List, inspect, install, and remove locally installed provisioning profiles (.mobileprovision files). Decodes profile contents including entitlements, team, expiration, and device count.",
+                    commands = new[]
+                    {
+                        new { command = "maui-sherpa apple profiles list", description = "List all installed provisioning profiles with name, UUID, type, and expiration" },
+                        new { command = "maui-sherpa apple profiles show <profile>", description = "Show full details of a profile by UUID, path, or name substring" },
+                        new { command = "maui-sherpa apple profiles install <file>", description = "Install a .mobileprovision file to ~/Library/MobileDevice/Provisioning Profiles/" },
+                        new { command = "maui-sherpa apple profiles remove <profile>", description = "Remove a provisioning profile by UUID or name" },
+                    }
+                },
+                new
+                {
                     id = "workloads",
                     name = ".NET Workload Management",
                     description = "Query installed .NET SDK workloads, workload sets, and manifests. Useful for diagnosing MAUI build issues.",
