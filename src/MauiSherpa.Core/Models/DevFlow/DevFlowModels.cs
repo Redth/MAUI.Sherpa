@@ -98,6 +98,15 @@ public class DevFlowProfilerCapabilities
     [JsonPropertyName("frameTimingsEstimated")]
     public bool FrameTimingsEstimated { get; set; }
 
+    [JsonPropertyName("nativeFrameTimingsSupported")]
+    public bool NativeFrameTimingsSupported { get; set; }
+
+    [JsonPropertyName("jankEventsSupported")]
+    public bool JankEventsSupported { get; set; }
+
+    [JsonPropertyName("uiThreadStallSupported")]
+    public bool UiThreadStallSupported { get; set; }
+
     [JsonPropertyName("threadCountSupported")]
     public bool ThreadCountSupported { get; set; }
 }
@@ -137,6 +146,9 @@ public class DevFlowProfilerSample
     [JsonPropertyName("frameTimeMsP95")]
     public double? FrameTimeMsP95 { get; set; }
 
+    [JsonPropertyName("worstFrameTimeMs")]
+    public double? WorstFrameTimeMs { get; set; }
+
     [JsonPropertyName("managedBytes")]
     public long ManagedBytes { get; set; }
 
@@ -154,6 +166,15 @@ public class DevFlowProfilerSample
 
     [JsonPropertyName("threadCount")]
     public int? ThreadCount { get; set; }
+
+    [JsonPropertyName("jankFrameCount")]
+    public int JankFrameCount { get; set; }
+
+    [JsonPropertyName("uiThreadStallCount")]
+    public int UiThreadStallCount { get; set; }
+
+    [JsonPropertyName("frameSource")]
+    public string? FrameSource { get; set; }
 
     [JsonPropertyName("frameQuality")]
     public string? FrameQuality { get; set; }

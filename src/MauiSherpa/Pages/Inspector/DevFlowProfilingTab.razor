@@ -92,6 +92,10 @@
                 <div class="metric-value">@FormatMetric(LatestSample?.FrameTimeMsP95, "ms")</div>
             </div>
             <div class="metric-card">
+                <div class="metric-label">Worst frame</div>
+                <div class="metric-value">@FormatMetric(LatestSample?.WorstFrameTimeMs, "ms")</div>
+            </div>
+            <div class="metric-card">
                 <div class="metric-label">Managed Heap</div>
                 <div class="metric-value">@FormatBytes(LatestSample?.ManagedBytes)</div>
             </div>
@@ -106,6 +110,14 @@
             <div class="metric-card">
                 <div class="metric-label">GC Δ (0/1/2)</div>
                 <div class="metric-value">@($"{gcDelta.Gc0}/{gcDelta.Gc1}/{gcDelta.Gc2}")</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Jank frames</div>
+                <div class="metric-value">@(LatestSample?.JankFrameCount.ToString(CultureInfo.InvariantCulture) ?? "0")</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">UI stalls</div>
+                <div class="metric-value">@(LatestSample?.UiThreadStallCount.ToString(CultureInfo.InvariantCulture) ?? "0")</div>
             </div>
         </div>
 
@@ -255,6 +267,9 @@
                     <div class="cap-row"><span>Thread count</span><span class="@SupportCss(capabilities.ThreadCountSupported)">@(capabilities.ThreadCountSupported ? "yes" : "no")</span></div>
                     <div class="cap-row"><span>FPS</span><span class="@SupportCss(capabilities.FpsSupported)">@(capabilities.FpsSupported ? "yes" : "no")</span></div>
                     <div class="cap-row"><span>Frame timings</span><span class="@SupportCss(true)">@(capabilities.FrameTimingsEstimated ? "estimated" : "native")</span></div>
+                    <div class="cap-row"><span>Native frame timings</span><span class="@SupportCss(capabilities.NativeFrameTimingsSupported)">@(capabilities.NativeFrameTimingsSupported ? "yes" : "no")</span></div>
+                    <div class="cap-row"><span>Jank events</span><span class="@SupportCss(capabilities.JankEventsSupported)">@(capabilities.JankEventsSupported ? "yes" : "no")</span></div>
+                    <div class="cap-row"><span>UI stall events</span><span class="@SupportCss(capabilities.UiThreadStallSupported)">@(capabilities.UiThreadStallSupported ? "yes" : "no")</span></div>
                 </div>
                 <div class="session-meta">
                     @if (session != null)
@@ -264,6 +279,7 @@
                     }
                     <div><strong>Samples in view:</strong> @samples.Count</div>
                     <div><strong>Timeline events in view:</strong> @(markers.Count + spans.Count)</div>
+                    <div><strong>Frame source:</strong> @(LatestSample?.FrameSource ?? "—")</div>
                     <div><strong>Frame quality:</strong> @(LatestSample?.FrameQuality ?? "—")</div>
                 </div>
             </div>
@@ -1122,6 +1138,10 @@
         overflow: auto;
         padding: 0.25rem 0;
         flex: 1;
+    }
+
+    .hotspots-panel .hotspot-list {
+        max-height: 360px;
     }
 
     .marker-row {
