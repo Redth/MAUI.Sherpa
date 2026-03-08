@@ -8,16 +8,17 @@ public static class DoctorCommand
 {
     public static Command Create()
     {
-        var cmd = new Command("doctor", "Run a full environment health check for MAUI development.\n\nChecks .NET SDK, Android SDK, JDK, Xcode (macOS), and iOS simulators.");
+        var cmd = new Command("doctor", "Run a full environment health check for MAUI development.\n\nChecks .NET SDK, Android SDK, JDK, Xcode (macOS), and iOS simulators.\n\nWith --agent, outputs remediation prompts and fix guidance when issues are found, so the calling AI agent can act on them instead of starting an inner Copilot session.");
         cmd.SetAction(async (parseResult, ct) =>
         {
             var json = parseResult.GetValue(CliOptions.Json);
-            await RunAsync(json);
+            var agent = parseResult.GetValue(CliOptions.Agent);
+            await RunAsync(json, agent);
         });
         return cmd;
     }
 
-    private static async Task RunAsync(bool json)
+    private static async Task RunAsync(bool json, bool agent)
     {
         var checks = new List<HealthCheck>();
 
@@ -29,6 +30,32 @@ public static class DoctorCommand
         {
             checks.Add(await CheckXcodeAsync());
             checks.Add(await CheckSimulatorsAsync());
+        }
+
+        var issues = checks
+            .Where(c => c.Status is "error" or "warning")
+            .Select(c => new Remediation.Issue(c.Name, c.Message, c.Status == "error"))
+            .ToList();
+
+        // Agent mode: always output JSON with remediation prompts when issues exist
+        if (agent)
+        {
+            if (issues.Count == 0)
+            {
+                Output.WriteJson(new
+                {
+                    status = "ok",
+                    message = "All checks passed. No remediation needed.",
+                    checks = checks.Select(c => new { c.Name, c.Status, c.Message, c.Details }),
+                });
+            }
+            else
+            {
+                Output.WriteJson(Remediation.BuildEnvironmentFix(
+                    issues,
+                    checks.Select(c => new { c.Name, c.Status, c.Message, c.Details } as object).ToList()));
+            }
+            return;
         }
 
         if (json)

@@ -19,16 +19,23 @@ public static class FeaturesCommand
             tool = "maui-sherpa",
             description = "CLI for managing mobile development tools — Android SDK, iOS simulators, keystores, .NET workloads, environment diagnostics, and more.",
             version = typeof(FeaturesCommand).Assembly.GetName().Version?.ToString() ?? "0.0.0",
+            agentMode = new
+            {
+                flag = "--agent",
+                description = "When issues are found, outputs structured remediation prompts (fix guidance, suggested commands, references) for the calling AI agent instead of starting an inner Copilot session. Combine with any command that can detect problems.",
+                example = "maui-sherpa doctor --agent",
+            },
             features = new object[]
             {
                 new
                 {
                     id = "doctor",
                     name = "Environment Diagnostics",
-                    description = "Check your MAUI development environment health — .NET SDK, Android SDK, JDK, Xcode, and simulators.",
+                    description = "Check your MAUI development environment health — .NET SDK, Android SDK, JDK, Xcode, and simulators. With --agent, outputs remediation prompts and fix guidance when issues are found.",
                     commands = new[]
                     {
                         new { command = "maui-sherpa doctor", description = "Run a full environment health check" },
+                        new { command = "maui-sherpa doctor --agent", description = "Run health check and output remediation prompts for the calling AI agent when issues are found" },
                     }
                 },
                 new

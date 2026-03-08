@@ -14,6 +14,7 @@ var root = new RootCommand("MAUI Sherpa CLI — manage Android SDK, iOS simulato
     AppleCommand.Create(),
     WorkloadsCommand.Create(),
     CliOptions.Json,
+    CliOptions.Agent,
 };
 
 var config = new CommandLineConfiguration(root);
