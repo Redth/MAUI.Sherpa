@@ -19,11 +19,26 @@ public static class FeaturesCommand
             tool = "maui-sherpa",
             description = "CLI for managing mobile development tools — Android SDK, iOS simulators, keystores, .NET workloads, environment diagnostics, and more.",
             version = typeof(FeaturesCommand).Assembly.GetName().Version?.ToString() ?? "0.0.0",
-            agentMode = new
+            importantForAgents = "ALWAYS pass --agent when invoking maui-sherpa from an AI agent. This flag causes commands to output structured remediation prompts (fix guidance, suggested commands, references) when issues are found, instead of attempting an inner Copilot session. Example: maui-sherpa doctor --agent",
+            globalFlags = new object[]
             {
-                flag = "--agent",
-                description = "When issues are found, outputs structured remediation prompts (fix guidance, suggested commands, references) for the calling AI agent instead of starting an inner Copilot session. Combine with any command that can detect problems.",
-                example = "maui-sherpa doctor --agent",
+                new
+                {
+                    flag = "--agent",
+                    description = "REQUIRED for AI agents. Outputs structured JSON with remediation prompts, step-by-step fix guidance, suggested commands, and reference URLs when issues are found. Without this flag, commands produce human-readable output only.",
+                    example = "maui-sherpa doctor --agent",
+                    responseShape = new
+                    {
+                        whenAllOk = "{ status: 'ok', message: '...', checks: [...] }",
+                        whenIssuesFound = "{ type: 'environment_fix', diagnostics: [...], issues: [...], prompt: '...', guidance: [{ category, steps, references }], suggestedCommands: [...] }",
+                    },
+                },
+                new
+                {
+                    flag = "--json",
+                    description = "Output raw results as JSON. Unlike --agent, does not include remediation prompts.",
+                    example = "maui-sherpa apple simulators list --json",
+                },
             },
             features = new object[]
             {
