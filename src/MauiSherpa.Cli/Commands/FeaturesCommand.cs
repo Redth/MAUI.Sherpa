@@ -138,13 +138,15 @@ public static class FeaturesCommand
                 {
                     id = "apple.profiles",
                     name = "Provisioning Profile Management",
-                    description = "List, inspect, install, and remove locally installed provisioning profiles (.mobileprovision files). Decodes profile contents including entitlements, team, expiration, and device count.",
+                    description = "Manage provisioning profiles — locally installed files and App Store Connect. Create, list, inspect, install, and remove profiles. Supports API authentication via CLI options or environment variables.",
                     commands = new[]
                     {
                         new { command = "maui-sherpa apple profiles list", description = "List all installed provisioning profiles with name, UUID, type, and expiration" },
                         new { command = "maui-sherpa apple profiles show <profile>", description = "Show full details of a profile by UUID, path, or name substring" },
                         new { command = "maui-sherpa apple profiles install <file>", description = "Install a .mobileprovision file to ~/Library/MobileDevice/Provisioning Profiles/" },
                         new { command = "maui-sherpa apple profiles remove <profile>", description = "Remove a provisioning profile by UUID or name" },
+                        new { command = "maui-sherpa apple profiles create --name <name> --type <type> --bundle-id <id>", description = "Create a new provisioning profile on App Store Connect. Requires --key-id, --issuer-id, --p8-file (or env vars). Use --all-devices for dev/adhoc profiles. Use --install to install locally after creation." },
+                        new { command = "maui-sherpa apple profiles asc-list", description = "List provisioning profiles from App Store Connect. Requires API credentials via options or APPLE_KEY_ID, APPLE_ISSUER_ID, APPLE_P8_FILE env vars." },
                     }
                 },
                 new
