@@ -86,6 +86,9 @@ public class DevFlowProfilerCapabilities
     [JsonPropertyName("managedMemorySupported")]
     public bool ManagedMemorySupported { get; set; }
 
+    [JsonPropertyName("nativeMemorySupported")]
+    public bool NativeMemorySupported { get; set; }
+
     [JsonPropertyName("gcSupported")]
     public bool GcSupported { get; set; }
 
@@ -151,6 +154,9 @@ public class DevFlowProfilerSample
 
     [JsonPropertyName("managedBytes")]
     public long ManagedBytes { get; set; }
+
+    [JsonPropertyName("nativeMemoryBytes")]
+    public long? NativeMemoryBytes { get; set; }
 
     [JsonPropertyName("gc0")]
     public int Gc0 { get; set; }

@@ -100,6 +100,10 @@
                 <div class="metric-value">@FormatBytes(LatestSample?.ManagedBytes)</div>
             </div>
             <div class="metric-card">
+                <div class="metric-label">Native Heap</div>
+                <div class="metric-value">@FormatBytes(LatestSample?.NativeMemoryBytes)</div>
+            </div>
+            <div class="metric-card">
                 <div class="metric-label">CPU</div>
                 <div class="metric-value">@FormatMetric(LatestSample?.CpuPercent, "%")</div>
             </div>
@@ -157,6 +161,19 @@
                     @if (!string.IsNullOrEmpty(memoryPoints))
                     {
                         <polyline points="@memoryPoints" stroke="#8b5cf6" stroke-width="2" fill="none" />
+                    }
+                </svg>
+            </div>
+
+            <div class="chart-card">
+                <div class="chart-header">
+                    <span>Native heap</span>
+                    <span>@FormatBytes(LatestSample?.NativeMemoryBytes)</span>
+                </div>
+                <svg viewBox="0 0 320 96" class="chart-svg">
+                    @if (!string.IsNullOrEmpty(nativeMemoryPoints))
+                    {
+                        <polyline points="@nativeMemoryPoints" stroke="#e11d48" stroke-width="2" fill="none" />
                     }
                 </svg>
             </div>
@@ -262,6 +279,7 @@
                 </div>
                 <div class="cap-grid">
                     <div class="cap-row"><span>Managed memory</span><span class="@SupportCss(capabilities.ManagedMemorySupported)">@(capabilities.ManagedMemorySupported ? "yes" : "no")</span></div>
+                    <div class="cap-row"><span>Native memory</span><span class="@SupportCss(capabilities.NativeMemorySupported)">@(capabilities.NativeMemorySupported ? "yes" : "no")</span></div>
                     <div class="cap-row"><span>GC counters</span><span class="@SupportCss(capabilities.GcSupported)">@(capabilities.GcSupported ? "yes" : "no")</span></div>
                     <div class="cap-row"><span>CPU %</span><span class="@SupportCss(capabilities.CpuPercentSupported)">@(capabilities.CpuPercentSupported ? "yes" : "no")</span></div>
                     <div class="cap-row"><span>Thread count</span><span class="@SupportCss(capabilities.ThreadCountSupported)">@(capabilities.ThreadCountSupported ? "yes" : "no")</span></div>
@@ -280,7 +298,9 @@
                     <div><strong>Samples in view:</strong> @samples.Count</div>
                     <div><strong>Timeline events in view:</strong> @(markers.Count + spans.Count)</div>
                     <div><strong>Frame source:</strong> @(LatestSample?.FrameSource ?? "—")</div>
-                    <div><strong>Frame quality:</strong> @(LatestSample?.FrameQuality ?? "—")</div>
+                    <div><strong>Frame quality:</strong> @FormatFrameQuality(LatestSample?.FrameQuality)</div>
+                    <div><strong>Frame quality detail:</strong> @(LatestSample?.FrameQuality ?? "—")</div>
+                    <div><strong>Native heap:</strong> @FormatBytes(LatestSample?.NativeMemoryBytes)</div>
                 </div>
             </div>
         </div>
@@ -359,6 +379,7 @@
     private string fpsPoints => GetSparklinePoints(s => s.Fps);
     private string frameP95Points => GetSparklinePoints(s => s.FrameTimeMsP95);
     private string memoryPoints => GetSparklinePoints(s => s.ManagedBytes);
+    private string nativeMemoryPoints => GetSparklinePoints(s => s.NativeMemoryBytes.HasValue ? (double?)s.NativeMemoryBytes.Value : null);
     private string cpuPoints => GetSparklinePoints(s => s.CpuPercent);
 
     private sealed record UiTimelineEntry(
@@ -783,6 +804,21 @@
         if (value < 1024L * 1024L * 1024L)
             return $"{value / (1024d * 1024d):F1} MB";
         return $"{value / (1024d * 1024d * 1024d):F2} GB";
+    }
+
+    private static string FormatFrameQuality(string? frameQuality)
+    {
+        if (string.IsNullOrWhiteSpace(frameQuality))
+            return "—";
+
+        if (frameQuality.StartsWith("exact", StringComparison.OrdinalIgnoreCase))
+            return "exact";
+
+        if (frameQuality.StartsWith("estimated", StringComparison.OrdinalIgnoreCase)
+            || frameQuality.Contains("cadence", StringComparison.OrdinalIgnoreCase))
+            return "estimated";
+
+        return frameQuality;
     }
 
     private static string? BuildSpanDetail(DevFlowProfilerSpan span)
