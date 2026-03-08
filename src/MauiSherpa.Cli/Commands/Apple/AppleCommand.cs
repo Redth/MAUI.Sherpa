@@ -11,6 +11,7 @@ public static class AppleCommand
         cmd.Add(DevicesCommand.Create());
         cmd.Add(XcodeCommand.Create());
         cmd.Add(ProfilesCommand.Create());
+        cmd.Add(LogsCommand.Create());
         return cmd;
     }
 }

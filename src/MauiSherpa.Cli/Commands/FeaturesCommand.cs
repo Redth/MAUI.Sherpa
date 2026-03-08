@@ -91,6 +91,19 @@ public static class FeaturesCommand
                 },
                 new
                 {
+                    id = "android.logs",
+                    name = "Android Log Streaming",
+                    description = "Stream real-time device logs from Android devices and emulators via adb logcat. Supports level filtering, tag/message search, colored output, and NDJSON for machine consumption.",
+                    commands = new[]
+                    {
+                        new { command = "maui-sherpa android logs <serial>", description = "Stream logs from an Android device or emulator" },
+                        new { command = "maui-sherpa android logs <serial> --level error", description = "Stream only error and fatal logs" },
+                        new { command = "maui-sherpa android logs <serial> --filter MyApp --json", description = "Stream logs matching 'MyApp' as NDJSON" },
+                        new { command = "maui-sherpa android logs <serial> --clear", description = "Clear log buffer then stream" },
+                    }
+                },
+                new
+                {
                     id = "android.keystores",
                     name = "Android Keystore Management",
                     description = "Create Android keystores for app signing, view certificate signature hashes (SHA-1, SHA-256, MD5).",
@@ -122,6 +135,20 @@ public static class FeaturesCommand
                     commands = new[]
                     {
                         new { command = "maui-sherpa apple devices", description = "List connected physical iOS devices" },
+                    }
+                },
+                new
+                {
+                    id = "apple.logs",
+                    name = "Apple Log Streaming",
+                    description = "Stream real-time device logs from iOS simulators or physical devices. Auto-detects simulator vs device. Supports level filtering, process/subsystem search, colored output, and NDJSON.",
+                    commands = new[]
+                    {
+                        new { command = "maui-sherpa apple logs <identifier>", description = "Stream logs from an iOS simulator or physical device (auto-detected)" },
+                        new { command = "maui-sherpa apple logs <udid> --simulator", description = "Force simulator mode" },
+                        new { command = "maui-sherpa apple logs <udid> --device", description = "Force physical device mode" },
+                        new { command = "maui-sherpa apple logs <udid> --level error --json", description = "Stream error/fault logs as NDJSON" },
+                        new { command = "maui-sherpa apple logs <udid> --filter SpringBoard", description = "Filter by process or subsystem name" },
                     }
                 },
                 new

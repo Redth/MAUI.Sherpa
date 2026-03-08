@@ -11,6 +11,7 @@ public static class AndroidCommand
         cmd.Add(EmulatorsCommand.Create());
         cmd.Add(DevicesCommand.Create());
         cmd.Add(KeystoresCommand.Create());
+        cmd.Add(LogsCommand.Create());
         return cmd;
     }
 }
