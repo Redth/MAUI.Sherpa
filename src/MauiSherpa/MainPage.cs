@@ -24,6 +24,19 @@ public class MainPage : ContentPage
             ComponentType = typeof(Components.App)
         });
 
+#if WINDOWS
+        // Set WebView2 user data folder to a writable location so the app works
+        // when installed in read-only directories like C:\Program Files\
+        _blazorWebView.BlazorWebViewInitializing += (_, e) =>
+        {
+            var webView2DataPath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "MauiSherpa", "WebView2");
+            Directory.CreateDirectory(webView2DataPath);
+            e.UserDataFolder = webView2DataPath;
+        };
+#endif
+
         // Create splash overlay
         _splashOverlay = CreateSplashOverlay();
         
