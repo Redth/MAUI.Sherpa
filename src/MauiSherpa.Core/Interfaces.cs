@@ -285,7 +285,44 @@ public interface IProfilingArtifactAnalysisService
         CancellationToken ct = default);
 }
 
+/// <summary>
+/// Executes a profiling capture plan as a coordinated multi-process pipeline.
+/// Handles dependency ordering, parallel execution, long-running processes,
+/// graceful stop, and artifact collection.
+/// </summary>
+public interface IProfilingSessionRunner : IDisposable
+{
+    /// <summary>Current pipeline state</summary>
+    ProfilingPipelineState State { get; }
 
+    /// <summary>Status of each step in the pipeline</summary>
+    IReadOnlyList<ProfilingStepStatus> Steps { get; }
+
+    /// <summary>Fired when pipeline state changes</summary>
+    event EventHandler<ProfilingPipelineStateChangedEventArgs>? PipelineStateChanged;
+
+    /// <summary>Fired when a step's state changes</summary>
+    event EventHandler<ProfilingStepStateChangedEventArgs>? StepStateChanged;
+
+    /// <summary>Fired when a step produces output</summary>
+    event EventHandler<ProfilingStepOutputEventArgs>? StepOutputReceived;
+
+    /// <summary>
+    /// Execute the full pipeline. Returns when all steps complete (or fail/cancel).
+    /// </summary>
+    Task<ProfilingPipelineResult> RunAsync(ProfilingCapturePlan plan, CancellationToken ct = default);
+
+    /// <summary>
+    /// Gracefully stop capture — sends SIGINT to ManualStop steps, waits for exit.
+    /// After those exit, collects artifacts.
+    /// </summary>
+    void StopCapture();
+
+    /// <summary>
+    /// Abort everything immediately — kills all running processes.
+    /// </summary>
+    void Cancel();
+}
 
 public interface IAndroidSdkSettingsService
 {

@@ -92,7 +92,7 @@ public static class MauiProgram
         builder.Services.AddSingleton<IToolbarService, MauiSherpa.Core.Services.ToolbarService>();
 
         // Process execution services
-        builder.Services.AddSingleton<IProcessExecutionService, ProcessExecutionService>();
+        builder.Services.AddTransient<IProcessExecutionService, ProcessExecutionService>();
         builder.Services.AddSingleton<ProcessModalService>();
         builder.Services.AddSingleton<IProcessModalService>(sp => sp.GetRequiredService<ProcessModalService>());
         builder.Services.AddSingleton<OperationModalService>();
@@ -117,6 +117,7 @@ public static class MauiProgram
         builder.Services.AddSingleton<IProfilingCaptureOrchestrationService, ProfilingCaptureOrchestrationService>();
         builder.Services.AddSingleton<IProfilingArtifactLibraryService, ProfilingArtifactLibraryService>();
         builder.Services.AddSingleton<IProfilingArtifactAnalysisService, ProfilingArtifactAnalysisService>();
+        builder.Services.AddTransient<IProfilingSessionRunner, ProfilingSessionRunnerService>();
         builder.Services.AddSingleton<IAndroidDeviceToolsService, AndroidDeviceToolsService>();
         builder.Services.AddSingleton<IFirebasePushService, FirebasePushService>();
         builder.Services.AddSingleton<DeviceInspectorService>();

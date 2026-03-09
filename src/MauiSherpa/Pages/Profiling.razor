@@ -13,6 +13,7 @@
 @inject IToolbarService ToolbarService
 @inject IPlatformService Platform
 @inject IProcessModalService ProcessModal
+@inject IProfilingSessionRunner PipelineRunner
 @implements IDisposable
 
 
@@ -471,15 +472,131 @@ else
         <section class="panel">
             <div class="panel-header">
                 <span><i class="fas fa-circle-play"></i> Capture</span>
-            </div>
-            <div class="panel-body">
-                <div class="empty-state">
-                    <i class="fas fa-circle-play fa-2x"></i>
-                    <div>Capture session running...</div>
-                    <div class="empty-hint">This step will be implemented in a future update.</div>
+                <div class="panel-header-actions">
+                    @if (pipelineState == ProfilingPipelineState.Running)
+                    {
+                        <span class="pipeline-elapsed"><i class="fas fa-clock"></i> @FormatElapsed(pipelineElapsed)</span>
+                    }
                 </div>
             </div>
+            <div class="panel-body">
+                @if (pipelineState == ProfilingPipelineState.NotStarted)
+                {
+                    <div class="empty-state">
+                        <i class="fas fa-spinner fa-spin fa-2x"></i>
+                        <div>Starting capture pipeline...</div>
+                    </div>
+                }
+                else
+                {
+                    <div class="pipeline-status-banner pipeline-status-@(pipelineState.ToString().ToLowerInvariant())">
+                        <i class="fas @GetPipelineStateIcon()"></i>
+                        <span>@GetPipelineStateText()</span>
+                    </div>
+
+                    <div class="pipeline-steps">
+                        @foreach (var stepStatus in PipelineRunner.Steps)
+                        {
+                            <div class="pipeline-step-card pipeline-step-@(stepStatus.State.ToString().ToLowerInvariant())">
+                                <div class="pipeline-step-header" @onclick="() => ToggleStepLog(stepStatus.StepId)">
+                                    <div class="pipeline-step-icon">
+                                        @switch (stepStatus.State)
+                                        {
+                                            case ProfilingStepState.Running:
+                                                <i class="fas fa-spinner fa-spin"></i>
+                                                break;
+                                            case ProfilingStepState.Completed:
+                                                <i class="fas fa-check-circle text-success"></i>
+                                                break;
+                                            case ProfilingStepState.Failed:
+                                                <i class="fas fa-times-circle text-danger"></i>
+                                                break;
+                                            case ProfilingStepState.Stopped:
+                                                <i class="fas fa-stop-circle text-warning"></i>
+                                                break;
+                                            case ProfilingStepState.Skipped:
+                                                <i class="fas fa-forward text-muted"></i>
+                                                break;
+                                            case ProfilingStepState.Cancelled:
+                                                <i class="fas fa-ban text-muted"></i>
+                                                break;
+                                            default:
+                                                <i class="fas fa-circle text-muted"></i>
+                                                break;
+                                        }
+                                    </div>
+                                    <div class="pipeline-step-info">
+                                        <div class="pipeline-step-name">@stepStatus.DisplayName</div>
+                                        <div class="pipeline-step-meta">
+                                            <span class="badge badge-neutral">@stepStatus.Kind</span>
+                                            @if (stepStatus.IsLongRunning)
+                                            {
+                                                <span class="badge badge-warning">Long-running</span>
+                                            }
+                                            @if (stepStatus.Duration.HasValue)
+                                            {
+                                                <span class="pipeline-step-duration">@FormatElapsed(stepStatus.Duration.Value)</span>
+                                            }
+                                            else if (stepStatus.State == ProfilingStepState.Running && stepStatus.StartedAt.HasValue)
+                                            {
+                                                <span class="pipeline-step-duration">@FormatElapsed(DateTime.Now - stepStatus.StartedAt.Value)</span>
+                                            }
+                                        </div>
+                                    </div>
+                                    <div class="pipeline-step-expand">
+                                        <i class="fas @(expandedStepLogs.Contains(stepStatus.StepId) ? "fa-chevron-up" : "fa-chevron-down")"></i>
+                                    </div>
+                                </div>
+                                @if (stepStatus.ErrorMessage is not null && stepStatus.State == ProfilingStepState.Failed)
+                                {
+                                    <div class="pipeline-step-error">
+                                        <i class="fas fa-exclamation-triangle"></i> @stepStatus.ErrorMessage
+                                    </div>
+                                }
+                                @if (expandedStepLogs.Contains(stepStatus.StepId))
+                                {
+                                    <div class="pipeline-step-log">
+                                        @if (stepStatus.OutputLines.Count == 0)
+                                        {
+                                            <div class="pipeline-log-empty">No output yet</div>
+                                        }
+                                        else
+                                        {
+                                            @foreach (var line in stepStatus.OutputLines.TakeLast(200))
+                                            {
+                                                <div class="pipeline-log-line @(line.IsError ? "error" : "")">@line.Text</div>
+                                            }
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
         </section>
+
+        @if (pipelineState is ProfilingPipelineState.Running or ProfilingPipelineState.WaitingForStop)
+        {
+            <div class="pipeline-actions">
+                @if (pipelineState == ProfilingPipelineState.WaitingForStop)
+                {
+                    <div class="pipeline-waiting-hint">
+                        <i class="fas fa-hourglass-half"></i>
+                        Waiting for capture processes to finish...
+                    </div>
+                }
+                else
+                {
+                    <button class="btn btn-warning" @onclick="HandleStopCapture">
+                        <i class="fas fa-stop"></i> Stop Capture
+                    </button>
+                }
+                <button class="btn btn-secondary" @onclick="HandleCancelPipeline">
+                    <i class="fas fa-times"></i> Cancel
+                </button>
+            </div>
+        }
     }
 
     @if (currentStep == 5)
@@ -489,24 +606,113 @@ else
                 <span><i class="fas fa-chart-bar"></i> Results</span>
             </div>
             <div class="panel-body">
-                <div class="empty-state">
-                    <i class="fas fa-chart-bar fa-2x"></i>
-                    <div>Results will appear here</div>
-                    <div class="empty-hint">This step will be implemented in a future update.</div>
-                </div>
+                @if (pipelineResult is null)
+                {
+                    <div class="empty-state">
+                        <i class="fas fa-chart-bar fa-2x"></i>
+                        <div>No results yet</div>
+                    </div>
+                }
+                else
+                {
+                    <div class="results-summary @(pipelineResult.Success ? "success" : "failure")">
+                        <div class="results-summary-icon">
+                            <i class="fas @(pipelineResult.Success ? "fa-check-circle" : "fa-exclamation-triangle") fa-2x"></i>
+                        </div>
+                        <div class="results-summary-details">
+                            <div class="results-summary-title">
+                                @(pipelineResult.Success ? "Capture completed successfully" : "Capture completed with errors")
+                            </div>
+                            <div class="results-summary-stats">
+                                <span><i class="fas fa-clock"></i> @FormatElapsed(pipelineResult.TotalDuration)</span>
+                                <span><i class="fas fa-file"></i> @pipelineResult.ArtifactPaths.Count artifact(s) captured</span>
+                                @if (pipelineResult.MissingArtifacts.Count > 0)
+                                {
+                                    <span class="text-warning"><i class="fas fa-exclamation-triangle"></i> @pipelineResult.MissingArtifacts.Count expected artifact(s) missing</span>
+                                }
+                            </div>
+                        </div>
+                    </div>
+
+                    @if (pipelineResult.ArtifactPaths.Count > 0)
+                    {
+                        <div class="plan-section-title">Captured artifacts</div>
+                        <div class="artifact-list">
+                            @foreach (var artifactPath in pipelineResult.ArtifactPaths)
+                            {
+                                var fileName = Path.GetFileName(artifactPath);
+                                var extension = Path.GetExtension(artifactPath).ToLowerInvariant();
+                                var fileSize = GetFileSize(artifactPath);
+                                <div class="artifact-card result-artifact-card">
+                                    <div class="artifact-icon">
+                                        <i class="fas @GetArtifactIcon(extension)"></i>
+                                    </div>
+                                    <div class="artifact-details">
+                                        <div class="artifact-name">@fileName</div>
+                                        <div class="artifact-path">@artifactPath</div>
+                                        @if (fileSize is not null)
+                                        {
+                                            <div class="artifact-meta">@fileSize</div>
+                                        }
+                                    </div>
+                                    <div class="artifact-actions">
+                                        @if (extension is ".nettrace" or ".speedscope.json" or ".json")
+                                        {
+                                            <button class="btn btn-secondary btn-sm" @onclick="@(() => OpenInSpeedscope(artifactPath))">
+                                                <i class="fas fa-fire"></i> speedscope
+                                            </button>
+                                        }
+                                        <button class="btn btn-secondary btn-sm" @onclick="@(() => RevealInFinder(artifactPath))">
+                                            <i class="fas fa-folder-open"></i> Reveal
+                                        </button>
+                                        <button class="btn btn-secondary btn-sm" @onclick="@(() => CopyPathAsync(artifactPath))">
+                                            <i class="fas fa-copy"></i> Copy path
+                                        </button>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+
+                    @if (pipelineResult.MissingArtifacts.Count > 0)
+                    {
+                        <div class="plan-section-title">Missing artifacts</div>
+                        <div class="artifact-list">
+                            @foreach (var missing in pipelineResult.MissingArtifacts)
+                            {
+                                <div class="artifact-card missing-artifact">
+                                    <div class="artifact-icon text-warning">
+                                        <i class="fas fa-exclamation-triangle"></i>
+                                    </div>
+                                    <div class="artifact-details">
+                                        <div class="artifact-name">@Path.GetFileName(missing)</div>
+                                        <div class="artifact-path">@missing</div>
+                                        <div class="artifact-meta text-warning">Expected but not found</div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                }
             </div>
         </section>
+
+        <div class="results-actions">
+            <button class="btn btn-primary" @onclick="StartNewSession">
+                <i class="fas fa-plus"></i> New Session
+            </button>
+        </div>
     }
 
     <div class="wizard-nav">
-        @if (currentStep > 0)
+        @if (currentStep > 0 && currentStep != 4)
         {
-            <button class="btn btn-secondary" @onclick="PreviousStep">
+            <button class="btn btn-secondary" @onclick="PreviousStep" disabled="@(currentStep == 5)">
                 <i class="fas fa-arrow-left"></i> Back
             </button>
         }
         <div class="wizard-nav-spacer"></div>
-        @if (currentStep < TotalSteps - 1)
+        @if (currentStep < 4)
         {
             <button class="btn btn-primary" @onclick="NextStep" disabled="@(!CanProceedToNext)">
                 @if (currentStep == 3)
@@ -553,6 +759,14 @@ else
     private int currentStep = 0;
     private const int TotalSteps = 6;
     private bool showAdvanced = false;
+
+    // Pipeline state
+    private ProfilingPipelineState pipelineState = ProfilingPipelineState.NotStarted;
+    private ProfilingPipelineResult? pipelineResult;
+    private TimeSpan pipelineElapsed;
+    private System.Threading.Timer? pipelineTimer;
+    private DateTime pipelineStartTime;
+    private HashSet<string> expandedStepLogs = new();
 
     private static readonly (string Name, string Icon)[] WizardSteps = new[]
     {
@@ -1012,6 +1226,12 @@ else
             if (SelectedTarget is not null)
                 await GeneratePlanAsync();
         }
+        else if (currentStep == 3)
+        {
+            // Start Capture — advance to step 4 and run the pipeline
+            currentStep = 4;
+            await StartPipelineAsync();
+        }
         else
         {
             currentStep = Math.Min(currentStep + 1, TotalSteps - 1);
@@ -1025,8 +1245,192 @@ else
 
     private void GoToStep(int step)
     {
-        if (step < currentStep)
+        // Don't allow jumping forward past current, or back into step 4 (capture)
+        if (step < currentStep && step != 4)
             currentStep = step;
+    }
+
+    private async Task StartPipelineAsync()
+    {
+        if (capturePlan is null) return;
+
+        pipelineState = ProfilingPipelineState.NotStarted;
+        pipelineResult = null;
+        expandedStepLogs.Clear();
+        pipelineStartTime = DateTime.Now;
+        StateHasChanged();
+
+        // Subscribe to pipeline events
+        PipelineRunner.PipelineStateChanged += OnPipelineStateChanged;
+        PipelineRunner.StepStateChanged += OnStepStateChanged;
+        PipelineRunner.StepOutputReceived += OnStepOutputReceived;
+
+        // Start elapsed timer (updates every second)
+        pipelineTimer = new System.Threading.Timer(_ =>
+        {
+            pipelineElapsed = DateTime.Now - pipelineStartTime;
+            InvokeAsync(StateHasChanged);
+        }, null, TimeSpan.Zero, TimeSpan.FromSeconds(1));
+
+        try
+        {
+            pipelineResult = await PipelineRunner.RunAsync(capturePlan);
+            pipelineState = pipelineResult.FinalState;
+
+            // Auto-advance to results on completion
+            if (pipelineResult.Success || pipelineState == ProfilingPipelineState.Completed)
+            {
+                currentStep = 5;
+            }
+        }
+        catch (Exception ex)
+        {
+            pipelineState = ProfilingPipelineState.Failed;
+            await AlertService.ShowToastAsync($"Pipeline failed: {ex.Message}");
+        }
+        finally
+        {
+            pipelineTimer?.Dispose();
+            pipelineTimer = null;
+            PipelineRunner.PipelineStateChanged -= OnPipelineStateChanged;
+            PipelineRunner.StepStateChanged -= OnStepStateChanged;
+            PipelineRunner.StepOutputReceived -= OnStepOutputReceived;
+            StateHasChanged();
+        }
+    }
+
+    private void OnPipelineStateChanged(object? sender, ProfilingPipelineStateChangedEventArgs e)
+    {
+        pipelineState = e.NewState;
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void OnStepStateChanged(object? sender, ProfilingStepStateChangedEventArgs e)
+    {
+        // Auto-expand log for running steps
+        if (e.NewState == ProfilingStepState.Running)
+            expandedStepLogs.Add(e.StepId);
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void OnStepOutputReceived(object? sender, ProfilingStepOutputEventArgs e)
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void HandleStopCapture()
+    {
+        PipelineRunner.StopCapture();
+    }
+
+    private void HandleCancelPipeline()
+    {
+        PipelineRunner.Cancel();
+        pipelineState = ProfilingPipelineState.Cancelled;
+        currentStep = 3; // Go back to review
+        StateHasChanged();
+    }
+
+    private void ToggleStepLog(string stepId)
+    {
+        if (!expandedStepLogs.Remove(stepId))
+            expandedStepLogs.Add(stepId);
+    }
+
+    private string GetPipelineStateIcon() => pipelineState switch
+    {
+        ProfilingPipelineState.Running => "fa-spinner fa-spin",
+        ProfilingPipelineState.WaitingForStop => "fa-hourglass-half",
+        ProfilingPipelineState.Completing => "fa-spinner fa-spin",
+        ProfilingPipelineState.Completed => "fa-check-circle",
+        ProfilingPipelineState.Failed => "fa-times-circle",
+        ProfilingPipelineState.Cancelled => "fa-ban",
+        _ => "fa-circle"
+    };
+
+    private string GetPipelineStateText() => pipelineState switch
+    {
+        ProfilingPipelineState.Running => "Capture in progress — collecting profiling data...",
+        ProfilingPipelineState.WaitingForStop => "Stopping capture processes...",
+        ProfilingPipelineState.Completing => "Collecting artifacts...",
+        ProfilingPipelineState.Completed => "Capture completed successfully",
+        ProfilingPipelineState.Failed => "Capture failed — check step details below",
+        ProfilingPipelineState.Cancelled => "Capture cancelled",
+        _ => "Initializing..."
+    };
+
+    private static string FormatElapsed(TimeSpan ts) =>
+        ts.TotalMinutes >= 1 ? $"{(int)ts.TotalMinutes}m {ts.Seconds}s" : $"{ts.Seconds}s";
+
+    // Results helpers
+    private void StartNewSession()
+    {
+        currentStep = 0;
+        capturePlan = null;
+        prerequisiteReport = null;
+        pipelineResult = null;
+        pipelineState = ProfilingPipelineState.NotStarted;
+        expandedStepLogs.Clear();
+    }
+
+    private static string? GetFileSize(string path)
+    {
+        try
+        {
+            if (!File.Exists(path)) return null;
+            var bytes = new FileInfo(path).Length;
+            if (bytes >= 1024 * 1024) return $"{bytes / (1024.0 * 1024.0):F1} MB";
+            if (bytes >= 1024) return $"{bytes / 1024.0:F1} KB";
+            return $"{bytes} B";
+        }
+        catch { return null; }
+    }
+
+    private static string GetArtifactIcon(string extension) => extension switch
+    {
+        ".nettrace" => "fa-wave-square",
+        ".gcdump" => "fa-memory",
+        ".txt" or ".log" => "fa-file-lines",
+        ".json" => "fa-code",
+        _ => "fa-file"
+    };
+
+    private async Task OpenInSpeedscope(string path)
+    {
+        try
+        {
+            // Open speedscope.app with the file — user drops file into browser
+            var url = "https://www.speedscope.app/";
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
+            await AlertService.ShowToastAsync("speedscope.app opened — drag your trace file into the browser.");
+        }
+        catch (Exception ex)
+        {
+            await AlertService.ShowToastAsync($"Failed to open speedscope: {ex.Message}");
+        }
+    }
+
+    private void RevealInFinder(string path)
+    {
+        try
+        {
+            var dir = Path.GetDirectoryName(path) ?? path;
+            if (Platform.IsMacCatalyst || Platform.IsMacOS)
+            {
+                System.Diagnostics.Process.Start("open", $"-R \"{path}\"");
+            }
+            else
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(dir) { UseShellExecute = true });
+            }
+        }
+        catch { }
+    }
+
+    private async Task CopyPathAsync(string path)
+    {
+        await DialogService.CopyToClipboardAsync(path);
+        await AlertService.ShowToastAsync("Path copied to clipboard");
     }
 
     public void Dispose()
@@ -1034,6 +1438,7 @@ else
         ToolbarService.ToolbarItemClicked -= OnToolbarItemClicked;
         ToolbarService.ClearItems();
         DeviceMonitor.Changed -= OnDeviceMonitorChanged;
+        pipelineTimer?.Dispose();
     }
 
     private sealed record TargetOption(
@@ -1626,4 +2031,273 @@ else
     .advanced-toggle:hover {
         color: var(--text-primary);
     }
+
+    /* Pipeline capture step */
+    .pipeline-status-banner {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        padding: 0.75rem 1rem;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: 0.88rem;
+        margin-bottom: 1rem;
+    }
+
+    .pipeline-status-banner.pipeline-status-running {
+        background: rgba(59, 130, 246, 0.1);
+        color: #3b82f6;
+        border: 1px solid rgba(59, 130, 246, 0.2);
+    }
+
+    .pipeline-status-banner.pipeline-status-waitingforstop {
+        background: rgba(234, 179, 8, 0.1);
+        color: #eab308;
+        border: 1px solid rgba(234, 179, 8, 0.2);
+    }
+
+    .pipeline-status-banner.pipeline-status-completing {
+        background: rgba(59, 130, 246, 0.1);
+        color: #3b82f6;
+        border: 1px solid rgba(59, 130, 246, 0.2);
+    }
+
+    .pipeline-status-banner.pipeline-status-completed {
+        background: rgba(34, 197, 94, 0.1);
+        color: #22c55e;
+        border: 1px solid rgba(34, 197, 94, 0.2);
+    }
+
+    .pipeline-status-banner.pipeline-status-failed {
+        background: rgba(239, 68, 68, 0.1);
+        color: #ef4444;
+        border: 1px solid rgba(239, 68, 68, 0.2);
+    }
+
+    .pipeline-status-banner.pipeline-status-cancelled {
+        background: rgba(107, 114, 128, 0.1);
+        color: var(--text-secondary);
+        border: 1px solid var(--border-color);
+    }
+
+    .pipeline-elapsed {
+        font-size: 0.82rem;
+        color: var(--text-secondary);
+        font-weight: 600;
+    }
+
+    .pipeline-steps {
+        display: grid;
+        gap: 0.5rem;
+    }
+
+    .pipeline-step-card {
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        overflow: hidden;
+        transition: border-color 0.2s;
+    }
+
+    .pipeline-step-card.pipeline-step-running {
+        border-color: #3b82f6;
+    }
+
+    .pipeline-step-card.pipeline-step-completed {
+        border-color: #22c55e;
+    }
+
+    .pipeline-step-card.pipeline-step-failed {
+        border-color: #ef4444;
+    }
+
+    .pipeline-step-header {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 0.65rem 0.85rem;
+        cursor: pointer;
+        user-select: none;
+    }
+
+    .pipeline-step-header:hover {
+        background: var(--bg-tertiary);
+    }
+
+    .pipeline-step-icon {
+        font-size: 1rem;
+        width: 1.25rem;
+        text-align: center;
+        flex-shrink: 0;
+    }
+
+    .pipeline-step-info {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .pipeline-step-name {
+        font-weight: 600;
+        font-size: 0.85rem;
+    }
+
+    .pipeline-step-meta {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-top: 0.2rem;
+    }
+
+    .pipeline-step-duration {
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+    }
+
+    .pipeline-step-expand {
+        color: var(--text-secondary);
+        font-size: 0.75rem;
+        flex-shrink: 0;
+    }
+
+    .pipeline-step-error {
+        padding: 0.5rem 0.85rem;
+        background: rgba(239, 68, 68, 0.08);
+        color: #ef4444;
+        font-size: 0.8rem;
+        border-top: 1px solid rgba(239, 68, 68, 0.15);
+    }
+
+    .pipeline-step-log {
+        max-height: 16rem;
+        overflow-y: auto;
+        background: var(--bg-primary);
+        border-top: 1px solid var(--border-color);
+        padding: 0.5rem;
+        font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+        font-size: 0.72rem;
+        line-height: 1.5;
+    }
+
+    .pipeline-log-empty {
+        color: var(--text-secondary);
+        font-style: italic;
+        padding: 0.5rem;
+    }
+
+    .pipeline-log-line {
+        white-space: pre-wrap;
+        word-break: break-all;
+        color: var(--text-primary);
+    }
+
+    .pipeline-log-line.error {
+        color: #ef4444;
+    }
+
+    .pipeline-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        margin-top: 1rem;
+        justify-content: center;
+    }
+
+    .pipeline-waiting-hint {
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+    }
+
+    /* Results step */
+    .results-summary {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        padding: 1rem;
+        border-radius: 8px;
+        margin-bottom: 1rem;
+    }
+
+    .results-summary.success {
+        background: rgba(34, 197, 94, 0.08);
+        border: 1px solid rgba(34, 197, 94, 0.2);
+    }
+
+    .results-summary.failure {
+        background: rgba(239, 68, 68, 0.08);
+        border: 1px solid rgba(239, 68, 68, 0.2);
+    }
+
+    .results-summary-icon {
+        flex-shrink: 0;
+    }
+
+    .results-summary.success .results-summary-icon {
+        color: #22c55e;
+    }
+
+    .results-summary.failure .results-summary-icon {
+        color: #ef4444;
+    }
+
+    .results-summary-title {
+        font-weight: 700;
+        font-size: 1rem;
+        margin-bottom: 0.25rem;
+    }
+
+    .results-summary-stats {
+        display: flex;
+        gap: 1rem;
+        font-size: 0.82rem;
+        color: var(--text-secondary);
+        flex-wrap: wrap;
+    }
+
+    .results-summary-stats span {
+        display: flex;
+        align-items: center;
+        gap: 0.3rem;
+    }
+
+    .result-artifact-card {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+
+    .artifact-icon {
+        font-size: 1.25rem;
+        color: var(--text-secondary);
+        width: 2rem;
+        text-align: center;
+        flex-shrink: 0;
+    }
+
+    .artifact-details {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .artifact-actions {
+        display: flex;
+        gap: 0.4rem;
+        flex-shrink: 0;
+    }
+
+    .missing-artifact {
+        opacity: 0.7;
+    }
+
+    .results-actions {
+        display: flex;
+        justify-content: center;
+        margin-top: 1.5rem;
+    }
+
+    .text-success { color: #22c55e; }
+    .text-danger { color: #ef4444; }
+    .text-warning { color: #eab308; }
+    .text-muted { color: var(--text-secondary); }
 </style>
