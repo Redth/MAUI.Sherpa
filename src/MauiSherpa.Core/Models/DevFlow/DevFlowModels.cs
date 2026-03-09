@@ -67,6 +67,276 @@ public class DevFlowAgentStatus
 }
 
 /// <summary>
+/// Profiler capabilities from /api/profiler/capabilities.
+/// </summary>
+public class DevFlowProfilerCapabilities
+{
+    [JsonPropertyName("available")]
+    public bool Available { get; set; }
+
+    [JsonPropertyName("supportedInBuild")]
+    public bool SupportedInBuild { get; set; }
+
+    [JsonPropertyName("featureEnabled")]
+    public bool FeatureEnabled { get; set; }
+
+    [JsonPropertyName("platform")]
+    public string? Platform { get; set; }
+
+    [JsonPropertyName("managedMemorySupported")]
+    public bool ManagedMemorySupported { get; set; }
+
+    [JsonPropertyName("nativeMemorySupported")]
+    public bool NativeMemorySupported { get; set; }
+
+    [JsonPropertyName("gcSupported")]
+    public bool GcSupported { get; set; }
+
+    [JsonPropertyName("cpuPercentSupported")]
+    public bool CpuPercentSupported { get; set; }
+
+    [JsonPropertyName("fpsSupported")]
+    public bool FpsSupported { get; set; }
+
+    [JsonPropertyName("frameTimingsEstimated")]
+    public bool FrameTimingsEstimated { get; set; }
+
+    [JsonPropertyName("nativeFrameTimingsSupported")]
+    public bool NativeFrameTimingsSupported { get; set; }
+
+    [JsonPropertyName("jankEventsSupported")]
+    public bool JankEventsSupported { get; set; }
+
+    [JsonPropertyName("uiThreadStallSupported")]
+    public bool UiThreadStallSupported { get; set; }
+
+    [JsonPropertyName("threadCountSupported")]
+    public bool ThreadCountSupported { get; set; }
+}
+
+/// <summary>
+/// Profiler session metadata.
+/// </summary>
+public class DevFlowProfilerSessionInfo
+{
+    [JsonPropertyName("sessionId")]
+    public string SessionId { get; set; } = string.Empty;
+
+    [JsonPropertyName("startedAtUtc")]
+    public DateTimeOffset StartedAtUtc { get; set; }
+
+    [JsonPropertyName("sampleIntervalMs")]
+    public int SampleIntervalMs { get; set; }
+
+    [JsonPropertyName("isActive")]
+    public bool IsActive { get; set; }
+}
+
+/// <summary>
+/// Single profiler sample.
+/// </summary>
+public class DevFlowProfilerSample
+{
+    [JsonPropertyName("tsUtc")]
+    public DateTimeOffset TsUtc { get; set; }
+
+    [JsonPropertyName("fps")]
+    public double? Fps { get; set; }
+
+    [JsonPropertyName("frameTimeMsP50")]
+    public double? FrameTimeMsP50 { get; set; }
+
+    [JsonPropertyName("frameTimeMsP95")]
+    public double? FrameTimeMsP95 { get; set; }
+
+    [JsonPropertyName("worstFrameTimeMs")]
+    public double? WorstFrameTimeMs { get; set; }
+
+    [JsonPropertyName("managedBytes")]
+    public long ManagedBytes { get; set; }
+
+    [JsonPropertyName("nativeMemoryBytes")]
+    public long? NativeMemoryBytes { get; set; }
+
+    [JsonPropertyName("gc0")]
+    public int Gc0 { get; set; }
+
+    [JsonPropertyName("gc1")]
+    public int Gc1 { get; set; }
+
+    [JsonPropertyName("gc2")]
+    public int Gc2 { get; set; }
+
+    [JsonPropertyName("cpuPercent")]
+    public double? CpuPercent { get; set; }
+
+    [JsonPropertyName("threadCount")]
+    public int? ThreadCount { get; set; }
+
+    [JsonPropertyName("jankFrameCount")]
+    public int JankFrameCount { get; set; }
+
+    [JsonPropertyName("uiThreadStallCount")]
+    public int UiThreadStallCount { get; set; }
+
+    [JsonPropertyName("frameSource")]
+    public string? FrameSource { get; set; }
+
+    [JsonPropertyName("frameQuality")]
+    public string? FrameQuality { get; set; }
+}
+
+/// <summary>
+/// Profiler correlation marker.
+/// </summary>
+public class DevFlowProfilerMarker
+{
+    [JsonPropertyName("tsUtc")]
+    public DateTimeOffset TsUtc { get; set; }
+
+    [JsonPropertyName("type")]
+    public string Type { get; set; } = string.Empty;
+
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    [JsonPropertyName("payloadJson")]
+    public string? PayloadJson { get; set; }
+}
+
+/// <summary>
+/// Profiler samples and markers batch from /api/profiler/samples.
+/// </summary>
+public class DevFlowProfilerBatch
+{
+    [JsonPropertyName("sessionId")]
+    public string SessionId { get; set; } = string.Empty;
+
+    [JsonPropertyName("samples")]
+    public List<DevFlowProfilerSample> Samples { get; set; } = new();
+
+    [JsonPropertyName("markers")]
+    public List<DevFlowProfilerMarker> Markers { get; set; } = new();
+
+    [JsonPropertyName("spans")]
+    public List<DevFlowProfilerSpan> Spans { get; set; } = new();
+
+    [JsonPropertyName("sampleCursor")]
+    public long SampleCursor { get; set; }
+
+    [JsonPropertyName("markerCursor")]
+    public long MarkerCursor { get; set; }
+
+    [JsonPropertyName("spanCursor")]
+    public long SpanCursor { get; set; }
+
+    [JsonPropertyName("isActive")]
+    public bool IsActive { get; set; }
+}
+
+/// <summary>
+/// Timed profiler operation span.
+/// </summary>
+public class DevFlowProfilerSpan
+{
+    [JsonPropertyName("spanId")]
+    public string SpanId { get; set; } = string.Empty;
+
+    [JsonPropertyName("parentSpanId")]
+    public string? ParentSpanId { get; set; }
+
+    [JsonPropertyName("traceId")]
+    public string? TraceId { get; set; }
+
+    [JsonPropertyName("startTsUtc")]
+    public DateTimeOffset StartTsUtc { get; set; }
+
+    [JsonPropertyName("endTsUtc")]
+    public DateTimeOffset EndTsUtc { get; set; }
+
+    [JsonPropertyName("durationMs")]
+    public double DurationMs { get; set; }
+
+    [JsonPropertyName("kind")]
+    public string Kind { get; set; } = string.Empty;
+
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    [JsonPropertyName("status")]
+    public string Status { get; set; } = string.Empty;
+
+    [JsonPropertyName("threadId")]
+    public int? ThreadId { get; set; }
+
+    [JsonPropertyName("screen")]
+    public string? Screen { get; set; }
+
+    [JsonPropertyName("elementPath")]
+    public string? ElementPath { get; set; }
+
+    [JsonPropertyName("tagsJson")]
+    public string? TagsJson { get; set; }
+
+    [JsonPropertyName("error")]
+    public string? Error { get; set; }
+}
+
+/// <summary>
+/// Aggregated span hotspot.
+/// </summary>
+public class DevFlowProfilerHotspot
+{
+    [JsonPropertyName("kind")]
+    public string Kind { get; set; } = string.Empty;
+
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    [JsonPropertyName("screen")]
+    public string? Screen { get; set; }
+
+    [JsonPropertyName("count")]
+    public int Count { get; set; }
+
+    [JsonPropertyName("errorCount")]
+    public int ErrorCount { get; set; }
+
+    [JsonPropertyName("avgDurationMs")]
+    public double AvgDurationMs { get; set; }
+
+    [JsonPropertyName("p95DurationMs")]
+    public double P95DurationMs { get; set; }
+
+    [JsonPropertyName("maxDurationMs")]
+    public double MaxDurationMs { get; set; }
+}
+
+/// <summary>
+/// Response payload from /api/profiler/start.
+/// </summary>
+public class DevFlowProfilerStartResponse
+{
+    [JsonPropertyName("session")]
+    public DevFlowProfilerSessionInfo? Session { get; set; }
+
+    [JsonPropertyName("capabilities")]
+    public DevFlowProfilerCapabilities? Capabilities { get; set; }
+}
+
+/// <summary>
+/// Response payload from /api/profiler/stop.
+/// </summary>
+public class DevFlowProfilerStopResponse
+{
+    [JsonPropertyName("session")]
+    public DevFlowProfilerSessionInfo? Session { get; set; }
+
+    [JsonPropertyName("stoppedAtUtc")]
+    public DateTimeOffset StoppedAtUtc { get; set; }
+}
+
+/// <summary>
 /// Visual tree element from /api/tree or /api/element.
 /// </summary>
 public class DevFlowElementInfo

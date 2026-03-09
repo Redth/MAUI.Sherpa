@@ -1,0 +1,1370 @@
+@using System.Globalization
+@using MauiSherpa.Core.Models.DevFlow
+@using MauiSherpa.Core.Services
+@implements IDisposable
+
+<div class="profiling-layout">
+    <div class="pane-header">
+        <div class="pane-title">
+            <span>Profiler</span>
+            <span class="status-pill @((session?.IsActive == true) ? "running" : "stopped")">
+                @((session?.IsActive == true) ? "Running" : "Stopped")
+            </span>
+            @if (session != null)
+            {
+                <span class="session-pill" title="@session.SessionId">Session @ShortSessionId(session.SessionId)</span>
+            }
+        </div>
+        <div class="pane-actions">
+            <label class="inline-field">
+                Interval (ms)
+                <input type="number"
+                       min="50"
+                       max="60000"
+                       step="50"
+                       @bind="sampleIntervalMs"
+                       disabled="@(session?.IsActive == true || isBusy)" />
+            </label>
+            <label class="live-toggle">
+                <input type="checkbox" @bind="livePolling" @bind:after="OnLivePollingChanged" />
+                Live polling
+            </label>
+            <button class="btn-icon" @onclick="RefreshCapabilitiesAsync" disabled="@isBusy" title="Refresh capabilities">
+                <i class="fas fa-arrows-rotate"></i>
+            </button>
+            <button class="btn btn-primary btn-sm"
+                    @onclick="StartAsync"
+                    disabled="@(!CanStart)">
+                <i class="fas fa-play"></i> Start
+            </button>
+            <button class="btn btn-secondary btn-sm"
+                    @onclick="StopAsync"
+                    disabled="@(!CanStop)">
+                <i class="fas fa-stop"></i> Stop
+            </button>
+            <button class="btn-icon" @onclick="ResetView" disabled="@isBusy" title="Clear local chart history">
+                <i class="fas fa-eraser"></i>
+            </button>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="error-banner">
+            <i class="fas fa-triangle-exclamation"></i>
+            <span>@errorMessage</span>
+        </div>
+    }
+
+    @if (capabilities == null)
+    {
+        <div class="empty-state">
+            <i class="fas fa-spinner fa-spin"></i>
+            <span>Loading profiler capabilities...</span>
+        </div>
+    }
+    else if (!capabilities.Available)
+    {
+        <div class="empty-state">
+            <i class="fas fa-ban"></i>
+            <div>Profiler is not available for this app session.</div>
+            <ul class="unavailable-reasons">
+                @if (!capabilities.SupportedInBuild)
+                {
+                    <li>The app is not running a DEBUG build.</li>
+                }
+                @if (!capabilities.FeatureEnabled)
+                {
+                    <li>Enable profiler by setting <code>EnableProfiler = true</code> in your agent options.</li>
+                }
+            </ul>
+        </div>
+    }
+    else
+    {
+        <div class="metric-cards">
+            <div class="metric-card">
+                <div class="metric-label">FPS</div>
+                <div class="metric-value">@FormatMetric(LatestSample?.Fps, "fps")</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Frame P95</div>
+                <div class="metric-value">@FormatMetric(LatestSample?.FrameTimeMsP95, "ms")</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Worst frame</div>
+                <div class="metric-value">@FormatMetric(LatestSample?.WorstFrameTimeMs, "ms")</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Managed Heap</div>
+                <div class="metric-value">@FormatBytes(LatestSample?.ManagedBytes)</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Native Heap</div>
+                <div class="metric-value">@FormatBytes(LatestSample?.NativeMemoryBytes)</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">CPU</div>
+                <div class="metric-value">@FormatMetric(LatestSample?.CpuPercent, "%")</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Threads</div>
+                <div class="metric-value">@(LatestSample?.ThreadCount?.ToString(CultureInfo.InvariantCulture) ?? "—")</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">GC Δ (0/1/2)</div>
+                <div class="metric-value">@($"{gcDelta.Gc0}/{gcDelta.Gc1}/{gcDelta.Gc2}")</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Jank frames</div>
+                <div class="metric-value">@(LatestSample?.JankFrameCount.ToString(CultureInfo.InvariantCulture) ?? "0")</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">UI stalls</div>
+                <div class="metric-value">@(LatestSample?.UiThreadStallCount.ToString(CultureInfo.InvariantCulture) ?? "0")</div>
+            </div>
+        </div>
+
+        <div class="charts-grid">
+            <div class="chart-card">
+                <div class="chart-header">
+                    <span>FPS trend</span>
+                    <span>@FormatMetric(LatestSample?.Fps, "fps")</span>
+                </div>
+                <svg viewBox="0 0 320 96" class="chart-svg">
+                    @if (!string.IsNullOrEmpty(fpsPoints))
+                    {
+                        <polyline points="@fpsPoints" stroke="#22c55e" stroke-width="2" fill="none" />
+                    }
+                </svg>
+            </div>
+
+            <div class="chart-card">
+                <div class="chart-header">
+                    <span>Frame P95 (ms)</span>
+                    <span>@FormatMetric(LatestSample?.FrameTimeMsP95, "ms")</span>
+                </div>
+                <svg viewBox="0 0 320 96" class="chart-svg">
+                    @if (!string.IsNullOrEmpty(frameP95Points))
+                    {
+                        <polyline points="@frameP95Points" stroke="#f59e0b" stroke-width="2" fill="none" />
+                    }
+                </svg>
+            </div>
+
+            <div class="chart-card">
+                <div class="chart-header">
+                    <span>Managed heap</span>
+                    <span>@FormatBytes(LatestSample?.ManagedBytes)</span>
+                </div>
+                <svg viewBox="0 0 320 96" class="chart-svg">
+                    @if (!string.IsNullOrEmpty(memoryPoints))
+                    {
+                        <polyline points="@memoryPoints" stroke="#8b5cf6" stroke-width="2" fill="none" />
+                    }
+                </svg>
+            </div>
+
+            <div class="chart-card">
+                <div class="chart-header">
+                    <span>Native heap</span>
+                    <span>@FormatBytes(LatestSample?.NativeMemoryBytes)</span>
+                </div>
+                <svg viewBox="0 0 320 96" class="chart-svg">
+                    @if (!string.IsNullOrEmpty(nativeMemoryPoints))
+                    {
+                        <polyline points="@nativeMemoryPoints" stroke="#e11d48" stroke-width="2" fill="none" />
+                    }
+                </svg>
+            </div>
+
+            <div class="chart-card">
+                <div class="chart-header">
+                    <span>CPU (%)</span>
+                    <span>@FormatMetric(LatestSample?.CpuPercent, "%")</span>
+                </div>
+                <svg viewBox="0 0 320 96" class="chart-svg">
+                    @if (!string.IsNullOrEmpty(cpuPoints))
+                    {
+                        <polyline points="@cpuPoints" stroke="#3b82f6" stroke-width="2" fill="none" />
+                    }
+                </svg>
+            </div>
+        </div>
+
+        <div class="bottom-grid">
+            <div class="markers-panel">
+                <div class="panel-header timeline-header">
+                    <span>UI Timeline (@TimelineEvents.Count() / @TimelineTotalCount)</span>
+                    <div class="timeline-controls">
+                        <input class="timeline-search"
+                               placeholder="Search route/view/error..."
+                               @bind="timelineSearchText" />
+                        <select class="marker-filter" @bind="timelineSeverityFilter">
+                            <option value="all">All</option>
+                            <option value="problems">Problems only</option>
+                            <option value="errors">Errors only</option>
+                            <option value="slow">Slow only (&gt;= @SlowTimelineDurationMs ms)</option>
+                        </select>
+                        <select class="marker-filter" @bind="timelineTypeFilter">
+                            <option value="">All event kinds</option>
+                            @foreach (var timelineType in TimelineTypes)
+                            {
+                                <option value="@timelineType">@timelineType</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+                <div class="timeline-summary">
+                    <span class="summary-pill problems">Problems @TimelineProblemCount</span>
+                    <span class="summary-pill errors">Errors @TimelineErrorCount</span>
+                    <span class="summary-pill slow">Slow @TimelineSlowCount</span>
+                    <span class="summary-pill">Navigation @TimelineNavigationCount</span>
+                    <span class="summary-pill">Render @TimelineRenderCount</span>
+                    <span class="summary-pill">Scroll @TimelineScrollCount</span>
+                </div>
+                <div class="timeline-columns">
+                    <span>Time</span>
+                    <span>Kind</span>
+                    <span>Operation</span>
+                    <span>Duration</span>
+                    <span>Status</span>
+                </div>
+                <div class="marker-list">
+                    @if (TimelineEvents.Any())
+                    {
+                        @foreach (var entry in TimelineEvents)
+                        {
+                            <div class="marker-row @GetTimelineRowCss(entry)">
+                                <span class="marker-time">@entry.Timestamp.ToLocalTime().ToString("HH:mm:ss.fff")</span>
+                                <span class="marker-type @GetTimelineKindCss(entry)">@entry.Kind</span>
+                                <span class="marker-name">@entry.Name</span>
+                                @if (entry.DurationMs.HasValue)
+                                {
+                                    <span class="span-duration">@FormatMetric(entry.DurationMs, "ms")</span>
+                                }
+                                else
+                                {
+                                    <span class="span-duration">—</span>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(entry.Status))
+                                {
+                                    <span class="span-status @(entry.Status.Equals("ok", StringComparison.OrdinalIgnoreCase) ? "status-ok" : "status-error")">@entry.Status</span>
+                                }
+                                else
+                                {
+                                    <span class="span-status">—</span>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(entry.Detail))
+                                {
+                                    <details class="timeline-detail">
+                                        <summary>@TrimText(entry.Detail, 120)</summary>
+                                        <pre>@entry.Detail</pre>
+                                    </details>
+                                }
+                            </div>
+                        }
+                    }
+                    else
+                    {
+                        <div class="empty-inline">No timeline events yet.</div>
+                    }
+                </div>
+            </div>
+
+            <div class="capabilities-panel">
+                <div class="panel-header">
+                    <span>Capabilities</span>
+                    <span class="platform-pill">@capabilities.Platform</span>
+                </div>
+                <div class="cap-grid">
+                    <div class="cap-row"><span>Managed memory</span><span class="@SupportCss(capabilities.ManagedMemorySupported)">@(capabilities.ManagedMemorySupported ? "yes" : "no")</span></div>
+                    <div class="cap-row"><span>Native memory</span><span class="@SupportCss(capabilities.NativeMemorySupported)">@(capabilities.NativeMemorySupported ? "yes" : "no")</span></div>
+                    <div class="cap-row"><span>GC counters</span><span class="@SupportCss(capabilities.GcSupported)">@(capabilities.GcSupported ? "yes" : "no")</span></div>
+                    <div class="cap-row"><span>CPU %</span><span class="@SupportCss(capabilities.CpuPercentSupported)">@(capabilities.CpuPercentSupported ? "yes" : "no")</span></div>
+                    <div class="cap-row"><span>Thread count</span><span class="@SupportCss(capabilities.ThreadCountSupported)">@(capabilities.ThreadCountSupported ? "yes" : "no")</span></div>
+                    <div class="cap-row"><span>FPS</span><span class="@SupportCss(capabilities.FpsSupported)">@(capabilities.FpsSupported ? "yes" : "no")</span></div>
+                    <div class="cap-row"><span>Frame timings</span><span class="@SupportCss(true)">@(capabilities.FrameTimingsEstimated ? "estimated" : "native")</span></div>
+                    <div class="cap-row"><span>Native frame timings</span><span class="@SupportCss(capabilities.NativeFrameTimingsSupported)">@(capabilities.NativeFrameTimingsSupported ? "yes" : "no")</span></div>
+                    <div class="cap-row"><span>Jank events</span><span class="@SupportCss(capabilities.JankEventsSupported)">@(capabilities.JankEventsSupported ? "yes" : "no")</span></div>
+                    <div class="cap-row"><span>UI stall events</span><span class="@SupportCss(capabilities.UiThreadStallSupported)">@(capabilities.UiThreadStallSupported ? "yes" : "no")</span></div>
+                </div>
+                <div class="session-meta">
+                    @if (session != null)
+                    {
+                        <div><strong>Started:</strong> @session.StartedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")</div>
+                        <div><strong>Interval:</strong> @session.SampleIntervalMs ms</div>
+                    }
+                    <div><strong>Samples in view:</strong> @samples.Count</div>
+                    <div><strong>Timeline events in view:</strong> @(markers.Count + spans.Count)</div>
+                    <div><strong>Frame source:</strong> @(LatestSample?.FrameSource ?? "—")</div>
+                    <div><strong>Frame quality:</strong> @FormatFrameQuality(LatestSample?.FrameQuality)</div>
+                    <div><strong>Frame quality detail:</strong> @(LatestSample?.FrameQuality ?? "—")</div>
+                    <div><strong>Native heap:</strong> @FormatBytes(LatestSample?.NativeMemoryBytes)</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="hotspots-panel">
+            <div class="panel-header">
+                <span>Hotspots</span>
+                <div style="display:flex;gap:0.5rem;align-items:center;">
+                    <select class="marker-filter" @bind="spanKindFilter" @bind:after="OnSpanKindFilterChanged">
+                        <option value="">All kinds</option>
+                        @foreach (var spanKind in SpanKinds)
+                        {
+                            <option value="@spanKind">@spanKind</option>
+                        }
+                    </select>
+                    <span class="platform-pill">P95 desc</span>
+                </div>
+            </div>
+            <div class="hotspot-list">
+                @if (hotspots.Count > 0)
+                {
+                    @foreach (var hotspot in hotspots.Take(24))
+                    {
+                        <div class="hotspot-row">
+                            <div class="hotspot-name">@hotspot.Name</div>
+                            <div class="hotspot-meta">@($"{hotspot.Kind} · {hotspot.Count}x · err {hotspot.ErrorCount}")</div>
+                            <div class="hotspot-metrics">
+                                <span>P95 @FormatMetric(hotspot.P95DurationMs, "ms")</span>
+                                <span>AVG @FormatMetric(hotspot.AvgDurationMs, "ms")</span>
+                                <span>MAX @FormatMetric(hotspot.MaxDurationMs, "ms")</span>
+                            </div>
+                        </div>
+                    }
+                }
+                else
+                {
+                    <div class="empty-inline">No hotspot data yet.</div>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public DevFlowAgentClient Client { get; set; } = null!;
+
+    private const int MaxSampleHistory = 600;
+    private const int MaxMarkerHistory = 300;
+    private const int MaxSpanHistory = 600;
+    private readonly List<DevFlowProfilerSample> samples = new();
+    private readonly List<DevFlowProfilerMarker> markers = new();
+    private readonly List<DevFlowProfilerSpan> spans = new();
+    private List<DevFlowProfilerHotspot> hotspots = new();
+
+    private DevFlowProfilerCapabilities? capabilities;
+    private DevFlowProfilerSessionInfo? session;
+    private Timer? pollTimer;
+    private long sampleCursor;
+    private long markerCursor;
+    private long spanCursor;
+    private int sampleIntervalMs = 500;
+    private bool livePolling = true;
+    private bool isBusy;
+    private int pollInFlight;
+    private string timelineTypeFilter = string.Empty;
+    private string timelineSeverityFilter = "all";
+    private string timelineSearchText = string.Empty;
+    private string spanKindFilter = string.Empty;
+    private string? errorMessage;
+    private const double SlowTimelineDurationMs = 80d;
+
+    private bool CanStart => !isBusy && capabilities?.Available == true && session?.IsActive != true;
+    private bool CanStop => !isBusy && session?.IsActive == true;
+    private DevFlowProfilerSample? LatestSample => samples.Count > 0 ? samples[^1] : null;
+    private (int Gc0, int Gc1, int Gc2) gcDelta => GetGcDelta();
+    private string fpsPoints => GetSparklinePoints(s => s.Fps);
+    private string frameP95Points => GetSparklinePoints(s => s.FrameTimeMsP95);
+    private string memoryPoints => GetSparklinePoints(s => s.ManagedBytes);
+    private string nativeMemoryPoints => GetSparklinePoints(s => s.NativeMemoryBytes.HasValue ? (double?)s.NativeMemoryBytes.Value : null);
+    private string cpuPoints => GetSparklinePoints(s => s.CpuPercent);
+
+    private sealed record UiTimelineEntry(
+        DateTimeOffset Timestamp,
+        string Kind,
+        string Name,
+        double? DurationMs,
+        string? Status,
+        string? Detail);
+
+    private IEnumerable<string> TimelineTypes =>
+        markers.Select(m => m.Type)
+            .Concat(spans.Select(s => s.Kind))
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(value => value, StringComparer.OrdinalIgnoreCase);
+
+    private IEnumerable<UiTimelineEntry> RawTimelineEvents =>
+        markers.Select(marker => new UiTimelineEntry(
+                marker.TsUtc,
+                marker.Type,
+                marker.Name,
+                null,
+                null,
+                marker.PayloadJson))
+            .Concat(spans.Select(span => new UiTimelineEntry(
+                span.EndTsUtc,
+                span.Kind,
+                span.Name,
+                span.DurationMs,
+                span.Status,
+                BuildSpanDetail(span))));
+
+    private IEnumerable<UiTimelineEntry> TimelineEvents =>
+        RawTimelineEvents
+            .Where(entry => MatchesTimelineType(entry))
+            .Where(entry => MatchesTimelineSeverity(entry))
+            .Where(entry => MatchesTimelineSearch(entry))
+            .OrderByDescending(entry => entry.Timestamp)
+            .Take(220)
+            .ToList();
+
+    private int TimelineTotalCount => RawTimelineEvents.Count();
+    private int TimelineErrorCount => RawTimelineEvents.Count(IsTimelineError);
+    private int TimelineSlowCount => RawTimelineEvents.Count(IsTimelineSlow);
+    private int TimelineProblemCount => RawTimelineEvents.Count(entry => IsTimelineError(entry) || IsTimelineSlow(entry));
+    private int TimelineNavigationCount => RawTimelineEvents.Count(entry => IsNavigationEntry(entry.Kind));
+    private int TimelineRenderCount => RawTimelineEvents.Count(entry => IsRenderEntry(entry.Kind, entry.Name));
+    private int TimelineScrollCount => RawTimelineEvents.Count(entry => IsScrollEntry(entry.Kind, entry.Name));
+
+    private IEnumerable<string> SpanKinds =>
+        spans.Select(span => span.Kind)
+            .Where(kind => !string.IsNullOrWhiteSpace(kind))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(kind => kind, StringComparer.OrdinalIgnoreCase);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshCapabilitiesAsync();
+        if (capabilities?.Available == true)
+        {
+            await PollSamplesAsync();
+            if (livePolling && session?.IsActive == true)
+                StartPolling();
+        }
+    }
+
+    private async Task RefreshCapabilitiesAsync()
+    {
+        try
+        {
+            capabilities = await Client.GetProfilerCapabilitiesAsync();
+            if (capabilities == null)
+            {
+                errorMessage = "Could not read profiler capabilities from the agent.";
+                return;
+            }
+
+            errorMessage = null;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Capabilities request failed: {ex.Message}";
+        }
+    }
+
+    private async Task StartAsync()
+    {
+        if (!CanStart)
+            return;
+
+        isBusy = true;
+        errorMessage = null;
+        try
+        {
+            sampleIntervalMs = Math.Clamp(sampleIntervalMs, 50, 60_000);
+            var started = await Client.StartProfilerAsync(sampleIntervalMs);
+            if (started?.Session == null)
+            {
+                errorMessage = "Profiler could not be started. Check app agent logs for details.";
+                return;
+            }
+
+            session = started.Session;
+            if (started.Capabilities != null)
+                capabilities = started.Capabilities;
+
+            sampleCursor = 0;
+            markerCursor = 0;
+            spanCursor = 0;
+            samples.Clear();
+            markers.Clear();
+            spans.Clear();
+            hotspots.Clear();
+
+            await PollSamplesAsync();
+            if (livePolling && session.IsActive)
+                StartPolling();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Profiler start failed: {ex.Message}";
+        }
+        finally
+        {
+            isBusy = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task StopAsync()
+    {
+        if (!CanStop)
+            return;
+
+        isBusy = true;
+        errorMessage = null;
+        try
+        {
+            var stopped = await Client.StopProfilerAsync();
+            if (stopped?.Session != null)
+                session = stopped.Session;
+
+            await PollSamplesAsync();
+            StopPolling();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Profiler stop failed: {ex.Message}";
+        }
+        finally
+        {
+            isBusy = false;
+            StateHasChanged();
+        }
+    }
+
+    private Task OnLivePollingChanged()
+    {
+        if (livePolling && session?.IsActive == true)
+            StartPolling();
+        else
+            StopPolling();
+
+        return Task.CompletedTask;
+    }
+
+    private async Task OnSpanKindFilterChanged()
+    {
+        await RefreshHotspotsAsync();
+        StateHasChanged();
+    }
+
+    private void StartPolling()
+    {
+        StopPolling();
+        var interval = TimeSpan.FromMilliseconds(Math.Clamp(sampleIntervalMs / 2, 250, 1000));
+        pollTimer = new Timer(_ => _ = InvokeAsync(PollSamplesAsync), null, TimeSpan.Zero, interval);
+    }
+
+    private void StopPolling()
+    {
+        pollTimer?.Dispose();
+        pollTimer = null;
+    }
+
+    private async Task PollSamplesAsync()
+    {
+        if (Interlocked.CompareExchange(ref pollInFlight, 1, 0) != 0)
+            return;
+
+        try
+        {
+            var batch = await Client.GetProfilerSamplesAsync(sampleCursor, markerCursor, spanCursor, 240);
+            if (batch == null)
+                return;
+
+            sampleCursor = batch.SampleCursor;
+            markerCursor = batch.MarkerCursor;
+            spanCursor = batch.SpanCursor;
+
+            if (!string.IsNullOrWhiteSpace(batch.SessionId))
+            {
+                session ??= new DevFlowProfilerSessionInfo
+                {
+                    SessionId = batch.SessionId,
+                    StartedAtUtc = DateTimeOffset.UtcNow,
+                    SampleIntervalMs = sampleIntervalMs,
+                };
+                session.SessionId = batch.SessionId;
+                session.IsActive = batch.IsActive;
+            }
+            else if (session != null)
+            {
+                session.IsActive = batch.IsActive;
+            }
+
+            if (batch.Samples.Count > 0)
+            {
+                samples.AddRange(batch.Samples);
+                if (samples.Count > MaxSampleHistory)
+                    samples.RemoveRange(0, samples.Count - MaxSampleHistory);
+            }
+
+            if (batch.Markers.Count > 0)
+            {
+                markers.AddRange(batch.Markers);
+                if (markers.Count > MaxMarkerHistory)
+                    markers.RemoveRange(0, markers.Count - MaxMarkerHistory);
+            }
+
+            if (batch.Spans.Count > 0)
+            {
+                spans.AddRange(batch.Spans);
+                if (spans.Count > MaxSpanHistory)
+                    spans.RemoveRange(0, spans.Count - MaxSpanHistory);
+            }
+
+            await RefreshHotspotsAsync();
+
+            if (!batch.IsActive)
+                StopPolling();
+
+            errorMessage = null;
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Profiler polling failed: {ex.Message}";
+            StopPolling();
+            StateHasChanged();
+        }
+        finally
+        {
+            Interlocked.Exchange(ref pollInFlight, 0);
+        }
+    }
+
+    private void ResetView()
+    {
+        samples.Clear();
+        markers.Clear();
+        spans.Clear();
+        hotspots.Clear();
+        sampleCursor = 0;
+        markerCursor = 0;
+        spanCursor = 0;
+        timelineTypeFilter = string.Empty;
+        timelineSeverityFilter = "all";
+        timelineSearchText = string.Empty;
+        StateHasChanged();
+    }
+
+    private async Task RefreshHotspotsAsync()
+    {
+        try
+        {
+            hotspots = await Client.GetProfilerHotspotsAsync(24, 16, spanKindFilter);
+        }
+        catch
+        {
+            hotspots = new List<DevFlowProfilerHotspot>();
+        }
+    }
+
+    private bool MatchesTimelineType(UiTimelineEntry entry)
+        => string.IsNullOrWhiteSpace(timelineTypeFilter)
+            || entry.Kind.Equals(timelineTypeFilter, StringComparison.OrdinalIgnoreCase);
+
+    private bool MatchesTimelineSeverity(UiTimelineEntry entry)
+        => timelineSeverityFilter switch
+        {
+            "errors" => IsTimelineError(entry),
+            "slow" => IsTimelineSlow(entry),
+            "problems" => IsTimelineError(entry) || IsTimelineSlow(entry),
+            _ => true
+        };
+
+    private bool MatchesTimelineSearch(UiTimelineEntry entry)
+    {
+        if (string.IsNullOrWhiteSpace(timelineSearchText))
+            return true;
+
+        return ContainsIgnoreCase(entry.Name, timelineSearchText)
+            || ContainsIgnoreCase(entry.Kind, timelineSearchText)
+            || ContainsIgnoreCase(entry.Detail, timelineSearchText);
+    }
+
+    private static bool IsTimelineError(UiTimelineEntry entry)
+    {
+        if (!string.IsNullOrWhiteSpace(entry.Status)
+            && !entry.Status.Equals("ok", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        if (ContainsIgnoreCase(entry.Kind, "error")
+            || ContainsIgnoreCase(entry.Name, "error")
+            || ContainsIgnoreCase(entry.Detail, "\"error\"")
+            || ContainsIgnoreCase(entry.Detail, "exception"))
+            return true;
+
+        return false;
+    }
+
+    private static bool IsTimelineSlow(UiTimelineEntry entry)
+        => entry.DurationMs.HasValue && entry.DurationMs.Value >= SlowTimelineDurationMs;
+
+    private static bool IsNavigationEntry(string kind)
+        => ContainsIgnoreCase(kind, "navigation");
+
+    private static bool IsRenderEntry(string kind, string name)
+        => ContainsIgnoreCase(kind, "render")
+            || ContainsIgnoreCase(name, "layout")
+            || ContainsIgnoreCase(kind, "page");
+
+    private static bool IsScrollEntry(string kind, string name)
+        => ContainsIgnoreCase(kind, "scroll")
+            || ContainsIgnoreCase(name, "scroll");
+
+    private static bool ContainsIgnoreCase(string? value, string? needle)
+        => !string.IsNullOrWhiteSpace(value)
+            && !string.IsNullOrWhiteSpace(needle)
+            && value.Contains(needle, StringComparison.OrdinalIgnoreCase);
+
+    private string GetTimelineRowCss(UiTimelineEntry entry)
+    {
+        if (IsTimelineError(entry))
+            return "timeline-row-error";
+        if (IsTimelineSlow(entry))
+            return "timeline-row-slow";
+        return string.Empty;
+    }
+
+    private static string GetTimelineKindCss(UiTimelineEntry entry)
+    {
+        if (IsNavigationEntry(entry.Kind)) return "kind-navigation";
+        if (IsRenderEntry(entry.Kind, entry.Name)) return "kind-render";
+        if (IsScrollEntry(entry.Kind, entry.Name)) return "kind-scroll";
+        if (ContainsIgnoreCase(entry.Kind, "input") || ContainsIgnoreCase(entry.Name, "input")) return "kind-input";
+        if (ContainsIgnoreCase(entry.Kind, "network")) return "kind-network";
+        return "kind-generic";
+    }
+
+    private (int Gc0, int Gc1, int Gc2) GetGcDelta()
+    {
+        if (samples.Count < 2)
+            return (0, 0, 0);
+
+        var prev = samples[^2];
+        var curr = samples[^1];
+        return (
+            Math.Max(0, curr.Gc0 - prev.Gc0),
+            Math.Max(0, curr.Gc1 - prev.Gc1),
+            Math.Max(0, curr.Gc2 - prev.Gc2)
+        );
+    }
+
+    private string GetSparklinePoints(Func<DevFlowProfilerSample, double?> selector, double width = 320, double height = 96)
+    {
+        if (samples.Count == 0)
+            return string.Empty;
+
+        var points = samples
+            .Select((sample, index) => new { Index = index, Value = selector(sample) })
+            .Where(x => x.Value.HasValue)
+            .ToList();
+
+        if (points.Count == 0)
+            return string.Empty;
+
+        var min = points.Min(p => p.Value!.Value);
+        var max = points.Max(p => p.Value!.Value);
+        var range = Math.Max(max - min, 0.00001);
+        var span = Math.Max(1, samples.Count - 1);
+
+        return string.Join(" ",
+            points.Select(point =>
+            {
+                var x = point.Index / (double)span * width;
+                var normalized = (point.Value!.Value - min) / range;
+                var y = height - (normalized * height);
+                return $"{x.ToString("F2", CultureInfo.InvariantCulture)},{y.ToString("F2", CultureInfo.InvariantCulture)}";
+            }));
+    }
+
+    private static string FormatMetric(double? value, string suffix)
+    {
+        if (!value.HasValue)
+            return "—";
+        return $"{value.Value.ToString("F1", CultureInfo.InvariantCulture)} {suffix}";
+    }
+
+    private static string FormatBytes(long? bytes)
+    {
+        if (!bytes.HasValue)
+            return "—";
+
+        var value = bytes.Value;
+        if (value < 1024)
+            return $"{value} B";
+        if (value < 1024 * 1024)
+            return $"{value / 1024d:F1} KB";
+        if (value < 1024L * 1024L * 1024L)
+            return $"{value / (1024d * 1024d):F1} MB";
+        return $"{value / (1024d * 1024d * 1024d):F2} GB";
+    }
+
+    private static string FormatFrameQuality(string? frameQuality)
+    {
+        if (string.IsNullOrWhiteSpace(frameQuality))
+            return "—";
+
+        if (frameQuality.StartsWith("exact", StringComparison.OrdinalIgnoreCase))
+            return "exact";
+
+        if (frameQuality.StartsWith("estimated", StringComparison.OrdinalIgnoreCase)
+            || frameQuality.Contains("cadence", StringComparison.OrdinalIgnoreCase))
+            return "estimated";
+
+        return frameQuality;
+    }
+
+    private static string? BuildSpanDetail(DevFlowProfilerSpan span)
+    {
+        var details = new List<string>();
+        if (!string.IsNullOrWhiteSpace(span.Screen))
+            details.Add($"screen={span.Screen}");
+        if (!string.IsNullOrWhiteSpace(span.ElementPath))
+            details.Add($"element={span.ElementPath}");
+        if (!string.IsNullOrWhiteSpace(span.Error))
+            details.Add($"error={span.Error}");
+        if (!string.IsNullOrWhiteSpace(span.TagsJson))
+            details.Add(span.TagsJson);
+
+        return details.Count == 0 ? null : string.Join(" | ", details);
+    }
+
+    private static string SupportCss(bool supported) => supported ? "support-yes" : "support-no";
+
+    private static string ShortSessionId(string sessionId)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId))
+            return "n/a";
+        return sessionId.Length <= 10 ? sessionId : sessionId[..10];
+    }
+
+    private static string TrimText(string input, int maxLength)
+    {
+        if (string.IsNullOrWhiteSpace(input) || input.Length <= maxLength)
+            return input;
+        return $"{input[..maxLength]}...";
+    }
+
+    public void Dispose()
+    {
+        StopPolling();
+    }
+}
+
+<style>
+    .profiling-layout {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        overflow: auto;
+    }
+
+    .pane-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.5rem 0.75rem;
+        background: var(--bg-secondary);
+        border-bottom: 1px solid var(--border-color);
+        font-size: 0.85rem;
+        font-weight: 600;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+    }
+
+    .pane-title {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .pane-actions {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        flex-wrap: wrap;
+    }
+
+    .inline-field {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+    }
+
+    .inline-field input {
+        width: 90px;
+        font-size: 0.75rem;
+        padding: 0.15rem 0.35rem;
+        border-radius: 4px;
+        border: 1px solid var(--border-color);
+        background: var(--bg-primary);
+        color: var(--text-primary);
+    }
+
+    .live-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+    }
+
+    .btn-icon {
+        background: none;
+        border: none;
+        color: var(--text-secondary);
+        cursor: pointer;
+        padding: 0.25rem 0.4rem;
+        border-radius: 4px;
+        font-size: 0.8rem;
+    }
+
+    .btn-icon:hover {
+        color: var(--text-primary);
+        background: var(--bg-tertiary);
+    }
+
+    .status-pill, .session-pill, .platform-pill {
+        font-size: 0.7rem;
+        padding: 0.1rem 0.4rem;
+        border-radius: 999px;
+        border: 1px solid var(--border-color);
+        color: var(--text-secondary);
+    }
+
+    .status-pill.running {
+        color: #22c55e;
+        border-color: rgba(34, 197, 94, 0.45);
+        background: rgba(34, 197, 94, 0.12);
+    }
+
+    .status-pill.stopped {
+        color: #ef4444;
+        border-color: rgba(239, 68, 68, 0.4);
+        background: rgba(239, 68, 68, 0.1);
+    }
+
+    .error-banner {
+        margin: 0.75rem;
+        padding: 0.55rem 0.75rem;
+        border-radius: 6px;
+        border: 1px solid rgba(239, 68, 68, 0.45);
+        background: rgba(239, 68, 68, 0.08);
+        color: #ef4444;
+        display: flex;
+        align-items: center;
+        gap: 0.45rem;
+        font-size: 0.8rem;
+    }
+
+    .empty-state {
+        margin: auto;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.6rem;
+        color: var(--text-secondary);
+        max-width: 560px;
+        text-align: center;
+        padding: 1rem;
+    }
+
+    .unavailable-reasons {
+        text-align: left;
+        font-size: 0.82rem;
+        margin: 0.2rem 0 0;
+    }
+
+    .metric-cards {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        gap: 0.6rem;
+        padding: 0.75rem;
+    }
+
+    .metric-card {
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        padding: 0.55rem 0.65rem;
+    }
+
+    .metric-label {
+        font-size: 0.72rem;
+        color: var(--text-tertiary);
+        margin-bottom: 0.2rem;
+        text-transform: uppercase;
+        letter-spacing: 0.02em;
+    }
+
+    .metric-value {
+        font-size: 1rem;
+        font-weight: 700;
+        color: var(--text-primary);
+    }
+
+    .charts-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        gap: 0.6rem;
+        padding: 0 0.75rem 0.75rem;
+    }
+
+    .chart-card {
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        background: var(--bg-secondary);
+        padding: 0.5rem 0.6rem 0.4rem;
+    }
+
+    .chart-header {
+        display: flex;
+        justify-content: space-between;
+        font-size: 0.78rem;
+        color: var(--text-secondary);
+        margin-bottom: 0.35rem;
+    }
+
+    .chart-svg {
+        width: 100%;
+        height: 96px;
+        background: linear-gradient(to bottom, rgba(255, 255, 255, 0.02), rgba(0, 0, 0, 0.04));
+        border-radius: 6px;
+    }
+
+    .bottom-grid {
+        display: grid;
+        grid-template-columns: minmax(360px, 2fr) minmax(240px, 1fr);
+        gap: 0.6rem;
+        padding: 0 0.75rem 0.75rem;
+        min-height: 220px;
+    }
+
+    .markers-panel, .capabilities-panel {
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        background: var(--bg-secondary);
+        display: flex;
+        flex-direction: column;
+        min-height: 220px;
+    }
+
+    .spans-grid {
+        display: grid;
+        grid-template-columns: minmax(360px, 2fr) minmax(280px, 1fr);
+        gap: 0.6rem;
+        padding: 0 0.75rem 0.75rem;
+        min-height: 220px;
+    }
+
+    .spans-panel, .hotspots-panel {
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        background: var(--bg-secondary);
+        display: flex;
+        flex-direction: column;
+        min-height: 220px;
+    }
+
+    .panel-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.5rem 0.65rem;
+        border-bottom: 1px solid var(--border-color);
+        font-size: 0.8rem;
+        font-weight: 600;
+    }
+
+    .timeline-header {
+        gap: 0.5rem;
+        flex-wrap: wrap;
+    }
+
+    .timeline-controls {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        flex-wrap: wrap;
+    }
+
+    .marker-filter {
+        font-size: 0.72rem;
+        padding: 0.15rem 0.35rem;
+        border-radius: 4px;
+        border: 1px solid var(--border-color);
+        background: var(--bg-primary);
+        color: var(--text-primary);
+    }
+
+    .timeline-search {
+        font-size: 0.72rem;
+        padding: 0.17rem 0.4rem;
+        border-radius: 4px;
+        border: 1px solid var(--border-color);
+        background: var(--bg-primary);
+        color: var(--text-primary);
+        min-width: 180px;
+    }
+
+    .timeline-summary {
+        display: flex;
+        gap: 0.4rem;
+        flex-wrap: wrap;
+        padding: 0.4rem 0.65rem;
+        border-bottom: 1px solid color-mix(in srgb, var(--border-color) 60%, transparent);
+    }
+
+    .summary-pill {
+        display: inline-flex;
+        align-items: center;
+        border: 1px solid color-mix(in srgb, var(--border-color) 80%, transparent);
+        border-radius: 999px;
+        padding: 0.1rem 0.45rem;
+        font-size: 0.68rem;
+        color: var(--text-secondary);
+        background: color-mix(in srgb, var(--bg-primary) 92%, transparent);
+    }
+
+    .summary-pill.problems {
+        border-color: #f59e0b55;
+        color: #f59e0b;
+    }
+
+    .summary-pill.errors {
+        border-color: #ef444466;
+        color: #ef4444;
+    }
+
+    .summary-pill.slow {
+        border-color: #f9731655;
+        color: #f97316;
+    }
+
+    .timeline-columns {
+        display: grid;
+        grid-template-columns: 88px 130px minmax(160px, 1fr) 88px 58px;
+        gap: 0.45rem;
+        padding: 0.25rem 0.65rem 0.3rem;
+        border-bottom: 1px solid color-mix(in srgb, var(--border-color) 60%, transparent);
+        font-size: 0.66rem;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+        color: var(--text-tertiary);
+        font-weight: 600;
+    }
+
+    .marker-list {
+        overflow: auto;
+        padding: 0.25rem 0;
+        flex: 1;
+    }
+
+    .span-list, .hotspot-list {
+        overflow: auto;
+        padding: 0.25rem 0;
+        flex: 1;
+    }
+
+    .hotspots-panel .hotspot-list {
+        max-height: 360px;
+    }
+
+    .marker-row {
+        display: grid;
+        grid-template-columns: 88px 130px minmax(160px, 1fr) 88px 58px;
+        gap: 0.45rem;
+        align-items: center;
+        font-size: 0.74rem;
+        padding: 0.22rem 0.65rem;
+        border-bottom: 1px solid color-mix(in srgb, var(--border-color) 55%, transparent);
+    }
+
+    .span-row {
+        display: grid;
+        grid-template-columns: 86px 120px minmax(120px, 1fr) 88px 56px;
+        gap: 0.45rem;
+        align-items: center;
+        font-size: 0.74rem;
+        padding: 0.22rem 0.65rem;
+        border-bottom: 1px solid color-mix(in srgb, var(--border-color) 55%, transparent);
+    }
+
+    .marker-time {
+        color: var(--text-tertiary);
+        font-family: 'SF Mono', 'Cascadia Code', monospace;
+    }
+
+    .marker-type {
+        color: #8b5cf6;
+        font-family: 'SF Mono', 'Cascadia Code', monospace;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .kind-navigation { color: #60a5fa; }
+    .kind-render { color: #22c55e; }
+    .kind-scroll { color: #f59e0b; }
+    .kind-input { color: #a78bfa; }
+    .kind-network { color: #f97316; }
+    .kind-generic { color: #8b5cf6; }
+
+    .marker-name {
+        color: var(--text-primary);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .span-duration {
+        font-family: 'SF Mono', 'Cascadia Code', monospace;
+        color: var(--text-secondary);
+        text-align: right;
+    }
+
+    .span-status {
+        font-family: 'SF Mono', 'Cascadia Code', monospace;
+        font-size: 0.68rem;
+        text-transform: uppercase;
+        text-align: right;
+        color: var(--text-tertiary);
+    }
+
+    .status-ok { color: #22c55e; }
+    .status-error { color: #ef4444; }
+
+    .timeline-row-error {
+        background: color-mix(in srgb, #ef4444 8%, transparent);
+        border-left: 2px solid #ef4444;
+    }
+
+    .timeline-row-slow {
+        background: color-mix(in srgb, #f59e0b 8%, transparent);
+        border-left: 2px solid #f59e0b;
+    }
+
+    .hotspot-row {
+        display: grid;
+        gap: 0.18rem;
+        padding: 0.4rem 0.65rem;
+        border-bottom: 1px solid color-mix(in srgb, var(--border-color) 55%, transparent);
+    }
+
+    .hotspot-name {
+        color: var(--text-primary);
+        font-size: 0.8rem;
+        font-weight: 600;
+    }
+
+    .hotspot-meta {
+        color: var(--text-tertiary);
+        font-size: 0.72rem;
+        font-family: 'SF Mono', 'Cascadia Code', monospace;
+    }
+
+    .hotspot-metrics {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        color: var(--text-secondary);
+        font-size: 0.73rem;
+        font-family: 'SF Mono', 'Cascadia Code', monospace;
+    }
+
+    .marker-payload {
+        grid-column: 1 / -1;
+        color: var(--text-tertiary);
+        font-family: 'SF Mono', 'Cascadia Code', monospace;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .timeline-detail {
+        grid-column: 1 / -1;
+        color: var(--text-tertiary);
+        font-size: 0.68rem;
+        margin-top: -0.08rem;
+    }
+
+    .timeline-detail summary {
+        cursor: pointer;
+        list-style: none;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .timeline-detail summary::-webkit-details-marker {
+        display: none;
+    }
+
+    .timeline-detail pre {
+        margin: 0.25rem 0 0;
+        padding: 0.3rem 0.35rem;
+        background: color-mix(in srgb, var(--bg-primary) 88%, transparent);
+        border-radius: 4px;
+        border: 1px solid color-mix(in srgb, var(--border-color) 70%, transparent);
+        color: var(--text-secondary);
+        font-family: 'SF Mono', 'Cascadia Code', monospace;
+        white-space: pre-wrap;
+        word-break: break-word;
+        max-height: 180px;
+        overflow: auto;
+    }
+
+    .cap-grid {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        row-gap: 0.3rem;
+        column-gap: 0.75rem;
+        padding: 0.65rem;
+        font-size: 0.78rem;
+    }
+
+    .cap-row {
+        display: contents;
+    }
+
+    .support-yes {
+        color: #22c55e;
+        font-weight: 600;
+    }
+
+    .support-no {
+        color: #ef4444;
+        font-weight: 600;
+    }
+
+    .session-meta {
+        border-top: 1px solid var(--border-color);
+        padding: 0.65rem;
+        font-size: 0.76rem;
+        color: var(--text-secondary);
+        display: grid;
+        gap: 0.25rem;
+    }
+
+    .empty-inline {
+        padding: 0.75rem;
+        color: var(--text-tertiary);
+        font-size: 0.78rem;
+    }
+
+    @@media (max-width: 1100px) {
+        .bottom-grid, .spans-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>

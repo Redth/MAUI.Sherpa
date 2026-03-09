@@ -1026,24 +1026,34 @@
 
     private void ExpandAllDescendants(DevFlowElementInfo item)
     {
+        ExpandAllDescendantsCore(item);
+        StateHasChanged();
+    }
+
+    private void ExpandAllDescendantsCore(DevFlowElementInfo item)
+    {
         expandedNodes.Add(item.Id);
         if (item.Children != null)
         {
             foreach (var child in item.Children)
-                ExpandAllDescendants(child);
+                ExpandAllDescendantsCore(child);
         }
-        StateHasChanged();
     }
 
     private void CollapseAllDescendants(DevFlowElementInfo item)
+    {
+        CollapseAllDescendantsCore(item);
+        StateHasChanged();
+    }
+
+    private void CollapseAllDescendantsCore(DevFlowElementInfo item)
     {
         expandedNodes.Remove(item.Id);
         if (item.Children != null)
         {
             foreach (var child in item.Children)
-                CollapseAllDescendants(child);
+                CollapseAllDescendantsCore(child);
         }
-        StateHasChanged();
     }
 
     private void AddAllNodeIds(List<DevFlowElementInfo> items)

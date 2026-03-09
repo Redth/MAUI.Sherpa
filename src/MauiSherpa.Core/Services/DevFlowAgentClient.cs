@@ -175,6 +175,64 @@ public class DevFlowAgentClient : IDisposable
         return await GetAsync<List<DevFlowLogEntry>>(url, ct) ?? new();
     }
 
+    // --- Profiling ---
+
+    public async Task<DevFlowProfilerCapabilities?> GetProfilerCapabilitiesAsync(CancellationToken ct = default)
+    {
+        return await GetAsync<DevFlowProfilerCapabilities>("/api/profiler/capabilities", ct);
+    }
+
+    public async Task<DevFlowProfilerStartResponse?> StartProfilerAsync(int? sampleIntervalMs = null, CancellationToken ct = default)
+    {
+        if (sampleIntervalMs.HasValue)
+            return await PostAsync<DevFlowProfilerStartResponse>("/api/profiler/start", new { sampleIntervalMs = sampleIntervalMs.Value }, ct);
+
+        return await PostAsync<DevFlowProfilerStartResponse>("/api/profiler/start", new { }, ct);
+    }
+
+    public async Task<DevFlowProfilerStopResponse?> StopProfilerAsync(CancellationToken ct = default)
+    {
+        return await PostAsync<DevFlowProfilerStopResponse>("/api/profiler/stop", new { }, ct);
+    }
+
+    public async Task<DevFlowProfilerBatch?> GetProfilerSamplesAsync(
+        long sampleCursor = 0,
+        long markerCursor = 0,
+        long spanCursor = 0,
+        int limit = 200,
+        CancellationToken ct = default)
+    {
+        var safeLimit = Math.Clamp(limit, 1, 5000);
+        var url = $"/api/profiler/samples?sampleCursor={sampleCursor}&markerCursor={markerCursor}&spanCursor={spanCursor}&limit={safeLimit}";
+        return await GetAsync<DevFlowProfilerBatch>(url, ct);
+    }
+
+    public async Task<List<DevFlowProfilerHotspot>> GetProfilerHotspotsAsync(
+        int limit = 20,
+        int minDurationMs = 16,
+        string? kind = "ui.operation",
+        CancellationToken ct = default)
+    {
+        limit = Math.Clamp(limit, 1, 200);
+        minDurationMs = Math.Clamp(minDurationMs, 0, 60_000);
+        var url = $"/api/profiler/hotspots?limit={limit}&minDurationMs={minDurationMs}";
+        if (!string.IsNullOrWhiteSpace(kind))
+            url += $"&kind={Uri.EscapeDataString(kind)}";
+        return await GetAsync<List<DevFlowProfilerHotspot>>(url, ct) ?? new();
+    }
+
+    public async Task<bool> PublishProfilerMarkerAsync(
+        string name,
+        string type = "user.action",
+        string? payloadJson = null,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return false;
+
+        return await PostActionAsync("/api/profiler/marker", new { name, type, payloadJson }, ct);
+    }
+
     // --- CDP ---
 
     public async Task<CdpResponse?> SendCdpCommandAsync(string method, Dictionary<string, object?>? parameters = null, string? targetId = null, CancellationToken ct = default)
@@ -377,6 +435,22 @@ public class DevFlowAgentClient : IDisposable
         {
             var response = await _http.GetStringAsync($"{BaseUrl}{path}", ct);
             return JsonSerializer.Deserialize<T>(response, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        }
+        catch { return null; }
+    }
+
+    private async Task<T?> PostAsync<T>(string path, object body, CancellationToken ct = default) where T : class
+    {
+        try
+        {
+            var json = JsonSerializer.Serialize(body);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            var response = await _http.PostAsync($"{BaseUrl}{path}", content, ct);
+            if (!response.IsSuccessStatusCode) return null;
+
+            var responseBody = await response.Content.ReadAsStringAsync(ct);
+            if (string.IsNullOrWhiteSpace(responseBody)) return null;
+            return JsonSerializer.Deserialize<T>(responseBody, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
         }
         catch { return null; }
     }

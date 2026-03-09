@@ -1,6 +1,6 @@
 namespace MauiSherpa.Services;
 
-public enum DevFlowInspectorTab { Tree, Network, WebView, Logs }
+public enum DevFlowInspectorTab { Tree, Network, Profiling, WebView, Logs }
 
 public class DevFlowInspectorService
 {
