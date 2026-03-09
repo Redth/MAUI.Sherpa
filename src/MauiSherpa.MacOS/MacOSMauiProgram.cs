@@ -73,7 +73,8 @@ public static class MacOSMauiProgram
         builder.Services.AddSingleton<IToolbarService, ToolbarService>();
 
         // Process execution services
-        builder.Services.AddSingleton<IProcessExecutionService, ProcessExecutionService>();
+        builder.Services.AddTransient<IProcessExecutionService, ProcessExecutionService>();
+        builder.Services.AddTransient<IProfilingSessionRunner, ProfilingSessionRunnerService>();
         builder.Services.AddSingleton<MauiSherpa.Pages.Forms.ProgressBridgeHolder>();
         builder.Services.AddSingleton<ProcessModalService>();
         builder.Services.AddSingleton<IProcessModalService>(sp => sp.GetRequiredService<ProcessModalService>());
