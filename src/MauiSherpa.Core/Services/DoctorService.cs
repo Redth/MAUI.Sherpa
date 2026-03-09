@@ -330,10 +330,11 @@ public class DoctorService : IDoctorService
             // Check workload set status
             if (workloadSetVersion == null)
             {
+                var latestAvailable = availableWorkloadSets?.FirstOrDefault();
                 dependencies.Add(new DependencyStatus(
                     "Workload Set",
                     DependencyCategory.Workload,
-                    null, null, null,
+                    null, latestAvailable, null,
                     DependencyStatusType.Warning,
                     "No workload set installed (loose manifest mode)",
                     IsFixable: true,
@@ -1051,6 +1052,40 @@ public class DoctorService : IDoctorService
                 return await _androidSdkService.AcquireSdkAsync(progress: progress);
             }
             
+            if (dependency.FixAction == "install-workloads")
+            {
+                progress?.Report("Switching to workload set mode...");
+                var modeSwitch = await SwitchToWorkloadSetModeAsync(progress);
+                if (!modeSwitch)
+                {
+                    _logger.LogError("Failed to switch to workload set mode");
+                    return false;
+                }
+                
+                if (string.IsNullOrEmpty(dependency.RecommendedVersion))
+                {
+                    _logger.LogWarning("No workload set version available to install");
+                    progress?.Report("No workload set version available");
+                    return false;
+                }
+                
+                progress?.Report($"Installing workload set version {dependency.RecommendedVersion}...");
+                return await UpdateWorkloadsAsync(dependency.RecommendedVersion, progress);
+            }
+            
+            if (dependency.FixAction == "update-workloads")
+            {
+                if (string.IsNullOrEmpty(dependency.RecommendedVersion))
+                {
+                    _logger.LogWarning("No recommended workload set version available");
+                    progress?.Report("No recommended workload version available");
+                    return false;
+                }
+                
+                progress?.Report($"Updating to workload set version {dependency.RecommendedVersion}...");
+                return await UpdateWorkloadsAsync(dependency.RecommendedVersion, progress);
+            }
+            
             // Other fix actions would be implemented here
             _logger.LogWarning($"Unhandled fix action: {dependency.FixAction}");
             return false;
@@ -1167,7 +1202,53 @@ public class DoctorService : IDoctorService
         }
     }
 
+
     public string GetDotNetExecutablePath() => ResolveDotNetExecutable();
+
+    private async Task<bool> SwitchToWorkloadSetModeAsync(IProgress<string>? progress = null)
+    {
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = ResolveDotNetExecutable(),
+                Arguments = "workload config --update-mode workload-set",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            
+            using var process = Process.Start(psi);
+            if (process == null) return false;
+            
+            // Read output
+            var outputTask = process.StandardOutput.ReadToEndAsync();
+            var errorTask = process.StandardError.ReadToEndAsync();
+            
+            await process.WaitForExitAsync();
+            
+            var output = await outputTask;
+            var error = await errorTask;
+            
+            if (process.ExitCode != 0)
+            {
+                _logger.LogError($"Failed to switch to workload-set mode: {error}");
+                progress?.Report($"Error: {error}");
+                return false;
+            }
+            
+            _logger.LogInformation("Successfully switched to workload-set mode");
+            progress?.Report("Switched to workload set mode");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Failed to switch workload mode: {ex.Message}", ex);
+            progress?.Report($"Error: {ex.Message}");
+            return false;
+        }
+    }
 
     public async Task<bool> UpdateWorkloadsAsync(string workloadSetVersion, IProgress<string>? progress = null)
     {
