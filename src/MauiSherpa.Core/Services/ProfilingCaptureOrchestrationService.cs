@@ -85,9 +85,9 @@ public class ProfilingCaptureOrchestrationService : IProfilingCaptureOrchestrati
         }
 
         var diagnostics = BuildDiagnosticsConfiguration(definition.Target, normalizedOptions, _platformService.IsWindows);
-        var traceArtifactPath = Path.Combine(normalizedOptions.OutputDirectory!, $"{definition.Id}-trace.speedscope.json");
-        var gcdumpArtifactPath = Path.Combine(normalizedOptions.OutputDirectory!, $"{definition.Id}-memory.gcdump");
-        var logsArtifactPath = Path.Combine(normalizedOptions.OutputDirectory!, $"{definition.Id}-logs.txt");
+        var traceArtifactPath = Path.Combine(normalizedOptions.OutputDirectory!, "trace.nettrace");
+        var gcdumpArtifactPath = Path.Combine(normalizedOptions.OutputDirectory!, "memory.gcdump");
+        var logsArtifactPath = Path.Combine(normalizedOptions.OutputDirectory!, "logs.txt");
 
         var androidSdkPath = definition.Target.Platform == ProfilingTargetPlatform.Android
             ? await TryGetAndroidSdkPathAsync()
@@ -228,7 +228,7 @@ public class ProfilingCaptureOrchestrationService : IProfilingCaptureOrchestrati
         var workingDirectory = string.IsNullOrWhiteSpace(normalized.WorkingDirectory) ? null : normalized.WorkingDirectory.Trim();
         var effectiveWorkingDirectory = workingDirectory ?? (string.IsNullOrWhiteSpace(projectPath) ? null : Path.GetDirectoryName(projectPath));
         var outputDirectory = string.IsNullOrWhiteSpace(normalized.OutputDirectory)
-            ? Path.Combine("artifacts", "profiling", definition.Id)
+            ? BuildDefaultOutputDirectory(normalized.ProjectPath, definition.CreatedAt)
             : normalized.OutputDirectory.Trim();
         var additionalBuildProperties = normalized.AdditionalBuildProperties is null
             ? null
@@ -242,6 +242,40 @@ public class ProfilingCaptureOrchestrationService : IProfilingCaptureOrchestrati
             OutputDirectory = outputDirectory,
             AdditionalBuildProperties = additionalBuildProperties
         };
+    }
+
+    private static string BuildDefaultOutputDirectory(string? projectPath, DateTimeOffset createdAt)
+    {
+        var projectName = "session";
+        if (!string.IsNullOrWhiteSpace(projectPath))
+        {
+            projectName = Path.GetFileNameWithoutExtension(projectPath);
+        }
+
+        var dateStr = createdAt == default
+            ? DateTime.Now.ToString("yyyy-MM-dd")
+            : createdAt.LocalDateTime.ToString("yyyy-MM-dd");
+        var baseDir = Path.Combine("artifacts", "profiling", projectName);
+
+        var runNumber = 1;
+        if (Directory.Exists(baseDir))
+        {
+            var prefix = $"{dateStr}-";
+            var existingRuns = Directory.GetDirectories(baseDir)
+                .Select(d => Path.GetFileName(d))
+                .Where(name => name!.StartsWith(prefix, StringComparison.Ordinal))
+                .Select(name => {
+                    var suffix = name!.Substring(prefix.Length);
+                    return int.TryParse(suffix, out var n) ? n : 0;
+                })
+                .Where(n => n > 0)
+                .ToList();
+
+            if (existingRuns.Count > 0)
+                runNumber = existingRuns.Max() + 1;
+        }
+
+        return Path.Combine(baseDir, $"{dateStr}-{runNumber}");
     }
 
     private static string ResolveTargetFramework(ProfilingTargetPlatform platform, string? targetFrameworkOverride) =>

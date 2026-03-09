@@ -164,6 +164,83 @@ public class ProfilingCaptureOrchestrationServiceTests
     }
 
     [Fact]
+    public async Task PlanCaptureAsync_DefaultOutputDirectory_UsesProjectNameAndDate()
+    {
+        var snapshot = ConnectedDevicesSnapshot.Empty with
+        {
+            AndroidEmulators = [new DeviceInfo("emulator-5554", "device", "Pixel 8", true)]
+        };
+        _deviceMonitorService.SetupGet(x => x.Current).Returns(snapshot);
+
+        var service = CreateService();
+        var createdAt = new DateTimeOffset(2026, 3, 9, 14, 0, 0, TimeSpan.Zero);
+        var session = _catalogService.CreateSessionDefinition(
+            new ProfilingTarget(
+                ProfilingTargetPlatform.Android,
+                ProfilingTargetKind.Emulator,
+                "emulator-5554",
+                "Pixel 8"),
+            ProfilingScenarioKind.Launch,
+            appId: "com.example.app");
+        session = session with { CreatedAt = createdAt };
+
+        var plan = await service.PlanCaptureAsync(session, new ProfilingCapturePlanOptions(
+            ProjectPath: "/Users/test/src/HelloMaui/HelloMaui.csproj"));
+
+        plan.Validation.IsValid.Should().BeTrue();
+        var dateStr = createdAt.LocalDateTime.ToString("yyyy-MM-dd");
+        var expectedDir = Path.Combine("artifacts", "profiling", "HelloMaui", $"{dateStr}-1");
+        plan.Options.OutputDirectory.Should().Be(expectedDir);
+    }
+
+    [Fact]
+    public async Task PlanCaptureAsync_ArtifactFileNames_UseSimpleNames()
+    {
+        var snapshot = ConnectedDevicesSnapshot.Empty with
+        {
+            AndroidEmulators = [new DeviceInfo("emulator-5554", "device", "Pixel 8", true)]
+        };
+        _deviceMonitorService.SetupGet(x => x.Current).Returns(snapshot);
+
+        var service = CreateService();
+        var session = _catalogService.CreateSessionDefinition(
+            new ProfilingTarget(
+                ProfilingTargetPlatform.Android,
+                ProfilingTargetKind.Emulator,
+                "emulator-5554",
+                "Pixel 8"),
+            ProfilingScenarioKind.Launch,
+            appId: "com.example.app");
+
+        var plan = await service.PlanCaptureAsync(session, new ProfilingCapturePlanOptions(
+            ProjectPath: "/Users/test/src/HelloMaui/HelloMaui.csproj"));
+
+        plan.Validation.IsValid.Should().BeTrue();
+        plan.ExpectedArtifacts.Should().Contain(a => a.FileName == "trace.nettrace");
+        plan.ExpectedArtifacts.Should().Contain(a => a.FileName == "memory.gcdump");
+    }
+
+    [Fact]
+    public async Task PlanCaptureAsync_NoProjectPath_FallsBackToSessionInOutputDir()
+    {
+        var service = CreateService();
+        var session = _catalogService.CreateSessionDefinition(
+            new ProfilingTarget(
+                ProfilingTargetPlatform.MacCatalyst,
+                ProfilingTargetKind.Desktop,
+                "local-desktop",
+                "MAUI Sherpa"),
+            ProfilingScenarioKind.Interaction,
+            appId: "codes.redth.mauisherpa");
+
+        var plan = await service.PlanCaptureAsync(session, new ProfilingCapturePlanOptions());
+
+        // Missing project path in launch mode causes validation error, but for attach scenarios
+        // the output dir still uses "session" fallback when no project path is given
+        plan.Options.OutputDirectory.Should().Contain(Path.Combine("artifacts", "profiling", "session"));
+    }
+
+    [Fact]
     public async Task PlanCaptureAsync_LaunchWithoutProjectPath_ReturnsValidationError()
     {
         var service = CreateService();

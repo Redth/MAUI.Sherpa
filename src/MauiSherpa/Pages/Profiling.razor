@@ -135,7 +135,7 @@ else
 
                     <div class="field-group">
                         <label>Output directory override</label>
-                        <input type="text" @bind="outputDirectory" placeholder="Defaults to artifacts/profiling/{sessionId}" />
+                        <input type="text" @bind="outputDirectory" placeholder="Defaults to artifacts/profiling/{ProjectName}/{date}-{run}" />
                     </div>
 
                     @if (launchMode == ProfilingCaptureLaunchMode.Attach)
@@ -444,11 +444,6 @@ else
                                 <div class="command-actions">
                                     <button class="btn btn-secondary btn-sm" @onclick="@(() => CopyCommandAsync(step))">
                                         <i class="fas fa-copy"></i> Copy
-                                    </button>
-                                    <button class="btn btn-primary btn-sm"
-                                            @onclick="@(() => RunStepAsync(step))"
-                                            disabled="@(!CanRunStep(step))">
-                                        <i class="fas fa-play"></i> Run in Sherpa
                                     </button>
                                 </div>
                             </div>
@@ -944,25 +939,10 @@ else
         _ => "neutral"
     };
 
-    private bool CanRunStep(ProfilingCommandStep step)
-        => ResolveCommandStep(step) is not null;
-
     private async Task CopyCommandAsync(ProfilingCommandStep step)
     {
         await DialogService.CopyToClipboardAsync(BuildCommandLine(step));
         await AlertService.ShowToastAsync("Copied command to clipboard.");
-    }
-
-    private async Task RunStepAsync(ProfilingCommandStep step)
-    {
-        var resolved = ResolveCommandStep(step);
-        if (resolved is null)
-        {
-            await AlertService.ShowToastAsync("Provide any required runtime bindings before running this command.");
-            return;
-        }
-
-        await ProcessModal.ShowProcessAsync(resolved, requireConfirmation: true);
     }
 
     private string BuildCommandLine(ProfilingCommandStep step)
