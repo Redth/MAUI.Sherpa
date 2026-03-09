@@ -94,14 +94,30 @@ public class ProfilingCaptureOrchestrationService : IProfilingCaptureOrchestrati
             : null;
 
         // Modern dotnet-trace/dotnet-gcdump support --dsrouter natively, so we no longer
-        // need a standalone dotnet-dsrouter process. Compute the platform arg once here.
-        var dsrouterPlatformArg = GetDsRouterPlatformArg(definition.Target);
-
+        // need a standalone dotnet-dsrouter process. However, only ONE tool can use --dsrouter
+        // at a time because each starts its own dsrouter instance. When both trace and gcdump
+        // are requested on a mobile target, we fall back to a standalone dsrouter process and
+        // have both tools connect via --diagnostic-port using the IPC address instead.
         var hasTraceCapture = definition.CaptureKinds.Any(kind => TraceCaptureKinds.Contains(kind));
         var hasMemoryCapture = definition.CaptureKinds.Contains(ProfilingCaptureKind.Memory);
         var hasLogCapture = definition.CaptureKinds.Contains(ProfilingCaptureKind.Logs);
+        var dsrouterPlatformArg = GetDsRouterPlatformArg(definition.Target);
+        var isMobileTarget = dsrouterPlatformArg is not null;
+        var needsStandaloneDsRouter = isMobileTarget && hasTraceCapture && hasMemoryCapture;
+
+        // If we need standalone dsrouter, clear the inline arg so capture steps use --diagnostic-port instead
+        if (needsStandaloneDsRouter)
+            dsrouterPlatformArg = null;
+
         var preLaunchCaptureSteps = new List<ProfilingCommandStep>();
         var postLaunchCaptureSteps = new List<ProfilingCommandStep>();
+
+        // When both trace and gcdump target a mobile platform, start a standalone dsrouter
+        // and have both tools connect to it via --diagnostic-port using the IPC socket.
+        if (needsStandaloneDsRouter && diagnostics is not null)
+        {
+            commands.Add(CreateDsRouterStep(definition, diagnostics, normalizedOptions, androidSdkPath));
+        }
 
         if (hasTraceCapture)
         {
@@ -110,9 +126,10 @@ public class ProfilingCaptureOrchestrationService : IProfilingCaptureOrchestrati
                 normalizedOptions,
                 dsrouterPlatformArg,
                 traceArtifactPath,
-                runtimeBindings);
+                runtimeBindings,
+                needsStandaloneDsRouter ? diagnostics?.IpcAddress : null);
 
-            if (dsrouterPlatformArg is not null &&
+            if (isMobileTarget &&
             normalizedOptions.LaunchMode == ProfilingCaptureLaunchMode.Launch &&
             normalizedOptions.SuspendAtStartup)
             {
@@ -132,7 +149,7 @@ public class ProfilingCaptureOrchestrationService : IProfilingCaptureOrchestrati
             commands.Add(CreateLaunchStep(definition, normalizedOptions, targetFramework, workingDirectory, diagnostics));
         }
 
-        if (dsrouterPlatformArg is null &&
+        if (!isMobileTarget &&
             normalizedOptions.ProcessId is null &&
             (hasTraceCapture || hasMemoryCapture))
         {
@@ -153,7 +170,8 @@ public class ProfilingCaptureOrchestrationService : IProfilingCaptureOrchestrati
                 normalizedOptions,
                 dsrouterPlatformArg,
                 gcdumpArtifactPath,
-                runtimeBindings);
+                runtimeBindings,
+                needsStandaloneDsRouter ? diagnostics?.IpcAddress : null);
 
             postLaunchCaptureSteps.Add(memoryStep);
             expectedArtifacts.Add(memoryArtifact);
@@ -546,7 +564,8 @@ public class ProfilingCaptureOrchestrationService : IProfilingCaptureOrchestrati
         ProfilingCapturePlanOptions options,
         string? dsrouterPlatformArg,
         string traceArtifactPath,
-        List<ProfilingRuntimeBinding> runtimeBindings)
+        List<ProfilingRuntimeBinding> runtimeBindings,
+        string? diagnosticPortAddress = null)
     {
         var traceKinds = definition.CaptureKinds
             .Where(kind => TraceCaptureKinds.Contains(kind))
@@ -561,6 +580,12 @@ public class ProfilingCaptureOrchestrationService : IProfilingCaptureOrchestrati
         {
             arguments.Add("--dsrouter");
             arguments.Add(dsrouterPlatformArg);
+        }
+        else if (diagnosticPortAddress is not null)
+        {
+            // Connect to a standalone dsrouter via its IPC address
+            arguments.Add("--diagnostic-port");
+            arguments.Add(diagnosticPortAddress);
         }
         else
         {
@@ -580,6 +605,12 @@ public class ProfilingCaptureOrchestrationService : IProfilingCaptureOrchestrati
         arguments.Add("--output");
         arguments.Add(traceArtifactPath);
 
+        var dependsOn = new List<string>();
+        if (diagnosticPortAddress is not null)
+            dependsOn.Add("start-dsrouter");
+        if (dsrouterPlatformArg is null && diagnosticPortAddress is null && options.ProcessId is null)
+            dependsOn.Add("discover-process-id");
+
         return (
             new ProfilingCommandStep(
                 Id: "capture-trace",
@@ -589,8 +620,8 @@ public class ProfilingCaptureOrchestrationService : IProfilingCaptureOrchestrati
                 Command: "dotnet-trace",
                 Arguments: arguments,
                 WorkingDirectory: options.WorkingDirectory,
-                DependsOn: dsrouterPlatformArg is null && options.ProcessId is null ? ["discover-process-id"] : null,
-                RequiredRuntimeBindings: dsrouterPlatformArg is null && options.ProcessId is null ? [ProcessIdToken] : null,
+                DependsOn: dependsOn.Count > 0 ? dependsOn : null,
+                RequiredRuntimeBindings: dsrouterPlatformArg is null && diagnosticPortAddress is null && options.ProcessId is null ? [ProcessIdToken] : null,
                 Metadata: new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
                 {
                     ["tool"] = "dotnet-trace",
@@ -618,7 +649,8 @@ public class ProfilingCaptureOrchestrationService : IProfilingCaptureOrchestrati
         ProfilingCapturePlanOptions options,
         string? dsrouterPlatformArg,
         string gcdumpArtifactPath,
-        List<ProfilingRuntimeBinding> runtimeBindings)
+        List<ProfilingRuntimeBinding> runtimeBindings,
+        string? diagnosticPortAddress = null)
     {
         var arguments = new List<string>
         {
@@ -629,6 +661,12 @@ public class ProfilingCaptureOrchestrationService : IProfilingCaptureOrchestrati
         {
             arguments.Add("--dsrouter");
             arguments.Add(dsrouterPlatformArg);
+        }
+        else if (diagnosticPortAddress is not null)
+        {
+            // Connect to a standalone dsrouter via its IPC address
+            arguments.Add("--diagnostic-port");
+            arguments.Add(diagnosticPortAddress);
         }
         else
         {
@@ -646,6 +684,12 @@ public class ProfilingCaptureOrchestrationService : IProfilingCaptureOrchestrati
         arguments.Add("-o");
         arguments.Add(gcdumpArtifactPath);
 
+        var dependsOn = new List<string>();
+        if (diagnosticPortAddress is not null)
+            dependsOn.Add("start-dsrouter");
+        if (dsrouterPlatformArg is null && diagnosticPortAddress is null && options.ProcessId is null)
+            dependsOn.Add("discover-process-id");
+
         return (
             new ProfilingCommandStep(
                 Id: "capture-memory",
@@ -655,8 +699,8 @@ public class ProfilingCaptureOrchestrationService : IProfilingCaptureOrchestrati
                 Command: "dotnet-gcdump",
                 Arguments: arguments,
                 WorkingDirectory: options.WorkingDirectory,
-                DependsOn: dsrouterPlatformArg is null && options.ProcessId is null ? ["discover-process-id"] : null,
-                RequiredRuntimeBindings: dsrouterPlatformArg is null && options.ProcessId is null ? [ProcessIdToken] : null,
+                DependsOn: dependsOn.Count > 0 ? dependsOn : null,
+                RequiredRuntimeBindings: dsrouterPlatformArg is null && diagnosticPortAddress is null && options.ProcessId is null ? [ProcessIdToken] : null,
                 Metadata: new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
                 {
                     ["tool"] = "dotnet-gcdump",

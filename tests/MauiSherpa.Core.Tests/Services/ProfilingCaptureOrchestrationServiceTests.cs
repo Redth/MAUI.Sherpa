@@ -63,12 +63,14 @@ public class ProfilingCaptureOrchestrationServiceTests
         plan.Diagnostics.Address.Should().Be("10.0.2.2");
         plan.IsTargetCurrentlyAvailable.Should().BeTrue();
 
-        // Modern flow: no standalone dsrouter step — trace/gcdump use --dsrouter inline
+        // Both trace and memory requested on mobile → standalone dsrouter is needed
+        // because only one tool can use --dsrouter at a time
         plan.Commands.Select(command => command.Id).Should().ContainInOrder(
+            "start-dsrouter",
             "capture-trace",
             "build-and-run",
             "capture-memory");
-        plan.Commands.Should().NotContain(command => command.Id == "start-dsrouter");
+        plan.Commands.Should().Contain(command => command.Id == "start-dsrouter");
 
         var buildStep = plan.Commands.Single(command => command.Id == "build-and-run");
         buildStep.CommandLine.Should().Contain("-p:DiagnosticAddress=10.0.2.2");
@@ -78,10 +80,14 @@ public class ProfilingCaptureOrchestrationServiceTests
         buildStep.StopTrigger.Should().Be(ProfilingStopTrigger.OnPipelineStop);
 
         var traceStep = plan.Commands.Single(command => command.Id == "capture-trace");
-        traceStep.CommandLine.Should().Contain("--dsrouter android-emu");
-        traceStep.CommandLine.Should().NotContain("--diagnostic-port");
+        traceStep.CommandLine.Should().Contain("--diagnostic-port");
+        traceStep.CommandLine.Should().NotContain("--dsrouter");
         traceStep.CanRunParallel.Should().BeTrue();
         traceStep.StopTrigger.Should().Be(ProfilingStopTrigger.ManualStop);
+
+        var memoryStep = plan.Commands.Single(command => command.Id == "capture-memory");
+        memoryStep.CommandLine.Should().Contain("--diagnostic-port");
+        memoryStep.CommandLine.Should().NotContain("--dsrouter");
     }
 
     [Fact]
@@ -115,20 +121,57 @@ public class ProfilingCaptureOrchestrationServiceTests
         plan.Diagnostics!.DsRouterMode.Should().Be(ProfilingDsRouterMode.ServerClient);
         plan.Diagnostics.ListenMode.Should().Be(ProfilingDiagnosticListenMode.Listen);
 
-        // Modern flow: no standalone dsrouter step — trace/gcdump use --dsrouter inline
+        // Both trace and memory requested on mobile → standalone dsrouter is needed
         plan.Commands.Select(command => command.Id).Should().ContainInOrder(
+            "start-dsrouter",
             "capture-trace",
             "build-and-run",
             "capture-memory");
-        plan.Commands.Should().NotContain(command => command.Id == "start-dsrouter");
+        plan.Commands.Should().Contain(command => command.Id == "start-dsrouter");
 
         var traceStep = plan.Commands.Single(command => command.Id == "capture-trace");
-        traceStep.CommandLine.Should().Contain("--dsrouter ios");
-        traceStep.CommandLine.Should().NotContain("--diagnostic-port");
+        traceStep.CommandLine.Should().Contain("--diagnostic-port");
+        traceStep.CommandLine.Should().NotContain("--dsrouter");
+
+        var memoryStep = plan.Commands.Single(command => command.Id == "capture-memory");
+        memoryStep.CommandLine.Should().Contain("--diagnostic-port");
+        memoryStep.CommandLine.Should().NotContain("--dsrouter");
 
         var buildStep = plan.Commands.Single(command => command.Id == "build-and-run");
         buildStep.CommandLine.Should().Contain("-f net10.0-ios");
         buildStep.CommandLine.Should().Contain("-p:DiagnosticListenMode=listen");
+    }
+
+    [Fact]
+    public async Task PlanCaptureAsync_AndroidEmulatorTraceOnly_UsesInlineDsRouter()
+    {
+        var snapshot = ConnectedDevicesSnapshot.Empty with
+        {
+            AndroidEmulators = [new DeviceInfo("emulator-5554", "device", "Pixel 8", true)]
+        };
+        _deviceMonitorService.SetupGet(x => x.Current).Returns(snapshot);
+
+        var service = CreateService();
+        // Only CPU trace, no memory — should use inline --dsrouter
+        var session = _catalogService.CreateSessionDefinition(
+            new ProfilingTarget(
+                ProfilingTargetPlatform.Android,
+                ProfilingTargetKind.Emulator,
+                "emulator-5554",
+                "Pixel 8"),
+            ProfilingScenarioKind.Launch,
+            captureKinds: [ProfilingCaptureKind.Cpu],
+            appId: "com.example.app");
+
+        var plan = await service.PlanCaptureAsync(session, new ProfilingCapturePlanOptions(
+            ProjectPath: "/Users/test/src/HelloMaui/HelloMaui.csproj"));
+
+        plan.Validation.IsValid.Should().BeTrue();
+        plan.Commands.Should().NotContain(command => command.Id == "start-dsrouter");
+
+        var traceStep = plan.Commands.Single(command => command.Id == "capture-trace");
+        traceStep.CommandLine.Should().Contain("--dsrouter android-emu");
+        traceStep.CommandLine.Should().NotContain("--diagnostic-port");
     }
 
     [Fact]
