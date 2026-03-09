@@ -2,11 +2,12 @@ using System.ComponentModel;
 using System.Text.Json;
 using Microsoft.Extensions.AI;
 using MauiSherpa.Core.Interfaces;
+using MauiSherpa.Core.Models.Profiling;
 
 namespace MauiSherpa.Core.Services;
 
 /// <summary>
-/// Provides Copilot SDK tool definitions for Apple Developer and Android SDK operations
+/// Provides Copilot SDK tool definitions for Apple Developer, Android SDK, and profiling operations
 /// </summary>
 public class CopilotToolsService : ICopilotToolsService
 {
@@ -14,6 +15,10 @@ public class CopilotToolsService : ICopilotToolsService
     private readonly IAppleIdentityStateService _identityState;
     private readonly IAppleIdentityService _identityService;
     private readonly IAndroidSdkService _androidService;
+    private readonly IProfilingCatalogService _profilingCatalogService;
+    private readonly IProfilingArtifactLibraryService _profilingArtifactLibraryService;
+    private readonly IProfilingArtifactAnalysisService _profilingArtifactAnalysisService;
+    private readonly IProfilingContextService _profilingContextService;
     private readonly ILoggingService _logger;
     
     private readonly List<CopilotTool> _tools = new();
@@ -24,12 +29,20 @@ public class CopilotToolsService : ICopilotToolsService
         IAppleIdentityStateService identityState,
         IAppleIdentityService identityService,
         IAndroidSdkService androidService,
+        IProfilingCatalogService profilingCatalogService,
+        IProfilingArtifactLibraryService profilingArtifactLibraryService,
+        IProfilingArtifactAnalysisService profilingArtifactAnalysisService,
+        IProfilingContextService profilingContextService,
         ILoggingService logger)
     {
         _appleService = appleService;
         _identityState = identityState;
         _identityService = identityService;
         _androidService = androidService;
+        _profilingCatalogService = profilingCatalogService;
+        _profilingArtifactLibraryService = profilingArtifactLibraryService;
+        _profilingArtifactAnalysisService = profilingArtifactAnalysisService;
+        _profilingContextService = profilingContextService;
         _logger = logger;
         
         InitializeTools();
@@ -143,6 +156,18 @@ public class CopilotToolsService : ICopilotToolsService
             "List available Android system images for creating emulators."), isReadOnly: true);
         AddTool(AIFunctionFactory.Create(ListDeviceDefinitionsAsync, "list_device_definitions", 
             "List available device definitions for creating emulators."), isReadOnly: true);
+
+        // Profiling Tools
+        AddTool(AIFunctionFactory.Create(ListProfilingTargetsAsync, "list_profiling_targets",
+            "List currently available local profiling targets discovered via MauiDevFlow."), isReadOnly: true);
+        AddTool(AIFunctionFactory.Create(GetProfilingCatalogAsync, "get_profiling_catalog",
+            "Get the supported profiling scenarios and platform capabilities available in Maui Sherpa. Optionally filter to a single platform."), isReadOnly: true);
+        AddTool(AIFunctionFactory.Create(ListProfilingArtifactsAsync, "list_profiling_artifacts",
+            "List profiling artifacts stored in Sherpa's artifact library. Optionally filter by session or artifact kind."), isReadOnly: true);
+        AddTool(AIFunctionFactory.Create(GetProfilingSnapshotAsync, "get_profiling_snapshot",
+            "Get a lightweight profiling snapshot for a running MAUI app using local status, network, and visual-tree summaries instead of raw trace uploads."), isReadOnly: true);
+        AddTool(AIFunctionFactory.Create(AnalyzeProfilingArtifactAsync, "analyze_profiling_artifact",
+            "Analyze a captured profiling artifact from Sherpa's artifact library and return a portable summary with hotspots, metrics, and insights."), isReadOnly: true);
     }
 
     private string? CheckIdentitySelected()
@@ -1513,6 +1538,144 @@ public class CopilotToolsService : ICopilotToolsService
         }).Take(30); // Limit results
 
         return JsonSerializer.Serialize(results, new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    #endregion
+
+    #region Profiling Tools
+
+    [Description("List currently available local profiling targets discovered via MauiDevFlow")]
+    private async Task<string> ListProfilingTargetsAsync()
+    {
+        _logger.LogDebug("Tool: list_profiling_targets called");
+
+        var targets = await _profilingContextService.GetAvailableTargetsAsync();
+        if (targets.Count == 0)
+        {
+            return "No local profiling targets are available. Start a MAUI app with MauiDevFlow enabled, then try again.";
+        }
+
+        return JsonSerializer.Serialize(targets, new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    [Description("Get supported profiling scenarios and platform capabilities")]
+    private async Task<string> GetProfilingCatalogAsync(
+        [Description("Optional platform name to filter to: Android, iOS, MacCatalyst, MacOS, or Windows")] string? platform = null)
+    {
+        _logger.LogDebug($"Tool: get_profiling_catalog called with platform '{platform ?? "<all>"}'");
+
+        var catalog = await _profilingCatalogService.GetCatalogAsync();
+        if (string.IsNullOrWhiteSpace(platform))
+        {
+            return JsonSerializer.Serialize(catalog, new JsonSerializerOptions { WriteIndented = true });
+        }
+
+        if (!Enum.TryParse<ProfilingTargetPlatform>(platform, ignoreCase: true, out var parsedPlatform))
+        {
+            return $"Unknown platform '{platform}'. Valid values: {string.Join(", ", Enum.GetNames<ProfilingTargetPlatform>())}.";
+        }
+
+        var capabilities = await _profilingCatalogService.GetCapabilitiesAsync(parsedPlatform);
+        var result = new
+        {
+            Platform = capabilities,
+            Scenarios = catalog.Scenarios
+                .Where(scenario => capabilities.SupportedScenarios.Contains(scenario.Kind))
+                .ToArray()
+        };
+
+        return JsonSerializer.Serialize(result, new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    [Description("Get a lightweight profiling snapshot for a running MAUI app")]
+    private async Task<string> GetProfilingSnapshotAsync(
+        [Description("Optional target ID or app name from list_profiling_targets")] string? targetId = null,
+        [Description("Maximum number of recent network requests to summarize (5-200)")] int networkSampleSize = 40,
+        [Description("Include a summary of current captured network traffic")] bool includeNetworkSummary = true,
+        [Description("Include a summary of the current MAUI visual tree")] bool includeVisualTreeSummary = true)
+    {
+        _logger.LogDebug($"Tool: get_profiling_snapshot called for target '{targetId ?? "<auto>"}'");
+
+        var result = await _profilingContextService.GetSnapshotAsync(
+            new ProfilingSnapshotOptions(
+                TargetId: targetId,
+                NetworkSampleSize: networkSampleSize,
+                IncludeNetworkSummary: includeNetworkSummary,
+                IncludeVisualTreeSummary: includeVisualTreeSummary));
+
+        if (result.Snapshot == null)
+        {
+            return result.Message ?? "Unable to build a profiling snapshot.";
+        }
+
+        return JsonSerializer.Serialize(result.Snapshot, new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    [Description("List captured profiling artifacts stored in Sherpa's artifact library")]
+    private async Task<string> ListProfilingArtifactsAsync(
+        [Description("Optional profiling session id to filter to")] string? sessionId = null,
+        [Description("Optional artifact kind filter: Trace, Metrics, Screenshot, Logs, Report, or Export")] string? kind = null,
+        [Description("Include artifacts whose backing file is missing")] bool includeMissing = false)
+    {
+        _logger.LogDebug($"Tool: list_profiling_artifacts called for session '{sessionId ?? "<all>"}' and kind '{kind ?? "<all>"}'");
+
+        ProfilingArtifactKind? parsedKind = null;
+        if (!string.IsNullOrWhiteSpace(kind))
+        {
+            if (!Enum.TryParse<ProfilingArtifactKind>(kind, ignoreCase: true, out var parsed))
+            {
+                return $"Unknown artifact kind '{kind}'. Valid values: {string.Join(", ", Enum.GetNames<ProfilingArtifactKind>())}.";
+            }
+
+            parsedKind = parsed;
+        }
+
+        var artifacts = await _profilingArtifactLibraryService.GetArtifactsAsync(
+            new ProfilingArtifactLibraryQuery(
+                SessionId: sessionId,
+                Kind: parsedKind,
+                IncludeMissing: includeMissing));
+
+        if (artifacts.Count == 0)
+        {
+            return "No profiling artifacts matched the requested filters.";
+        }
+
+        var result = new List<object>(artifacts.Count);
+        foreach (var artifact in artifacts)
+        {
+            var artifactPath = await _profilingArtifactLibraryService.GetArtifactPathAsync(artifact.Metadata.Id);
+            result.Add(new
+            {
+                artifact.Metadata.Id,
+                artifact.Metadata.SessionId,
+                artifact.Metadata.Kind,
+                artifact.Metadata.DisplayName,
+                artifact.Metadata.FileName,
+                artifact.Metadata.CreatedAt,
+                artifact.Metadata.SizeBytes,
+                artifact.Metadata.Properties,
+                artifact.IsManagedPath,
+                ArtifactExists = !string.IsNullOrWhiteSpace(artifactPath) && File.Exists(artifactPath)
+            });
+        }
+
+        return JsonSerializer.Serialize(result, new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    [Description("Analyze a captured profiling artifact from Sherpa's artifact library")]
+    private async Task<string> AnalyzeProfilingArtifactAsync(
+        [Description("Artifact id returned by list_profiling_artifacts")] string artifactId)
+    {
+        _logger.LogDebug($"Tool: analyze_profiling_artifact called for artifact '{artifactId}'");
+
+        var result = await _profilingArtifactAnalysisService.AnalyzeArtifactAsync(artifactId);
+        if (result.Analysis is null)
+        {
+            return result.Message ?? $"Profiling artifact '{artifactId}' could not be analyzed.";
+        }
+
+        return JsonSerializer.Serialize(result.Analysis, new JsonSerializerOptions { WriteIndented = true });
     }
 
     #endregion

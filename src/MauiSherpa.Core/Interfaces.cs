@@ -1,3 +1,4 @@
+using MauiSherpa.Core.Models.Profiling;
 using MauiSherpa.Core.Services;
 
 namespace MauiSherpa.Core.Interfaces;
@@ -215,6 +216,73 @@ public interface IScreenCaptureService
     Task<byte[]> CaptureScreenshotAsync(string serial, CancellationToken ct = default);
     Task StartRecordingAsync(string serial, int maxSeconds = 180, CancellationToken ct = default);
     Task<byte[]?> StopRecordingAsync(CancellationToken ct = default);
+}
+
+// ============================================================================
+// Profiling
+// ============================================================================
+
+public interface IProfilingCatalogService
+{
+    Task<ProfilingCatalog> GetCatalogAsync(CancellationToken ct = default);
+    Task<ProfilingPlatformCapabilities> GetCapabilitiesAsync(ProfilingTargetPlatform platform, CancellationToken ct = default);
+    ProfilingSessionDefinition CreateSessionDefinition(
+        ProfilingTarget target,
+        ProfilingScenarioKind scenario,
+        string? name = null,
+        IReadOnlyList<ProfilingCaptureKind>? captureKinds = null,
+        string? appId = null,
+        TimeSpan? duration = null,
+        IReadOnlyDictionary<string, string>? tags = null);
+    ProfilingSessionValidationResult ValidateSessionDefinition(
+        ProfilingSessionDefinition definition,
+        ProfilingPlatformCapabilities capabilities);
+}
+
+public interface IProfilingCapabilityProvider
+{
+    ProfilingTargetPlatform Platform { get; }
+    Task<ProfilingPlatformCapabilities?> GetCapabilitiesAsync(CancellationToken ct = default);
+}
+
+public interface IProfilingPrerequisitesService
+{
+    Task<ProfilingPrerequisiteReport> GetPrerequisitesAsync(
+        ProfilingTargetPlatform platform,
+        IReadOnlyList<ProfilingCaptureKind>? captureKinds = null,
+        string? workingDirectory = null,
+        CancellationToken ct = default);
+}
+
+public interface IProfilingCaptureOrchestrationService
+{
+    Task<ProfilingCapturePlan> PlanCaptureAsync(
+        ProfilingSessionDefinition definition,
+        ProfilingCapturePlanOptions? options = null,
+        CancellationToken ct = default);
+}
+
+public interface IProfilingArtifactLibraryService
+{
+    Task<IReadOnlyList<ProfilingArtifactLibraryEntry>> GetArtifactsAsync(
+        ProfilingArtifactLibraryQuery? query = null,
+        CancellationToken ct = default);
+    Task<ProfilingArtifactLibraryEntry?> GetArtifactAsync(string artifactId, CancellationToken ct = default);
+    Task<ProfilingArtifactLibraryEntry> SaveArtifactAsync(
+        ProfilingArtifactLibrarySaveRequest request,
+        CancellationToken ct = default);
+    Task DeleteArtifactAsync(string artifactId, bool deleteFile = false, CancellationToken ct = default);
+    Task<string?> GetArtifactPathAsync(string artifactId, CancellationToken ct = default);
+    string GetDefaultArtifactDirectory(string sessionId);
+    event Action? OnArtifactsChanged;
+}
+
+public interface IProfilingArtifactAnalysisService
+{
+    Task<ProfilingArtifactAnalysisResult> AnalyzeArtifactAsync(string artifactId, CancellationToken ct = default);
+    Task<IReadOnlyList<ProfilingArtifactAnalysis>> AnalyzeArtifactsAsync(
+        ProfilingArtifactLibraryQuery? query = null,
+        CancellationToken ct = default);
 }
 
 
@@ -2116,6 +2184,22 @@ public interface ICopilotToolsService
 }
 
 /// <summary>
+/// Builds lightweight, structured profiling context for Copilot without requiring raw trace uploads.
+/// </summary>
+public interface IProfilingContextService
+{
+    /// <summary>
+    /// Gets the currently available local profiling targets discovered from MauiDevFlow.
+    /// </summary>
+    Task<IReadOnlyList<ProfilingTargetInfo>> GetAvailableTargetsAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Builds a lightweight profiling snapshot for the requested target.
+    /// </summary>
+    Task<ProfilingSnapshotResult> GetSnapshotAsync(ProfilingSnapshotOptions options, CancellationToken ct = default);
+}
+
+/// <summary>
 /// Service for coordinating splash screen visibility between MAUI and Blazor
 /// </summary>
 public interface ISplashService
@@ -2846,6 +2930,7 @@ public record MauiSherpaSettings
     public PushTestingSettings PushTesting { get; init; } = new();
     public List<PushProject> PushProjects { get; init; } = new();
     public List<PublishProfileData> PublishProfiles { get; init; } = new();
+    public List<ProfilingArtifactLibraryEntry> ProfilingArtifacts { get; init; } = new();
     public DateTime LastModified { get; init; } = DateTime.UtcNow;
 }
 

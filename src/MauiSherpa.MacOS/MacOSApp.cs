@@ -146,6 +146,12 @@ class MacOSApp : Application
         doctorItem.Target = doctorHandler;
         appMenu.InsertItem(doctorItem, insertIndex++);
 
+        var profilingHandler = new MenuActionHandler(() => blazorPage.NavigateToRoute("/profiling"));
+        _menuHandlers.Add(profilingHandler);
+        var profilingItem = new NSMenuItem("Profiling", new ObjCRuntime.Selector("menuAction:"), "");
+        profilingItem.Target = profilingHandler;
+        appMenu.InsertItem(profilingItem, insertIndex++);
+
         var sep2 = NSMenuItem.SeparatorItem;
         appMenu.InsertItem(sep2, insertIndex);
     }
@@ -202,24 +208,17 @@ class MacOSApp : Application
             },
             new MacOSSidebarItem
             {
-                Title = "DevFlow",
+                Title = "Tools",
                 Children = new List<MacOSSidebarItem>
                 {
+                    new() { Title = "Profiling", SystemImage = "chart.bar.xaxis", Tag = "/profiling" },
                     new() { Title = "App Inspector", SystemImage = "wand.and.stars", Tag = "/devflow" },
+#if DEBUG
+                    new() { Title = "Debug UI", SystemImage = "ant", Tag = "/debug" },
+#endif
                 }
             },
         };
-
-#if DEBUG
-        sidebarItems.Add(new MacOSSidebarItem
-        {
-            Title = "Development",
-            Children = new List<MacOSSidebarItem>
-            {
-                new() { Title = "Debug UI", SystemImage = "ant", Tag = "/debug" },
-            }
-        });
-#endif
 
         MacOSFlyoutPage.SetSidebarItems(flyoutPage, sidebarItems);
         _sidebarItems = sidebarItems;

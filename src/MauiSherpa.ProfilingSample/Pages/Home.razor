@@ -1,0 +1,415 @@
+@page "/"
+@implements IDisposable
+@inject ProfilingScenarioService ScenarioService
+@inject IJSRuntime JS
+
+<PageTitle>Sherpa Profiling Sample</PageTitle>
+
+<div class="dashboard-grid">
+    <section class="hero-card">
+        <div>
+            <div class="eyebrow">Profiling starter kit</div>
+            <h2>Trigger realistic hotspots in a few clicks</h2>
+            <p class="section-copy">Use the controls below to spin up CPU pressure, retain large heaps, churn the visual tree, and generate browser-visible fetch traffic from the WebView.</p>
+        </div>
+
+        <div class="quick-actions">
+            <button class="btn btn-primary" type="button" disabled="@ScenarioService.Cpu.IsRunning" @onclick="StartCpuScenarioAsync">Start CPU stress</button>
+            <button class="btn btn-secondary" type="button" @onclick="(() => ScenarioService.AllocateRetainedMemory(_memoryMegabytes))">Retain @_memoryMegabytes MB</button>
+            <button class="btn btn-secondary" type="button" @onclick="ScenarioService.ToggleRenderingAnimation">@(ScenarioService.Rendering.IsAnimating ? "Pause animation" : "Animate tiles")</button>
+            <button class="btn btn-secondary" type="button" disabled="@ScenarioService.Network.IsRunning" @onclick="RunLocalNetworkScenarioAsync">Burst local fetches</button>
+        </div>
+    </section>
+
+    <section class="metric-strip">
+        <article class="metric-card">
+            <span class="metric-label">Working set</span>
+            <strong>@FormatBytes(_process.WorkingSetBytes)</strong>
+            <span class="metric-detail">Private: @FormatBytes(_process.PrivateBytes)</span>
+        </article>
+        <article class="metric-card">
+            <span class="metric-label">Managed heap</span>
+            <strong>@FormatBytes(_process.ManagedHeapBytes)</strong>
+            <span class="metric-detail">GC counts: @_process.Gen0Collections / @_process.Gen1Collections / @_process.Gen2Collections</span>
+        </article>
+        <article class="metric-card">
+            <span class="metric-label">CPU loops</span>
+            <strong>@ScenarioService.Cpu.IterationsCompleted.ToString("N0")</strong>
+            <span class="metric-detail">Last batch: @FormatDuration(ScenarioService.Cpu.LastBatchMilliseconds)</span>
+        </article>
+        <article class="metric-card">
+            <span class="metric-label">Retained memory</span>
+            <strong>@FormatBytes(ScenarioService.Memory.RetainedBytes)</strong>
+            <span class="metric-detail">Chunks: @ScenarioService.Memory.ChunkCount</span>
+        </article>
+        <article class="metric-card">
+            <span class="metric-label">Visual surface</span>
+            <strong>@ScenarioService.Rendering.Tiles.Count tile(s)</strong>
+            <span class="metric-detail">Feed rows: @ScenarioService.Rendering.FeedItems.Count</span>
+        </article>
+        <article class="metric-card">
+            <span class="metric-label">Network summary</span>
+            <strong>@ScenarioService.Network.SuccessCount success / @ScenarioService.Network.FailureCount fail</strong>
+            <span class="metric-detail">Avg: @FormatDuration(ScenarioService.Network.AverageDurationMs)</span>
+        </article>
+    </section>
+
+    <section class="scenario-card">
+        <div class="section-header">
+            <div>
+                <div class="eyebrow">CPU</div>
+                <h2>Prime + math worker loop</h2>
+            </div>
+            <span class="status-chip @(ScenarioService.Cpu.IsRunning ? "status-chip-success" : "status-chip-muted")">@ScenarioService.Cpu.Status</span>
+        </div>
+
+        <p class="section-copy">Starts multiple background workers that repeatedly scan for primes and sort floating point batches. It creates an obvious CPU ramp without needing external dependencies.</p>
+
+        <div class="control-row compact-grid">
+            <label>
+                <span>Workers</span>
+                <input type="number" min="1" max="16" @bind="_cpuWorkers" @bind:event="oninput" />
+            </label>
+            <label>
+                <span>Duration (seconds)</span>
+                <input type="number" min="5" max="180" @bind="_cpuDurationSeconds" @bind:event="oninput" />
+            </label>
+        </div>
+
+        <div class="button-row">
+            <button class="btn btn-primary" type="button" disabled="@ScenarioService.Cpu.IsRunning" @onclick="StartCpuScenarioAsync">Start CPU run</button>
+            <button class="btn btn-secondary" type="button" disabled="@(!ScenarioService.Cpu.IsRunning)" @onclick="ScenarioService.StopCpuStress">Stop</button>
+        </div>
+
+        <div class="detail-grid">
+            <div>
+                <span class="detail-label">Started</span>
+                <strong>@(ScenarioService.Cpu.StartedAt?.ToLocalTime().ToString("T") ?? "Idle")</strong>
+            </div>
+            <div>
+                <span class="detail-label">Worker count</span>
+                <strong>@ScenarioService.Cpu.WorkerCount</strong>
+            </div>
+            <div>
+                <span class="detail-label">Target duration</span>
+                <strong>@ScenarioService.Cpu.DurationSeconds s</strong>
+            </div>
+            <div>
+                <span class="detail-label">Iterations</span>
+                <strong>@ScenarioService.Cpu.IterationsCompleted.ToString("N0")</strong>
+            </div>
+        </div>
+    </section>
+
+    <section class="scenario-card">
+        <div class="section-header">
+            <div>
+                <div class="eyebrow">Memory</div>
+                <h2>Retained allocations + background churn</h2>
+            </div>
+            <span class="status-chip @(ScenarioService.Memory.IsChurning ? "status-chip-warning" : "status-chip-muted")">@ScenarioService.Memory.Status</span>
+        </div>
+
+        <p class="section-copy">Retain object graphs backed by 1 MB buffers, or enable churn to create repeated allocation and trim cycles that are easy to spot in heap or GC diagnostics.</p>
+
+        <div class="control-row compact-grid">
+            <label>
+                <span>Allocate MB</span>
+                <input type="number" min="8" max="512" @bind="_memoryMegabytes" @bind:event="oninput" />
+            </label>
+            <div class="stat-callout">
+                <span>Managed heap now</span>
+                <strong>@FormatBytes(ScenarioService.Memory.ManagedHeapBytes)</strong>
+            </div>
+        </div>
+
+        <div class="button-row">
+            <button class="btn btn-primary" type="button" @onclick="(() => ScenarioService.AllocateRetainedMemory(_memoryMegabytes))">Retain @_memoryMegabytes MB</button>
+            <button class="btn btn-secondary" type="button" @onclick="ScenarioService.ReleaseHalfMemory">Release half</button>
+            <button class="btn btn-secondary" type="button" @onclick="ScenarioService.ClearRetainedMemory">Clear all</button>
+            <button class="btn btn-secondary" type="button" @onclick="ScenarioService.ToggleMemoryChurn">@(ScenarioService.Memory.IsChurning ? "Stop churn" : "Start churn")</button>
+            <button class="btn btn-secondary" type="button" @onclick="ScenarioService.CaptureMemorySnapshot">Capture marker</button>
+        </div>
+
+        <div class="snapshot-list">
+            @if (ScenarioService.Memory.Snapshots.Count == 0)
+            {
+                <div class="empty-state small">No memory markers yet.</div>
+            }
+            else
+            {
+                @foreach (var snapshot in ScenarioService.Memory.Snapshots)
+                {
+                    <div class="snapshot-row">
+                        <strong>@snapshot.Timestamp.ToString("T")</strong>
+                        <span>@FormatBytes(snapshot.RetainedBytes) retained</span>
+                        <span>@FormatBytes(snapshot.ManagedHeapBytes) heap</span>
+                        <span>@snapshot.ChunkCount chunk(s)</span>
+                    </div>
+                }
+            }
+        </div>
+    </section>
+
+    <section class="scenario-card scenario-card-wide">
+        <div class="section-header">
+            <div>
+                <div class="eyebrow">Rendering & scrolling</div>
+                <h2>Dense tile wall and long feed</h2>
+            </div>
+            <span class="status-chip @(ScenarioService.Rendering.IsAnimating ? "status-chip-info" : "status-chip-muted")">@ScenarioService.Rendering.Status</span>
+        </div>
+
+        <p class="section-copy">The tile wall creates a broad visual tree that can animate, while the feed creates a tall scroll surface packed with text, metadata, and progress bars.</p>
+
+        <div class="button-row">
+            <button class="btn btn-primary" type="button" @onclick="ScenarioService.ToggleRenderingAnimation">@(ScenarioService.Rendering.IsAnimating ? "Pause animation" : "Start animation")</button>
+            <button class="btn btn-secondary" type="button" @onclick="(() => ScenarioService.AddTiles(96))">Add 96 tiles</button>
+            <button class="btn btn-secondary" type="button" @onclick="(() => ScenarioService.AddFeedItems(120))">Add 120 feed rows</button>
+            <button class="btn btn-secondary" type="button" @onclick="ScenarioService.ResetRenderingScene">Reset scene</button>
+        </div>
+
+        <div class="render-layout">
+            <div class="tile-wall">
+                @foreach (var tile in ScenarioService.Rendering.Tiles)
+                {
+                    <div class="tile @(tile.IsHot ? "tile-hot" : string.Empty)" style="--tile-hue:@tile.Hue; --tile-scale:@tile.Scale.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)">
+                        <span class="tile-label">@tile.Label</span>
+                        <strong>@tile.LoadValue%</strong>
+                    </div>
+                }
+            </div>
+
+            <div class="feed-column">
+                <div class="feed-summary">Frame @ScenarioService.Rendering.Frame • @ScenarioService.Rendering.FeedItems.Count scroll row(s)</div>
+                <div class="feed-list">
+                    @foreach (var item in ScenarioService.Rendering.FeedItems)
+                    {
+                        <article class="feed-item">
+                            <div class="feed-item-header">
+                                <div>
+                                    <strong>@item.Title</strong>
+                                    <span class="feed-tag">@item.Category</span>
+                                </div>
+                                <span>@item.DurationMs ms</span>
+                            </div>
+                            <p>@item.Summary</p>
+                            <div class="feed-metrics">
+                                <span>@item.ActiveUsers active users</span>
+                                <div class="progress-bar"><span style="width:@item.Score%"></span></div>
+                                <span>@item.Score score</span>
+                            </div>
+                        </article>
+                    }
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="scenario-card">
+        <div class="section-header">
+            <div>
+                <div class="eyebrow">Network-ish</div>
+                <h2>WebView-visible fetch bursts</h2>
+            </div>
+            <span class="status-chip @(ScenarioService.Network.IsRunning ? "status-chip-info" : "status-chip-muted")">@ScenarioService.Network.Status</span>
+        </div>
+
+        <p class="section-copy">These runs fire fetches from JavaScript inside the Blazor WebView so MauiDevFlow and Sherpa can observe them. Local mode always works; remote mixed mode intentionally includes slow and failing requests when available.</p>
+
+        <div class="control-row compact-grid">
+            <label>
+                <span>Request count</span>
+                <input type="number" min="4" max="40" @bind="_networkRequestCount" @bind:event="oninput" />
+            </label>
+            <div class="stat-callout">
+                <span>Last mode</span>
+                <strong>@ScenarioService.Network.LastMode</strong>
+            </div>
+        </div>
+
+        <div class="button-row">
+            <button class="btn btn-primary" type="button" disabled="@ScenarioService.Network.IsRunning" @onclick="RunLocalNetworkScenarioAsync">Run local burst</button>
+            <button class="btn btn-secondary" type="button" disabled="@ScenarioService.Network.IsRunning" @onclick="RunRemoteNetworkScenarioAsync">Run remote mixed burst</button>
+        </div>
+
+        <div class="detail-grid">
+            <div>
+                <span class="detail-label">Success</span>
+                <strong>@ScenarioService.Network.SuccessCount</strong>
+            </div>
+            <div>
+                <span class="detail-label">Failure</span>
+                <strong>@ScenarioService.Network.FailureCount</strong>
+            </div>
+            <div>
+                <span class="detail-label">Average</span>
+                <strong>@FormatDuration(ScenarioService.Network.AverageDurationMs)</strong>
+            </div>
+            <div>
+                <span class="detail-label">Payload</span>
+                <strong>@FormatBytes(ScenarioService.Network.TotalBytes)</strong>
+            </div>
+        </div>
+
+        <div class="request-list">
+            @if (ScenarioService.Network.RecentRequests.Count == 0)
+            {
+                <div class="empty-state small">No request history yet.</div>
+            }
+            else
+            {
+                @foreach (var request in ScenarioService.Network.RecentRequests)
+                {
+                    <div class="request-row">
+                        <div>
+                            <strong>@request.StatusCode?.ToString() ?? "ERR"</strong>
+                            <span class="request-url">@request.Url</span>
+                        </div>
+                        <div class="request-meta">
+                            <span>@FormatDuration(request.DurationMs)</span>
+                            <span>@(request.Success ? "ok" : request.Error ?? "failed")</span>
+                        </div>
+                    </div>
+                }
+            }
+        </div>
+    </section>
+</div>
+
+@code {
+    private int _cpuWorkers = Math.Clamp(Environment.ProcessorCount / 2, 1, 4);
+    private int _cpuDurationSeconds = 20;
+    private int _memoryMegabytes = 64;
+    private int _networkRequestCount = 12;
+    private ProcessSnapshot _process = ProcessSnapshot.Capture();
+    private CancellationTokenSource _metricsCts = new();
+
+    protected override void OnInitialized()
+    {
+        ScenarioService.Changed += OnScenarioChanged;
+        _ = RefreshProcessMetricsAsync(_metricsCts.Token);
+    }
+
+    private Task StartCpuScenarioAsync()
+    {
+        return ScenarioService.StartCpuStressAsync(_cpuWorkers, TimeSpan.FromSeconds(_cpuDurationSeconds));
+    }
+
+    private Task RunLocalNetworkScenarioAsync()
+    {
+        return RunNetworkScenarioAsync("local");
+    }
+
+    private Task RunRemoteNetworkScenarioAsync()
+    {
+        return RunNetworkScenarioAsync("remote-mixed");
+    }
+
+    private async Task RunNetworkScenarioAsync(string mode)
+    {
+        ScenarioService.BeginNetworkRun(mode, _networkRequestCount);
+
+        try
+        {
+            var results = await JS.InvokeAsync<NetworkRunResult[]>(
+                "profilingSample.runNetworkBurst",
+                new NetworkBurstOptions
+                {
+                    Mode = mode,
+                    RequestCount = _networkRequestCount
+                });
+
+            ScenarioService.CompleteNetworkRun(mode, results);
+        }
+        catch (Exception ex)
+        {
+            ScenarioService.FailNetworkRun(mode, ex.Message);
+        }
+    }
+
+    private async Task RefreshProcessMetricsAsync(CancellationToken cancellationToken)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            _process = ProcessSnapshot.Capture();
+            await InvokeAsync(StateHasChanged);
+
+            try
+            {
+                await timer.WaitForNextTickAsync(cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+        }
+    }
+
+    private void OnScenarioChanged()
+    {
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private static string FormatBytes(long bytes)
+    {
+        string[] units = ["B", "KB", "MB", "GB"];
+        double value = bytes;
+        var unit = 0;
+        while (value >= 1024 && unit < units.Length - 1)
+        {
+            value /= 1024;
+            unit++;
+        }
+
+        return $"{value:0.#} {units[unit]}";
+    }
+
+    private static string FormatDuration(double durationMs)
+    {
+        if (durationMs >= 1000)
+        {
+            return $"{durationMs / 1000:0.00}s";
+        }
+
+        return $"{durationMs:0.#} ms";
+    }
+
+    public void Dispose()
+    {
+        ScenarioService.Changed -= OnScenarioChanged;
+        _metricsCts.Cancel();
+        _metricsCts.Dispose();
+    }
+
+    private sealed record ProcessSnapshot(
+        long WorkingSetBytes,
+        long PrivateBytes,
+        long ManagedHeapBytes,
+        int Gen0Collections,
+        int Gen1Collections,
+        int Gen2Collections)
+    {
+        public static ProcessSnapshot Capture()
+        {
+            try
+            {
+                var process = Process.GetCurrentProcess();
+                process.Refresh();
+                return new ProcessSnapshot(
+                    process.WorkingSet64,
+                    process.PrivateMemorySize64,
+                    GC.GetTotalMemory(false),
+                    GC.CollectionCount(0),
+                    GC.CollectionCount(1),
+                    GC.CollectionCount(2));
+            }
+            catch
+            {
+                return new ProcessSnapshot(0, 0, GC.GetTotalMemory(false), GC.CollectionCount(0), GC.CollectionCount(1), GC.CollectionCount(2));
+            }
+        }
+    }
+}
