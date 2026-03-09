@@ -392,7 +392,7 @@ public class ProfilingCaptureOrchestrationService : IProfilingCaptureOrchestrati
 
         var ipcAddress = isWindowsHost
             ? $@"\\.\pipe\maui-sherpa-profile-{Guid.NewGuid():N}"
-            : Path.Combine(Path.GetTempPath(), $"maui-sherpa-profile-{Guid.NewGuid():N}.sock");
+            : Path.Combine(Path.GetTempPath(), $"ms-prof-{Guid.NewGuid().ToString("N")[..8]}.sock");
         var tcpEndpoint = $"127.0.0.1:{options.DiagnosticPort}";
 
         return target.Platform switch
