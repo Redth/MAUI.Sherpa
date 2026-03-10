@@ -1,0 +1,1935 @@
+@page "/modal/profiling-wizard"
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Core.Models.Profiling
+@using MauiSherpa.Core.Requests.Android
+@using MauiSherpa.Core.Requests.Apple
+@using MauiSherpa.Core.Requests.Profiling
+@using MauiSherpa.Pages.Forms
+@using Shiny.Mediator
+@inject HybridFormBridgeHolder BridgeHolder
+@inject IMediator Mediator
+@inject IProfilingCatalogService ProfilingCatalogService
+@inject IDeviceMonitorService DeviceMonitor
+@inject IDialogService DialogService
+@inject IAlertService AlertService
+@inject IPlatformService Platform
+@inject IProfilingSessionRunner PipelineRunner
+@inject IProfilingSessionStorageService SessionStorage
+@inject IProfilingArtifactConverterService ArtifactConverter
+@inject IJSRuntime JS
+@implements IDisposable
+
+@{
+    var bridge = BridgeHolder.Current;
+}
+
+@if (bridge != null)
+{
+    <div class="form-content">
+        @if (catalog is null)
+        {
+            <div class="loading-state">
+                <i class="fas fa-spinner fa-spin"></i>
+                <span>Loading profiling catalog...</span>
+            </div>
+        }
+        else
+        {
+            <!-- Step Indicator -->
+            <div class="step-indicator">
+                @for (int i = 0; i < WizardStepLabels.Length; i++)
+                {
+                    var stepIndex = i;
+                    var label = WizardStepLabels[i];
+                    <div class="step @(currentStep >= stepIndex ? "active" : "") @(currentStep > stepIndex ? "completed" : "")">
+                        <div class="step-number">@(currentStep > stepIndex ? "✓" : (stepIndex + 1).ToString())</div>
+                        <div class="step-label">@label</div>
+                    </div>
+                    @if (i < WizardStepLabels.Length - 1)
+                    {
+                        <div class="step-line @(currentStep > stepIndex ? "active" : "")"></div>
+                    }
+                }
+            </div>
+
+            <div class="dialog-body">
+                @if (currentStep == 0)
+                {
+                    <section class="panel">
+                        <div class="panel-header">
+                            <span><i class="fas fa-sliders"></i> Session setup</span>
+                        </div>
+                        <div class="panel-body form-grid">
+                            <div class="field-group field-span-2">
+                                <label>Project</label>
+                                <div class="input-row">
+                                    <input type="text" value="@projectPath" placeholder="Choose a .csproj for launch profiling" readonly />
+                                    <button class="btn btn-secondary" @onclick="BrowseProjectAsync">
+                                        <i class="fas fa-folder-open"></i> Browse
+                                    </button>
+                                </div>
+                                <div class="field-help">
+                                    Launch planning needs a project path. Connect-to-running-app flows can omit it if you provide a process id.
+                                </div>
+                            </div>
+
+                            <div class="field-group">
+                                <label>Platform</label>
+                                <select @bind="selectedPlatform" @bind:after="OnPlatformChangedAsync">
+                                    @foreach (var platformOption in catalog.Platforms)
+                                    {
+                                        <option value="@platformOption.Platform">@platformOption.DisplayName</option>
+                                    }
+                                </select>
+                            </div>
+
+                            <div class="field-group">
+                                <label>Scenario</label>
+                                <select @bind="selectedScenario" @bind:after="OnScenarioChangedAsync">
+                                    @foreach (var scenario in catalog.Scenarios)
+                                    {
+                                        <option value="@scenario.Kind">@scenario.DisplayName</option>
+                                    }
+                                </select>
+                            </div>
+
+                            <div class="field-group">
+                                <label>Launch mode</label>
+                                <select @bind="launchMode" @bind:after="OnLaunchModeChangedAsync">
+                                    <option value="@ProfilingCaptureLaunchMode.Launch">Launch target app</option>
+                                    <option value="@ProfilingCaptureLaunchMode.Attach">Connect to running app</option>
+                                </select>
+                            </div>
+
+                            <div class="field-group">
+                                <label>Configuration</label>
+                                <select @bind="configuration">
+                                    <option value="Release">Release</option>
+                                    <option value="Debug">Debug</option>
+                                </select>
+                            </div>
+
+                            <div class="advanced-toggle" @onclick="() => showAdvanced = !showAdvanced">
+                                <i class="fas @(showAdvanced ? "fa-chevron-up" : "fa-chevron-down")"></i>
+                                <span>Advanced settings</span>
+                            </div>
+                            @if (showAdvanced)
+                            {
+                                <div class="field-group">
+                                    <label>Diagnostic port</label>
+                                    <input type="number" min="1024" max="65535" @bind="diagnosticPort" />
+                                </div>
+
+                                <div class="field-group">
+                                    <label>Target framework override</label>
+                                    <input type="text" @bind="targetFrameworkOverride" placeholder="Optional" />
+                                </div>
+
+                                <div class="field-group">
+                                    <label>Output directory override</label>
+                                    <input type="text" @bind="outputDirectory" placeholder="Defaults to artifacts/profiling/{ProjectName}/{date}-{run}" />
+                                </div>
+
+                                @if (launchMode == ProfilingCaptureLaunchMode.Attach)
+                                {
+                                    <div class="field-group">
+                                        <label>Process id</label>
+                                        <input type="text" @bind="processIdText" placeholder="Optional for desktop attach flows" />
+                                    </div>
+                                }
+
+                                <div class="field-group checkbox-group field-span-2">
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" @bind="suspendAtStartup" />
+                                        Suspend at startup while the diagnostic tools connect
+                                    </label>
+                                </div>
+                            }
+                        </div>
+                    </section>
+                }
+
+                @if (currentStep == 1)
+                {
+                    <section class="panel">
+                        <div class="panel-header">
+                            <span><i class="fas fa-list-check"></i> Capture kinds</span>
+                            <button class="btn btn-link" @onclick="ResetCaptureKindsToScenarioDefaults">
+                                Reset to scenario defaults
+                            </button>
+                        </div>
+                        <div class="panel-body capture-kinds">
+                            @foreach (var captureKind in SupportedCaptureKinds)
+                            {
+                                <label class="capture-kind-chip @(selectedCaptureKinds.Contains(captureKind) ? "selected" : "")">
+                                    <input type="checkbox"
+                                           checked="@selectedCaptureKinds.Contains(captureKind)"
+                                           @onchange="@((ChangeEventArgs e) => OnCaptureKindChanged(captureKind, e))" />
+                                    <span>@GetCaptureKindDisplayName(captureKind)</span>
+                                </label>
+                            }
+                        </div>
+                    </section>
+                }
+
+                @if (currentStep == 2)
+                {
+                    <section class="panel">
+                        <div class="panel-header">
+                            <span><i class="fas fa-bullseye"></i> Targets</span>
+                            <button class="btn btn-secondary btn-sm" @onclick="@(() => RefreshTargetsAsync(forceRefresh: true))" disabled="@isRefreshingTargets">
+                                <i class="fas @(isRefreshingTargets ? "fa-spinner fa-spin" : "fa-arrows-rotate")"></i>
+                                Refresh
+                            </button>
+                        </div>
+                        <div class="panel-body">
+                            @if (!string.IsNullOrWhiteSpace(CurrentPlatformNotes))
+                            {
+                                <div class="info-banner">@CurrentPlatformNotes</div>
+                            }
+
+                            @if (CurrentScenarioDefinition is not null)
+                            {
+                                <div class="scenario-summary">
+                                    <div class="scenario-name">@CurrentScenarioDefinition.DisplayName</div>
+                                    <div class="scenario-description">@CurrentScenarioDefinition.Description</div>
+                                    <div class="scenario-meta">
+                                        Suggested duration: @CurrentScenarioDefinition.SuggestedDuration.ToString(@"hh\:mm\:ss")
+                                    </div>
+                                </div>
+                            }
+
+                            @if (TargetOptions.Count == 0)
+                            {
+                                <div class="empty-state compact">
+                                    <i class="fas fa-plug-circle-xmark"></i>
+                                    <div>No targets are currently selectable for @GetPlatformDisplayName(selectedPlatform).</div>
+                                    @if (selectedPlatform == ProfilingTargetPlatform.Android && knownAndroidEmulatorCount > 0)
+                                    {
+                                        <div class="empty-hint">You have @knownAndroidEmulatorCount Android emulator definition(s). Start one from the Emulators page to profile it here.</div>
+                                    }
+                                    @if (selectedPlatform == ProfilingTargetPlatform.iOS && knownAppleSimulatorCount > 0)
+                                    {
+                                        <div class="empty-hint">You have @knownAppleSimulatorCount available Apple simulator(s). Select one after refreshing if it does not appear yet.</div>
+                                    }
+                                    <div class="quick-links">
+                                        <a href="devices">Android Devices</a>
+                                        <a href="emulators">Android Emulators</a>
+                                        <a href="apple-simulators">Apple Devices & Simulators</a>
+                                    </div>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="target-list">
+                                    @foreach (var option in TargetOptions)
+                                    {
+                                        <label class="target-card @(selectedTargetKey == option.Key ? "selected" : "")">
+                                            <input type="radio" name="profiling-target" value="@option.Key" checked="@(selectedTargetKey == option.Key)" @onchange="@(() => SelectTarget(option.Key))" />
+                                            <div class="target-main">
+                                                <div class="target-title">
+                                                    <span>@option.DisplayName</span>
+                                                    <span class="badge">@option.KindLabel</span>
+                                                </div>
+                                                <div class="target-subtitle">@option.Subtitle</div>
+                                                <div class="target-meta">
+                                                    <span>@option.Identifier</span>
+                                                    @if (option.IsAvailable)
+                                                    {
+                                                        <span class="status-ok">Available now</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="status-warning">Not connected</span>
+                                                    }
+                                                    @if (!string.IsNullOrWhiteSpace(option.ExtraHint))
+                                                    {
+                                                        <span>@option.ExtraHint</span>
+                                                    }
+                                                </div>
+                                            </div>
+                                        </label>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </section>
+                }
+
+                @if (currentStep == 3)
+                {
+                    @if (isCheckingPrerequisites || isPlanningCapture)
+                    {
+                        <div class="loading-state">
+                            <i class="fas fa-spinner fa-spin"></i>
+                            <span>
+                                @if (isCheckingPrerequisites)
+                                {
+                                    @:Checking prerequisites...
+                                }
+                                else
+                                {
+                                    @:Generating capture plan...
+                                }
+                            </span>
+                        </div>
+                    }
+
+                    @if (prerequisiteReport is not null)
+                    {
+                        <section class="panel">
+                            <div class="panel-header">
+                                <span><i class="fas fa-stethoscope"></i> Prerequisites</span>
+                                <div class="summary-badges">
+                                    <span class="badge badge-neutral">@prerequisiteReport.OkCount ok</span>
+                                    <span class="badge badge-warning">@prerequisiteReport.WarningCount warning</span>
+                                    <span class="badge badge-error">@prerequisiteReport.ErrorCount error</span>
+                                </div>
+                            </div>
+                            <div class="panel-body">
+                                <div class="prereq-grid">
+                                    @foreach (var check in prerequisiteReport.Checks)
+                                    {
+                                        <div class="prereq-card">
+                                            <div class="prereq-header">
+                                                <span>@check.Name</span>
+                                                <span class="status-pill @GetDependencyCss(check.Status)">@check.Status</span>
+                                            </div>
+                                            <div class="prereq-detail">@check.Message</div>
+                                            <div class="prereq-meta">
+                                                <span>@check.Kind</span>
+                                                @if (!string.IsNullOrWhiteSpace(check.InstalledVersion))
+                                                {
+                                                    <span>Installed: @check.InstalledVersion</span>
+                                                }
+                                                @if (!string.IsNullOrWhiteSpace(check.RequiredVersion))
+                                                {
+                                                    <span>Required: @check.RequiredVersion</span>
+                                                }
+                                            </div>
+                                            @if (!string.IsNullOrWhiteSpace(check.SuggestedCommand))
+                                            {
+                                                <code class="inline-code">@check.SuggestedCommand</code>
+                                            }
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        </section>
+                    }
+
+                    @if (capturePlan is not null)
+                    {
+                        <section class="panel">
+                            <div class="panel-header">
+                                <span><i class="fas fa-diagram-project"></i> Capture plan</span>
+                                <div class="summary-badges">
+                                    <span class="badge @(capturePlan.Validation.IsValid ? "badge-success" : "badge-error")">
+                                        @(capturePlan.Validation.IsValid ? "Valid" : "Needs attention")
+                                    </span>
+                                    <span class="badge @(capturePlan.CanExecute ? "badge-success" : "badge-neutral")">
+                                        @(capturePlan.CanExecute ? "Executable" : "Preview only")
+                                    </span>
+                                </div>
+                            </div>
+                            <div class="panel-body plan-body">
+                                <div class="plan-summary-grid">
+                                    <div class="summary-card">
+                                        <div class="summary-label">Target framework</div>
+                                        <div class="summary-value">@capturePlan.TargetFramework</div>
+                                    </div>
+                                    <div class="summary-card">
+                                        <div class="summary-label">Output directory</div>
+                                        <div class="summary-value">@capturePlan.OutputDirectory</div>
+                                    </div>
+                                    <div class="summary-card">
+                                        <div class="summary-label">Command steps</div>
+                                        <div class="summary-value">@capturePlan.Commands.Count</div>
+                                    </div>
+                                    <div class="summary-card">
+                                        <div class="summary-label">Artifacts</div>
+                                        <div class="summary-value">@capturePlan.ExpectedArtifacts.Count</div>
+                                    </div>
+                                </div>
+
+                                @if (capturePlan.Validation.Errors.Count > 0)
+                                {
+                                    <div class="validation-block errors">
+                                        <div class="validation-title">Errors</div>
+                                        <ul>
+                                            @foreach (var error in capturePlan.Validation.Errors)
+                                            {
+                                                <li>@error</li>
+                                            }
+                                        </ul>
+                                    </div>
+                                }
+
+                                @if (capturePlan.Validation.Warnings.Count > 0)
+                                {
+                                    <div class="validation-block warnings">
+                                        <div class="validation-title">Warnings</div>
+                                        <ul>
+                                            @foreach (var warning in capturePlan.Validation.Warnings)
+                                            {
+                                                <li>@warning</li>
+                                            }
+                                        </ul>
+                                    </div>
+                                }
+
+                                @if (capturePlan.RuntimeBindings.Count > 0)
+                                {
+                                    <div class="validation-block info">
+                                        <div class="validation-title">Runtime bindings</div>
+                                        <ul>
+                                            @foreach (var binding in capturePlan.RuntimeBindings)
+                                            {
+                                                <li>
+                                                    <code>@binding.Token</code> — @binding.Description
+                                                    @if (!string.IsNullOrWhiteSpace(binding.ExampleValue))
+                                                    {
+                                                        <span>(example: @binding.ExampleValue)</span>
+                                                    }
+                                                </li>
+                                            }
+                                        </ul>
+                                    </div>
+                                }
+
+                                <div class="plan-section-title">Commands</div>
+                                <div class="command-list">
+                                    @foreach (var step in capturePlan.Commands)
+                                    {
+                                        <div class="command-card">
+                                            <div class="command-header">
+                                                <div>
+                                                    <div class="command-title">@step.DisplayName</div>
+                                                    <div class="command-description">@step.Description</div>
+                                                </div>
+                                                <div class="command-badges">
+                                                    <span class="badge badge-neutral">@step.Kind</span>
+                                                    @if (step.IsLongRunning)
+                                                    {
+                                                        <span class="badge badge-warning">Long-running</span>
+                                                    }
+                                                    @if (step.RequiresManualStop)
+                                                    {
+                                                        <span class="badge badge-warning">Manual stop</span>
+                                                    }
+                                                </div>
+                                            </div>
+                                            <code class="command-line">@BuildCommandLine(step)</code>
+                                            @if (step.DependsOn?.Count > 0 || step.RequiredRuntimeBindings?.Count > 0)
+                                            {
+                                                <div class="command-meta">
+                                                    @if (step.DependsOn?.Count > 0)
+                                                    {
+                                                        <span>Depends on: @string.Join(", ", step.DependsOn)</span>
+                                                    }
+                                                    @if (step.RequiredRuntimeBindings?.Count > 0)
+                                                    {
+                                                        <span>Needs: @string.Join(", ", step.RequiredRuntimeBindings)</span>
+                                                    }
+                                                </div>
+                                            }
+                                            <div class="command-actions">
+                                                <button class="btn btn-secondary btn-sm" @onclick="@(() => CopyCommandAsync(step))">
+                                                    <i class="fas fa-copy"></i> Copy
+                                                </button>
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+
+                                <div class="plan-section-title">Expected artifacts</div>
+                                <div class="artifact-list">
+                                    @foreach (var artifact in capturePlan.ExpectedArtifacts)
+                                    {
+                                        <div class="artifact-card">
+                                            <div class="artifact-name">@artifact.DisplayName</div>
+                                            <div class="artifact-path">@artifact.RelativePath</div>
+                                            <div class="artifact-meta">@artifact.Kind · @artifact.ContentType</div>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        </section>
+                    }
+                }
+
+                @if (currentStep == 4)
+                {
+                    <section class="panel">
+                        <div class="panel-header">
+                            <span><i class="fas fa-circle-play"></i> Capture</span>
+                            <div class="panel-header-actions">
+                                @if (pipelineState is ProfilingPipelineState.Running or ProfilingPipelineState.WaitingForStop)
+                                {
+                                    <span class="pipeline-elapsed"><i class="fas fa-clock"></i> @FormatElapsed(pipelineElapsed)</span>
+                                }
+                            </div>
+                        </div>
+                        <div class="panel-body">
+                            @if (pipelineState == ProfilingPipelineState.NotStarted)
+                            {
+                                <div class="empty-state">
+                                    <i class="fas fa-spinner fa-spin fa-2x"></i>
+                                    <div>Starting capture pipeline...</div>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="pipeline-status-banner pipeline-status-@(pipelineState.ToString().ToLowerInvariant())">
+                                    <i class="fas @GetPipelineStateIcon()"></i>
+                                    <span>@GetPipelineStateText()</span>
+                                </div>
+
+                                <div class="pipeline-steps">
+                                    @foreach (var stepStatus in PipelineRunner.Steps)
+                                    {
+                                        <div class="pipeline-step-card pipeline-step-@(stepStatus.State.ToString().ToLowerInvariant())">
+                                            <div class="pipeline-step-header" @onclick="() => ToggleStepLog(stepStatus.StepId)">
+                                                <div class="pipeline-step-icon">
+                                                    @switch (stepStatus.State)
+                                                    {
+                                                        case ProfilingStepState.Running:
+                                                            <i class="fas fa-spinner fa-spin"></i>
+                                                            break;
+                                                        case ProfilingStepState.Completed:
+                                                            <i class="fas fa-check-circle text-success"></i>
+                                                            break;
+                                                        case ProfilingStepState.Failed:
+                                                            <i class="fas fa-times-circle text-danger"></i>
+                                                            break;
+                                                        case ProfilingStepState.Stopped:
+                                                            <i class="fas fa-stop-circle text-warning"></i>
+                                                            break;
+                                                        case ProfilingStepState.Skipped:
+                                                            <i class="fas fa-forward text-muted"></i>
+                                                            break;
+                                                        case ProfilingStepState.Cancelled:
+                                                            <i class="fas fa-ban text-muted"></i>
+                                                            break;
+                                                        default:
+                                                            <i class="fas fa-circle text-muted"></i>
+                                                            break;
+                                                    }
+                                                </div>
+                                                <div class="pipeline-step-info">
+                                                    <div class="pipeline-step-name">@stepStatus.DisplayName</div>
+                                                    <div class="pipeline-step-meta">
+                                                        <span class="badge badge-neutral">@stepStatus.Kind</span>
+                                                        @if (stepStatus.IsLongRunning)
+                                                        {
+                                                            <span class="badge badge-warning">Long-running</span>
+                                                        }
+                                                        @if (stepStatus.Duration.HasValue)
+                                                        {
+                                                            <span class="pipeline-step-duration">@FormatElapsed(stepStatus.Duration.Value)</span>
+                                                        }
+                                                        else if (stepStatus.State == ProfilingStepState.Running && stepStatus.StartedAt.HasValue)
+                                                        {
+                                                            <span class="pipeline-step-duration">@FormatElapsed(DateTime.Now - stepStatus.StartedAt.Value)</span>
+                                                        }
+                                                    </div>
+                                                </div>
+                                                <div class="pipeline-step-expand">
+                                                    <i class="fas @(expandedStepLogs.Contains(stepStatus.StepId) ? "fa-chevron-up" : "fa-chevron-down")"></i>
+                                                </div>
+                                            </div>
+                                            @if (stepStatus.ErrorMessage is not null && stepStatus.State == ProfilingStepState.Failed)
+                                            {
+                                                <div class="pipeline-step-error">
+                                                    <i class="fas fa-exclamation-triangle"></i> @stepStatus.ErrorMessage
+                                                </div>
+                                            }
+                                            @if (expandedStepLogs.Contains(stepStatus.StepId))
+                                            {
+                                                <div id="step-log-@stepStatus.StepId" class="pipeline-step-log">
+                                                    @if (stepStatus.OutputLines.Count == 0)
+                                                    {
+                                                        <div class="pipeline-log-empty">No output yet</div>
+                                                    }
+                                                    else
+                                                    {
+                                                        @foreach (var line in stepStatus.OutputLines.TakeLast(200))
+                                                        {
+                                                            <div class="pipeline-log-line @(line.IsError ? "error" : "")">@line.Text</div>
+                                                        }
+                                                    }
+                                                </div>
+                                            }
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </section>
+
+                    @if (pipelineState is ProfilingPipelineState.Running or ProfilingPipelineState.WaitingForStop)
+                    {
+                        <div class="pipeline-actions">
+                            @if (pipelineState == ProfilingPipelineState.Running)
+                            {
+                                <div class="pipeline-waiting-hint">
+                                    <i class="fas fa-spinner fa-spin"></i>
+                                    Launching capture pipeline...
+                                </div>
+                            }
+                            else
+                            {
+                                <button class="btn btn-warning" @onclick="HandleStopCapture">
+                                    <i class="fas fa-stop"></i> Stop Capture
+                                </button>
+                            }
+                            <button class="btn btn-secondary" @onclick="HandleCancelPipeline">
+                                <i class="fas fa-times"></i> Cancel
+                            </button>
+                        </div>
+                    }
+                }
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private ProfilingCatalog? catalog;
+    private ConnectedDevicesSnapshot snapshot = ConnectedDevicesSnapshot.Empty;
+    private List<AvdInfo> androidEmulators = new();
+    private List<SimulatorDevice> appleSimulators = new();
+    private List<TargetOption> targetOptions = new();
+    private HashSet<ProfilingCaptureKind> selectedCaptureKinds = new();
+    private ProfilingPrerequisiteReport? prerequisiteReport;
+    private ProfilingCapturePlan? capturePlan;
+    private string? selectedTargetKey;
+    private string? projectPath;
+    private string? targetFrameworkOverride;
+    private string? outputDirectory;
+    private string? processIdText;
+    private string configuration = "Release";
+    private int diagnosticPort = 9000;
+    private bool suspendAtStartup = true;
+    private bool isRefreshingTargets;
+    private bool isCheckingPrerequisites;
+    private bool isPlanningCapture;
+    private int knownAndroidEmulatorCount;
+    private int knownAppleSimulatorCount;
+    private ProfilingTargetPlatform selectedPlatform = ProfilingTargetPlatform.Android;
+    private ProfilingScenarioKind selectedScenario = ProfilingScenarioKind.Launch;
+    private ProfilingCaptureLaunchMode launchMode = ProfilingCaptureLaunchMode.Launch;
+
+    private int currentStep = 0;
+    private bool showAdvanced = false;
+
+    // Pipeline state
+    private ProfilingPipelineState pipelineState = ProfilingPipelineState.NotStarted;
+    private ProfilingPipelineResult? pipelineResult;
+    private TimeSpan pipelineElapsed;
+    private System.Threading.Timer? pipelineTimer;
+    private DateTime pipelineStartTime;
+    private HashSet<string> expandedStepLogs = new();
+
+    private string? activeSessionId;
+
+    private static readonly string[] WizardStepLabels = new[]
+    {
+        "Session Setup",
+        "Capture Kinds",
+        "Target",
+        "Review & Plan",
+        "Capture"
+    };
+
+    private bool CanProceedToNext => currentStep switch
+    {
+        0 => launchMode == ProfilingCaptureLaunchMode.Attach || !string.IsNullOrWhiteSpace(projectPath),
+        1 => selectedCaptureKinds.Count > 0,
+        2 => SelectedTarget is not null,
+        3 => capturePlan is not null && capturePlan.Validation.IsValid,
+        _ => false
+    };
+
+    private IReadOnlyList<TargetOption> TargetOptions => targetOptions;
+    private TargetOption? SelectedTarget => targetOptions.FirstOrDefault(option => option.Key == selectedTargetKey);
+    private ProfilingPlatformCapabilities? CurrentPlatformCapabilities => catalog?.Platforms.FirstOrDefault(platform => platform.Platform == selectedPlatform);
+    private ProfilingScenarioDefinition? CurrentScenarioDefinition => catalog?.Scenarios.FirstOrDefault(scenario => scenario.Kind == selectedScenario);
+    private IReadOnlyList<ProfilingCaptureKind> SupportedCaptureKinds => CurrentPlatformCapabilities?.SupportedCaptureKinds ?? Array.Empty<ProfilingCaptureKind>();
+    private string? CurrentPlatformNotes => CurrentPlatformCapabilities?.Notes;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var bridge = BridgeHolder.Current;
+        if (bridge == null) return;
+
+        bridge.SubmitRequested += OnSubmitRequested;
+        bridge.BackRequested += OnBackRequested;
+        bridge.NextRequested += OnNextRequested;
+
+        DeviceMonitor.Changed += OnDeviceMonitorChanged;
+
+        catalog = await ProfilingCatalogService.GetCatalogAsync();
+        selectedPlatform = catalog.Platforms.FirstOrDefault(platform => platform.Platform == ProfilingTargetPlatform.Android)?.Platform
+            ?? catalog.Platforms.First().Platform;
+        selectedScenario = catalog.Scenarios.FirstOrDefault(scenario => scenario.Kind == ProfilingScenarioKind.Launch)?.Kind
+            ?? catalog.Scenarios.First().Kind;
+        ResetCaptureKindsToScenarioDefaults();
+
+        await RefreshTargetsAsync();
+        UpdateWizardState();
+    }
+
+    private void UpdateWizardState()
+    {
+        var bridge = BridgeHolder.Current;
+        if (bridge == null) return;
+
+        var isCapturing = currentStep == 4 && pipelineState is ProfilingPipelineState.Running or ProfilingPipelineState.WaitingForStop or ProfilingPipelineState.Completing;
+
+        bridge.SetWizardState(
+            showBack: currentStep > 0 && currentStep != 4,
+            showNext: currentStep < 3,
+            showSubmit: currentStep == 3,
+            canProceed: CanProceedToNext && !isCapturing,
+            submitText: "Start Capture"
+        );
+    }
+
+    private async Task OnNextRequested()
+    {
+        if (!CanProceedToNext) return;
+
+        if (currentStep == 2)
+        {
+            currentStep = 3;
+            await InvokeAsync(StateHasChanged);
+            await CheckPrerequisitesAsync();
+            if (SelectedTarget is not null)
+                await GeneratePlanAsync();
+        }
+        else
+        {
+            currentStep = Math.Min(currentStep + 1, 4);
+        }
+
+        UpdateWizardState();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private Task OnBackRequested()
+    {
+        if (currentStep > 0 && currentStep != 4)
+        {
+            currentStep--;
+            UpdateWizardState();
+            InvokeAsync(StateHasChanged);
+        }
+        return Task.CompletedTask;
+    }
+
+    private async Task OnSubmitRequested()
+    {
+        if (currentStep == 3 && CanProceedToNext)
+        {
+            // Start Capture — advance to step 4 and run the pipeline
+            currentStep = 4;
+            UpdateWizardState();
+            await InvokeAsync(StateHasChanged);
+            await StartPipelineAsync();
+        }
+    }
+
+    private void OnDeviceMonitorChanged(ConnectedDevicesSnapshot updatedSnapshot)
+    {
+        snapshot = updatedSnapshot;
+        BuildTargetOptions();
+        InvokeAsync(StateHasChanged);
+    }
+
+    private async Task RefreshTargetsAsync(bool forceRefresh = false)
+    {
+        isRefreshingTargets = true;
+        StateHasChanged();
+
+        try
+        {
+            if (forceRefresh)
+            {
+                await Mediator.FlushStores("android:emulators");
+                await Mediator.FlushStores("apple:simulators");
+            }
+
+            var emuTask = Mediator.Request(new GetEmulatorsRequest());
+            var simTask = Mediator.Request(new GetSimulatorsRequest());
+
+            await Task.WhenAll(emuTask, simTask);
+
+            var (_, emuResult) = await emuTask;
+            androidEmulators = emuResult?.ToList() ?? new();
+            knownAndroidEmulatorCount = androidEmulators.Count;
+
+            var (_, simResult) = await simTask;
+            appleSimulators = simResult?.Where(simulator => simulator.IsAvailable).ToList() ?? new();
+            knownAppleSimulatorCount = appleSimulators.Count;
+
+            snapshot = DeviceMonitor.Current;
+            BuildTargetOptions();
+        }
+        catch (Exception ex)
+        {
+            await AlertService.ShowToastAsync($"Error refreshing profiling targets: {ex.Message}");
+        }
+        finally
+        {
+            isRefreshingTargets = false;
+            StateHasChanged();
+        }
+    }
+
+    private Task OnPlatformChangedAsync()
+    {
+        ResetCaptureKindsToScenarioDefaults();
+        BuildTargetOptions();
+        prerequisiteReport = null;
+        capturePlan = null;
+        UpdateWizardState();
+        return Task.CompletedTask;
+    }
+
+    private Task OnScenarioChangedAsync()
+    {
+        ResetCaptureKindsToScenarioDefaults();
+        prerequisiteReport = null;
+        capturePlan = null;
+        UpdateWizardState();
+        return Task.CompletedTask;
+    }
+
+    private Task OnLaunchModeChangedAsync()
+    {
+        capturePlan = null;
+        UpdateWizardState();
+        return Task.CompletedTask;
+    }
+
+    private void ResetCaptureKindsToScenarioDefaults()
+    {
+        var defaults = CurrentScenarioDefinition?.DefaultCaptureKinds
+            .Where(kind => SupportedCaptureKinds.Contains(kind))
+            .ToArray();
+
+        selectedCaptureKinds = defaults is { Length: > 0 }
+            ? defaults.ToHashSet()
+            : SupportedCaptureKinds.ToHashSet();
+    }
+
+    private void SelectTarget(string key)
+    {
+        selectedTargetKey = key;
+        capturePlan = null;
+    }
+
+    private void OnCaptureKindChanged(ProfilingCaptureKind kind, ChangeEventArgs args)
+    {
+        var isSelected = args.Value as bool? == true;
+        if (isSelected)
+            selectedCaptureKinds.Add(kind);
+        else if (selectedCaptureKinds.Count > 1)
+            selectedCaptureKinds.Remove(kind);
+
+        capturePlan = null;
+    }
+
+    private async Task BrowseProjectAsync()
+    {
+        var selectedPath = await DialogService.PickOpenFileAsync("Select project", new[] { ".csproj" });
+        if (!string.IsNullOrWhiteSpace(selectedPath))
+        {
+            projectPath = selectedPath;
+            capturePlan = null;
+            UpdateWizardState();
+            StateHasChanged();
+        }
+    }
+
+    private async Task CheckPrerequisitesAsync()
+    {
+        isCheckingPrerequisites = true;
+        StateHasChanged();
+
+        try
+        {
+            var captureKinds = GetSelectedCaptureKinds();
+            var (_, report) = await Mediator.Request(new GetProfilingPrerequisitesRequest(selectedPlatform, captureKinds));
+            prerequisiteReport = report;
+        }
+        catch (Exception ex)
+        {
+            await AlertService.ShowToastAsync($"Unable to load profiling prerequisites: {ex.Message}");
+        }
+        finally
+        {
+            isCheckingPrerequisites = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task GeneratePlanAsync()
+    {
+        if (SelectedTarget is null)
+        {
+            await AlertService.ShowToastAsync("Select a profiling target first.");
+            return;
+        }
+
+        isPlanningCapture = true;
+        StateHasChanged();
+
+        try
+        {
+            var definition = ProfilingCatalogService.CreateSessionDefinition(
+                SelectedTarget.ToProfilingTarget(),
+                selectedScenario,
+                captureKinds: GetSelectedCaptureKinds());
+
+            var (_, plan) = await Mediator.Request(new PlanProfilingCaptureRequest(definition, BuildPlanOptions(SelectedTarget)));
+            capturePlan = plan;
+        }
+        catch (Exception ex)
+        {
+            await AlertService.ShowToastAsync($"Unable to generate profiling plan: {ex.Message}");
+        }
+        finally
+        {
+            isPlanningCapture = false;
+            UpdateWizardState();
+            StateHasChanged();
+        }
+    }
+
+    private ProfilingCapturePlanOptions BuildPlanOptions(TargetOption selectedTarget)
+    {
+        var additionalBuildProperties = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        if (selectedTarget.Platform == ProfilingTargetPlatform.Android &&
+            selectedTarget.Kind is ProfilingTargetKind.PhysicalDevice or ProfilingTargetKind.Emulator)
+        {
+            additionalBuildProperties["AdbTarget"] = $"-s {selectedTarget.Identifier}";
+        }
+
+        if (selectedTarget.Platform == ProfilingTargetPlatform.iOS &&
+            selectedTarget.Kind is ProfilingTargetKind.PhysicalDevice or ProfilingTargetKind.Simulator)
+        {
+            additionalBuildProperties["_DeviceName"] = $":v2:udid={selectedTarget.Identifier}";
+        }
+
+        int? processId = null;
+        if (int.TryParse(processIdText, out var parsedProcessId) && parsedProcessId > 0)
+            processId = parsedProcessId;
+
+        return new ProfilingCapturePlanOptions(
+            ProjectPath: string.IsNullOrWhiteSpace(projectPath) ? null : projectPath,
+            Configuration: configuration,
+            TargetFramework: string.IsNullOrWhiteSpace(targetFrameworkOverride) ? null : targetFrameworkOverride,
+            OutputDirectory: string.IsNullOrWhiteSpace(outputDirectory) ? null : outputDirectory,
+            LaunchMode: launchMode,
+            DiagnosticPort: diagnosticPort,
+            SuspendAtStartup: suspendAtStartup,
+            ProcessId: processId,
+            AdditionalBuildProperties: additionalBuildProperties.Count == 0 ? null : additionalBuildProperties);
+    }
+
+    private void BuildTargetOptions()
+    {
+        var options = new List<TargetOption>();
+
+        switch (selectedPlatform)
+        {
+            case ProfilingTargetPlatform.Android:
+                options.AddRange(snapshot.AndroidDevices.Select(device => new TargetOption(
+                    Key: $"android-device:{device.Serial}",
+                    Platform: ProfilingTargetPlatform.Android,
+                    Kind: ProfilingTargetKind.PhysicalDevice,
+                    Identifier: device.Serial,
+                    DisplayName: device.Model ?? device.Serial,
+                    Subtitle: "Connected Android device",
+                    KindLabel: "Device",
+                    IsAvailable: true,
+                    ExtraHint: device.State)));
+
+                options.AddRange(snapshot.AndroidEmulators.Select(device => new TargetOption(
+                    Key: $"android-emulator:{device.Serial}",
+                    Platform: ProfilingTargetPlatform.Android,
+                    Kind: ProfilingTargetKind.Emulator,
+                    Identifier: device.Serial,
+                    DisplayName: device.Model ?? device.Serial,
+                    Subtitle: "Running Android emulator",
+                    KindLabel: "Emulator",
+                    IsAvailable: true,
+                    ExtraHint: device.State)));
+                break;
+
+            case ProfilingTargetPlatform.iOS:
+                options.AddRange(snapshot.ApplePhysicalDevices.Select(device => new TargetOption(
+                    Key: $"ios-device:{device.Identifier}",
+                    Platform: ProfilingTargetPlatform.iOS,
+                    Kind: ProfilingTargetKind.PhysicalDevice,
+                    Identifier: device.Identifier,
+                    DisplayName: device.Name,
+                    Subtitle: $"{device.ModelName} · iOS {device.OsVersion}",
+                    KindLabel: "Device",
+                    IsAvailable: device.IsAvailable,
+                    ExtraHint: device.Interface)));
+
+                options.AddRange(appleSimulators.Select(simulator => new TargetOption(
+                    Key: $"ios-simulator:{simulator.Udid}",
+                    Platform: ProfilingTargetPlatform.iOS,
+                    Kind: ProfilingTargetKind.Simulator,
+                    Identifier: simulator.Udid,
+                    DisplayName: simulator.Name,
+                    Subtitle: $"{simulator.Runtime ?? "Unknown runtime"} · {simulator.ProductFamily ?? "Simulator"}",
+                    KindLabel: "Simulator",
+                    IsAvailable: string.Equals(simulator.State, "Booted", StringComparison.OrdinalIgnoreCase),
+                    ExtraHint: simulator.State)));
+                break;
+
+            case ProfilingTargetPlatform.MacCatalyst:
+                if (Platform.IsMacCatalyst || Platform.IsMacOS)
+                {
+                    options.Add(new TargetOption(
+                        Key: "desktop:maccatalyst",
+                        Platform: ProfilingTargetPlatform.MacCatalyst,
+                        Kind: ProfilingTargetKind.Desktop,
+                        Identifier: "local-maccatalyst",
+                        DisplayName: "This Mac",
+                        Subtitle: "Local Mac Catalyst target",
+                        KindLabel: "Desktop",
+                        IsAvailable: true));
+                }
+                break;
+
+            case ProfilingTargetPlatform.MacOS:
+                if (Platform.IsMacOS)
+                {
+                    options.Add(new TargetOption(
+                        Key: "desktop:macos",
+                        Platform: ProfilingTargetPlatform.MacOS,
+                        Kind: ProfilingTargetKind.Desktop,
+                        Identifier: "local-macos",
+                        DisplayName: "This Mac",
+                        Subtitle: "Local macOS target",
+                        KindLabel: "Desktop",
+                        IsAvailable: true));
+                }
+                break;
+
+            case ProfilingTargetPlatform.Windows:
+                if (Platform.IsWindows)
+                {
+                    options.Add(new TargetOption(
+                        Key: "desktop:windows",
+                        Platform: ProfilingTargetPlatform.Windows,
+                        Kind: ProfilingTargetKind.Desktop,
+                        Identifier: "local-windows",
+                        DisplayName: "This PC",
+                        Subtitle: "Local Windows target",
+                        KindLabel: "Desktop",
+                        IsAvailable: true));
+                }
+                break;
+        }
+
+        targetOptions = options;
+        if (selectedTargetKey is null || targetOptions.All(option => option.Key != selectedTargetKey))
+            selectedTargetKey = targetOptions.FirstOrDefault()?.Key;
+    }
+
+    private IReadOnlyList<ProfilingCaptureKind> GetSelectedCaptureKinds()
+        => selectedCaptureKinds.Count > 0
+            ? selectedCaptureKinds.OrderBy(kind => kind).ToArray()
+            : SupportedCaptureKinds;
+
+    private async Task StartPipelineAsync()
+    {
+        if (capturePlan is null) return;
+
+        var projectName = projectPath is not null
+            ? Path.GetFileNameWithoutExtension(projectPath)
+            : null;
+        activeSessionId = SessionStorage.GenerateSessionId(projectName);
+        var sessionDir = SessionStorage.GetSessionDirectoryPath(activeSessionId);
+
+        capturePlan = capturePlan with { OutputDirectory = sessionDir };
+
+        pipelineState = ProfilingPipelineState.NotStarted;
+        pipelineResult = null;
+        expandedStepLogs.Clear();
+        pipelineStartTime = DateTime.Now;
+        StateHasChanged();
+
+        PipelineRunner.PipelineStateChanged += OnPipelineStateChanged;
+        PipelineRunner.StepStateChanged += OnStepStateChanged;
+        PipelineRunner.StepOutputReceived += OnStepOutputReceived;
+
+        pipelineTimer = new System.Threading.Timer(_ =>
+        {
+            pipelineElapsed = DateTime.Now - pipelineStartTime;
+            InvokeAsync(() =>
+            {
+                UpdateWizardState();
+                StateHasChanged();
+            });
+        }, null, TimeSpan.Zero, TimeSpan.FromSeconds(1));
+
+        try
+        {
+            pipelineResult = await PipelineRunner.RunAsync(capturePlan);
+            pipelineState = pipelineResult.FinalState;
+
+            // Save session and set bridge result
+            var manifest = await SaveSessionAsync();
+            if (manifest is not null)
+            {
+                var bridge = BridgeHolder.Current;
+                if (bridge != null)
+                    bridge.Result = manifest;
+            }
+        }
+        catch (Exception ex)
+        {
+            pipelineState = ProfilingPipelineState.Failed;
+            await AlertService.ShowToastAsync($"Pipeline failed: {ex.Message}");
+        }
+        finally
+        {
+            pipelineTimer?.Dispose();
+            pipelineTimer = null;
+            PipelineRunner.PipelineStateChanged -= OnPipelineStateChanged;
+            PipelineRunner.StepStateChanged -= OnStepStateChanged;
+            PipelineRunner.StepOutputReceived -= OnStepOutputReceived;
+            UpdateWizardState();
+            StateHasChanged();
+        }
+    }
+
+    private async Task<ProfilingSessionManifest?> SaveSessionAsync()
+    {
+        if (pipelineResult is null || capturePlan is null) return null;
+
+        try
+        {
+            var projectName = projectPath is not null
+                ? Path.GetFileNameWithoutExtension(projectPath)
+                : null;
+            var sessionId = activeSessionId ?? SessionStorage.GenerateSessionId(projectName);
+            activeSessionId = sessionId;
+
+            var target = SelectedTarget;
+            var manifest = new ProfilingSessionManifest
+            {
+                Id = sessionId,
+                Name = $"{projectName ?? "Session"} — {selectedPlatform} {target?.DisplayName ?? "Unknown"}",
+                Status = pipelineResult.Success ? ProfilingSessionStatus.Completed
+                    : (pipelineState == ProfilingPipelineState.Cancelled ? ProfilingSessionStatus.Cancelled
+                    : ProfilingSessionStatus.Failed),
+                CreatedAt = pipelineStartTime,
+                CompletedAt = DateTimeOffset.UtcNow,
+                Target = new ProfilingSessionTarget
+                {
+                    Platform = selectedPlatform,
+                    Kind = target?.Kind ?? ProfilingTargetKind.Desktop,
+                    Identifier = target?.Identifier ?? "",
+                    DisplayName = target?.DisplayName ?? selectedPlatform.ToString()
+                },
+                Project = projectPath is not null ? new ProfilingSessionProject
+                {
+                    Path = projectPath,
+                    Name = projectName!,
+                    Configuration = configuration,
+                    TargetFramework = targetFrameworkOverride
+                } : null,
+                CaptureKinds = selectedCaptureKinds.ToList(),
+                Options = new ProfilingSessionOptions
+                {
+                    LaunchMode = launchMode,
+                    DiagnosticPort = diagnosticPort,
+                    SuspendAtStartup = suspendAtStartup,
+                    ProcessId = int.TryParse(processIdText, out var pid) ? pid : null,
+                    Scenario = selectedScenario
+                },
+                Pipeline = new ProfilingSessionPipelineSummary
+                {
+                    Success = pipelineResult.Success,
+                    Duration = pipelineResult.TotalDuration,
+                    Steps = pipelineResult.StepResults.Select(step => new ProfilingSessionStepSummary
+                    {
+                        Id = step.StepId,
+                        DisplayName = step.DisplayName,
+                        State = step.State.ToString(),
+                        CommandLine = capturePlan.Commands.FirstOrDefault(c => c.Id == step.StepId)?.CommandLine
+                    }).ToList()
+                },
+                Artifacts = new List<ProfilingSessionArtifact>()
+            };
+
+            var sessionDir = SessionStorage.GetSessionDirectoryPath(sessionId);
+            foreach (var artifactPath in pipelineResult.ArtifactPaths)
+            {
+                var fileName = Path.GetFileName(artifactPath);
+                var extension = GetArtifactExtension(fileName);
+                var kind = extension switch
+                {
+                    ".nettrace" => ProfilingArtifactKind.Trace,
+                    ".speedscope.json" => ProfilingArtifactKind.Export,
+                    ".gcdump" => ProfilingArtifactKind.GcDump,
+                    ".log" => ProfilingArtifactKind.Log,
+                    _ => ProfilingArtifactKind.Other
+                };
+
+                long? size = null;
+                try { if (File.Exists(artifactPath)) size = new FileInfo(artifactPath).Length; } catch { }
+
+                manifest.Artifacts.Add(new ProfilingSessionArtifact
+                {
+                    FileName = fileName,
+                    Kind = kind,
+                    SizeBytes = size
+                });
+            }
+
+            if (Directory.Exists(sessionDir))
+            {
+                foreach (var logFile in Directory.GetFiles(sessionDir, "*.log"))
+                {
+                    var logName = Path.GetFileName(logFile);
+                    if (manifest.Artifacts.Any(a => a.FileName == logName)) continue;
+                    long? size = null;
+                    try { size = new FileInfo(logFile).Length; } catch { }
+                    manifest.Artifacts.Add(new ProfilingSessionArtifact
+                    {
+                        FileName = logName,
+                        Kind = ProfilingArtifactKind.Log,
+                        SizeBytes = size
+                    });
+                }
+            }
+
+            await SessionStorage.SaveSessionAsync(manifest);
+            return manifest;
+        }
+        catch (Exception ex)
+        {
+            await AlertService.ShowToastAsync($"Failed to save session: {ex.Message}");
+            return null;
+        }
+    }
+
+    private void OnPipelineStateChanged(object? sender, ProfilingPipelineStateChangedEventArgs e)
+    {
+        pipelineState = e.NewState;
+        InvokeAsync(() =>
+        {
+            UpdateWizardState();
+            StateHasChanged();
+        });
+    }
+
+    private void OnStepStateChanged(object? sender, ProfilingStepStateChangedEventArgs e)
+    {
+        if (e.NewState == ProfilingStepState.Running)
+        {
+            expandedStepLogs.Add(e.StepId);
+            InvokeAsync(async () =>
+            {
+                StateHasChanged();
+                await Task.Yield();
+                try { await JS.InvokeVoidAsync("logScrollInterop.track", $"step-log-{e.StepId}"); } catch { }
+            });
+            return;
+        }
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void OnStepOutputReceived(object? sender, ProfilingStepOutputEventArgs e)
+    {
+        InvokeAsync(async () =>
+        {
+            StateHasChanged();
+            await Task.Yield();
+            try { await JS.InvokeVoidAsync("logScrollInterop.scrollToBottom", $"step-log-{e.StepId}"); } catch { }
+        });
+    }
+
+    private async Task HandleStopCapture()
+    {
+        await PipelineRunner.StopCaptureAsync();
+    }
+
+    private void HandleCancelPipeline()
+    {
+        PipelineRunner.Cancel();
+        pipelineState = ProfilingPipelineState.Cancelled;
+        currentStep = 3;
+        UpdateWizardState();
+        StateHasChanged();
+    }
+
+    private async void ToggleStepLog(string stepId)
+    {
+        if (!expandedStepLogs.Remove(stepId))
+        {
+            expandedStepLogs.Add(stepId);
+            StateHasChanged();
+            await Task.Yield();
+            try
+            {
+                await JS.InvokeVoidAsync("logScrollInterop.track", $"step-log-{stepId}");
+                await JS.InvokeVoidAsync("logScrollInterop.scrollToBottom", $"step-log-{stepId}");
+            }
+            catch { }
+        }
+        else
+        {
+            try { await JS.InvokeVoidAsync("logScrollInterop.untrack", $"step-log-{stepId}"); } catch { }
+        }
+    }
+
+    private string GetPipelineStateIcon() => pipelineState switch
+    {
+        ProfilingPipelineState.Running => "fa-spinner fa-spin",
+        ProfilingPipelineState.WaitingForStop => "fa-circle-dot fa-beat-fade",
+        ProfilingPipelineState.Completing => "fa-spinner fa-spin",
+        ProfilingPipelineState.Completed => "fa-check-circle",
+        ProfilingPipelineState.Failed => "fa-times-circle",
+        ProfilingPipelineState.Cancelled => "fa-ban",
+        _ => "fa-circle"
+    };
+
+    private string GetPipelineStateText() => pipelineState switch
+    {
+        ProfilingPipelineState.Running => "Launching capture pipeline...",
+        ProfilingPipelineState.WaitingForStop => "Recording — click Stop Capture when ready",
+        ProfilingPipelineState.Completing => "Stopping capture and collecting artifacts...",
+        ProfilingPipelineState.Completed => "Capture completed successfully",
+        ProfilingPipelineState.Failed => "Capture failed — check step details below",
+        ProfilingPipelineState.Cancelled => "Capture cancelled",
+        _ => "Initializing..."
+    };
+
+    private static string FormatElapsed(TimeSpan ts) =>
+        ts.TotalMinutes >= 1 ? $"{(int)ts.TotalMinutes}m {ts.Seconds}s" : $"{ts.Seconds}s";
+
+    private static string GetPlatformDisplayName(ProfilingTargetPlatform platform) => platform switch
+    {
+        ProfilingTargetPlatform.iOS => "iOS",
+        ProfilingTargetPlatform.MacCatalyst => "Mac Catalyst",
+        ProfilingTargetPlatform.MacOS => "macOS",
+        _ => platform.ToString()
+    };
+
+    private static string GetCaptureKindDisplayName(ProfilingCaptureKind captureKind) => captureKind switch
+    {
+        ProfilingCaptureKind.Cpu => "CPU trace",
+        ProfilingCaptureKind.Memory => "Memory / GC dump",
+        ProfilingCaptureKind.Network => "Network",
+        ProfilingCaptureKind.Rendering => "Rendering",
+        ProfilingCaptureKind.Energy => "Energy",
+        ProfilingCaptureKind.SystemTrace => "System trace",
+        ProfilingCaptureKind.Logs => "Logs",
+        ProfilingCaptureKind.Startup => "Startup",
+        _ => captureKind.ToString()
+    };
+
+    private static string GetDependencyCss(DependencyStatusType status) => status switch
+    {
+        DependencyStatusType.Ok => "ok",
+        DependencyStatusType.Info => "ok",
+        DependencyStatusType.Warning => "warning",
+        DependencyStatusType.Error => "error",
+        _ => "neutral"
+    };
+
+    private async Task CopyCommandAsync(ProfilingCommandStep step)
+    {
+        await DialogService.CopyToClipboardAsync(BuildCommandLine(step));
+        await AlertService.ShowToastAsync("Copied command to clipboard.");
+    }
+
+    private string BuildCommandLine(ProfilingCommandStep step)
+    {
+        var resolved = ResolveCommandStep(step);
+        return resolved?.CommandLine ?? step.CommandLine;
+    }
+
+    private ProcessRequest? ResolveCommandStep(ProfilingCommandStep step)
+    {
+        if (step.RequiredRuntimeBindings is not null)
+        {
+            foreach (var binding in step.RequiredRuntimeBindings)
+            {
+                if (!TryResolveRuntimeBinding(binding, out _))
+                    return null;
+            }
+        }
+
+        var resolvedArguments = step.Arguments.Select(ResolveRuntimeTokens).ToArray();
+        var resolvedEnvironment = step.Environment?.ToDictionary(
+            kvp => kvp.Key,
+            kvp => ResolveRuntimeTokens(kvp.Value),
+            StringComparer.OrdinalIgnoreCase);
+
+        return new ProcessRequest(
+            step.Command,
+            resolvedArguments,
+            step.WorkingDirectory,
+            Environment: resolvedEnvironment,
+            Title: step.DisplayName,
+            Description: step.Description);
+    }
+
+    private string ResolveRuntimeTokens(string value)
+    {
+        foreach (var binding in capturePlan?.RuntimeBindings ?? Array.Empty<ProfilingRuntimeBinding>())
+        {
+            if (TryResolveRuntimeBinding(binding.Token, out var resolvedValue))
+                value = value.Replace(binding.Token, resolvedValue, StringComparison.Ordinal);
+        }
+
+        return value;
+    }
+
+    private bool TryResolveRuntimeBinding(string token, out string value)
+    {
+        if (token == "{{PROCESS_ID}}" && int.TryParse(processIdText, out var parsedProcessId) && parsedProcessId > 0)
+        {
+            value = parsedProcessId.ToString();
+            return true;
+        }
+
+        value = string.Empty;
+        return false;
+    }
+
+    private static string GetArtifactExtension(string path)
+    {
+        if (path.EndsWith(".speedscope.json", StringComparison.OrdinalIgnoreCase))
+            return ".speedscope.json";
+        return Path.GetExtension(path).ToLowerInvariant();
+    }
+
+    public void Dispose()
+    {
+        var bridge = BridgeHolder.Current;
+        if (bridge != null)
+        {
+            bridge.SubmitRequested -= OnSubmitRequested;
+            bridge.BackRequested -= OnBackRequested;
+            bridge.NextRequested -= OnNextRequested;
+        }
+
+        DeviceMonitor.Changed -= OnDeviceMonitorChanged;
+        pipelineTimer?.Dispose();
+    }
+
+    private sealed record TargetOption(
+        string Key,
+        ProfilingTargetPlatform Platform,
+        ProfilingTargetKind Kind,
+        string Identifier,
+        string DisplayName,
+        string Subtitle,
+        string KindLabel,
+        bool IsAvailable,
+        string? ExtraHint = null)
+    {
+        public ProfilingTarget ToProfilingTarget() => new(
+            Platform,
+            Kind,
+            Identifier,
+            DisplayName);
+    }
+}
+
+<style>
+    .form-content {
+        padding: 1rem;
+    }
+
+    .step-indicator {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0;
+        margin-bottom: 1.25rem;
+        padding: 0 0.5rem;
+    }
+
+    .step {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.3rem;
+        min-width: 5rem;
+        opacity: 0.4;
+    }
+
+    .step.active,
+    .step.completed {
+        opacity: 1;
+    }
+
+    .step-number {
+        width: 2rem;
+        height: 2rem;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+        font-size: 0.8rem;
+        border: 2px solid var(--border-color);
+        color: var(--text-secondary);
+        background: var(--bg-primary);
+        transition: all 0.2s;
+    }
+
+    .step.active .step-number {
+        border-color: var(--accent-color, #8b5cf6);
+        color: white;
+        background: var(--accent-color, #8b5cf6);
+    }
+
+    .step.completed .step-number {
+        border-color: #22c55e;
+        color: white;
+        background: #22c55e;
+    }
+
+    .step-label {
+        font-size: 0.68rem;
+        font-weight: 600;
+        color: var(--text-secondary);
+        text-align: center;
+        white-space: nowrap;
+    }
+
+    .step.active .step-label {
+        color: var(--text-primary);
+    }
+
+    .step-line {
+        flex: 1;
+        height: 2px;
+        background: var(--border-color);
+        margin: 0 0.25rem;
+        align-self: flex-start;
+        margin-top: 1rem;
+        transition: background 0.2s;
+    }
+
+    .step-line.active {
+        background: #22c55e;
+    }
+
+    .dialog-body {
+        display: grid;
+        gap: 1rem;
+    }
+
+    .loading-state,
+    .empty-state {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.6rem;
+        padding: 2rem 1rem;
+        color: var(--text-secondary);
+        text-align: center;
+    }
+
+    .empty-state.compact {
+        padding: 1.5rem 0.5rem;
+    }
+
+    .empty-hint {
+        color: var(--text-tertiary);
+        font-size: 0.85rem;
+    }
+
+    .quick-links {
+        display: flex;
+        gap: 0.85rem;
+        flex-wrap: wrap;
+        justify-content: center;
+    }
+
+    .panel {
+        background: var(--card-bg, var(--bg-secondary));
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+    }
+
+    .panel-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        padding: 0.85rem 1rem;
+        border-bottom: 1px solid var(--border-color);
+        font-weight: 600;
+        background: color-mix(in srgb, var(--bg-secondary) 92%, transparent);
+    }
+
+    .panel-body {
+        padding: 1rem;
+    }
+
+    .form-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.9rem 1rem;
+    }
+
+    .field-group {
+        display: grid;
+        gap: 0.35rem;
+    }
+
+    .field-span-2 {
+        grid-column: 1 / -1;
+    }
+
+    .field-group label {
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: var(--text-secondary);
+    }
+
+    .field-group input:not([type="checkbox"]),
+    .field-group select {
+        width: 100%;
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        padding: 0.65rem 0.75rem;
+        background: var(--bg-primary);
+        color: var(--text-primary);
+    }
+
+    .field-help {
+        font-size: 0.75rem;
+        color: var(--text-tertiary);
+    }
+
+    .input-row {
+        display: flex;
+        gap: 0.6rem;
+    }
+
+    .input-row input {
+        flex: 1;
+    }
+
+    .checkbox-group {
+        padding-top: 0.2rem;
+    }
+
+    .checkbox-label {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        align-items: start;
+        gap: 0.5rem;
+        font-weight: 500;
+        width: 100%;
+    }
+
+    .checkbox-label input[type="checkbox"] {
+        width: 1rem;
+        height: 1rem;
+        margin: 0.15rem 0 0;
+        padding: 0;
+    }
+
+    .capture-kinds {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+    }
+
+    .capture-kind-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        border: 1px solid var(--border-color);
+        border-radius: 999px;
+        padding: 0.45rem 0.8rem;
+        background: var(--bg-primary);
+        cursor: pointer;
+    }
+
+    .capture-kind-chip.selected {
+        border-color: var(--accent-color, #8b5cf6);
+        color: var(--accent-color, #8b5cf6);
+        background: color-mix(in srgb, var(--accent-color, #8b5cf6) 10%, transparent);
+    }
+
+    .info-banner {
+        padding: 0.75rem 0.9rem;
+        border-radius: 10px;
+        border: 1px solid color-mix(in srgb, var(--border-color) 80%, transparent);
+        background: color-mix(in srgb, var(--bg-primary) 94%, transparent);
+        color: var(--text-secondary);
+        margin-bottom: 0.85rem;
+    }
+
+    .scenario-summary {
+        margin-bottom: 1rem;
+        padding: 0.9rem;
+        border-radius: 10px;
+        background: color-mix(in srgb, var(--bg-primary) 95%, transparent);
+        border: 1px solid color-mix(in srgb, var(--border-color) 75%, transparent);
+    }
+
+    .scenario-name { font-weight: 700; margin-bottom: 0.25rem; }
+    .scenario-description { color: var(--text-secondary); margin-bottom: 0.35rem; }
+    .scenario-meta { font-size: 0.78rem; color: var(--text-tertiary); }
+
+    .target-list { display: grid; gap: 0.75rem; }
+
+    .target-card {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        gap: 0.75rem;
+        align-items: start;
+        border: 1px solid var(--border-color);
+        border-radius: 10px;
+        padding: 0.85rem;
+        cursor: pointer;
+        background: var(--bg-primary);
+    }
+
+    .target-card.selected {
+        border-color: var(--accent-color, #8b5cf6);
+        box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-color, #8b5cf6) 45%, transparent);
+    }
+
+    .target-card input { margin-top: 0.25rem; }
+    .target-title { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; font-weight: 600; }
+    .target-subtitle { color: var(--text-secondary); margin-top: 0.2rem; }
+    .target-meta { display: flex; flex-wrap: wrap; gap: 0.5rem 0.8rem; margin-top: 0.35rem; font-size: 0.78rem; color: var(--text-tertiary); }
+
+    .advanced-toggle {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.5rem 0;
+        cursor: pointer;
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+        font-weight: 600;
+        grid-column: 1 / -1;
+    }
+
+    .advanced-toggle:hover { color: var(--text-primary); }
+
+    .summary-badges, .command-badges { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+
+    .badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0.2rem 0.55rem;
+        border-radius: 999px;
+        font-size: 0.72rem;
+        border: 1px solid var(--border-color);
+        color: var(--text-secondary);
+        background: var(--bg-primary);
+    }
+
+    .badge-success { color: #22c55e; border-color: rgba(34, 197, 94, 0.4); }
+    .badge-warning { color: #f59e0b; border-color: rgba(245, 158, 11, 0.4); }
+    .badge-error { color: #ef4444; border-color: rgba(239, 68, 68, 0.4); }
+    .badge-neutral { color: var(--text-secondary); }
+
+    .plan-body { display: grid; gap: 1rem; }
+
+    .plan-summary-grid, .prereq-grid, .artifact-list {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+        gap: 0.75rem;
+    }
+
+    .summary-card, .prereq-card, .artifact-card, .command-card {
+        border: 1px solid var(--border-color);
+        border-radius: 10px;
+        padding: 0.85rem;
+        background: var(--bg-primary);
+    }
+
+    .summary-label { font-size: 0.76rem; color: var(--text-tertiary); margin-bottom: 0.2rem; }
+    .summary-value { font-weight: 700; word-break: break-word; }
+
+    .validation-block { border-radius: 10px; padding: 0.85rem 1rem; }
+    .validation-block.errors { border: 1px solid rgba(239, 68, 68, 0.35); background: rgba(239, 68, 68, 0.08); }
+    .validation-block.warnings { border: 1px solid rgba(245, 158, 11, 0.35); background: rgba(245, 158, 11, 0.08); }
+    .validation-block.info { border: 1px solid rgba(59, 130, 246, 0.35); background: rgba(59, 130, 246, 0.08); }
+
+    .validation-title, .plan-section-title { font-weight: 700; margin-bottom: 0.5rem; }
+
+    .command-list { display: grid; gap: 0.75rem; }
+
+    .command-header {
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+        margin-bottom: 0.65rem;
+    }
+
+    .command-title { font-weight: 700; margin-bottom: 0.2rem; }
+    .command-description, .prereq-detail, .artifact-path { color: var(--text-secondary); }
+
+    .command-line, .inline-code {
+        display: block;
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-family: 'SF Mono', 'Cascadia Code', monospace;
+        font-size: 0.76rem;
+        padding: 0.65rem 0.75rem;
+        border-radius: 8px;
+        background: color-mix(in srgb, var(--bg-primary) 92%, transparent);
+        border: 1px solid color-mix(in srgb, var(--border-color) 80%, transparent);
+    }
+
+    .command-meta, .prereq-meta, .artifact-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem 0.8rem;
+        margin-top: 0.55rem;
+        font-size: 0.75rem;
+        color: var(--text-tertiary);
+    }
+
+    .command-actions { display: flex; gap: 0.6rem; margin-top: 0.75rem; }
+
+    .prereq-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        margin-bottom: 0.4rem;
+        font-weight: 700;
+    }
+
+    .status-pill {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0.15rem 0.55rem;
+        border-radius: 999px;
+        font-size: 0.72rem;
+        border: 1px solid var(--border-color);
+    }
+
+    .status-pill.ok { color: #22c55e; border-color: rgba(34, 197, 94, 0.35); }
+    .status-pill.warning, .status-warning { color: #f59e0b; }
+    .status-pill.error { color: #ef4444; border-color: rgba(239, 68, 68, 0.35); }
+    .status-pill.neutral { color: var(--text-secondary); }
+    .status-ok { color: #22c55e; }
+
+    /* Pipeline capture */
+    .pipeline-status-banner {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        padding: 0.75rem 1rem;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: 0.88rem;
+        margin-bottom: 1rem;
+    }
+
+    .pipeline-status-banner.pipeline-status-running { background: rgba(59, 130, 246, 0.1); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.2); }
+    .pipeline-status-banner.pipeline-status-waitingforstop { background: rgba(234, 179, 8, 0.1); color: #eab308; border: 1px solid rgba(234, 179, 8, 0.2); }
+    .pipeline-status-banner.pipeline-status-completing { background: rgba(59, 130, 246, 0.1); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.2); }
+    .pipeline-status-banner.pipeline-status-completed { background: rgba(34, 197, 94, 0.1); color: #22c55e; border: 1px solid rgba(34, 197, 94, 0.2); }
+    .pipeline-status-banner.pipeline-status-failed { background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2); }
+    .pipeline-status-banner.pipeline-status-cancelled { background: rgba(107, 114, 128, 0.1); color: var(--text-secondary); border: 1px solid var(--border-color); }
+
+    .pipeline-elapsed { font-size: 0.82rem; color: var(--text-secondary); font-weight: 600; }
+    .pipeline-steps { display: grid; gap: 0.5rem; }
+
+    .pipeline-step-card {
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        overflow: hidden;
+        transition: border-color 0.2s;
+    }
+
+    .pipeline-step-card.pipeline-step-running { border-color: #3b82f6; }
+    .pipeline-step-card.pipeline-step-completed { border-color: #22c55e; }
+    .pipeline-step-card.pipeline-step-failed { border-color: #ef4444; }
+
+    .pipeline-step-header {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 0.65rem 0.85rem;
+        cursor: pointer;
+        user-select: none;
+    }
+
+    .pipeline-step-header:hover { background: var(--bg-tertiary); }
+    .pipeline-step-icon { font-size: 1rem; width: 1.25rem; text-align: center; flex-shrink: 0; }
+    .pipeline-step-info { flex: 1; min-width: 0; }
+    .pipeline-step-name { font-weight: 600; font-size: 0.85rem; }
+    .pipeline-step-meta { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.2rem; }
+    .pipeline-step-duration { font-size: 0.75rem; color: var(--text-secondary); }
+    .pipeline-step-expand { color: var(--text-secondary); font-size: 0.75rem; flex-shrink: 0; }
+
+    .pipeline-step-error {
+        padding: 0.5rem 0.85rem;
+        background: rgba(239, 68, 68, 0.08);
+        color: #ef4444;
+        font-size: 0.8rem;
+        border-top: 1px solid rgba(239, 68, 68, 0.15);
+    }
+
+    .pipeline-step-log {
+        max-height: 16rem;
+        overflow-y: auto;
+        background: var(--bg-primary);
+        border-top: 1px solid var(--border-color);
+        padding: 0.5rem;
+        font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+        font-size: 0.72rem;
+        line-height: 1.5;
+    }
+
+    .pipeline-log-empty { color: var(--text-secondary); font-style: italic; padding: 0.5rem; }
+    .pipeline-log-line { white-space: pre-wrap; word-break: break-all; color: var(--text-primary); }
+    .pipeline-log-line.error { color: #ef4444; }
+
+    .pipeline-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        margin-top: 1rem;
+        justify-content: center;
+    }
+
+    .pipeline-waiting-hint {
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+    }
+
+    .text-success { color: #22c55e; }
+    .text-danger { color: #ef4444; }
+    .text-warning { color: #eab308; }
+    .text-muted { color: var(--text-secondary); }
+</style>

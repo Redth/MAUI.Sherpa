@@ -1,22 +1,16 @@
 @page "/profiling"
 @using MauiSherpa.Core.Interfaces
 @using MauiSherpa.Core.Models.Profiling
-@using MauiSherpa.Core.Requests.Android
-@using MauiSherpa.Core.Requests.Apple
-@using MauiSherpa.Core.Requests.Profiling
-@using Shiny.Mediator
-@inject IMediator Mediator
-@inject IProfilingCatalogService ProfilingCatalogService
-@inject IDeviceMonitorService DeviceMonitor
-@inject IDialogService DialogService
+@using MauiSherpa.Pages.Forms
 @inject IAlertService AlertService
 @inject IToolbarService ToolbarService
+@inject IDialogService DialogService
 @inject IPlatformService Platform
-@inject IProcessModalService ProcessModal
-@inject IProfilingSessionRunner PipelineRunner
 @inject IGcDumpReportService GcDumpReportService
 @inject IProfilingArtifactConverterService ArtifactConverter
 @inject IProfilingSessionStorageService SessionStorage
+@inject IFormModalService FormModal
+@inject HybridFormBridgeHolder BridgeHolder
 @inject IJSRuntime JS
 @implements IDisposable
 
@@ -31,9 +25,7 @@
     </p>
 </div>
 
-@if (viewMode == ViewMode.SessionList)
-{
-    @if (isLoadingSessions)
+@if (isLoadingSessions)
     {
         <div class="loading-state">
             <i class="fas fa-spinner fa-spin"></i>
@@ -46,7 +38,7 @@
             <i class="fas fa-chart-line fa-3x"></i>
             <h3>No profiling sessions yet</h3>
             <p>Capture CPU traces, memory dumps, and more for your .NET MAUI apps.</p>
-            <button class="btn btn-primary" @onclick="StartNewWizard">
+            <button class="btn btn-primary" @onclick="StartNewWizardAsync">
                 <i class="fas fa-plus"></i> New Profiling Session
             </button>
         </div>
@@ -301,880 +293,13 @@
         }
     }
 }
-else if (viewMode == ViewMode.Wizard)
-{
-    @if (catalog is null)
-    {
-        <div class="loading-state">
-            <i class="fas fa-spinner fa-spin"></i>
-            <span>Loading profiling catalog...</span>
-        </div>
-    }
-    else
-    {
-    <div class="wizard-steps">
-        @for (int i = 0; i < WizardSteps.Length; i++)
-        {
-            var step = WizardSteps[i];
-            var stepIndex = i;
-            var stepClass = stepIndex == currentStep ? "active" : (stepIndex < currentStep ? "completed" : "upcoming");
-            <div class="wizard-step @stepClass" @onclick="() => GoToStep(stepIndex)">
-                <div class="step-indicator">
-                    @if (stepIndex < currentStep)
-                    {
-                        <i class="fas fa-check"></i>
-                    }
-                    else
-                    {
-                        <span>@(stepIndex + 1)</span>
-                    }
-                </div>
-                <span class="step-label">@step.Name</span>
-            </div>
-            @if (i < WizardSteps.Length - 1)
-            {
-                <div class="step-connector @(stepIndex < currentStep ? "completed" : "")"></div>
-            }
-        }
-    </div>
-
-    @if (currentStep == 0)
-    {
-        <section class="panel">
-            <div class="panel-header">
-                <span><i class="fas fa-sliders"></i> Session setup</span>
-            </div>
-            <div class="panel-body form-grid">
-                <div class="field-group field-span-2">
-                    <label>Project</label>
-                    <div class="input-row">
-                        <input type="text" value="@projectPath" placeholder="Choose a .csproj for launch profiling" readonly />
-                        <button class="btn btn-secondary" @onclick="BrowseProjectAsync">
-                            <i class="fas fa-folder-open"></i> Browse
-                        </button>
-                    </div>
-                    <div class="field-help">
-                        Launch planning needs a project path. Connect-to-running-app flows can omit it if you provide a process id.
-                    </div>
-                </div>
-
-                <div class="field-group">
-                    <label>Platform</label>
-                    <select @bind="selectedPlatform" @bind:after="OnPlatformChangedAsync">
-                        @foreach (var platformOption in catalog.Platforms)
-                        {
-                            <option value="@platformOption.Platform">@platformOption.DisplayName</option>
-                        }
-                    </select>
-                </div>
-
-                <div class="field-group">
-                    <label>Scenario</label>
-                    <select @bind="selectedScenario" @bind:after="OnScenarioChangedAsync">
-                        @foreach (var scenario in catalog.Scenarios)
-                        {
-                            <option value="@scenario.Kind">@scenario.DisplayName</option>
-                        }
-                    </select>
-                </div>
-
-                <div class="field-group">
-                    <label>Launch mode</label>
-                    <select @bind="launchMode" @bind:after="OnLaunchModeChangedAsync">
-                        <option value="@ProfilingCaptureLaunchMode.Launch">Launch target app</option>
-                        <option value="@ProfilingCaptureLaunchMode.Attach">Connect to running app</option>
-                    </select>
-                </div>
-
-                <div class="field-group">
-                    <label>Configuration</label>
-                    <select @bind="configuration">
-                        <option value="Release">Release</option>
-                        <option value="Debug">Debug</option>
-                    </select>
-                </div>
-
-                <div class="advanced-toggle" @onclick="() => showAdvanced = !showAdvanced">
-                    <i class="fas @(showAdvanced ? "fa-chevron-up" : "fa-chevron-down")"></i>
-                    <span>Advanced settings</span>
-                </div>
-                @if (showAdvanced)
-                {
-                    <div class="field-group">
-                        <label>Diagnostic port</label>
-                        <input type="number" min="1024" max="65535" @bind="diagnosticPort" />
-                    </div>
-
-                    <div class="field-group">
-                        <label>Target framework override</label>
-                        <input type="text" @bind="targetFrameworkOverride" placeholder="Optional" />
-                    </div>
-
-                    <div class="field-group">
-                        <label>Output directory override</label>
-                        <input type="text" @bind="outputDirectory" placeholder="Defaults to artifacts/profiling/{ProjectName}/{date}-{run}" />
-                    </div>
-
-                    @if (launchMode == ProfilingCaptureLaunchMode.Attach)
-                    {
-                        <div class="field-group">
-                            <label>Process id</label>
-                            <input type="text" @bind="processIdText" placeholder="Optional for desktop attach flows" />
-                        </div>
-                    }
-
-                    <div class="field-group checkbox-group field-span-2">
-                        <label class="checkbox-label">
-                            <input type="checkbox" @bind="suspendAtStartup" />
-                            Suspend at startup while the diagnostic tools connect
-                        </label>
-                    </div>
-                }
-            </div>
-        </section>
-    }
-
-    @if (currentStep == 1)
-    {
-        <section class="panel">
-            <div class="panel-header">
-                <span><i class="fas fa-list-check"></i> Capture kinds</span>
-                <button class="btn btn-link" @onclick="ResetCaptureKindsToScenarioDefaults">
-                    Reset to scenario defaults
-                </button>
-            </div>
-            <div class="panel-body capture-kinds">
-                @foreach (var captureKind in SupportedCaptureKinds)
-                {
-                    <label class="capture-kind-chip @(selectedCaptureKinds.Contains(captureKind) ? "selected" : "")">
-                        <input type="checkbox"
-                               checked="@selectedCaptureKinds.Contains(captureKind)"
-                               @onchange="@((ChangeEventArgs e) => OnCaptureKindChanged(captureKind, e))" />
-                        <span>@GetCaptureKindDisplayName(captureKind)</span>
-                    </label>
-                }
-            </div>
-        </section>
-    }
-
-    @if (currentStep == 2)
-    {
-        <section class="panel">
-            <div class="panel-header">
-                <span><i class="fas fa-bullseye"></i> Targets</span>
-                <button class="btn btn-secondary btn-sm" @onclick="@(() => RefreshTargetsAsync(forceRefresh: true))" disabled="@isRefreshingTargets">
-                    <i class="fas @(isRefreshingTargets ? "fa-spinner fa-spin" : "fa-arrows-rotate")"></i>
-                    Refresh
-                </button>
-            </div>
-            <div class="panel-body">
-                @if (!string.IsNullOrWhiteSpace(CurrentPlatformNotes))
-                {
-                    <div class="info-banner">@CurrentPlatformNotes</div>
-                }
-
-                @if (CurrentScenarioDefinition is not null)
-                {
-                    <div class="scenario-summary">
-                        <div class="scenario-name">@CurrentScenarioDefinition.DisplayName</div>
-                        <div class="scenario-description">@CurrentScenarioDefinition.Description</div>
-                        <div class="scenario-meta">
-                            Suggested duration: @CurrentScenarioDefinition.SuggestedDuration.ToString(@"hh\:mm\:ss")
-                        </div>
-                    </div>
-                }
-
-                @if (TargetOptions.Count == 0)
-                {
-                    <div class="empty-state compact">
-                        <i class="fas fa-plug-circle-xmark"></i>
-                        <div>No targets are currently selectable for @GetPlatformDisplayName(selectedPlatform).</div>
-                        @if (selectedPlatform == ProfilingTargetPlatform.Android && knownAndroidEmulatorCount > 0)
-                        {
-                            <div class="empty-hint">You have @knownAndroidEmulatorCount Android emulator definition(s). Start one from the Emulators page to profile it here.</div>
-                        }
-                        @if (selectedPlatform == ProfilingTargetPlatform.iOS && knownAppleSimulatorCount > 0)
-                        {
-                            <div class="empty-hint">You have @knownAppleSimulatorCount available Apple simulator(s). Select one after refreshing if it does not appear yet.</div>
-                        }
-                        <div class="quick-links">
-                            <a href="devices">Android Devices</a>
-                            <a href="emulators">Android Emulators</a>
-                            <a href="apple-simulators">Apple Devices & Simulators</a>
-                        </div>
-                    </div>
-                }
-                else
-                {
-                    <div class="target-list">
-                        @foreach (var option in TargetOptions)
-                        {
-                            <label class="target-card @(selectedTargetKey == option.Key ? "selected" : "")">
-                                <input type="radio" name="profiling-target" value="@option.Key" checked="@(selectedTargetKey == option.Key)" @onchange="@(() => SelectTarget(option.Key))" />
-                                <div class="target-main">
-                                    <div class="target-title">
-                                        <span>@option.DisplayName</span>
-                                        <span class="badge">@option.KindLabel</span>
-                                    </div>
-                                    <div class="target-subtitle">@option.Subtitle</div>
-                                    <div class="target-meta">
-                                        <span>@option.Identifier</span>
-                                        @if (option.IsAvailable)
-                                        {
-                                            <span class="status-ok">Available now</span>
-                                        }
-                                        else
-                                        {
-                                            <span class="status-warning">Not connected</span>
-                                        }
-                                        @if (!string.IsNullOrWhiteSpace(option.ExtraHint))
-                                        {
-                                            <span>@option.ExtraHint</span>
-                                        }
-                                    </div>
-                                </div>
-                            </label>
-                        }
-                    </div>
-                }
-            </div>
-        </section>
-    }
-
-    @if (currentStep == 3)
-    {
-        @if (isCheckingPrerequisites || isPlanningCapture)
-        {
-            <div class="loading-state">
-                <i class="fas fa-spinner fa-spin"></i>
-                <span>
-                    @if (isCheckingPrerequisites)
-                    {
-                        @:Checking prerequisites...
-                    }
-                    else
-                    {
-                        @:Generating capture plan...
-                    }
-                </span>
-            </div>
-        }
-
-        @if (prerequisiteReport is not null)
-        {
-            <section class="panel">
-                <div class="panel-header">
-                    <span><i class="fas fa-stethoscope"></i> Prerequisites</span>
-                    <div class="summary-badges">
-                        <span class="badge badge-neutral">@prerequisiteReport.OkCount ok</span>
-                        <span class="badge badge-warning">@prerequisiteReport.WarningCount warning</span>
-                        <span class="badge badge-error">@prerequisiteReport.ErrorCount error</span>
-                    </div>
-                </div>
-                <div class="panel-body">
-                    <div class="prereq-grid">
-                        @foreach (var check in prerequisiteReport.Checks)
-                        {
-                            <div class="prereq-card">
-                                <div class="prereq-header">
-                                    <span>@check.Name</span>
-                                    <span class="status-pill @GetDependencyCss(check.Status)">@check.Status</span>
-                                </div>
-                                <div class="prereq-detail">@check.Message</div>
-                                <div class="prereq-meta">
-                                    <span>@check.Kind</span>
-                                    @if (!string.IsNullOrWhiteSpace(check.InstalledVersion))
-                                    {
-                                        <span>Installed: @check.InstalledVersion</span>
-                                    }
-                                    @if (!string.IsNullOrWhiteSpace(check.RequiredVersion))
-                                    {
-                                        <span>Required: @check.RequiredVersion</span>
-                                    }
-                                </div>
-                                @if (!string.IsNullOrWhiteSpace(check.SuggestedCommand))
-                                {
-                                    <code class="inline-code">@check.SuggestedCommand</code>
-                                }
-                            </div>
-                        }
-                    </div>
-                </div>
-            </section>
-        }
-
-        @if (capturePlan is not null)
-        {
-            <section class="panel">
-                <div class="panel-header">
-                    <span><i class="fas fa-diagram-project"></i> Capture plan</span>
-                    <div class="summary-badges">
-                        <span class="badge @(capturePlan.Validation.IsValid ? "badge-success" : "badge-error")">
-                            @(capturePlan.Validation.IsValid ? "Valid" : "Needs attention")
-                        </span>
-                        <span class="badge @(capturePlan.CanExecute ? "badge-success" : "badge-neutral")">
-                            @(capturePlan.CanExecute ? "Executable" : "Preview only")
-                        </span>
-                    </div>
-                </div>
-                <div class="panel-body plan-body">
-                    <div class="plan-summary-grid">
-                        <div class="summary-card">
-                            <div class="summary-label">Target framework</div>
-                            <div class="summary-value">@capturePlan.TargetFramework</div>
-                        </div>
-                        <div class="summary-card">
-                            <div class="summary-label">Output directory</div>
-                            <div class="summary-value">@capturePlan.OutputDirectory</div>
-                        </div>
-                        <div class="summary-card">
-                            <div class="summary-label">Command steps</div>
-                            <div class="summary-value">@capturePlan.Commands.Count</div>
-                        </div>
-                        <div class="summary-card">
-                            <div class="summary-label">Artifacts</div>
-                            <div class="summary-value">@capturePlan.ExpectedArtifacts.Count</div>
-                        </div>
-                    </div>
-
-                    @if (capturePlan.Validation.Errors.Count > 0)
-                    {
-                        <div class="validation-block errors">
-                            <div class="validation-title">Errors</div>
-                            <ul>
-                                @foreach (var error in capturePlan.Validation.Errors)
-                                {
-                                    <li>@error</li>
-                                }
-                            </ul>
-                        </div>
-                    }
-
-                    @if (capturePlan.Validation.Warnings.Count > 0)
-                    {
-                        <div class="validation-block warnings">
-                            <div class="validation-title">Warnings</div>
-                            <ul>
-                                @foreach (var warning in capturePlan.Validation.Warnings)
-                                {
-                                    <li>@warning</li>
-                                }
-                            </ul>
-                        </div>
-                    }
-
-                    @if (capturePlan.RuntimeBindings.Count > 0)
-                    {
-                        <div class="validation-block info">
-                            <div class="validation-title">Runtime bindings</div>
-                            <ul>
-                                @foreach (var binding in capturePlan.RuntimeBindings)
-                                {
-                                    <li>
-                                        <code>@binding.Token</code> — @binding.Description
-                                        @if (!string.IsNullOrWhiteSpace(binding.ExampleValue))
-                                        {
-                                            <span>(example: @binding.ExampleValue)</span>
-                                        }
-                                    </li>
-                                }
-                            </ul>
-                        </div>
-                    }
-
-                    <div class="plan-section-title">Commands</div>
-                    <div class="command-list">
-                        @foreach (var step in capturePlan.Commands)
-                        {
-                            <div class="command-card">
-                                <div class="command-header">
-                                    <div>
-                                        <div class="command-title">@step.DisplayName</div>
-                                        <div class="command-description">@step.Description</div>
-                                    </div>
-                                    <div class="command-badges">
-                                        <span class="badge badge-neutral">@step.Kind</span>
-                                        @if (step.IsLongRunning)
-                                        {
-                                            <span class="badge badge-warning">Long-running</span>
-                                        }
-                                        @if (step.RequiresManualStop)
-                                        {
-                                            <span class="badge badge-warning">Manual stop</span>
-                                        }
-                                    </div>
-                                </div>
-                                <code class="command-line">@BuildCommandLine(step)</code>
-                                @if (step.DependsOn?.Count > 0 || step.RequiredRuntimeBindings?.Count > 0)
-                                {
-                                    <div class="command-meta">
-                                        @if (step.DependsOn?.Count > 0)
-                                        {
-                                            <span>Depends on: @string.Join(", ", step.DependsOn)</span>
-                                        }
-                                        @if (step.RequiredRuntimeBindings?.Count > 0)
-                                        {
-                                            <span>Needs: @string.Join(", ", step.RequiredRuntimeBindings)</span>
-                                        }
-                                    </div>
-                                }
-                                <div class="command-actions">
-                                    <button class="btn btn-secondary btn-sm" @onclick="@(() => CopyCommandAsync(step))">
-                                        <i class="fas fa-copy"></i> Copy
-                                    </button>
-                                </div>
-                            </div>
-                        }
-                    </div>
-
-                    <div class="plan-section-title">Expected artifacts</div>
-                    <div class="artifact-list">
-                        @foreach (var artifact in capturePlan.ExpectedArtifacts)
-                        {
-                            <div class="artifact-card">
-                                <div class="artifact-name">@artifact.DisplayName</div>
-                                <div class="artifact-path">@artifact.RelativePath</div>
-                                <div class="artifact-meta">@artifact.Kind · @artifact.ContentType</div>
-                            </div>
-                        }
-                    </div>
-                </div>
-            </section>
-        }
-    }
-
-    @if (currentStep == 4)
-    {
-        <section class="panel">
-            <div class="panel-header">
-                <span><i class="fas fa-circle-play"></i> Capture</span>
-                <div class="panel-header-actions">
-                    @if (pipelineState is ProfilingPipelineState.Running or ProfilingPipelineState.WaitingForStop)
-                    {
-                        <span class="pipeline-elapsed"><i class="fas fa-clock"></i> @FormatElapsed(pipelineElapsed)</span>
-                    }
-                </div>
-            </div>
-            <div class="panel-body">
-                @if (pipelineState == ProfilingPipelineState.NotStarted)
-                {
-                    <div class="empty-state">
-                        <i class="fas fa-spinner fa-spin fa-2x"></i>
-                        <div>Starting capture pipeline...</div>
-                    </div>
-                }
-                else
-                {
-                    <div class="pipeline-status-banner pipeline-status-@(pipelineState.ToString().ToLowerInvariant())">
-                        <i class="fas @GetPipelineStateIcon()"></i>
-                        <span>@GetPipelineStateText()</span>
-                    </div>
-
-                    <div class="pipeline-steps">
-                        @foreach (var stepStatus in PipelineRunner.Steps)
-                        {
-                            <div class="pipeline-step-card pipeline-step-@(stepStatus.State.ToString().ToLowerInvariant())">
-                                <div class="pipeline-step-header" @onclick="() => ToggleStepLog(stepStatus.StepId)">
-                                    <div class="pipeline-step-icon">
-                                        @switch (stepStatus.State)
-                                        {
-                                            case ProfilingStepState.Running:
-                                                <i class="fas fa-spinner fa-spin"></i>
-                                                break;
-                                            case ProfilingStepState.Completed:
-                                                <i class="fas fa-check-circle text-success"></i>
-                                                break;
-                                            case ProfilingStepState.Failed:
-                                                <i class="fas fa-times-circle text-danger"></i>
-                                                break;
-                                            case ProfilingStepState.Stopped:
-                                                <i class="fas fa-stop-circle text-warning"></i>
-                                                break;
-                                            case ProfilingStepState.Skipped:
-                                                <i class="fas fa-forward text-muted"></i>
-                                                break;
-                                            case ProfilingStepState.Cancelled:
-                                                <i class="fas fa-ban text-muted"></i>
-                                                break;
-                                            default:
-                                                <i class="fas fa-circle text-muted"></i>
-                                                break;
-                                        }
-                                    </div>
-                                    <div class="pipeline-step-info">
-                                        <div class="pipeline-step-name">@stepStatus.DisplayName</div>
-                                        <div class="pipeline-step-meta">
-                                            <span class="badge badge-neutral">@stepStatus.Kind</span>
-                                            @if (stepStatus.IsLongRunning)
-                                            {
-                                                <span class="badge badge-warning">Long-running</span>
-                                            }
-                                            @if (stepStatus.Duration.HasValue)
-                                            {
-                                                <span class="pipeline-step-duration">@FormatElapsed(stepStatus.Duration.Value)</span>
-                                            }
-                                            else if (stepStatus.State == ProfilingStepState.Running && stepStatus.StartedAt.HasValue)
-                                            {
-                                                <span class="pipeline-step-duration">@FormatElapsed(DateTime.Now - stepStatus.StartedAt.Value)</span>
-                                            }
-                                        </div>
-                                    </div>
-                                    <div class="pipeline-step-expand">
-                                        <i class="fas @(expandedStepLogs.Contains(stepStatus.StepId) ? "fa-chevron-up" : "fa-chevron-down")"></i>
-                                    </div>
-                                </div>
-                                @if (stepStatus.ErrorMessage is not null && stepStatus.State == ProfilingStepState.Failed)
-                                {
-                                    <div class="pipeline-step-error">
-                                        <i class="fas fa-exclamation-triangle"></i> @stepStatus.ErrorMessage
-                                    </div>
-                                }
-                                @if (expandedStepLogs.Contains(stepStatus.StepId))
-                                {
-                                    <div id="step-log-@stepStatus.StepId" class="pipeline-step-log">
-                                        @if (stepStatus.OutputLines.Count == 0)
-                                        {
-                                            <div class="pipeline-log-empty">No output yet</div>
-                                        }
-                                        else
-                                        {
-                                            @foreach (var line in stepStatus.OutputLines.TakeLast(200))
-                                            {
-                                                <div class="pipeline-log-line @(line.IsError ? "error" : "")">@line.Text</div>
-                                            }
-                                        }
-                                    </div>
-                                }
-                            </div>
-                        }
-                    </div>
-                }
-            </div>
-        </section>
-
-        @if (pipelineState is ProfilingPipelineState.Running or ProfilingPipelineState.WaitingForStop)
-        {
-            <div class="pipeline-actions">
-                @if (pipelineState == ProfilingPipelineState.Running)
-                {
-                    <div class="pipeline-waiting-hint">
-                        <i class="fas fa-spinner fa-spin"></i>
-                        Launching capture pipeline...
-                    </div>
-                }
-                else
-                {
-                    <button class="btn btn-warning" @onclick="HandleStopCapture">
-                        <i class="fas fa-stop"></i> Stop Capture
-                    </button>
-                }
-                <button class="btn btn-secondary" @onclick="HandleCancelPipeline">
-                    <i class="fas fa-times"></i> Cancel
-                </button>
-            </div>
-        }
-    }
-
-    @if (currentStep == 5)
-    {
-        <section class="panel">
-            <div class="panel-header">
-                <span><i class="fas fa-chart-bar"></i> Results</span>
-            </div>
-            <div class="panel-body">
-                @if (pipelineResult is null)
-                {
-                    <div class="empty-state">
-                        <i class="fas fa-chart-bar fa-2x"></i>
-                        <div>No results yet</div>
-                    </div>
-                }
-                else
-                {
-                    <div class="results-summary @(pipelineResult.Success ? "success" : "failure")">
-                        <div class="results-summary-icon">
-                            <i class="fas @(pipelineResult.Success ? "fa-check-circle" : "fa-exclamation-triangle") fa-2x"></i>
-                        </div>
-                        <div class="results-summary-details">
-                            <div class="results-summary-title">
-                                @(pipelineResult.Success ? "Capture completed successfully" : "Capture completed with errors")
-                            </div>
-                            <div class="results-summary-stats">
-                                <span><i class="fas fa-clock"></i> @FormatElapsed(pipelineResult.TotalDuration)</span>
-                                <span><i class="fas fa-file"></i> @pipelineResult.ArtifactPaths.Count artifact(s) captured</span>
-                                @if (pipelineResult.MissingArtifacts.Count > 0)
-                                {
-                                    <span class="text-warning"><i class="fas fa-exclamation-triangle"></i> @pipelineResult.MissingArtifacts.Count expected artifact(s) missing</span>
-                                }
-                            </div>
-                        </div>
-                    </div>
-
-                    @if (pipelineResult.ArtifactPaths.Count > 0)
-                    {
-                        <div class="plan-section-title">Captured artifacts</div>
-                        <div class="artifact-list">
-                            @foreach (var artifactPath in pipelineResult.ArtifactPaths)
-                            {
-                                var path = artifactPath;
-                                var fileName = Path.GetFileName(path);
-                                var extension = GetArtifactExtension(path);
-                                var fileSize = GetFileSize(path);
-                                var isTraceFile = extension is ".nettrace" or ".speedscope.json";
-                                var isGcDump = extension is ".gcdump";
-                                <div class="artifact-card result-artifact-card">
-                                    <div class="artifact-icon">
-                                        <i class="fas @GetArtifactIcon(extension)"></i>
-                                    </div>
-                                    <div class="artifact-details">
-                                        <div class="artifact-name">@fileName</div>
-                                        <div class="artifact-path">@path</div>
-                                        @if (fileSize is not null)
-                                        {
-                                            <div class="artifact-meta">@fileSize</div>
-                                        }
-                                    </div>
-                                    <div class="artifact-actions">
-                                        @if (isTraceFile)
-                                        {
-                                            <button class="btn btn-primary btn-sm" @onclick="@(() => ViewInSpeedscope(path))">
-                                                <i class="fas fa-fire"></i> View Trace
-                                            </button>
-                                        }
-                                        @if (isGcDump)
-                                        {
-                                            <button class="btn btn-primary btn-sm" @onclick="@(() => ViewGcDump(path))">
-                                                <i class="fas fa-memory"></i> View GC Dump
-                                            </button>
-                                        }
-                                        <button class="btn btn-secondary btn-sm" @onclick="@(() => RevealInFinder(path))">
-                                            <i class="fas fa-folder-open"></i> Reveal
-                                        </button>
-                                        <button class="btn btn-secondary btn-sm" @onclick="@(() => CopyPathAsync(path))">
-                                            <i class="fas fa-copy"></i> Copy path
-                                        </button>
-                                    </div>
-                                </div>
-                            }
-                        </div>
-                    }
-
-                    @if (pipelineResult.MissingArtifacts.Count > 0)
-                    {
-                        <div class="plan-section-title">Missing artifacts</div>
-                        <div class="artifact-list">
-                            @foreach (var missing in pipelineResult.MissingArtifacts)
-                            {
-                                <div class="artifact-card missing-artifact">
-                                    <div class="artifact-icon text-warning">
-                                        <i class="fas fa-exclamation-triangle"></i>
-                                    </div>
-                                    <div class="artifact-details">
-                                        <div class="artifact-name">@Path.GetFileName(missing)</div>
-                                        <div class="artifact-path">@missing</div>
-                                        <div class="artifact-meta text-warning">Expected but not found</div>
-                                    </div>
-                                </div>
-                            }
-                        </div>
-                    }
-
-                    @* Inline Speedscope Viewer *@
-                    @if (showSpeedscopeViewer && speedscopeFilePath is not null)
-                    {
-                        <div class="plan-section-title">
-                            <span><i class="fas fa-fire"></i> CPU Trace Viewer</span>
-                            <button class="btn btn-secondary btn-sm" style="margin-left: auto;" @onclick="CloseSpeedscopeViewer">
-                                <i class="fas fa-times"></i> Close
-                            </button>
-                        </div>
-                        <div class="speedscope-container">
-                            @if (speedscopeLoading)
-                            {
-                                <div class="speedscope-loading">
-                                    <i class="fas fa-spinner fa-spin fa-2x"></i>
-                                    <div>Loading trace viewer...</div>
-                                </div>
-                            }
-                            <iframe id="speedscope-frame"
-                                    src="speedscope/index.html"
-                                    class="speedscope-iframe @(speedscopeLoading ? "hidden" : "")"
-                                    @onload="OnSpeedscopeLoaded"></iframe>
-                        </div>
-                    }
-
-                    @* Inline GC Dump Viewer *@
-                    @if (showGcDumpViewer && gcDumpReport is not null)
-                    {
-                        <div class="plan-section-title">
-                            <span><i class="fas fa-memory"></i> GC Dump — Heap Statistics</span>
-                            <button class="btn btn-secondary btn-sm" style="margin-left: auto;" @onclick="CloseGcDumpViewer">
-                                <i class="fas fa-times"></i> Close
-                            </button>
-                        </div>
-                        <div class="gcdump-summary">
-                            <span><i class="fas fa-cubes"></i> @gcDumpReport.TotalCount.ToString("N0") objects</span>
-                            <span><i class="fas fa-database"></i> @FormatBytes(gcDumpReport.TotalSize)</span>
-                            <span><i class="fas fa-list"></i> @gcDumpReport.Types.Count types</span>
-                        </div>
-                        <div class="gcdump-filter">
-                            <input type="text" class="form-control form-control-sm"
-                                   placeholder="Filter types..."
-                                   @bind="gcDumpFilterText"
-                                   @bind:event="oninput" />
-                        </div>
-                        <div class="gcdump-table-container">
-                            <table class="gcdump-table">
-                                <thead>
-                                    <tr>
-                                        <th class="gcdump-col-name" @onclick="@(() => SortGcDump("name"))">
-                                            Type Name
-                                            @if (gcDumpSortColumn == "name") { <i class="fas @(gcDumpSortAsc ? "fa-sort-up" : "fa-sort-down")"></i> }
-                                        </th>
-                                        <th class="gcdump-col-count" @onclick="@(() => SortGcDump("count"))">
-                                            Count
-                                            @if (gcDumpSortColumn == "count") { <i class="fas @(gcDumpSortAsc ? "fa-sort-up" : "fa-sort-down")"></i> }
-                                        </th>
-                                        <th class="gcdump-col-size" @onclick="@(() => SortGcDump("size"))">
-                                            Total Size
-                                            @if (gcDumpSortColumn == "size") { <i class="fas @(gcDumpSortAsc ? "fa-sort-up" : "fa-sort-down")"></i> }
-                                        </th>
-                                        <th class="gcdump-col-pct">%</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    @foreach (var entry in GetFilteredGcDumpTypes())
-                                    {
-                                        var pct = gcDumpReport.TotalSize > 0
-                                            ? (double)entry.Size / gcDumpReport.TotalSize * 100
-                                            : 0;
-                                        <tr>
-                                            <td class="gcdump-col-name" title="@entry.TypeName">
-                                                <span class="mono">@entry.TypeName</span>
-                                            </td>
-                                            <td class="gcdump-col-count">@entry.Count.ToString("N0")</td>
-                                            <td class="gcdump-col-size">@FormatBytes(entry.Size)</td>
-                                            <td class="gcdump-col-pct">
-                                                <div class="pct-bar-container">
-                                                    <div class="pct-bar" style="width: @(pct.ToString("F1", System.Globalization.CultureInfo.InvariantCulture))%"></div>
-                                                    <span>@pct.ToString("F1")%</span>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    }
-                                </tbody>
-                            </table>
-                        </div>
-                    }
-                    else if (showGcDumpViewer && gcDumpLoading)
-                    {
-                        <div class="plan-section-title">
-                            <span><i class="fas fa-memory"></i> GC Dump Analysis</span>
-                        </div>
-                        <div class="gcdump-loading">
-                            <i class="fas fa-spinner fa-spin fa-2x"></i>
-                            <div>Analyzing GC dump...</div>
-                        </div>
-                    }
-                    else if (showGcDumpViewer && gcDumpError is not null)
-                    {
-                        <div class="plan-section-title">
-                            <span><i class="fas fa-memory"></i> GC Dump Analysis</span>
-                            <button class="btn btn-secondary btn-sm" style="margin-left: auto;" @onclick="CloseGcDumpViewer">
-                                <i class="fas fa-times"></i> Close
-                            </button>
-                        </div>
-                        <div class="gcdump-error">
-                            <i class="fas fa-exclamation-triangle"></i>
-                            <span>@gcDumpError</span>
-                        </div>
-                    }
-                }
-            </div>
-        </section>
-
-        <div class="results-actions">
-            <button class="btn btn-primary" @onclick="StartNewSession">
-                <i class="fas fa-plus"></i> New Session
-            </button>
-        </div>
-    }
-
-    <div class="wizard-nav">
-        <button class="btn btn-secondary" @onclick="BackToSessionList">
-            <i class="fas fa-arrow-left"></i> Back to Sessions
-        </button>
-        @if (currentStep > 0 && currentStep != 4)
-        {
-            <button class="btn btn-secondary" @onclick="PreviousStep" disabled="@(currentStep == 5)">
-                <i class="fas fa-arrow-left"></i> Back
-            </button>
-        }
-        <div class="wizard-nav-spacer"></div>
-        @if (currentStep < 4)
-        {
-            <button class="btn btn-primary" @onclick="NextStep" disabled="@(!CanProceedToNext)">
-                @if (currentStep == 3)
-                {
-                    <i class="fas fa-play"></i>
-                    <span>Start Capture</span>
-                }
-                else
-                {
-                    <span>Next</span>
-                    <i class="fas fa-arrow-right"></i>
-                }
-            </button>
-        }
-    </div>
-    } @* end catalog else *@
-}
 
 @code {
-    private ViewMode viewMode = ViewMode.SessionList;
     private List<ProfilingSessionManifest> sessions = new();
     private List<ProfilingSessionManifest> filteredSessions = new();
     private bool isLoadingSessions;
     private string sessionSearchText = "";
     private string? expandedSessionId;
-    private string? activeSessionId; // the session being captured
-
-    private ProfilingCatalog? catalog;
-    private ConnectedDevicesSnapshot snapshot = ConnectedDevicesSnapshot.Empty;
-    private List<AvdInfo> androidEmulators = new();
-    private List<SimulatorDevice> appleSimulators = new();
-    private List<TargetOption> targetOptions = new();
-    private HashSet<ProfilingCaptureKind> selectedCaptureKinds = new();
-    private ProfilingPrerequisiteReport? prerequisiteReport;
-    private ProfilingCapturePlan? capturePlan;
-    private string? selectedTargetKey;
-    private string? projectPath;
-    private string? targetFrameworkOverride;
-    private string? outputDirectory;
-    private string? processIdText;
-    private string configuration = "Release";
-    private int diagnosticPort = 9000;
-    private bool suspendAtStartup = true;
-    private bool isRefreshingTargets;
-    private bool isCheckingPrerequisites;
-    private bool isPlanningCapture;
-    private int knownAndroidEmulatorCount;
-    private int knownAppleSimulatorCount;
-    private ProfilingTargetPlatform selectedPlatform = ProfilingTargetPlatform.Android;
-    private ProfilingScenarioKind selectedScenario = ProfilingScenarioKind.Launch;
-    private ProfilingCaptureLaunchMode launchMode = ProfilingCaptureLaunchMode.Launch;
-
-    private int currentStep = 0;
-    private const int TotalSteps = 6;
-    private bool showAdvanced = false;
-
-    // Pipeline state
-    private ProfilingPipelineState pipelineState = ProfilingPipelineState.NotStarted;
-    private ProfilingPipelineResult? pipelineResult;
-    private TimeSpan pipelineElapsed;
-    private System.Threading.Timer? pipelineTimer;
-    private DateTime pipelineStartTime;
-    private HashSet<string> expandedStepLogs = new();
 
     // Speedscope viewer state
     private bool showSpeedscopeViewer;
@@ -1191,66 +316,22 @@ else if (viewMode == ViewMode.Wizard)
     private string gcDumpSortColumn = "size";
     private bool gcDumpSortAsc = false;
 
-    private static readonly (string Name, string Icon)[] WizardSteps = new[]
-    {
-        ("Session Setup", "fa-sliders"),
-        ("Capture Kinds", "fa-list-check"),
-        ("Target", "fa-bullseye"),
-        ("Review & Plan", "fa-clipboard-check"),
-        ("Capture", "fa-circle-play"),
-        ("Results", "fa-chart-bar")
-    };
-
-    private bool CanProceedToNext => currentStep switch
-    {
-        0 => launchMode == ProfilingCaptureLaunchMode.Attach || !string.IsNullOrWhiteSpace(projectPath),
-        1 => selectedCaptureKinds.Count > 0,
-        2 => SelectedTarget is not null,
-        3 => capturePlan is not null && capturePlan.Validation.IsValid,
-        _ => false
-    };
-
-    private IReadOnlyList<TargetOption> TargetOptions => targetOptions;
-    private TargetOption? SelectedTarget => targetOptions.FirstOrDefault(option => option.Key == selectedTargetKey);
-    private ProfilingPlatformCapabilities? CurrentPlatformCapabilities => catalog?.Platforms.FirstOrDefault(platform => platform.Platform == selectedPlatform);
-    private ProfilingScenarioDefinition? CurrentScenarioDefinition => catalog?.Scenarios.FirstOrDefault(scenario => scenario.Kind == selectedScenario);
-    private IReadOnlyList<ProfilingCaptureKind> SupportedCaptureKinds => CurrentPlatformCapabilities?.SupportedCaptureKinds ?? Array.Empty<ProfilingCaptureKind>();
-    private string? CurrentPlatformNotes => CurrentPlatformCapabilities?.Notes;
-
     protected override async Task OnInitializedAsync()
     {
         SetupToolbar();
         ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
         ToolbarService.SearchTextChanged += OnSearchTextChanged;
-        DeviceMonitor.Changed += OnDeviceMonitorChanged;
-
-        // Load sessions first (fast)
         await LoadSessionsAsync();
-
-        // Load catalog in background (needed for wizard)
-        catalog = await ProfilingCatalogService.GetCatalogAsync();
-        selectedPlatform = catalog.Platforms.FirstOrDefault(platform => platform.Platform == ProfilingTargetPlatform.Android)?.Platform
-            ?? catalog.Platforms.First().Platform;
-        selectedScenario = catalog.Scenarios.FirstOrDefault(scenario => scenario.Kind == ProfilingScenarioKind.Launch)?.Kind
-            ?? catalog.Scenarios.First().Kind;
-        ResetCaptureKindsToScenarioDefaults();
-
-        await RefreshTargetsAsync();
     }
 
     private void OnToolbarItemClicked(string actionId)
     {
         if (actionId == "create")
-            _ = InvokeAsync(StartNewWizard);
+            _ = InvokeAsync(StartNewWizardAsync);
         else if (actionId == "import")
             _ = ImportSessionFromZipAsync();
         else if (actionId == "refresh")
-        {
-            if (viewMode == ViewMode.SessionList)
-                _ = LoadSessionsAsync();
-            else
-                _ = RefreshTargetsAsync(forceRefresh: true);
-        }
+            _ = LoadSessionsAsync();
     }
 
     private void OnSearchTextChanged(string text)
@@ -1260,644 +341,28 @@ else if (viewMode == ViewMode.Wizard)
         InvokeAsync(StateHasChanged);
     }
 
-    private void OnDeviceMonitorChanged(ConnectedDevicesSnapshot updatedSnapshot)
+    private async Task StartNewWizardAsync()
     {
-        snapshot = updatedSnapshot;
-        BuildTargetOptions();
-        InvokeAsync(StateHasChanged);
-    }
+        var page = new MauiSherpa.Pages.Modals.ProfilingCaptureWizardPage(BridgeHolder);
+        var result = await FormModal.ShowAsync(page);
 
-    private async Task RefreshTargetsAsync(bool forceRefresh = false)
-    {
-        isRefreshingTargets = true;
-        StateHasChanged();
-
-        try
+        if (result is not null)
         {
-            if (forceRefresh)
-            {
-                await Mediator.FlushStores("android:emulators");
-                await Mediator.FlushStores("apple:simulators");
-            }
-
-            var emuTask = Mediator.Request(new GetEmulatorsRequest());
-            var simTask = Mediator.Request(new GetSimulatorsRequest());
-
-            await Task.WhenAll(emuTask, simTask);
-
-            var (_, emuResult) = await emuTask;
-            androidEmulators = emuResult?.ToList() ?? new();
-            knownAndroidEmulatorCount = androidEmulators.Count;
-
-            var (_, simResult) = await simTask;
-            appleSimulators = simResult?.Where(simulator => simulator.IsAvailable).ToList() ?? new();
-            knownAppleSimulatorCount = appleSimulators.Count;
-
-            snapshot = DeviceMonitor.Current;
-            BuildTargetOptions();
-        }
-        catch (Exception ex)
-        {
-            await AlertService.ShowToastAsync($"Error refreshing profiling targets: {ex.Message}");
-        }
-        finally
-        {
-            isRefreshingTargets = false;
+            await LoadSessionsAsync();
+            expandedSessionId = result.Id;
             StateHasChanged();
         }
-    }
-
-    private Task OnPlatformChangedAsync()
-    {
-        ResetCaptureKindsToScenarioDefaults();
-        BuildTargetOptions();
-        prerequisiteReport = null;
-        capturePlan = null;
-        return Task.CompletedTask;
-    }
-
-    private Task OnScenarioChangedAsync()
-    {
-        ResetCaptureKindsToScenarioDefaults();
-        prerequisiteReport = null;
-        capturePlan = null;
-        return Task.CompletedTask;
-    }
-
-    private Task OnLaunchModeChangedAsync()
-    {
-        capturePlan = null;
-        return Task.CompletedTask;
-    }
-
-    private void ResetCaptureKindsToScenarioDefaults()
-    {
-        var defaults = CurrentScenarioDefinition?.DefaultCaptureKinds
-            .Where(kind => SupportedCaptureKinds.Contains(kind))
-            .ToArray();
-
-        selectedCaptureKinds = defaults is { Length: > 0 }
-            ? defaults.ToHashSet()
-            : SupportedCaptureKinds.ToHashSet();
-    }
-
-    private void SelectTarget(string key)
-    {
-        selectedTargetKey = key;
-        capturePlan = null;
-    }
-
-    private void OnCaptureKindChanged(ProfilingCaptureKind kind, ChangeEventArgs args)
-    {
-        var isSelected = args.Value as bool? == true;
-        if (isSelected)
-            selectedCaptureKinds.Add(kind);
-        else if (selectedCaptureKinds.Count > 1)
-            selectedCaptureKinds.Remove(kind);
-
-        capturePlan = null;
-    }
-
-    private async Task BrowseProjectAsync()
-    {
-        var selectedPath = await DialogService.PickOpenFileAsync("Select project", new[] { ".csproj" });
-        if (!string.IsNullOrWhiteSpace(selectedPath))
-        {
-            projectPath = selectedPath;
-            capturePlan = null;
-            StateHasChanged();
-        }
-    }
-
-    private async Task CheckPrerequisitesAsync()
-    {
-        isCheckingPrerequisites = true;
-        StateHasChanged();
-
-        try
-        {
-            var captureKinds = GetSelectedCaptureKinds();
-            var (_, report) = await Mediator.Request(new GetProfilingPrerequisitesRequest(selectedPlatform, captureKinds));
-            prerequisiteReport = report;
-        }
-        catch (Exception ex)
-        {
-            await AlertService.ShowToastAsync($"Unable to load profiling prerequisites: {ex.Message}");
-        }
-        finally
-        {
-            isCheckingPrerequisites = false;
-            StateHasChanged();
-        }
-    }
-
-    private async Task GeneratePlanAsync()
-    {
-        if (SelectedTarget is null)
-        {
-            await AlertService.ShowToastAsync("Select a profiling target first.");
-            return;
-        }
-
-        isPlanningCapture = true;
-        StateHasChanged();
-
-        try
-        {
-            var definition = ProfilingCatalogService.CreateSessionDefinition(
-                SelectedTarget.ToProfilingTarget(),
-                selectedScenario,
-                captureKinds: GetSelectedCaptureKinds());
-
-            var (_, plan) = await Mediator.Request(new PlanProfilingCaptureRequest(definition, BuildPlanOptions(SelectedTarget)));
-            capturePlan = plan;
-        }
-        catch (Exception ex)
-        {
-            await AlertService.ShowToastAsync($"Unable to generate profiling plan: {ex.Message}");
-        }
-        finally
-        {
-            isPlanningCapture = false;
-            StateHasChanged();
-        }
-    }
-
-    private ProfilingCapturePlanOptions BuildPlanOptions(TargetOption selectedTarget)
-    {
-        var additionalBuildProperties = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-
-        if (selectedTarget.Platform == ProfilingTargetPlatform.Android &&
-            selectedTarget.Kind is ProfilingTargetKind.PhysicalDevice or ProfilingTargetKind.Emulator)
-        {
-            additionalBuildProperties["AdbTarget"] = $"-s {selectedTarget.Identifier}";
-        }
-
-        if (selectedTarget.Platform == ProfilingTargetPlatform.iOS &&
-            selectedTarget.Kind is ProfilingTargetKind.PhysicalDevice or ProfilingTargetKind.Simulator)
-        {
-            additionalBuildProperties["_DeviceName"] = $":v2:udid={selectedTarget.Identifier}";
-        }
-
-        int? processId = null;
-        if (int.TryParse(processIdText, out var parsedProcessId) && parsedProcessId > 0)
-            processId = parsedProcessId;
-
-        return new ProfilingCapturePlanOptions(
-            ProjectPath: string.IsNullOrWhiteSpace(projectPath) ? null : projectPath,
-            Configuration: configuration,
-            TargetFramework: string.IsNullOrWhiteSpace(targetFrameworkOverride) ? null : targetFrameworkOverride,
-            OutputDirectory: string.IsNullOrWhiteSpace(outputDirectory) ? null : outputDirectory,
-            LaunchMode: launchMode,
-            DiagnosticPort: diagnosticPort,
-            SuspendAtStartup: suspendAtStartup,
-            ProcessId: processId,
-            AdditionalBuildProperties: additionalBuildProperties.Count == 0 ? null : additionalBuildProperties);
-    }
-
-    private void BuildTargetOptions()
-    {
-        var options = new List<TargetOption>();
-
-        switch (selectedPlatform)
-        {
-            case ProfilingTargetPlatform.Android:
-                options.AddRange(snapshot.AndroidDevices.Select(device => new TargetOption(
-                    Key: $"android-device:{device.Serial}",
-                    Platform: ProfilingTargetPlatform.Android,
-                    Kind: ProfilingTargetKind.PhysicalDevice,
-                    Identifier: device.Serial,
-                    DisplayName: device.Model ?? device.Serial,
-                    Subtitle: "Connected Android device",
-                    KindLabel: "Device",
-                    IsAvailable: true,
-                    ExtraHint: device.State)));
-
-                options.AddRange(snapshot.AndroidEmulators.Select(device => new TargetOption(
-                    Key: $"android-emulator:{device.Serial}",
-                    Platform: ProfilingTargetPlatform.Android,
-                    Kind: ProfilingTargetKind.Emulator,
-                    Identifier: device.Serial,
-                    DisplayName: device.Model ?? device.Serial,
-                    Subtitle: "Running Android emulator",
-                    KindLabel: "Emulator",
-                    IsAvailable: true,
-                    ExtraHint: device.State)));
-                break;
-
-            case ProfilingTargetPlatform.iOS:
-                options.AddRange(snapshot.ApplePhysicalDevices.Select(device => new TargetOption(
-                    Key: $"ios-device:{device.Identifier}",
-                    Platform: ProfilingTargetPlatform.iOS,
-                    Kind: ProfilingTargetKind.PhysicalDevice,
-                    Identifier: device.Identifier,
-                    DisplayName: device.Name,
-                    Subtitle: $"{device.ModelName} · iOS {device.OsVersion}",
-                    KindLabel: "Device",
-                    IsAvailable: device.IsAvailable,
-                    ExtraHint: device.Interface)));
-
-                options.AddRange(appleSimulators.Select(simulator => new TargetOption(
-                    Key: $"ios-simulator:{simulator.Udid}",
-                    Platform: ProfilingTargetPlatform.iOS,
-                    Kind: ProfilingTargetKind.Simulator,
-                    Identifier: simulator.Udid,
-                    DisplayName: simulator.Name,
-                    Subtitle: $"{simulator.Runtime ?? "Unknown runtime"} · {simulator.ProductFamily ?? "Simulator"}",
-                    KindLabel: "Simulator",
-                    IsAvailable: string.Equals(simulator.State, "Booted", StringComparison.OrdinalIgnoreCase),
-                    ExtraHint: simulator.State)));
-                break;
-
-            case ProfilingTargetPlatform.MacCatalyst:
-                if (Platform.IsMacCatalyst || Platform.IsMacOS)
-                {
-                    options.Add(new TargetOption(
-                        Key: "desktop:maccatalyst",
-                        Platform: ProfilingTargetPlatform.MacCatalyst,
-                        Kind: ProfilingTargetKind.Desktop,
-                        Identifier: "local-maccatalyst",
-                        DisplayName: "This Mac",
-                        Subtitle: "Local Mac Catalyst target",
-                        KindLabel: "Desktop",
-                        IsAvailable: true));
-                }
-                break;
-
-            case ProfilingTargetPlatform.MacOS:
-                if (Platform.IsMacOS)
-                {
-                    options.Add(new TargetOption(
-                        Key: "desktop:macos",
-                        Platform: ProfilingTargetPlatform.MacOS,
-                        Kind: ProfilingTargetKind.Desktop,
-                        Identifier: "local-macos",
-                        DisplayName: "This Mac",
-                        Subtitle: "Local macOS target",
-                        KindLabel: "Desktop",
-                        IsAvailable: true));
-                }
-                break;
-
-            case ProfilingTargetPlatform.Windows:
-                if (Platform.IsWindows)
-                {
-                    options.Add(new TargetOption(
-                        Key: "desktop:windows",
-                        Platform: ProfilingTargetPlatform.Windows,
-                        Kind: ProfilingTargetKind.Desktop,
-                        Identifier: "local-windows",
-                        DisplayName: "This PC",
-                        Subtitle: "Local Windows target",
-                        KindLabel: "Desktop",
-                        IsAvailable: true));
-                }
-                break;
-        }
-
-        targetOptions = options;
-        if (selectedTargetKey is null || targetOptions.All(option => option.Key != selectedTargetKey))
-            selectedTargetKey = targetOptions.FirstOrDefault()?.Key;
-    }
-
-    private IReadOnlyList<ProfilingCaptureKind> GetSelectedCaptureKinds()
-        => selectedCaptureKinds.Count > 0
-            ? selectedCaptureKinds.OrderBy(kind => kind).ToArray()
-            : SupportedCaptureKinds;
-
-    private static string GetPlatformDisplayName(ProfilingTargetPlatform platform) => platform switch
-    {
-        ProfilingTargetPlatform.iOS => "iOS",
-        ProfilingTargetPlatform.MacCatalyst => "Mac Catalyst",
-        ProfilingTargetPlatform.MacOS => "macOS",
-        _ => platform.ToString()
-    };
-
-    private static string GetCaptureKindDisplayName(ProfilingCaptureKind captureKind) => captureKind switch
-    {
-        ProfilingCaptureKind.Cpu => "CPU trace",
-        ProfilingCaptureKind.Memory => "Memory / GC dump",
-        ProfilingCaptureKind.Network => "Network",
-        ProfilingCaptureKind.Rendering => "Rendering",
-        ProfilingCaptureKind.Energy => "Energy",
-        ProfilingCaptureKind.SystemTrace => "System trace",
-        ProfilingCaptureKind.Logs => "Logs",
-        ProfilingCaptureKind.Startup => "Startup",
-        _ => captureKind.ToString()
-    };
-
-    private static string GetDependencyCss(DependencyStatusType status) => status switch
-    {
-        DependencyStatusType.Ok => "ok",
-        DependencyStatusType.Info => "ok",
-        DependencyStatusType.Warning => "warning",
-        DependencyStatusType.Error => "error",
-        _ => "neutral"
-    };
-
-    private async Task CopyCommandAsync(ProfilingCommandStep step)
-    {
-        await DialogService.CopyToClipboardAsync(BuildCommandLine(step));
-        await AlertService.ShowToastAsync("Copied command to clipboard.");
-    }
-
-    private string BuildCommandLine(ProfilingCommandStep step)
-    {
-        var resolved = ResolveCommandStep(step);
-        return resolved?.CommandLine ?? step.CommandLine;
-    }
-
-    private ProcessRequest? ResolveCommandStep(ProfilingCommandStep step)
-    {
-        if (step.RequiredRuntimeBindings is not null)
-        {
-            foreach (var binding in step.RequiredRuntimeBindings)
-            {
-                if (!TryResolveRuntimeBinding(binding, out _))
-                    return null;
-            }
-        }
-
-        var resolvedArguments = step.Arguments.Select(ResolveRuntimeTokens).ToArray();
-        var resolvedEnvironment = step.Environment?.ToDictionary(
-            kvp => kvp.Key,
-            kvp => ResolveRuntimeTokens(kvp.Value),
-            StringComparer.OrdinalIgnoreCase);
-
-        return new ProcessRequest(
-            step.Command,
-            resolvedArguments,
-            step.WorkingDirectory,
-            Environment: resolvedEnvironment,
-            Title: step.DisplayName,
-            Description: step.Description);
-    }
-
-    private string ResolveRuntimeTokens(string value)
-    {
-        foreach (var binding in capturePlan?.RuntimeBindings ?? Array.Empty<ProfilingRuntimeBinding>())
-        {
-            if (TryResolveRuntimeBinding(binding.Token, out var resolvedValue))
-                value = value.Replace(binding.Token, resolvedValue, StringComparison.Ordinal);
-        }
-
-        return value;
-    }
-
-    private bool TryResolveRuntimeBinding(string token, out string value)
-    {
-        if (token == "{{PROCESS_ID}}" && int.TryParse(processIdText, out var parsedProcessId) && parsedProcessId > 0)
-        {
-            value = parsedProcessId.ToString();
-            return true;
-        }
-
-        value = string.Empty;
-        return false;
-    }
-
-
-    private async Task NextStep()
-    {
-        if (!CanProceedToNext) return;
-
-        if (currentStep == 2)
-        {
-            currentStep = 3;
-            await CheckPrerequisitesAsync();
-            if (SelectedTarget is not null)
-                await GeneratePlanAsync();
-        }
-        else if (currentStep == 3)
-        {
-            // Start Capture — advance to step 4 and run the pipeline
-            currentStep = 4;
-            await StartPipelineAsync();
-        }
-        else
-        {
-            currentStep = Math.Min(currentStep + 1, TotalSteps - 1);
-        }
-    }
-
-    private void PreviousStep()
-    {
-        currentStep = Math.Max(currentStep - 1, 0);
-    }
-
-    private void GoToStep(int step)
-    {
-        // Don't allow jumping forward past current, or back into step 4 (capture)
-        if (step < currentStep && step != 4)
-            currentStep = step;
-    }
-
-    private async Task StartPipelineAsync()
-    {
-        if (capturePlan is null) return;
-
-        // Generate session ID and set output directory to managed storage
-        var projectName = projectPath is not null
-            ? Path.GetFileNameWithoutExtension(projectPath)
-            : null;
-        activeSessionId = SessionStorage.GenerateSessionId(projectName);
-        var sessionDir = SessionStorage.GetSessionDirectoryPath(activeSessionId);
-
-        // Update the capture plan to use the session directory as output
-        capturePlan = capturePlan with { OutputDirectory = sessionDir };
-
-        pipelineState = ProfilingPipelineState.NotStarted;
-        pipelineResult = null;
-        expandedStepLogs.Clear();
-        pipelineStartTime = DateTime.Now;
-        StateHasChanged();
-
-        // Subscribe to pipeline events
-        PipelineRunner.PipelineStateChanged += OnPipelineStateChanged;
-        PipelineRunner.StepStateChanged += OnStepStateChanged;
-        PipelineRunner.StepOutputReceived += OnStepOutputReceived;
-
-        // Start elapsed timer (updates every second)
-        pipelineTimer = new System.Threading.Timer(_ =>
-        {
-            pipelineElapsed = DateTime.Now - pipelineStartTime;
-            InvokeAsync(StateHasChanged);
-        }, null, TimeSpan.Zero, TimeSpan.FromSeconds(1));
-
-        try
-        {
-            pipelineResult = await PipelineRunner.RunAsync(capturePlan);
-            pipelineState = pipelineResult.FinalState;
-
-            // Save session manifest
-            await SaveCurrentSessionAsync();
-
-            // Auto-advance to results on completion
-            if (pipelineResult.Success || pipelineState == ProfilingPipelineState.Completed)
-            {
-                currentStep = 5;
-            }
-        }
-        catch (Exception ex)
-        {
-            pipelineState = ProfilingPipelineState.Failed;
-            await AlertService.ShowToastAsync($"Pipeline failed: {ex.Message}");
-        }
-        finally
-        {
-            pipelineTimer?.Dispose();
-            pipelineTimer = null;
-            PipelineRunner.PipelineStateChanged -= OnPipelineStateChanged;
-            PipelineRunner.StepStateChanged -= OnStepStateChanged;
-            PipelineRunner.StepOutputReceived -= OnStepOutputReceived;
-            StateHasChanged();
-        }
-    }
-
-    private void OnPipelineStateChanged(object? sender, ProfilingPipelineStateChangedEventArgs e)
-    {
-        pipelineState = e.NewState;
-        InvokeAsync(StateHasChanged);
-    }
-
-    private void OnStepStateChanged(object? sender, ProfilingStepStateChangedEventArgs e)
-    {
-        // Auto-expand log for running steps
-        if (e.NewState == ProfilingStepState.Running)
-        {
-            expandedStepLogs.Add(e.StepId);
-            // Start tracking auto-scroll after render
-            InvokeAsync(async () =>
-            {
-                StateHasChanged();
-                await Task.Yield();
-                try { await JS.InvokeVoidAsync("logScrollInterop.track", $"step-log-{e.StepId}"); } catch { }
-            });
-            return;
-        }
-        InvokeAsync(StateHasChanged);
-    }
-
-    private void OnStepOutputReceived(object? sender, ProfilingStepOutputEventArgs e)
-    {
-        InvokeAsync(async () =>
-        {
-            StateHasChanged();
-            await Task.Yield();
-            try { await JS.InvokeVoidAsync("logScrollInterop.scrollToBottom", $"step-log-{e.StepId}"); } catch { }
-        });
-    }
-
-    private async Task HandleStopCapture()
-    {
-        await PipelineRunner.StopCaptureAsync();
-    }
-
-    private void HandleCancelPipeline()
-    {
-        PipelineRunner.Cancel();
-        pipelineState = ProfilingPipelineState.Cancelled;
-        currentStep = 3; // Go back to review
-        StateHasChanged();
-    }
-
-    private async void ToggleStepLog(string stepId)
-    {
-        if (!expandedStepLogs.Remove(stepId))
-        {
-            expandedStepLogs.Add(stepId);
-            StateHasChanged();
-            await Task.Yield();
-            try
-            {
-                await JS.InvokeVoidAsync("logScrollInterop.track", $"step-log-{stepId}");
-                await JS.InvokeVoidAsync("logScrollInterop.scrollToBottom", $"step-log-{stepId}");
-            }
-            catch { }
-        }
-        else
-        {
-            try { await JS.InvokeVoidAsync("logScrollInterop.untrack", $"step-log-{stepId}"); } catch { }
-        }
-    }
-
-    private string GetPipelineStateIcon() => pipelineState switch
-    {
-        ProfilingPipelineState.Running => "fa-spinner fa-spin",
-        ProfilingPipelineState.WaitingForStop => "fa-circle-dot fa-beat-fade",
-        ProfilingPipelineState.Completing => "fa-spinner fa-spin",
-        ProfilingPipelineState.Completed => "fa-check-circle",
-        ProfilingPipelineState.Failed => "fa-times-circle",
-        ProfilingPipelineState.Cancelled => "fa-ban",
-        _ => "fa-circle"
-    };
-
-    private string GetPipelineStateText() => pipelineState switch
-    {
-        ProfilingPipelineState.Running => "Launching capture pipeline...",
-        ProfilingPipelineState.WaitingForStop => "Recording — click Stop Capture when ready",
-        ProfilingPipelineState.Completing => "Stopping capture and collecting artifacts...",
-        ProfilingPipelineState.Completed => "Capture completed successfully",
-        ProfilingPipelineState.Failed => "Capture failed — check step details below",
-        ProfilingPipelineState.Cancelled => "Capture cancelled",
-        _ => "Initializing..."
-    };
-
-    private static string FormatElapsed(TimeSpan ts) =>
-        ts.TotalMinutes >= 1 ? $"{(int)ts.TotalMinutes}m {ts.Seconds}s" : $"{ts.Seconds}s";
-
-    // Results helpers
-    private void StartNewSession()
-    {
-        StartNewWizard();
-    }
-
-    private void StartNewWizard()
-    {
-        currentStep = 0;
-        capturePlan = null;
-        prerequisiteReport = null;
-        pipelineResult = null;
-        pipelineState = ProfilingPipelineState.NotStarted;
-        expandedStepLogs.Clear();
-        activeSessionId = null;
-        CloseSpeedscopeViewer();
-        CloseGcDumpViewer();
-        viewMode = ViewMode.Wizard;
-        SetupToolbar();
-    }
-
-    private void BackToSessionList()
-    {
-        if (pipelineState == ProfilingPipelineState.Running)
-            return; // Don't navigate away during active capture
-
-        viewMode = ViewMode.SessionList;
-        CloseSpeedscopeViewer();
-        CloseGcDumpViewer();
-        SetupToolbar();
-        _ = LoadSessionsAsync();
     }
 
     private void SetupToolbar()
     {
-        if (viewMode == ViewMode.SessionList)
-        {
-            ToolbarService.ClearItems();
-            ToolbarService.SetItems(
-                new ToolbarAction("create", "New Session", "plus"),
-                new ToolbarAction("import", "Import", "square.and.arrow.down"),
-                new ToolbarAction("refresh", "Refresh", "arrow.clockwise")
-            );
-            ToolbarService.SetSearch("Search sessions...");
-        }
-        else
-        {
-            ToolbarService.ClearItems();
-            ToolbarService.SetItems(
-                new ToolbarAction("refresh", "Refresh", "arrow.clockwise")
-            );
-        }
+        ToolbarService.ClearItems();
+        ToolbarService.SetItems(
+            new ToolbarAction("create", "New Session", "plus"),
+            new ToolbarAction("import", "Import", "square.and.arrow.down"),
+            new ToolbarAction("refresh", "Refresh", "arrow.clockwise")
+        );
+        ToolbarService.SetSearch("Search sessions...");
     }
 
     private async Task LoadSessionsAsync()
@@ -2030,118 +495,6 @@ else if (viewMode == ViewMode.Wizard)
         RevealInFinder(session.DirectoryPath);
     }
 
-    private async Task SaveCurrentSessionAsync()
-    {
-        if (pipelineResult is null || capturePlan is null) return;
-
-        try
-        {
-            var projectName = projectPath is not null
-                ? Path.GetFileNameWithoutExtension(projectPath)
-                : null;
-            var sessionId = activeSessionId ?? SessionStorage.GenerateSessionId(projectName);
-            activeSessionId = sessionId;
-
-            var target = SelectedTarget;
-            var manifest = new ProfilingSessionManifest
-            {
-                Id = sessionId,
-                Name = $"{projectName ?? "Session"} — {selectedPlatform} {target?.DisplayName ?? "Unknown"}",
-                Status = pipelineResult.Success ? ProfilingSessionStatus.Completed
-                    : (pipelineState == ProfilingPipelineState.Cancelled ? ProfilingSessionStatus.Cancelled
-                    : ProfilingSessionStatus.Failed),
-                CreatedAt = pipelineStartTime,
-                CompletedAt = DateTimeOffset.UtcNow,
-                Target = new ProfilingSessionTarget
-                {
-                    Platform = selectedPlatform,
-                    Kind = target?.Kind ?? ProfilingTargetKind.Desktop,
-                    Identifier = target?.Identifier ?? "",
-                    DisplayName = target?.DisplayName ?? selectedPlatform.ToString()
-                },
-                Project = projectPath is not null ? new ProfilingSessionProject
-                {
-                    Path = projectPath,
-                    Name = projectName!,
-                    Configuration = configuration,
-                    TargetFramework = targetFrameworkOverride
-                } : null,
-                CaptureKinds = selectedCaptureKinds.ToList(),
-                Options = new ProfilingSessionOptions
-                {
-                    LaunchMode = launchMode,
-                    DiagnosticPort = diagnosticPort,
-                    SuspendAtStartup = suspendAtStartup,
-                    ProcessId = int.TryParse(processIdText, out var pid) ? pid : null,
-                    Scenario = selectedScenario
-                },
-                Pipeline = new ProfilingSessionPipelineSummary
-                {
-                    Success = pipelineResult.Success,
-                    Duration = pipelineResult.TotalDuration,
-                    Steps = pipelineResult.StepResults.Select(step => new ProfilingSessionStepSummary
-                    {
-                        Id = step.StepId,
-                        DisplayName = step.DisplayName,
-                        State = step.State.ToString(),
-                        CommandLine = capturePlan.Commands.FirstOrDefault(c => c.Id == step.StepId)?.CommandLine
-                    }).ToList()
-                },
-                Artifacts = new List<ProfilingSessionArtifact>()
-            };
-
-            // Add discovered artifacts
-            var sessionDir = SessionStorage.GetSessionDirectoryPath(sessionId);
-            foreach (var artifactPath in pipelineResult.ArtifactPaths)
-            {
-                var fileName = Path.GetFileName(artifactPath);
-                var extension = GetArtifactExtension(fileName);
-                var kind = extension switch
-                {
-                    ".nettrace" => ProfilingArtifactKind.Trace,
-                    ".speedscope.json" => ProfilingArtifactKind.Export,
-                    ".gcdump" => ProfilingArtifactKind.GcDump,
-                    ".log" => ProfilingArtifactKind.Log,
-                    _ => ProfilingArtifactKind.Other
-                };
-
-                long? size = null;
-                try { if (File.Exists(artifactPath)) size = new FileInfo(artifactPath).Length; } catch { }
-
-                manifest.Artifacts.Add(new ProfilingSessionArtifact
-                {
-                    FileName = fileName,
-                    Kind = kind,
-                    SizeBytes = size
-                });
-            }
-
-            // Add log files from the session directory
-            if (Directory.Exists(sessionDir))
-            {
-                foreach (var logFile in Directory.GetFiles(sessionDir, "*.log"))
-                {
-                    var logName = Path.GetFileName(logFile);
-                    if (manifest.Artifacts.Any(a => a.FileName == logName)) continue;
-                    long? size = null;
-                    try { size = new FileInfo(logFile).Length; } catch { }
-                    manifest.Artifacts.Add(new ProfilingSessionArtifact
-                    {
-                        FileName = logName,
-                        Kind = ProfilingArtifactKind.Log,
-                        SizeBytes = size
-                    });
-                }
-            }
-
-            await SessionStorage.SaveSessionAsync(manifest);
-        }
-        catch (Exception ex)
-        {
-            await AlertService.ShowToastAsync($"Failed to save session: {ex.Message}");
-        }
-    }
-
     private static string GetPlatformIcon(ProfilingTargetPlatform platform) => platform switch
     {
         ProfilingTargetPlatform.Android => "fa-brands fa-android",
@@ -2152,7 +505,8 @@ else if (viewMode == ViewMode.Wizard)
         _ => "fa-desktop"
     };
 
-    private enum ViewMode { SessionList, Wizard }
+    private static string FormatElapsed(TimeSpan ts) =>
+        ts.TotalMinutes >= 1 ? $"{(int)ts.TotalMinutes}m {ts.Seconds}s" : $"{ts.Seconds}s";
 
     private static string? GetFileSize(string path)
     {
@@ -2196,7 +550,6 @@ else if (viewMode == ViewMode.Wizard)
     {
         try
         {
-            // If it's a .nettrace file, convert to speedscope first
             string? speedscopePath = path;
             if (path.EndsWith(".nettrace", StringComparison.OrdinalIgnoreCase))
             {
@@ -2225,7 +578,6 @@ else if (viewMode == ViewMode.Wizard)
 
         try
         {
-            // Read the file and inject it into speedscope via JS interop
             var fileBytes = await File.ReadAllBytesAsync(speedscopeFilePath);
             var base64 = Convert.ToBase64String(fileBytes);
             var fileName = Path.GetFileName(speedscopeFilePath);
@@ -2315,7 +667,7 @@ else if (viewMode == ViewMode.Wizard)
             _ => types
         };
 
-        return types.Take(200); // Limit to 200 rows for performance
+        return types.Take(200);
     }
 
     private void SortGcDump(string column)
@@ -2325,7 +677,7 @@ else if (viewMode == ViewMode.Wizard)
         else
         {
             gcDumpSortColumn = column;
-            gcDumpSortAsc = column == "name"; // Name sorts ascending by default, others descending
+            gcDumpSortAsc = column == "name";
         }
     }
 
@@ -2357,30 +709,10 @@ else if (viewMode == ViewMode.Wizard)
         ToolbarService.ToolbarItemClicked -= OnToolbarItemClicked;
         ToolbarService.SearchTextChanged -= OnSearchTextChanged;
         ToolbarService.ClearItems();
-        DeviceMonitor.Changed -= OnDeviceMonitorChanged;
-        pipelineTimer?.Dispose();
         if (speedscopeModule is not null)
         {
             _ = speedscopeModule.DisposeAsync();
         }
-    }
-
-    private sealed record TargetOption(
-        string Key,
-        ProfilingTargetPlatform Platform,
-        ProfilingTargetKind Kind,
-        string Identifier,
-        string DisplayName,
-        string Subtitle,
-        string KindLabel,
-        bool IsAvailable,
-        string? ExtraHint = null)
-    {
-        public ProfilingTarget ToProfilingTarget() => new(
-            Platform,
-            Kind,
-            Identifier,
-            DisplayName);
     }
 }
 
@@ -2403,216 +735,6 @@ else if (viewMode == ViewMode.Wizard)
         line-height: 1.55;
     }
 
-    .profiling-page {
-        display: grid;
-        grid-template-columns: minmax(24rem, 1.15fr) minmax(24rem, 1fr);
-        gap: 1rem;
-        align-items: start;
-    }
-
-    .setup-column,
-    .targets-column {
-        display: grid;
-        gap: 1rem;
-    }
-
-    .panel {
-        background: var(--card-bg, var(--bg-secondary));
-        border: 1px solid var(--border-color);
-        border-radius: 12px;
-        overflow: hidden;
-        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
-    }
-
-    .panel-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 0.75rem;
-        padding: 0.85rem 1rem;
-        border-bottom: 1px solid var(--border-color);
-        font-weight: 600;
-        background: color-mix(in srgb, var(--bg-secondary) 92%, transparent);
-    }
-
-    .panel-body {
-        padding: 1rem;
-    }
-
-    .form-grid {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 0.9rem 1rem;
-    }
-
-    .field-group {
-        display: grid;
-        gap: 0.35rem;
-    }
-
-    .field-span-2 {
-        grid-column: 1 / -1;
-    }
-
-    .field-group label {
-        font-size: 0.8rem;
-        font-weight: 600;
-        color: var(--text-secondary);
-    }
-
-    .field-group input:not([type="checkbox"]),
-    .field-group select {
-        width: 100%;
-        border: 1px solid var(--border-color);
-        border-radius: 8px;
-        padding: 0.65rem 0.75rem;
-        background: var(--bg-primary);
-        color: var(--text-primary);
-    }
-
-    .field-help {
-        font-size: 0.75rem;
-        color: var(--text-tertiary);
-    }
-
-    .input-row {
-        display: flex;
-        gap: 0.6rem;
-    }
-
-    .input-row input {
-        flex: 1;
-    }
-
-    .checkbox-group {
-        padding-top: 0.2rem;
-    }
-
-    .checkbox-label {
-        display: grid;
-        grid-template-columns: auto 1fr;
-        align-items: start;
-        gap: 0.5rem;
-        font-weight: 500;
-        width: 100%;
-    }
-
-    .checkbox-label input[type="checkbox"] {
-        width: 1rem;
-        height: 1rem;
-        margin: 0.15rem 0 0;
-        padding: 0;
-    }
-
-    .capture-kinds {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.75rem;
-    }
-
-    .capture-kind-chip {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.45rem;
-        border: 1px solid var(--border-color);
-        border-radius: 999px;
-        padding: 0.45rem 0.8rem;
-        background: var(--bg-primary);
-        cursor: pointer;
-    }
-
-    .capture-kind-chip.selected {
-        border-color: var(--accent-color, #8b5cf6);
-        color: var(--accent-color, #8b5cf6);
-        background: color-mix(in srgb, var(--accent-color, #8b5cf6) 10%, transparent);
-    }
-
-    .info-banner {
-        padding: 0.75rem 0.9rem;
-        border-radius: 10px;
-        border: 1px solid color-mix(in srgb, var(--border-color) 80%, transparent);
-        background: color-mix(in srgb, var(--bg-primary) 94%, transparent);
-        color: var(--text-secondary);
-        margin-bottom: 0.85rem;
-    }
-
-    .scenario-summary {
-        margin-bottom: 1rem;
-        padding: 0.9rem;
-        border-radius: 10px;
-        background: color-mix(in srgb, var(--bg-primary) 95%, transparent);
-        border: 1px solid color-mix(in srgb, var(--border-color) 75%, transparent);
-    }
-
-    .scenario-name {
-        font-weight: 700;
-        margin-bottom: 0.25rem;
-    }
-
-    .scenario-description {
-        color: var(--text-secondary);
-        margin-bottom: 0.35rem;
-    }
-
-    .scenario-meta {
-        font-size: 0.78rem;
-        color: var(--text-tertiary);
-    }
-
-    .target-list {
-        display: grid;
-        gap: 0.75rem;
-    }
-
-    .target-card {
-        display: grid;
-        grid-template-columns: auto minmax(0, 1fr);
-        gap: 0.75rem;
-        align-items: start;
-        border: 1px solid var(--border-color);
-        border-radius: 10px;
-        padding: 0.85rem;
-        cursor: pointer;
-        background: var(--bg-primary);
-    }
-
-    .target-card.selected {
-        border-color: var(--accent-color, #8b5cf6);
-        box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-color, #8b5cf6) 45%, transparent);
-    }
-
-    .target-card input {
-        margin-top: 0.25rem;
-    }
-
-    .target-title {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 0.75rem;
-        font-weight: 600;
-    }
-
-    .target-subtitle {
-        color: var(--text-secondary);
-        margin-top: 0.2rem;
-    }
-
-    .target-meta {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.5rem 0.8rem;
-        margin-top: 0.35rem;
-        font-size: 0.78rem;
-        color: var(--text-tertiary);
-    }
-
-    .action-row {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.75rem;
-    }
-
     .loading-state,
     .empty-state {
         display: flex;
@@ -2625,776 +747,6 @@ else if (viewMode == ViewMode.Wizard)
         text-align: center;
     }
 
-    .empty-state.compact {
-        padding: 1.5rem 0.5rem;
-    }
-
-    .empty-hint {
-        color: var(--text-tertiary);
-        font-size: 0.85rem;
-    }
-
-    .quick-links {
-        display: flex;
-        gap: 0.85rem;
-        flex-wrap: wrap;
-        justify-content: center;
-    }
-
-    .summary-badges,
-    .command-badges {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.5rem;
-    }
-
-    .badge {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        padding: 0.2rem 0.55rem;
-        border-radius: 999px;
-        font-size: 0.72rem;
-        border: 1px solid var(--border-color);
-        color: var(--text-secondary);
-        background: var(--bg-primary);
-    }
-
-    .badge-success {
-        color: #22c55e;
-        border-color: rgba(34, 197, 94, 0.4);
-    }
-
-    .badge-warning {
-        color: #f59e0b;
-        border-color: rgba(245, 158, 11, 0.4);
-    }
-
-    .badge-error {
-        color: #ef4444;
-        border-color: rgba(239, 68, 68, 0.4);
-    }
-
-    .badge-neutral {
-        color: var(--text-secondary);
-    }
-
-    .plan-body {
-        display: grid;
-        gap: 1rem;
-    }
-
-    .plan-summary-grid,
-    .prereq-grid,
-    .artifact-list {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
-        gap: 0.75rem;
-    }
-
-    .summary-card,
-    .prereq-card,
-    .artifact-card,
-    .command-card {
-        border: 1px solid var(--border-color);
-        border-radius: 10px;
-        padding: 0.85rem;
-        background: var(--bg-primary);
-    }
-
-    .summary-label {
-        font-size: 0.76rem;
-        color: var(--text-tertiary);
-        margin-bottom: 0.2rem;
-    }
-
-    .summary-value {
-        font-weight: 700;
-        word-break: break-word;
-    }
-
-    .validation-block {
-        border-radius: 10px;
-        padding: 0.85rem 1rem;
-    }
-
-    .validation-block.errors {
-        border: 1px solid rgba(239, 68, 68, 0.35);
-        background: rgba(239, 68, 68, 0.08);
-    }
-
-    .validation-block.warnings {
-        border: 1px solid rgba(245, 158, 11, 0.35);
-        background: rgba(245, 158, 11, 0.08);
-    }
-
-    .validation-block.info {
-        border: 1px solid rgba(59, 130, 246, 0.35);
-        background: rgba(59, 130, 246, 0.08);
-    }
-
-    .validation-title,
-    .plan-section-title {
-        font-weight: 700;
-        margin-bottom: 0.5rem;
-    }
-
-    .command-list {
-        display: grid;
-        gap: 0.75rem;
-    }
-
-    .command-header {
-        display: flex;
-        justify-content: space-between;
-        gap: 1rem;
-        margin-bottom: 0.65rem;
-    }
-
-    .command-title {
-        font-weight: 700;
-        margin-bottom: 0.2rem;
-    }
-
-    .command-description,
-    .prereq-detail,
-    .artifact-path {
-        color: var(--text-secondary);
-    }
-
-    .command-line,
-    .inline-code {
-        display: block;
-        white-space: pre-wrap;
-        word-break: break-word;
-        font-family: 'SF Mono', 'Cascadia Code', monospace;
-        font-size: 0.76rem;
-        padding: 0.65rem 0.75rem;
-        border-radius: 8px;
-        background: color-mix(in srgb, var(--bg-primary) 92%, transparent);
-        border: 1px solid color-mix(in srgb, var(--border-color) 80%, transparent);
-    }
-
-    .command-meta,
-    .prereq-meta,
-    .artifact-meta {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.4rem 0.8rem;
-        margin-top: 0.55rem;
-        font-size: 0.75rem;
-        color: var(--text-tertiary);
-    }
-
-    .command-actions {
-        display: flex;
-        gap: 0.6rem;
-        margin-top: 0.75rem;
-    }
-
-    .prereq-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 0.75rem;
-        margin-bottom: 0.4rem;
-        font-weight: 700;
-    }
-
-    .status-pill {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        padding: 0.15rem 0.55rem;
-        border-radius: 999px;
-        font-size: 0.72rem;
-        border: 1px solid var(--border-color);
-    }
-
-    .status-pill.ok {
-        color: #22c55e;
-        border-color: rgba(34, 197, 94, 0.35);
-    }
-
-    .status-pill.warning,
-    .status-warning {
-        color: #f59e0b;
-    }
-
-    .status-pill.error {
-        color: #ef4444;
-        border-color: rgba(239, 68, 68, 0.35);
-    }
-
-    .status-pill.neutral {
-        color: var(--text-secondary);
-    }
-
-    .status-ok {
-        color: #22c55e;
-    }
-
-    @@media (max-width: 980px) {
-        .profiling-page {
-            grid-template-columns: 1fr;
-        }
-
-        .form-grid {
-            grid-template-columns: 1fr;
-        }
-
-        .field-span-2 {
-            grid-column: auto;
-        }
-
-        .command-header {
-            flex-direction: column;
-        }
-    }
-
-    .wizard-steps {
-        display: flex;
-        align-items: center;
-        gap: 0;
-        margin-bottom: 1.5rem;
-        padding: 0 1rem;
-    }
-
-    .wizard-step {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 0.35rem;
-        cursor: pointer;
-        min-width: 5.5rem;
-    }
-
-    .wizard-step.upcoming {
-        opacity: 0.4;
-        cursor: default;
-    }
-
-    .step-indicator {
-        width: 2.25rem;
-        height: 2.25rem;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-weight: 700;
-        font-size: 0.85rem;
-        border: 2px solid var(--border-color);
-        color: var(--text-secondary);
-        background: var(--bg-primary);
-        transition: all 0.2s;
-    }
-
-    .wizard-step.active .step-indicator {
-        border-color: var(--accent-color, #8b5cf6);
-        color: white;
-        background: var(--accent-color, #8b5cf6);
-    }
-
-    .wizard-step.completed .step-indicator {
-        border-color: #22c55e;
-        color: white;
-        background: #22c55e;
-    }
-
-    .step-label {
-        font-size: 0.72rem;
-        font-weight: 600;
-        color: var(--text-secondary);
-        text-align: center;
-        white-space: nowrap;
-    }
-
-    .wizard-step.active .step-label {
-        color: var(--text-primary);
-    }
-
-    .step-connector {
-        flex: 1;
-        height: 2px;
-        background: var(--border-color);
-        margin: 0 0.25rem;
-        align-self: flex-start;
-        margin-top: 1.125rem;
-        transition: background 0.2s;
-    }
-
-    .step-connector.completed {
-        background: #22c55e;
-    }
-
-    .wizard-nav {
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
-        margin-top: 1.5rem;
-        padding-top: 1rem;
-        border-top: 1px solid var(--border-color);
-    }
-
-    .wizard-nav-spacer {
-        flex: 1;
-    }
-
-    .advanced-toggle {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        padding: 0.5rem 0;
-        cursor: pointer;
-        color: var(--text-secondary);
-        font-size: 0.85rem;
-        font-weight: 600;
-        grid-column: 1 / -1;
-    }
-
-    .advanced-toggle:hover {
-        color: var(--text-primary);
-    }
-
-    /* Pipeline capture step */
-    .pipeline-status-banner {
-        display: flex;
-        align-items: center;
-        gap: 0.6rem;
-        padding: 0.75rem 1rem;
-        border-radius: 8px;
-        font-weight: 600;
-        font-size: 0.88rem;
-        margin-bottom: 1rem;
-    }
-
-    .pipeline-status-banner.pipeline-status-running {
-        background: rgba(59, 130, 246, 0.1);
-        color: #3b82f6;
-        border: 1px solid rgba(59, 130, 246, 0.2);
-    }
-
-    .pipeline-status-banner.pipeline-status-waitingforstop {
-        background: rgba(234, 179, 8, 0.1);
-        color: #eab308;
-        border: 1px solid rgba(234, 179, 8, 0.2);
-    }
-
-    .pipeline-status-banner.pipeline-status-completing {
-        background: rgba(59, 130, 246, 0.1);
-        color: #3b82f6;
-        border: 1px solid rgba(59, 130, 246, 0.2);
-    }
-
-    .pipeline-status-banner.pipeline-status-completed {
-        background: rgba(34, 197, 94, 0.1);
-        color: #22c55e;
-        border: 1px solid rgba(34, 197, 94, 0.2);
-    }
-
-    .pipeline-status-banner.pipeline-status-failed {
-        background: rgba(239, 68, 68, 0.1);
-        color: #ef4444;
-        border: 1px solid rgba(239, 68, 68, 0.2);
-    }
-
-    .pipeline-status-banner.pipeline-status-cancelled {
-        background: rgba(107, 114, 128, 0.1);
-        color: var(--text-secondary);
-        border: 1px solid var(--border-color);
-    }
-
-    .pipeline-elapsed {
-        font-size: 0.82rem;
-        color: var(--text-secondary);
-        font-weight: 600;
-    }
-
-    .pipeline-steps {
-        display: grid;
-        gap: 0.5rem;
-    }
-
-    .pipeline-step-card {
-        border: 1px solid var(--border-color);
-        border-radius: 8px;
-        overflow: hidden;
-        transition: border-color 0.2s;
-    }
-
-    .pipeline-step-card.pipeline-step-running {
-        border-color: #3b82f6;
-    }
-
-    .pipeline-step-card.pipeline-step-completed {
-        border-color: #22c55e;
-    }
-
-    .pipeline-step-card.pipeline-step-failed {
-        border-color: #ef4444;
-    }
-
-    .pipeline-step-header {
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
-        padding: 0.65rem 0.85rem;
-        cursor: pointer;
-        user-select: none;
-    }
-
-    .pipeline-step-header:hover {
-        background: var(--bg-tertiary);
-    }
-
-    .pipeline-step-icon {
-        font-size: 1rem;
-        width: 1.25rem;
-        text-align: center;
-        flex-shrink: 0;
-    }
-
-    .pipeline-step-info {
-        flex: 1;
-        min-width: 0;
-    }
-
-    .pipeline-step-name {
-        font-weight: 600;
-        font-size: 0.85rem;
-    }
-
-    .pipeline-step-meta {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        margin-top: 0.2rem;
-    }
-
-    .pipeline-step-duration {
-        font-size: 0.75rem;
-        color: var(--text-secondary);
-    }
-
-    .pipeline-step-expand {
-        color: var(--text-secondary);
-        font-size: 0.75rem;
-        flex-shrink: 0;
-    }
-
-    .pipeline-step-error {
-        padding: 0.5rem 0.85rem;
-        background: rgba(239, 68, 68, 0.08);
-        color: #ef4444;
-        font-size: 0.8rem;
-        border-top: 1px solid rgba(239, 68, 68, 0.15);
-    }
-
-    .pipeline-step-log {
-        max-height: 16rem;
-        overflow-y: auto;
-        background: var(--bg-primary);
-        border-top: 1px solid var(--border-color);
-        padding: 0.5rem;
-        font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
-        font-size: 0.72rem;
-        line-height: 1.5;
-    }
-
-    .pipeline-log-empty {
-        color: var(--text-secondary);
-        font-style: italic;
-        padding: 0.5rem;
-    }
-
-    .pipeline-log-line {
-        white-space: pre-wrap;
-        word-break: break-all;
-        color: var(--text-primary);
-    }
-
-    .pipeline-log-line.error {
-        color: #ef4444;
-    }
-
-    .pipeline-actions {
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
-        margin-top: 1rem;
-        justify-content: center;
-    }
-
-    .pipeline-waiting-hint {
-        color: var(--text-secondary);
-        font-size: 0.85rem;
-        display: flex;
-        align-items: center;
-        gap: 0.4rem;
-    }
-
-    /* Results step */
-    .results-summary {
-        display: flex;
-        align-items: center;
-        gap: 1rem;
-        padding: 1rem;
-        border-radius: 8px;
-        margin-bottom: 1rem;
-    }
-
-    .results-summary.success {
-        background: rgba(34, 197, 94, 0.08);
-        border: 1px solid rgba(34, 197, 94, 0.2);
-    }
-
-    .results-summary.failure {
-        background: rgba(239, 68, 68, 0.08);
-        border: 1px solid rgba(239, 68, 68, 0.2);
-    }
-
-    .results-summary-icon {
-        flex-shrink: 0;
-    }
-
-    .results-summary.success .results-summary-icon {
-        color: #22c55e;
-    }
-
-    .results-summary.failure .results-summary-icon {
-        color: #ef4444;
-    }
-
-    .results-summary-title {
-        font-weight: 700;
-        font-size: 1rem;
-        margin-bottom: 0.25rem;
-    }
-
-    .results-summary-stats {
-        display: flex;
-        gap: 1rem;
-        font-size: 0.82rem;
-        color: var(--text-secondary);
-        flex-wrap: wrap;
-    }
-
-    .results-summary-stats span {
-        display: flex;
-        align-items: center;
-        gap: 0.3rem;
-    }
-
-    .result-artifact-card {
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
-    }
-
-    .artifact-icon {
-        font-size: 1.25rem;
-        color: var(--text-secondary);
-        width: 2rem;
-        text-align: center;
-        flex-shrink: 0;
-    }
-
-    .artifact-details {
-        flex: 1;
-        min-width: 0;
-    }
-
-    .artifact-actions {
-        display: flex;
-        gap: 0.4rem;
-        flex-shrink: 0;
-    }
-
-    .missing-artifact {
-        opacity: 0.7;
-    }
-
-    .results-actions {
-        display: flex;
-        justify-content: center;
-        margin-top: 1.5rem;
-    }
-
-    .text-success { color: #22c55e; }
-    .text-danger { color: #ef4444; }
-    .text-warning { color: #eab308; }
-    .text-muted { color: var(--text-secondary); }
-
-    /* Speedscope viewer */
-    .speedscope-container {
-        position: relative;
-        width: 100%;
-        height: 600px;
-        border: 1px solid var(--border-color);
-        border-radius: 6px;
-        overflow: hidden;
-        margin-top: 0.75rem;
-    }
-
-    .speedscope-iframe {
-        width: 100%;
-        height: 100%;
-        border: none;
-    }
-
-    .speedscope-iframe.hidden {
-        visibility: hidden;
-    }
-
-    .speedscope-loading {
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        gap: 0.75rem;
-        color: var(--text-secondary);
-        background: var(--bg-secondary);
-    }
-
-    /* GC dump viewer */
-    .gcdump-summary {
-        display: flex;
-        gap: 1.5rem;
-        padding: 0.75rem 1rem;
-        background: var(--bg-tertiary);
-        border-radius: 6px;
-        margin-top: 0.75rem;
-        font-size: 0.875rem;
-        color: var(--text-secondary);
-    }
-
-    .gcdump-summary span {
-        display: flex;
-        align-items: center;
-        gap: 0.375rem;
-    }
-
-    .gcdump-filter {
-        margin-top: 0.75rem;
-    }
-
-    .gcdump-filter input {
-        max-width: 300px;
-    }
-
-    .gcdump-table-container {
-        margin-top: 0.75rem;
-        max-height: 500px;
-        overflow-y: auto;
-        border: 1px solid var(--border-color);
-        border-radius: 6px;
-    }
-
-    .gcdump-table {
-        width: 100%;
-        border-collapse: collapse;
-        font-size: 0.8125rem;
-    }
-
-    .gcdump-table thead {
-        position: sticky;
-        top: 0;
-        z-index: 1;
-    }
-
-    .gcdump-table th {
-        padding: 0.5rem 0.75rem;
-        background: var(--bg-tertiary);
-        border-bottom: 1px solid var(--border-color);
-        text-align: left;
-        font-weight: 600;
-        font-size: 0.75rem;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        color: var(--text-secondary);
-        cursor: pointer;
-        user-select: none;
-    }
-
-    .gcdump-table th:hover {
-        background: var(--bg-secondary);
-    }
-
-    .gcdump-table th i {
-        margin-left: 0.25rem;
-        font-size: 0.625rem;
-    }
-
-    .gcdump-table td {
-        padding: 0.375rem 0.75rem;
-        border-bottom: 1px solid var(--border-color);
-    }
-
-    .gcdump-table tr:hover td {
-        background: var(--bg-tertiary);
-    }
-
-    .gcdump-col-name {
-        min-width: 300px;
-    }
-
-    .gcdump-col-name .mono {
-        font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
-        font-size: 0.75rem;
-        word-break: break-all;
-    }
-
-    .gcdump-col-count,
-    .gcdump-col-size {
-        text-align: right;
-        white-space: nowrap;
-        font-variant-numeric: tabular-nums;
-    }
-
-    .gcdump-col-pct {
-        width: 120px;
-    }
-
-    .pct-bar-container {
-        display: flex;
-        align-items: center;
-        gap: 0.375rem;
-    }
-
-    .pct-bar {
-        height: 4px;
-        background: var(--accent-color, #3b82f6);
-        border-radius: 2px;
-        min-width: 1px;
-        max-width: 80px;
-    }
-
-    .pct-bar-container span {
-        font-size: 0.6875rem;
-        color: var(--text-secondary);
-        white-space: nowrap;
-    }
-
-    .gcdump-loading,
-    .gcdump-error {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 0.75rem;
-        padding: 2rem;
-        color: var(--text-secondary);
-    }
-
-    .gcdump-error {
-        color: var(--text-warning, #eab308);
-    }
-
-    /* Session List */
     .empty-state {
         text-align: center;
         padding: 60px 40px;
@@ -3505,21 +857,10 @@ else if (viewMode == ViewMode.Wizard)
         color: white;
     }
 
-    .badge-completed {
-        background: #16a34a;
-    }
-
-    .badge-failed {
-        background: #dc2626;
-    }
-
-    .badge-cancelled {
-        background: #ca8a04;
-    }
-
-    .badge-inprogress {
-        background: #2563eb;
-    }
+    .badge-completed { background: #16a34a; }
+    .badge-failed { background: #dc2626; }
+    .badge-cancelled { background: #ca8a04; }
+    .badge-inprogress { background: #2563eb; }
 
     .session-card-expand {
         color: var(--text-muted);
@@ -3557,5 +898,214 @@ else if (viewMode == ViewMode.Wizard)
         margin-top: 1rem;
         padding-top: 0.75rem;
         border-top: 1px solid var(--border-color);
+    }
+
+    .plan-section-title {
+        font-weight: 700;
+        margin-bottom: 0.5rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .artifact-list {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+        gap: 0.75rem;
+    }
+
+    .artifact-card {
+        border: 1px solid var(--border-color);
+        border-radius: 10px;
+        padding: 0.85rem;
+        background: var(--bg-primary);
+    }
+
+    .result-artifact-card {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+
+    .artifact-icon {
+        font-size: 1.25rem;
+        color: var(--text-secondary);
+        width: 2rem;
+        text-align: center;
+        flex-shrink: 0;
+    }
+
+    .artifact-details {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .artifact-actions {
+        display: flex;
+        gap: 0.4rem;
+        flex-shrink: 0;
+    }
+
+    .artifact-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem 0.8rem;
+        margin-top: 0.55rem;
+        font-size: 0.75rem;
+        color: var(--text-tertiary);
+    }
+
+    .missing-artifact { opacity: 0.7; }
+
+    .text-success { color: #22c55e; }
+    .text-danger { color: #ef4444; }
+    .text-warning { color: #eab308; }
+    .text-muted { color: var(--text-secondary); }
+
+    /* Speedscope viewer */
+    .speedscope-container {
+        position: relative;
+        width: 100%;
+        height: 600px;
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        overflow: hidden;
+        margin-top: 0.75rem;
+    }
+
+    .speedscope-iframe {
+        width: 100%;
+        height: 100%;
+        border: none;
+    }
+
+    .speedscope-iframe.hidden { visibility: hidden; }
+
+    .speedscope-loading {
+        position: absolute;
+        top: 0; left: 0; right: 0; bottom: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.75rem;
+        color: var(--text-secondary);
+        background: var(--bg-secondary);
+    }
+
+    /* GC dump viewer */
+    .gcdump-summary {
+        display: flex;
+        gap: 1.5rem;
+        padding: 0.75rem 1rem;
+        background: var(--bg-tertiary);
+        border-radius: 6px;
+        margin-top: 0.75rem;
+        font-size: 0.875rem;
+        color: var(--text-secondary);
+    }
+
+    .gcdump-summary span {
+        display: flex;
+        align-items: center;
+        gap: 0.375rem;
+    }
+
+    .gcdump-filter { margin-top: 0.75rem; }
+    .gcdump-filter input { max-width: 300px; }
+
+    .gcdump-table-container {
+        margin-top: 0.75rem;
+        max-height: 500px;
+        overflow-y: auto;
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+    }
+
+    .gcdump-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.8125rem;
+    }
+
+    .gcdump-table thead {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+    }
+
+    .gcdump-table th {
+        padding: 0.5rem 0.75rem;
+        background: var(--bg-tertiary);
+        border-bottom: 1px solid var(--border-color);
+        text-align: left;
+        font-weight: 600;
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: var(--text-secondary);
+        cursor: pointer;
+        user-select: none;
+    }
+
+    .gcdump-table th:hover { background: var(--bg-secondary); }
+    .gcdump-table th i { margin-left: 0.25rem; font-size: 0.625rem; }
+
+    .gcdump-table td {
+        padding: 0.375rem 0.75rem;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .gcdump-table tr:hover td { background: var(--bg-tertiary); }
+
+    .gcdump-col-name { min-width: 300px; }
+
+    .gcdump-col-name .mono {
+        font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+        font-size: 0.75rem;
+        word-break: break-all;
+    }
+
+    .gcdump-col-count,
+    .gcdump-col-size {
+        text-align: right;
+        white-space: nowrap;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .gcdump-col-pct { width: 120px; }
+
+    .pct-bar-container {
+        display: flex;
+        align-items: center;
+        gap: 0.375rem;
+    }
+
+    .pct-bar {
+        height: 4px;
+        background: var(--accent-color, #3b82f6);
+        border-radius: 2px;
+        min-width: 1px;
+        max-width: 80px;
+    }
+
+    .pct-bar-container span {
+        font-size: 0.6875rem;
+        color: var(--text-secondary);
+        white-space: nowrap;
+    }
+
+    .gcdump-loading,
+    .gcdump-error {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 2rem;
+        color: var(--text-secondary);
+    }
+
+    .gcdump-error {
+        color: var(--text-warning, #eab308);
     }
 </style>
