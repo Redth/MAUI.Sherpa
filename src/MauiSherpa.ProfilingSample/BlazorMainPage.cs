@@ -2,9 +2,9 @@ using Microsoft.AspNetCore.Components.WebView.Maui;
 
 namespace MauiSherpa.ProfilingSample;
 
-public sealed class MainPage : ContentPage
+public sealed class BlazorMainPage : ContentPage
 {
-    public MainPage()
+    public BlazorMainPage()
     {
         var blazorWebView = new BlazorWebView
         {

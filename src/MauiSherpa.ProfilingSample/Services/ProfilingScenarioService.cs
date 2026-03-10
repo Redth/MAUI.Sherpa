@@ -324,6 +324,73 @@ public sealed class ProfilingScenarioService : IDisposable
         NotifyChanged();
     }
 
+    /// <summary>
+    /// Runs a network burst using HttpClient (for native MAUI UI, no JS/WebView needed).
+    /// </summary>
+    public async Task RunNativeNetworkBurstAsync(string mode, int requestCount)
+    {
+        requestCount = Math.Clamp(requestCount, 1, 40);
+        BeginNetworkRun(mode, requestCount);
+
+        try
+        {
+            using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+            var tasks = Enumerable.Range(0, requestCount)
+                .Select(i => ExecuteNativeRequest(httpClient, mode, i))
+                .ToArray();
+
+            var results = await Task.WhenAll(tasks);
+            CompleteNetworkRun(mode, results);
+        }
+        catch (Exception ex)
+        {
+            FailNetworkRun(mode, ex.Message);
+        }
+    }
+
+    private static async Task<NetworkRunResult> ExecuteNativeRequest(HttpClient client, string mode, int index)
+    {
+        var url = mode == "remote-mixed"
+            ? (index % 4) switch
+            {
+                0 => $"https://jsonplaceholder.typicode.com/todos/{(index % 10) + 1}",
+                1 => $"https://httpbin.org/delay/1",
+                2 => $"https://jsonplaceholder.typicode.com/invalid-route-{index}",
+                _ => $"https://httpbin.org/status/503"
+            }
+            : $"https://jsonplaceholder.typicode.com/posts/{(index % 50) + 1}";
+
+        var sw = Stopwatch.StartNew();
+        try
+        {
+            using var response = await client.GetAsync(url);
+            var body = await response.Content.ReadAsStringAsync();
+            sw.Stop();
+            return new NetworkRunResult
+            {
+                Url = url,
+                StatusCode = (int)response.StatusCode,
+                Success = response.IsSuccessStatusCode,
+                DurationMs = (int)sw.ElapsedMilliseconds,
+                Error = response.IsSuccessStatusCode ? null : $"HTTP {(int)response.StatusCode}",
+                Bytes = body.Length
+            };
+        }
+        catch (Exception ex)
+        {
+            sw.Stop();
+            return new NetworkRunResult
+            {
+                Url = url,
+                StatusCode = 0,
+                Success = false,
+                DurationMs = (int)sw.ElapsedMilliseconds,
+                Error = ex.Message,
+                Bytes = 0
+            };
+        }
+    }
+
     private void RunCpuWorker(int worker, CancellationToken cancellationToken)
     {
         var stopwatch = Stopwatch.StartNew();

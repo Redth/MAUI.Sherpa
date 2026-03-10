@@ -11,7 +11,11 @@ public sealed class App : Application
             Height = 960,
             MinimumWidth = 960,
             MinimumHeight = 720,
-            Page = new MainPage()
+            Page = new NavigationPage(new NativeMainPage())
+            {
+                BarBackgroundColor = Color.FromArgb("#0f172a"),
+                BarTextColor = Colors.White
+            }
         };
     }
 }
