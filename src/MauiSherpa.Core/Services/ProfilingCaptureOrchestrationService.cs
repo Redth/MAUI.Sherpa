@@ -371,11 +371,6 @@ public class ProfilingCaptureOrchestrationService : IProfilingCaptureOrchestrati
         {
             errors.Add(check.Message ?? $"{check.Name} is required for profiling orchestration.");
         }
-
-        foreach (var check in prerequisites.Checks.Where(check => check.Status == DependencyStatusType.Warning))
-        {
-            warnings.Add(check.Message ?? $"{check.Name} requires attention before profiling.");
-        }
     }
 
     private bool IsTargetCurrentlyAvailable(ProfilingTarget target)
