@@ -55,11 +55,8 @@
             <div class="dialog-body">
                 @if (currentStep == 0)
                 {
-                    <section class="panel">
-                        <div class="panel-header">
-                            <span><i class="fas fa-folder-open"></i> Project</span>
-                        </div>
-                        <div class="panel-body form-grid">
+                    <div class="step-content">
+                        <div class="form-grid">
                             <div class="field-group field-span-2">
                                 <label>Project</label>
                                 <div class="input-row">
@@ -129,121 +126,114 @@
                                 }
                             }
                         </div>
-                    </section>
+                    </div>
                 }
 
                 @if (currentStep == 1)
                 {
-                    <section class="panel">
-                        <div class="panel-header">
-                            <span><i class="fas fa-list-check"></i> Capture kinds</span>
+                    <div class="step-content">
+                        <div class="scenario-picker">
+                            <label>Scenario</label>
+                            <select @bind="selectedScenario" @bind:after="OnScenarioChangedAsync">
+                                @foreach (var scenario in catalog.Scenarios)
+                                {
+                                    <option value="@scenario.Kind">@scenario.DisplayName</option>
+                                }
+                            </select>
+                            @if (CurrentScenarioDefinition is not null)
+                            {
+                                <div class="field-help">@CurrentScenarioDefinition.Description</div>
+                            }
                         </div>
-                        <div class="panel-body">
-                            <div class="scenario-picker">
-                                <label>Scenario</label>
-                                <select @bind="selectedScenario" @bind:after="OnScenarioChangedAsync">
-                                    @foreach (var scenario in catalog.Scenarios)
-                                    {
-                                        <option value="@scenario.Kind">@scenario.DisplayName</option>
-                                    }
-                                </select>
-                                @if (CurrentScenarioDefinition is not null)
-                                {
-                                    <div class="field-help">@CurrentScenarioDefinition.Description</div>
-                                }
-                            </div>
 
-                            <div class="capture-kinds-chips">
-                                @foreach (var captureKind in SupportedCaptureKinds)
-                                {
-                                    <label class="capture-kind-chip @(selectedCaptureKinds.Contains(captureKind) ? "selected" : "")">
-                                        <input type="checkbox"
-                                               checked="@selectedCaptureKinds.Contains(captureKind)"
-                                               @onchange="@((ChangeEventArgs e) => OnCaptureKindChanged(captureKind, e))" />
-                                        <span>@GetCaptureKindDisplayName(captureKind)</span>
-                                    </label>
-                                }
-                            </div>
-
-                            <div class="capture-option checkbox-group">
-                                <label class="checkbox-label">
-                                    <input type="checkbox" @bind="suspendAtStartup" />
-                                    Suspend at startup
+                        <div class="capture-kinds-chips">
+                            @foreach (var captureKind in SupportedCaptureKinds)
+                            {
+                                <label class="capture-kind-chip @(selectedCaptureKinds.Contains(captureKind) ? "selected" : "")">
+                                    <input type="checkbox"
+                                           checked="@selectedCaptureKinds.Contains(captureKind)"
+                                           @onchange="@((ChangeEventArgs e) => OnCaptureKindChanged(captureKind, e))" />
+                                    <span>@GetCaptureKindDisplayName(captureKind)</span>
                                 </label>
-                                <div class="field-help">
-                                    Pauses the app at startup until diagnostic tools connect. Useful for capturing startup performance.
-                                </div>
+                            }
+                        </div>
+
+                        <div class="capture-option checkbox-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" @bind="suspendAtStartup" />
+                                Suspend at startup
+                            </label>
+                            <div class="field-help">
+                                Pauses the app at startup until diagnostic tools connect. Useful for capturing startup performance.
                             </div>
                         </div>
-                    </section>
+                    </div>
                 }
 
                 @if (currentStep == 2)
                 {
-                    <section class="panel">
-                        <div class="panel-header">
-                            <span><i class="fas fa-bullseye"></i> Targets</span>
+                    <div class="step-content">
+                        <div class="section-header">
+                            <span class="section-title"><i class="fas fa-bullseye"></i> Targets</span>
                             <button class="btn btn-secondary btn-sm" @onclick="@(() => RefreshTargetsAsync(forceRefresh: true))" disabled="@isRefreshingTargets">
                                 <i class="fas @(isRefreshingTargets ? "fa-spinner fa-spin" : "fa-arrows-rotate")"></i>
                                 Refresh
                             </button>
                         </div>
-                        <div class="panel-body">
-                            @if (TargetOptions.Count == 0)
-                            {
-                                <div class="empty-state compact">
-                                    <i class="fas fa-plug-circle-xmark"></i>
-                                    <div>No targets are currently selectable for @GetPlatformDisplayName(selectedPlatform).</div>
-                                    @if (selectedPlatform == ProfilingTargetPlatform.Android && knownAndroidEmulatorCount > 0)
-                                    {
-                                        <div class="empty-hint">You have @knownAndroidEmulatorCount Android emulator definition(s). Start one from the Emulators page to profile it here.</div>
-                                    }
-                                    @if (selectedPlatform == ProfilingTargetPlatform.iOS && knownAppleSimulatorCount > 0)
-                                    {
-                                        <div class="empty-hint">You have @knownAppleSimulatorCount available Apple simulator(s). Select one after refreshing if it does not appear yet.</div>
-                                    }
-                                    <div class="quick-links">
-                                        <a href="devices">Android Devices</a>
-                                        <a href="emulators">Android Emulators</a>
-                                        <a href="apple-simulators">Apple Devices & Simulators</a>
-                                    </div>
+                        @if (TargetOptions.Count == 0)
+                        {
+                            <div class="empty-state compact">
+                                <i class="fas fa-plug-circle-xmark"></i>
+                                <div>No targets are currently selectable for @GetPlatformDisplayName(selectedPlatform).</div>
+                                @if (selectedPlatform == ProfilingTargetPlatform.Android && knownAndroidEmulatorCount > 0)
+                                {
+                                    <div class="empty-hint">You have @knownAndroidEmulatorCount Android emulator definition(s). Start one from the Emulators page to profile it here.</div>
+                                }
+                                @if (selectedPlatform == ProfilingTargetPlatform.iOS && knownAppleSimulatorCount > 0)
+                                {
+                                    <div class="empty-hint">You have @knownAppleSimulatorCount available Apple simulator(s). Select one after refreshing if it does not appear yet.</div>
+                                }
+                                <div class="quick-links">
+                                    <a href="devices">Android Devices</a>
+                                    <a href="emulators">Android Emulators</a>
+                                    <a href="apple-simulators">Apple Devices & Simulators</a>
                                 </div>
-                            }
-                            else
-                            {
-                                <div class="target-list">
-                                    @foreach (var option in TargetOptions)
-                                    {
-                                        <label class="target-card @(selectedTargetKey == option.Key ? "selected" : "")">
-                                            <input type="radio" name="profiling-target" value="@option.Key" checked="@(selectedTargetKey == option.Key)" @onchange="@(() => SelectTarget(option.Key))" />
-                                            <div class="target-main">
-                                                <div class="target-title">
-                                                    <span>@option.DisplayName</span>
-                                                    <span class="badge">@option.KindLabel</span>
-                                                </div>
-                                                <div class="target-subtitle">@option.Subtitle</div>
-                                                <div class="target-meta">
-                                                    <span>@option.Identifier</span>
-                                                    @if (option.IsAvailable)
-                                                    {
-                                                        <span class="status-ok">Available now</span>
-                                                    }
-                                                    else
-                                                    {
-                                                        <span class="status-warning">Not connected</span>
-                                                    }
-                                                    @if (!string.IsNullOrWhiteSpace(option.ExtraHint))
-                                                    {
-                                                        <span>@option.ExtraHint</span>
-                                                    }
-                                                </div>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="target-list">
+                                @foreach (var option in TargetOptions)
+                                {
+                                    <label class="target-card @(selectedTargetKey == option.Key ? "selected" : "")">
+                                        <input type="radio" name="profiling-target" value="@option.Key" checked="@(selectedTargetKey == option.Key)" @onchange="@(() => SelectTarget(option.Key))" />
+                                        <div class="target-main">
+                                            <div class="target-title">
+                                                <span>@option.DisplayName</span>
+                                                <span class="badge">@option.KindLabel</span>
                                             </div>
-                                        </label>
-                                    }
-                                </div>
-                            }
-                        </div>
-                    </section>
+                                            <div class="target-subtitle">@option.Subtitle</div>
+                                            <div class="target-meta">
+                                                <span>@option.Identifier</span>
+                                                @if (option.IsAvailable)
+                                                {
+                                                    <span class="status-ok">Available now</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="status-warning">Not connected</span>
+                                                }
+                                                @if (!string.IsNullOrWhiteSpace(option.ExtraHint))
+                                                {
+                                                    <span>@option.ExtraHint</span>
+                                                }
+                                            </div>
+                                        </div>
+                                    </label>
+                                }
+                            </div>
+                        }
+                    </div>
                 }
 
                 @if (currentStep == 3)
@@ -267,9 +257,9 @@
 
                     @if (prerequisiteReport is not null)
                     {
-                        <section class="panel">
-                            <div class="panel-header">
-                                <span><i class="fas fa-stethoscope"></i> Prerequisites</span>
+                        <div class="step-content">
+                            <div class="section-header">
+                                <span class="section-title"><i class="fas fa-stethoscope"></i> Prerequisites</span>
                                 @if (!prerequisiteReport.HasErrors && !prerequisiteReport.HasWarnings)
                                 {
                                     <span class="badge badge-success">All OK</span>
@@ -288,50 +278,48 @@
                                     </div>
                                 }
                             </div>
-                            <div class="panel-body">
-                                @if (!prerequisiteReport.HasErrors && !prerequisiteReport.HasWarnings)
-                                {
-                                    <div class="prereq-success-banner">
-                                        <i class="fas fa-check-circle text-success"></i>
-                                        <span>All prerequisites met</span>
-                                        <button class="btn btn-link btn-sm" @onclick="() => showPrereqDetails = !showPrereqDetails">
-                                            @(showPrereqDetails ? "Hide" : "Details")
-                                        </button>
-                                    </div>
-                                }
-                                @if (prerequisiteReport.HasErrors || prerequisiteReport.HasWarnings || showPrereqDetails)
-                                {
-                                    <div class="prereq-list">
-                                        @foreach (var check in prerequisiteReport.Checks)
-                                        {
-                                            <div class="prereq-row">
-                                                <i class="fas @(check.Status == DependencyStatusType.Ok || check.Status == DependencyStatusType.Info ? "fa-check-circle text-success" : check.Status == DependencyStatusType.Warning ? "fa-exclamation-triangle text-warning" : "fa-times-circle text-error")"></i>
-                                                <span class="prereq-name">@check.Name</span>
-                                                @if (!string.IsNullOrWhiteSpace(check.InstalledVersion))
-                                                {
-                                                    <span class="prereq-version">@check.InstalledVersion</span>
-                                                }
-                                                @if (check.Status != DependencyStatusType.Ok && check.Status != DependencyStatusType.Info)
-                                                {
-                                                    <span class="prereq-message">@check.Message</span>
-                                                }
-                                                @if (!string.IsNullOrWhiteSpace(check.SuggestedCommand))
-                                                {
-                                                    <code class="inline-code">@check.SuggestedCommand</code>
-                                                }
-                                            </div>
-                                        }
-                                    </div>
-                                }
-                            </div>
-                        </section>
+                            @if (!prerequisiteReport.HasErrors && !prerequisiteReport.HasWarnings)
+                            {
+                                <div class="prereq-success-banner">
+                                    <i class="fas fa-check-circle text-success"></i>
+                                    <span>All prerequisites met</span>
+                                    <button class="btn btn-link btn-sm" @onclick="() => showPrereqDetails = !showPrereqDetails">
+                                        @(showPrereqDetails ? "Hide" : "Details")
+                                    </button>
+                                </div>
+                            }
+                            @if (prerequisiteReport.HasErrors || prerequisiteReport.HasWarnings || showPrereqDetails)
+                            {
+                                <div class="prereq-list">
+                                    @foreach (var check in prerequisiteReport.Checks)
+                                    {
+                                        <div class="prereq-row">
+                                            <i class="fas @(check.Status == DependencyStatusType.Ok || check.Status == DependencyStatusType.Info ? "fa-check-circle text-success" : check.Status == DependencyStatusType.Warning ? "fa-exclamation-triangle text-warning" : "fa-times-circle text-error")"></i>
+                                            <span class="prereq-name">@check.Name</span>
+                                            @if (!string.IsNullOrWhiteSpace(check.InstalledVersion))
+                                            {
+                                                <span class="prereq-version">@check.InstalledVersion</span>
+                                            }
+                                            @if (check.Status != DependencyStatusType.Ok && check.Status != DependencyStatusType.Info)
+                                            {
+                                                <span class="prereq-message">@check.Message</span>
+                                            }
+                                            @if (!string.IsNullOrWhiteSpace(check.SuggestedCommand))
+                                            {
+                                                <code class="inline-code">@check.SuggestedCommand</code>
+                                            }
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
                     }
 
                     @if (capturePlan is not null)
                     {
-                        <section class="panel">
-                            <div class="panel-header">
-                                <span><i class="fas fa-diagram-project"></i> Capture plan</span>
+                        <div class="step-content">
+                            <div class="section-header">
+                                <span class="section-title"><i class="fas fa-diagram-project"></i> Capture plan</span>
                                 <div class="summary-badges">
                                     <span class="badge @(capturePlan.Validation.IsValid ? "badge-success" : "badge-error")">
                                         @(capturePlan.Validation.IsValid ? "Valid" : "Needs attention")
@@ -341,17 +329,17 @@
                                     </span>
                                 </div>
                             </div>
-                            <div class="panel-body plan-body">
-                                <div class="plan-info-rows">
-                                    <div class="plan-info-row">
-                                        <span class="plan-info-label">Target framework</span>
-                                        <span class="plan-info-value">@capturePlan.TargetFramework</span>
-                                    </div>
-                                    <div class="plan-info-row plan-info-stacked">
-                                        <span class="plan-info-label">Output directory</span>
-                                        <code class="plan-info-path-block">@capturePlan.OutputDirectory</code>
-                                    </div>
+
+                            <div class="plan-info-rows">
+                                <div class="plan-info-row">
+                                    <span class="plan-info-label">Target framework</span>
+                                    <span class="plan-info-value">@capturePlan.TargetFramework</span>
                                 </div>
+                                <div class="plan-info-row plan-info-stacked">
+                                    <span class="plan-info-label">Output directory</span>
+                                    <code class="plan-info-path-block">@capturePlan.OutputDirectory</code>
+                                </div>
+                            </div>
 
                                 @if (capturePlan.Validation.Errors.Count > 0)
                                 {
@@ -436,118 +424,113 @@
                                     }
                                 </div>
                             </div>
-                        </section>
                     }
                 }
 
                 @if (currentStep == 4)
                 {
-                    <section class="panel">
-                        <div class="panel-header">
-                            <span><i class="fas fa-circle-play"></i> Capture</span>
-                            <div class="panel-header-actions">
-                                @if (pipelineState is ProfilingPipelineState.Running or ProfilingPipelineState.WaitingForStop)
-                                {
-                                    <span class="pipeline-elapsed"><i class="fas fa-clock"></i> @FormatElapsed(pipelineElapsed)</span>
-                                }
-                            </div>
-                        </div>
-                        <div class="panel-body">
-                            @if (pipelineState == ProfilingPipelineState.NotStarted)
+                    <div class="step-content">
+                        <div class="section-header">
+                            <span class="section-title"><i class="fas fa-circle-play"></i> Capture</span>
+                            @if (pipelineState is ProfilingPipelineState.Running or ProfilingPipelineState.WaitingForStop)
                             {
-                                <div class="empty-state">
-                                    <i class="fas fa-spinner fa-spin fa-2x"></i>
-                                    <div>Starting capture pipeline...</div>
-                                </div>
+                                <span class="pipeline-elapsed"><i class="fas fa-clock"></i> @FormatElapsed(pipelineElapsed)</span>
                             }
-                            else
-                            {
-                                <div class="pipeline-status-banner pipeline-status-@(pipelineState.ToString().ToLowerInvariant())">
-                                    <i class="fas @GetPipelineStateIcon()"></i>
-                                    <span>@GetPipelineStateText()</span>
-                                </div>
+                        </div>
+                        @if (pipelineState == ProfilingPipelineState.NotStarted)
+                        {
+                            <div class="empty-state">
+                                <i class="fas fa-spinner fa-spin fa-2x"></i>
+                                <div>Starting capture pipeline...</div>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="pipeline-status-banner pipeline-status-@(pipelineState.ToString().ToLowerInvariant())">
+                                <i class="fas @GetPipelineStateIcon()"></i>
+                                <span>@GetPipelineStateText()</span>
+                            </div>
 
-                                <div class="pipeline-steps">
-                                    @foreach (var stepStatus in PipelineRunner.Steps)
-                                    {
-                                        <div class="pipeline-step-card pipeline-step-@(stepStatus.State.ToString().ToLowerInvariant())">
-                                            <div class="pipeline-step-header" @onclick="() => ToggleStepLog(stepStatus.StepId)">
-                                                <div class="pipeline-step-icon">
-                                                    @switch (stepStatus.State)
+                            <div class="pipeline-steps">
+                                @foreach (var stepStatus in PipelineRunner.Steps)
+                                {
+                                    <div class="pipeline-step-card pipeline-step-@(stepStatus.State.ToString().ToLowerInvariant())">
+                                        <div class="pipeline-step-header" @onclick="() => ToggleStepLog(stepStatus.StepId)">
+                                            <div class="pipeline-step-icon">
+                                                @switch (stepStatus.State)
+                                                {
+                                                    case ProfilingStepState.Running:
+                                                        <i class="fas fa-spinner fa-spin"></i>
+                                                        break;
+                                                    case ProfilingStepState.Completed:
+                                                        <i class="fas fa-check-circle text-success"></i>
+                                                        break;
+                                                    case ProfilingStepState.Failed:
+                                                        <i class="fas fa-times-circle text-danger"></i>
+                                                        break;
+                                                    case ProfilingStepState.Stopped:
+                                                        <i class="fas fa-stop-circle text-warning"></i>
+                                                        break;
+                                                    case ProfilingStepState.Skipped:
+                                                        <i class="fas fa-forward text-muted"></i>
+                                                        break;
+                                                    case ProfilingStepState.Cancelled:
+                                                        <i class="fas fa-ban text-muted"></i>
+                                                        break;
+                                                    default:
+                                                        <i class="fas fa-circle text-muted"></i>
+                                                        break;
+                                                }
+                                            </div>
+                                            <div class="pipeline-step-info">
+                                                <div class="pipeline-step-name">@stepStatus.DisplayName</div>
+                                                <div class="pipeline-step-meta">
+                                                    <span class="badge badge-neutral">@stepStatus.Kind</span>
+                                                    @if (stepStatus.IsLongRunning)
                                                     {
-                                                        case ProfilingStepState.Running:
-                                                            <i class="fas fa-spinner fa-spin"></i>
-                                                            break;
-                                                        case ProfilingStepState.Completed:
-                                                            <i class="fas fa-check-circle text-success"></i>
-                                                            break;
-                                                        case ProfilingStepState.Failed:
-                                                            <i class="fas fa-times-circle text-danger"></i>
-                                                            break;
-                                                        case ProfilingStepState.Stopped:
-                                                            <i class="fas fa-stop-circle text-warning"></i>
-                                                            break;
-                                                        case ProfilingStepState.Skipped:
-                                                            <i class="fas fa-forward text-muted"></i>
-                                                            break;
-                                                        case ProfilingStepState.Cancelled:
-                                                            <i class="fas fa-ban text-muted"></i>
-                                                            break;
-                                                        default:
-                                                            <i class="fas fa-circle text-muted"></i>
-                                                            break;
+                                                        <span class="badge badge-warning">Long-running</span>
                                                     }
-                                                </div>
-                                                <div class="pipeline-step-info">
-                                                    <div class="pipeline-step-name">@stepStatus.DisplayName</div>
-                                                    <div class="pipeline-step-meta">
-                                                        <span class="badge badge-neutral">@stepStatus.Kind</span>
-                                                        @if (stepStatus.IsLongRunning)
-                                                        {
-                                                            <span class="badge badge-warning">Long-running</span>
-                                                        }
-                                                        @if (stepStatus.Duration.HasValue)
-                                                        {
-                                                            <span class="pipeline-step-duration">@FormatElapsed(stepStatus.Duration.Value)</span>
-                                                        }
-                                                        else if (stepStatus.State == ProfilingStepState.Running && stepStatus.StartedAt.HasValue)
-                                                        {
-                                                            <span class="pipeline-step-duration">@FormatElapsed(DateTime.Now - stepStatus.StartedAt.Value)</span>
-                                                        }
-                                                    </div>
-                                                </div>
-                                                <div class="pipeline-step-expand">
-                                                    <i class="fas @(expandedStepLogs.Contains(stepStatus.StepId) ? "fa-chevron-up" : "fa-chevron-down")"></i>
+                                                    @if (stepStatus.Duration.HasValue)
+                                                    {
+                                                        <span class="pipeline-step-duration">@FormatElapsed(stepStatus.Duration.Value)</span>
+                                                    }
+                                                    else if (stepStatus.State == ProfilingStepState.Running && stepStatus.StartedAt.HasValue)
+                                                    {
+                                                        <span class="pipeline-step-duration">@FormatElapsed(DateTime.Now - stepStatus.StartedAt.Value)</span>
+                                                    }
                                                 </div>
                                             </div>
-                                            @if (stepStatus.ErrorMessage is not null && stepStatus.State == ProfilingStepState.Failed)
-                                            {
-                                                <div class="pipeline-step-error">
-                                                    <i class="fas fa-exclamation-triangle"></i> @stepStatus.ErrorMessage
-                                                </div>
-                                            }
-                                            @if (expandedStepLogs.Contains(stepStatus.StepId))
-                                            {
-                                                <div id="step-log-@stepStatus.StepId" class="pipeline-step-log">
-                                                    @if (stepStatus.OutputLines.Count == 0)
-                                                    {
-                                                        <div class="pipeline-log-empty">No output yet</div>
-                                                    }
-                                                    else
-                                                    {
-                                                        @foreach (var line in stepStatus.OutputLines.TakeLast(200))
-                                                        {
-                                                            <div class="pipeline-log-line @(line.IsError ? "error" : "")">@line.Text</div>
-                                                        }
-                                                    }
-                                                </div>
-                                            }
+                                            <div class="pipeline-step-expand">
+                                                <i class="fas @(expandedStepLogs.Contains(stepStatus.StepId) ? "fa-chevron-up" : "fa-chevron-down")"></i>
+                                            </div>
                                         </div>
-                                    }
-                                </div>
-                            }
-                        </div>
-                    </section>
+                                        @if (stepStatus.ErrorMessage is not null && stepStatus.State == ProfilingStepState.Failed)
+                                        {
+                                            <div class="pipeline-step-error">
+                                                <i class="fas fa-exclamation-triangle"></i> @stepStatus.ErrorMessage
+                                            </div>
+                                        }
+                                        @if (expandedStepLogs.Contains(stepStatus.StepId))
+                                        {
+                                            <div id="step-log-@stepStatus.StepId" class="pipeline-step-log">
+                                                @if (stepStatus.OutputLines.Count == 0)
+                                                {
+                                                    <div class="pipeline-log-empty">No output yet</div>
+                                                }
+                                                else
+                                                {
+                                                    @foreach (var line in stepStatus.OutputLines.TakeLast(200))
+                                                    {
+                                                        <div class="pipeline-log-line @(line.IsError ? "error" : "")">@line.Text</div>
+                                                    }
+                                                }
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
 
                     @if (pipelineState is ProfilingPipelineState.Running or ProfilingPipelineState.WaitingForStop)
                     {
@@ -1459,6 +1442,30 @@
 <style>
     .form-content {
         padding: 0;
+    }
+
+    .step-content {
+        padding: 0.25rem 0;
+    }
+
+    .section-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        margin-bottom: 0.6rem;
+    }
+
+    .section-title {
+        font-weight: 700;
+        font-size: 0.95rem;
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+    }
+
+    .section-title i {
+        color: var(--text-secondary);
     }
 
     .step-indicator {
