@@ -42,6 +42,9 @@ public class HybridFormBridge
     public bool IsSubmitting { get; private set; }
     public string? SubmitText { get; private set; }
 
+    /// <summary>When true, native Cancel does not close the modal (Blazor handles it).</summary>
+    public bool PreventClose { get; set; }
+
     /// <summary>Called by Blazor component to update form validity.</summary>
     public void SetValid(bool valid)
     {

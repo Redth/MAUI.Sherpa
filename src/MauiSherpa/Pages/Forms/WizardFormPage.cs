@@ -284,6 +284,7 @@ public abstract class WizardFormPage<TResult> : ContentPage, IFormPage<TResult>,
     private void OnCancelClicked(object? sender, EventArgs e)
     {
         _bridge.RequestCancel();
+        if (_bridge.PreventClose) return;
         _bridgeHolder.Pop();
         _tcs.TrySetResult(default);
     }

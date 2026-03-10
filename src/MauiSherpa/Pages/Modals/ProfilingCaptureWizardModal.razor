@@ -520,25 +520,11 @@
                         }
                     </div>
 
-                    @if (pipelineState is ProfilingPipelineState.Running or ProfilingPipelineState.WaitingForStop)
+                    @if (pipelineState == ProfilingPipelineState.Running)
                     {
-                        <div class="pipeline-actions">
-                            @if (pipelineState == ProfilingPipelineState.Running)
-                            {
-                                <div class="pipeline-waiting-hint">
-                                    <i class="fas fa-spinner fa-spin"></i>
-                                    Launching capture pipeline...
-                                </div>
-                            }
-                            else
-                            {
-                                <button class="btn btn-warning" @onclick="HandleStopCapture">
-                                    <i class="fas fa-stop"></i> Stop Capture
-                                </button>
-                            }
-                            <button class="btn btn-secondary" @onclick="HandleCancelPipeline">
-                                <i class="fas fa-times"></i> Cancel
-                            </button>
+                        <div class="pipeline-waiting-hint">
+                            <i class="fas fa-spinner fa-spin"></i>
+                            Launching capture pipeline...
                         </div>
                     }
                 }
@@ -621,6 +607,7 @@
         bridge.SubmitRequested += OnSubmitRequested;
         bridge.BackRequested += OnBackRequested;
         bridge.NextRequested += OnNextRequested;
+        bridge.CancelRequested += OnCancelRequested;
 
         DeviceMonitor.Changed += OnDeviceMonitorChanged;
 
@@ -642,13 +629,16 @@
         if (bridge == null) return;
 
         var isCapturing = currentStep == 4 && pipelineState is ProfilingPipelineState.Running or ProfilingPipelineState.WaitingForStop or ProfilingPipelineState.Completing;
+        var canStop = currentStep == 4 && pipelineState == ProfilingPipelineState.WaitingForStop;
+
+        bridge.PreventClose = isCapturing;
 
         bridge.SetWizardState(
             showBack: currentStep > 0 && currentStep != 4,
             showNext: currentStep < 3,
-            showSubmit: currentStep == 3,
-            canProceed: CanProceedToNext && !isCapturing,
-            submitText: "Start Capture"
+            showSubmit: currentStep == 3 || canStop,
+            canProceed: canStop || (CanProceedToNext && !isCapturing),
+            submitText: canStop ? "Stop Capture" : "Start Capture"
         );
     }
 
@@ -686,6 +676,12 @@
 
     private async Task OnSubmitRequested()
     {
+        if (currentStep == 4 && pipelineState == ProfilingPipelineState.WaitingForStop)
+        {
+            await HandleStopCapture();
+            return;
+        }
+
         if (currentStep == 3 && CanProceedToNext)
         {
             // Start Capture — advance to step 4 and run the pipeline
@@ -1252,6 +1248,17 @@
         StateHasChanged();
     }
 
+    private void OnCancelRequested()
+    {
+        if (currentStep == 4 && pipelineState is ProfilingPipelineState.Running or ProfilingPipelineState.WaitingForStop)
+        {
+            InvokeAsync(() =>
+            {
+                HandleCancelPipeline();
+            });
+        }
+    }
+
     private async void ToggleStepLog(string stepId)
     {
         if (!expandedStepLogs.Remove(stepId))
@@ -1408,6 +1415,7 @@
             bridge.SubmitRequested -= OnSubmitRequested;
             bridge.BackRequested -= OnBackRequested;
             bridge.NextRequested -= OnNextRequested;
+            bridge.CancelRequested -= OnCancelRequested;
         }
 
         DeviceMonitor.Changed -= OnDeviceMonitorChanged;
