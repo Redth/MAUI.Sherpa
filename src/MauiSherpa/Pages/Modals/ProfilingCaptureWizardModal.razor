@@ -57,7 +57,7 @@
                 {
                     <section class="panel">
                         <div class="panel-header">
-                            <span><i class="fas fa-sliders"></i> Session setup</span>
+                            <span><i class="fas fa-folder-open"></i> Project</span>
                         </div>
                         <div class="panel-body form-grid">
                             <div class="field-group field-span-2">
@@ -79,16 +79,6 @@
                                     @foreach (var platformOption in catalog.Platforms)
                                     {
                                         <option value="@platformOption.Platform">@platformOption.DisplayName</option>
-                                    }
-                                </select>
-                            </div>
-
-                            <div class="field-group">
-                                <label>Scenario</label>
-                                <select @bind="selectedScenario" @bind:after="OnScenarioChangedAsync">
-                                    @foreach (var scenario in catalog.Scenarios)
-                                    {
-                                        <option value="@scenario.Kind">@scenario.DisplayName</option>
                                     }
                                 </select>
                             </div>
@@ -137,16 +127,6 @@
                                         <input type="text" @bind="processIdText" placeholder="Optional for desktop attach flows" />
                                     </div>
                                 }
-
-                                <div class="field-group checkbox-group field-span-2">
-                                    <label class="checkbox-label">
-                                        <input type="checkbox" @bind="suspendAtStartup" />
-                                        Suspend at startup while the diagnostic tools connect
-                                    </label>
-                                    <div class="field-help">
-                                        Pauses the app at startup until diagnostic tools connect. Use this when you need to capture events from the very beginning of the app's lifecycle.
-                                    </div>
-                                </div>
                             }
                         </div>
                     </section>
@@ -157,20 +137,43 @@
                     <section class="panel">
                         <div class="panel-header">
                             <span><i class="fas fa-list-check"></i> Capture kinds</span>
-                            <button class="btn btn-link" @onclick="ResetCaptureKindsToScenarioDefaults">
-                                Reset to scenario defaults
-                            </button>
                         </div>
-                        <div class="panel-body capture-kinds">
-                            @foreach (var captureKind in SupportedCaptureKinds)
-                            {
-                                <label class="capture-kind-chip @(selectedCaptureKinds.Contains(captureKind) ? "selected" : "")">
-                                    <input type="checkbox"
-                                           checked="@selectedCaptureKinds.Contains(captureKind)"
-                                           @onchange="@((ChangeEventArgs e) => OnCaptureKindChanged(captureKind, e))" />
-                                    <span>@GetCaptureKindDisplayName(captureKind)</span>
+                        <div class="panel-body">
+                            <div class="scenario-picker">
+                                <label>Scenario</label>
+                                <select @bind="selectedScenario" @bind:after="OnScenarioChangedAsync">
+                                    @foreach (var scenario in catalog.Scenarios)
+                                    {
+                                        <option value="@scenario.Kind">@scenario.DisplayName</option>
+                                    }
+                                </select>
+                                @if (CurrentScenarioDefinition is not null)
+                                {
+                                    <div class="field-help">@CurrentScenarioDefinition.Description</div>
+                                }
+                            </div>
+
+                            <div class="capture-kinds-chips">
+                                @foreach (var captureKind in SupportedCaptureKinds)
+                                {
+                                    <label class="capture-kind-chip @(selectedCaptureKinds.Contains(captureKind) ? "selected" : "")">
+                                        <input type="checkbox"
+                                               checked="@selectedCaptureKinds.Contains(captureKind)"
+                                               @onchange="@((ChangeEventArgs e) => OnCaptureKindChanged(captureKind, e))" />
+                                        <span>@GetCaptureKindDisplayName(captureKind)</span>
+                                    </label>
+                                }
+                            </div>
+
+                            <div class="capture-option checkbox-group">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" @bind="suspendAtStartup" />
+                                    Suspend at startup
                                 </label>
-                            }
+                                <div class="field-help">
+                                    Pauses the app at startup until diagnostic tools connect. Useful for capturing startup performance.
+                                </div>
+                            </div>
                         </div>
                     </section>
                 }
@@ -654,7 +657,7 @@
 
     private static readonly string[] WizardStepLabels = new[]
     {
-        "Session Setup",
+        "Project",
         "Capture Kinds",
         "Target",
         "Review & Plan",
@@ -819,6 +822,8 @@
     private Task OnScenarioChangedAsync()
     {
         ResetCaptureKindsToScenarioDefaults();
+        // Auto-toggle suspend at startup based on scenario
+        suspendAtStartup = selectedScenario is ProfilingScenarioKind.Launch;
         prerequisiteReport = null;
         capturePlan = null;
         UpdateWizardState();
@@ -1475,7 +1480,7 @@
 
 <style>
     .form-content {
-        padding: 0.5rem;
+        padding: 0.25rem;
     }
 
     .step-indicator {
@@ -1679,6 +1684,35 @@
         display: flex;
         flex-wrap: wrap;
         gap: 0.75rem;
+    }
+
+    .scenario-picker {
+        margin-bottom: 0.75rem;
+        padding-bottom: 0.75rem;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .scenario-picker label {
+        display: block;
+        font-weight: 600;
+        font-size: 0.8rem;
+        margin-bottom: 0.3rem;
+    }
+
+    .scenario-picker select {
+        width: 100%;
+    }
+
+    .capture-kinds-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        margin-bottom: 0.75rem;
+    }
+
+    .capture-option {
+        padding-top: 0.75rem;
+        border-top: 1px solid var(--border-color);
     }
 
     .capture-kind-chip {
