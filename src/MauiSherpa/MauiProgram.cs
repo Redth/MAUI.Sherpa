@@ -120,6 +120,7 @@ public static class MauiProgram
         builder.Services.AddTransient<IProfilingSessionRunner, ProfilingSessionRunnerService>();
         builder.Services.AddSingleton<IGcDumpReportService, GcDumpReportService>();
         builder.Services.AddSingleton<IProfilingArtifactConverterService, ProfilingArtifactConverterService>();
+        builder.Services.AddSingleton<IProfilingSessionStorageService, ProfilingSessionStorageService>();
         builder.Services.AddSingleton<IAndroidDeviceToolsService, AndroidDeviceToolsService>();
         builder.Services.AddSingleton<IFirebasePushService, FirebasePushService>();
         builder.Services.AddSingleton<DeviceInspectorService>();

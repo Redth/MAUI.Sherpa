@@ -347,6 +347,44 @@ public interface IProfilingArtifactConverterService
     Task<string?> ConvertToSpeedscopeAsync(string nettracePath, CancellationToken ct = default);
 }
 
+/// <summary>
+/// Manages persistent profiling session storage. Each session is a folder
+/// containing a session.json manifest and artifact files.
+/// </summary>
+public interface IProfilingSessionStorageService
+{
+    /// <summary>List all sessions, ordered by most recent first.</summary>
+    Task<IReadOnlyList<ProfilingSessionManifest>> GetSessionsAsync(CancellationToken ct = default);
+
+    /// <summary>Get a single session by ID.</summary>
+    Task<ProfilingSessionManifest?> GetSessionAsync(string sessionId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Save (create or update) a session manifest.
+    /// If the session folder doesn't exist, it is created.
+    /// </summary>
+    Task SaveSessionAsync(ProfilingSessionManifest manifest, CancellationToken ct = default);
+
+    /// <summary>Delete a session and its folder.</summary>
+    Task DeleteSessionAsync(string sessionId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Get the directory path for a session. Creates the directory if it doesn't exist.
+    /// </summary>
+    string GetSessionDirectoryPath(string sessionId);
+
+    /// <summary>Generate a new unique session ID based on project name and date.</summary>
+    string GenerateSessionId(string? projectName = null);
+
+    /// <summary>Export a session as a .zip file.</summary>
+    Task ExportSessionAsync(string sessionId, string outputZipPath, CancellationToken ct = default);
+
+    /// <summary>
+    /// Import a session from a .zip file. Returns the imported manifest, or null on failure.
+    /// </summary>
+    Task<ProfilingSessionManifest?> ImportSessionAsync(string zipPath, CancellationToken ct = default);
+}
+
 public interface IAndroidSdkSettingsService
 {
     string? CustomSdkPath { get; }

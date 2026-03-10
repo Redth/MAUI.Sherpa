@@ -45,7 +45,10 @@ public enum ProfilingArtifactKind
     Screenshot,
     Logs,
     Report,
-    Export
+    Export,
+    GcDump,
+    Log,
+    Other
 }
 
 public record ProfilingTarget(

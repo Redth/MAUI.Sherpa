@@ -16,6 +16,7 @@
 @inject IProfilingSessionRunner PipelineRunner
 @inject IGcDumpReportService GcDumpReportService
 @inject IProfilingArtifactConverterService ArtifactConverter
+@inject IProfilingSessionStorageService SessionStorage
 @inject IJSRuntime JS
 @implements IDisposable
 
@@ -25,20 +26,292 @@
         <h1><i class="fas fa-chart-line"></i> Profiling</h1>
     </div>
     <p class="page-subtitle">
-        Plan .NET profiling sessions for Android, iOS, Mac Catalyst, macOS, and Windows without hand-building the
-        <code>dotnet-trace</code>, <code>dotnet-gcdump</code>, and <code>dotnet-dsrouter</code> commands yourself.
+        Capture and analyze .NET profiling sessions — CPU traces, memory dumps, and more — across
+        Android, iOS, Mac Catalyst, macOS, and Windows.
     </p>
 </div>
 
-@if (catalog is null)
+@if (viewMode == ViewMode.SessionList)
 {
-    <div class="loading-state">
-        <i class="fas fa-spinner fa-spin"></i>
-        <span>Loading profiling catalog...</span>
-    </div>
+    @if (isLoadingSessions)
+    {
+        <div class="loading-state">
+            <i class="fas fa-spinner fa-spin"></i>
+            <span>Loading sessions...</span>
+        </div>
+    }
+    else if (filteredSessions.Count == 0 && sessions.Count == 0)
+    {
+        <div class="empty-state">
+            <i class="fas fa-chart-line fa-3x"></i>
+            <h3>No profiling sessions yet</h3>
+            <p>Capture CPU traces, memory dumps, and more for your .NET MAUI apps.</p>
+            <button class="btn btn-primary" @onclick="StartNewWizard">
+                <i class="fas fa-plus"></i> New Profiling Session
+            </button>
+        </div>
+    }
+    else
+    {
+        @if (filteredSessions.Count == 0 && !string.IsNullOrEmpty(sessionSearchText))
+        {
+            <div class="empty-state">
+                <i class="fas fa-search fa-2x"></i>
+                <h3>No matching sessions</h3>
+                <p>Try a different search term.</p>
+            </div>
+        }
+        else
+        {
+            <div class="session-list">
+                @foreach (var session in filteredSessions)
+                {
+                    var isExpanded = expandedSessionId == session.Id;
+                    <div class="session-card @(isExpanded ? "expanded" : "")">
+                        <div class="session-card-header" @onclick="@(() => ToggleSessionExpand(session.Id))">
+                            <div class="session-card-icon">
+                                <i class="fas @GetPlatformIcon(session.Target.Platform)"></i>
+                            </div>
+                            <div class="session-card-info">
+                                <div class="session-card-title">@session.Name</div>
+                                <div class="session-card-meta">
+                                    <span><i class="fas fa-calendar"></i> @session.CreatedAt.LocalDateTime.ToString("MMM d, yyyy h:mm tt")</span>
+                                    <span><i class="fas @GetPlatformIcon(session.Target.Platform)"></i> @session.Target.DisplayName</span>
+                                    @if (session.Pipeline is not null)
+                                    {
+                                        <span><i class="fas fa-clock"></i> @FormatElapsed(session.Pipeline.Duration)</span>
+                                    }
+                                    <span><i class="fas fa-file"></i> @session.Artifacts.Count artifact(s)</span>
+                                </div>
+                            </div>
+                            <div class="session-card-badges">
+                                @foreach (var kind in session.CaptureKinds)
+                                {
+                                    <span class="badge badge-kind">@kind</span>
+                                }
+                                <span class="badge badge-status badge-@session.Status.ToString().ToLowerInvariant()">
+                                    @session.Status
+                                </span>
+                            </div>
+                            <div class="session-card-expand">
+                                <i class="fas @(isExpanded ? "fa-chevron-up" : "fa-chevron-down")"></i>
+                            </div>
+                        </div>
+
+                        @if (isExpanded)
+                        {
+                            <div class="session-card-body">
+                                @if (session.Project is not null)
+                                {
+                                    <div class="session-detail-row">
+                                        <span class="detail-label">Project</span>
+                                        <span class="detail-value mono">@session.Project.Name</span>
+                                    </div>
+                                }
+                                <div class="session-detail-row">
+                                    <span class="detail-label">Platform</span>
+                                    <span class="detail-value">@session.Target.Platform — @session.Target.Kind</span>
+                                </div>
+                                @if (session.Pipeline is not null)
+                                {
+                                    <div class="session-detail-row">
+                                        <span class="detail-label">Pipeline</span>
+                                        <span class="detail-value">
+                                            @(session.Pipeline.Success ? "✓ Succeeded" : "✗ Failed") —
+                                            @session.Pipeline.Steps.Count step(s)
+                                        </span>
+                                    </div>
+                                }
+
+                                @if (session.Artifacts.Count > 0)
+                                {
+                                    <div class="plan-section-title">Artifacts</div>
+                                    <div class="artifact-list">
+                                        @foreach (var artifact in session.Artifacts)
+                                        {
+                                            var filePath = session.DirectoryPath is not null
+                                                ? Path.Combine(session.DirectoryPath, artifact.FileName)
+                                                : artifact.FileName;
+                                            var extension = GetArtifactExtension(artifact.FileName);
+                                            var isTraceFile = extension is ".nettrace" or ".speedscope.json";
+                                            var isGcDump = extension is ".gcdump";
+                                            <div class="artifact-card result-artifact-card">
+                                                <div class="artifact-icon">
+                                                    <i class="fas @GetArtifactIcon(extension)"></i>
+                                                </div>
+                                                <div class="artifact-details">
+                                                    <div class="artifact-name">@artifact.FileName</div>
+                                                    @if (artifact.SizeBytes is not null)
+                                                    {
+                                                        <div class="artifact-meta">@FormatBytes(artifact.SizeBytes.Value)</div>
+                                                    }
+                                                </div>
+                                                <div class="artifact-actions">
+                                                    @if (isTraceFile)
+                                                    {
+                                                        <button class="btn btn-primary btn-sm" @onclick="@(() => ViewInSpeedscope(filePath))" @onclick:stopPropagation="true">
+                                                            <i class="fas fa-fire"></i> View Trace
+                                                        </button>
+                                                    }
+                                                    @if (isGcDump)
+                                                    {
+                                                        <button class="btn btn-primary btn-sm" @onclick="@(() => ViewGcDump(filePath))" @onclick:stopPropagation="true">
+                                                            <i class="fas fa-memory"></i> View GC Dump
+                                                        </button>
+                                                    }
+                                                    <button class="btn btn-secondary btn-sm" @onclick="@(() => RevealInFinder(filePath))" @onclick:stopPropagation="true">
+                                                        <i class="fas fa-folder-open"></i> Reveal
+                                                    </button>
+                                                    <button class="btn btn-secondary btn-sm" @onclick="@(() => CopyPathAsync(filePath))" @onclick:stopPropagation="true">
+                                                        <i class="fas fa-copy"></i> Copy
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        }
+                                    </div>
+                                }
+
+                                @* Inline Speedscope Viewer for session list *@
+                                @if (showSpeedscopeViewer && speedscopeFilePath is not null)
+                                {
+                                    <div class="plan-section-title">
+                                        <span><i class="fas fa-fire"></i> CPU Trace Viewer</span>
+                                        <button class="btn btn-secondary btn-sm" style="margin-left: auto;" @onclick="CloseSpeedscopeViewer" @onclick:stopPropagation="true">
+                                            <i class="fas fa-times"></i> Close
+                                        </button>
+                                    </div>
+                                    <div class="speedscope-container">
+                                        @if (speedscopeLoading)
+                                        {
+                                            <div class="speedscope-loading">
+                                                <i class="fas fa-spinner fa-spin fa-2x"></i>
+                                                <div>Loading trace viewer...</div>
+                                            </div>
+                                        }
+                                        <iframe id="speedscope-frame"
+                                                src="speedscope/index.html"
+                                                class="speedscope-iframe @(speedscopeLoading ? "hidden" : "")"
+                                                @onload="OnSpeedscopeLoaded"></iframe>
+                                    </div>
+                                }
+
+                                @* Inline GC Dump Viewer for session list *@
+                                @if (showGcDumpViewer && gcDumpReport is not null)
+                                {
+                                    <div class="plan-section-title">
+                                        <span><i class="fas fa-memory"></i> GC Dump — Heap Statistics</span>
+                                        <button class="btn btn-secondary btn-sm" style="margin-left: auto;" @onclick="CloseGcDumpViewer" @onclick:stopPropagation="true">
+                                            <i class="fas fa-times"></i> Close
+                                        </button>
+                                    </div>
+                                    <div class="gcdump-summary">
+                                        <span><i class="fas fa-cubes"></i> @gcDumpReport.TotalCount.ToString("N0") objects</span>
+                                        <span><i class="fas fa-database"></i> @FormatBytes(gcDumpReport.TotalSize)</span>
+                                        <span><i class="fas fa-list"></i> @gcDumpReport.Types.Count types</span>
+                                    </div>
+                                    <div class="gcdump-filter">
+                                        <input type="text" class="form-control form-control-sm"
+                                               placeholder="Filter types..."
+                                               @bind="gcDumpFilterText"
+                                               @bind:event="oninput" />
+                                    </div>
+                                    <div class="gcdump-table-container">
+                                        <table class="gcdump-table">
+                                            <thead>
+                                                <tr>
+                                                    <th class="gcdump-col-name" @onclick="@(() => SortGcDump("name"))">
+                                                        Type Name
+                                                        @if (gcDumpSortColumn == "name") { <i class="fas @(gcDumpSortAsc ? "fa-sort-up" : "fa-sort-down")"></i> }
+                                                    </th>
+                                                    <th class="gcdump-col-count" @onclick="@(() => SortGcDump("count"))">
+                                                        Count
+                                                        @if (gcDumpSortColumn == "count") { <i class="fas @(gcDumpSortAsc ? "fa-sort-up" : "fa-sort-down")"></i> }
+                                                    </th>
+                                                    <th class="gcdump-col-size" @onclick="@(() => SortGcDump("size"))">
+                                                        Total Size
+                                                        @if (gcDumpSortColumn == "size") { <i class="fas @(gcDumpSortAsc ? "fa-sort-up" : "fa-sort-down")"></i> }
+                                                    </th>
+                                                    <th class="gcdump-col-pct">%</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                @foreach (var entry in GetFilteredGcDumpTypes())
+                                                {
+                                                    var pct = gcDumpReport.TotalSize > 0
+                                                        ? (double)entry.Size / gcDumpReport.TotalSize * 100
+                                                        : 0;
+                                                    <tr>
+                                                        <td class="gcdump-col-name" title="@entry.TypeName">
+                                                            <span class="mono">@entry.TypeName</span>
+                                                        </td>
+                                                        <td class="gcdump-col-count">@entry.Count.ToString("N0")</td>
+                                                        <td class="gcdump-col-size">@FormatBytes(entry.Size)</td>
+                                                        <td class="gcdump-col-pct">
+                                                            <div class="pct-bar-container">
+                                                                <div class="pct-bar" style="width: @(pct.ToString("F1", System.Globalization.CultureInfo.InvariantCulture))%"></div>
+                                                                <span>@pct.ToString("F1")%</span>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                }
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                }
+                                else if (showGcDumpViewer && gcDumpLoading)
+                                {
+                                    <div class="plan-section-title">
+                                        <span><i class="fas fa-memory"></i> GC Dump Analysis</span>
+                                    </div>
+                                    <div class="gcdump-loading">
+                                        <i class="fas fa-spinner fa-spin fa-2x"></i>
+                                        <div>Analyzing GC dump...</div>
+                                    </div>
+                                }
+                                else if (showGcDumpViewer && gcDumpError is not null)
+                                {
+                                    <div class="plan-section-title">
+                                        <span><i class="fas fa-memory"></i> GC Dump Analysis</span>
+                                        <button class="btn btn-secondary btn-sm" style="margin-left: auto;" @onclick="CloseGcDumpViewer" @onclick:stopPropagation="true">
+                                            <i class="fas fa-times"></i> Close
+                                        </button>
+                                    </div>
+                                    <div class="gcdump-error">
+                                        <i class="fas fa-exclamation-triangle"></i>
+                                        <span>@gcDumpError</span>
+                                    </div>
+                                }
+
+                                <div class="session-card-actions">
+                                    <button class="btn btn-secondary btn-sm" @onclick="@(() => ExportSessionAsync(session))" @onclick:stopPropagation="true">
+                                        <i class="fas fa-file-export"></i> Export
+                                    </button>
+                                    <button class="btn btn-secondary btn-sm" @onclick="@(() => RevealSessionFolder(session))" @onclick:stopPropagation="true">
+                                        <i class="fas fa-folder-open"></i> Open Folder
+                                    </button>
+                                    <button class="btn btn-danger btn-sm" @onclick="@(() => DeleteSessionAsync(session))" @onclick:stopPropagation="true">
+                                        <i class="fas fa-trash"></i> Delete
+                                    </button>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        }
+    }
 }
-else
+else if (viewMode == ViewMode.Wizard)
 {
+    @if (catalog is null)
+    {
+        <div class="loading-state">
+            <i class="fas fa-spinner fa-spin"></i>
+            <span>Loading profiling catalog...</span>
+        </div>
+    }
+    else
+    {
     <div class="wizard-steps">
         @for (int i = 0; i < WizardSteps.Length; i++)
         {
@@ -828,6 +1101,9 @@ else
     }
 
     <div class="wizard-nav">
+        <button class="btn btn-secondary" @onclick="BackToSessionList">
+            <i class="fas fa-arrow-left"></i> Back to Sessions
+        </button>
         @if (currentStep > 0 && currentStep != 4)
         {
             <button class="btn btn-secondary" @onclick="PreviousStep" disabled="@(currentStep == 5)">
@@ -851,9 +1127,18 @@ else
             </button>
         }
     </div>
+    } @* end catalog else *@
 }
 
 @code {
+    private ViewMode viewMode = ViewMode.SessionList;
+    private List<ProfilingSessionManifest> sessions = new();
+    private List<ProfilingSessionManifest> filteredSessions = new();
+    private bool isLoadingSessions;
+    private string sessionSearchText = "";
+    private string? expandedSessionId;
+    private string? activeSessionId; // the session being captured
+
     private ProfilingCatalog? catalog;
     private ConnectedDevicesSnapshot snapshot = ConnectedDevicesSnapshot.Empty;
     private List<AvdInfo> androidEmulators = new();
@@ -934,12 +1219,15 @@ else
 
     protected override async Task OnInitializedAsync()
     {
-        ToolbarService.SetItems(
-            new ToolbarAction("refresh", "Refresh", "arrow.clockwise")
-        );
+        SetupToolbar();
         ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
+        ToolbarService.SearchTextChanged += OnSearchTextChanged;
         DeviceMonitor.Changed += OnDeviceMonitorChanged;
 
+        // Load sessions first (fast)
+        await LoadSessionsAsync();
+
+        // Load catalog in background (needed for wizard)
         catalog = await ProfilingCatalogService.GetCatalogAsync();
         selectedPlatform = catalog.Platforms.FirstOrDefault(platform => platform.Platform == ProfilingTargetPlatform.Android)?.Platform
             ?? catalog.Platforms.First().Platform;
@@ -952,8 +1240,24 @@ else
 
     private void OnToolbarItemClicked(string actionId)
     {
-        if (actionId == "refresh")
-            _ = RefreshTargetsAsync(forceRefresh: true);
+        if (actionId == "create")
+            _ = InvokeAsync(StartNewWizard);
+        else if (actionId == "import")
+            _ = ImportSessionFromZipAsync();
+        else if (actionId == "refresh")
+        {
+            if (viewMode == ViewMode.SessionList)
+                _ = LoadSessionsAsync();
+            else
+                _ = RefreshTargetsAsync(forceRefresh: true);
+        }
+    }
+
+    private void OnSearchTextChanged(string text)
+    {
+        sessionSearchText = text;
+        ApplySessionFilter();
+        InvokeAsync(StateHasChanged);
     }
 
     private void OnDeviceMonitorChanged(ConnectedDevicesSnapshot updatedSnapshot)
@@ -1392,6 +1696,16 @@ else
     {
         if (capturePlan is null) return;
 
+        // Generate session ID and set output directory to managed storage
+        var projectName = projectPath is not null
+            ? Path.GetFileNameWithoutExtension(projectPath)
+            : null;
+        activeSessionId = SessionStorage.GenerateSessionId(projectName);
+        var sessionDir = SessionStorage.GetSessionDirectoryPath(activeSessionId);
+
+        // Update the capture plan to use the session directory as output
+        capturePlan = capturePlan with { OutputDirectory = sessionDir };
+
         pipelineState = ProfilingPipelineState.NotStarted;
         pipelineResult = null;
         expandedStepLogs.Clear();
@@ -1414,6 +1728,9 @@ else
         {
             pipelineResult = await PipelineRunner.RunAsync(capturePlan);
             pipelineState = pipelineResult.FinalState;
+
+            // Save session manifest
+            await SaveCurrentSessionAsync();
 
             // Auto-advance to results on completion
             if (pipelineResult.Success || pipelineState == ProfilingPipelineState.Completed)
@@ -1532,15 +1849,310 @@ else
     // Results helpers
     private void StartNewSession()
     {
+        StartNewWizard();
+    }
+
+    private void StartNewWizard()
+    {
         currentStep = 0;
         capturePlan = null;
         prerequisiteReport = null;
         pipelineResult = null;
         pipelineState = ProfilingPipelineState.NotStarted;
         expandedStepLogs.Clear();
+        activeSessionId = null;
         CloseSpeedscopeViewer();
         CloseGcDumpViewer();
+        viewMode = ViewMode.Wizard;
+        SetupToolbar();
     }
+
+    private void BackToSessionList()
+    {
+        if (pipelineState == ProfilingPipelineState.Running)
+            return; // Don't navigate away during active capture
+
+        viewMode = ViewMode.SessionList;
+        CloseSpeedscopeViewer();
+        CloseGcDumpViewer();
+        SetupToolbar();
+        _ = LoadSessionsAsync();
+    }
+
+    private void SetupToolbar()
+    {
+        if (viewMode == ViewMode.SessionList)
+        {
+            ToolbarService.ClearItems();
+            ToolbarService.SetItems(
+                new ToolbarAction("create", "New Session", "plus"),
+                new ToolbarAction("import", "Import", "square.and.arrow.down"),
+                new ToolbarAction("refresh", "Refresh", "arrow.clockwise")
+            );
+            ToolbarService.SetSearch("Search sessions...");
+        }
+        else
+        {
+            ToolbarService.ClearItems();
+            ToolbarService.SetItems(
+                new ToolbarAction("refresh", "Refresh", "arrow.clockwise")
+            );
+        }
+    }
+
+    private async Task LoadSessionsAsync()
+    {
+        isLoadingSessions = true;
+        StateHasChanged();
+
+        try
+        {
+            sessions = (await SessionStorage.GetSessionsAsync()).ToList();
+            ApplySessionFilter();
+        }
+        catch (Exception ex)
+        {
+            await AlertService.ShowToastAsync($"Failed to load sessions: {ex.Message}");
+        }
+        finally
+        {
+            isLoadingSessions = false;
+            StateHasChanged();
+        }
+    }
+
+    private void ApplySessionFilter()
+    {
+        if (string.IsNullOrWhiteSpace(sessionSearchText))
+        {
+            filteredSessions = sessions;
+        }
+        else
+        {
+            filteredSessions = sessions
+                .Where(s =>
+                    s.Name.Contains(sessionSearchText, StringComparison.OrdinalIgnoreCase) ||
+                    s.Target.DisplayName.Contains(sessionSearchText, StringComparison.OrdinalIgnoreCase) ||
+                    s.Target.Platform.ToString().Contains(sessionSearchText, StringComparison.OrdinalIgnoreCase) ||
+                    (s.Project?.Name?.Contains(sessionSearchText, StringComparison.OrdinalIgnoreCase) ?? false))
+                .ToList();
+        }
+    }
+
+    private void ToggleSessionExpand(string sessionId)
+    {
+        if (expandedSessionId == sessionId)
+        {
+            expandedSessionId = null;
+            CloseSpeedscopeViewer();
+            CloseGcDumpViewer();
+        }
+        else
+        {
+            expandedSessionId = sessionId;
+            CloseSpeedscopeViewer();
+            CloseGcDumpViewer();
+        }
+    }
+
+    private async Task DeleteSessionAsync(ProfilingSessionManifest session)
+    {
+        var confirmed = await AlertService.ShowConfirmAsync(
+            "Delete Session",
+            $"Delete \"{session.Name}\" and all its artifacts? This cannot be undone.");
+        if (!confirmed) return;
+
+        try
+        {
+            await SessionStorage.DeleteSessionAsync(session.Id);
+            sessions.Remove(session);
+            ApplySessionFilter();
+            if (expandedSessionId == session.Id)
+                expandedSessionId = null;
+            await AlertService.ShowToastAsync("Session deleted");
+        }
+        catch (Exception ex)
+        {
+            await AlertService.ShowToastAsync($"Failed to delete session: {ex.Message}");
+        }
+    }
+
+    private async Task ExportSessionAsync(ProfilingSessionManifest session)
+    {
+        try
+        {
+            var outputPath = await DialogService.PickSaveFileAsync(
+                "Export Profiling Session",
+                $"{session.Id}",
+                ".zip");
+            if (string.IsNullOrEmpty(outputPath)) return;
+
+            // PickSaveFileAsync creates an empty file; delete so ZipFile can create
+            if (File.Exists(outputPath)) File.Delete(outputPath);
+
+            await SessionStorage.ExportSessionAsync(session.Id, outputPath);
+            await AlertService.ShowToastAsync("Session exported");
+        }
+        catch (Exception ex)
+        {
+            await AlertService.ShowToastAsync($"Export failed: {ex.Message}");
+        }
+    }
+
+    private async Task ImportSessionFromZipAsync()
+    {
+        try
+        {
+            var filePath = await DialogService.PickOpenFileAsync(
+                "Import Profiling Session",
+                new[] { ".zip" });
+            if (string.IsNullOrEmpty(filePath)) return;
+
+            var imported = await SessionStorage.ImportSessionAsync(filePath);
+            if (imported is null)
+            {
+                await AlertService.ShowToastAsync("Invalid session archive — missing session.json");
+                return;
+            }
+
+            await LoadSessionsAsync();
+            await AlertService.ShowToastAsync($"Session \"{imported.Name}\" imported");
+        }
+        catch (Exception ex)
+        {
+            await AlertService.ShowToastAsync($"Import failed: {ex.Message}");
+        }
+    }
+
+    private void RevealSessionFolder(ProfilingSessionManifest session)
+    {
+        if (session.DirectoryPath is null) return;
+        RevealInFinder(session.DirectoryPath);
+    }
+
+    private async Task SaveCurrentSessionAsync()
+    {
+        if (pipelineResult is null || capturePlan is null) return;
+
+        try
+        {
+            var projectName = projectPath is not null
+                ? Path.GetFileNameWithoutExtension(projectPath)
+                : null;
+            var sessionId = activeSessionId ?? SessionStorage.GenerateSessionId(projectName);
+            activeSessionId = sessionId;
+
+            var target = SelectedTarget;
+            var manifest = new ProfilingSessionManifest
+            {
+                Id = sessionId,
+                Name = $"{projectName ?? "Session"} — {selectedPlatform} {target?.DisplayName ?? "Unknown"}",
+                Status = pipelineResult.Success ? ProfilingSessionStatus.Completed
+                    : (pipelineState == ProfilingPipelineState.Cancelled ? ProfilingSessionStatus.Cancelled
+                    : ProfilingSessionStatus.Failed),
+                CreatedAt = pipelineStartTime,
+                CompletedAt = DateTimeOffset.UtcNow,
+                Target = new ProfilingSessionTarget
+                {
+                    Platform = selectedPlatform,
+                    Kind = target?.Kind ?? ProfilingTargetKind.Desktop,
+                    Identifier = target?.Identifier ?? "",
+                    DisplayName = target?.DisplayName ?? selectedPlatform.ToString()
+                },
+                Project = projectPath is not null ? new ProfilingSessionProject
+                {
+                    Path = projectPath,
+                    Name = projectName!,
+                    Configuration = configuration,
+                    TargetFramework = targetFrameworkOverride
+                } : null,
+                CaptureKinds = selectedCaptureKinds.ToList(),
+                Options = new ProfilingSessionOptions
+                {
+                    LaunchMode = launchMode,
+                    DiagnosticPort = diagnosticPort,
+                    SuspendAtStartup = suspendAtStartup,
+                    ProcessId = int.TryParse(processIdText, out var pid) ? pid : null,
+                    Scenario = selectedScenario
+                },
+                Pipeline = new ProfilingSessionPipelineSummary
+                {
+                    Success = pipelineResult.Success,
+                    Duration = pipelineResult.TotalDuration,
+                    Steps = pipelineResult.StepResults.Select(step => new ProfilingSessionStepSummary
+                    {
+                        Id = step.StepId,
+                        DisplayName = step.DisplayName,
+                        State = step.State.ToString(),
+                        CommandLine = capturePlan.Commands.FirstOrDefault(c => c.Id == step.StepId)?.CommandLine
+                    }).ToList()
+                },
+                Artifacts = new List<ProfilingSessionArtifact>()
+            };
+
+            // Add discovered artifacts
+            var sessionDir = SessionStorage.GetSessionDirectoryPath(sessionId);
+            foreach (var artifactPath in pipelineResult.ArtifactPaths)
+            {
+                var fileName = Path.GetFileName(artifactPath);
+                var extension = GetArtifactExtension(fileName);
+                var kind = extension switch
+                {
+                    ".nettrace" => ProfilingArtifactKind.Trace,
+                    ".speedscope.json" => ProfilingArtifactKind.Export,
+                    ".gcdump" => ProfilingArtifactKind.GcDump,
+                    ".log" => ProfilingArtifactKind.Log,
+                    _ => ProfilingArtifactKind.Other
+                };
+
+                long? size = null;
+                try { if (File.Exists(artifactPath)) size = new FileInfo(artifactPath).Length; } catch { }
+
+                manifest.Artifacts.Add(new ProfilingSessionArtifact
+                {
+                    FileName = fileName,
+                    Kind = kind,
+                    SizeBytes = size
+                });
+            }
+
+            // Add log files from the session directory
+            if (Directory.Exists(sessionDir))
+            {
+                foreach (var logFile in Directory.GetFiles(sessionDir, "*.log"))
+                {
+                    var logName = Path.GetFileName(logFile);
+                    if (manifest.Artifacts.Any(a => a.FileName == logName)) continue;
+                    long? size = null;
+                    try { size = new FileInfo(logFile).Length; } catch { }
+                    manifest.Artifacts.Add(new ProfilingSessionArtifact
+                    {
+                        FileName = logName,
+                        Kind = ProfilingArtifactKind.Log,
+                        SizeBytes = size
+                    });
+                }
+            }
+
+            await SessionStorage.SaveSessionAsync(manifest);
+        }
+        catch (Exception ex)
+        {
+            await AlertService.ShowToastAsync($"Failed to save session: {ex.Message}");
+        }
+    }
+
+    private static string GetPlatformIcon(ProfilingTargetPlatform platform) => platform switch
+    {
+        ProfilingTargetPlatform.Android => "fa-brands fa-android",
+        ProfilingTargetPlatform.iOS => "fa-brands fa-apple",
+        ProfilingTargetPlatform.MacCatalyst => "fa-laptop",
+        ProfilingTargetPlatform.MacOS => "fa-laptop",
+        ProfilingTargetPlatform.Windows => "fa-brands fa-windows",
+        _ => "fa-desktop"
+    };
+
+    private enum ViewMode { SessionList, Wizard }
 
     private static string? GetFileSize(string path)
     {
@@ -1743,6 +2355,7 @@ else
     public void Dispose()
     {
         ToolbarService.ToolbarItemClicked -= OnToolbarItemClicked;
+        ToolbarService.SearchTextChanged -= OnSearchTextChanged;
         ToolbarService.ClearItems();
         DeviceMonitor.Changed -= OnDeviceMonitorChanged;
         pipelineTimer?.Dispose();
@@ -2779,5 +3392,170 @@ else
 
     .gcdump-error {
         color: var(--text-warning, #eab308);
+    }
+
+    /* Session List */
+    .empty-state {
+        text-align: center;
+        padding: 60px 40px;
+        color: var(--text-muted);
+    }
+
+    .empty-state i {
+        margin-bottom: 16px;
+        opacity: 0.4;
+    }
+
+    .empty-state h3 {
+        color: var(--text-primary);
+        margin-bottom: 8px;
+    }
+
+    .empty-state p {
+        max-width: 28rem;
+        margin: 0 auto 1.2rem;
+        line-height: 1.5;
+    }
+
+    .session-list {
+        display: grid;
+        gap: 0.6rem;
+    }
+
+    .session-card {
+        background: var(--card-bg, var(--bg-secondary));
+        border: 1px solid var(--border-color);
+        border-radius: 10px;
+        overflow: hidden;
+        transition: box-shadow 0.15s;
+    }
+
+    .session-card:hover {
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    }
+
+    .session-card.expanded {
+        border-color: var(--accent-primary, #0078d4);
+    }
+
+    .session-card-header {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 0.75rem 1rem;
+        cursor: pointer;
+        user-select: none;
+    }
+
+    .session-card-icon {
+        font-size: 1.3rem;
+        width: 2rem;
+        text-align: center;
+        color: var(--text-secondary);
+    }
+
+    .session-card-info {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .session-card-title {
+        font-weight: 600;
+        font-size: 0.9rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .session-card-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        margin-top: 0.25rem;
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+    }
+
+    .session-card-meta i {
+        margin-right: 0.2rem;
+    }
+
+    .session-card-badges {
+        display: flex;
+        gap: 0.4rem;
+        flex-shrink: 0;
+    }
+
+    .badge {
+        display: inline-block;
+        padding: 0.15rem 0.5rem;
+        border-radius: 6px;
+        font-size: 0.7rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+    }
+
+    .badge-kind {
+        background: color-mix(in srgb, var(--accent-primary, #0078d4) 15%, transparent);
+        color: var(--accent-primary, #0078d4);
+    }
+
+    .badge-status {
+        color: white;
+    }
+
+    .badge-completed {
+        background: #16a34a;
+    }
+
+    .badge-failed {
+        background: #dc2626;
+    }
+
+    .badge-cancelled {
+        background: #ca8a04;
+    }
+
+    .badge-inprogress {
+        background: #2563eb;
+    }
+
+    .session-card-expand {
+        color: var(--text-muted);
+        font-size: 0.8rem;
+        padding: 0 0.25rem;
+    }
+
+    .session-card-body {
+        border-top: 1px solid var(--border-color);
+        padding: 1rem;
+    }
+
+    .session-detail-row {
+        display: flex;
+        align-items: baseline;
+        gap: 0.75rem;
+        padding: 0.3rem 0;
+        font-size: 0.85rem;
+    }
+
+    .detail-label {
+        color: var(--text-secondary);
+        font-weight: 600;
+        min-width: 5rem;
+        font-size: 0.8rem;
+    }
+
+    .detail-value {
+        color: var(--text-primary);
+    }
+
+    .session-card-actions {
+        display: flex;
+        gap: 0.5rem;
+        margin-top: 1rem;
+        padding-top: 0.75rem;
+        border-top: 1px solid var(--border-color);
     }
 </style>

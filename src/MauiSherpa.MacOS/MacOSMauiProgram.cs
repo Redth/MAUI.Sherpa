@@ -77,6 +77,7 @@ public static class MacOSMauiProgram
         builder.Services.AddTransient<IProfilingSessionRunner, ProfilingSessionRunnerService>();
         builder.Services.AddSingleton<IGcDumpReportService, GcDumpReportService>();
         builder.Services.AddSingleton<IProfilingArtifactConverterService, ProfilingArtifactConverterService>();
+        builder.Services.AddSingleton<IProfilingSessionStorageService, ProfilingSessionStorageService>();
         builder.Services.AddSingleton<MauiSherpa.Pages.Forms.ProgressBridgeHolder>();
         builder.Services.AddSingleton<ProcessModalService>();
         builder.Services.AddSingleton<IProcessModalService>(sp => sp.GetRequiredService<ProcessModalService>());
