@@ -45,6 +45,9 @@ public class HybridFormBridge
     /// <summary>When true, native Cancel does not close the modal (Blazor handles it).</summary>
     public bool PreventClose { get; set; }
 
+    /// <summary>When true, native Submit/Primary does not close the modal after the handler completes.</summary>
+    public bool PreventSubmitClose { get; set; }
+
     /// <summary>Called by Blazor component to update form validity.</summary>
     public void SetValid(bool valid)
     {
@@ -81,8 +84,14 @@ public class HybridFormBridge
             await ActionRequested.Invoke(actionId);
     }
 
+    /// <summary>Fired by the Blazor component to programmatically close the modal with a result.</summary>
+    public event Action? CloseRequested;
+
     /// <summary>Called by MAUI page when native cancel button is pressed.</summary>
     public void RequestCancel() => CancelRequested?.Invoke();
+
+    /// <summary>Called by Blazor component to close the modal with the current Result.</summary>
+    public void RequestClose() => CloseRequested?.Invoke();
 
     /// <summary>Called by MAUI page when native back button is pressed.</summary>
     public async Task RequestBackAsync()

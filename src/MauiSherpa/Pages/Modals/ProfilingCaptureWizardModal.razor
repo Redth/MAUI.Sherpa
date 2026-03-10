@@ -632,6 +632,7 @@
         var canStop = currentStep == 4 && pipelineState == ProfilingPipelineState.WaitingForStop;
 
         bridge.PreventClose = isCapturing;
+        bridge.PreventSubmitClose = isCapturing;
 
         bridge.SetWizardState(
             showBack: currentStep > 0 && currentStep != 4,
@@ -1062,7 +1063,11 @@
             {
                 var bridge = BridgeHolder.Current;
                 if (bridge != null)
+                {
                     bridge.Result = manifest;
+                    bridge.RequestClose();
+                    return;
+                }
             }
         }
         catch (Exception ex)

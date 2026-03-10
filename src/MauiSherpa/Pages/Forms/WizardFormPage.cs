@@ -61,6 +61,7 @@ public abstract class WizardFormPage<TResult> : ContentPage, IFormPage<TResult>,
 
         // Listen for wizard state changes from Blazor
         _bridge.WizardStateChanged += OnWizardStateChanged;
+        _bridge.CloseRequested += OnCloseRequested;
 
         // Title
         var titleLabel = new Label
@@ -266,6 +267,7 @@ public abstract class WizardFormPage<TResult> : ContentPage, IFormPage<TResult>,
             try
             {
                 await _bridge.RequestSubmitAsync();
+                if (_bridge.PreventSubmitClose) return;
                 var result = (TResult?)_bridge.Result;
                 _bridgeHolder.Pop();
                 _tcs.TrySetResult(result);
@@ -287,6 +289,16 @@ public abstract class WizardFormPage<TResult> : ContentPage, IFormPage<TResult>,
         if (_bridge.PreventClose) return;
         _bridgeHolder.Pop();
         _tcs.TrySetResult(default);
+    }
+
+    private void OnCloseRequested()
+    {
+        Dispatcher.Dispatch(() =>
+        {
+            var result = (TResult?)_bridge.Result;
+            _bridgeHolder.Pop();
+            _tcs.TrySetResult(result);
+        });
     }
 
     private void OnBlazorReady(double contentHeight)
