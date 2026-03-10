@@ -115,72 +115,37 @@
                                     </div>
                                 }
 
-                                @if (session.Artifacts.Count > 0)
+                                @{
+                                    var profilingArtifacts = session.Artifacts.Where(a => !a.FileName.EndsWith(".log", StringComparison.OrdinalIgnoreCase)).ToList();
+                                    var logArtifacts = session.Artifacts.Where(a => a.FileName.EndsWith(".log", StringComparison.OrdinalIgnoreCase)).ToList();
+                                }
+
+                                @if (profilingArtifacts.Count > 0)
                                 {
                                     <div class="plan-section-title">Artifacts</div>
                                     <div class="artifact-list">
-                                        @foreach (var artifact in session.Artifacts)
+                                        @foreach (var artifact in profilingArtifacts)
                                         {
-                                            var filePath = session.DirectoryPath is not null
-                                                ? Path.Combine(session.DirectoryPath, artifact.FileName)
-                                                : artifact.FileName;
-                                            var extension = GetArtifactExtension(artifact.FileName);
-                                            var isTraceFile = extension is ".nettrace" or ".speedscope.json";
-                                            var isGcDump = extension is ".gcdump";
-                                            <div class="artifact-card result-artifact-card">
-                                                <div class="artifact-icon">
-                                                    <i class="fas @GetArtifactIcon(extension)"></i>
-                                                </div>
-                                                <div class="artifact-details">
-                                                    <div class="artifact-name">@artifact.FileName</div>
-                                                    @if (artifact.SizeBytes is not null)
-                                                    {
-                                                        <div class="artifact-meta">@FormatBytes(artifact.SizeBytes.Value)</div>
-                                                    }
-                                                </div>
-                                                <div class="artifact-actions">
-                                                    @if (isTraceFile)
-                                                    {
-                                                        <button class="btn btn-primary btn-sm" @onclick="@(() => ViewInSpeedscope(filePath))" @onclick:stopPropagation="true">
-                                                            <i class="fas fa-fire"></i> View Trace
-                                                        </button>
-                                                    }
-                                                    @if (isGcDump)
-                                                    {
-                                                        <button class="btn btn-primary btn-sm" @onclick="@(() => ViewGcDump(filePath))" @onclick:stopPropagation="true">
-                                                            <i class="fas fa-memory"></i> View GC Dump
-                                                        </button>
-                                                    }
-                                                    <button class="btn btn-secondary btn-sm" @onclick="@(() => RevealInFinder(filePath))" @onclick:stopPropagation="true">
-                                                        <i class="fas fa-folder-open"></i> Reveal
-                                                    </button>
-                                                    <button class="btn btn-secondary btn-sm" @onclick="@(() => CopyPathAsync(filePath))" @onclick:stopPropagation="true">
-                                                        <i class="fas fa-copy"></i> Copy
-                                                    </button>
-                                                </div>
-                                                @if (artifactErrors.TryGetValue(filePath, out var artifactError))
-                                                {
-                                                    <div class="artifact-error">
-                                                        <div class="artifact-error-message">
-                                                            <i class="fas fa-exclamation-triangle"></i>
-                                                            <span>@artifactError</span>
-                                                        </div>
-                                                        <div class="artifact-error-actions">
-                                                            <button class="btn btn-primary btn-sm" @onclick="@(() => ViewInSpeedscope(filePath))" @onclick:stopPropagation="true">
-                                                                <i class="fas fa-redo"></i> Retry
-                                                            </button>
-                                                            <button class="btn btn-secondary btn-sm" @onclick="@(() => RevealInFinder(filePath))" @onclick:stopPropagation="true">
-                                                                <i class="fas fa-folder-open"></i> @(Platform.IsMacCatalyst || Platform.IsMacOS ? "Open in Finder" : "Reveal in File Explorer")
-                                                            </button>
-                                                            <button class="btn btn-secondary btn-sm" @onclick="@(() => DismissArtifactError(filePath))" @onclick:stopPropagation="true">
-                                                                <i class="fas fa-times"></i> Dismiss
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                }
-                                            </div>
+                                            @RenderArtifactCard(session, artifact)
                                         }
                                     </div>
+                                }
+
+                                @if (logArtifacts.Count > 0)
+                                {
+                                    <details class="log-files-section">
+                                        <summary class="plan-section-title log-files-toggle">
+                                            <i class="fas fa-chevron-right toggle-chevron"></i>
+                                            <span>Log Files</span>
+                                            <span class="log-count-badge">@logArtifacts.Count</span>
+                                        </summary>
+                                        <div class="artifact-list">
+                                            @foreach (var artifact in logArtifacts)
+                                            {
+                                                @RenderArtifactCard(session, artifact)
+                                            }
+                                        </div>
+                                    </details>
                                 }
 
                                 @* Inline Speedscope Viewer for session list *@
@@ -542,6 +507,69 @@
         }
         catch { return null; }
     }
+
+    private RenderFragment RenderArtifactCard(ProfilingSessionManifest session, ProfilingSessionArtifact artifact) => __builder =>
+    {
+        var filePath = session.DirectoryPath is not null
+            ? Path.Combine(session.DirectoryPath, artifact.FileName)
+            : artifact.FileName;
+        var extension = GetArtifactExtension(artifact.FileName);
+        var isTraceFile = extension is ".nettrace" or ".speedscope.json";
+        var isGcDump = extension is ".gcdump";
+
+        <div class="artifact-card result-artifact-card">
+            <div class="artifact-icon">
+                <i class="fas @GetArtifactIcon(extension)"></i>
+            </div>
+            <div class="artifact-details">
+                <div class="artifact-name">@artifact.FileName</div>
+                @if (artifact.SizeBytes is not null)
+                {
+                    <div class="artifact-meta">@FormatBytes(artifact.SizeBytes.Value)</div>
+                }
+            </div>
+            <div class="artifact-actions">
+                @if (isTraceFile)
+                {
+                    <button class="btn btn-primary btn-sm" @onclick="@(() => ViewInSpeedscope(filePath))" @onclick:stopPropagation="true">
+                        <i class="fas fa-fire"></i> View Trace
+                    </button>
+                }
+                @if (isGcDump)
+                {
+                    <button class="btn btn-primary btn-sm" @onclick="@(() => ViewGcDump(filePath))" @onclick:stopPropagation="true">
+                        <i class="fas fa-memory"></i> View GC Dump
+                    </button>
+                }
+                <button class="btn btn-secondary btn-sm" @onclick="@(() => RevealInFinder(filePath))" @onclick:stopPropagation="true">
+                    <i class="fas fa-folder-open"></i> Reveal
+                </button>
+                <button class="btn btn-secondary btn-sm" @onclick="@(() => CopyPathAsync(filePath))" @onclick:stopPropagation="true">
+                    <i class="fas fa-copy"></i> Copy
+                </button>
+            </div>
+            @if (artifactErrors.TryGetValue(filePath, out var artifactError))
+            {
+                <div class="artifact-error">
+                    <div class="artifact-error-message">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <span>@artifactError</span>
+                    </div>
+                    <div class="artifact-error-actions">
+                        <button class="btn btn-primary btn-sm" @onclick="@(() => ViewInSpeedscope(filePath))" @onclick:stopPropagation="true">
+                            <i class="fas fa-redo"></i> Retry
+                        </button>
+                        <button class="btn btn-secondary btn-sm" @onclick="@(() => RevealInFinder(filePath))" @onclick:stopPropagation="true">
+                            <i class="fas fa-folder-open"></i> @(Platform.IsMacCatalyst || Platform.IsMacOS ? "Open in Finder" : "Reveal in File Explorer")
+                        </button>
+                        <button class="btn btn-secondary btn-sm" @onclick="@(() => DismissArtifactError(filePath))" @onclick:stopPropagation="true">
+                            <i class="fas fa-times"></i> Dismiss
+                        </button>
+                    </div>
+                </div>
+            }
+        </div>
+    };
 
     private static string GetArtifactExtension(string path)
     {
@@ -962,6 +990,40 @@
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
         gap: 0.75rem;
+    }
+
+    .log-files-section {
+        margin-top: 0.75rem;
+    }
+
+    .log-files-section[open] .toggle-chevron {
+        transform: rotate(90deg);
+    }
+
+    .log-files-toggle {
+        cursor: pointer;
+        user-select: none;
+        list-style: none;
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+    }
+
+    .log-files-toggle::-webkit-details-marker {
+        display: none;
+    }
+
+    .toggle-chevron {
+        font-size: 0.65rem;
+        transition: transform 0.15s ease;
+    }
+
+    .log-count-badge {
+        font-size: 0.7rem;
+        font-weight: 600;
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+        padding: 0.1rem 0.45rem;
+        border-radius: 8px;
     }
 
     .artifact-card {
