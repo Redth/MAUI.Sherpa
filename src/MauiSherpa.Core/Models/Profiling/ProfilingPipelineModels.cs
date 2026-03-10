@@ -42,6 +42,13 @@ public class ProfilingStepStatus
     public bool IsLongRunning { get; init; }
     public bool CanRunParallel { get; init; }
     public ProfilingStopTrigger StopTrigger { get; init; }
+
+    /// <summary>
+    /// True when a long-running step has established its connection and is
+    /// actively capturing. Used to gate dependent non-long-running steps
+    /// (e.g. gcdump waits for trace to connect before running).
+    /// </summary>
+    public bool IsReady { get; set; }
 }
 
 public record ProfilingStepOutputLine(string Text, bool IsError, DateTime Timestamp);

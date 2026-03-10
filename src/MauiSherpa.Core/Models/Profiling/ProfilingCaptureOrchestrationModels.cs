@@ -96,7 +96,8 @@ public record ProfilingCommandStep(
     bool IsLongRunning = false,
     bool RequiresManualStop = false,
     bool CanRunParallel = false,
-    ProfilingStopTrigger StopTrigger = ProfilingStopTrigger.None)
+    ProfilingStopTrigger StopTrigger = ProfilingStopTrigger.None,
+    string? ReadyOutputPattern = null)
 {
     public string CommandLine => Arguments.Count > 0
         ? $"{Command} {string.Join(" ", Arguments)}"

@@ -183,7 +183,8 @@ public class ProfilingCaptureOrchestrationService : IProfilingCaptureOrchestrati
                 gcdumpArtifactPath,
                 runtimeBindings,
                 needsStandaloneDsRouter ? diagnostics?.IpcAddress : null,
-                androidSdkPath);
+                androidSdkPath,
+                hasTraceCapture);
 
             postLaunchCaptureSteps.Add(memoryStep);
             expectedArtifacts.Add(memoryArtifact);
@@ -548,7 +549,8 @@ public class ProfilingCaptureOrchestrationService : IProfilingCaptureOrchestrati
             IsLongRunning: true,
             RequiresManualStop: definition.Target.Platform is ProfilingTargetPlatform.MacCatalyst or ProfilingTargetPlatform.MacOS or ProfilingTargetPlatform.Windows,
             CanRunParallel: true,
-            StopTrigger: ProfilingStopTrigger.OnPipelineStop);
+            StopTrigger: ProfilingStopTrigger.OnPipelineStop,
+            ReadyOutputPattern: "Build succeeded");
     }
 
     /// <summary>
@@ -699,7 +701,8 @@ public class ProfilingCaptureOrchestrationService : IProfilingCaptureOrchestrati
                 IsLongRunning: true,
                 RequiresManualStop: true,
                 CanRunParallel: true,
-                StopTrigger: ProfilingStopTrigger.ManualStop),
+                StopTrigger: ProfilingStopTrigger.ManualStop,
+                ReadyOutputPattern: "Process"),
             new ProfilingArtifactMetadata(
                 Id: $"{definition.Id}-trace",
                 SessionId: definition.Id,
@@ -719,7 +722,8 @@ public class ProfilingCaptureOrchestrationService : IProfilingCaptureOrchestrati
         string gcdumpArtifactPath,
         List<ProfilingRuntimeBinding> runtimeBindings,
         string? diagnosticPortAddress = null,
-        string? androidSdkPath = null)
+        string? androidSdkPath = null,
+        bool hasTraceCapture = false)
     {
         var arguments = new List<string>
         {
@@ -760,6 +764,10 @@ public class ProfilingCaptureOrchestrationService : IProfilingCaptureOrchestrati
             dependsOn.Add("start-dsrouter");
         if (dsrouterPlatformArg is null && diagnosticPortAddress is null && options.ProcessId is null)
             dependsOn.Add("discover-process-id");
+        // When both trace and memory are requested, wait for the trace step to
+        // establish its diagnostic port connection before collecting the GC dump.
+        if (hasTraceCapture)
+            dependsOn.Add("capture-trace");
 
         return (
             new ProfilingCommandStep(

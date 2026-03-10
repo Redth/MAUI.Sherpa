@@ -141,18 +141,27 @@ public class ProfilingSessionRunnerService : IProfilingSessionRunner
         {
             ct.ThrowIfCancellationRequested();
 
-            // Find steps whose dependencies are all satisfied
+            // Find steps whose dependencies are all satisfied.
+            // Long-running steps (like dotnet-trace) can proceed when their dependency
+            // is merely started, because they themselves wait for the app to connect.
+            // Non-long-running steps (like dotnet-gcdump) must wait until their
+            // long-running dependency signals IsReady (app is actually connected).
             var ready = commands
                 .Where(c => remaining.Contains(c.Id))
                 .Where(c => c.DependsOn is null || c.DependsOn.All(dep =>
-                    completed.Contains(dep) || IsLongRunningAndStarted(dep)))
+                    completed.Contains(dep) || IsDependencySatisfied(dep, c.IsLongRunning)))
                 .ToList();
 
             if (ready.Count == 0)
             {
                 if (longRunningTasks.Count > 0)
                 {
-                    await Task.WhenAny(longRunningTasks.Values);
+                    // Wait briefly then re-check — a long-running step may signal
+                    // IsReady at any time via its output, unblocking dependent steps.
+                    var completedTask = await Task.WhenAny(
+                        Task.WhenAny(longRunningTasks.Values),
+                        Task.Delay(500, ct));
+
                     foreach (var (id, task) in longRunningTasks.ToList())
                     {
                         if (task.IsCompleted)
@@ -240,10 +249,25 @@ public class ProfilingSessionRunnerService : IProfilingSessionRunner
         }
     }
 
-    private bool IsLongRunningAndStarted(string stepId)
+    /// <summary>
+    /// Checks if a dependency is satisfied for a dependent step.
+    /// Long-running dependents (e.g. dotnet-trace) can proceed when the dependency
+    /// is just started — they themselves wait for the app. Non-long-running dependents
+    /// (e.g. dotnet-gcdump) must wait for IsReady, meaning the dependency has
+    /// established its connection and the app is actually available.
+    /// </summary>
+    private bool IsDependencySatisfied(string depStepId, bool dependentIsLongRunning)
     {
-        var status = _steps.FirstOrDefault(s => s.StepId == stepId);
-        return status is { IsLongRunning: true, State: ProfilingStepState.Running };
+        var status = _steps.FirstOrDefault(s => s.StepId == depStepId);
+        if (status is null) return false;
+        if (!status.IsLongRunning) return false;
+        if (status.State != ProfilingStepState.Running) return false;
+
+        // Long-running dependents can proceed as soon as the dep is started
+        if (dependentIsLongRunning) return true;
+
+        // Non-long-running dependents must wait for the dep to signal readiness
+        return status.IsReady;
     }
 
     private async Task LaunchStepAsync(ProfilingCommandStep step, CancellationToken ct)
@@ -276,6 +300,15 @@ public class ProfilingSessionRunnerService : IProfilingSessionRunner
                 Text = e.Data,
                 IsError = e.IsError
             });
+
+            // Detect readiness for long-running steps by matching output patterns
+            if (step.IsLongRunning && !status.IsReady && !e.IsError
+                && step.ReadyOutputPattern is not null
+                && e.Data.Contains(step.ReadyOutputPattern, StringComparison.OrdinalIgnoreCase))
+            {
+                status.IsReady = true;
+                _logger.LogDebug($"Step '{step.Id}' is ready (matched: {step.ReadyOutputPattern})");
+            }
         };
 
         try
