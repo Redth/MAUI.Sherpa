@@ -189,11 +189,6 @@
                             </button>
                         </div>
                         <div class="panel-body">
-                            @if (!string.IsNullOrWhiteSpace(CurrentPlatformNotes))
-                            {
-                                <div class="info-banner">@CurrentPlatformNotes</div>
-                            }
-
                             @if (TargetOptions.Count == 0)
                             {
                                 <div class="empty-state compact">
@@ -275,44 +270,51 @@
                         <section class="panel">
                             <div class="panel-header">
                                 <span><i class="fas fa-stethoscope"></i> Prerequisites</span>
-                                <div class="summary-badges">
-                                    <span class="badge badge-neutral">@prerequisiteReport.OkCount ok</span>
-                                    <span class="badge badge-warning">@prerequisiteReport.WarningCount warning</span>
-                                    <span class="badge badge-error">@prerequisiteReport.ErrorCount error</span>
-                                </div>
+                                @if (!prerequisiteReport.HasErrors && !prerequisiteReport.HasWarnings)
+                                {
+                                    <span class="badge badge-success">All OK</span>
+                                }
+                                else
+                                {
+                                    <div class="summary-badges">
+                                        @if (prerequisiteReport.WarningCount > 0)
+                                        {
+                                            <span class="badge badge-warning">@prerequisiteReport.WarningCount warning</span>
+                                        }
+                                        @if (prerequisiteReport.ErrorCount > 0)
+                                        {
+                                            <span class="badge badge-error">@prerequisiteReport.ErrorCount error</span>
+                                        }
+                                    </div>
+                                }
                             </div>
                             <div class="panel-body">
                                 @if (!prerequisiteReport.HasErrors && !prerequisiteReport.HasWarnings)
                                 {
                                     <div class="prereq-success-banner">
-                                        <span>✅ All prerequisites met</span>
+                                        <i class="fas fa-check-circle text-success"></i>
+                                        <span>All prerequisites met</span>
                                         <button class="btn btn-link btn-sm" @onclick="() => showPrereqDetails = !showPrereqDetails">
-                                            @(showPrereqDetails ? "Hide Details" : "Show Details")
+                                            @(showPrereqDetails ? "Hide" : "Details")
                                         </button>
                                     </div>
                                 }
                                 @if (prerequisiteReport.HasErrors || prerequisiteReport.HasWarnings || showPrereqDetails)
                                 {
-                                    <div class="prereq-grid">
+                                    <div class="prereq-list">
                                         @foreach (var check in prerequisiteReport.Checks)
                                         {
-                                            <div class="prereq-card">
-                                                <div class="prereq-header">
-                                                    <span>@check.Name</span>
-                                                    <span class="status-pill @GetDependencyCss(check.Status)">@check.Status</span>
-                                                </div>
-                                                <div class="prereq-detail">@check.Message</div>
-                                                <div class="prereq-meta">
-                                                    <span>@check.Kind</span>
-                                                    @if (!string.IsNullOrWhiteSpace(check.InstalledVersion))
-                                                    {
-                                                        <span>Installed: @check.InstalledVersion</span>
-                                                    }
-                                                    @if (!string.IsNullOrWhiteSpace(check.RequiredVersion))
-                                                    {
-                                                        <span>Required: @check.RequiredVersion</span>
-                                                    }
-                                                </div>
+                                            <div class="prereq-row">
+                                                <i class="fas @(check.Status == DependencyStatusType.Ok || check.Status == DependencyStatusType.Info ? "fa-check-circle text-success" : check.Status == DependencyStatusType.Warning ? "fa-exclamation-triangle text-warning" : "fa-times-circle text-error")"></i>
+                                                <span class="prereq-name">@check.Name</span>
+                                                @if (!string.IsNullOrWhiteSpace(check.InstalledVersion))
+                                                {
+                                                    <span class="prereq-version">@check.InstalledVersion</span>
+                                                }
+                                                @if (check.Status != DependencyStatusType.Ok && check.Status != DependencyStatusType.Info)
+                                                {
+                                                    <span class="prereq-message">@check.Message</span>
+                                                }
                                                 @if (!string.IsNullOrWhiteSpace(check.SuggestedCommand))
                                                 {
                                                     <code class="inline-code">@check.SuggestedCommand</code>
@@ -340,22 +342,14 @@
                                 </div>
                             </div>
                             <div class="panel-body plan-body">
-                                <div class="plan-summary-grid">
-                                    <div class="summary-card">
-                                        <div class="summary-label">Target framework</div>
-                                        <div class="summary-value">@capturePlan.TargetFramework</div>
+                                <div class="plan-info-rows">
+                                    <div class="plan-info-row">
+                                        <span class="plan-info-label">Target framework</span>
+                                        <span class="plan-info-value">@capturePlan.TargetFramework</span>
                                     </div>
-                                    <div class="summary-card">
-                                        <div class="summary-label">Output directory</div>
-                                        <div class="summary-value">@capturePlan.OutputDirectory</div>
-                                    </div>
-                                    <div class="summary-card">
-                                        <div class="summary-label">Command steps</div>
-                                        <div class="summary-value">@capturePlan.Commands.Count</div>
-                                    </div>
-                                    <div class="summary-card">
-                                        <div class="summary-label">Artifacts</div>
-                                        <div class="summary-value">@capturePlan.ExpectedArtifacts.Count</div>
+                                    <div class="plan-info-row">
+                                        <span class="plan-info-label">Output directory</span>
+                                        <span class="plan-info-value plan-info-path" title="@capturePlan.OutputDirectory">@capturePlan.OutputDirectory</span>
                                     </div>
                                 </div>
 
@@ -404,62 +398,40 @@
                                     </div>
                                 }
 
-                                <div class="plan-section-title">Commands</div>
-                                <div class="command-list">
+                                @if (capturePlan.ExpectedArtifacts.Count > 0)
+                                {
+                                    <div class="plan-section-title">Expected artifacts</div>
+                                    <div class="artifact-list">
+                                        @foreach (var artifact in capturePlan.ExpectedArtifacts)
+                                        {
+                                            <div class="artifact-card">
+                                                <div class="artifact-name" title="@artifact.DisplayName">@artifact.DisplayName</div>
+                                                <div class="artifact-path" title="@artifact.RelativePath">@System.IO.Path.GetFileName(artifact.RelativePath)</div>
+                                                <div class="artifact-meta">@artifact.Kind · @artifact.ContentType</div>
+                                            </div>
+                                        }
+                                    </div>
+                                }
+
+                                <div class="plan-section-title">Commands <span class="plan-count-badge">@capturePlan.Commands.Count</span></div>
+                                <div class="command-compact-list">
                                     @foreach (var step in capturePlan.Commands)
                                     {
-                                        <div class="command-card">
-                                            <div class="command-header">
-                                                <div>
-                                                    <div class="command-title">@step.DisplayName</div>
-                                                    <div class="command-description">@step.Description</div>
-                                                </div>
-                                                <div class="command-badges">
-                                                    <span class="badge badge-neutral">@step.Kind</span>
-                                                    @if (step.IsLongRunning)
-                                                    {
-                                                        <span class="badge badge-warning">Long-running</span>
-                                                    }
-                                                    @if (step.RequiresManualStop)
-                                                    {
-                                                        <span class="badge badge-warning">Manual stop</span>
-                                                    }
-                                                </div>
+                                        <div class="command-row">
+                                            <div class="command-row-header">
+                                                <span class="command-row-name">@step.DisplayName</span>
+                                                <span class="command-row-info" title="@step.Description">
+                                                    <i class="fas fa-circle-question"></i>
+                                                </span>
+                                                @if (step.IsLongRunning)
+                                                {
+                                                    <span class="badge badge-warning badge-xs">Long-running</span>
+                                                }
                                             </div>
                                             <details class="command-details">
-                                                <summary>Show Command</summary>
+                                                <summary>Show command</summary>
                                                 <code class="command-line">@BuildCommandLine(step)</code>
-                                                <div class="command-actions">
-                                                    <button class="btn btn-secondary btn-sm" @onclick="@(() => CopyCommandAsync(step))">
-                                                        <i class="fas fa-copy"></i> Copy
-                                                    </button>
-                                                </div>
                                             </details>
-                                            @if (step.DependsOn?.Count > 0 || step.RequiredRuntimeBindings?.Count > 0)
-                                            {
-                                                <div class="command-meta">
-                                                    @if (step.DependsOn?.Count > 0)
-                                                    {
-                                                        <span>Depends on: @string.Join(", ", step.DependsOn)</span>
-                                                    }
-                                                    @if (step.RequiredRuntimeBindings?.Count > 0)
-                                                    {
-                                                        <span>Needs: @string.Join(", ", step.RequiredRuntimeBindings)</span>
-                                                    }
-                                                </div>
-                                            }
-                                        </div>
-                                    }
-                                </div>
-
-                                <div class="plan-section-title">Expected artifacts</div>
-                                <div class="artifact-list">
-                                    @foreach (var artifact in capturePlan.ExpectedArtifacts)
-                                    {
-                                        <div class="artifact-card">
-                                            <div class="artifact-name" title="@artifact.DisplayName">@artifact.DisplayName</div>
-                                            <div class="artifact-path" title="@artifact.RelativePath">@System.IO.Path.GetFileName(artifact.RelativePath)</div>
-                                            <div class="artifact-meta">@artifact.Kind · @artifact.ContentType</div>
                                         </div>
                                     }
                                 </div>
@@ -686,6 +658,7 @@
         selectedScenario = catalog.Scenarios.FirstOrDefault(scenario => scenario.Kind == ProfilingScenarioKind.Launch)?.Kind
             ?? catalog.Scenarios.First().Kind;
         ResetCaptureKindsToScenarioDefaults();
+        suspendAtStartup = selectedCaptureKinds.Contains(ProfilingCaptureKind.Startup);
 
         await RefreshTargetsAsync();
         UpdateWizardState();
@@ -811,8 +784,8 @@
     private Task OnScenarioChangedAsync()
     {
         ResetCaptureKindsToScenarioDefaults();
-        // Auto-toggle suspend at startup based on scenario
-        suspendAtStartup = selectedScenario is ProfilingScenarioKind.Launch;
+        // Auto-toggle suspend based on whether Startup capture kind is selected
+        suspendAtStartup = selectedCaptureKinds.Contains(ProfilingCaptureKind.Startup);
         prerequisiteReport = null;
         capturePlan = null;
         UpdateWizardState();
@@ -850,6 +823,10 @@
             selectedCaptureKinds.Add(kind);
         else if (selectedCaptureKinds.Count > 1)
             selectedCaptureKinds.Remove(kind);
+
+        // Auto-toggle suspend when Startup capture kind changes
+        if (kind == ProfilingCaptureKind.Startup)
+            suspendAtStartup = isSelected;
 
         capturePlan = null;
     }
@@ -1801,21 +1778,136 @@
 
     .plan-body { display: grid; gap: 1rem; }
 
-    .plan-summary-grid, .prereq-grid, .artifact-list {
+    .artifact-list {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
         gap: 0.75rem;
     }
 
-    .summary-card, .prereq-card, .artifact-card, .command-card {
+    .artifact-card {
         border: 1px solid var(--border-color);
         border-radius: 14px;
         padding: 0.85rem;
         background: var(--bg-primary);
     }
 
-    .summary-label { font-size: 0.76rem; color: var(--text-tertiary); margin-bottom: 0.2rem; }
-    .summary-value { font-weight: 700; word-break: break-word; }
+    /* Plan info rows (inline key-value) */
+    .plan-info-rows {
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+        margin-bottom: 0.75rem;
+    }
+
+    .plan-info-row {
+        display: flex;
+        gap: 0.5rem;
+        font-size: 0.85rem;
+        align-items: baseline;
+    }
+
+    .plan-info-label {
+        color: var(--text-tertiary);
+        font-weight: 600;
+        white-space: nowrap;
+    }
+
+    .plan-info-label::after {
+        content: ':';
+    }
+
+    .plan-info-value {
+        font-weight: 500;
+        word-break: break-word;
+    }
+
+    .plan-info-path {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .plan-count-badge {
+        font-size: 0.7rem;
+        font-weight: 600;
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+        padding: 0.1rem 0.45rem;
+        border-radius: 8px;
+        margin-left: 0.25rem;
+    }
+
+    /* Compact command list */
+    .command-compact-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+    }
+
+    .command-row {
+        padding: 0.45rem 0.6rem;
+        border-radius: 8px;
+        border: 1px solid color-mix(in srgb, var(--border-color) 60%, transparent);
+        background: var(--bg-primary);
+    }
+
+    .command-row-header {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+    }
+
+    .command-row-name {
+        font-weight: 600;
+        font-size: 0.82rem;
+    }
+
+    .command-row-info {
+        color: var(--text-tertiary);
+        cursor: help;
+        font-size: 0.75rem;
+    }
+
+    .badge-xs {
+        font-size: 0.6rem;
+        padding: 0.05rem 0.35rem;
+    }
+
+    /* Prereq list (compact) */
+    .prereq-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.3rem;
+    }
+
+    .prereq-row {
+        display: flex;
+        align-items: center;
+        gap: 0.45rem;
+        font-size: 0.82rem;
+        padding: 0.2rem 0;
+    }
+
+    .prereq-row i {
+        font-size: 0.85rem;
+        width: 1rem;
+        text-align: center;
+        flex-shrink: 0;
+    }
+
+    .prereq-name {
+        font-weight: 600;
+    }
+
+    .prereq-version {
+        color: var(--text-tertiary);
+        font-size: 0.75rem;
+    }
+
+    .prereq-message {
+        color: var(--text-secondary);
+        font-size: 0.78rem;
+    }
 
     .validation-block { border-radius: 14px; padding: 0.85rem 1rem; }
     .validation-block.errors { border: 1px solid rgba(239, 68, 68, 0.35); background: rgba(239, 68, 68, 0.08); }
@@ -1823,18 +1915,6 @@
     .validation-block.info { border: 1px solid rgba(59, 130, 246, 0.35); background: rgba(59, 130, 246, 0.08); }
 
     .validation-title, .plan-section-title { font-weight: 700; margin-bottom: 0.5rem; }
-
-    .command-list { display: grid; gap: 0.75rem; }
-
-    .command-header {
-        display: flex;
-        justify-content: space-between;
-        gap: 1rem;
-        margin-bottom: 0.65rem;
-    }
-
-    .command-title { font-weight: 700; margin-bottom: 0.2rem; }
-    .command-description, .prereq-detail { color: var(--text-secondary); }
 
     .artifact-path {
         color: var(--text-secondary);
@@ -1861,41 +1941,9 @@
         border: 1px solid color-mix(in srgb, var(--border-color) 80%, transparent);
     }
 
-    .command-meta, .prereq-meta, .artifact-meta {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.4rem 0.8rem;
-        margin-top: 0.55rem;
-        font-size: 0.75rem;
-        color: var(--text-tertiary);
-    }
-
-    .command-actions { display: flex; gap: 0.6rem; margin-top: 0.75rem; }
-
-    .prereq-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 0.75rem;
-        margin-bottom: 0.4rem;
-        font-weight: 700;
-    }
-
-    .status-pill {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        padding: 0.15rem 0.55rem;
-        border-radius: 999px;
-        font-size: 0.72rem;
-        border: 1px solid var(--border-color);
-    }
-
-    .status-pill.ok { color: #22c55e; border-color: rgba(34, 197, 94, 0.35); }
-    .status-pill.warning, .status-warning { color: #f59e0b; }
-    .status-pill.error { color: #ef4444; border-color: rgba(239, 68, 68, 0.35); }
-    .status-pill.neutral { color: var(--text-secondary); }
-    .status-ok { color: #22c55e; }
+    .text-success { color: #22c55e; }
+    .text-warning { color: #f59e0b; }
+    .text-error { color: #ef4444; }
 
     /* Pipeline capture */
     .pipeline-status-banner {
