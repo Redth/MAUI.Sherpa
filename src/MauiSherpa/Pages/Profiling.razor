@@ -513,59 +513,53 @@
         var extension = GetArtifactExtension(artifact.FileName);
         var isTraceFile = extension is ".nettrace" or ".speedscope.json";
         var isGcDump = extension is ".gcdump";
+        var hasViewer = isTraceFile || isGcDump;
 
-        <div class="artifact-card result-artifact-card">
-            <div class="artifact-icon">
+        <div class="artifact-row">
+            <div class="artifact-row-icon">
                 <i class="fas @GetArtifactIcon(extension)"></i>
             </div>
-            <div class="artifact-details">
-                <div class="artifact-name">@artifact.FileName</div>
+            <div class="artifact-row-info">
+                <span class="artifact-row-name">@artifact.FileName</span>
                 @if (artifact.SizeBytes is not null)
                 {
-                    <div class="artifact-meta">@FormatBytes(artifact.SizeBytes.Value)</div>
+                    <span class="artifact-row-size">@FormatBytes(artifact.SizeBytes.Value)</span>
                 }
             </div>
-            <div class="artifact-actions">
+            <div class="artifact-row-actions">
                 @if (isTraceFile)
                 {
-                    <button class="btn btn-primary btn-sm" @onclick="@(() => ViewInSpeedscope(filePath))" @onclick:stopPropagation="true">
-                        <i class="fas fa-fire"></i> View Trace
+                    <button class="btn btn-primary btn-xs" @onclick="@(() => ViewInSpeedscope(filePath))" @onclick:stopPropagation="true" title="View Trace">
+                        <i class="fas fa-fire"></i> View
                     </button>
                 }
                 @if (isGcDump)
                 {
-                    <button class="btn btn-primary btn-sm" @onclick="@(() => ViewGcDump(filePath))" @onclick:stopPropagation="true">
-                        <i class="fas fa-memory"></i> View GC Dump
+                    <button class="btn btn-primary btn-xs" @onclick="@(() => ViewGcDump(filePath))" @onclick:stopPropagation="true" title="View GC Dump">
+                        <i class="fas fa-memory"></i> View
                     </button>
                 }
-                <button class="btn btn-secondary btn-sm" @onclick="@(() => RevealInFinder(filePath))" @onclick:stopPropagation="true">
-                    <i class="fas fa-folder-open"></i> Reveal
+                <button class="btn-icon-sm" @onclick="@(() => RevealInFinder(filePath))" @onclick:stopPropagation="true" title="Reveal in Finder">
+                    <i class="fas fa-folder-open"></i>
                 </button>
-                <button class="btn btn-secondary btn-sm" @onclick="@(() => CopyPathAsync(filePath))" @onclick:stopPropagation="true">
-                    <i class="fas fa-copy"></i> Copy
+                <button class="btn-icon-sm" @onclick="@(() => CopyPathAsync(filePath))" @onclick:stopPropagation="true" title="Copy path">
+                    <i class="fas fa-copy"></i>
                 </button>
             </div>
-            @if (artifactErrors.TryGetValue(filePath, out var artifactError))
-            {
-                <div class="artifact-error">
-                    <div class="artifact-error-message">
-                        <i class="fas fa-exclamation-triangle"></i>
-                        <span>@artifactError</span>
-                    </div>
-                    <div class="artifact-error-actions">
-                        <button class="btn btn-primary btn-sm" @onclick="@(() => ViewInSpeedscope(filePath))" @onclick:stopPropagation="true">
-                            <i class="fas fa-redo"></i> Retry
-                        </button>
-                        <button class="btn btn-secondary btn-sm" @onclick="@(() => RevealInFinder(filePath))" @onclick:stopPropagation="true">
-                            <i class="fas fa-folder-open"></i> @(Platform.IsMacCatalyst || Platform.IsMacOS ? "Open in Finder" : "Reveal in File Explorer")
-                        </button>
-                        <button class="btn btn-secondary btn-sm" @onclick="@(() => DismissArtifactError(filePath))" @onclick:stopPropagation="true">
-                            <i class="fas fa-times"></i> Dismiss
-                        </button>
-                    </div>
-                </div>
-            }
         </div>
+        @if (artifactErrors.TryGetValue(filePath, out var artifactError))
+        {
+            <div class="artifact-error-row">
+                <i class="fas fa-exclamation-triangle text-warning"></i>
+                <span>@artifactError</span>
+                <button class="btn btn-primary btn-xs" @onclick="@(() => ViewInSpeedscope(filePath))" @onclick:stopPropagation="true">
+                    <i class="fas fa-redo"></i> Retry
+                </button>
+                <button class="btn-icon-sm" @onclick="@(() => DismissArtifactError(filePath))" @onclick:stopPropagation="true" title="Dismiss">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+        }
     };
 
     private static string GetArtifactExtension(string path)
@@ -984,9 +978,12 @@
     }
 
     .artifact-list {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
-        gap: 0.75rem;
+        display: flex;
+        flex-direction: column;
+        border: 1px solid var(--border-color);
+        border-radius: 10px;
+        overflow: hidden;
+        background: var(--bg-primary);
     }
 
     .log-files-section {
@@ -1023,50 +1020,91 @@
         border-radius: 8px;
     }
 
-    .artifact-card {
-        border: 1px solid var(--border-color);
-        border-radius: 14px;
-        padding: 1rem;
-        background: var(--bg-primary);
-    }
-
-    .result-artifact-card {
+    .artifact-row {
         display: flex;
         align-items: center;
-        flex-wrap: wrap;
-        gap: 0.75rem;
+        gap: 0.6rem;
+        padding: 0.5rem 0.75rem;
     }
 
-    .artifact-icon {
-        font-size: 1.25rem;
+    .artifact-row:not(:last-child) {
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .artifact-row-icon {
+        font-size: 0.9rem;
         color: var(--text-secondary);
-        width: 2rem;
+        width: 1.5rem;
         text-align: center;
         flex-shrink: 0;
     }
 
-    .artifact-details {
+    .artifact-row-info {
         flex: 1;
         min-width: 0;
+        display: flex;
+        align-items: baseline;
+        gap: 0.5rem;
     }
 
-    .artifact-actions {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.4rem;
-        flex-basis: 100%;
-        margin-top: 0.25rem;
-        padding-top: 0.5rem;
-        border-top: 1px solid var(--border-color);
+    .artifact-row-name {
+        font-size: 0.8rem;
+        font-weight: 500;
+        color: var(--text-primary);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
 
-    .artifact-meta {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.4rem 0.8rem;
-        margin-top: 0.55rem;
-        font-size: 0.75rem;
+    .artifact-row-size {
+        font-size: 0.7rem;
         color: var(--text-tertiary);
+        white-space: nowrap;
+    }
+
+    .artifact-row-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.3rem;
+        flex-shrink: 0;
+    }
+
+    .btn-xs {
+        padding: 0.2rem 0.55rem;
+        font-size: 0.7rem;
+        border-radius: 6px;
+    }
+
+    .btn-icon-sm {
+        background: transparent;
+        border: none;
+        color: var(--text-tertiary);
+        cursor: pointer;
+        padding: 0.25rem 0.35rem;
+        border-radius: 6px;
+        font-size: 0.75rem;
+        transition: color 0.15s, background 0.15s;
+    }
+
+    .btn-icon-sm:hover {
+        color: var(--text-primary);
+        background: var(--bg-tertiary);
+    }
+
+    .artifact-error-row {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.35rem 0.75rem 0.35rem 2.85rem;
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        background: rgba(234, 179, 8, 0.06);
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .artifact-error-row span {
+        flex: 1;
+        min-width: 0;
     }
 
     .missing-artifact { opacity: 0.7; }
