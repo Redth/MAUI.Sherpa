@@ -313,10 +313,10 @@ public interface IProfilingSessionRunner : IDisposable
     Task<ProfilingPipelineResult> RunAsync(ProfilingCapturePlan plan, CancellationToken ct = default);
 
     /// <summary>
-    /// Gracefully stop capture — sends SIGINT to ManualStop steps, waits for exit.
-    /// After those exit, collects artifacts.
+    /// Gracefully stop capture — sends SIGINT to ManualStop steps, waits for processes
+    /// to flush output files and exit before returning.
     /// </summary>
-    void StopCapture();
+    Task StopCaptureAsync();
 
     /// <summary>
     /// Abort everything immediately — kills all running processes.

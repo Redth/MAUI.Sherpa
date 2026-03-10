@@ -329,12 +329,14 @@ public class ProfilingSessionRunnerService : IProfilingSessionRunner
         }
     }
 
-    public void StopCapture()
+    public async Task StopCaptureAsync()
     {
         _stopRequested = true;
-        _logger.LogInformation("StopCapture requested — sending SIGINT to manual-stop processes");
+        _logger.LogInformation("StopCapture requested — sending SIGINT to all running processes");
 
-        // Mark all running steps as Stopped and send cancel signal
+        // Send SIGINT to all running steps. Cancel() sends SIGINT but does NOT
+        // immediately cancel the CTS, so WaitForExitAsync in LaunchStepAsync will
+        // block until the process actually exits and flushes its output files.
         foreach (var status in _steps.Where(s => s.State == ProfilingStepState.Running))
         {
             SetStepState(status, ProfilingStepState.Stopped);
@@ -343,6 +345,11 @@ public class ProfilingSessionRunnerService : IProfilingSessionRunner
                 proc.Cancel();
             }
         }
+
+        // The pipeline's ExecutePipelineAsync is awaiting Task.WhenAll on long-running
+        // tasks. Those tasks will complete once processes exit after SIGINT. We just
+        // need to return and let the pipeline flow continue naturally.
+        await Task.CompletedTask;
     }
 
     public void Cancel()

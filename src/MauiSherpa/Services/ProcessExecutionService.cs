@@ -386,7 +386,9 @@ exit $EXIT_CODE
         {
             if (_platform.IsMacCatalyst || _platform.IsMacOS)
             {
-                // Send SIGINT on Unix
+                // Send SIGINT on Unix — let the process flush and exit on its own.
+                // WaitForExitAsync (called by the pipeline runner) will complete naturally
+                // once the process finishes writing output and exits.
                 SendSignal(_currentProcess.Id, 2); // SIGINT
             }
             else
@@ -396,23 +398,14 @@ exit $EXIT_CODE
                 _currentProcess.StandardInput.Close();
             }
 
-            // Wait for the process to flush and exit gracefully (e.g. dotnet-trace
-            // needs time to finalize the .nettrace file after receiving SIGINT).
-            // Only cancel the linked CTS (which unblocks WaitForExitAsync) after the
-            // process has actually exited or after a generous timeout.
+            // Start a safety timeout: if the process hasn't exited after 30s,
+            // force-cancel so the pipeline doesn't hang forever.
             _ = Task.Run(async () =>
             {
-                try
+                await Task.Delay(30_000);
+                if (_currentProcess is { HasExited: false })
                 {
-                    var exited = _currentProcess?.WaitForExit(15_000) ?? true;
-                    if (!exited && _currentProcess is { HasExited: false })
-                    {
-                        OnOutput("Process did not stop within 15s — forcing exit.", isError: true);
-                    }
-                }
-                catch { /* process may already be gone */ }
-                finally
-                {
+                    OnOutput("Process did not exit within 30s after SIGINT — forcing cancellation.", isError: true);
                     _linkedCts?.Cancel();
                 }
             });
@@ -420,6 +413,7 @@ exit $EXIT_CODE
         catch (Exception ex)
         {
             _logger.LogWarning($"Failed to send cancel signal: {ex.Message}");
+            // If we can't signal, force cancel so we don't hang
             _linkedCts?.Cancel();
         }
     }
