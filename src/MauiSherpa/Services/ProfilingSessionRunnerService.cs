@@ -9,10 +9,12 @@ public class ProfilingSessionRunnerService : IProfilingSessionRunner
     private readonly IServiceProvider _serviceProvider;
     private readonly ILoggingService _logger;
     private readonly Dictionary<string, IProcessExecutionService> _stepProcesses = new();
+    private readonly Dictionary<string, StreamWriter> _stepLogWriters = new();
     private readonly List<ProfilingStepStatus> _steps = new();
     private ProfilingPipelineState _state = ProfilingPipelineState.NotStarted;
     private CancellationTokenSource? _cts;
     private ProfilingCapturePlan? _plan;
+    private string? _outputDirectory;
     private DateTime _startTime;
     private volatile bool _stopRequested;
 
@@ -39,6 +41,8 @@ public class ProfilingSessionRunnerService : IProfilingSessionRunner
         if (!string.IsNullOrWhiteSpace(plan.OutputDirectory))
             Directory.CreateDirectory(plan.OutputDirectory);
 
+        _outputDirectory = plan.OutputDirectory;
+
         _steps.Clear();
         _stepProcesses.Clear();
         foreach (var cmd in plan.Commands)
@@ -61,6 +65,7 @@ public class ProfilingSessionRunnerService : IProfilingSessionRunner
             await ExecutePipelineAsync(plan.Commands, _cts.Token);
 
             SetPipelineState(ProfilingPipelineState.Completing);
+            FlushAllStepLogs();
             var (found, missing) = CollectArtifacts(plan);
 
             var finalState = _steps.Any(s => s.State == ProfilingStepState.Failed)
@@ -79,6 +84,7 @@ public class ProfilingSessionRunnerService : IProfilingSessionRunner
         catch (OperationCanceledException)
         {
             SetPipelineState(ProfilingPipelineState.Cancelled);
+            FlushAllStepLogs();
             KillAllProcesses();
             return new ProfilingPipelineResult(
                 Success: false,
@@ -95,6 +101,7 @@ public class ProfilingSessionRunnerService : IProfilingSessionRunner
                 // Stop was requested — failures during shutdown are expected
                 _logger.LogInformation("Pipeline stopped by user. Collecting available artifacts.");
                 SetPipelineState(ProfilingPipelineState.Completing);
+                FlushAllStepLogs();
                 var (stopFound, stopMissing) = CollectArtifacts(plan);
                 SetPipelineState(ProfilingPipelineState.Completed);
                 return new ProfilingPipelineResult(
@@ -108,6 +115,7 @@ public class ProfilingSessionRunnerService : IProfilingSessionRunner
 
             _logger.LogError($"Pipeline failed: {ex.Message}", ex);
             SetPipelineState(ProfilingPipelineState.Failed);
+            FlushAllStepLogs();
             KillAllProcesses();
             return new ProfilingPipelineResult(
                 Success: false,
@@ -250,10 +258,14 @@ public class ProfilingSessionRunnerService : IProfilingSessionRunner
         var processService = _serviceProvider.GetRequiredService<IProcessExecutionService>();
         _stepProcesses[step.Id] = processService;
 
+        // Open a log file for this step's output
+        var logWriter = OpenStepLogWriter(step.Id, step.DisplayName, step.Command, step.Arguments);
+
         processService.OutputReceived += (_, e) =>
         {
             var line = new ProfilingStepOutputLine(e.Data, e.IsError, DateTime.Now);
             status.OutputLines.Add(line);
+            WriteToStepLog(logWriter, e.Data, e.IsError);
             StepOutputReceived?.Invoke(this, new ProfilingStepOutputEventArgs
             {
                 StepId = step.Id,
@@ -419,7 +431,78 @@ public class ProfilingSessionRunnerService : IProfilingSessionRunner
     {
         _cts?.Cancel();
         _cts?.Dispose();
+        FlushAllStepLogs();
         KillAllProcesses();
         _stepProcesses.Clear();
+    }
+
+    private StreamWriter? OpenStepLogWriter(string stepId, string displayName, string command, IReadOnlyList<string>? arguments)
+    {
+        if (string.IsNullOrWhiteSpace(_outputDirectory))
+            return null;
+
+        try
+        {
+            var logPath = Path.Combine(_outputDirectory, $"{stepId}.log");
+            var writer = new StreamWriter(logPath, append: false) { AutoFlush = true };
+            writer.WriteLine($"# {displayName}");
+            writer.WriteLine($"# Command: {command} {(arguments is not null ? string.Join(" ", arguments) : "")}");
+            writer.WriteLine($"# Started: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+            writer.WriteLine();
+            _stepLogWriters[stepId] = writer;
+            return writer;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning($"Failed to create log file for step '{stepId}': {ex.Message}");
+            return null;
+        }
+    }
+
+    private static void WriteToStepLog(StreamWriter? writer, string text, bool isError)
+    {
+        if (writer is null)
+            return;
+
+        try
+        {
+            var prefix = isError ? "[ERR] " : "";
+            writer.WriteLine($"{prefix}{text}");
+        }
+        catch
+        {
+            // Don't let log writing failures break the pipeline
+        }
+    }
+
+    private void FlushAllStepLogs()
+    {
+        foreach (var (stepId, writer) in _stepLogWriters)
+        {
+            try
+            {
+                var status = _steps.FirstOrDefault(s => s.StepId == stepId);
+                if (status is not null)
+                {
+                    writer.WriteLine();
+                    writer.WriteLine($"# Finished: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+                    writer.WriteLine($"# State: {status.State}");
+                    writer.WriteLine($"# Exit code: {status.ExitCode?.ToString() ?? "N/A"}");
+                    if (status.Duration.HasValue)
+                        writer.WriteLine($"# Duration: {status.Duration.Value.TotalSeconds:F1}s");
+                    if (!string.IsNullOrWhiteSpace(status.ErrorMessage))
+                        writer.WriteLine($"# Error: {status.ErrorMessage}");
+                }
+
+                writer.Flush();
+                writer.Dispose();
+            }
+            catch
+            {
+                // Best effort
+            }
+        }
+
+        _stepLogWriters.Clear();
     }
 }

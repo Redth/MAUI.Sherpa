@@ -231,7 +231,8 @@ public class ProfilingCaptureOrchestrationServiceTests
 
         plan.Validation.IsValid.Should().BeTrue();
         var dateStr = createdAt.LocalDateTime.ToString("yyyy-MM-dd");
-        var expectedDir = Path.Combine("artifacts", "profiling", "HelloMaui", $"{dateStr}-1");
+        var expectedDir = Path.GetFullPath(
+            Path.Combine("/Users/test/src/HelloMaui", "artifacts", "profiling", "HelloMaui", $"{dateStr}-1"));
         plan.Options.OutputDirectory.Should().Be(expectedDir);
     }
 

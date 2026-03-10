@@ -250,6 +250,14 @@ public class ProfilingCaptureOrchestrationService : IProfilingCaptureOrchestrati
         var outputDirectory = string.IsNullOrWhiteSpace(normalized.OutputDirectory)
             ? BuildDefaultOutputDirectory(normalized.ProjectPath, definition.CreatedAt)
             : normalized.OutputDirectory.Trim();
+
+        // Make the output directory absolute so that artifact collection in the runner
+        // (which may run with a different CWD) can always find the files.
+        if (!Path.IsPathRooted(outputDirectory))
+        {
+            var resolveBase = effectiveWorkingDirectory ?? Directory.GetCurrentDirectory();
+            outputDirectory = Path.GetFullPath(Path.Combine(resolveBase, outputDirectory));
+        }
         var additionalBuildProperties = normalized.AdditionalBuildProperties is null
             ? null
             : new Dictionary<string, string>(normalized.AdditionalBuildProperties, StringComparer.OrdinalIgnoreCase);
