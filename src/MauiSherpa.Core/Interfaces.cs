@@ -712,6 +712,104 @@ public record SimulatorRuntime(
     IReadOnlyList<SimulatorDeviceType>? SupportedDeviceTypes = null
 );
 
+// ============================================================================
+// Xcode Management
+// ============================================================================
+
+/// <summary>
+/// Represents an Xcode installation found on disk
+/// </summary>
+public record XcodeInstallation(
+    string Path,
+    string Version,
+    string BuildNumber,
+    bool IsSelected,
+    string? BundleIdentifier = null
+);
+
+/// <summary>
+/// SDK info embedded in an Xcode release
+/// </summary>
+public record XcodeReleaseSdk(string Name, string Version);
+
+/// <summary>
+/// Compiler info embedded in an Xcode release
+/// </summary>
+public record XcodeReleaseCompiler(string Name, string Version);
+
+/// <summary>
+/// Represents an Xcode release available for download from Apple
+/// </summary>
+public record XcodeRelease(
+    string Version,
+    string BuildNumber,
+    DateTime ReleaseDate,
+    bool IsBeta,
+    string? MinimumMacOSVersion,
+    string? DownloadUrl,
+    string? ReleaseNotesUrl,
+    long? FileSizeBytes,
+    IReadOnlyList<XcodeReleaseSdk> Sdks,
+    IReadOnlyList<XcodeReleaseCompiler> Compilers
+);
+
+/// <summary>
+/// Progress info for an Xcode download
+/// </summary>
+public record XcodeDownloadProgress(
+    string Version,
+    long BytesDownloaded,
+    long TotalBytes,
+    double PercentComplete,
+    string? Status
+);
+
+/// <summary>
+/// Service for discovering, downloading, and switching Xcode versions
+/// </summary>
+public interface IXcodeService
+{
+    /// <summary>
+    /// Whether Xcode management is supported on this platform
+    /// </summary>
+    bool IsSupported { get; }
+
+    /// <summary>
+    /// Discover Xcode installations in /Applications
+    /// </summary>
+    Task<IReadOnlyList<XcodeInstallation>> GetInstalledXcodesAsync();
+
+    /// <summary>
+    /// Get the currently selected Xcode path via xcode-select -p
+    /// </summary>
+    Task<string?> GetSelectedXcodePathAsync();
+
+    /// <summary>
+    /// Fetch available Xcode releases from xcodereleases.com
+    /// </summary>
+    Task<IReadOnlyList<XcodeRelease>> GetAvailableReleasesAsync();
+
+    /// <summary>
+    /// Switch active Xcode via sudo xcode-select -s
+    /// </summary>
+    Task<bool> SelectXcodeAsync(string xcodeAppPath);
+
+    /// <summary>
+    /// Download an Xcode .xip file (requires Apple Developer login via browser)
+    /// </summary>
+    Task<bool> DownloadXcodeAsync(XcodeRelease release, string destinationPath, IProgress<XcodeDownloadProgress>? progress = null, CancellationToken ct = default);
+
+    /// <summary>
+    /// Accept the Xcode license agreement
+    /// </summary>
+    Task<bool> AcceptLicenseAsync();
+
+    /// <summary>
+    /// Install Command Line Tools via xcode-select --install
+    /// </summary>
+    Task<bool> InstallCommandLineToolsAsync();
+}
+
 /// <summary>
 /// Service for managing iOS/Apple simulators via xcrun simctl
 /// </summary>

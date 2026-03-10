@@ -129,6 +129,14 @@ public static class MauiProgram
         builder.Services.AddSingleton<MauiSherpa.Pages.Forms.ModalParameterService>();
         
         // Apple services
+        builder.Services.AddSingleton<IXcodeService>(sp =>
+        {
+            var logger = sp.GetRequiredService<ILoggingService>();
+            var platform = sp.GetRequiredService<IPlatformService>();
+            var httpClient = new HttpClient();
+            httpClient.DefaultRequestHeaders.Add("User-Agent", "MauiSherpa");
+            return new XcodeService(logger, platform, httpClient);
+        });
         builder.Services.AddSingleton<IAppleIdentityService, AppleIdentityService>();
         builder.Services.AddSingleton<IAppleIdentityStateService, AppleIdentityStateService>();
         builder.Services.AddSingleton<IGoogleIdentityService, GoogleIdentityService>();
@@ -222,6 +230,8 @@ public static class MauiProgram
         builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Apple.GetSimulatorDeviceTypesHandler>();
         builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Apple.GetSimulatorRuntimesHandler>();
         builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Apple.GetSimulatorAppsHandler>();
+        builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Apple.GetInstalledXcodesHandler>();
+        builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Apple.GetAvailableXcodesHandler>();
         builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.GetConnectedDevicesHandler>();
 
 #if DEBUG

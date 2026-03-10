@@ -1,7 +1,14 @@
+using Shiny.Mediator;
+using MauiSherpa.Core.Interfaces;
+using MauiSherpa.Core.Requests.Apple;
+
 namespace MauiSherpa.Core.ViewModels;
 
 public class AppleToolsViewModel : ViewModelBase
 {
+    private readonly IXcodeService _xcodeService;
+    private readonly IMediator _mediator;
+
     public string Title => "Apple Development Tools";
 
     private bool _isLoading;
@@ -18,36 +25,131 @@ public class AppleToolsViewModel : ViewModelBase
         set => SetProperty(ref _statusMessage, value);
     }
 
-    public AppleToolsViewModel(Interfaces.IAlertService? alertService = null, Interfaces.ILoggingService? loggingService = null)
-        : base(alertService ?? new StubAlertService(), loggingService ?? new StubLoggingService())
+    private IReadOnlyList<XcodeInstallation> _installedXcodes = [];
+    public IReadOnlyList<XcodeInstallation> InstalledXcodes
     {
+        get => _installedXcodes;
+        set => SetProperty(ref _installedXcodes, value);
     }
 
-    public async Task LoadAsync()
+    private IReadOnlyList<XcodeRelease> _availableReleases = [];
+    public IReadOnlyList<XcodeRelease> AvailableReleases
+    {
+        get => _availableReleases;
+        set => SetProperty(ref _availableReleases, value);
+    }
+
+    private bool _isLoadingAvailable;
+    public bool IsLoadingAvailable
+    {
+        get => _isLoadingAvailable;
+        set => SetProperty(ref _isLoadingAvailable, value);
+    }
+
+    private bool _showBetas;
+    public bool ShowBetas
+    {
+        get => _showBetas;
+        set => SetProperty(ref _showBetas, value);
+    }
+
+    public AppleToolsViewModel(
+        IXcodeService xcodeService,
+        IMediator mediator,
+        IAlertService alertService,
+        ILoggingService loggingService)
+        : base(alertService, loggingService)
+    {
+        _xcodeService = xcodeService;
+        _mediator = mediator;
+    }
+
+    public async Task LoadInstalledAsync()
     {
         IsLoading = true;
-        StatusMessage = "Loading Xcode and tools information...";
-        await Task.Delay(1000);
-        StatusMessage = "Tools information loaded";
-        IsLoading = false;
+        StatusMessage = "Discovering installed Xcode versions...";
+
+        try
+        {
+            var result = await _mediator.Request(new GetInstalledXcodesRequest());
+            InstalledXcodes = result.Result;
+            StatusMessage = InstalledXcodes.Count > 0
+                ? $"Found {InstalledXcodes.Count} Xcode installation(s)"
+                : "No Xcode installations found";
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError($"Failed to load installed Xcodes: {ex.Message}", ex);
+            StatusMessage = "Failed to discover Xcode installations";
+        }
+        finally
+        {
+            IsLoading = false;
+        }
     }
 
-    private class StubAlertService : Interfaces.IAlertService
+    public async Task LoadAvailableAsync()
     {
-        public Task ShowAlertAsync(string title, string message, string? cancel = null) => Task.CompletedTask;
-        public Task<bool> ShowConfirmAsync(string title, string message, string? confirm = null, string? cancel = null) => Task.FromResult(true);
-        public Task<string?> ShowActionSheetAsync(string title, string? cancel, string? destruction, params string[] buttons) => Task.FromResult<string?>(null);
-        public Task ShowToastAsync(string message) => Task.CompletedTask;
+        IsLoadingAvailable = true;
+
+        try
+        {
+            var result = await _mediator.Request(new GetAvailableXcodesRequest());
+            AvailableReleases = result.Result;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError($"Failed to load available releases: {ex.Message}", ex);
+        }
+        finally
+        {
+            IsLoadingAvailable = false;
+        }
     }
 
-    private class StubLoggingService : Interfaces.ILoggingService
+    public async Task SelectXcodeAsync(XcodeInstallation xcode)
     {
-        public void LogInformation(string message) { }
-        public void LogWarning(string message) { }
-        public void LogError(string message, Exception? exception = null) { }
-        public void LogDebug(string message) { }
-        public IReadOnlyList<Interfaces.LogEntry> GetRecentLogs(int maxCount = 500) => [];
-        public void ClearLogs() { }
-        public event Action? OnLogAdded;
+        if (xcode.IsSelected) return;
+
+        var confirmed = await AlertService.ShowConfirmAsync(
+            "Switch Active Xcode",
+            $"Switch active Xcode to {Path.GetFileName(xcode.Path)} (v{xcode.Version})?\n\nThis requires administrator privileges.",
+            "Switch",
+            "Cancel");
+
+        if (!confirmed) return;
+
+        StatusMessage = $"Switching to Xcode {xcode.Version}...";
+        var success = await _xcodeService.SelectXcodeAsync(xcode.Path);
+
+        if (success)
+        {
+            await AlertService.ShowToastAsync($"Switched to Xcode {xcode.Version}");
+            await LoadInstalledAsync();
+        }
+        else
+        {
+            await AlertService.ShowAlertAsync("Error", "Failed to switch Xcode. The operation may have been cancelled.");
+        }
+    }
+
+    public async Task OpenDownloadPageAsync(XcodeRelease release)
+    {
+        await _xcodeService.DownloadXcodeAsync(release, "");
+    }
+
+    public IReadOnlyList<XcodeRelease> FilteredAvailableReleases
+    {
+        get
+        {
+            if (ShowBetas) return AvailableReleases;
+            return AvailableReleases.Where(r => !r.IsBeta).ToList();
+        }
+    }
+
+    public bool IsInstalled(XcodeRelease release)
+    {
+        return InstalledXcodes.Any(i =>
+            i.Version == release.Version || i.BuildNumber == release.BuildNumber);
     }
 }
