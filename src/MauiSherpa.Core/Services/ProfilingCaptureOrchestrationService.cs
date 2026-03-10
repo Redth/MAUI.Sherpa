@@ -583,9 +583,9 @@ public class ProfilingCaptureOrchestrationService : IProfilingCaptureOrchestrati
         }
         else if (diagnosticPortAddress is not null)
         {
-            // Connect to a standalone dsrouter via its IPC address
+            // Connect to a standalone dsrouter via its IPC address (connect mode, not listen)
             arguments.Add("--diagnostic-port");
-            arguments.Add(diagnosticPortAddress);
+            arguments.Add($"{diagnosticPortAddress},connect");
         }
         else
         {
@@ -664,9 +664,9 @@ public class ProfilingCaptureOrchestrationService : IProfilingCaptureOrchestrati
         }
         else if (diagnosticPortAddress is not null)
         {
-            // Connect to a standalone dsrouter via its IPC address
+            // Connect to a standalone dsrouter via its IPC address (connect mode, not listen)
             arguments.Add("--diagnostic-port");
-            arguments.Add(diagnosticPortAddress);
+            arguments.Add($"{diagnosticPortAddress},connect");
         }
         else
         {
