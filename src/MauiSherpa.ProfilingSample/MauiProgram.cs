@@ -27,7 +27,12 @@ public static class MauiProgram
 #if DEBUG
         builder.Services.AddBlazorWebViewDeveloperTools();
         builder.Logging.AddDebug();
-        builder.AddMauiDevFlowAgent();
+        builder.AddMauiDevFlowAgent(options =>
+        {
+            options.EnableProfiler = true;
+            options.EnableHighLevelUiHooks = true;
+            options.EnableDetailedUiHooks = true;
+        });
         builder.AddMauiBlazorDevFlowTools();
 #endif
 
