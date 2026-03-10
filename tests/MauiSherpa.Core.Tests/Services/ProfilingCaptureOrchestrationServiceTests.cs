@@ -63,12 +63,11 @@ public class ProfilingCaptureOrchestrationServiceTests
         plan.Diagnostics.Address.Should().Be("10.0.2.2");
         plan.IsTargetCurrentlyAvailable.Should().BeTrue();
 
-        // Both trace and memory requested on mobile → standalone dsrouter is needed
-        // because only one tool can use --dsrouter at a time
+        // SuspendAtStartup defaults to false, so trace goes post-launch (after build)
         plan.Commands.Select(command => command.Id).Should().ContainInOrder(
             "start-dsrouter",
-            "capture-trace",
             "build-and-run",
+            "capture-trace",
             "capture-memory");
         plan.Commands.Should().Contain(command => command.Id == "start-dsrouter");
 
@@ -121,11 +120,11 @@ public class ProfilingCaptureOrchestrationServiceTests
         plan.Diagnostics!.DsRouterMode.Should().Be(ProfilingDsRouterMode.ServerClient);
         plan.Diagnostics.ListenMode.Should().Be(ProfilingDiagnosticListenMode.Listen);
 
-        // Both trace and memory requested on mobile → standalone dsrouter is needed
+        // SuspendAtStartup defaults to false, so trace goes post-launch (after build)
         plan.Commands.Select(command => command.Id).Should().ContainInOrder(
             "start-dsrouter",
-            "capture-trace",
             "build-and-run",
+            "capture-trace",
             "capture-memory");
         plan.Commands.Should().Contain(command => command.Id == "start-dsrouter");
 

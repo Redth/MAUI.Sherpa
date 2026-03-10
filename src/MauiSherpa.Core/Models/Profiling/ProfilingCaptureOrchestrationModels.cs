@@ -48,7 +48,7 @@ public record ProfilingCapturePlanOptions(
     string? OutputDirectory = null,
     ProfilingCaptureLaunchMode LaunchMode = ProfilingCaptureLaunchMode.Launch,
     int DiagnosticPort = 9000,
-    bool SuspendAtStartup = true,
+    bool SuspendAtStartup = false,
     int? ProcessId = null,
     IReadOnlyDictionary<string, string>? AdditionalBuildProperties = null
 );

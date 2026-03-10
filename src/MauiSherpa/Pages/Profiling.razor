@@ -14,6 +14,7 @@
 @inject IPlatformService Platform
 @inject IProcessModalService ProcessModal
 @inject IProfilingSessionRunner PipelineRunner
+@inject IJSRuntime JS
 @implements IDisposable
 
 
@@ -555,7 +556,7 @@ else
                                 }
                                 @if (expandedStepLogs.Contains(stepStatus.StepId))
                                 {
-                                    <div class="pipeline-step-log">
+                                    <div id="step-log-@stepStatus.StepId" class="pipeline-step-log">
                                         @if (stepStatus.OutputLines.Count == 0)
                                         {
                                             <div class="pipeline-log-empty">No output yet</div>
@@ -1309,13 +1310,28 @@ else
     {
         // Auto-expand log for running steps
         if (e.NewState == ProfilingStepState.Running)
+        {
             expandedStepLogs.Add(e.StepId);
+            // Start tracking auto-scroll after render
+            InvokeAsync(async () =>
+            {
+                StateHasChanged();
+                await Task.Yield();
+                try { await JS.InvokeVoidAsync("logScrollInterop.track", $"step-log-{e.StepId}"); } catch { }
+            });
+            return;
+        }
         InvokeAsync(StateHasChanged);
     }
 
     private void OnStepOutputReceived(object? sender, ProfilingStepOutputEventArgs e)
     {
-        InvokeAsync(StateHasChanged);
+        InvokeAsync(async () =>
+        {
+            StateHasChanged();
+            await Task.Yield();
+            try { await JS.InvokeVoidAsync("logScrollInterop.scrollToBottom", $"step-log-{e.StepId}"); } catch { }
+        });
     }
 
     private void HandleStopCapture()
@@ -1331,10 +1347,24 @@ else
         StateHasChanged();
     }
 
-    private void ToggleStepLog(string stepId)
+    private async void ToggleStepLog(string stepId)
     {
         if (!expandedStepLogs.Remove(stepId))
+        {
             expandedStepLogs.Add(stepId);
+            StateHasChanged();
+            await Task.Yield();
+            try
+            {
+                await JS.InvokeVoidAsync("logScrollInterop.track", $"step-log-{stepId}");
+                await JS.InvokeVoidAsync("logScrollInterop.scrollToBottom", $"step-log-{stepId}");
+            }
+            catch { }
+        }
+        else
+        {
+            try { await JS.InvokeVoidAsync("logScrollInterop.untrack", $"step-log-{stepId}"); } catch { }
+        }
     }
 
     private string GetPipelineStateIcon() => pipelineState switch
