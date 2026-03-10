@@ -474,7 +474,7 @@ else
             <div class="panel-header">
                 <span><i class="fas fa-circle-play"></i> Capture</span>
                 <div class="panel-header-actions">
-                    @if (pipelineState == ProfilingPipelineState.Running)
+                    @if (pipelineState is ProfilingPipelineState.Running or ProfilingPipelineState.WaitingForStop)
                     {
                         <span class="pipeline-elapsed"><i class="fas fa-clock"></i> @FormatElapsed(pipelineElapsed)</span>
                     }
@@ -580,11 +580,11 @@ else
         @if (pipelineState is ProfilingPipelineState.Running or ProfilingPipelineState.WaitingForStop)
         {
             <div class="pipeline-actions">
-                @if (pipelineState == ProfilingPipelineState.WaitingForStop)
+                @if (pipelineState == ProfilingPipelineState.Running)
                 {
                     <div class="pipeline-waiting-hint">
-                        <i class="fas fa-hourglass-half"></i>
-                        Waiting for capture processes to finish...
+                        <i class="fas fa-spinner fa-spin"></i>
+                        Launching capture pipeline...
                     </div>
                 }
                 else
@@ -1370,7 +1370,7 @@ else
     private string GetPipelineStateIcon() => pipelineState switch
     {
         ProfilingPipelineState.Running => "fa-spinner fa-spin",
-        ProfilingPipelineState.WaitingForStop => "fa-hourglass-half",
+        ProfilingPipelineState.WaitingForStop => "fa-circle-dot fa-beat-fade",
         ProfilingPipelineState.Completing => "fa-spinner fa-spin",
         ProfilingPipelineState.Completed => "fa-check-circle",
         ProfilingPipelineState.Failed => "fa-times-circle",
@@ -1380,9 +1380,9 @@ else
 
     private string GetPipelineStateText() => pipelineState switch
     {
-        ProfilingPipelineState.Running => "Capture in progress — collecting profiling data...",
-        ProfilingPipelineState.WaitingForStop => "Stopping capture processes...",
-        ProfilingPipelineState.Completing => "Collecting artifacts...",
+        ProfilingPipelineState.Running => "Launching capture pipeline...",
+        ProfilingPipelineState.WaitingForStop => "Recording — click Stop Capture when ready",
+        ProfilingPipelineState.Completing => "Stopping capture and collecting artifacts...",
         ProfilingPipelineState.Completed => "Capture completed successfully",
         ProfilingPipelineState.Failed => "Capture failed — check step details below",
         ProfilingPipelineState.Cancelled => "Capture cancelled",
