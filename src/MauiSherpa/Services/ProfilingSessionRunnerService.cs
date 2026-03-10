@@ -68,6 +68,9 @@ public class ProfilingSessionRunnerService : IProfilingSessionRunner
             FlushAllStepLogs();
             var (found, missing) = CollectArtifacts(plan);
 
+            // Post-process: convert any .nettrace files to speedscope format
+            found = await ConvertTraceArtifactsAsync(found, _cts.Token);
+
             var finalState = _steps.Any(s => s.State == ProfilingStepState.Failed)
                 ? ProfilingPipelineState.Failed
                 : ProfilingPipelineState.Completed;
@@ -103,13 +106,14 @@ public class ProfilingSessionRunnerService : IProfilingSessionRunner
                 SetPipelineState(ProfilingPipelineState.Completing);
                 FlushAllStepLogs();
                 var (stopFound, stopMissing) = CollectArtifacts(plan);
+                IReadOnlyList<string> convertedStopFound = await ConvertTraceArtifactsAsync(stopFound, CancellationToken.None);
                 SetPipelineState(ProfilingPipelineState.Completed);
                 return new ProfilingPipelineResult(
                     Success: true,
                     TotalDuration: DateTime.Now - _startTime,
                     FinalState: ProfilingPipelineState.Completed,
                     StepResults: _steps.ToList(),
-                    ArtifactPaths: stopFound,
+                    ArtifactPaths: convertedStopFound,
                     MissingArtifacts: stopMissing);
             }
 
@@ -511,5 +515,45 @@ public class ProfilingSessionRunnerService : IProfilingSessionRunner
         }
 
         _stepLogWriters.Clear();
+    }
+
+    /// <summary>
+    /// Post-processes trace artifacts: converts any .nettrace files to .speedscope.json
+    /// and adds the converted files to the artifact list.
+    /// </summary>
+    private async Task<IReadOnlyList<string>> ConvertTraceArtifactsAsync(
+        IReadOnlyList<string> artifacts, CancellationToken ct)
+    {
+        var converter = _serviceProvider.GetService<IProfilingArtifactConverterService>();
+        if (converter is null)
+        {
+            _logger.LogWarning("No IProfilingArtifactConverterService registered — skipping trace conversion");
+            return artifacts;
+        }
+
+        var result = new List<string>(artifacts);
+
+        foreach (var artifact in artifacts)
+        {
+            if (!artifact.EndsWith(".nettrace", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            try
+            {
+                _logger.LogInformation($"Converting {Path.GetFileName(artifact)} to speedscope format...");
+                var converted = await converter.ConvertToSpeedscopeAsync(artifact, ct);
+                if (converted is not null && !result.Contains(converted))
+                {
+                    result.Add(converted);
+                    _logger.LogInformation($"Speedscope file added: {Path.GetFileName(converted)}");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($"Failed to convert {artifact} to speedscope: {ex.Message}");
+            }
+        }
+
+        return result;
     }
 }

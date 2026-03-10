@@ -324,6 +324,29 @@ public interface IProfilingSessionRunner : IDisposable
     void Cancel();
 }
 
+/// <summary>
+/// Parses and reports on GC dump (.gcdump) files by shelling out to dotnet-gcdump.
+/// </summary>
+public interface IGcDumpReportService
+{
+    /// <summary>
+    /// Parse a .gcdump file and return structured heap statistics.
+    /// </summary>
+    Task<GcDumpReport?> GetReportAsync(string gcdumpPath, CancellationToken ct = default);
+}
+
+/// <summary>
+/// Converts profiling artifacts between formats (e.g., .nettrace → .speedscope.json).
+/// </summary>
+public interface IProfilingArtifactConverterService
+{
+    /// <summary>
+    /// Convert a .nettrace file to speedscope JSON format.
+    /// Returns the path to the converted file, or null on failure.
+    /// </summary>
+    Task<string?> ConvertToSpeedscopeAsync(string nettracePath, CancellationToken ct = default);
+}
+
 public interface IAndroidSdkSettingsService
 {
     string? CustomSdkPath { get; }

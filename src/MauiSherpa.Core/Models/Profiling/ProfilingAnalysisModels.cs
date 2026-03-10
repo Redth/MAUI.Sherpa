@@ -5,7 +5,8 @@ public enum ProfilingAnalysisKind
     Metadata,
     Speedscope,
     Logs,
-    Json
+    Json,
+    GcDump
 }
 
 public enum ProfilingAnalysisInsightSeverity
@@ -51,4 +52,18 @@ public record ProfilingAnalysisInsight(
     ProfilingAnalysisInsightSeverity Severity,
     string Title,
     string Description
+);
+
+// GC dump report data
+public record GcDumpReport(
+    IReadOnlyList<GcDumpTypeEntry> Types,
+    long TotalSize,
+    long TotalCount,
+    string? RawOutput = null
+);
+
+public record GcDumpTypeEntry(
+    string TypeName,
+    long Count,
+    long Size
 );

@@ -118,6 +118,8 @@ public static class MauiProgram
         builder.Services.AddSingleton<IProfilingArtifactLibraryService, ProfilingArtifactLibraryService>();
         builder.Services.AddSingleton<IProfilingArtifactAnalysisService, ProfilingArtifactAnalysisService>();
         builder.Services.AddTransient<IProfilingSessionRunner, ProfilingSessionRunnerService>();
+        builder.Services.AddSingleton<IGcDumpReportService, GcDumpReportService>();
+        builder.Services.AddSingleton<IProfilingArtifactConverterService, ProfilingArtifactConverterService>();
         builder.Services.AddSingleton<IAndroidDeviceToolsService, AndroidDeviceToolsService>();
         builder.Services.AddSingleton<IFirebasePushService, FirebasePushService>();
         builder.Services.AddSingleton<DeviceInspectorService>();

@@ -14,6 +14,8 @@
 @inject IPlatformService Platform
 @inject IProcessModalService ProcessModal
 @inject IProfilingSessionRunner PipelineRunner
+@inject IGcDumpReportService GcDumpReportService
+@inject IProfilingArtifactConverterService ArtifactConverter
 @inject IJSRuntime JS
 @implements IDisposable
 
@@ -641,32 +643,41 @@ else
                         <div class="artifact-list">
                             @foreach (var artifactPath in pipelineResult.ArtifactPaths)
                             {
-                                var fileName = Path.GetFileName(artifactPath);
-                                var extension = Path.GetExtension(artifactPath).ToLowerInvariant();
-                                var fileSize = GetFileSize(artifactPath);
+                                var path = artifactPath;
+                                var fileName = Path.GetFileName(path);
+                                var extension = GetArtifactExtension(path);
+                                var fileSize = GetFileSize(path);
+                                var isTraceFile = extension is ".nettrace" or ".speedscope.json";
+                                var isGcDump = extension is ".gcdump";
                                 <div class="artifact-card result-artifact-card">
                                     <div class="artifact-icon">
                                         <i class="fas @GetArtifactIcon(extension)"></i>
                                     </div>
                                     <div class="artifact-details">
                                         <div class="artifact-name">@fileName</div>
-                                        <div class="artifact-path">@artifactPath</div>
+                                        <div class="artifact-path">@path</div>
                                         @if (fileSize is not null)
                                         {
                                             <div class="artifact-meta">@fileSize</div>
                                         }
                                     </div>
                                     <div class="artifact-actions">
-                                        @if (extension is ".nettrace" or ".speedscope.json" or ".json")
+                                        @if (isTraceFile)
                                         {
-                                            <button class="btn btn-secondary btn-sm" @onclick="@(() => OpenInSpeedscope(artifactPath))">
-                                                <i class="fas fa-fire"></i> speedscope
+                                            <button class="btn btn-primary btn-sm" @onclick="@(() => ViewInSpeedscope(path))">
+                                                <i class="fas fa-fire"></i> View Trace
                                             </button>
                                         }
-                                        <button class="btn btn-secondary btn-sm" @onclick="@(() => RevealInFinder(artifactPath))">
+                                        @if (isGcDump)
+                                        {
+                                            <button class="btn btn-primary btn-sm" @onclick="@(() => ViewGcDump(path))">
+                                                <i class="fas fa-memory"></i> View GC Dump
+                                            </button>
+                                        }
+                                        <button class="btn btn-secondary btn-sm" @onclick="@(() => RevealInFinder(path))">
                                             <i class="fas fa-folder-open"></i> Reveal
                                         </button>
-                                        <button class="btn btn-secondary btn-sm" @onclick="@(() => CopyPathAsync(artifactPath))">
+                                        <button class="btn btn-secondary btn-sm" @onclick="@(() => CopyPathAsync(path))">
                                             <i class="fas fa-copy"></i> Copy path
                                         </button>
                                     </div>
@@ -692,6 +703,117 @@ else
                                     </div>
                                 </div>
                             }
+                        </div>
+                    }
+
+                    @* Inline Speedscope Viewer *@
+                    @if (showSpeedscopeViewer && speedscopeFilePath is not null)
+                    {
+                        <div class="plan-section-title">
+                            <span><i class="fas fa-fire"></i> CPU Trace Viewer</span>
+                            <button class="btn btn-secondary btn-sm" style="margin-left: auto;" @onclick="CloseSpeedscopeViewer">
+                                <i class="fas fa-times"></i> Close
+                            </button>
+                        </div>
+                        <div class="speedscope-container">
+                            @if (speedscopeLoading)
+                            {
+                                <div class="speedscope-loading">
+                                    <i class="fas fa-spinner fa-spin fa-2x"></i>
+                                    <div>Loading trace viewer...</div>
+                                </div>
+                            }
+                            <iframe id="speedscope-frame"
+                                    src="speedscope/index.html"
+                                    class="speedscope-iframe @(speedscopeLoading ? "hidden" : "")"
+                                    @onload="OnSpeedscopeLoaded"></iframe>
+                        </div>
+                    }
+
+                    @* Inline GC Dump Viewer *@
+                    @if (showGcDumpViewer && gcDumpReport is not null)
+                    {
+                        <div class="plan-section-title">
+                            <span><i class="fas fa-memory"></i> GC Dump — Heap Statistics</span>
+                            <button class="btn btn-secondary btn-sm" style="margin-left: auto;" @onclick="CloseGcDumpViewer">
+                                <i class="fas fa-times"></i> Close
+                            </button>
+                        </div>
+                        <div class="gcdump-summary">
+                            <span><i class="fas fa-cubes"></i> @gcDumpReport.TotalCount.ToString("N0") objects</span>
+                            <span><i class="fas fa-database"></i> @FormatBytes(gcDumpReport.TotalSize)</span>
+                            <span><i class="fas fa-list"></i> @gcDumpReport.Types.Count types</span>
+                        </div>
+                        <div class="gcdump-filter">
+                            <input type="text" class="form-control form-control-sm"
+                                   placeholder="Filter types..."
+                                   @bind="gcDumpFilterText"
+                                   @bind:event="oninput" />
+                        </div>
+                        <div class="gcdump-table-container">
+                            <table class="gcdump-table">
+                                <thead>
+                                    <tr>
+                                        <th class="gcdump-col-name" @onclick="@(() => SortGcDump("name"))">
+                                            Type Name
+                                            @if (gcDumpSortColumn == "name") { <i class="fas @(gcDumpSortAsc ? "fa-sort-up" : "fa-sort-down")"></i> }
+                                        </th>
+                                        <th class="gcdump-col-count" @onclick="@(() => SortGcDump("count"))">
+                                            Count
+                                            @if (gcDumpSortColumn == "count") { <i class="fas @(gcDumpSortAsc ? "fa-sort-up" : "fa-sort-down")"></i> }
+                                        </th>
+                                        <th class="gcdump-col-size" @onclick="@(() => SortGcDump("size"))">
+                                            Total Size
+                                            @if (gcDumpSortColumn == "size") { <i class="fas @(gcDumpSortAsc ? "fa-sort-up" : "fa-sort-down")"></i> }
+                                        </th>
+                                        <th class="gcdump-col-pct">%</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var entry in GetFilteredGcDumpTypes())
+                                    {
+                                        var pct = gcDumpReport.TotalSize > 0
+                                            ? (double)entry.Size / gcDumpReport.TotalSize * 100
+                                            : 0;
+                                        <tr>
+                                            <td class="gcdump-col-name" title="@entry.TypeName">
+                                                <span class="mono">@entry.TypeName</span>
+                                            </td>
+                                            <td class="gcdump-col-count">@entry.Count.ToString("N0")</td>
+                                            <td class="gcdump-col-size">@FormatBytes(entry.Size)</td>
+                                            <td class="gcdump-col-pct">
+                                                <div class="pct-bar-container">
+                                                    <div class="pct-bar" style="width: @(pct.ToString("F1", System.Globalization.CultureInfo.InvariantCulture))%"></div>
+                                                    <span>@pct.ToString("F1")%</span>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                    else if (showGcDumpViewer && gcDumpLoading)
+                    {
+                        <div class="plan-section-title">
+                            <span><i class="fas fa-memory"></i> GC Dump Analysis</span>
+                        </div>
+                        <div class="gcdump-loading">
+                            <i class="fas fa-spinner fa-spin fa-2x"></i>
+                            <div>Analyzing GC dump...</div>
+                        </div>
+                    }
+                    else if (showGcDumpViewer && gcDumpError is not null)
+                    {
+                        <div class="plan-section-title">
+                            <span><i class="fas fa-memory"></i> GC Dump Analysis</span>
+                            <button class="btn btn-secondary btn-sm" style="margin-left: auto;" @onclick="CloseGcDumpViewer">
+                                <i class="fas fa-times"></i> Close
+                            </button>
+                        </div>
+                        <div class="gcdump-error">
+                            <i class="fas fa-exclamation-triangle"></i>
+                            <span>@gcDumpError</span>
                         </div>
                     }
                 }
@@ -768,6 +890,21 @@ else
     private System.Threading.Timer? pipelineTimer;
     private DateTime pipelineStartTime;
     private HashSet<string> expandedStepLogs = new();
+
+    // Speedscope viewer state
+    private bool showSpeedscopeViewer;
+    private bool speedscopeLoading;
+    private string? speedscopeFilePath;
+    private IJSObjectReference? speedscopeModule;
+
+    // GC dump viewer state
+    private bool showGcDumpViewer;
+    private bool gcDumpLoading;
+    private string? gcDumpError;
+    private GcDumpReport? gcDumpReport;
+    private string gcDumpFilterText = "";
+    private string gcDumpSortColumn = "size";
+    private bool gcDumpSortAsc = false;
 
     private static readonly (string Name, string Icon)[] WizardSteps = new[]
     {
@@ -1401,6 +1538,8 @@ else
         pipelineResult = null;
         pipelineState = ProfilingPipelineState.NotStarted;
         expandedStepLogs.Clear();
+        CloseSpeedscopeViewer();
+        CloseGcDumpViewer();
     }
 
     private static string? GetFileSize(string path)
@@ -1416,27 +1555,165 @@ else
         catch { return null; }
     }
 
+    private static string GetArtifactExtension(string path)
+    {
+        if (path.EndsWith(".speedscope.json", StringComparison.OrdinalIgnoreCase))
+            return ".speedscope.json";
+        return Path.GetExtension(path).ToLowerInvariant();
+    }
+
     private static string GetArtifactIcon(string extension) => extension switch
     {
         ".nettrace" => "fa-wave-square",
+        ".speedscope.json" => "fa-fire",
         ".gcdump" => "fa-memory",
         ".txt" or ".log" => "fa-file-lines",
         ".json" => "fa-code",
         _ => "fa-file"
     };
 
-    private async Task OpenInSpeedscope(string path)
+    private static string FormatBytes(long bytes)
+    {
+        if (bytes >= 1024 * 1024) return $"{bytes / (1024.0 * 1024.0):F1} MB";
+        if (bytes >= 1024) return $"{bytes / 1024.0:F1} KB";
+        return $"{bytes:N0} B";
+    }
+
+    // Speedscope viewer
+    private async Task ViewInSpeedscope(string path)
     {
         try
         {
-            // Open speedscope.app with the file — user drops file into browser
-            var url = "https://www.speedscope.app/";
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
-            await AlertService.ShowToastAsync("speedscope.app opened — drag your trace file into the browser.");
+            // If it's a .nettrace file, convert to speedscope first
+            string? speedscopePath = path;
+            if (path.EndsWith(".nettrace", StringComparison.OrdinalIgnoreCase))
+            {
+                speedscopePath = await ArtifactConverter.ConvertToSpeedscopeAsync(path);
+                if (speedscopePath is null)
+                {
+                    await AlertService.ShowToastAsync("Failed to convert trace to speedscope format.");
+                    return;
+                }
+            }
+
+            speedscopeFilePath = speedscopePath;
+            showSpeedscopeViewer = true;
+            speedscopeLoading = true;
+            StateHasChanged();
         }
         catch (Exception ex)
         {
-            await AlertService.ShowToastAsync($"Failed to open speedscope: {ex.Message}");
+            await AlertService.ShowToastAsync($"Failed to open trace viewer: {ex.Message}");
+        }
+    }
+
+    private async Task OnSpeedscopeLoaded()
+    {
+        if (speedscopeFilePath is null) return;
+
+        try
+        {
+            // Read the file and inject it into speedscope via JS interop
+            var fileBytes = await File.ReadAllBytesAsync(speedscopeFilePath);
+            var base64 = Convert.ToBase64String(fileBytes);
+            var fileName = Path.GetFileName(speedscopeFilePath);
+
+            speedscopeModule ??= await JS.InvokeAsync<IJSObjectReference>(
+                "import", "./js/speedscopeInterop.js");
+
+            await speedscopeModule.InvokeVoidAsync(
+                "openSpeedscopeWithFile", "speedscope-frame", speedscopeFilePath, base64, fileName);
+        }
+        catch (Exception ex)
+        {
+            await AlertService.ShowToastAsync($"Failed to load trace into viewer: {ex.Message}");
+        }
+        finally
+        {
+            speedscopeLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void CloseSpeedscopeViewer()
+    {
+        showSpeedscopeViewer = false;
+        speedscopeFilePath = null;
+        speedscopeLoading = false;
+    }
+
+    // GC dump viewer
+    private async Task ViewGcDump(string path)
+    {
+        showGcDumpViewer = true;
+        gcDumpLoading = true;
+        gcDumpError = null;
+        gcDumpReport = null;
+        gcDumpFilterText = "";
+        gcDumpSortColumn = "size";
+        gcDumpSortAsc = false;
+        StateHasChanged();
+
+        try
+        {
+            var report = await GcDumpReportService.GetReportAsync(path);
+            if (report is null)
+            {
+                gcDumpError = "Failed to parse GC dump. Make sure dotnet-gcdump is installed.";
+            }
+            else
+            {
+                gcDumpReport = report;
+            }
+        }
+        catch (Exception ex)
+        {
+            gcDumpError = $"Error analyzing GC dump: {ex.Message}";
+        }
+        finally
+        {
+            gcDumpLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void CloseGcDumpViewer()
+    {
+        showGcDumpViewer = false;
+        gcDumpReport = null;
+        gcDumpError = null;
+    }
+
+    private IEnumerable<GcDumpTypeEntry> GetFilteredGcDumpTypes()
+    {
+        if (gcDumpReport is null) return Enumerable.Empty<GcDumpTypeEntry>();
+
+        var types = gcDumpReport.Types.AsEnumerable();
+
+        if (!string.IsNullOrWhiteSpace(gcDumpFilterText))
+        {
+            types = types.Where(t => t.TypeName.Contains(gcDumpFilterText, StringComparison.OrdinalIgnoreCase));
+        }
+
+        types = gcDumpSortColumn switch
+        {
+            "name" => gcDumpSortAsc ? types.OrderBy(t => t.TypeName) : types.OrderByDescending(t => t.TypeName),
+            "count" => gcDumpSortAsc ? types.OrderBy(t => t.Count) : types.OrderByDescending(t => t.Count),
+            "size" => gcDumpSortAsc ? types.OrderBy(t => t.Size) : types.OrderByDescending(t => t.Size),
+            _ => types
+        };
+
+        return types.Take(200); // Limit to 200 rows for performance
+    }
+
+    private void SortGcDump(string column)
+    {
+        if (gcDumpSortColumn == column)
+            gcDumpSortAsc = !gcDumpSortAsc;
+        else
+        {
+            gcDumpSortColumn = column;
+            gcDumpSortAsc = column == "name"; // Name sorts ascending by default, others descending
         }
     }
 
@@ -1469,6 +1746,10 @@ else
         ToolbarService.ClearItems();
         DeviceMonitor.Changed -= OnDeviceMonitorChanged;
         pipelineTimer?.Dispose();
+        if (speedscopeModule is not null)
+        {
+            _ = speedscopeModule.DisposeAsync();
+        }
     }
 
     private sealed record TargetOption(
@@ -2330,4 +2611,173 @@ else
     .text-danger { color: #ef4444; }
     .text-warning { color: #eab308; }
     .text-muted { color: var(--text-secondary); }
+
+    /* Speedscope viewer */
+    .speedscope-container {
+        position: relative;
+        width: 100%;
+        height: 600px;
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        overflow: hidden;
+        margin-top: 0.75rem;
+    }
+
+    .speedscope-iframe {
+        width: 100%;
+        height: 100%;
+        border: none;
+    }
+
+    .speedscope-iframe.hidden {
+        visibility: hidden;
+    }
+
+    .speedscope-loading {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.75rem;
+        color: var(--text-secondary);
+        background: var(--bg-secondary);
+    }
+
+    /* GC dump viewer */
+    .gcdump-summary {
+        display: flex;
+        gap: 1.5rem;
+        padding: 0.75rem 1rem;
+        background: var(--bg-tertiary);
+        border-radius: 6px;
+        margin-top: 0.75rem;
+        font-size: 0.875rem;
+        color: var(--text-secondary);
+    }
+
+    .gcdump-summary span {
+        display: flex;
+        align-items: center;
+        gap: 0.375rem;
+    }
+
+    .gcdump-filter {
+        margin-top: 0.75rem;
+    }
+
+    .gcdump-filter input {
+        max-width: 300px;
+    }
+
+    .gcdump-table-container {
+        margin-top: 0.75rem;
+        max-height: 500px;
+        overflow-y: auto;
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+    }
+
+    .gcdump-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.8125rem;
+    }
+
+    .gcdump-table thead {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+    }
+
+    .gcdump-table th {
+        padding: 0.5rem 0.75rem;
+        background: var(--bg-tertiary);
+        border-bottom: 1px solid var(--border-color);
+        text-align: left;
+        font-weight: 600;
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: var(--text-secondary);
+        cursor: pointer;
+        user-select: none;
+    }
+
+    .gcdump-table th:hover {
+        background: var(--bg-secondary);
+    }
+
+    .gcdump-table th i {
+        margin-left: 0.25rem;
+        font-size: 0.625rem;
+    }
+
+    .gcdump-table td {
+        padding: 0.375rem 0.75rem;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .gcdump-table tr:hover td {
+        background: var(--bg-tertiary);
+    }
+
+    .gcdump-col-name {
+        min-width: 300px;
+    }
+
+    .gcdump-col-name .mono {
+        font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+        font-size: 0.75rem;
+        word-break: break-all;
+    }
+
+    .gcdump-col-count,
+    .gcdump-col-size {
+        text-align: right;
+        white-space: nowrap;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .gcdump-col-pct {
+        width: 120px;
+    }
+
+    .pct-bar-container {
+        display: flex;
+        align-items: center;
+        gap: 0.375rem;
+    }
+
+    .pct-bar {
+        height: 4px;
+        background: var(--accent-color, #3b82f6);
+        border-radius: 2px;
+        min-width: 1px;
+        max-width: 80px;
+    }
+
+    .pct-bar-container span {
+        font-size: 0.6875rem;
+        color: var(--text-secondary);
+        white-space: nowrap;
+    }
+
+    .gcdump-loading,
+    .gcdump-error {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 2rem;
+        color: var(--text-secondary);
+    }
+
+    .gcdump-error {
+        color: var(--text-warning, #eab308);
+    }
 </style>
