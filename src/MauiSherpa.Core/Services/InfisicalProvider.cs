@@ -223,14 +223,16 @@ public class InfisicalProvider : ICloudSecretsProvider
             _logger.LogInformation($"Deleted secret: {key}");
             return true;
         }
-        catch (InfisicalException ex) when (ex.Message.Contains("not found", StringComparison.OrdinalIgnoreCase))
+        catch (InfisicalException ex) when (ex.Message.Contains("not found", StringComparison.OrdinalIgnoreCase) ||
+            ex.InnerException?.Message?.Contains("not found", StringComparison.OrdinalIgnoreCase) == true)
         {
             _logger.LogInformation($"Secret already deleted or not found: {key}");
             return true;
         }
         catch (InfisicalException ex)
         {
-            _logger.LogError($"Infisical delete secret failed: {ex.Message}", ex);
+            var innerMsg = ex.InnerException?.Message;
+            _logger.LogError($"Infisical delete secret failed for '{key}': {ex.Message}{(innerMsg != null ? $" → {innerMsg}" : "")}", ex);
             return false;
         }
         catch (Exception ex)
