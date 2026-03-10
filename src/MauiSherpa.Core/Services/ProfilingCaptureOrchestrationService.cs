@@ -147,7 +147,17 @@ public class ProfilingCaptureOrchestrationService : IProfilingCaptureOrchestrati
         if (normalizedOptions.LaunchMode == ProfilingCaptureLaunchMode.Launch)
         {
             commands.AddRange(preLaunchCaptureSteps);
-            commands.Add(CreateLaunchStep(definition, normalizedOptions, targetFramework, workingDirectory, diagnostics));
+
+            // Android requires adb setup steps before the app launches:
+            // - Physical devices need adb reverse for port forwarding
+            // - All Android targets need debug.mono.profile system property set
+            if (definition.Target.Platform == ProfilingTargetPlatform.Android && diagnostics is not null)
+            {
+                commands.AddRange(CreateAndroidDiagnosticSetupSteps(
+                    definition.Target, diagnostics, normalizedOptions, androidSdkPath));
+            }
+
+            commands.Add(CreateLaunchStep(definition, normalizedOptions, targetFramework, workingDirectory, diagnostics, androidSdkPath));
         }
 
         if (!isMobileTarget &&
@@ -487,7 +497,8 @@ public class ProfilingCaptureOrchestrationService : IProfilingCaptureOrchestrati
         ProfilingCapturePlanOptions options,
         string targetFramework,
         string? workingDirectory,
-        ProfilingDiagnosticConfiguration? diagnostics)
+        ProfilingDiagnosticConfiguration? diagnostics,
+        string? androidSdkPath = null)
     {
         var arguments = new List<string>
         {
@@ -503,13 +514,11 @@ public class ProfilingCaptureOrchestrationService : IProfilingCaptureOrchestrati
         arguments.Add("-f");
         arguments.Add(targetFramework);
 
-        if (diagnostics is not null)
+        // Android requires AndroidEnableProfiler=true to include the Mono diagnostic component.
+        // The runtime diagnostic port is configured via adb system properties, not MSBuild properties.
+        if (diagnostics is not null && definition.Target.Platform == ProfilingTargetPlatform.Android)
         {
-            arguments.Add("-p:EnableDiagnostics=true");
-            arguments.Add($"-p:DiagnosticAddress={diagnostics.Address}");
-            arguments.Add($"-p:DiagnosticPort={diagnostics.Port}");
-            arguments.Add($"-p:DiagnosticSuspend={diagnostics.SuspendOnStartup.ToString().ToLowerInvariant()}");
-            arguments.Add($"-p:DiagnosticListenMode={diagnostics.ListenMode.ToString().ToLowerInvariant()}");
+            arguments.Add("-p:AndroidEnableProfiler=true");
         }
 
         if (options.AdditionalBuildProperties is not null)
@@ -520,6 +529,10 @@ public class ProfilingCaptureOrchestrationService : IProfilingCaptureOrchestrati
             }
         }
 
+        var environment = definition.Target.Platform == ProfilingTargetPlatform.Android
+            ? BuildAndroidEnvironment(definition.Target, androidSdkPath)
+            : null;
+
         return new ProfilingCommandStep(
             Id: "build-and-run",
             Kind: ProfilingCommandStepKind.Launch,
@@ -528,6 +541,7 @@ public class ProfilingCaptureOrchestrationService : IProfilingCaptureOrchestrati
             Command: "dotnet",
             Arguments: arguments,
             WorkingDirectory: workingDirectory,
+            Environment: environment,
             Metadata: new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
             {
                 ["tool"] = "dotnet",
@@ -540,6 +554,61 @@ public class ProfilingCaptureOrchestrationService : IProfilingCaptureOrchestrati
             RequiresManualStop: definition.Target.Platform is ProfilingTargetPlatform.MacCatalyst or ProfilingTargetPlatform.MacOS or ProfilingTargetPlatform.Windows,
             CanRunParallel: true,
             StopTrigger: ProfilingStopTrigger.OnPipelineStop);
+    }
+
+    /// <summary>
+    /// Creates Android-specific setup steps that must run before the app launches:
+    /// 1. For physical devices: adb reverse to forward the diagnostic TCP port
+    /// 2. adb shell setprop to configure the Mono diagnostic port on the device/emulator
+    /// </summary>
+    private static List<ProfilingCommandStep> CreateAndroidDiagnosticSetupSteps(
+        ProfilingTarget target,
+        ProfilingDiagnosticConfiguration diagnostics,
+        ProfilingCapturePlanOptions options,
+        string? androidSdkPath)
+    {
+        var steps = new List<ProfilingCommandStep>();
+        var environment = BuildAndroidEnvironment(target, androidSdkPath);
+        var suspendMode = diagnostics.SuspendOnStartup ? "suspend" : "nosuspend";
+
+        // Physical devices need adb reverse to forward the TCP port from device to host
+        if (target.Kind == ProfilingTargetKind.PhysicalDevice)
+        {
+            steps.Add(new ProfilingCommandStep(
+                Id: "setup-adb-reverse",
+                Kind: ProfilingCommandStepKind.Prepare,
+                DisplayName: "Forward diagnostic port",
+                Description: $"Set up adb reverse port forwarding so the device can reach the host diagnostic router on port {diagnostics.Port}.",
+                Command: "adb",
+                Arguments: ["reverse", $"tcp:{diagnostics.Port}", $"tcp:{diagnostics.Port + 1}"],
+                WorkingDirectory: options.WorkingDirectory,
+                Environment: environment,
+                Metadata: new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["tool"] = "adb",
+                    ["port"] = diagnostics.Port.ToString()
+                }));
+        }
+
+        // Set the debug.mono.profile system property so the app runtime connects to the diagnostic router
+        var diagnosticAddress = $"{diagnostics.Address}:{diagnostics.Port},{suspendMode},connect";
+        steps.Add(new ProfilingCommandStep(
+            Id: "setup-diagnostic-port",
+            Kind: ProfilingCommandStepKind.Prepare,
+            DisplayName: "Configure diagnostic port",
+            Description: $"Set Android system property debug.mono.profile to '{diagnosticAddress}' so the app runtime connects to the diagnostic router.",
+            Command: "adb",
+            Arguments: ["shell", "setprop", "debug.mono.profile", diagnosticAddress],
+            WorkingDirectory: options.WorkingDirectory,
+            Environment: environment,
+            Metadata: new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["tool"] = "adb",
+                ["diagnosticAddress"] = diagnosticAddress,
+                ["suspendMode"] = suspendMode
+            }));
+
+        return steps;
     }
 
     private static ProfilingCommandStep CreateProcessDiscoveryStep(

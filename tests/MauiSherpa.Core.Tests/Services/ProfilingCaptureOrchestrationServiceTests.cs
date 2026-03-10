@@ -63,20 +63,28 @@ public class ProfilingCaptureOrchestrationServiceTests
         plan.Diagnostics.Address.Should().Be("10.0.2.2");
         plan.IsTargetCurrentlyAvailable.Should().BeTrue();
 
-        // SuspendAtStartup defaults to false, so trace goes post-launch (after build)
+        // SuspendAtStartup defaults to false, so trace goes post-launch (after build).
+        // Android also gets adb setup-diagnostic-port step before build-and-run.
         plan.Commands.Select(command => command.Id).Should().ContainInOrder(
             "start-dsrouter",
+            "setup-diagnostic-port",
             "build-and-run",
             "capture-trace",
             "capture-memory");
         plan.Commands.Should().Contain(command => command.Id == "start-dsrouter");
 
+        // The adb setprop step configures the Mono diagnostic port
+        var setupStep = plan.Commands.Single(command => command.Id == "setup-diagnostic-port");
+        setupStep.CommandLine.Should().Contain("debug.mono.profile");
+        setupStep.CommandLine.Should().Contain("10.0.2.2:9000");
+
         var buildStep = plan.Commands.Single(command => command.Id == "build-and-run");
-        buildStep.CommandLine.Should().Contain("-p:DiagnosticAddress=10.0.2.2");
-        buildStep.CommandLine.Should().Contain("-p:DiagnosticListenMode=connect");
+        buildStep.CommandLine.Should().Contain("-p:AndroidEnableProfiler=true");
+        buildStep.CommandLine.Should().NotContain("-p:DiagnosticAddress");
         buildStep.CommandLine.Should().Contain("-f net10.0-android");
         buildStep.CanRunParallel.Should().BeTrue();
         buildStep.StopTrigger.Should().Be(ProfilingStopTrigger.OnPipelineStop);
+        buildStep.Environment.Should().ContainKey("ANDROID_SERIAL");
 
         var traceStep = plan.Commands.Single(command => command.Id == "capture-trace");
         traceStep.CommandLine.Should().Contain("--diagnostic-port");
@@ -138,7 +146,8 @@ public class ProfilingCaptureOrchestrationServiceTests
 
         var buildStep = plan.Commands.Single(command => command.Id == "build-and-run");
         buildStep.CommandLine.Should().Contain("-f net10.0-ios");
-        buildStep.CommandLine.Should().Contain("-p:DiagnosticListenMode=listen");
+        buildStep.CommandLine.Should().NotContain("-p:DiagnosticListenMode");
+        buildStep.CommandLine.Should().NotContain("-p:DiagnosticAddress");
     }
 
     [Fact]
