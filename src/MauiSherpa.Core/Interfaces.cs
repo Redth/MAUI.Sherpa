@@ -3187,7 +3187,7 @@ public interface IKeystoreSyncService
     Task UploadKeystorePasswordAsync(string keystoreId, string password, CancellationToken ct = default);
     Task UploadKeystoreMetadataAsync(string keystoreId, CancellationToken ct = default);
     Task DownloadKeystoreFromCloudAsync(string cloudKey, CancellationToken ct = default);
-    Task DeleteKeystoreFromCloudAsync(string cloudKey, CancellationToken ct = default);
+    Task DeleteKeystoreFromCloudAsync(string alias, CancellationToken ct = default);
 }
 
 public record KeystoreSyncStatus(

@@ -170,9 +170,8 @@ public class KeystoreSyncService : IKeystoreSyncService
         _logger.LogInformation($"Keystore downloaded from cloud: {alias} → {filePath}");
     }
 
-    public async Task DeleteKeystoreFromCloudAsync(string cloudKey, CancellationToken ct = default)
+    public async Task DeleteKeystoreFromCloudAsync(string alias, CancellationToken ct = default)
     {
-        var alias = ExtractAliasFromKey(cloudKey);
         _logger.LogInformation($"Deleting keystore from cloud: {alias}");
 
         var failures = new List<string>();
