@@ -4,6 +4,7 @@
 @inject AppleToolsViewModel ViewModel
 @inject IPlatformService Platform
 @inject IAlertService AlertService
+@inject IOperationModalService OperationModal
 
 <h1><i class="fab fa-apple"></i> @ViewModel.Title</h1>
 
@@ -20,6 +21,13 @@ else
     <div class="status-bar">
         <span class="status-label">Status:</span>
         <span class="status-text">@ViewModel.StatusMessage</span>
+        @if (ViewModel.IsSignedIn)
+        {
+            <span class="auth-status signed-in">
+                <i class="fas fa-check-circle"></i> @ViewModel.SignedInAppleId
+                <button class="btn-link" @onclick="SignOut">Sign Out</button>
+            </span>
+        }
     </div>
 
     <div class="toolbar">
@@ -196,6 +204,70 @@ else
             </div>
         }
     }
+
+    @* ── Apple ID Sign-In Modal ── *@
+    @if (showSignInModal)
+    {
+        <div class="modal-overlay" @onclick="CloseSignInModal">
+            <div class="modal" @onclick:stopPropagation="true">
+                <div class="modal-header">
+                    <h3><i class="fab fa-apple"></i> Apple Developer Sign In</h3>
+                    <button class="modal-close" @onclick="CloseSignInModal"><i class="fas fa-times"></i></button>
+                </div>
+                <div class="modal-body">
+                    @if (!showTwoFactorInput)
+                    {
+                        <p class="modal-description">Sign in with your Apple ID to download Xcode from Apple Developer.</p>
+                        @if (!string.IsNullOrEmpty(signInError))
+                        {
+                            <div class="modal-error"><i class="fas fa-exclamation-circle"></i> @signInError</div>
+                        }
+                        <div class="form-group">
+                            <label>Apple ID</label>
+                            <input type="email" @bind="appleIdInput" @bind:event="oninput"
+                                   placeholder="you@example.com" disabled="@isSigningIn" />
+                        </div>
+                        <div class="form-group">
+                            <label>Password</label>
+                            <input type="password" @bind="passwordInput" @bind:event="oninput"
+                                   placeholder="Password" disabled="@isSigningIn" />
+                        </div>
+                    }
+                    else
+                    {
+                        <p class="modal-description">Enter the 6-digit verification code sent to your trusted device.</p>
+                        @if (!string.IsNullOrEmpty(signInError))
+                        {
+                            <div class="modal-error"><i class="fas fa-exclamation-circle"></i> @signInError</div>
+                        }
+                        <div class="form-group two-factor-group">
+                            <label>Verification Code</label>
+                            <input type="text" @bind="twoFactorInput" @bind:event="oninput"
+                                   placeholder="000000" maxlength="6" class="two-factor-input"
+                                   disabled="@isSigningIn" />
+                        </div>
+                    }
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" @onclick="CloseSignInModal" disabled="@isSigningIn">Cancel</button>
+                    @if (!showTwoFactorInput)
+                    {
+                        <button class="btn btn-primary" @onclick="SubmitSignIn"
+                                disabled="@(isSigningIn || string.IsNullOrWhiteSpace(appleIdInput) || string.IsNullOrWhiteSpace(passwordInput))">
+                            @if (isSigningIn) { <i class="fas fa-spinner fa-spin"></i> } Sign In
+                        </button>
+                    }
+                    else
+                    {
+                        <button class="btn btn-primary" @onclick="SubmitTwoFactor"
+                                disabled="@(isSigningIn || string.IsNullOrWhiteSpace(twoFactorInput) || twoFactorInput?.Length < 6)">
+                            @if (isSigningIn) { <i class="fas fa-spinner fa-spin"></i> } Verify
+                        </button>
+                    }
+                </div>
+            </div>
+        </div>
+    }
 }
 
 <style>
@@ -223,9 +295,32 @@ else
         border-radius: 0.5rem;
         margin-bottom: 1rem;
         border: 1px solid var(--border-color);
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        flex-wrap: wrap;
     }
-    .status-label { font-weight: 600; color: var(--text-primary); margin-right: 0.5rem; }
-    .status-text { color: var(--text-secondary); }
+    .status-label { font-weight: 600; color: var(--text-primary); }
+    .status-text { color: var(--text-secondary); flex: 1; }
+
+    .auth-status {
+        font-size: 0.8125rem;
+        display: flex;
+        align-items: center;
+        gap: 0.375rem;
+        margin-left: auto;
+    }
+    .auth-status.signed-in { color: var(--accent-success); }
+    .auth-status .btn-link {
+        background: none;
+        border: none;
+        color: var(--text-muted);
+        cursor: pointer;
+        font-size: 0.75rem;
+        text-decoration: underline;
+        padding: 0;
+    }
+    .auth-status .btn-link:hover { color: var(--accent-danger); }
 
     .toolbar {
         margin-bottom: 1rem;
@@ -417,6 +512,17 @@ else
     }
     .btn-ghost:hover { color: var(--accent-primary); border-color: var(--accent-primary); }
 
+    .btn-secondary {
+        background: var(--bg-tertiary);
+        border: 1px solid var(--border-color);
+        color: var(--text-secondary);
+        padding: 0.5rem 1rem;
+        border-radius: 0.375rem;
+        cursor: pointer;
+        font-size: 0.875rem;
+    }
+    .btn-secondary:hover { background: var(--border-color); }
+
     /* Available Controls */
     .available-controls {
         display: flex;
@@ -449,12 +555,124 @@ else
         color: var(--text-muted);
         margin-bottom: 0.75rem;
     }
+
+    /* ── Sign-In Modal ── */
+    .modal-overlay {
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0, 0, 0, 0.5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+    }
+    .modal {
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 0.75rem;
+        width: 420px;
+        max-width: 90vw;
+        box-shadow: 0 16px 48px rgba(0, 0, 0, 0.25);
+    }
+    .modal-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 1.25rem 1.5rem;
+        border-bottom: 1px solid var(--border-color);
+    }
+    .modal-header h3 {
+        margin: 0;
+        font-size: 1.125rem;
+        color: var(--text-primary);
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    .modal-close {
+        background: none;
+        border: none;
+        color: var(--text-muted);
+        cursor: pointer;
+        font-size: 1rem;
+        padding: 0.25rem;
+    }
+    .modal-close:hover { color: var(--text-primary); }
+    .modal-body { padding: 1.5rem; }
+    .modal-footer {
+        display: flex;
+        justify-content: flex-end;
+        gap: 0.5rem;
+        padding: 1rem 1.5rem;
+        border-top: 1px solid var(--border-color);
+    }
+    .modal-description {
+        color: var(--text-secondary);
+        font-size: 0.875rem;
+        margin-bottom: 1.25rem;
+    }
+    .modal-error {
+        background: var(--status-error-bg);
+        color: var(--accent-danger);
+        padding: 0.625rem 0.875rem;
+        border-radius: 0.375rem;
+        font-size: 0.8125rem;
+        margin-bottom: 1rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    .form-group {
+        margin-bottom: 1rem;
+    }
+    .form-group label {
+        display: block;
+        font-size: 0.8125rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 0.375rem;
+    }
+    .form-group input {
+        width: 100%;
+        padding: 0.5rem 0.75rem;
+        border: 1px solid var(--border-color);
+        border-radius: 0.375rem;
+        background: var(--bg-secondary);
+        color: var(--text-primary);
+        font-size: 0.875rem;
+        box-sizing: border-box;
+    }
+    .form-group input:focus {
+        outline: none;
+        border-color: var(--accent-primary);
+        box-shadow: 0 0 0 2px rgba(66, 153, 225, 0.2);
+    }
+    .form-group input:disabled { opacity: 0.6; }
+    .two-factor-group { text-align: center; }
+    .two-factor-input {
+        font-size: 1.5rem !important;
+        letter-spacing: 0.5rem;
+        text-align: center;
+        font-family: monospace;
+        max-width: 220px;
+        margin: 0 auto;
+    }
 </style>
 
 @code {
     private string activeTab = "installed";
     private bool showBetas;
     private bool hasInitialized;
+
+    // Sign-in modal state
+    private bool showSignInModal;
+    private bool showTwoFactorInput;
+    private bool isSigningIn;
+    private string? appleIdInput;
+    private string? passwordInput;
+    private string? twoFactorInput;
+    private string? signInError;
+    private XcodeRelease? pendingDownloadRelease;
 
     private IReadOnlyList<XcodeRelease> filteredReleases =>
         showBetas
@@ -492,16 +710,174 @@ else
 
     private async Task DownloadXcode(XcodeRelease release)
     {
-        var confirmed = await AlertService.ShowConfirmAsync(
-            "Download Xcode",
-            $"This will open the Apple Developer downloads page for Xcode {release.Version} in your browser.\n\nYou'll need an Apple Developer account to download.",
-            "Open Downloads",
-            "Cancel");
-
-        if (confirmed)
+        if (!ViewModel.IsSignedIn)
         {
-            await ViewModel.OpenDownloadPageAsync(release);
+            // Need to sign in first — show modal and remember what to download
+            pendingDownloadRelease = release;
+            showSignInModal = true;
+            showTwoFactorInput = false;
+            signInError = null;
+            appleIdInput = null;
+            passwordInput = null;
+            twoFactorInput = null;
+            StateHasChanged();
+            return;
         }
+
+        await StartDownloadAsync(release);
+    }
+
+    private async Task StartDownloadAsync(XcodeRelease release)
+    {
+        var result = await OperationModal.RunAsync(
+            $"Download Xcode {release.Version}",
+            $"Downloading Xcode {release.Version} ({release.BuildNumber}) to ~/Downloads...",
+            async ctx =>
+            {
+                ctx.SetStatus("Starting download...");
+                ctx.LogInfo($"Downloading Xcode {release.Version} ({release.BuildNumber})");
+                ctx.LogInfo($"URL: {release.DownloadUrl}");
+
+                var progress = new Progress<XcodeDownloadProgress>(p =>
+                {
+                    if (ctx.IsCancellationRequested) return;
+                    ctx.SetStatus(p.Status ?? "Downloading...");
+                    if (p.PercentComplete > 0)
+                        ctx.SetProgress((int)p.PercentComplete);
+                });
+
+                var success = await ViewModel.DownloadXcodeAsync(release, progress, ctx.CancellationToken);
+
+                if (success)
+                    ctx.LogSuccess("Download complete! File saved to ~/Downloads");
+                else
+                    ctx.LogError("Download failed — check that your Apple Developer session is still valid");
+
+                return success;
+            });
+
+        if (result.Success)
+        {
+            await AlertService.ShowToastAsync($"Xcode {release.Version} downloaded to ~/Downloads");
+        }
+    }
+
+    // ── Sign-In Modal Handlers ──
+
+    private void CloseSignInModal()
+    {
+        showSignInModal = false;
+        pendingDownloadRelease = null;
+        passwordInput = null;
+        twoFactorInput = null;
+    }
+
+    private async Task SubmitSignIn()
+    {
+        if (string.IsNullOrWhiteSpace(appleIdInput) || string.IsNullOrWhiteSpace(passwordInput)) return;
+
+        isSigningIn = true;
+        signInError = null;
+        StateHasChanged();
+
+        try
+        {
+            var result = await ViewModel.SignInAsync(appleIdInput.Trim(), passwordInput);
+
+            switch (result)
+            {
+                case AppleSignInResult.Success:
+                    showSignInModal = false;
+                    passwordInput = null;
+                    await AlertService.ShowToastAsync($"Signed in as {appleIdInput}");
+                    // If there's a pending download, start it
+                    if (pendingDownloadRelease != null)
+                    {
+                        var release = pendingDownloadRelease;
+                        pendingDownloadRelease = null;
+                        StateHasChanged();
+                        await StartDownloadAsync(release);
+                    }
+                    break;
+
+                case AppleSignInResult.TwoFactorRequired:
+                    showTwoFactorInput = true;
+                    twoFactorInput = null;
+                    break;
+
+                case AppleSignInResult.InvalidCredentials:
+                    signInError = "Invalid Apple ID or password. Please try again.";
+                    passwordInput = null;
+                    break;
+
+                case AppleSignInResult.AccountLocked:
+                    signInError = "This Apple ID has been locked for security reasons.";
+                    break;
+
+                default:
+                    signInError = "Sign-in failed. Please check your connection and try again.";
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            signInError = $"An error occurred: {ex.Message}";
+        }
+        finally
+        {
+            isSigningIn = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SubmitTwoFactor()
+    {
+        if (string.IsNullOrWhiteSpace(twoFactorInput) || twoFactorInput.Length < 6) return;
+
+        isSigningIn = true;
+        signInError = null;
+        StateHasChanged();
+
+        try
+        {
+            var success = await ViewModel.Verify2FAAsync(twoFactorInput.Trim());
+
+            if (success)
+            {
+                showSignInModal = false;
+                passwordInput = null;
+                twoFactorInput = null;
+                await AlertService.ShowToastAsync($"Signed in as {appleIdInput}");
+                // Start pending download
+                if (pendingDownloadRelease != null)
+                {
+                    var release = pendingDownloadRelease;
+                    pendingDownloadRelease = null;
+                    StateHasChanged();
+                    await StartDownloadAsync(release);
+                }
+            }
+            else
+            {
+                signInError = "Invalid verification code. Please try again.";
+                twoFactorInput = null;
+            }
+        }
+        catch (Exception ex)
+        {
+            signInError = $"Verification failed: {ex.Message}";
+        }
+        finally
+        {
+            isSigningIn = false;
+            StateHasChanged();
+        }
+    }
+
+    private void SignOut()
+    {
+        ViewModel.SignOut();
+        StateHasChanged();
     }
 
     private void OpenUrl(string url)

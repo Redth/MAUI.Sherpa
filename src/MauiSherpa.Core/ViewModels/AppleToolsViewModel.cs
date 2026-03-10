@@ -7,6 +7,7 @@ namespace MauiSherpa.Core.ViewModels;
 public class AppleToolsViewModel : ViewModelBase
 {
     private readonly IXcodeService _xcodeService;
+    private readonly IAppleDownloadAuthService _authService;
     private readonly IMediator _mediator;
 
     public string Title => "Apple Development Tools";
@@ -53,14 +54,19 @@ public class AppleToolsViewModel : ViewModelBase
         set => SetProperty(ref _showBetas, value);
     }
 
+    public bool IsSignedIn => _authService.IsAuthenticated;
+    public string? SignedInAppleId => _authService.CurrentAppleId;
+
     public AppleToolsViewModel(
         IXcodeService xcodeService,
+        IAppleDownloadAuthService authService,
         IMediator mediator,
         IAlertService alertService,
         ILoggingService loggingService)
         : base(alertService, loggingService)
     {
         _xcodeService = xcodeService;
+        _authService = authService;
         _mediator = mediator;
     }
 
@@ -133,9 +139,25 @@ public class AppleToolsViewModel : ViewModelBase
         }
     }
 
-    public async Task OpenDownloadPageAsync(XcodeRelease release)
+    public async Task<AppleSignInResult> SignInAsync(string appleId, string password)
     {
-        await _xcodeService.DownloadXcodeAsync(release, "");
+        return await _authService.SignInAsync(appleId, password);
+    }
+
+    public async Task<bool> Verify2FAAsync(string code)
+    {
+        return await _authService.Verify2FAAsync(code);
+    }
+
+    public void SignOut()
+    {
+        _authService.SignOut();
+    }
+
+    public async Task<bool> DownloadXcodeAsync(XcodeRelease release,
+        IProgress<XcodeDownloadProgress>? progress = null, CancellationToken ct = default)
+    {
+        return await _xcodeService.DownloadXcodeAsync(release, "", progress, ct);
     }
 
     public IReadOnlyList<XcodeRelease> FilteredAvailableReleases
