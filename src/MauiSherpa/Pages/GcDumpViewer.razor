@@ -1,0 +1,331 @@
+@page "/profiling/gcdump"
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Core.Models.Profiling
+@inject IGcDumpReportService GcDumpReportService
+
+<div class="viewer-page">
+    <div class="viewer-header">
+        <i class="fas fa-memory"></i>
+        <span class="viewer-title">GC Dump — Heap Statistics</span>
+        @if (!string.IsNullOrEmpty(fileName))
+        {
+            <span class="viewer-subtitle">@fileName</span>
+        }
+    </div>
+
+    <div class="viewer-content">
+        @if (loading)
+        {
+            <div class="viewer-loading">
+                <i class="fas fa-spinner fa-spin fa-2x"></i>
+                <div>Analyzing GC dump...</div>
+            </div>
+        }
+        else if (errorMessage is not null)
+        {
+            <div class="viewer-error">
+                <i class="fas fa-exclamation-triangle"></i>
+                <span>@errorMessage</span>
+            </div>
+        }
+        else if (report is not null)
+        {
+            <div class="gcdump-toolbar">
+                <div class="gcdump-summary">
+                    <span><i class="fas fa-cubes"></i> @report.TotalCount.ToString("N0") objects</span>
+                    <span><i class="fas fa-database"></i> @FormatBytes(report.TotalSize)</span>
+                    <span><i class="fas fa-list"></i> @report.Types.Count types</span>
+                </div>
+                <div class="gcdump-filter">
+                    <input type="text" class="form-control form-control-sm"
+                           placeholder="Filter types..."
+                           @bind="filterText"
+                           @bind:event="oninput" />
+                </div>
+            </div>
+
+            <div class="gcdump-table-container">
+                <table class="gcdump-table">
+                    <thead>
+                        <tr>
+                            <th class="gcdump-col-name" @onclick="@(() => Sort("name"))">
+                                Type Name
+                                @if (sortColumn == "name") { <i class="fas @(sortAsc ? "fa-sort-up" : "fa-sort-down")"></i> }
+                            </th>
+                            <th class="gcdump-col-count" @onclick="@(() => Sort("count"))">
+                                Count
+                                @if (sortColumn == "count") { <i class="fas @(sortAsc ? "fa-sort-up" : "fa-sort-down")"></i> }
+                            </th>
+                            <th class="gcdump-col-size" @onclick="@(() => Sort("size"))">
+                                Total Size
+                                @if (sortColumn == "size") { <i class="fas @(sortAsc ? "fa-sort-up" : "fa-sort-down")"></i> }
+                            </th>
+                            <th class="gcdump-col-pct">%</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var entry in GetFilteredTypes())
+                        {
+                            var pct = report.TotalSize > 0
+                                ? (double)entry.Size / report.TotalSize * 100
+                                : 0;
+                            <tr>
+                                <td class="gcdump-col-name" title="@entry.TypeName">
+                                    <span class="mono">@entry.TypeName</span>
+                                </td>
+                                <td class="gcdump-col-count">@entry.Count.ToString("N0")</td>
+                                <td class="gcdump-col-size">@FormatBytes(entry.Size)</td>
+                                <td class="gcdump-col-pct">
+                                    <div class="pct-bar-container">
+                                        <div class="pct-bar" style="width: @(pct.ToString("F1", System.Globalization.CultureInfo.InvariantCulture))%"></div>
+                                        <span>@pct.ToString("F1")%</span>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromQuery] public string? file { get; set; }
+
+    private string? filePath;
+    private string? fileName;
+    private bool loading = true;
+    private string? errorMessage;
+    private GcDumpReport? report;
+    private string filterText = "";
+    private string sortColumn = "size";
+    private bool sortAsc = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (string.IsNullOrEmpty(file))
+        {
+            loading = false;
+            errorMessage = "No file path specified.";
+            return;
+        }
+
+        filePath = Uri.UnescapeDataString(file);
+        fileName = Path.GetFileName(filePath);
+
+        try
+        {
+            report = await GcDumpReportService.GetReportAsync(filePath);
+            if (report is null)
+                errorMessage = "Failed to parse GC dump. Make sure dotnet-gcdump is installed.";
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error analyzing GC dump: {ex.Message}";
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private IEnumerable<GcDumpTypeEntry> GetFilteredTypes()
+    {
+        if (report is null) return Enumerable.Empty<GcDumpTypeEntry>();
+
+        var types = report.Types.AsEnumerable();
+
+        if (!string.IsNullOrWhiteSpace(filterText))
+            types = types.Where(t => t.TypeName.Contains(filterText, StringComparison.OrdinalIgnoreCase));
+
+        types = sortColumn switch
+        {
+            "name" => sortAsc ? types.OrderBy(t => t.TypeName) : types.OrderByDescending(t => t.TypeName),
+            "count" => sortAsc ? types.OrderBy(t => t.Count) : types.OrderByDescending(t => t.Count),
+            "size" => sortAsc ? types.OrderBy(t => t.Size) : types.OrderByDescending(t => t.Size),
+            _ => types
+        };
+
+        return types.Take(500);
+    }
+
+    private void Sort(string column)
+    {
+        if (sortColumn == column)
+            sortAsc = !sortAsc;
+        else
+        {
+            sortColumn = column;
+            sortAsc = column == "name";
+        }
+    }
+
+    private static string FormatBytes(long bytes)
+    {
+        if (bytes >= 1024 * 1024) return $"{bytes / (1024.0 * 1024.0):F1} MB";
+        if (bytes >= 1024) return $"{bytes / 1024.0:F1} KB";
+        return $"{bytes:N0} B";
+    }
+}
+
+<style>
+    .viewer-page {
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+        background: var(--bg-primary);
+    }
+
+    .viewer-header {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.75rem 1rem;
+        background: var(--bg-secondary);
+        border-bottom: 1px solid var(--border-color);
+        font-size: 0.875rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        -webkit-app-region: drag;
+    }
+
+    .viewer-title { flex: 1; }
+
+    .viewer-subtitle {
+        font-weight: 400;
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+    }
+
+    .viewer-content {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    .viewer-loading,
+    .viewer-error {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.75rem;
+        padding: 3rem;
+        color: var(--text-secondary);
+        flex: 1;
+    }
+
+    .viewer-error { color: var(--text-warning, #eab308); }
+
+    .gcdump-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.5rem 1rem;
+        gap: 1rem;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .gcdump-summary {
+        display: flex;
+        gap: 1.25rem;
+        font-size: 0.8125rem;
+        color: var(--text-secondary);
+    }
+
+    .gcdump-summary span {
+        display: flex;
+        align-items: center;
+        gap: 0.375rem;
+    }
+
+    .gcdump-filter input {
+        width: 220px;
+        padding: 0.3rem 0.6rem;
+        font-size: 0.8125rem;
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        background: var(--bg-secondary);
+        color: var(--text-primary);
+    }
+
+    .gcdump-table-container {
+        flex: 1;
+        overflow-y: auto;
+    }
+
+    .gcdump-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.8125rem;
+    }
+
+    .gcdump-table thead {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+    }
+
+    .gcdump-table th {
+        padding: 0.5rem 0.75rem;
+        background: var(--bg-tertiary);
+        border-bottom: 1px solid var(--border-color);
+        text-align: left;
+        font-weight: 600;
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: var(--text-secondary);
+        cursor: pointer;
+        user-select: none;
+    }
+
+    .gcdump-table th:hover { background: var(--bg-secondary); }
+    .gcdump-table th i { margin-left: 0.25rem; font-size: 0.625rem; }
+
+    .gcdump-table td {
+        padding: 0.375rem 0.75rem;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .gcdump-table tr:hover td { background: var(--bg-tertiary); }
+
+    .gcdump-col-name { min-width: 300px; }
+
+    .gcdump-col-name .mono {
+        font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+        font-size: 0.75rem;
+        word-break: break-all;
+    }
+
+    .gcdump-col-count,
+    .gcdump-col-size {
+        text-align: right;
+        white-space: nowrap;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .gcdump-col-pct { width: 120px; }
+
+    .pct-bar-container {
+        display: flex;
+        align-items: center;
+        gap: 0.375rem;
+    }
+
+    .pct-bar {
+        height: 4px;
+        background: var(--accent-color, #3b82f6);
+        border-radius: 2px;
+        min-width: 1px;
+        max-width: 80px;
+    }
+
+    .pct-bar-container span {
+        font-size: 0.6875rem;
+        color: var(--text-secondary);
+        white-space: nowrap;
+    }
+</style>

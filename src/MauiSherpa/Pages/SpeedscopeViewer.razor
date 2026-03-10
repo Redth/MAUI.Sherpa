@@ -1,0 +1,154 @@
+@page "/profiling/speedscope"
+@using Microsoft.AspNetCore.Components
+@using Microsoft.JSInterop
+@using MauiSherpa.Core.Interfaces
+@inject IJSRuntime JS
+
+<div class="viewer-page">
+    <div class="viewer-header">
+        <i class="fas fa-fire"></i>
+        <span class="viewer-title">@(fileName ?? "Trace Viewer")</span>
+        @if (!string.IsNullOrEmpty(fileName))
+        {
+            <span class="viewer-subtitle">@fileName</span>
+        }
+    </div>
+
+    <div class="viewer-content">
+        @if (loading)
+        {
+            <div class="viewer-loading">
+                <i class="fas fa-spinner fa-spin fa-2x"></i>
+                <div>Loading trace viewer...</div>
+            </div>
+        }
+        @if (errorMessage is not null)
+        {
+            <div class="viewer-error">
+                <i class="fas fa-exclamation-triangle"></i>
+                <span>@errorMessage</span>
+            </div>
+        }
+        <iframe id="speedscope-frame"
+                src="speedscope/index.html"
+                class="viewer-iframe @(loading ? "hidden" : "")"
+                @onload="OnIframeLoaded"></iframe>
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromQuery] public string? file { get; set; }
+
+    private string? filePath;
+    private string? fileName;
+    private bool loading = true;
+    private string? errorMessage;
+    private IJSObjectReference? speedscopeModule;
+
+    protected override void OnInitialized()
+    {
+        if (!string.IsNullOrEmpty(file))
+        {
+            filePath = Uri.UnescapeDataString(file);
+            fileName = Path.GetFileName(filePath);
+        }
+    }
+
+    private async Task OnIframeLoaded()
+    {
+        if (filePath is null)
+        {
+            loading = false;
+            errorMessage = "No file path specified.";
+            return;
+        }
+
+        if (!File.Exists(filePath))
+        {
+            loading = false;
+            errorMessage = $"File not found: {filePath}";
+            return;
+        }
+
+        try
+        {
+            var fileBytes = await File.ReadAllBytesAsync(filePath);
+            var base64 = Convert.ToBase64String(fileBytes);
+
+            speedscopeModule ??= await JS.InvokeAsync<IJSObjectReference>(
+                "import", "./js/speedscopeInterop.js");
+
+            await speedscopeModule.InvokeVoidAsync(
+                "openSpeedscopeWithFile", "speedscope-frame", filePath, base64, fileName);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to load trace: {ex.Message}";
+        }
+        finally
+        {
+            loading = false;
+            StateHasChanged();
+        }
+    }
+}
+
+<style>
+    .viewer-page {
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+        background: var(--bg-primary);
+    }
+
+    .viewer-header {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.75rem 1rem;
+        background: var(--bg-secondary);
+        border-bottom: 1px solid var(--border-color);
+        font-size: 0.875rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        -webkit-app-region: drag;
+    }
+
+    .viewer-title { flex: 1; }
+
+    .viewer-subtitle {
+        font-weight: 400;
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+    }
+
+    .viewer-content {
+        flex: 1;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .viewer-iframe {
+        width: 100%;
+        height: 100%;
+        border: none;
+    }
+
+    .viewer-iframe.hidden { visibility: hidden; }
+
+    .viewer-loading,
+    .viewer-error {
+        position: absolute;
+        top: 0; left: 0; right: 0; bottom: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.75rem;
+        color: var(--text-secondary);
+    }
+
+    .viewer-error {
+        color: var(--text-warning, #eab308);
+    }
+</style>
