@@ -754,66 +754,7 @@ public record XcodeRelease(
 );
 
 /// <summary>
-/// Progress info for an Xcode download
-/// </summary>
-public record XcodeDownloadProgress(
-    string Version,
-    long BytesDownloaded,
-    long TotalBytes,
-    double PercentComplete,
-    string? Status
-);
-
-/// <summary>
-/// Result of an Apple Developer sign-in attempt
-/// </summary>
-public enum AppleSignInResult
-{
-    Success,
-    TwoFactorRequired,
-    InvalidCredentials,
-    AccountLocked,
-    Error
-}
-
-/// <summary>
-/// Service for authenticating with Apple Developer for downloads.
-/// Manages Apple ID sign-in, 2FA, and session cookies needed to download
-/// Xcode .xip files from download.developer.apple.com.
-/// </summary>
-public interface IAppleDownloadAuthService
-{
-    /// <summary>Whether there is an active authenticated session</summary>
-    bool IsAuthenticated { get; }
-
-    /// <summary>The Apple ID email of the current session, if any</summary>
-    string? CurrentAppleId { get; }
-
-    /// <summary>Sign in with Apple ID credentials</summary>
-    Task<AppleSignInResult> SignInAsync(string appleId, string password);
-
-    /// <summary>Submit 2FA code from trusted device</summary>
-    Task<bool> Verify2FAAsync(string code);
-
-    /// <summary>Request 2FA code via SMS to a phone number</summary>
-    Task<bool> RequestSmsCodeAsync(int phoneIndex = 0);
-
-    /// <summary>Submit SMS 2FA code</summary>
-    Task<bool> VerifySmsCodeAsync(string code, int phoneIndex = 0);
-
-    /// <summary>
-    /// Download a file from Apple Developer using the authenticated session.
-    /// Returns the path to the downloaded file.
-    /// </summary>
-    Task<string?> DownloadAsync(string url, string destinationPath,
-        IProgress<XcodeDownloadProgress>? progress = null, CancellationToken ct = default);
-
-    /// <summary>Sign out and clear session</summary>
-    void SignOut();
-}
-
-/// <summary>
-/// Service for discovering, downloading, and switching Xcode versions
+/// Service for discovering and switching Xcode versions
 /// </summary>
 public interface IXcodeService
 {
@@ -841,11 +782,6 @@ public interface IXcodeService
     /// Switch active Xcode via sudo xcode-select -s
     /// </summary>
     Task<bool> SelectXcodeAsync(string xcodeAppPath);
-
-    /// <summary>
-    /// Download an Xcode .xip file using Apple Developer authentication
-    /// </summary>
-    Task<bool> DownloadXcodeAsync(XcodeRelease release, string destinationPath, IProgress<XcodeDownloadProgress>? progress = null, CancellationToken ct = default);
 
     /// <summary>
     /// Accept the Xcode license agreement

@@ -14,19 +14,16 @@ public class XcodeService : IXcodeService
     private readonly ILoggingService _logger;
     private readonly IPlatformService _platform;
     private readonly HttpClient _httpClient;
-    private readonly IAppleDownloadAuthService _authService;
 
     private const string XcodeReleasesUrl = "https://xcodereleases.com/data.json";
 
     public bool IsSupported => _platform.IsMacCatalyst || _platform.IsMacOS;
 
-    public XcodeService(ILoggingService logger, IPlatformService platform, HttpClient httpClient,
-        IAppleDownloadAuthService authService)
+    public XcodeService(ILoggingService logger, IPlatformService platform, HttpClient httpClient)
     {
         _logger = logger;
         _platform = platform;
         _httpClient = httpClient;
-        _authService = authService;
     }
 
     public async Task<IReadOnlyList<XcodeInstallation>> GetInstalledXcodesAsync()
@@ -153,48 +150,6 @@ public class XcodeService : IXcodeService
             _logger.LogError($"Failed to select Xcode: {ex.Message}", ex);
             return false;
         }
-    }
-
-    public async Task<bool> DownloadXcodeAsync(
-        XcodeRelease release,
-        string destinationPath,
-        IProgress<XcodeDownloadProgress>? progress = null,
-        CancellationToken ct = default)
-    {
-        if (string.IsNullOrEmpty(release.DownloadUrl))
-        {
-            _logger.LogError("No download URL available for this Xcode release");
-            return false;
-        }
-
-        if (!_authService.IsAuthenticated)
-        {
-            _logger.LogError("Cannot download: not signed in to Apple Developer");
-            return false;
-        }
-
-        var dest = string.IsNullOrEmpty(destinationPath)
-            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads")
-            : destinationPath;
-
-        Directory.CreateDirectory(dest);
-
-        // Wrap progress to inject version
-        var versionProgress = progress != null
-            ? new Progress<XcodeDownloadProgress>(p =>
-                progress.Report(p with { Version = release.Version }))
-            : null;
-
-        var filePath = await _authService.DownloadAsync(
-            release.DownloadUrl, dest, versionProgress, ct);
-
-        if (filePath != null)
-        {
-            _logger.LogInformation($"Xcode {release.Version} downloaded to {filePath}");
-            return true;
-        }
-
-        return false;
     }
 
     public async Task<bool> AcceptLicenseAsync()

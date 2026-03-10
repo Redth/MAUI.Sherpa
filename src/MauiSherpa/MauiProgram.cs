@@ -129,15 +129,13 @@ public static class MauiProgram
         builder.Services.AddSingleton<MauiSherpa.Pages.Forms.ModalParameterService>();
         
         // Apple services
-        builder.Services.AddSingleton<IAppleDownloadAuthService, AppleDownloadAuthService>();
         builder.Services.AddSingleton<IXcodeService>(sp =>
         {
             var logger = sp.GetRequiredService<ILoggingService>();
             var platform = sp.GetRequiredService<IPlatformService>();
-            var authService = sp.GetRequiredService<IAppleDownloadAuthService>();
             var httpClient = new HttpClient();
             httpClient.DefaultRequestHeaders.Add("User-Agent", "MauiSherpa");
-            return new XcodeService(logger, platform, httpClient, authService);
+            return new XcodeService(logger, platform, httpClient);
         });
         builder.Services.AddSingleton<IAppleIdentityService, AppleIdentityService>();
         builder.Services.AddSingleton<IAppleIdentityStateService, AppleIdentityStateService>();
