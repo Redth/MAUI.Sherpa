@@ -241,15 +241,19 @@
                     <div class="step-content">
                         <div class="section-header">
                             <span class="section-title"><i class="fas fa-stethoscope"></i> Prerequisites</span>
-                            @if (prerequisiteReport is not null && !isCheckingPrerequisites)
+                            @if (isCheckingPrerequisites)
                             {
-                                @if (!prerequisiteReport.HasErrors && !prerequisiteReport.HasWarnings)
-                                {
-                                    <span class="badge badge-success">All OK</span>
-                                }
-                                else
-                                {
-                                    <div class="summary-badges">
+                                <span class="section-loading-inline"><i class="fas fa-spinner fa-spin"></i> Checking...</span>
+                            }
+                            else if (prerequisiteReport is not null)
+                            {
+                                <div class="section-header-actions">
+                                    @if (!prerequisiteReport.HasErrors && !prerequisiteReport.HasWarnings)
+                                    {
+                                        <span class="badge badge-success">All OK</span>
+                                    }
+                                    else
+                                    {
                                         @if (prerequisiteReport.WarningCount > 0)
                                         {
                                             <span class="badge badge-warning">@prerequisiteReport.WarningCount warning</span>
@@ -258,60 +262,51 @@
                                         {
                                             <span class="badge badge-error">@prerequisiteReport.ErrorCount error</span>
                                         }
-                                    </div>
-                                }
-                            }
-                        </div>
-                        @if (isCheckingPrerequisites)
-                        {
-                            <div class="section-loading">
-                                <i class="fas fa-spinner fa-spin"></i>
-                                <span>Checking prerequisites...</span>
-                            </div>
-                        }
-                        else if (prerequisiteReport is not null)
-                        {
-                            @if (!prerequisiteReport.HasErrors && !prerequisiteReport.HasWarnings)
-                            {
-                                <div class="prereq-success-banner">
-                                    <i class="fas fa-check-circle text-success"></i>
-                                    <span>All prerequisites met</span>
-                                    <button class="btn btn-link btn-sm" @onclick="() => showPrereqDetails = !showPrereqDetails">
-                                        @(showPrereqDetails ? "Hide" : "Details")
+                                    }
+                                    <button class="btn-icon-toggle" @onclick="() => showPrereqDetails = !showPrereqDetails" title="@(showPrereqDetails ? "Collapse" : "Expand")">
+                                        <i class="fas @(showPrereqDetails ? "fa-chevron-up" : "fa-chevron-down")"></i>
                                     </button>
                                 </div>
                             }
-                            @if (prerequisiteReport.HasErrors || prerequisiteReport.HasWarnings || showPrereqDetails)
-                            {
-                                <div class="prereq-list">
-                                    @foreach (var check in prerequisiteReport.Checks)
-                                    {
-                                        <div class="prereq-row">
-                                            <i class="fas @(check.Status == DependencyStatusType.Ok || check.Status == DependencyStatusType.Info ? "fa-check-circle text-success" : check.Status == DependencyStatusType.Warning ? "fa-exclamation-triangle text-warning" : "fa-times-circle text-error")"></i>
-                                            <span class="prereq-name">@check.Name</span>
-                                            @if (!string.IsNullOrWhiteSpace(check.InstalledVersion))
-                                            {
-                                                <span class="prereq-version">@check.InstalledVersion</span>
-                                            }
-                                            @if (check.Status != DependencyStatusType.Ok && check.Status != DependencyStatusType.Info)
-                                            {
-                                                <span class="prereq-message">@check.Message</span>
-                                            }
-                                            @if (!string.IsNullOrWhiteSpace(check.SuggestedCommand))
-                                            {
-                                                <code class="inline-code">@check.SuggestedCommand</code>
-                                            }
-                                        </div>
-                                    }
-                                </div>
-                            }
+                        </div>
+                        @if (prerequisiteReport is not null && (prerequisiteReport.HasErrors || prerequisiteReport.HasWarnings || showPrereqDetails))
+                        {
+                            <div class="prereq-list">
+                                @foreach (var check in prerequisiteReport.Checks)
+                                {
+                                    <div class="prereq-row">
+                                        <i class="fas @(check.Status == DependencyStatusType.Ok || check.Status == DependencyStatusType.Info ? "fa-check-circle text-success" : check.Status == DependencyStatusType.Warning ? "fa-exclamation-triangle text-warning" : "fa-times-circle text-error")"></i>
+                                        <span class="prereq-name">@check.Name</span>
+                                        @if (!string.IsNullOrWhiteSpace(check.InstalledVersion))
+                                        {
+                                            <span class="prereq-version">@check.InstalledVersion</span>
+                                        }
+                                        @if (check.Status != DependencyStatusType.Ok && check.Status != DependencyStatusType.Info)
+                                        {
+                                            <span class="prereq-message">@check.Message</span>
+                                        }
+                                        @if (!string.IsNullOrWhiteSpace(check.SuggestedCommand))
+                                        {
+                                            <code class="inline-code">@check.SuggestedCommand</code>
+                                        }
+                                    </div>
+                                }
+                            </div>
                         }
                     </div>
 
                     <div class="step-content">
                         <div class="section-header">
                             <span class="section-title"><i class="fas fa-diagram-project"></i> Capture plan</span>
-                            @if (capturePlan is not null && !isPlanningCapture && !isCheckingPrerequisites)
+                            @if (isCheckingPrerequisites)
+                            {
+                                <span class="section-loading-inline"><i class="fas fa-clock"></i> Waiting...</span>
+                            }
+                            else if (isPlanningCapture)
+                            {
+                                <span class="section-loading-inline"><i class="fas fa-spinner fa-spin"></i> Generating...</span>
+                            }
+                            else if (capturePlan is not null)
                             {
                                 <div class="summary-badges">
                                     <span class="badge @(capturePlan.Validation.IsValid ? "badge-success" : "badge-error")">
@@ -323,21 +318,7 @@
                                 </div>
                             }
                         </div>
-                        @if (isCheckingPrerequisites)
-                        {
-                            <div class="section-loading section-loading-waiting">
-                                <i class="fas fa-clock"></i>
-                                <span>Waiting for prerequisites...</span>
-                            </div>
-                        }
-                        else if (isPlanningCapture)
-                        {
-                            <div class="section-loading">
-                                <i class="fas fa-spinner fa-spin"></i>
-                                <span>Generating capture plan...</span>
-                            </div>
-                        }
-                        else if (capturePlan is not null)
+                        @if (capturePlan is not null && !isPlanningCapture && !isCheckingPrerequisites)
                         {
                             <div class="plan-info-rows">
                                 <div class="plan-info-row">
@@ -1487,8 +1468,37 @@
         color: var(--text-secondary);
     }
 
+    .section-loading-inline {
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+    }
+
     .section-loading-waiting {
         opacity: 0.5;
+    }
+
+    .section-header-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+    }
+
+    .btn-icon-toggle {
+        background: none;
+        border: none;
+        cursor: pointer;
+        color: var(--text-secondary);
+        padding: 0.2rem 0.35rem;
+        border-radius: 6px;
+        font-size: 0.8rem;
+        transition: background 0.15s;
+    }
+
+    .btn-icon-toggle:hover {
+        background: var(--bg-tertiary);
     }
 
     .step-indicator {
