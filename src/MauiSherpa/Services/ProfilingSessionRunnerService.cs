@@ -14,6 +14,7 @@ public class ProfilingSessionRunnerService : IProfilingSessionRunner
     private CancellationTokenSource? _cts;
     private ProfilingCapturePlan? _plan;
     private DateTime _startTime;
+    private volatile bool _stopRequested;
 
     public ProfilingPipelineState State => _state;
     public IReadOnlyList<ProfilingStepStatus> Steps => _steps;
@@ -33,6 +34,7 @@ public class ProfilingSessionRunnerService : IProfilingSessionRunner
         _plan = plan;
         _cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         _startTime = DateTime.Now;
+        _stopRequested = false;
 
         if (!string.IsNullOrWhiteSpace(plan.OutputDirectory))
             Directory.CreateDirectory(plan.OutputDirectory);
@@ -88,6 +90,22 @@ public class ProfilingSessionRunnerService : IProfilingSessionRunner
         }
         catch (Exception ex)
         {
+            if (_stopRequested)
+            {
+                // Stop was requested — failures during shutdown are expected
+                _logger.LogInformation("Pipeline stopped by user. Collecting available artifacts.");
+                SetPipelineState(ProfilingPipelineState.Completing);
+                var (stopFound, stopMissing) = CollectArtifacts(plan);
+                SetPipelineState(ProfilingPipelineState.Completed);
+                return new ProfilingPipelineResult(
+                    Success: true,
+                    TotalDuration: DateTime.Now - _startTime,
+                    FinalState: ProfilingPipelineState.Completed,
+                    StepResults: _steps.ToList(),
+                    ArtifactPaths: stopFound,
+                    MissingArtifacts: stopMissing);
+            }
+
             _logger.LogError($"Pipeline failed: {ex.Message}", ex);
             SetPipelineState(ProfilingPipelineState.Failed);
             KillAllProcesses();
@@ -258,9 +276,11 @@ public class ProfilingSessionRunnerService : IProfilingSessionRunner
             {
                 SetStepState(status, ProfilingStepState.Completed);
             }
-            else if (result.WasCancelled)
+            else if (result.WasCancelled || _stopRequested)
             {
-                SetStepState(status, ProfilingStepState.Stopped);
+                // Step was cancelled or stop was requested — treat as stopped, not failed
+                if (status.State != ProfilingStepState.Stopped)
+                    SetStepState(status, ProfilingStepState.Stopped);
             }
             else if (step.IsLongRunning && status.State == ProfilingStepState.Stopped)
             {
@@ -299,18 +319,16 @@ public class ProfilingSessionRunnerService : IProfilingSessionRunner
 
     public void StopCapture()
     {
+        _stopRequested = true;
         _logger.LogInformation("StopCapture requested — sending SIGINT to manual-stop processes");
 
+        // Mark all running steps as Stopped and send cancel signal
         foreach (var status in _steps.Where(s => s.State == ProfilingStepState.Running))
         {
+            SetStepState(status, ProfilingStepState.Stopped);
             if (_stepProcesses.TryGetValue(status.StepId, out var proc))
             {
-                var cmd = _plan?.Commands.FirstOrDefault(c => c.Id == status.StepId);
-                if (cmd?.StopTrigger == ProfilingStopTrigger.ManualStop || cmd?.RequiresManualStop == true)
-                {
-                    SetStepState(status, ProfilingStepState.Stopped);
-                    proc.Cancel();
-                }
+                proc.Cancel();
             }
         }
     }
