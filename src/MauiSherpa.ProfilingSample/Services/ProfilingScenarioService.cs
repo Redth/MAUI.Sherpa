@@ -235,7 +235,7 @@ public sealed class ProfilingScenarioService : IDisposable
     {
         lock (_renderGate)
         {
-            var targetCount = Math.Clamp(Rendering.Tiles.Count + count, 60, 480);
+            var targetCount = Math.Clamp(Rendering.Tiles.Count + count, 0, 480);
             Rendering.Tiles = BuildTiles(targetCount, Rendering.Frame);
             Rendering.Status = $"Visual tile wall now contains {targetCount} animated nodes.";
         }
@@ -261,9 +261,9 @@ public sealed class ProfilingScenarioService : IDisposable
         lock (_renderGate)
         {
             Rendering.Frame = 0;
-            Rendering.Tiles = BuildTiles(168, 0);
-            Rendering.FeedItems = BuildFeedItems(180);
-            Rendering.Status = "Seeded with a heavy scroll surface and animated tile wall.";
+            Rendering.Tiles = BuildTiles(12, 0);
+            Rendering.FeedItems = BuildFeedItems(6);
+            Rendering.Status = "Scene ready — use the buttons to add tiles and feed items.";
         }
 
         NotifyChanged();

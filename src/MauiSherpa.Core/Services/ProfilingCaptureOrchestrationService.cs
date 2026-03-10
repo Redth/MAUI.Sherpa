@@ -485,7 +485,8 @@ public class ProfilingCaptureOrchestrationService : IProfilingCaptureOrchestrati
                 ["portForward"] = diagnostics.DsRouterPortForwardPlatform ?? string.Empty
             },
             IsLongRunning: true,
-            RequiresManualStop: true);
+            RequiresManualStop: true,
+            ReadyOutputPattern: "Starting IPC server");
     }
 
     private static ProfilingCommandStep CreateLaunchStep(
