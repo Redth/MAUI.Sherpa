@@ -320,15 +320,24 @@
                         </div>
                         @if (capturePlan is not null && !isPlanningCapture && !isCheckingPrerequisites)
                         {
-                            <div class="plan-info-rows">
+                            <div class="plan-info-card">
                                 <div class="plan-info-row">
                                     <span class="plan-info-label">Target framework</span>
                                     <span class="plan-info-value">@capturePlan.TargetFramework</span>
                                 </div>
-                                <div class="plan-info-row plan-info-stacked">
+                                <div class="plan-info-row">
                                     <span class="plan-info-label">Output directory</span>
-                                    <code class="plan-info-path-block">@capturePlan.OutputDirectory</code>
+                                    @if (capturePlan.ExpectedArtifacts.Count > 0)
+                                    {
+                                        <span class="artifact-chips">
+                                            @foreach (var artifact in capturePlan.ExpectedArtifacts)
+                                            {
+                                                <span class="artifact-chip">@System.IO.Path.GetExtension(artifact.RelativePath)</span>
+                                            }
+                                        </span>
+                                    }
                                 </div>
+                                <code class="plan-info-path-block">@capturePlan.OutputDirectory</code>
                             </div>
 
                                 @if (capturePlan.Validation.Errors.Count > 0)
@@ -376,27 +385,13 @@
                                     </div>
                                 }
 
-                                @if (capturePlan.ExpectedArtifacts.Count > 0)
-                                {
-                                    <div class="plan-section-title">Expected artifacts</div>
-                                    <div class="expected-artifact-list">
-                                        @foreach (var artifact in capturePlan.ExpectedArtifacts)
-                                        {
-                                            <div class="expected-artifact-row">
-                                                <span class="expected-artifact-name">@artifact.DisplayName</span>
-                                                <span class="expected-artifact-file">@System.IO.Path.GetFileName(artifact.RelativePath)</span>
-                                                <span class="expected-artifact-kind">@artifact.Kind</span>
-                                            </div>
-                                        }
-                                    </div>
-                                }
-
                                 <div class="plan-section-title">Commands <span class="plan-count-badge">@capturePlan.Commands.Count</span></div>
-                                <div class="command-compact-list">
+                                <div class="command-list">
                                     @foreach (var step in capturePlan.Commands)
                                     {
-                                        <div class="command-row">
-                                            <div class="command-row-header">
+                                        var stepId = step.DisplayName.Replace(" ", "-").ToLowerInvariant();
+                                        <div class="command-list-item">
+                                            <div class="command-list-header" @onclick="() => ToggleCommandExpand(stepId)">
                                                 <span class="command-row-name">@step.DisplayName</span>
                                                 <span class="command-row-info" title="@step.Description">
                                                     <i class="fas fa-circle-question"></i>
@@ -405,11 +400,14 @@
                                                 {
                                                     <span class="badge badge-warning badge-xs">Long-running</span>
                                                 }
+                                                <span class="command-expand-toggle">
+                                                    <i class="fas @(expandedCommands.Contains(stepId) ? "fa-chevron-up" : "fa-chevron-down")"></i>
+                                                </span>
                                             </div>
-                                            <details class="command-details">
-                                                <summary>Show command</summary>
+                                            @if (expandedCommands.Contains(stepId))
+                                            {
                                                 <code class="command-line">@BuildCommandLine(step)</code>
-                                            </details>
+                                            }
                                         </div>
                                     }
                                 </div>
@@ -586,6 +584,7 @@
     private System.Threading.Timer? pipelineTimer;
     private DateTime pipelineStartTime;
     private HashSet<string> expandedStepLogs = new();
+    private HashSet<string> expandedCommands = new();
 
     private string? activeSessionId;
 
@@ -1273,9 +1272,14 @@
         }
     }
 
-    private string GetPipelineStateIcon() => pipelineState switch
+    private void ToggleCommandExpand(string commandId)
     {
-        ProfilingPipelineState.Running => "fa-spinner fa-spin",
+        if (!expandedCommands.Remove(commandId))
+            expandedCommands.Add(commandId);
+    }
+
+    private string GetPipelineStateIcon() => pipelineState switch
+    {        ProfilingPipelineState.Running => "fa-spinner fa-spin",
         ProfilingPipelineState.WaitingForStop => "fa-circle-dot fa-beat-fade",
         ProfilingPipelineState.Completing => "fa-spinner fa-spin",
         ProfilingPipelineState.Completed => "fa-check-circle",
@@ -1807,63 +1811,23 @@
 
     .plan-body { display: grid; gap: 1rem; }
 
-    /* Expected artifacts (flat list in capture plan) */
-    .expected-artifact-list {
-        display: flex;
-        flex-direction: column;
-        gap: 0.2rem;
-    }
-
-    .expected-artifact-row {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        font-size: 0.82rem;
-        padding: 0.25rem 0;
-    }
-
-    .expected-artifact-name {
-        font-weight: 600;
-    }
-
-    .expected-artifact-file {
-        color: var(--text-secondary);
-        font-family: 'SF Mono', 'Cascadia Code', monospace;
-        font-size: 0.76rem;
-    }
-
-    .expected-artifact-kind {
-        color: var(--text-tertiary);
-        font-size: 0.72rem;
-        margin-left: auto;
-    }
-
-    .artifact-list {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
-        gap: 0.75rem;
-    }
-
-    .artifact-card {
-        border: 1px solid var(--border-color);
+    /* Plan info card (squircle, no outline) */
+    .plan-info-card {
+        background: var(--bg-tertiary);
         border-radius: 14px;
-        padding: 0.85rem;
-        background: var(--bg-primary);
-    }
-
-    /* Plan info rows (inline key-value) */
-    .plan-info-rows {
+        padding: 0.75rem 0.9rem;
+        margin-bottom: 0.75rem;
         display: flex;
         flex-direction: column;
         gap: 0.35rem;
-        margin-bottom: 0.75rem;
     }
 
     .plan-info-row {
         display: flex;
         gap: 0.5rem;
         font-size: 0.85rem;
-        align-items: baseline;
+        align-items: center;
+        flex-wrap: wrap;
     }
 
     .plan-info-label {
@@ -1881,26 +1845,30 @@
         word-break: break-word;
     }
 
-    .plan-info-path {
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
-    .plan-info-stacked {
-        flex-direction: column;
-        gap: 0.2rem;
-    }
-
     .plan-info-path-block {
         display: block;
         word-break: break-all;
         font-family: 'SF Mono', 'Cascadia Code', monospace;
         font-size: 0.76rem;
-        padding: 0.4rem 0.6rem;
+        padding: 0.35rem 0.55rem;
         border-radius: 8px;
-        background: color-mix(in srgb, var(--bg-primary) 92%, transparent);
-        border: 1px solid color-mix(in srgb, var(--border-color) 60%, transparent);
+        background: color-mix(in srgb, var(--bg-secondary) 80%, transparent);
+        color: var(--text-secondary);
+    }
+
+    .artifact-chips {
+        display: inline-flex;
+        gap: 0.3rem;
+        flex-wrap: wrap;
+    }
+
+    .artifact-chip {
+        font-family: 'SF Mono', 'Cascadia Code', monospace;
+        font-size: 0.7rem;
+        font-weight: 600;
+        padding: 0.15rem 0.45rem;
+        border-radius: 6px;
+        background: color-mix(in srgb, var(--bg-secondary) 80%, transparent);
         color: var(--text-secondary);
     }
 
@@ -1914,24 +1882,31 @@
         margin-left: 0.25rem;
     }
 
-    /* Compact command list */
-    .command-compact-list {
-        display: flex;
-        flex-direction: column;
-        gap: 0.25rem;
+    /* Unified command list */
+    .command-list {
+        border: 1px solid var(--border-color);
+        border-radius: 10px;
+        overflow: hidden;
     }
 
-    .command-row {
-        padding: 0.45rem 0.6rem;
-        border-radius: 8px;
-        border: 1px solid color-mix(in srgb, var(--border-color) 60%, transparent);
-        background: var(--bg-primary);
+    .command-list-item {
+        padding: 0.5rem 0.7rem;
+        border-bottom: 1px solid color-mix(in srgb, var(--border-color) 50%, transparent);
     }
 
-    .command-row-header {
+    .command-list-item:last-child {
+        border-bottom: none;
+    }
+
+    .command-list-header {
         display: flex;
         align-items: center;
         gap: 0.4rem;
+        cursor: pointer;
+    }
+
+    .command-list-header:hover {
+        opacity: 0.8;
     }
 
     .command-row-name {
@@ -1943,6 +1918,12 @@
         color: var(--text-tertiary);
         cursor: help;
         font-size: 0.75rem;
+    }
+
+    .command-expand-toggle {
+        margin-left: auto;
+        color: var(--text-tertiary);
+        font-size: 0.7rem;
     }
 
     .badge-xs {
@@ -2130,28 +2111,5 @@
         margin-bottom: 0.5rem;
     }
 
-    .command-details {
-        margin-top: 0.5rem;
-    }
 
-    .command-details summary {
-        cursor: pointer;
-        font-size: 0.78rem;
-        color: var(--text-secondary);
-        font-weight: 600;
-        padding: 0.3rem 0;
-        user-select: none;
-    }
-
-    .command-details summary:hover {
-        color: var(--text-primary);
-    }
-
-    .command-details[open] .command-line {
-        margin-top: 0.4rem;
-    }
-
-    .command-details .command-actions {
-        margin-top: 0.5rem;
-    }
 </style>
