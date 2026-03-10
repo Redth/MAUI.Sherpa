@@ -856,17 +856,6 @@
 
             var (_, plan) = await Mediator.Request(new PlanProfilingCaptureRequest(definition, BuildPlanOptions(SelectedTarget)));
 
-            // Pre-compute session storage path so the plan preview shows the actual output location
-            if (string.IsNullOrWhiteSpace(outputDirectory))
-            {
-                var projectName = projectPath is not null
-                    ? Path.GetFileNameWithoutExtension(projectPath)
-                    : null;
-                var previewSessionId = SessionStorage.GenerateSessionId(projectName);
-                var sessionDir = SessionStorage.GetSessionDirectoryPath(previewSessionId);
-                plan = plan with { OutputDirectory = sessionDir };
-            }
-
             capturePlan = plan;
         }
         catch (Exception ex)
@@ -901,11 +890,22 @@
         if (int.TryParse(processIdText, out var parsedProcessId) && parsedProcessId > 0)
             processId = parsedProcessId;
 
+        // Pre-compute session storage path so commands are built with correct output dir
+        var effectiveOutputDir = outputDirectory;
+        if (string.IsNullOrWhiteSpace(effectiveOutputDir))
+        {
+            var projectName = projectPath is not null
+                ? Path.GetFileNameWithoutExtension(projectPath)
+                : null;
+            var previewSessionId = SessionStorage.GenerateSessionId(projectName);
+            effectiveOutputDir = SessionStorage.GetSessionDirectoryPath(previewSessionId);
+        }
+
         return new ProfilingCapturePlanOptions(
             ProjectPath: string.IsNullOrWhiteSpace(projectPath) ? null : projectPath,
             Configuration: configuration,
             TargetFramework: string.IsNullOrWhiteSpace(targetFrameworkOverride) ? null : targetFrameworkOverride,
-            OutputDirectory: string.IsNullOrWhiteSpace(outputDirectory) ? null : outputDirectory,
+            OutputDirectory: effectiveOutputDir,
             LaunchMode: launchMode,
             DiagnosticPort: diagnosticPort,
             SuspendAtStartup: suspendAtStartup,
@@ -1027,13 +1027,9 @@
     {
         if (capturePlan is null) return;
 
-        var projectName = projectPath is not null
-            ? Path.GetFileNameWithoutExtension(projectPath)
-            : null;
-        activeSessionId = SessionStorage.GenerateSessionId(projectName);
-        var sessionDir = SessionStorage.GetSessionDirectoryPath(activeSessionId);
-
-        capturePlan = capturePlan with { OutputDirectory = sessionDir };
+        // The plan already has the correct output directory from BuildPlanOptions.
+        // Derive the session ID from the output directory name.
+        activeSessionId = Path.GetFileName(capturePlan.OutputDirectory);
 
         pipelineState = ProfilingPipelineState.NotStarted;
         pipelineResult = null;
