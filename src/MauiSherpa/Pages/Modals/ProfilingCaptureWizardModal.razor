@@ -117,7 +117,7 @@
 
                                 <div class="field-group">
                                     <label>Output directory override</label>
-                                    <input type="text" @bind="outputDirectory" placeholder="Defaults to artifacts/profiling/{ProjectName}/{date}-{run}" />
+                                    <input type="text" @bind="outputDirectory" placeholder="Defaults to managed session storage" />
                                 </div>
 
                                 @if (launchMode == ProfilingCaptureLaunchMode.Attach)
@@ -887,6 +887,18 @@
                 captureKinds: GetSelectedCaptureKinds());
 
             var (_, plan) = await Mediator.Request(new PlanProfilingCaptureRequest(definition, BuildPlanOptions(SelectedTarget)));
+
+            // Pre-compute session storage path so the plan preview shows the actual output location
+            if (string.IsNullOrWhiteSpace(outputDirectory))
+            {
+                var projectName = projectPath is not null
+                    ? Path.GetFileNameWithoutExtension(projectPath)
+                    : null;
+                var previewSessionId = SessionStorage.GenerateSessionId(projectName);
+                var sessionDir = SessionStorage.GetSessionDirectoryPath(previewSessionId);
+                plan = plan with { OutputDirectory = sessionDir };
+            }
+
             capturePlan = plan;
         }
         catch (Exception ex)
