@@ -396,21 +396,32 @@ exit $EXIT_CODE
                 _currentProcess.StandardInput.Close();
             }
 
-            // Give it a moment to gracefully stop
-            Task.Delay(500).ContinueWith(_ =>
+            // Wait for the process to flush and exit gracefully (e.g. dotnet-trace
+            // needs time to finalize the .nettrace file after receiving SIGINT).
+            // Only cancel the linked CTS (which unblocks WaitForExitAsync) after the
+            // process has actually exited or after a generous timeout.
+            _ = Task.Run(async () =>
             {
-                if (_currentProcess != null && !_currentProcess.HasExited)
+                try
                 {
-                    OnOutput("Process did not stop gracefully. Use Force Kill if needed.", isError: true);
+                    var exited = _currentProcess?.WaitForExit(15_000) ?? true;
+                    if (!exited && _currentProcess is { HasExited: false })
+                    {
+                        OnOutput("Process did not stop within 15s — forcing exit.", isError: true);
+                    }
+                }
+                catch { /* process may already be gone */ }
+                finally
+                {
+                    _linkedCts?.Cancel();
                 }
             });
         }
         catch (Exception ex)
         {
             _logger.LogWarning($"Failed to send cancel signal: {ex.Message}");
+            _linkedCts?.Cancel();
         }
-
-        _linkedCts?.Cancel();
     }
 
     public void Kill()
