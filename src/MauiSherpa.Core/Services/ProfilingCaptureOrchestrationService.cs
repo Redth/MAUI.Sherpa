@@ -596,8 +596,6 @@ public class ProfilingCaptureOrchestrationService : IProfilingCaptureOrchestrati
             }
         }
 
-        arguments.Add("--format");
-        arguments.Add("speedscope");
         arguments.Add("--output");
         arguments.Add(traceArtifactPath);
 
@@ -612,7 +610,7 @@ public class ProfilingCaptureOrchestrationService : IProfilingCaptureOrchestrati
                 Id: "capture-trace",
                 Kind: ProfilingCommandStepKind.Capture,
                 DisplayName: "Collect trace",
-                Description: $"Collect a speedscope trace for {string.Join(", ", traceKinds)} captures.",
+                Description: $"Collect a trace for {string.Join(", ", traceKinds)} captures.",
                 Command: "dotnet-trace",
                 Arguments: arguments,
                 WorkingDirectory: options.WorkingDirectory,

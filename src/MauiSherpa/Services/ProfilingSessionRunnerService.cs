@@ -363,18 +363,29 @@ public class ProfilingSessionRunnerService : IProfilingSessionRunner
 
         foreach (var artifact in plan.ExpectedArtifacts)
         {
-            var relativePath = artifact.RelativePath ?? artifact.FileName;
-            if (string.IsNullOrWhiteSpace(relativePath))
-                continue;
-
-            var fullPath = Path.IsPathRooted(relativePath)
-                ? relativePath
-                : Path.Combine(plan.OutputDirectory, relativePath);
-
-            if (File.Exists(fullPath))
-                found.Add(fullPath);
+            // RelativePath already includes the output directory (e.g., "artifacts/profiling/proj/date-1/trace.nettrace")
+            // FileName is just the basename (e.g., "trace.nettrace")
+            // Use RelativePath as-is, fall back to combining FileName with OutputDirectory
+            string path;
+            if (!string.IsNullOrWhiteSpace(artifact.RelativePath))
+            {
+                path = Path.IsPathRooted(artifact.RelativePath)
+                    ? artifact.RelativePath
+                    : Path.GetFullPath(artifact.RelativePath);
+            }
+            else if (!string.IsNullOrWhiteSpace(artifact.FileName))
+            {
+                path = Path.GetFullPath(Path.Combine(plan.OutputDirectory, artifact.FileName));
+            }
             else
-                missing.Add(fullPath);
+            {
+                continue;
+            }
+
+            if (File.Exists(path))
+                found.Add(path);
+            else
+                missing.Add(path);
         }
 
         return (found, missing);
