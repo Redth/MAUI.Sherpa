@@ -64,6 +64,42 @@ public class DialogService : IDialogService
         });
         
         return await tcs.Task;
+#elif MACOSAPP
+        var tcs = new TaskCompletionSource<string?>();
+
+        await Dispatcher.DispatchAsync(() =>
+        {
+            var alert = new NSAlert
+            {
+                AlertStyle = NSAlertStyle.Informational,
+                MessageText = title,
+                InformativeText = message
+            };
+
+            var isPassword = title.Contains("Password", StringComparison.OrdinalIgnoreCase);
+            NSTextField input;
+            if (isPassword)
+                input = NSSecureTextField.CreateTextField(string.Empty);
+            else
+                input = NSTextField.CreateTextField(string.Empty);
+
+            input.PlaceholderString = placeholder;
+            input.Frame = new CoreGraphics.CGRect(0, 0, 260, 24);
+            alert.AccessoryView = input;
+
+            alert.AddButton("OK");
+            alert.AddButton("Cancel");
+
+            alert.Window.InitialFirstResponder = input;
+
+            var response = alert.RunModal();
+            if (response == 1000) // NSAlertFirstButtonReturn (OK)
+                tcs.TrySetResult(input.StringValue);
+            else
+                tcs.TrySetResult(null);
+        });
+
+        return await tcs.Task;
 #else
         // Windows implementation using ContentDialog would go here
         return await Task.FromResult<string?>(null);
