@@ -127,7 +127,8 @@ public class ProfilingCaptureOrchestrationService : IProfilingCaptureOrchestrati
                 dsrouterPlatformArg,
                 traceArtifactPath,
                 runtimeBindings,
-                needsStandaloneDsRouter ? diagnostics?.IpcAddress : null);
+                needsStandaloneDsRouter ? diagnostics?.IpcAddress : null,
+                androidSdkPath);
 
             if (isMobileTarget &&
             normalizedOptions.LaunchMode == ProfilingCaptureLaunchMode.Launch &&
@@ -171,7 +172,8 @@ public class ProfilingCaptureOrchestrationService : IProfilingCaptureOrchestrati
                 dsrouterPlatformArg,
                 gcdumpArtifactPath,
                 runtimeBindings,
-                needsStandaloneDsRouter ? diagnostics?.IpcAddress : null);
+                needsStandaloneDsRouter ? diagnostics?.IpcAddress : null,
+                androidSdkPath);
 
             postLaunchCaptureSteps.Add(memoryStep);
             expectedArtifacts.Add(memoryArtifact);
@@ -449,14 +451,7 @@ public class ProfilingCaptureOrchestrationService : IProfilingCaptureOrchestrati
             arguments.Add(diagnostics.DsRouterPortForwardPlatform);
         }
 
-        Dictionary<string, string>? environment = null;
-        if (definition.Target.Platform == ProfilingTargetPlatform.Android && !string.IsNullOrWhiteSpace(androidSdkPath))
-        {
-            environment = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-            {
-                ["ANDROID_HOME"] = androidSdkPath
-            };
-        }
+        var environment = BuildAndroidEnvironment(definition.Target, androidSdkPath);
 
         return new ProfilingCommandStep(
             Id: "start-dsrouter",
@@ -565,7 +560,8 @@ public class ProfilingCaptureOrchestrationService : IProfilingCaptureOrchestrati
         string? dsrouterPlatformArg,
         string traceArtifactPath,
         List<ProfilingRuntimeBinding> runtimeBindings,
-        string? diagnosticPortAddress = null)
+        string? diagnosticPortAddress = null,
+        string? androidSdkPath = null)
     {
         var traceKinds = definition.CaptureKinds
             .Where(kind => TraceCaptureKinds.Contains(kind))
@@ -620,6 +616,8 @@ public class ProfilingCaptureOrchestrationService : IProfilingCaptureOrchestrati
                 Command: "dotnet-trace",
                 Arguments: arguments,
                 WorkingDirectory: options.WorkingDirectory,
+                Environment: (dsrouterPlatformArg is not null || diagnosticPortAddress is not null)
+                    ? BuildAndroidEnvironment(definition.Target, androidSdkPath) : null,
                 DependsOn: dependsOn.Count > 0 ? dependsOn : null,
                 RequiredRuntimeBindings: dsrouterPlatformArg is null && diagnosticPortAddress is null && options.ProcessId is null ? [ProcessIdToken] : null,
                 Metadata: new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -650,7 +648,8 @@ public class ProfilingCaptureOrchestrationService : IProfilingCaptureOrchestrati
         string? dsrouterPlatformArg,
         string gcdumpArtifactPath,
         List<ProfilingRuntimeBinding> runtimeBindings,
-        string? diagnosticPortAddress = null)
+        string? diagnosticPortAddress = null,
+        string? androidSdkPath = null)
     {
         var arguments = new List<string>
         {
@@ -699,6 +698,8 @@ public class ProfilingCaptureOrchestrationService : IProfilingCaptureOrchestrati
                 Command: "dotnet-gcdump",
                 Arguments: arguments,
                 WorkingDirectory: options.WorkingDirectory,
+                Environment: (dsrouterPlatformArg is not null || diagnosticPortAddress is not null)
+                    ? BuildAndroidEnvironment(definition.Target, androidSdkPath) : null,
                 DependsOn: dependsOn.Count > 0 ? dependsOn : null,
                 RequiredRuntimeBindings: dsrouterPlatformArg is null && diagnosticPortAddress is null && options.ProcessId is null ? [ProcessIdToken] : null,
                 Metadata: new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -822,6 +823,25 @@ public class ProfilingCaptureOrchestrationService : IProfilingCaptureOrchestrati
             (ProfilingTargetPlatform.iOS, ProfilingTargetKind.PhysicalDevice) => "ios",
             _ => null
         };
+
+    /// <summary>
+    /// Build environment variables for Android targets so that adb/dsrouter target
+    /// the correct device when multiple devices or emulators are connected.
+    /// </summary>
+    private static Dictionary<string, string>? BuildAndroidEnvironment(
+        ProfilingTarget target,
+        string? androidSdkPath)
+    {
+        if (target.Platform != ProfilingTargetPlatform.Android)
+            return null;
+
+        var env = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (!string.IsNullOrWhiteSpace(androidSdkPath))
+            env["ANDROID_HOME"] = androidSdkPath;
+        if (!string.IsNullOrWhiteSpace(target.Identifier))
+            env["ANDROID_SERIAL"] = target.Identifier;
+        return env.Count > 0 ? env : null;
+    }
 
     private static IReadOnlyDictionary<string, string> CreateArtifactProperties(
         ProfilingSessionDefinition definition,
