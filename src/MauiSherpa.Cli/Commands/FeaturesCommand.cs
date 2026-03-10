@@ -154,11 +154,15 @@ public static class FeaturesCommand
                 new
                 {
                     id = "apple.xcode",
-                    name = "Xcode Information",
-                    description = "Show the active Xcode installation path, version, and build number.",
+                    name = "Xcode Management",
+                    description = "List installed Xcode versions, browse available releases, switch the active Xcode, and open download pages.",
                     commands = new[]
                     {
-                        new { command = "maui-sherpa apple xcode", description = "Show Xcode installation details" },
+                        new { command = "maui-sherpa apple xcode", description = "Show the active Xcode version and path" },
+                        new { command = "maui-sherpa apple xcode list", description = "List all installed Xcode versions" },
+                        new { command = "maui-sherpa apple xcode available", description = "Browse available Xcode releases from xcodereleases.com" },
+                        new { command = "maui-sherpa apple xcode select <version-or-path>", description = "Switch the active Xcode (requires admin)" },
+                        new { command = "maui-sherpa apple xcode download <version>", description = "Open the Apple Developer download page for a version" },
                     }
                 },
                 new
