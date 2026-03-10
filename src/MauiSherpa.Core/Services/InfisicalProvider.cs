@@ -223,7 +223,8 @@ public class InfisicalProvider : ICloudSecretsProvider
             _logger.LogInformation($"Deleted secret: {key}");
             return true;
         }
-        catch (InfisicalException ex) when (ex.Message.Contains("not found", StringComparison.OrdinalIgnoreCase) ||
+        catch (InfisicalException ex) when (
+            ex.Message.Contains("not found", StringComparison.OrdinalIgnoreCase) ||
             ex.InnerException?.Message?.Contains("not found", StringComparison.OrdinalIgnoreCase) == true)
         {
             _logger.LogInformation($"Secret already deleted or not found: {key}");
@@ -237,7 +238,7 @@ public class InfisicalProvider : ICloudSecretsProvider
         }
         catch (Exception ex)
         {
-            _logger.LogError($"Infisical delete secret error: {ex.Message}", ex);
+            _logger.LogError($"Infisical delete secret error for '{key}': {ex.Message}", ex);
             return false;
         }
     }
@@ -301,10 +302,21 @@ public class InfisicalProvider : ICloudSecretsProvider
             if (secrets == null)
                 return Array.Empty<string>();
 
+            _logger.LogDebug($"Infisical ListSecrets returned {secrets.Length} secrets (path={SecretPath}, env={Environment})");
             var sanitizedPrefix = !string.IsNullOrEmpty(prefix) ? SanitizeSecretName(prefix) : null;
             var result = new List<string>();
             foreach (var secret in secrets)
             {
+                _logger.LogDebug($"  Secret: {secret.SecretKey} path={secret.SecretPath} env={secret.Environment}");
+
+                // Skip imported secrets from other paths — they can't be deleted from our path
+                if (!string.IsNullOrEmpty(secret.SecretPath) &&
+                    !string.Equals(secret.SecretPath, SecretPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    _logger.LogDebug($"  → Skipped (path mismatch: '{secret.SecretPath}' != '{SecretPath}')");
+                    continue;
+                }
+
                 var secretKey = secret.SecretKey;
                 
                 // Filter by sanitized prefix if specified
