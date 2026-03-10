@@ -238,28 +238,15 @@
 
                 @if (currentStep == 3)
                 {
-                    @if (isCheckingPrerequisites || isPlanningCapture)
-                    {
-                        <div class="loading-state">
-                            <i class="fas fa-spinner fa-spin"></i>
-                            <span>
-                                @if (isCheckingPrerequisites)
-                                {
-                                    @:Checking prerequisites...
-                                }
-                                else
-                                {
-                                    @:Generating capture plan...
-                                }
-                            </span>
-                        </div>
-                    }
-
-                    @if (prerequisiteReport is not null)
-                    {
-                        <div class="step-content">
-                            <div class="section-header">
-                                <span class="section-title"><i class="fas fa-stethoscope"></i> Prerequisites</span>
+                    <div class="step-content">
+                        <div class="section-header">
+                            <span class="section-title"><i class="fas fa-stethoscope"></i> Prerequisites</span>
+                            @if (isCheckingPrerequisites)
+                            {
+                                <span class="badge badge-neutral"><i class="fas fa-spinner fa-spin"></i> Checking...</span>
+                            }
+                            else if (prerequisiteReport is not null)
+                            {
                                 @if (!prerequisiteReport.HasErrors && !prerequisiteReport.HasWarnings)
                                 {
                                     <span class="badge badge-success">All OK</span>
@@ -277,7 +264,17 @@
                                         }
                                     </div>
                                 }
+                            }
+                        </div>
+                        @if (isCheckingPrerequisites)
+                        {
+                            <div class="section-loading">
+                                <i class="fas fa-spinner fa-spin"></i>
+                                <span>Checking prerequisites...</span>
                             </div>
+                        }
+                        else if (prerequisiteReport is not null)
+                        {
                             @if (!prerequisiteReport.HasErrors && !prerequisiteReport.HasWarnings)
                             {
                                 <div class="prereq-success-banner">
@@ -312,14 +309,18 @@
                                     }
                                 </div>
                             }
-                        </div>
-                    }
+                        }
+                    </div>
 
-                    @if (capturePlan is not null)
-                    {
-                        <div class="step-content">
-                            <div class="section-header">
-                                <span class="section-title"><i class="fas fa-diagram-project"></i> Capture plan</span>
+                    <div class="step-content">
+                        <div class="section-header">
+                            <span class="section-title"><i class="fas fa-diagram-project"></i> Capture plan</span>
+                            @if (isPlanningCapture)
+                            {
+                                <span class="badge badge-neutral"><i class="fas fa-spinner fa-spin"></i> Generating...</span>
+                            }
+                            else if (capturePlan is not null)
+                            {
                                 <div class="summary-badges">
                                     <span class="badge @(capturePlan.Validation.IsValid ? "badge-success" : "badge-error")">
                                         @(capturePlan.Validation.IsValid ? "Valid" : "Needs attention")
@@ -328,8 +329,24 @@
                                         @(capturePlan.CanExecute ? "Executable" : "Preview only")
                                     </span>
                                 </div>
+                            }
+                        </div>
+                        @if (isCheckingPrerequisites)
+                        {
+                            <div class="section-loading section-loading-waiting">
+                                <i class="fas fa-clock"></i>
+                                <span>Waiting for prerequisites...</span>
                             </div>
-
+                        }
+                        else if (isPlanningCapture)
+                        {
+                            <div class="section-loading">
+                                <i class="fas fa-spinner fa-spin"></i>
+                                <span>Generating capture plan...</span>
+                            </div>
+                        }
+                        else if (capturePlan is not null)
+                        {
                             <div class="plan-info-rows">
                                 <div class="plan-info-row">
                                     <span class="plan-info-label">Target framework</span>
@@ -423,8 +440,8 @@
                                         </div>
                                     }
                                 </div>
-                            </div>
-                    }
+                        }
+                    </div>
                 }
 
                 @if (currentStep == 4)
@@ -1467,6 +1484,19 @@
 
     .section-title i {
         color: var(--text-secondary);
+    }
+
+    .section-loading {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.6rem 0;
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+    }
+
+    .section-loading-waiting {
+        opacity: 0.5;
     }
 
     .step-indicator {
