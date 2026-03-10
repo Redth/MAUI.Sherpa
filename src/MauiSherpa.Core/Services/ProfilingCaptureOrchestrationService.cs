@@ -759,6 +759,8 @@ public class ProfilingCaptureOrchestrationService : IProfilingCaptureOrchestrati
         arguments.Add(gcdumpArtifactPath);
 
         var dependsOn = new List<string>();
+        if (options.LaunchMode == ProfilingCaptureLaunchMode.Launch)
+            dependsOn.Add("build-and-run");
         if (diagnosticPortAddress is not null)
             dependsOn.Add("start-dsrouter");
         if (dsrouterPlatformArg is null && diagnosticPortAddress is null && options.ProcessId is null)
