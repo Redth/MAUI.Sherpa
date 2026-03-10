@@ -119,17 +119,30 @@ public class XcodeService : IXcodeService
 
         try
         {
-            // xcode-select -s requires sudo — use osascript to prompt
+            // xcode-select -s requires sudo — use osascript to prompt for admin
             var script = $"do shell script \"xcode-select -s '{developerDir}'\" with administrator privileges";
-            var result = await RunProcessAsync("osascript", $"-e \"{script}\"");
+            var psi = new ProcessStartInfo
+            {
+                FileName = "osascript",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            psi.ArgumentList.Add("-e");
+            psi.ArgumentList.Add(script);
 
-            if (result.exitCode == 0)
+            using var process = Process.Start(psi) ?? throw new InvalidOperationException("Failed to start osascript");
+            var error = await process.StandardError.ReadToEndAsync();
+            await process.WaitForExitAsync();
+
+            if (process.ExitCode == 0)
             {
                 _logger.LogInformation($"Switched active Xcode to: {xcodeAppPath}");
                 return true;
             }
 
-            _logger.LogError($"Failed to switch Xcode: {result.error}");
+            _logger.LogError($"Failed to switch Xcode: {error}");
             return false;
         }
         catch (Exception ex)
@@ -151,20 +164,20 @@ public class XcodeService : IXcodeService
             return false;
         }
 
-        _logger.LogInformation($"Opening Xcode {release.Version} download page in browser...");
+        _logger.LogInformation($"Opening Xcode {release.Version} download in browser...");
 
-        // Xcode downloads require Apple Developer authentication.
-        // The best UX is to open the download page in the browser.
+        // Open the direct .xip download URL — Safari will prompt for
+        // Apple Developer authentication then start the download.
         try
         {
-            var downloadPage = $"https://developer.apple.com/download/all/?q=Xcode%20{release.Version}";
-            var psi = new ProcessStartInfo("open", downloadPage) { UseShellExecute = false };
+            var psi = new ProcessStartInfo("open") { UseShellExecute = false };
+            psi.ArgumentList.Add(release.DownloadUrl);
             Process.Start(psi);
             return true;
         }
         catch (Exception ex)
         {
-            _logger.LogError($"Failed to open download page: {ex.Message}", ex);
+            _logger.LogError($"Failed to open download URL: {ex.Message}", ex);
             return false;
         }
     }
@@ -176,8 +189,20 @@ public class XcodeService : IXcodeService
         try
         {
             var script = "do shell script \"xcodebuild -license accept\" with administrator privileges";
-            var result = await RunProcessAsync("osascript", $"-e \"{script}\"");
-            return result.exitCode == 0;
+            var psi = new ProcessStartInfo
+            {
+                FileName = "osascript",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            psi.ArgumentList.Add("-e");
+            psi.ArgumentList.Add(script);
+
+            using var process = Process.Start(psi) ?? throw new InvalidOperationException("Failed to start osascript");
+            await process.WaitForExitAsync();
+            return process.ExitCode == 0;
         }
         catch (Exception ex)
         {
