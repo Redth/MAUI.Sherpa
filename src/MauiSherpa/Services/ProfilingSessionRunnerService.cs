@@ -17,6 +17,7 @@ public class ProfilingSessionRunnerService : IProfilingSessionRunner
     private string? _outputDirectory;
     private DateTime _startTime;
     private volatile bool _stopRequested;
+    private int _gcDumpCount;
 
     public ProfilingPipelineState State => _state;
     public IReadOnlyList<ProfilingStepStatus> Steps => _steps;
@@ -37,6 +38,7 @@ public class ProfilingSessionRunnerService : IProfilingSessionRunner
         _cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         _startTime = DateTime.Now;
         _stopRequested = false;
+        _gcDumpCount = 0;
 
         if (!string.IsNullOrWhiteSpace(plan.OutputDirectory))
             Directory.CreateDirectory(plan.OutputDirectory);
@@ -469,6 +471,104 @@ public class ProfilingSessionRunnerService : IProfilingSessionRunner
             OldState = old,
             NewState = newState
         });
+    }
+
+    public async Task<string?> CollectGcDumpAsync(CancellationToken ct = default)
+    {
+        if (_plan is null || _outputDirectory is null || _state != ProfilingPipelineState.WaitingForStop)
+        {
+            _logger.LogWarning("Cannot collect GC dump: pipeline is not in WaitingForStop state.");
+            return null;
+        }
+
+        var dumpNumber = Interlocked.Increment(ref _gcDumpCount);
+        var fileName = $"memory-{dumpNumber}.gcdump";
+        var outputPath = Path.Combine(_outputDirectory, fileName);
+
+        // Build arguments: reuse the diagnostic connection info from the running plan
+        var arguments = new List<string> { "collect" };
+        var diagnostics = _plan.Diagnostics;
+        var options = _plan.Options;
+
+        if (diagnostics?.IpcAddress is not null)
+        {
+            // Standalone dsrouter mode — connect via IPC
+            arguments.Add("--diagnostic-port");
+            arguments.Add($"{diagnostics.IpcAddress},connect");
+        }
+        else
+        {
+            // Desktop mode — use process ID discovered at runtime
+            var discoveredPid = _steps
+                .FirstOrDefault(s => s.StepId == "discover-process-id")
+                ?.OutputLines
+                .LastOrDefault(l => !l.IsError)
+                ?.Text;
+
+            // Try to get PID from the build-and-run step's process
+            var buildStep = _stepProcesses.GetValueOrDefault("build-and-run");
+            var pid = options.ProcessId
+                ?? (discoveredPid is not null && int.TryParse(discoveredPid.Trim(), out var parsed) ? parsed : (int?)null)
+                ?? buildStep?.ProcessId;
+
+            if (pid is null)
+            {
+                _logger.LogWarning("Cannot collect GC dump: no process ID available.");
+                Interlocked.Decrement(ref _gcDumpCount);
+                return null;
+            }
+
+            arguments.Add("--process-id");
+            arguments.Add(pid.ToString()!);
+        }
+
+        arguments.Add("-o");
+        arguments.Add(outputPath);
+
+        var stepId = $"gcdump-{dumpNumber}";
+        var step = new ProfilingCommandStep(
+            Id: stepId,
+            Kind: ProfilingCommandStepKind.CollectArtifacts,
+            DisplayName: $"GC dump #{dumpNumber}",
+            Description: $"On-demand heap snapshot #{dumpNumber}.",
+            Command: "dotnet-gcdump",
+            Arguments: arguments,
+            WorkingDirectory: options.WorkingDirectory,
+            IsLongRunning: false,
+            RequiresManualStop: false,
+            Metadata: new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["tool"] = "dotnet-gcdump",
+                ["output"] = outputPath
+            });
+
+        var status = new ProfilingStepStatus
+        {
+            StepId = stepId,
+            DisplayName = step.DisplayName,
+            Kind = step.Kind,
+            IsLongRunning = false,
+            CanRunParallel = false,
+            StopTrigger = ProfilingStopTrigger.None
+        };
+        _steps.Add(status);
+        StepStateChanged?.Invoke(this, new ProfilingStepStateChangedEventArgs
+        {
+            StepId = stepId,
+            OldState = ProfilingStepState.Pending,
+            NewState = ProfilingStepState.Pending
+        });
+
+        try
+        {
+            await LaunchStepAsync(step, ct);
+            return File.Exists(outputPath) ? outputPath : null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning($"On-demand GC dump failed: {ex.Message}");
+            return null;
+        }
     }
 
     public void Dispose()

@@ -176,7 +176,7 @@ public class ProfilingCaptureOrchestrationService : IProfilingCaptureOrchestrati
 
         if (hasMemoryCapture)
         {
-            var (memoryStep, memoryArtifact) = CreateMemoryCaptureStep(
+            var (_, memoryArtifact) = CreateMemoryCaptureStep(
                 definition,
                 normalizedOptions,
                 dsrouterPlatformArg,
@@ -186,7 +186,8 @@ public class ProfilingCaptureOrchestrationService : IProfilingCaptureOrchestrati
                 androidSdkPath,
                 hasTraceCapture);
 
-            postLaunchCaptureSteps.Add(memoryStep);
+            // Don't add memoryStep to pipeline — GC dump is a point-in-time snapshot
+            // that users trigger on demand via the capture UI, not auto-run.
             expectedArtifacts.Add(memoryArtifact);
         }
 

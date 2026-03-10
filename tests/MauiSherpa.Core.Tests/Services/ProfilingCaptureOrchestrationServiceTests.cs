@@ -69,9 +69,11 @@ public class ProfilingCaptureOrchestrationServiceTests
             "start-dsrouter",
             "setup-diagnostic-port",
             "build-and-run",
-            "capture-trace",
-            "capture-memory");
+            "capture-trace");
         plan.Commands.Should().Contain(command => command.Id == "start-dsrouter");
+
+        // GC dump is on-demand, not in the pipeline commands, but still an expected artifact
+        plan.ExpectedArtifacts.Should().Contain(a => a.DisplayName == "GC dump");
 
         // The adb setprop step configures the Mono diagnostic port
         var setupStep = plan.Commands.Single(command => command.Id == "setup-diagnostic-port");
@@ -91,10 +93,6 @@ public class ProfilingCaptureOrchestrationServiceTests
         traceStep.CommandLine.Should().NotContain("--dsrouter");
         traceStep.CanRunParallel.Should().BeTrue();
         traceStep.StopTrigger.Should().Be(ProfilingStopTrigger.ManualStop);
-
-        var memoryStep = plan.Commands.Single(command => command.Id == "capture-memory");
-        memoryStep.CommandLine.Should().Contain("--diagnostic-port");
-        memoryStep.CommandLine.Should().NotContain("--dsrouter");
     }
 
     [Fact]
@@ -132,17 +130,15 @@ public class ProfilingCaptureOrchestrationServiceTests
         plan.Commands.Select(command => command.Id).Should().ContainInOrder(
             "start-dsrouter",
             "build-and-run",
-            "capture-trace",
-            "capture-memory");
+            "capture-trace");
         plan.Commands.Should().Contain(command => command.Id == "start-dsrouter");
+
+        // GC dump is on-demand, not in the pipeline commands, but still an expected artifact
+        plan.ExpectedArtifacts.Should().Contain(a => a.DisplayName == "GC dump");
 
         var traceStep = plan.Commands.Single(command => command.Id == "capture-trace");
         traceStep.CommandLine.Should().Contain("--diagnostic-port");
         traceStep.CommandLine.Should().NotContain("--dsrouter");
-
-        var memoryStep = plan.Commands.Single(command => command.Id == "capture-memory");
-        memoryStep.CommandLine.Should().Contain("--diagnostic-port");
-        memoryStep.CommandLine.Should().NotContain("--dsrouter");
 
         var buildStep = plan.Commands.Single(command => command.Id == "build-and-run");
         buildStep.CommandLine.Should().Contain("-f net10.0-ios");

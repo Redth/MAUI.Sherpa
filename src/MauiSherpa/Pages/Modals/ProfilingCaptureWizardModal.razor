@@ -520,6 +520,30 @@
                         }
                     </div>
 
+                    @if (pipelineState == ProfilingPipelineState.WaitingForStop && selectedCaptureKinds.Contains(ProfilingCaptureKind.Memory))
+                    {
+                        <div class="gcdump-action-bar">
+                            <button class="btn btn-secondary btn-sm" type="button"
+                                    disabled="@isCollectingGcDump"
+                                    @onclick="CollectGcDumpOnDemandAsync">
+                                @if (isCollectingGcDump)
+                                {
+                                    <i class="fas fa-spinner fa-spin"></i>
+                                    <span>Collecting...</span>
+                                }
+                                else
+                                {
+                                    <i class="fas fa-camera"></i>
+                                    <span>Collect GC Dump</span>
+                                }
+                            </button>
+                            @if (gcDumpCount > 0)
+                            {
+                                <span class="gcdump-count">@gcDumpCount snapshot@(gcDumpCount != 1 ? "s" : "") collected</span>
+                            }
+                        </div>
+                    }
+
                     @if (pipelineState == ProfilingPipelineState.Running)
                     {
                         <div class="pipeline-waiting-hint">
@@ -571,6 +595,8 @@
     private DateTime pipelineStartTime;
     private HashSet<string> expandedStepLogs = new();
     private HashSet<string> expandedCommands = new();
+    private bool isCollectingGcDump;
+    private int gcDumpCount;
 
     private string? activeSessionId;
 
@@ -1238,6 +1264,36 @@
     private async Task HandleStopCapture()
     {
         await PipelineRunner.StopCaptureAsync();
+    }
+
+    private async Task CollectGcDumpOnDemandAsync()
+    {
+        if (isCollectingGcDump) return;
+        isCollectingGcDump = true;
+        StateHasChanged();
+
+        try
+        {
+            var path = await PipelineRunner.CollectGcDumpAsync();
+            if (path is not null)
+            {
+                gcDumpCount++;
+                await AlertService.ShowToastAsync($"GC dump #{gcDumpCount} collected");
+            }
+            else
+            {
+                await AlertService.ShowToastAsync("GC dump collection failed");
+            }
+        }
+        catch (Exception ex)
+        {
+            await AlertService.ShowToastAsync($"GC dump failed: {ex.Message}");
+        }
+        finally
+        {
+            isCollectingGcDump = false;
+            StateHasChanged();
+        }
     }
 
     private void HandleCancelPipeline()
@@ -2107,6 +2163,25 @@
         display: flex;
         align-items: center;
         gap: 0.4rem;
+    }
+
+    .gcdump-action-bar {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 0.75rem 0;
+        border-top: 1px solid var(--border-secondary);
+    }
+
+    .gcdump-action-bar .btn {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+    }
+
+    .gcdump-count {
+        font-size: 0.8rem;
+        color: var(--text-secondary);
     }
 
     .text-success { color: #22c55e; }

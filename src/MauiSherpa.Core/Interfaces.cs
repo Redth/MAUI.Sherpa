@@ -322,6 +322,12 @@ public interface IProfilingSessionRunner : IDisposable
     /// Abort everything immediately — kills all running processes.
     /// </summary>
     void Cancel();
+
+    /// <summary>
+    /// Collect a GC dump on demand while the pipeline is running.
+    /// Returns the path to the .gcdump file, or null if collection failed.
+    /// </summary>
+    Task<string?> CollectGcDumpAsync(CancellationToken ct = default);
 }
 
 /// <summary>
