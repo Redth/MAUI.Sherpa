@@ -601,3 +601,128 @@ public class CdpTarget
     [JsonPropertyName("ready")]
     public bool Ready { get; set; }
 }
+
+// ── Platform Info DTOs ──
+
+public class DevFlowAppInfo
+{
+    [JsonPropertyName("name")] public string? Name { get; set; }
+    [JsonPropertyName("packageName")] public string? PackageName { get; set; }
+    [JsonPropertyName("version")] public string? Version { get; set; }
+    [JsonPropertyName("buildNumber")] public string? BuildNumber { get; set; }
+    [JsonPropertyName("requestedTheme")] public string? RequestedTheme { get; set; }
+    [JsonPropertyName("requestedLayoutDirection")] public string? RequestedLayoutDirection { get; set; }
+}
+
+public class DevFlowDeviceInfo
+{
+    [JsonPropertyName("manufacturer")] public string? Manufacturer { get; set; }
+    [JsonPropertyName("model")] public string? Model { get; set; }
+    [JsonPropertyName("name")] public string? Name { get; set; }
+    [JsonPropertyName("platform")] public string? Platform { get; set; }
+    [JsonPropertyName("idiom")] public string? Idiom { get; set; }
+    [JsonPropertyName("deviceType")] public string? DeviceType { get; set; }
+    [JsonPropertyName("osVersion")] public string? OsVersion { get; set; }
+}
+
+public class DevFlowDisplayInfo
+{
+    [JsonPropertyName("width")] public double Width { get; set; }
+    [JsonPropertyName("height")] public double Height { get; set; }
+    [JsonPropertyName("density")] public double Density { get; set; }
+    [JsonPropertyName("orientation")] public string? Orientation { get; set; }
+    [JsonPropertyName("rotation")] public string? Rotation { get; set; }
+    [JsonPropertyName("refreshRate")] public double RefreshRate { get; set; }
+}
+
+public class DevFlowBatteryInfo
+{
+    [JsonPropertyName("chargeLevel")] public double ChargeLevel { get; set; }
+    [JsonPropertyName("state")] public string? State { get; set; }
+    [JsonPropertyName("powerSource")] public string? PowerSource { get; set; }
+    [JsonPropertyName("energySaverStatus")] public string? EnergySaverStatus { get; set; }
+}
+
+public class DevFlowConnectivityInfo
+{
+    [JsonPropertyName("networkAccess")] public string? NetworkAccess { get; set; }
+    [JsonPropertyName("connectionProfiles")] public List<string>? ConnectionProfiles { get; set; }
+}
+
+public class DevFlowVersionTracking
+{
+    [JsonPropertyName("currentVersion")] public string? CurrentVersion { get; set; }
+    [JsonPropertyName("currentBuild")] public string? CurrentBuild { get; set; }
+    [JsonPropertyName("previousVersion")] public string? PreviousVersion { get; set; }
+    [JsonPropertyName("previousBuild")] public string? PreviousBuild { get; set; }
+    [JsonPropertyName("firstInstalledVersion")] public string? FirstInstalledVersion { get; set; }
+    [JsonPropertyName("firstInstalledBuild")] public string? FirstInstalledBuild { get; set; }
+    [JsonPropertyName("isFirstLaunchEver")] public bool IsFirstLaunchEver { get; set; }
+    [JsonPropertyName("isFirstLaunchForCurrentVersion")] public bool IsFirstLaunchForCurrentVersion { get; set; }
+    [JsonPropertyName("isFirstLaunchForCurrentBuild")] public bool IsFirstLaunchForCurrentBuild { get; set; }
+    [JsonPropertyName("versionHistory")] public List<string>? VersionHistory { get; set; }
+    [JsonPropertyName("buildHistory")] public List<string>? BuildHistory { get; set; }
+}
+
+public class DevFlowPermissionStatus
+{
+    [JsonPropertyName("permission")] public string Permission { get; set; } = string.Empty;
+    [JsonPropertyName("status")] public string Status { get; set; } = string.Empty;
+}
+
+public class DevFlowGeolocation
+{
+    [JsonPropertyName("latitude")] public double Latitude { get; set; }
+    [JsonPropertyName("longitude")] public double Longitude { get; set; }
+    [JsonPropertyName("altitude")] public double? Altitude { get; set; }
+    [JsonPropertyName("accuracy")] public double? Accuracy { get; set; }
+    [JsonPropertyName("speed")] public double? Speed { get; set; }
+    [JsonPropertyName("course")] public double? Course { get; set; }
+    [JsonPropertyName("timestamp")] public DateTimeOffset Timestamp { get; set; }
+    [JsonPropertyName("isFromMockProvider")] public bool IsFromMockProvider { get; set; }
+}
+
+// ── Sensor DTOs ──
+
+public class DevFlowSensorStatus
+{
+    [JsonPropertyName("sensor")] public string Sensor { get; set; } = string.Empty;
+    [JsonPropertyName("active")] public bool Active { get; set; }
+    [JsonPropertyName("supported")] public bool Supported { get; set; }
+    [JsonPropertyName("subscribers")] public int Subscribers { get; set; }
+}
+
+public class DevFlowSensorReading
+{
+    [JsonPropertyName("sensor")] public string Sensor { get; set; } = string.Empty;
+    [JsonPropertyName("timestamp")] public string? Timestamp { get; set; }
+    [JsonPropertyName("data")] public JsonElement Data { get; set; }
+}
+
+// ── Storage DTOs ──
+
+public class DevFlowPreferenceEntry
+{
+    [JsonPropertyName("key")] public string Key { get; set; } = string.Empty;
+    [JsonPropertyName("value")] public string? Value { get; set; }
+    [JsonPropertyName("sharedName")] public string? SharedName { get; set; }
+}
+
+public class DevFlowPreferencesListResponse
+{
+    [JsonPropertyName("keys")] public List<DevFlowPreferenceEntry>? Keys { get; set; }
+}
+
+public class DevFlowPreferenceSetRequest
+{
+    [JsonPropertyName("value")] public object? Value { get; set; }
+    [JsonPropertyName("type")] public string? Type { get; set; }
+    [JsonPropertyName("sharedName")] public string? SharedName { get; set; }
+}
+
+public class DevFlowSecureStorageEntry
+{
+    [JsonPropertyName("key")] public string Key { get; set; } = string.Empty;
+    [JsonPropertyName("value")] public string? Value { get; set; }
+    [JsonPropertyName("exists")] public bool Exists { get; set; }
+}

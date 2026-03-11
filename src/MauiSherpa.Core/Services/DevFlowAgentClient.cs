@@ -15,6 +15,8 @@ public class DevFlowAgentClient : IDisposable
     private CancellationTokenSource? _networkWsCts;
     private ClientWebSocket? _logsWs;
     private CancellationTokenSource? _logsWsCts;
+    private ClientWebSocket? _sensorWs;
+    private CancellationTokenSource? _sensorWsCts;
     private bool _disposed;
 
     public string AgentHost { get; }
@@ -427,6 +429,179 @@ public class DevFlowAgentClient : IDisposable
         _logsWsCts?.Cancel();
     }
 
+    // --- Platform Info ---
+
+    public async Task<DevFlowAppInfo?> GetAppInfoAsync(CancellationToken ct = default)
+        => await GetAsync<DevFlowAppInfo>("/api/platform/app-info", ct);
+
+    public async Task<DevFlowDeviceInfo?> GetDeviceInfoAsync(CancellationToken ct = default)
+        => await GetAsync<DevFlowDeviceInfo>("/api/platform/device-info", ct);
+
+    public async Task<DevFlowDisplayInfo?> GetDisplayInfoAsync(CancellationToken ct = default)
+        => await GetAsync<DevFlowDisplayInfo>("/api/platform/device-display", ct);
+
+    public async Task<DevFlowBatteryInfo?> GetBatteryInfoAsync(CancellationToken ct = default)
+        => await GetAsync<DevFlowBatteryInfo>("/api/platform/battery", ct);
+
+    public async Task<DevFlowConnectivityInfo?> GetConnectivityAsync(CancellationToken ct = default)
+        => await GetAsync<DevFlowConnectivityInfo>("/api/platform/connectivity", ct);
+
+    public async Task<DevFlowVersionTracking?> GetVersionTrackingAsync(CancellationToken ct = default)
+        => await GetAsync<DevFlowVersionTracking>("/api/platform/version-tracking", ct);
+
+    public async Task<List<DevFlowPermissionStatus>> GetPermissionsAsync(CancellationToken ct = default)
+        => await GetAsync<List<DevFlowPermissionStatus>>("/api/platform/permissions", ct) ?? new();
+
+    public async Task<DevFlowPermissionStatus?> CheckPermissionAsync(string permission, CancellationToken ct = default)
+        => await GetAsync<DevFlowPermissionStatus>($"/api/platform/permissions/{Uri.EscapeDataString(permission)}", ct);
+
+    public async Task<DevFlowGeolocation?> GetGeolocationAsync(string accuracy = "Medium", int timeoutSeconds = 10, CancellationToken ct = default)
+        => await GetAsync<DevFlowGeolocation>($"/api/platform/geolocation?accuracy={Uri.EscapeDataString(accuracy)}&timeout={timeoutSeconds}", ct);
+
+    // --- Preferences ---
+
+    public async Task<List<DevFlowPreferenceEntry>> GetPreferencesAsync(string? sharedName = null, CancellationToken ct = default)
+    {
+        var query = sharedName != null ? $"?sharedName={Uri.EscapeDataString(sharedName)}" : "";
+        var result = await GetAsync<DevFlowPreferencesListResponse>($"/api/preferences{query}", ct);
+        return result?.Keys ?? new();
+    }
+
+    public async Task<DevFlowPreferenceEntry?> GetPreferenceAsync(string key, string type = "string", string? sharedName = null, CancellationToken ct = default)
+    {
+        var query = $"?type={Uri.EscapeDataString(type)}";
+        if (sharedName != null) query += $"&sharedName={Uri.EscapeDataString(sharedName)}";
+        return await GetAsync<DevFlowPreferenceEntry>($"/api/preferences/{Uri.EscapeDataString(key)}{query}", ct);
+    }
+
+    public async Task<bool> SetPreferenceAsync(string key, object? value, string? type = null, string? sharedName = null, CancellationToken ct = default)
+    {
+        var body = new DevFlowPreferenceSetRequest { Value = value, Type = type ?? "string", SharedName = sharedName };
+        var result = await PostAsync<DevFlowPreferenceEntry>($"/api/preferences/{Uri.EscapeDataString(key)}", body, ct);
+        return result != null;
+    }
+
+    public async Task<bool> DeletePreferenceAsync(string key, string? sharedName = null, CancellationToken ct = default)
+    {
+        var query = sharedName != null ? $"?sharedName={Uri.EscapeDataString(sharedName)}" : "";
+        return await DeleteAsync($"/api/preferences/{Uri.EscapeDataString(key)}{query}", ct);
+    }
+
+    public async Task<bool> ClearPreferencesAsync(string? sharedName = null, CancellationToken ct = default)
+    {
+        var query = sharedName != null ? $"?sharedName={Uri.EscapeDataString(sharedName)}" : "";
+        try
+        {
+            var response = await _http.PostAsync($"{BaseUrl}/api/preferences/clear{query}", null, ct);
+            return response.IsSuccessStatusCode;
+        }
+        catch { return false; }
+    }
+
+    // --- Secure Storage ---
+
+    public async Task<DevFlowSecureStorageEntry?> GetSecureStorageAsync(string key, CancellationToken ct = default)
+        => await GetAsync<DevFlowSecureStorageEntry>($"/api/secure-storage/{Uri.EscapeDataString(key)}", ct);
+
+    public async Task<bool> SetSecureStorageAsync(string key, string value, CancellationToken ct = default)
+    {
+        var body = new { value };
+        var result = await PostAsync<DevFlowSecureStorageEntry>($"/api/secure-storage/{Uri.EscapeDataString(key)}", body, ct);
+        return result != null;
+    }
+
+    public async Task<bool> DeleteSecureStorageAsync(string key, CancellationToken ct = default)
+        => await DeleteAsync($"/api/secure-storage/{Uri.EscapeDataString(key)}", ct);
+
+    public async Task<bool> ClearSecureStorageAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            var response = await _http.PostAsync($"{BaseUrl}/api/secure-storage/clear", null, ct);
+            return response.IsSuccessStatusCode;
+        }
+        catch { return false; }
+    }
+
+    // --- Sensors ---
+
+    public async Task<List<DevFlowSensorStatus>> GetSensorsAsync(CancellationToken ct = default)
+        => await GetAsync<List<DevFlowSensorStatus>>("/api/sensors", ct) ?? new();
+
+    public async Task<bool> StartSensorAsync(string sensor, string speed = "UI", CancellationToken ct = default)
+    {
+        try
+        {
+            var response = await _http.PostAsync($"{BaseUrl}/api/sensors/{Uri.EscapeDataString(sensor)}/start?speed={Uri.EscapeDataString(speed)}", null, ct);
+            return response.IsSuccessStatusCode;
+        }
+        catch { return false; }
+    }
+
+    public async Task<bool> StopSensorAsync(string sensor, CancellationToken ct = default)
+    {
+        try
+        {
+            var response = await _http.PostAsync($"{BaseUrl}/api/sensors/{Uri.EscapeDataString(sensor)}/stop", null, ct);
+            return response.IsSuccessStatusCode;
+        }
+        catch { return false; }
+    }
+
+    public async Task StreamSensorAsync(string sensor, Action<DevFlowSensorReading> onReading, string speed = "UI", int throttleMs = 100, CancellationToken ct = default)
+    {
+        _sensorWsCts?.Cancel();
+        _sensorWsCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var token = _sensorWsCts.Token;
+
+        _sensorWs?.Dispose();
+        _sensorWs = new ClientWebSocket();
+
+        try
+        {
+            var wsUrl = $"ws://{AgentHost}:{AgentPort}/ws/sensors?sensor={Uri.EscapeDataString(sensor)}&speed={Uri.EscapeDataString(speed)}&throttleMs={throttleMs}";
+            await _sensorWs.ConnectAsync(new Uri(wsUrl), token);
+
+            var buffer = new byte[16 * 1024];
+            var sb = new StringBuilder();
+
+            while (_sensorWs.State == WebSocketState.Open && !token.IsCancellationRequested)
+            {
+                var result = await _sensorWs.ReceiveAsync(buffer, token);
+                if (result.MessageType == WebSocketMessageType.Close)
+                    break;
+
+                sb.Append(Encoding.UTF8.GetString(buffer, 0, result.Count));
+                if (result.EndOfMessage)
+                {
+                    var json = sb.ToString();
+                    sb.Clear();
+                    try
+                    {
+                        var reading = JsonSerializer.Deserialize<DevFlowSensorReading>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                        if (reading != null) onReading(reading);
+                    }
+                    catch { }
+                }
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (WebSocketException) { }
+        finally
+        {
+            if (_sensorWs?.State == WebSocketState.Open)
+            {
+                try { await _sensorWs.CloseAsync(WebSocketCloseStatus.NormalClosure, null, CancellationToken.None); }
+                catch { }
+            }
+        }
+    }
+
+    public void StopSensorStream()
+    {
+        _sensorWsCts?.Cancel();
+    }
+
     // --- Helpers ---
 
     private async Task<T?> GetAsync<T>(string path, CancellationToken ct = default) where T : class
@@ -470,6 +645,16 @@ public class DevFlowAgentClient : IDisposable
         catch { return false; }
     }
 
+    private async Task<bool> DeleteAsync(string path, CancellationToken ct = default)
+    {
+        try
+        {
+            var response = await _http.DeleteAsync($"{BaseUrl}{path}", ct);
+            return response.IsSuccessStatusCode;
+        }
+        catch { return false; }
+    }
+
     public void Dispose()
     {
         if (_disposed) return;
@@ -478,6 +663,8 @@ public class DevFlowAgentClient : IDisposable
         _networkWs?.Dispose();
         _logsWsCts?.Cancel();
         _logsWs?.Dispose();
+        _sensorWsCts?.Cancel();
+        _sensorWs?.Dispose();
         _http.Dispose();
     }
 }

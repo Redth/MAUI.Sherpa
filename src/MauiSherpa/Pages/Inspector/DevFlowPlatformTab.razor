@@ -1,0 +1,1344 @@
+@using MauiSherpa.Core.Models.DevFlow
+@using MauiSherpa.Core.Services
+@using System.Text.Json
+@implements IDisposable
+
+<div class="platform-layout">
+    <div class="sub-tabs">
+        <button class="sub-tab @(activeSubTab == "info" ? "active" : "")" @onclick='() => SwitchSubTab("info")'>
+            <i class="fas fa-info-circle"></i> Info
+        </button>
+        <button class="sub-tab @(activeSubTab == "storage" ? "active" : "")" @onclick='() => SwitchSubTab("storage")'>
+            <i class="fas fa-database"></i> Storage
+        </button>
+        <button class="sub-tab @(activeSubTab == "permissions" ? "active" : "")" @onclick='() => SwitchSubTab("permissions")'>
+            <i class="fas fa-shield-alt"></i> Permissions
+        </button>
+        <button class="sub-tab @(activeSubTab == "sensors" ? "active" : "")" @onclick='() => SwitchSubTab("sensors")'>
+            <i class="fas fa-wave-square"></i> Sensors
+        </button>
+        <button class="sub-tab @(activeSubTab == "location" ? "active" : "")" @onclick='() => SwitchSubTab("location")'>
+            <i class="fas fa-map-marker-alt"></i> Location
+        </button>
+    </div>
+
+    <div class="sub-tab-content">
+        @switch (activeSubTab)
+        {
+            case "info":
+                @RenderInfoTab()
+                break;
+            case "storage":
+                @RenderStorageTab()
+                break;
+            case "permissions":
+                @RenderPermissionsTab()
+                break;
+            case "sensors":
+                @RenderSensorsTab()
+                break;
+            case "location":
+                @RenderLocationTab()
+                break;
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public DevFlowAgentClient Client { get; set; } = null!;
+    [Parameter] public string? AgentVersion { get; set; }
+
+    private string activeSubTab = "info";
+    private bool loading;
+    private string? error;
+
+    // Info state
+    private DevFlowAppInfo? appInfo;
+    private DevFlowDeviceInfo? deviceInfo;
+    private DevFlowDisplayInfo? displayInfo;
+    private DevFlowBatteryInfo? batteryInfo;
+    private DevFlowConnectivityInfo? connectivityInfo;
+    private DevFlowVersionTracking? versionTracking;
+    private bool infoLoaded;
+
+    // Storage state
+    private List<DevFlowPreferenceEntry> preferences = new();
+    private bool prefsLoaded;
+    private bool showAddPref;
+    private string newPrefKey = "";
+    private string newPrefValue = "";
+    private string newPrefType = "string";
+    private string newPrefSharedName = "";
+    private string? editingPrefKey;
+    private string editingPrefValue = "";
+    private string secureStorageKey = "";
+    private string secureStorageValue = "";
+    private DevFlowSecureStorageEntry? secureStorageResult;
+    private bool showAddSecure;
+    private string newSecureKey = "";
+    private string newSecureValue = "";
+
+    // Permissions state
+    private List<DevFlowPermissionStatus> permissions = new();
+    private bool permissionsLoaded;
+
+    // Sensors state
+    private List<DevFlowSensorStatus> sensors = new();
+    private bool sensorsLoaded;
+    private string? streamingSensor;
+    private DevFlowSensorReading? latestReading;
+    private string sensorSpeed = "UI";
+    private CancellationTokenSource? sensorStreamCts;
+
+    // Location state
+    private DevFlowGeolocation? location;
+    private string locationAccuracy = "Medium";
+    private int locationTimeout = 10;
+    private bool locationLoading;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadInfoAsync();
+    }
+
+    private void SwitchSubTab(string tab)
+    {
+        activeSubTab = tab;
+        _ = tab switch
+        {
+            "info" when !infoLoaded => LoadInfoAsync(),
+            "storage" when !prefsLoaded => LoadPreferencesAsync(),
+            "permissions" when !permissionsLoaded => LoadPermissionsAsync(),
+            "sensors" when !sensorsLoaded => LoadSensorsAsync(),
+            _ => Task.CompletedTask
+        };
+    }
+
+    // ── Info Tab ──
+
+    private async Task LoadInfoAsync()
+    {
+        loading = true;
+        error = null;
+        StateHasChanged();
+
+        try
+        {
+            var tasks = new Task[]
+            {
+                Task.Run(async () => appInfo = await Client.GetAppInfoAsync()),
+                Task.Run(async () => deviceInfo = await Client.GetDeviceInfoAsync()),
+                Task.Run(async () => displayInfo = await Client.GetDisplayInfoAsync()),
+                Task.Run(async () => batteryInfo = await Client.GetBatteryInfoAsync()),
+                Task.Run(async () => connectivityInfo = await Client.GetConnectivityAsync()),
+                Task.Run(async () => versionTracking = await Client.GetVersionTrackingAsync())
+            };
+            await Task.WhenAll(tasks);
+            infoLoaded = true;
+        }
+        catch (Exception ex) { error = ex.Message; }
+        finally { loading = false; StateHasChanged(); }
+    }
+
+    private RenderFragment RenderInfoTab() => __builder =>
+    {
+        <div class="info-toolbar">
+            <button class="btn-sm" @onclick="LoadInfoAsync" disabled="@loading">
+                <i class="fas fa-sync-alt @(loading ? "fa-spin" : "")"></i> Refresh
+            </button>
+        </div>
+
+        @if (error != null)
+        {
+            <div class="error-banner"><i class="fas fa-exclamation-triangle"></i> @error</div>
+        }
+
+        @if (!infoLoaded && loading)
+        {
+            <div class="loading-message"><i class="fas fa-spinner fa-spin"></i> Loading platform info...</div>
+        }
+        else
+        {
+            <div class="info-grid">
+                @RenderInfoCard("App Info", "fas fa-mobile-alt", new Dictionary<string, string?>
+                {
+                    ["Name"] = appInfo?.Name,
+                    ["Package"] = appInfo?.PackageName,
+                    ["Version"] = appInfo?.Version,
+                    ["Build"] = appInfo?.BuildNumber,
+                    ["Theme"] = appInfo?.RequestedTheme,
+                    ["Layout Direction"] = appInfo?.RequestedLayoutDirection
+                })
+
+                @RenderInfoCard("Device", "fas fa-microchip", new Dictionary<string, string?>
+                {
+                    ["Manufacturer"] = deviceInfo?.Manufacturer,
+                    ["Model"] = deviceInfo?.Model,
+                    ["Name"] = deviceInfo?.Name,
+                    ["Platform"] = deviceInfo?.Platform,
+                    ["Idiom"] = deviceInfo?.Idiom,
+                    ["Type"] = deviceInfo?.DeviceType,
+                    ["OS Version"] = deviceInfo?.OsVersion
+                })
+
+                @RenderInfoCard("Display", "fas fa-desktop", new Dictionary<string, string?>
+                {
+                    ["Resolution"] = displayInfo != null ? $"{displayInfo.Width} × {displayInfo.Height}" : null,
+                    ["Density"] = displayInfo?.Density.ToString("F2"),
+                    ["Orientation"] = displayInfo?.Orientation,
+                    ["Rotation"] = displayInfo?.Rotation,
+                    ["Refresh Rate"] = displayInfo?.RefreshRate > 0 ? $"{displayInfo.RefreshRate:F0} Hz" : null
+                })
+
+                @RenderInfoCard("Battery", "fas fa-battery-half", new Dictionary<string, string?>
+                {
+                    ["Charge"] = batteryInfo != null ? $"{batteryInfo.ChargeLevel * 100:F0}%" : null,
+                    ["State"] = batteryInfo?.State,
+                    ["Power Source"] = batteryInfo?.PowerSource,
+                    ["Energy Saver"] = batteryInfo?.EnergySaverStatus
+                })
+
+                @RenderInfoCard("Connectivity", "fas fa-wifi", new Dictionary<string, string?>
+                {
+                    ["Network Access"] = connectivityInfo?.NetworkAccess,
+                    ["Profiles"] = connectivityInfo?.ConnectionProfiles != null ? string.Join(", ", connectivityInfo.ConnectionProfiles) : null
+                })
+
+                @RenderInfoCard("Version Tracking", "fas fa-code-branch", new Dictionary<string, string?>
+                {
+                    ["Current"] = versionTracking != null ? $"{versionTracking.CurrentVersion} ({versionTracking.CurrentBuild})" : null,
+                    ["Previous"] = versionTracking?.PreviousVersion != null ? $"{versionTracking.PreviousVersion} ({versionTracking.PreviousBuild})" : null,
+                    ["First Installed"] = versionTracking?.FirstInstalledVersion != null ? $"{versionTracking.FirstInstalledVersion} ({versionTracking.FirstInstalledBuild})" : null,
+                    ["First Launch Ever"] = versionTracking?.IsFirstLaunchEver.ToString(),
+                    ["First Launch Version"] = versionTracking?.IsFirstLaunchForCurrentVersion.ToString(),
+                    ["First Launch Build"] = versionTracking?.IsFirstLaunchForCurrentBuild.ToString()
+                })
+            </div>
+        }
+    };
+
+    private RenderFragment RenderInfoCard(string title, string icon, Dictionary<string, string?> fields) => __builder =>
+    {
+        <div class="info-card">
+            <div class="info-card-header">
+                <i class="@icon"></i> @title
+            </div>
+            <div class="info-card-body">
+                @foreach (var (key, value) in fields)
+                {
+                    <div class="info-row">
+                        <span class="info-label">@key</span>
+                        <span class="info-value">@(value ?? "—")</span>
+                    </div>
+                }
+            </div>
+        </div>
+    };
+
+    // ── Storage Tab ──
+
+    private async Task LoadPreferencesAsync()
+    {
+        loading = true;
+        StateHasChanged();
+        try
+        {
+            preferences = await Client.GetPreferencesAsync();
+            prefsLoaded = true;
+        }
+        catch (Exception ex) { error = ex.Message; }
+        finally { loading = false; StateHasChanged(); }
+    }
+
+    private async Task AddPreferenceAsync()
+    {
+        if (string.IsNullOrWhiteSpace(newPrefKey)) return;
+        var sharedName = string.IsNullOrWhiteSpace(newPrefSharedName) ? null : newPrefSharedName;
+        await Client.SetPreferenceAsync(newPrefKey, newPrefValue, newPrefType, sharedName);
+        newPrefKey = "";
+        newPrefValue = "";
+        newPrefType = "string";
+        newPrefSharedName = "";
+        showAddPref = false;
+        await LoadPreferencesAsync();
+    }
+
+    private async Task DeletePreferenceAsync(string key, string? sharedName)
+    {
+        await Client.DeletePreferenceAsync(key, sharedName);
+        await LoadPreferencesAsync();
+    }
+
+    private void StartEditPref(string key, string? value)
+    {
+        editingPrefKey = key;
+        editingPrefValue = value ?? "";
+    }
+
+    private async Task SaveEditPrefAsync(string key, string? sharedName)
+    {
+        await Client.SetPreferenceAsync(key, editingPrefValue, "string", sharedName);
+        editingPrefKey = null;
+        await LoadPreferencesAsync();
+    }
+
+    private async Task ClearAllPreferencesAsync()
+    {
+        await Client.ClearPreferencesAsync();
+        await LoadPreferencesAsync();
+    }
+
+    private async Task LookupSecureStorageAsync()
+    {
+        if (string.IsNullOrWhiteSpace(secureStorageKey)) return;
+        secureStorageResult = await Client.GetSecureStorageAsync(secureStorageKey);
+        StateHasChanged();
+    }
+
+    private async Task AddSecureStorageAsync()
+    {
+        if (string.IsNullOrWhiteSpace(newSecureKey)) return;
+        await Client.SetSecureStorageAsync(newSecureKey, newSecureValue);
+        newSecureKey = "";
+        newSecureValue = "";
+        showAddSecure = false;
+        StateHasChanged();
+    }
+
+    private async Task DeleteSecureStorageAsync(string key)
+    {
+        await Client.DeleteSecureStorageAsync(key);
+        secureStorageResult = null;
+        StateHasChanged();
+    }
+
+    private async Task ClearAllSecureStorageAsync()
+    {
+        await Client.ClearSecureStorageAsync();
+        secureStorageResult = null;
+        StateHasChanged();
+    }
+
+    private RenderFragment RenderStorageTab() => __builder =>
+    {
+        <div class="storage-layout">
+            <div class="storage-section">
+                <div class="section-header">
+                    <span><i class="fas fa-cog"></i> Preferences</span>
+                    <div class="section-actions">
+                        <button class="btn-sm" @onclick="LoadPreferencesAsync" disabled="@loading">
+                            <i class="fas fa-sync-alt"></i>
+                        </button>
+                        <button class="btn-sm" @onclick="() => showAddPref = !showAddPref">
+                            <i class="fas fa-plus"></i> Add
+                        </button>
+                        <button class="btn-sm btn-danger" @onclick="ClearAllPreferencesAsync" title="Clear all preferences">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </div>
+
+                @if (showAddPref)
+                {
+                    <div class="add-row">
+                        <input type="text" @bind="newPrefKey" placeholder="Key" class="input-sm" />
+                        <input type="text" @bind="newPrefValue" placeholder="Value" class="input-sm" />
+                        <select @bind="newPrefType" class="input-sm select-sm">
+                            <option value="string">string</option>
+                            <option value="int">int</option>
+                            <option value="bool">bool</option>
+                            <option value="double">double</option>
+                            <option value="float">float</option>
+                            <option value="long">long</option>
+                            <option value="datetime">datetime</option>
+                        </select>
+                        <input type="text" @bind="newPrefSharedName" placeholder="Shared Name (optional)" class="input-sm" />
+                        <button class="btn-sm btn-primary" @onclick="AddPreferenceAsync">Save</button>
+                        <button class="btn-sm" @onclick="() => showAddPref = false">Cancel</button>
+                    </div>
+                }
+
+                @if (!prefsLoaded && loading)
+                {
+                    <div class="loading-message"><i class="fas fa-spinner fa-spin"></i> Loading...</div>
+                }
+                else if (preferences.Count == 0)
+                {
+                    <div class="empty-message">No preferences found. Add one or use the app to create preferences.</div>
+                }
+                else
+                {
+                    <div class="data-table-wrap">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Key</th>
+                                    <th>Value</th>
+                                    <th>Shared Name</th>
+                                    <th class="col-actions"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var pref in preferences)
+                                {
+                                    <tr>
+                                        <td class="mono">@pref.Key</td>
+                                        <td class="mono">
+                                            @if (editingPrefKey == pref.Key)
+                                            {
+                                                <div class="inline-edit">
+                                                    <input type="text" @bind="editingPrefValue" class="input-sm" />
+                                                    <button class="btn-icon" @onclick="() => SaveEditPrefAsync(pref.Key, pref.SharedName)" title="Save">
+                                                        <i class="fas fa-check"></i>
+                                                    </button>
+                                                    <button class="btn-icon" @onclick="() => editingPrefKey = null" title="Cancel">
+                                                        <i class="fas fa-times"></i>
+                                                    </button>
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <span class="editable-value" @onclick="() => StartEditPref(pref.Key, pref.Value)" title="Click to edit">@(pref.Value ?? "null")</span>
+                                            }
+                                        </td>
+                                        <td class="text-muted">@(pref.SharedName ?? "—")</td>
+                                        <td class="col-actions">
+                                            <button class="btn-icon btn-icon-danger" @onclick="() => DeletePreferenceAsync(pref.Key, pref.SharedName)" title="Delete">
+                                                <i class="fas fa-trash"></i>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+
+            <div class="storage-section">
+                <div class="section-header">
+                    <span><i class="fas fa-lock"></i> Secure Storage</span>
+                    <div class="section-actions">
+                        <button class="btn-sm" @onclick="() => showAddSecure = !showAddSecure">
+                            <i class="fas fa-plus"></i> Add
+                        </button>
+                        <button class="btn-sm btn-danger" @onclick="ClearAllSecureStorageAsync" title="Clear all secure storage">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </div>
+
+                @if (showAddSecure)
+                {
+                    <div class="add-row">
+                        <input type="text" @bind="newSecureKey" placeholder="Key" class="input-sm" />
+                        <input type="text" @bind="newSecureValue" placeholder="Value" class="input-sm" />
+                        <button class="btn-sm btn-primary" @onclick="AddSecureStorageAsync">Save</button>
+                        <button class="btn-sm" @onclick="() => showAddSecure = false">Cancel</button>
+                    </div>
+                }
+
+                <div class="secure-lookup">
+                    <input type="text" @bind="secureStorageKey" @bind:event="oninput" placeholder="Enter key to look up..." class="input-sm" />
+                    <button class="btn-sm btn-primary" @onclick="LookupSecureStorageAsync" disabled="@(string.IsNullOrWhiteSpace(secureStorageKey))">
+                        <i class="fas fa-search"></i> Lookup
+                    </button>
+                </div>
+
+                @if (secureStorageResult != null)
+                {
+                    <div class="secure-result">
+                        <div class="info-row">
+                            <span class="info-label">Key</span>
+                            <span class="info-value mono">@secureStorageResult.Key</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Exists</span>
+                            <span class="info-value">
+                                @if (secureStorageResult.Exists)
+                                {
+                                    <span class="status-badge status-granted">Yes</span>
+                                }
+                                else
+                                {
+                                    <span class="status-badge status-denied">No</span>
+                                }
+                            </span>
+                        </div>
+                        @if (secureStorageResult.Exists)
+                        {
+                            <div class="info-row">
+                                <span class="info-label">Value</span>
+                                <span class="info-value mono">@secureStorageResult.Value</span>
+                            </div>
+                            <div class="secure-result-actions">
+                                <button class="btn-sm btn-danger" @onclick="() => DeleteSecureStorageAsync(secureStorageResult.Key)">
+                                    <i class="fas fa-trash"></i> Delete
+                                </button>
+                            </div>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <div class="empty-message">
+                        Secure Storage doesn't support listing keys. Enter a key above to look up its value.
+                    </div>
+                }
+            </div>
+        </div>
+    };
+
+    // ── Permissions Tab ──
+
+    private async Task LoadPermissionsAsync()
+    {
+        loading = true;
+        StateHasChanged();
+        try
+        {
+            permissions = await Client.GetPermissionsAsync();
+            permissionsLoaded = true;
+        }
+        catch (Exception ex) { error = ex.Message; }
+        finally { loading = false; StateHasChanged(); }
+    }
+
+    private async Task RefreshPermissionAsync(string name)
+    {
+        var result = await Client.CheckPermissionAsync(name);
+        if (result != null)
+        {
+            var idx = permissions.FindIndex(p => p.Permission == name);
+            if (idx >= 0) permissions[idx] = result;
+            StateHasChanged();
+        }
+    }
+
+    private string GetPermissionStatusClass(string status) => status.ToLowerInvariant() switch
+    {
+        "granted" => "status-granted",
+        "denied" => "status-denied",
+        "restricted" => "status-restricted",
+        "disabled" => "status-denied",
+        "unavailable" => "status-unavailable",
+        _ => "status-unknown"
+    };
+
+    private string GetPermissionIcon(string status) => status.ToLowerInvariant() switch
+    {
+        "granted" => "fa-check-circle",
+        "denied" => "fa-times-circle",
+        "restricted" => "fa-exclamation-triangle",
+        "disabled" => "fa-ban",
+        "unavailable" => "fa-minus-circle",
+        _ => "fa-question-circle"
+    };
+
+    private RenderFragment RenderPermissionsTab() => __builder =>
+    {
+        <div class="info-toolbar">
+            <button class="btn-sm" @onclick="LoadPermissionsAsync" disabled="@loading">
+                <i class="fas fa-sync-alt @(loading ? "fa-spin" : "")"></i> Check All
+            </button>
+        </div>
+
+        @if (!permissionsLoaded && loading)
+        {
+            <div class="loading-message"><i class="fas fa-spinner fa-spin"></i> Checking permissions...</div>
+        }
+        else if (permissions.Count == 0)
+        {
+            <div class="empty-message">No permission data available.</div>
+        }
+        else
+        {
+            <div class="permissions-grid">
+                @foreach (var perm in permissions)
+                {
+                    <div class="permission-card @GetPermissionStatusClass(perm.Status)" @onclick="() => RefreshPermissionAsync(perm.Permission)" title="Click to re-check">
+                        <i class="fas @GetPermissionIcon(perm.Status) perm-icon"></i>
+                        <span class="perm-name">@FormatPermissionName(perm.Permission)</span>
+                        <span class="perm-status">@perm.Status</span>
+                    </div>
+                }
+            </div>
+        }
+    };
+
+    private string FormatPermissionName(string name)
+    {
+        // Convert camelCase or PascalCase to spaced words
+        var result = new System.Text.StringBuilder();
+        foreach (var c in name)
+        {
+            if (char.IsUpper(c) && result.Length > 0) result.Append(' ');
+            result.Append(c);
+        }
+        return result.ToString();
+    }
+
+    // ── Sensors Tab ──
+
+    private async Task LoadSensorsAsync()
+    {
+        loading = true;
+        StateHasChanged();
+        try
+        {
+            sensors = await Client.GetSensorsAsync();
+            sensorsLoaded = true;
+        }
+        catch (Exception ex) { error = ex.Message; }
+        finally { loading = false; StateHasChanged(); }
+    }
+
+    private async Task ToggleSensorAsync(string sensorName, bool currentlyActive)
+    {
+        if (currentlyActive)
+        {
+            await Client.StopSensorAsync(sensorName);
+            if (streamingSensor == sensorName)
+            {
+                StopSensorStreaming();
+            }
+        }
+        else
+        {
+            await Client.StartSensorAsync(sensorName, sensorSpeed);
+        }
+        await LoadSensorsAsync();
+    }
+
+    private void StartSensorStreaming(string sensorName)
+    {
+        StopSensorStreaming();
+        streamingSensor = sensorName;
+        latestReading = null;
+        sensorStreamCts = new CancellationTokenSource();
+
+        _ = Task.Run(async () =>
+        {
+            await Client.StreamSensorAsync(sensorName, reading =>
+            {
+                latestReading = reading;
+                InvokeAsync(StateHasChanged);
+            }, sensorSpeed, 100, sensorStreamCts.Token);
+        });
+    }
+
+    private void StopSensorStreaming()
+    {
+        sensorStreamCts?.Cancel();
+        sensorStreamCts = null;
+        Client.StopSensorStream();
+        streamingSensor = null;
+        latestReading = null;
+    }
+
+    private string GetSensorIcon(string sensor) => sensor.ToLowerInvariant() switch
+    {
+        "accelerometer" => "fa-arrows-alt",
+        "barometer" => "fa-tachometer-alt",
+        "compass" => "fa-compass",
+        "gyroscope" => "fa-sync",
+        "magnetometer" => "fa-magnet",
+        "orientation" => "fa-cube",
+        _ => "fa-wave-square"
+    };
+
+    private RenderFragment RenderSensorReadingData(DevFlowSensorReading reading) => __builder =>
+    {
+        var sensor = reading.Sensor.ToLowerInvariant();
+        try
+        {
+            switch (sensor)
+            {
+                case "accelerometer":
+                case "gyroscope":
+                case "magnetometer":
+                    if (reading.Data.TryGetProperty("x", out var ax))
+                    {
+                        <div class="sensor-values">
+                            <div class="sensor-value"><span class="axis axis-x">X</span> @ax.GetDouble().ToString("F4")</div>
+                            <div class="sensor-value"><span class="axis axis-y">Y</span> @reading.Data.GetProperty("y").GetDouble().ToString("F4")</div>
+                            <div class="sensor-value"><span class="axis axis-z">Z</span> @reading.Data.GetProperty("z").GetDouble().ToString("F4")</div>
+                        </div>
+                    }
+                    break;
+                case "barometer":
+                    if (reading.Data.TryGetProperty("pressure", out var pressure))
+                    {
+                        <div class="sensor-values">
+                            <div class="sensor-value"><span class="axis">Pressure</span> @pressure.GetDouble().ToString("F2") hPa</div>
+                        </div>
+                    }
+                    break;
+                case "compass":
+                    if (reading.Data.TryGetProperty("heading", out var heading))
+                    {
+                        <div class="sensor-values">
+                            <div class="sensor-value"><span class="axis">Heading</span> @heading.GetDouble().ToString("F1")°</div>
+                        </div>
+                    }
+                    break;
+                case "orientation":
+                    if (reading.Data.TryGetProperty("x", out var ox))
+                    {
+                        <div class="sensor-values">
+                            <div class="sensor-value"><span class="axis axis-x">X</span> @ox.GetDouble().ToString("F4")</div>
+                            <div class="sensor-value"><span class="axis axis-y">Y</span> @reading.Data.GetProperty("y").GetDouble().ToString("F4")</div>
+                            <div class="sensor-value"><span class="axis axis-z">Z</span> @reading.Data.GetProperty("z").GetDouble().ToString("F4")</div>
+                            <div class="sensor-value"><span class="axis axis-w">W</span> @reading.Data.GetProperty("w").GetDouble().ToString("F4")</div>
+                        </div>
+                    }
+                    break;
+                default:
+                    <div class="sensor-values mono">@reading.Data.ToString()</div>
+                    break;
+            }
+        }
+        catch
+        {
+            <div class="sensor-values mono">@reading.Data.ToString()</div>
+        }
+    };
+
+    private RenderFragment RenderSensorsTab() => __builder =>
+    {
+        <div class="info-toolbar">
+            <button class="btn-sm" @onclick="LoadSensorsAsync" disabled="@loading">
+                <i class="fas fa-sync-alt @(loading ? "fa-spin" : "")"></i> Refresh
+            </button>
+            <select @bind="sensorSpeed" class="input-sm select-sm">
+                <option value="UI">UI Speed</option>
+                <option value="Game">Game Speed</option>
+                <option value="Fastest">Fastest</option>
+                <option value="Default">Default</option>
+            </select>
+        </div>
+
+        @if (!sensorsLoaded && loading)
+        {
+            <div class="loading-message"><i class="fas fa-spinner fa-spin"></i> Loading sensors...</div>
+        }
+        else
+        {
+            <div class="sensors-list">
+                @foreach (var sensor in sensors)
+                {
+                    <div class="sensor-card @(sensor.Active ? "sensor-active" : "") @(!sensor.Supported ? "sensor-unsupported" : "")">
+                        <div class="sensor-info">
+                            <i class="fas @GetSensorIcon(sensor.Sensor) sensor-icon"></i>
+                            <div class="sensor-details">
+                                <span class="sensor-name">@sensor.Sensor</span>
+                                <span class="sensor-meta">
+                                    @if (!sensor.Supported)
+                                    {
+                                        <span class="status-badge status-unavailable">Not Supported</span>
+                                    }
+                                    else if (sensor.Active)
+                                    {
+                                        <span class="status-badge status-granted">Active</span>
+                                        @if (sensor.Subscribers > 0)
+                                        {
+                                            <span class="subscriber-count">@sensor.Subscribers subscriber(s)</span>
+                                        }
+                                    }
+                                    else
+                                    {
+                                        <span class="status-badge status-unknown">Stopped</span>
+                                    }
+                                </span>
+                            </div>
+                        </div>
+                        <div class="sensor-actions">
+                            @if (sensor.Supported)
+                            {
+                                <button class="btn-sm @(sensor.Active ? "btn-danger" : "btn-primary")"
+                                        @onclick="() => ToggleSensorAsync(sensor.Sensor, sensor.Active)">
+                                    @(sensor.Active ? "Stop" : "Start")
+                                </button>
+                                @if (sensor.Active)
+                                {
+                                    @if (streamingSensor == sensor.Sensor)
+                                    {
+                                        <button class="btn-sm" @onclick="StopSensorStreaming">
+                                            <i class="fas fa-stop"></i> Stop Stream
+                                        </button>
+                                    }
+                                    else
+                                    {
+                                        <button class="btn-sm" @onclick="() => StartSensorStreaming(sensor.Sensor)">
+                                            <i class="fas fa-broadcast-tower"></i> Stream
+                                        </button>
+                                    }
+                                }
+                            }
+                        </div>
+                    </div>
+
+                    @if (streamingSensor == sensor.Sensor && latestReading != null)
+                    {
+                        <div class="sensor-reading-panel">
+                            <div class="reading-header">
+                                <i class="fas fa-broadcast-tower reading-pulse"></i>
+                                Live: @latestReading.Sensor
+                                <span class="reading-timestamp">@latestReading.Timestamp</span>
+                            </div>
+                            @RenderSensorReadingData(latestReading)
+                        </div>
+                    }
+                }
+            </div>
+        }
+    };
+
+    // ── Location Tab ──
+
+    private async Task GetLocationAsync()
+    {
+        locationLoading = true;
+        error = null;
+        StateHasChanged();
+        try
+        {
+            location = await Client.GetGeolocationAsync(locationAccuracy, locationTimeout);
+        }
+        catch (Exception ex) { error = ex.Message; }
+        finally { locationLoading = false; StateHasChanged(); }
+    }
+
+    private RenderFragment RenderLocationTab() => __builder =>
+    {
+        <div class="info-toolbar">
+            <select @bind="locationAccuracy" class="input-sm select-sm">
+                <option value="Lowest">Lowest</option>
+                <option value="Low">Low</option>
+                <option value="Medium">Medium</option>
+                <option value="High">High</option>
+                <option value="Best">Best</option>
+            </select>
+            <div class="timeout-input">
+                <label>Timeout:</label>
+                <input type="number" @bind="locationTimeout" min="1" max="60" class="input-sm input-narrow" /> s
+            </div>
+            <button class="btn-sm btn-primary" @onclick="GetLocationAsync" disabled="@locationLoading">
+                <i class="fas fa-map-marker-alt @(locationLoading ? "fa-spin" : "")"></i> Get Location
+            </button>
+        </div>
+
+        @if (error != null)
+        {
+            <div class="error-banner"><i class="fas fa-exclamation-triangle"></i> @error</div>
+        }
+
+        @if (locationLoading)
+        {
+            <div class="loading-message"><i class="fas fa-spinner fa-spin"></i> Getting location...</div>
+        }
+        else if (location != null)
+        {
+            <div class="info-grid">
+                @RenderInfoCard("Coordinates", "fas fa-crosshairs", new Dictionary<string, string?>
+                {
+                    ["Latitude"] = location.Latitude.ToString("F6"),
+                    ["Longitude"] = location.Longitude.ToString("F6"),
+                    ["Altitude"] = location.Altitude?.ToString("F1"),
+                    ["Accuracy"] = location.Accuracy?.ToString("F1"),
+                })
+
+                @RenderInfoCard("Movement", "fas fa-tachometer-alt", new Dictionary<string, string?>
+                {
+                    ["Speed"] = location.Speed?.ToString("F1"),
+                    ["Course"] = location.Course?.ToString("F1"),
+                    ["Timestamp"] = location.Timestamp.ToString("G"),
+                    ["Mock Provider"] = location.IsFromMockProvider ? "⚠️ Yes" : "No"
+                })
+            </div>
+        }
+        else
+        {
+            <div class="empty-message">Click "Get Location" to request the device's current position.</div>
+        }
+    };
+
+    public void Dispose()
+    {
+        StopSensorStreaming();
+    }
+}
+
+<style>
+    .platform-layout {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+    }
+
+    .sub-tabs {
+        display: flex;
+        background: var(--bg-secondary);
+        border-bottom: 1px solid var(--border-color);
+        padding: 0 0.5rem;
+        flex-shrink: 0;
+        gap: 0;
+    }
+
+    .sub-tab {
+        background: none;
+        border: none;
+        border-bottom: 2px solid transparent;
+        color: var(--text-secondary);
+        cursor: pointer;
+        padding: 0.5rem 0.75rem;
+        font-size: 0.8rem;
+        font-weight: 500;
+        transition: all 0.15s;
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+    }
+
+    .sub-tab:hover {
+        color: var(--text-primary);
+        background: var(--bg-tertiary);
+    }
+
+    .sub-tab.active {
+        color: var(--accent-color, #3b82f6);
+        border-bottom-color: var(--accent-color, #3b82f6);
+    }
+
+    .sub-tab-content {
+        flex: 1;
+        overflow-y: auto;
+        padding: 0.75rem;
+    }
+
+    .info-toolbar {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-bottom: 0.75rem;
+    }
+
+    .btn-sm {
+        font-size: 0.75rem;
+        padding: 0.3rem 0.6rem;
+        border-radius: 4px;
+        border: 1px solid var(--border-color);
+        background: var(--bg-secondary);
+        color: var(--text-primary);
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+    }
+
+    .btn-sm:hover { background: var(--bg-tertiary); }
+    .btn-sm:disabled { opacity: 0.5; cursor: default; }
+
+    .btn-primary {
+        background: var(--accent-color, #3b82f6);
+        color: white;
+        border-color: var(--accent-color, #3b82f6);
+    }
+
+    .btn-primary:hover { opacity: 0.9; }
+
+    .btn-danger { color: #ef4444; }
+    .btn-danger:hover { background: rgba(239, 68, 68, 0.1); }
+
+    .input-sm {
+        font-size: 0.75rem;
+        padding: 0.3rem 0.5rem;
+        border-radius: 4px;
+        border: 1px solid var(--border-color);
+        background: var(--bg-primary);
+        color: var(--text-primary);
+    }
+
+    .input-narrow { width: 50px; }
+
+    .select-sm {
+        font-size: 0.75rem;
+        padding: 0.25rem 0.4rem;
+    }
+
+    /* Info cards */
+    .info-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+        gap: 0.75rem;
+    }
+
+    .info-card {
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        background: var(--card-bg, var(--bg-secondary));
+        overflow: hidden;
+    }
+
+    .info-card-header {
+        padding: 0.5rem 0.75rem;
+        background: var(--bg-tertiary);
+        font-weight: 600;
+        font-size: 0.8rem;
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        color: var(--text-primary);
+    }
+
+    .info-card-body {
+        padding: 0.5rem 0.75rem;
+    }
+
+    .info-row {
+        display: flex;
+        justify-content: space-between;
+        padding: 0.25rem 0;
+        font-size: 0.78rem;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .info-row:last-child { border-bottom: none; }
+
+    .info-label {
+        color: var(--text-secondary);
+        font-weight: 500;
+    }
+
+    .info-value {
+        color: var(--text-primary);
+        text-align: right;
+    }
+
+    .mono { font-family: monospace; font-size: 0.75rem; }
+    .text-muted { color: var(--text-tertiary); }
+
+    /* Loading/Error */
+    .loading-message, .empty-message {
+        color: var(--text-secondary);
+        font-size: 0.8rem;
+        padding: 2rem;
+        text-align: center;
+    }
+
+    .error-banner {
+        background: rgba(239, 68, 68, 0.1);
+        color: #ef4444;
+        padding: 0.5rem 0.75rem;
+        border-radius: 6px;
+        font-size: 0.8rem;
+        margin-bottom: 0.75rem;
+    }
+
+    /* Storage */
+    .storage-layout {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+    }
+
+    .storage-section {
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        overflow: hidden;
+    }
+
+    .section-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.5rem 0.75rem;
+        background: var(--bg-tertiary);
+        font-weight: 600;
+        font-size: 0.8rem;
+    }
+
+    .section-actions {
+        display: flex;
+        gap: 0.3rem;
+    }
+
+    .add-row {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.5rem 0.75rem;
+        background: var(--bg-secondary);
+        border-bottom: 1px solid var(--border-color);
+        flex-wrap: wrap;
+    }
+
+    .data-table-wrap {
+        overflow-x: auto;
+    }
+
+    .data-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.78rem;
+    }
+
+    .data-table th {
+        text-align: left;
+        padding: 0.4rem 0.75rem;
+        background: var(--bg-secondary);
+        color: var(--text-secondary);
+        font-weight: 600;
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .data-table td {
+        padding: 0.35rem 0.75rem;
+        border-bottom: 1px solid var(--border-color);
+        color: var(--text-primary);
+    }
+
+    .data-table tr:hover td {
+        background: var(--bg-tertiary);
+    }
+
+    .col-actions { width: 50px; text-align: center; }
+
+    .btn-icon {
+        background: none;
+        border: none;
+        color: var(--text-secondary);
+        cursor: pointer;
+        padding: 0.2rem 0.35rem;
+        border-radius: 3px;
+        font-size: 0.75rem;
+    }
+
+    .btn-icon:hover { color: var(--text-primary); background: var(--bg-tertiary); }
+    .btn-icon-danger:hover { color: #ef4444; }
+
+    .inline-edit {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+    }
+
+    .editable-value {
+        cursor: pointer;
+        padding: 0.1rem 0.3rem;
+        border-radius: 3px;
+    }
+
+    .editable-value:hover {
+        background: var(--bg-tertiary);
+    }
+
+    .secure-lookup {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.5rem 0.75rem;
+    }
+
+    .secure-result {
+        padding: 0.5rem 0.75rem;
+        background: var(--bg-secondary);
+        border-top: 1px solid var(--border-color);
+    }
+
+    .secure-result-actions {
+        padding-top: 0.5rem;
+        display: flex;
+        gap: 0.3rem;
+    }
+
+    /* Permissions */
+    .permissions-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+        gap: 0.5rem;
+    }
+
+    .permission-card {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 0.75rem 0.5rem;
+        border-radius: 8px;
+        border: 1px solid var(--border-color);
+        background: var(--card-bg, var(--bg-secondary));
+        cursor: pointer;
+        transition: all 0.15s;
+        text-align: center;
+        gap: 0.3rem;
+    }
+
+    .permission-card:hover {
+        background: var(--bg-tertiary);
+        transform: translateY(-1px);
+    }
+
+    .perm-icon { font-size: 1.2rem; }
+    .perm-name { font-size: 0.75rem; font-weight: 500; color: var(--text-primary); }
+    .perm-status { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.05em; }
+
+    .status-badge {
+        font-size: 0.65rem;
+        font-weight: 600;
+        padding: 0.1rem 0.4rem;
+        border-radius: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+    }
+
+    .status-granted { color: #22c55e; background: rgba(34, 197, 94, 0.1); }
+    .status-granted .perm-icon { color: #22c55e; }
+    .status-denied { color: #ef4444; background: rgba(239, 68, 68, 0.1); }
+    .status-denied .perm-icon { color: #ef4444; }
+    .status-restricted { color: #f59e0b; background: rgba(245, 158, 11, 0.1); }
+    .status-restricted .perm-icon { color: #f59e0b; }
+    .status-unavailable { color: #6b7280; background: rgba(107, 114, 128, 0.1); }
+    .status-unavailable .perm-icon { color: #6b7280; }
+    .status-unknown { color: #8b5cf6; background: rgba(139, 92, 246, 0.1); }
+    .status-unknown .perm-icon { color: #8b5cf6; }
+
+    /* Sensors */
+    .sensors-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .sensor-card {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.6rem 0.75rem;
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        background: var(--card-bg, var(--bg-secondary));
+        transition: all 0.15s;
+    }
+
+    .sensor-card:hover { background: var(--bg-tertiary); }
+
+    .sensor-active {
+        border-color: rgba(34, 197, 94, 0.3);
+    }
+
+    .sensor-unsupported { opacity: 0.5; }
+
+    .sensor-info {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+    }
+
+    .sensor-icon { font-size: 1.1rem; color: var(--text-secondary); }
+    .sensor-active .sensor-icon { color: #22c55e; }
+
+    .sensor-details {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .sensor-name {
+        font-weight: 600;
+        font-size: 0.8rem;
+        text-transform: capitalize;
+        color: var(--text-primary);
+    }
+
+    .sensor-meta {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        font-size: 0.7rem;
+    }
+
+    .subscriber-count {
+        color: var(--text-tertiary);
+        font-size: 0.65rem;
+    }
+
+    .sensor-actions {
+        display: flex;
+        gap: 0.3rem;
+    }
+
+    .sensor-reading-panel {
+        margin: -0.25rem 0 0.5rem 0;
+        padding: 0.5rem 0.75rem;
+        background: var(--bg-tertiary);
+        border: 1px solid var(--border-color);
+        border-top: none;
+        border-radius: 0 0 8px 8px;
+    }
+
+    .reading-header {
+        font-size: 0.7rem;
+        font-weight: 600;
+        color: var(--text-secondary);
+        margin-bottom: 0.4rem;
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+    }
+
+    .reading-pulse {
+        color: #22c55e;
+        animation: pulse 1.5s ease-in-out infinite;
+    }
+
+    @@keyframes pulse {
+        0%, 100% { opacity: 0.4; }
+        50% { opacity: 1; }
+    }
+
+    .reading-timestamp {
+        margin-left: auto;
+        font-weight: 400;
+        color: var(--text-tertiary);
+        font-size: 0.65rem;
+    }
+
+    .sensor-values {
+        display: flex;
+        gap: 1rem;
+        flex-wrap: wrap;
+    }
+
+    .sensor-value {
+        font-family: monospace;
+        font-size: 0.85rem;
+        color: var(--text-primary);
+        display: flex;
+        align-items: center;
+        gap: 0.3rem;
+    }
+
+    .axis {
+        font-size: 0.7rem;
+        font-weight: 700;
+        padding: 0.05rem 0.3rem;
+        border-radius: 3px;
+        font-family: sans-serif;
+    }
+
+    .axis-x { color: #ef4444; background: rgba(239, 68, 68, 0.1); }
+    .axis-y { color: #22c55e; background: rgba(34, 197, 94, 0.1); }
+    .axis-z { color: #3b82f6; background: rgba(59, 130, 246, 0.1); }
+    .axis-w { color: #f59e0b; background: rgba(245, 158, 11, 0.1); }
+
+    /* Location */
+    .timeout-input {
+        display: flex;
+        align-items: center;
+        gap: 0.3rem;
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+    }
+</style>
