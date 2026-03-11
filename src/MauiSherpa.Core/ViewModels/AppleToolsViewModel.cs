@@ -125,6 +125,7 @@ public class AppleToolsViewModel : ViewModelBase
         if (success)
         {
             await AlertService.ShowToastAsync($"Switched to Xcode {xcode.Version}");
+            await _mediator.FlushStores("apple:xcode:installed");
             await LoadInstalledAsync();
         }
         else
