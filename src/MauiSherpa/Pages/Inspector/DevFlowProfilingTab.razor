@@ -56,7 +56,16 @@
         </div>
     }
 
-    @if (capabilities == null)
+    @if (!MeetsMinVersion)
+    {
+        <div class="empty-state">
+            <i class="fas fa-circle-exclamation"></i>
+            <div>MauiDevFlow agent version <strong>@(AgentVersion ?? "unknown")</strong> does not support profiling.</div>
+            <div style="margin-top: 8px;">Minimum required version: <strong>@MinRequiredVersion</strong></div>
+            <div style="margin-top: 8px;">Update the <code>Redth.MauiDevFlow.Agent</code> NuGet package in your app and rebuild.</div>
+        </div>
+    }
+    else if (capabilities == null)
     {
         <div class="empty-state">
             <i class="fas fa-spinner fa-spin"></i>
@@ -346,7 +355,9 @@
 
 @code {
     [Parameter] public DevFlowAgentClient Client { get; set; } = null!;
+    [Parameter] public string? AgentVersion { get; set; }
 
+    private static readonly Version MinRequiredVersion = new(0, 20, 0);
     private const int MaxSampleHistory = 600;
     private const int MaxMarkerHistory = 300;
     private const int MaxSpanHistory = 600;
@@ -374,6 +385,7 @@
 
     private bool CanStart => !isBusy && capabilities?.Available == true && session?.IsActive != true;
     private bool CanStop => !isBusy && session?.IsActive == true;
+    private bool MeetsMinVersion => Version.TryParse(AgentVersion, out var v) && v >= MinRequiredVersion;
     private DevFlowProfilerSample? LatestSample => samples.Count > 0 ? samples[^1] : null;
     private (int Gc0, int Gc1, int Gc2) gcDelta => GetGcDelta();
     private string fpsPoints => GetSparklinePoints(s => s.Fps);
@@ -438,6 +450,9 @@
 
     protected override async Task OnInitializedAsync()
     {
+        if (!MeetsMinVersion)
+            return;
+
         await RefreshCapabilitiesAsync();
         if (capabilities?.Available == true)
         {
