@@ -520,28 +520,71 @@
                         }
                     </div>
 
-                    @if (pipelineState == ProfilingPipelineState.WaitingForStop && selectedCaptureKinds.Contains(ProfilingCaptureKind.Memory))
+                    @if (pipelineState == ProfilingPipelineState.WaitingForStop)
                     {
-                        <div class="gcdump-action-bar">
-                            <button class="btn btn-secondary btn-sm" type="button"
-                                    disabled="@isCollectingGcDump"
-                                    @onclick="CollectGcDumpOnDemandAsync">
-                                @if (isCollectingGcDump)
-                                {
-                                    <i class="fas fa-spinner fa-spin"></i>
-                                    <span>Collecting...</span>
-                                }
-                                else
-                                {
-                                    <i class="fas fa-camera"></i>
-                                    <span>Collect GC Dump</span>
-                                }
-                            </button>
-                            @if (gcDumpCount > 0)
-                            {
-                                <span class="gcdump-count">@gcDumpCount snapshot@(gcDumpCount != 1 ? "s" : "") collected</span>
-                            }
-                        </div>
+                        var hasTraceCapture = selectedCaptureKinds.Any(k =>
+                            k is ProfilingCaptureKind.Cpu or ProfilingCaptureKind.Startup
+                            or ProfilingCaptureKind.Network or ProfilingCaptureKind.Rendering
+                            or ProfilingCaptureKind.Energy or ProfilingCaptureKind.SystemTrace);
+                        var hasMemoryCapture = selectedCaptureKinds.Contains(ProfilingCaptureKind.Memory);
+
+                        @if (hasTraceCapture || hasMemoryCapture)
+                        {
+                            <div class="capture-action-bar">
+                                <div class="capture-action-bar-title">
+                                    <i class="fas fa-tools"></i> On-demand Actions
+                                    <span class="capture-action-hint">(only one tool can use the diagnostic port at a time)</span>
+                                </div>
+                                <div class="capture-action-buttons">
+                                    @if (hasTraceCapture)
+                                    {
+                                        @if (PipelineRunner.IsTraceActive)
+                                        {
+                                            <button class="btn btn-warning btn-sm" type="button"
+                                                    @onclick="StopTraceOnDemandAsync">
+                                                <i class="fas fa-stop"></i>
+                                                <span>Stop Trace</span>
+                                            </button>
+                                        }
+                                        else
+                                        {
+                                            <button class="btn btn-primary btn-sm" type="button"
+                                                    disabled="@(isCollectingGcDump)"
+                                                    @onclick="StartTraceOnDemand">
+                                                <i class="fas fa-play"></i>
+                                                <span>Start Trace</span>
+                                            </button>
+                                        }
+                                        @if (traceCount > 0)
+                                        {
+                                            <span class="capture-action-count">@traceCount trace@(traceCount != 1 ? "s" : "") captured</span>
+                                        }
+                                    }
+
+                                    @if (hasMemoryCapture)
+                                    {
+                                        <button class="btn btn-secondary btn-sm" type="button"
+                                                disabled="@(isCollectingGcDump || PipelineRunner.IsTraceActive)"
+                                                @onclick="CollectGcDumpOnDemandAsync">
+                                            @if (isCollectingGcDump)
+                                            {
+                                                <i class="fas fa-spinner fa-spin"></i>
+                                                <span>Collecting...</span>
+                                            }
+                                            else
+                                            {
+                                                <i class="fas fa-camera"></i>
+                                                <span>Collect GC Dump</span>
+                                            }
+                                        </button>
+                                        @if (gcDumpCount > 0)
+                                        {
+                                            <span class="capture-action-count">@gcDumpCount snapshot@(gcDumpCount != 1 ? "s" : "") collected</span>
+                                        }
+                                    }
+                                </div>
+                            </div>
+                        }
                     }
 
                     @if (pipelineState == ProfilingPipelineState.Running)
@@ -597,6 +640,7 @@
     private HashSet<string> expandedCommands = new();
     private bool isCollectingGcDump;
     private int gcDumpCount;
+    private int traceCount;
 
     private string? activeSessionId;
 
@@ -1263,12 +1307,17 @@
 
     private async Task HandleStopCapture()
     {
+        // Stop any active trace before stopping the pipeline
+        if (PipelineRunner.IsTraceActive)
+        {
+            await PipelineRunner.StopTraceAsync();
+        }
         await PipelineRunner.StopCaptureAsync();
     }
 
     private async Task CollectGcDumpOnDemandAsync()
     {
-        if (isCollectingGcDump) return;
+        if (isCollectingGcDump || PipelineRunner.IsTraceActive) return;
         isCollectingGcDump = true;
         StateHasChanged();
 
@@ -1294,6 +1343,27 @@
             isCollectingGcDump = false;
             StateHasChanged();
         }
+    }
+
+    private void StartTraceOnDemand()
+    {
+        if (PipelineRunner.IsTraceActive || isCollectingGcDump) return;
+
+        var stepId = PipelineRunner.StartTraceAsync();
+        if (stepId is not null)
+        {
+            traceCount++;
+            StateHasChanged();
+        }
+    }
+
+    private async Task StopTraceOnDemandAsync()
+    {
+        if (!PipelineRunner.IsTraceActive) return;
+
+        await PipelineRunner.StopTraceAsync();
+        await AlertService.ShowToastAsync($"Trace #{traceCount} captured");
+        StateHasChanged();
     }
 
     private void HandleCancelPipeline()
@@ -2165,21 +2235,41 @@
         gap: 0.4rem;
     }
 
-    .gcdump-action-bar {
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
+    .capture-action-bar {
         padding: 0.75rem 0;
         border-top: 1px solid var(--border-secondary);
     }
 
-    .gcdump-action-bar .btn {
+    .capture-action-bar-title {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 0.5rem;
+    }
+
+    .capture-action-hint {
+        font-weight: 400;
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+    }
+
+    .capture-action-buttons {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+    }
+
+    .capture-action-buttons .btn {
         display: flex;
         align-items: center;
         gap: 0.35rem;
     }
 
-    .gcdump-count {
+    .capture-action-count {
         font-size: 0.8rem;
         color: var(--text-secondary);
     }

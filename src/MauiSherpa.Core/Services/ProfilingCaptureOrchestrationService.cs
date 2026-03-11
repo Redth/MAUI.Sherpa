@@ -103,7 +103,9 @@ public class ProfilingCaptureOrchestrationService : IProfilingCaptureOrchestrati
         var hasLogCapture = definition.CaptureKinds.Contains(ProfilingCaptureKind.Logs);
         var dsrouterPlatformArg = GetDsRouterPlatformArg(definition.Target);
         var isMobileTarget = dsrouterPlatformArg is not null;
-        var needsStandaloneDsRouter = isMobileTarget && hasTraceCapture && hasMemoryCapture;
+        // Both trace and gcdump are now on-demand, so always use standalone dsrouter
+        // on mobile when either is requested — they need to share the diagnostic port.
+        var needsStandaloneDsRouter = isMobileTarget && (hasTraceCapture || hasMemoryCapture);
 
         // If we need standalone dsrouter, clear the inline arg so capture steps use --diagnostic-port instead
         if (needsStandaloneDsRouter)
@@ -121,7 +123,11 @@ public class ProfilingCaptureOrchestrationService : IProfilingCaptureOrchestrati
 
         if (hasTraceCapture)
         {
-            var (traceStep, traceArtifact) = CreateTraceCaptureStep(
+            // Don't add traceStep to pipeline — trace is an on-demand action
+            // triggered by the user via Start Trace / Stop Trace buttons.
+            // This prevents trace from auto-starting and competing with gcdump
+            // for the diagnostic port.
+            var (_, traceArtifact) = CreateTraceCaptureStep(
                 definition,
                 normalizedOptions,
                 dsrouterPlatformArg,
@@ -129,17 +135,6 @@ public class ProfilingCaptureOrchestrationService : IProfilingCaptureOrchestrati
                 runtimeBindings,
                 needsStandaloneDsRouter ? diagnostics?.IpcAddress : null,
                 androidSdkPath);
-
-            if (isMobileTarget &&
-            normalizedOptions.LaunchMode == ProfilingCaptureLaunchMode.Launch &&
-            normalizedOptions.SuspendAtStartup)
-            {
-                preLaunchCaptureSteps.Add(traceStep);
-            }
-            else
-            {
-                postLaunchCaptureSteps.Add(traceStep);
-            }
 
             expectedArtifacts.Add(traceArtifact);
         }
@@ -699,6 +694,11 @@ public class ProfilingCaptureOrchestrationService : IProfilingCaptureOrchestrati
             profiles.Add("dotnet-sampled-thread-time");
         arguments.Add("--profile");
         arguments.Add(string.Join(",", profiles));
+
+        // Add JIT/Loader provider flags for managed symbol resolution in speedscope.
+        // 0x10000018 = JitTracing | NGenTracing | Loader keywords, Verbose level (5).
+        arguments.Add("--providers");
+        arguments.Add("Microsoft-Windows-DotNETRuntime:0x10000018:5");
 
         var dependsOn = new List<string>();
         if (diagnosticPortAddress is not null)

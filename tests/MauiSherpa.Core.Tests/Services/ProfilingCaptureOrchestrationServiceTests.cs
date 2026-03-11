@@ -65,15 +65,17 @@ public class ProfilingCaptureOrchestrationServiceTests
 
         // SuspendAtStartup defaults to false, so trace goes post-launch (after build).
         // Android also gets adb setup-diagnostic-port step before build-and-run.
+        // Trace is on-demand (not in pipeline commands), but artifact is still expected.
         plan.Commands.Select(command => command.Id).Should().ContainInOrder(
             "start-dsrouter",
             "setup-diagnostic-port",
-            "build-and-run",
-            "capture-trace");
+            "build-and-run");
         plan.Commands.Should().Contain(command => command.Id == "start-dsrouter");
+        plan.Commands.Should().NotContain(command => command.Id == "capture-trace");
 
-        // GC dump is on-demand, not in the pipeline commands, but still an expected artifact
+        // Both trace and GC dump are on-demand, not in the pipeline commands, but still expected artifacts
         plan.ExpectedArtifacts.Should().Contain(a => a.DisplayName == "GC dump");
+        plan.ExpectedArtifacts.Should().Contain(a => a.Kind == ProfilingArtifactKind.Trace);
 
         // The adb setprop step configures the Mono diagnostic port
         var setupStep = plan.Commands.Single(command => command.Id == "setup-diagnostic-port");
@@ -87,12 +89,6 @@ public class ProfilingCaptureOrchestrationServiceTests
         buildStep.CanRunParallel.Should().BeTrue();
         buildStep.StopTrigger.Should().Be(ProfilingStopTrigger.OnPipelineStop);
         buildStep.Environment.Should().ContainKey("ANDROID_SERIAL");
-
-        var traceStep = plan.Commands.Single(command => command.Id == "capture-trace");
-        traceStep.CommandLine.Should().Contain("--diagnostic-port");
-        traceStep.CommandLine.Should().NotContain("--dsrouter");
-        traceStep.CanRunParallel.Should().BeTrue();
-        traceStep.StopTrigger.Should().Be(ProfilingStopTrigger.ManualStop);
     }
 
     [Fact]
@@ -126,19 +122,16 @@ public class ProfilingCaptureOrchestrationServiceTests
         plan.Diagnostics!.DsRouterMode.Should().Be(ProfilingDsRouterMode.ServerClient);
         plan.Diagnostics.ListenMode.Should().Be(ProfilingDiagnosticListenMode.Listen);
 
-        // SuspendAtStartup defaults to false, so trace goes post-launch (after build)
+        // Trace is on-demand (not in pipeline commands), but artifact is still expected.
         plan.Commands.Select(command => command.Id).Should().ContainInOrder(
             "start-dsrouter",
-            "build-and-run",
-            "capture-trace");
+            "build-and-run");
         plan.Commands.Should().Contain(command => command.Id == "start-dsrouter");
+        plan.Commands.Should().NotContain(command => command.Id == "capture-trace");
 
-        // GC dump is on-demand, not in the pipeline commands, but still an expected artifact
+        // Both trace and GC dump are on-demand, not in the pipeline commands, but still expected artifacts
         plan.ExpectedArtifacts.Should().Contain(a => a.DisplayName == "GC dump");
-
-        var traceStep = plan.Commands.Single(command => command.Id == "capture-trace");
-        traceStep.CommandLine.Should().Contain("--diagnostic-port");
-        traceStep.CommandLine.Should().NotContain("--dsrouter");
+        plan.ExpectedArtifacts.Should().Contain(a => a.Kind == ProfilingArtifactKind.Trace);
 
         var buildStep = plan.Commands.Single(command => command.Id == "build-and-run");
         buildStep.CommandLine.Should().Contain("-f net10.0-ios");
@@ -147,7 +140,7 @@ public class ProfilingCaptureOrchestrationServiceTests
     }
 
     [Fact]
-    public async Task PlanCaptureAsync_AndroidEmulatorTraceOnly_UsesInlineDsRouter()
+    public async Task PlanCaptureAsync_AndroidEmulatorTraceOnly_UsesDsRouter()
     {
         var snapshot = ConnectedDevicesSnapshot.Empty with
         {
@@ -156,7 +149,7 @@ public class ProfilingCaptureOrchestrationServiceTests
         _deviceMonitorService.SetupGet(x => x.Current).Returns(snapshot);
 
         var service = CreateService();
-        // Only CPU trace, no memory — should use inline --dsrouter
+        // Only CPU trace, no memory — still uses standalone dsrouter for on-demand trace
         var session = _catalogService.CreateSessionDefinition(
             new ProfilingTarget(
                 ProfilingTargetPlatform.Android,
@@ -171,11 +164,12 @@ public class ProfilingCaptureOrchestrationServiceTests
             ProjectPath: "/Users/test/src/HelloMaui/HelloMaui.csproj"));
 
         plan.Validation.IsValid.Should().BeTrue();
-        plan.Commands.Should().NotContain(command => command.Id == "start-dsrouter");
-
-        var traceStep = plan.Commands.Single(command => command.Id == "capture-trace");
-        traceStep.CommandLine.Should().Contain("--dsrouter android-emu");
-        traceStep.CommandLine.Should().NotContain("--diagnostic-port");
+        // Even trace-only uses standalone dsrouter since trace is now on-demand
+        plan.Commands.Should().Contain(command => command.Id == "start-dsrouter");
+        // Trace is on-demand, not in pipeline commands
+        plan.Commands.Should().NotContain(command => command.Id == "capture-trace");
+        // But trace artifact is expected
+        plan.ExpectedArtifacts.Should().Contain(a => a.Kind == ProfilingArtifactKind.Trace);
     }
 
     [Fact]
@@ -206,8 +200,9 @@ public class ProfilingCaptureOrchestrationServiceTests
         plan.RuntimeBindings.Should().ContainSingle(binding => binding.Token == "{{PROCESS_ID}}");
         plan.Commands.Select(command => command.Id).Should().ContainInOrder(
             "build-and-run",
-            "discover-process-id",
-            "capture-trace");
+            "discover-process-id");
+        plan.Commands.Should().NotContain(command => command.Id == "capture-trace");
+        plan.ExpectedArtifacts.Should().Contain(a => a.Kind == ProfilingArtifactKind.Trace);
     }
 
     [Fact]

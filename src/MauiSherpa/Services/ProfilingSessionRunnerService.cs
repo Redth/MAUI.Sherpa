@@ -18,6 +18,8 @@ public class ProfilingSessionRunnerService : IProfilingSessionRunner
     private DateTime _startTime;
     private volatile bool _stopRequested;
     private int _gcDumpCount;
+    private int _traceCount;
+    private TaskCompletionSource _stopTcs = new();
 
     public ProfilingPipelineState State => _state;
     public IReadOnlyList<ProfilingStepStatus> Steps => _steps;
@@ -39,6 +41,8 @@ public class ProfilingSessionRunnerService : IProfilingSessionRunner
         _startTime = DateTime.Now;
         _stopRequested = false;
         _gcDumpCount = 0;
+        _traceCount = 0;
+        _stopTcs = new TaskCompletionSource();
 
         if (!string.IsNullOrWhiteSpace(plan.OutputDirectory))
             Directory.CreateDirectory(plan.OutputDirectory);
@@ -237,6 +241,14 @@ public class ProfilingSessionRunnerService : IProfilingSessionRunner
             SetPipelineState(ProfilingPipelineState.WaitingForStop);
             await Task.WhenAll(longRunningTasks.Values);
         }
+        else if (longRunningTasks.Count > 0)
+        {
+            // No ManualStop steps, but long-running infrastructure steps (dsrouter, build-and-run)
+            // are still running. Enter WaitingForStop so the user can perform on-demand actions
+            // (Start Trace, Collect GC Dump) before choosing to stop.
+            SetPipelineState(ProfilingPipelineState.WaitingForStop);
+            await _stopTcs.Task;
+        }
 
         // Stop any OnPipelineStop steps
         foreach (var (id, task) in longRunningTasks.ToList())
@@ -372,6 +384,9 @@ public class ProfilingSessionRunnerService : IProfilingSessionRunner
     {
         _stopRequested = true;
         _logger.LogInformation("StopCapture requested — sending SIGINT to all running processes");
+
+        // Signal the WaitingForStop await so the pipeline can proceed to Completing
+        _stopTcs.TrySetResult();
 
         // Send SIGINT to all running steps. Cancel() sends SIGINT but does NOT
         // immediately cancel the CTS, so WaitForExitAsync in LaunchStepAsync will
@@ -569,6 +584,194 @@ public class ProfilingSessionRunnerService : IProfilingSessionRunner
             _logger.LogWarning($"On-demand GC dump failed: {ex.Message}");
             return null;
         }
+    }
+
+    private string? _activeTraceStepId;
+    private Task? _activeTraceTask;
+
+    /// <summary>
+    /// Whether a trace capture is currently active.
+    /// </summary>
+    public bool IsTraceActive => _activeTraceStepId is not null
+        && _steps.Any(s => s.StepId == _activeTraceStepId && s.State == ProfilingStepState.Running);
+
+    /// <summary>
+    /// Start an on-demand trace capture. Returns the step ID or null if it cannot start.
+    /// The trace runs until StopTraceAsync() is called.
+    /// </summary>
+    public string? StartTraceAsync()
+    {
+        if (_plan is null || _outputDirectory is null || _state != ProfilingPipelineState.WaitingForStop)
+        {
+            _logger.LogWarning("Cannot start trace: pipeline is not in WaitingForStop state.");
+            return null;
+        }
+
+        if (IsTraceActive)
+        {
+            _logger.LogWarning("Cannot start trace: a trace is already running.");
+            return null;
+        }
+
+        var traceNumber = Interlocked.Increment(ref _traceCount);
+        var fileName = traceNumber == 1 ? "trace.nettrace" : $"trace-{traceNumber}.nettrace";
+        var outputPath = Path.Combine(_outputDirectory, fileName);
+
+        var arguments = new List<string> { "collect" };
+        var diagnostics = _plan.Diagnostics;
+        var options = _plan.Options;
+
+        if (diagnostics?.IpcAddress is not null)
+        {
+            arguments.Add("--diagnostic-port");
+            arguments.Add($"{diagnostics.IpcAddress},connect");
+        }
+        else
+        {
+            var discoveredPid = _steps
+                .FirstOrDefault(s => s.StepId == "discover-process-id")
+                ?.OutputLines
+                .LastOrDefault(l => !l.IsError)
+                ?.Text;
+
+            var buildStep = _stepProcesses.GetValueOrDefault("build-and-run");
+            var pid = options.ProcessId
+                ?? (discoveredPid is not null && int.TryParse(discoveredPid.Trim(), out var parsed) ? parsed : (int?)null)
+                ?? buildStep?.ProcessId;
+
+            if (pid is null)
+            {
+                _logger.LogWarning("Cannot start trace: no process ID available.");
+                Interlocked.Decrement(ref _traceCount);
+                return null;
+            }
+
+            arguments.Add("--process-id");
+            arguments.Add(pid.ToString()!);
+        }
+
+        arguments.Add("--output");
+        arguments.Add(outputPath);
+
+        // Add profiling profiles based on capture kinds
+        var profiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var kind in _plan.Session.CaptureKinds)
+        {
+            switch (kind)
+            {
+                case ProfilingCaptureKind.Cpu:
+                case ProfilingCaptureKind.Startup:
+                    profiles.Add("dotnet-sampled-thread-time");
+                    break;
+                case ProfilingCaptureKind.Rendering:
+                case ProfilingCaptureKind.Network:
+                case ProfilingCaptureKind.Energy:
+                case ProfilingCaptureKind.SystemTrace:
+                    profiles.Add("dotnet-common");
+                    break;
+            }
+        }
+        if (profiles.Count == 0)
+            profiles.Add("dotnet-sampled-thread-time");
+        arguments.Add("--profile");
+        arguments.Add(string.Join(",", profiles));
+
+        // Add JIT/Loader provider flags for managed symbol resolution in speedscope.
+        // 0x10000018 = JitTracing | NGenTracing | Loader keywords, Verbose level (5).
+        arguments.Add("--providers");
+        arguments.Add("Microsoft-Windows-DotNETRuntime:0x10000018:5");
+
+        var stepId = $"capture-trace-{traceNumber}";
+        _activeTraceStepId = stepId;
+        var step = new ProfilingCommandStep(
+            Id: stepId,
+            Kind: ProfilingCommandStepKind.Capture,
+            DisplayName: traceNumber == 1 ? "Collect trace" : $"Collect trace #{traceNumber}",
+            Description: "On-demand trace capture.",
+            Command: "dotnet-trace",
+            Arguments: arguments,
+            WorkingDirectory: options.WorkingDirectory,
+            IsLongRunning: true,
+            RequiresManualStop: true,
+            CanRunParallel: false,
+            StopTrigger: ProfilingStopTrigger.ManualStop,
+            ReadyOutputPattern: "Process",
+            Metadata: new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["tool"] = "dotnet-trace",
+                ["output"] = outputPath
+            });
+
+        var status = new ProfilingStepStatus
+        {
+            StepId = stepId,
+            DisplayName = step.DisplayName,
+            Kind = step.Kind,
+            IsLongRunning = true,
+            CanRunParallel = false,
+            StopTrigger = ProfilingStopTrigger.ManualStop
+        };
+        _steps.Add(status);
+        StepStateChanged?.Invoke(this, new ProfilingStepStateChangedEventArgs
+        {
+            StepId = stepId,
+            OldState = ProfilingStepState.Pending,
+            NewState = ProfilingStepState.Pending
+        });
+
+        _activeTraceTask = Task.Run(async () =>
+        {
+            try
+            {
+                await LaunchStepAsync(step, _cts?.Token ?? CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($"Trace capture failed: {ex.Message}");
+            }
+        });
+
+        return stepId;
+    }
+
+    /// <summary>
+    /// Stop the currently running on-demand trace.
+    /// </summary>
+    public async Task StopTraceAsync()
+    {
+        if (_activeTraceStepId is null)
+        {
+            _logger.LogWarning("No active trace to stop.");
+            return;
+        }
+
+        var stepId = _activeTraceStepId;
+        _logger.LogInformation("Stopping on-demand trace capture...");
+
+        var status = _steps.FirstOrDefault(s => s.StepId == stepId);
+        if (status is not null)
+            SetStepState(status, ProfilingStepState.Stopped);
+
+        if (_stepProcesses.TryGetValue(stepId, out var proc))
+        {
+            _logger.LogInformation("Sending cancel signal to process");
+            proc.Cancel();
+        }
+
+        if (_activeTraceTask is not null)
+        {
+            try
+            {
+                await _activeTraceTask.WaitAsync(TimeSpan.FromSeconds(30));
+            }
+            catch (TimeoutException)
+            {
+                _logger.LogWarning("Trace process did not exit within timeout.");
+            }
+        }
+
+        _activeTraceStepId = null;
+        _activeTraceTask = null;
     }
 
     public void Dispose()

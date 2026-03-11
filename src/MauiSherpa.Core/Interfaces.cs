@@ -328,6 +328,22 @@ public interface IProfilingSessionRunner : IDisposable
     /// Returns the path to the .gcdump file, or null if collection failed.
     /// </summary>
     Task<string?> CollectGcDumpAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Whether a trace capture is currently active.
+    /// </summary>
+    bool IsTraceActive { get; }
+
+    /// <summary>
+    /// Start an on-demand trace capture. Returns the step ID or null if it cannot start.
+    /// The trace runs until StopTraceAsync() is called.
+    /// </summary>
+    string? StartTraceAsync();
+
+    /// <summary>
+    /// Stop the currently running on-demand trace.
+    /// </summary>
+    Task StopTraceAsync();
 }
 
 /// <summary>
