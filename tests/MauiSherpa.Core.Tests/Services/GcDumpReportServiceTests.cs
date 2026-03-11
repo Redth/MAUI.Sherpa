@@ -101,4 +101,47 @@ public class GcDumpReportServiceTests
         report.Types[0].TypeName.Should().Contain("Dictionary");
         report.Types[1].TypeName.Should().Contain("List");
     }
+
+    [Fact]
+    public void ParseHeapStatOutput_WithModernFormat_ParsesCorrectly()
+    {
+        // Modern dotnet-gcdump output uses "Object Bytes  Count  Type" header
+        // with comma-formatted numbers and no hex MT prefix
+        var output = """
+            2,530,744  GC Heap bytes
+                38,658  GC Heap objects
+
+               Object Bytes     Count  Type
+                     46,376         1  System.Collections.Generic.Dictionary.Entry<System.IntPtr,Android.Runtime.IdentityHashTargets>[] (Bytes > 10K)  [Module(0xb400006fe0fb8390)]
+                     22,096         1  System.Collections.Generic.Dictionary.Entry<System.Int32,System.Diagnostics.Tracing.EventSource.EventMetadata>[] (Bytes > 10K)  [Module(0xb400006fe0fb8390)]
+                      8,224         1  System.Char[] (Bytes > 1K)  [Module(0xb400006fe0fb8390)]
+                      4,016         3  System.String (Bytes > 1K)  [Module(0xb400006fe0fb8390)]
+                      1,072        22  System.Collections.Generic.Dictionary.Entry<Microsoft.Maui.Controls.BindableProperty,Microsoft.Maui.Controls.BindableObject.BindablePropertyContext>[] (Bytes > 1K)  [Module(0xb400006fe0fb8390)]
+            """;
+
+        var report = GcDumpReportParser.ParseHeapStatOutput(output);
+
+        report.Should().NotBeNull();
+        report!.Types.Should().HaveCount(5);
+
+        // Should be sorted by size descending
+        report.Types[0].TypeName.Should().StartWith("System.Collections.Generic.Dictionary.Entry<System.IntPtr");
+        report.Types[0].Size.Should().Be(46376);
+        report.Types[0].Count.Should().Be(1);
+
+        report.Types[1].Size.Should().Be(22096);
+        report.Types[2].Size.Should().Be(8224);
+
+        // Verify comma-formatted numbers are parsed correctly
+        report.Types[3].TypeName.Should().Be("System.String");
+        report.Types[3].Count.Should().Be(3);
+        report.Types[3].Size.Should().Be(4016);
+
+        // Annotations like "(Bytes > 1K)" and "[Module(...)]" should be stripped
+        report.Types[3].TypeName.Should().NotContain("Bytes");
+        report.Types[3].TypeName.Should().NotContain("Module");
+
+        report.TotalSize.Should().Be(46376 + 22096 + 8224 + 4016 + 1072);
+        report.TotalCount.Should().Be(1 + 1 + 1 + 3 + 22);
+    }
 }

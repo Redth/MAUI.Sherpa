@@ -12,8 +12,42 @@
   </head>
   <body>
     <script src="speedscope-Y2522XSH.js"></script>
-    
-    
-    
+    <script>
+    // Bridge: receive profile data from parent via postMessage and simulate file drop.
+    // This avoids cross-frame contentWindow access issues in WKWebView.
+    window.addEventListener('message', function(event) {
+      if (!event.data || event.data.type !== 'loadProfile') return;
+      var name = event.data.name;
+      var base64 = event.data.base64;
+      if (!name || !base64) return;
+
+      function tryLoad(attempts) {
+        // Prefer the loadFileFromBase64 API if speedscope set it up
+        if (window.speedscope && window.speedscope.loadFileFromBase64) {
+          window.speedscope.loadFileFromBase64(name, base64);
+          return;
+        }
+        // Fallback: simulate a file drop (works without #localProfilePath hash)
+        try {
+          var binaryString = atob(base64);
+          var bytes = new Uint8Array(binaryString.length);
+          for (var i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+          }
+          var file = new File([bytes], name, { type: 'application/json' });
+          var dt = new DataTransfer();
+          dt.items.add(file);
+          var dropEvent = new DragEvent('drop', {
+            bubbles: true, cancelable: true, dataTransfer: dt
+          });
+          document.body.dispatchEvent(dropEvent);
+        } catch (e) {
+          if (attempts < 20) setTimeout(function() { tryLoad(attempts + 1); }, 250);
+        }
+      }
+      // Small delay to ensure speedscope React app is mounted
+      setTimeout(function() { tryLoad(0); }, 300);
+    });
+    </script>
   </body>
 </html>

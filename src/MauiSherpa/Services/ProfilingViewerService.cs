@@ -3,7 +3,7 @@ namespace MauiSherpa.Services;
 /// <summary>
 /// Opens profiling artifact viewers in separate windows.
 /// Each viewer type gets its own window; reopening the same type
-/// activates the existing window instead of creating a new one.
+/// closes the existing window and opens a fresh one.
 /// </summary>
 public class ProfilingViewerService
 {
@@ -25,7 +25,6 @@ public class ProfilingViewerService
 
     private void OpenViewer(string viewerKey, string route, string title, int width, int height)
     {
-        // If a window for this key exists and is still alive, activate it
         if (_windows.TryGetValue(viewerKey, out var existing))
         {
             Application.Current?.CloseWindow(existing);
