@@ -461,6 +461,26 @@ public class ProfilingSessionRunnerService : IProfilingSessionRunner
                 missing.Add(path);
         }
 
+        // Scan for on-demand artifacts that aren't in the expected list.
+        // On-demand gcdumps (memory-1.gcdump) and traces (trace-1.nettrace) use numbered
+        // filenames that don't match the plan's expected artifact names.
+        if (Directory.Exists(plan.OutputDirectory))
+        {
+            var foundSet = new HashSet<string>(found, StringComparer.OrdinalIgnoreCase);
+            foreach (var pattern in new[] { "*.gcdump", "*.nettrace", "*.speedscope.json" })
+            {
+                foreach (var file in Directory.GetFiles(plan.OutputDirectory, pattern))
+                {
+                    var fullPath = Path.GetFullPath(file);
+                    if (!foundSet.Contains(fullPath))
+                    {
+                        found.Add(fullPath);
+                        foundSet.Add(fullPath);
+                    }
+                }
+            }
+        }
+
         return (found, missing);
     }
 

@@ -373,9 +373,12 @@
             ? Path.Combine(session.DirectoryPath, artifact.FileName)
             : artifact.FileName;
         var extension = GetArtifactExtension(artifact.FileName);
-        var isTraceFile = extension is ".nettrace" or ".speedscope.json";
+        var isSpeedscopeFile = extension is ".speedscope.json";
+        var isNettraceFile = extension is ".nettrace";
+        // On macOS, .nettrace View is redundant (speedscope.json is alongside it).
+        // Only show View for .nettrace on Windows where PerfView can open it.
+        var isTraceFile = isSpeedscopeFile || (isNettraceFile && OperatingSystem.IsWindows());
         var isGcDump = extension is ".gcdump";
-        var hasViewer = isTraceFile || isGcDump;
 
         <div class="artifact-row">
             <div class="artifact-row-icon">

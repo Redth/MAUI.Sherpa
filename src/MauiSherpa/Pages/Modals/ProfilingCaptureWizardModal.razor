@@ -1244,18 +1244,33 @@
 
             if (Directory.Exists(sessionDir))
             {
-                foreach (var logFile in Directory.GetFiles(sessionDir, "*.log"))
+                // Scan for files not already in the artifact list (on-demand gcdumps,
+                // traces, and log files may have numbered names not in pipeline results)
+                foreach (var pattern in new[] { "*.log", "*.gcdump", "*.nettrace", "*.speedscope.json" })
                 {
-                    var logName = Path.GetFileName(logFile);
-                    if (manifest.Artifacts.Any(a => a.FileName == logName)) continue;
-                    long? size = null;
-                    try { size = new FileInfo(logFile).Length; } catch { }
-                    manifest.Artifacts.Add(new ProfilingSessionArtifact
+                    foreach (var file in Directory.GetFiles(sessionDir, pattern))
                     {
-                        FileName = logName,
-                        Kind = ProfilingArtifactKind.Log,
-                        SizeBytes = size
-                    });
+                        var name = Path.GetFileName(file);
+                        if (manifest.Artifacts.Any(a => a.FileName == name)) continue;
+                        long? size = null;
+                        try { size = new FileInfo(file).Length; } catch { }
+
+                        var ext = GetArtifactExtension(name);
+                        var kind = ext switch
+                        {
+                            ".gcdump" => ProfilingArtifactKind.GcDump,
+                            ".nettrace" => ProfilingArtifactKind.Trace,
+                            ".speedscope.json" => ProfilingArtifactKind.Export,
+                            _ => ProfilingArtifactKind.Log
+                        };
+
+                        manifest.Artifacts.Add(new ProfilingSessionArtifact
+                        {
+                            FileName = name,
+                            Kind = kind,
+                            SizeBytes = size
+                        });
+                    }
                 }
             }
 
