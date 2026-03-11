@@ -5,6 +5,7 @@
 @using MauiSherpa.Services
 @inject DevFlowInspectorService InspectorService
 @inject IAlertService AlertService
+@inject ILauncher AppLauncher
 @inject IToolbarService ToolbarService
 @implements IDisposable
 
@@ -102,11 +103,11 @@
             </div>
             <div class="agent-info">
                 <div class="agent-name">@(brokerConnected == true ? "No agents connected" : "Get started")</div>
-                <div class="agent-details hint-text">
+                <div class="hint-text">
                     Add <code>builder.AddMauiDevFlowAgent();</code> to your MauiProgram.cs, then run your app.
                 </div>
-                <div class="agent-details">
-                    <a href="https://redth.github.io/MAUI.Sherpa/devflow" target="_blank" class="hint-link">
+                <div class="hint-actions">
+                    <a href="#" @onclick="OpenQuickStartGuide" @onclick:preventDefault class="hint-link">
                         <i class="fas fa-book"></i> Quick Start guide
                     </a>
                 </div>
@@ -336,6 +337,12 @@
         return $"{(int)elapsed.TotalDays}d ago";
     }
 
+    private async Task OpenQuickStartGuide()
+    {
+        try { await AppLauncher.OpenAsync(new Uri("https://redth.github.io/MAUI.Sherpa/devflow")); }
+        catch { }
+    }
+
     public void Dispose()
     {
         ToolbarService.ToolbarItemClicked -= OnToolbarItemClicked;
@@ -496,14 +503,21 @@
     .hint-text {
         font-size: 0.8rem;
         color: var(--text-secondary);
-        line-height: 1.4;
+        line-height: 1.5;
+        margin-top: 0.3rem;
     }
 
     .hint-text code {
-        font-size: 0.75rem;
+        font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+        font-size: 0.78rem;
+        color: var(--accent-color, #8b5cf6);
         background: var(--bg-primary);
-        padding: 0.1rem 0.3rem;
+        padding: 0.1rem 0.35rem;
         border-radius: 3px;
+    }
+
+    .hint-actions {
+        margin-top: 0.4rem;
     }
 
     .hint-link {
