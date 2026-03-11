@@ -671,6 +671,18 @@ public class ProfilingSessionRunnerService : IProfilingSessionRunner
             if (!artifact.EndsWith(".nettrace", StringComparison.OrdinalIgnoreCase))
                 continue;
 
+            // dotnet-trace collect --format Speedscope already emits a .speedscope.json
+            // alongside the .nettrace — skip conversion if it already exists.
+            var baseName = artifact[..^".nettrace".Length];
+            var existingSpeedscope = $"{baseName}.speedscope.json";
+            if (File.Exists(existingSpeedscope))
+            {
+                _logger.LogInformation($"Speedscope file already exists from capture: {Path.GetFileName(existingSpeedscope)}");
+                if (!result.Contains(existingSpeedscope))
+                    result.Add(existingSpeedscope);
+                continue;
+            }
+
             try
             {
                 _logger.LogInformation($"Converting {Path.GetFileName(artifact)} to speedscope format...");

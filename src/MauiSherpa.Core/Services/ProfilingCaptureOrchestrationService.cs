@@ -675,6 +675,33 @@ public class ProfilingCaptureOrchestrationService : IProfilingCaptureOrchestrati
         arguments.Add("--output");
         arguments.Add(traceArtifactPath);
 
+        // Map capture kinds to dotnet-trace profiles for meaningful data
+        var profiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var kind in definition.CaptureKinds.Where(k => TraceCaptureKinds.Contains(k)))
+        {
+            switch (kind)
+            {
+                case ProfilingCaptureKind.Cpu:
+                case ProfilingCaptureKind.Startup:
+                    profiles.Add("cpu-sampling");
+                    break;
+                case ProfilingCaptureKind.Rendering:
+                case ProfilingCaptureKind.Network:
+                case ProfilingCaptureKind.Energy:
+                case ProfilingCaptureKind.SystemTrace:
+                    profiles.Add("dotnet-common");
+                    break;
+            }
+        }
+        if (profiles.Count == 0)
+            profiles.Add("cpu-sampling");
+        arguments.Add("--profile");
+        arguments.Add(string.Join(",", profiles));
+
+        // Emit speedscope JSON alongside the .nettrace during capture
+        arguments.Add("--format");
+        arguments.Add("Speedscope");
+
         var dependsOn = new List<string>();
         if (diagnosticPortAddress is not null)
             dependsOn.Add("start-dsrouter");
