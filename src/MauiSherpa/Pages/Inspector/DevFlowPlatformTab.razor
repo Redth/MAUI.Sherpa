@@ -863,6 +863,12 @@
                                 </span>
                             </div>
                         </div>
+                        @if (sensorReadings.TryGetValue(sensor.Sensor, out var reading))
+                        {
+                            <div class="sensor-live-reading">
+                                @RenderSensorReadingData(reading)
+                            </div>
+                        }
                         <div class="sensor-actions">
                             @if (sensor.Supported)
                             {
@@ -875,31 +881,19 @@
                                     @if (Client.IsSensorStreaming(sensor.Sensor))
                                     {
                                         <button class="btn-sm" @onclick="() => StopSensorStreaming(sensor.Sensor)">
-                                            <i class="fas fa-stop"></i> Stop Stream
+                                            <i class="fas fa-stop"></i>
                                         </button>
                                     }
                                     else
                                     {
                                         <button class="btn-sm" @onclick="() => StartSensorStreaming(sensor.Sensor)">
-                                            <i class="fas fa-broadcast-tower"></i> Stream
+                                            <i class="fas fa-broadcast-tower"></i>
                                         </button>
                                     }
                                 }
                             }
                         </div>
                     </div>
-
-                    @if (sensorReadings.TryGetValue(sensor.Sensor, out var reading))
-                    {
-                        <div class="sensor-reading-panel">
-                            <div class="reading-header">
-                                <i class="fas fa-broadcast-tower reading-pulse"></i>
-                                Live: @reading.Sensor
-                                <span class="reading-timestamp">@reading.Timestamp</span>
-                            </div>
-                            @RenderSensorReadingData(reading)
-                        </div>
-                    }
                 }
             </div>
         }
@@ -1406,57 +1400,33 @@
     .sensor-actions {
         display: flex;
         gap: 0.3rem;
+        flex-shrink: 0;
     }
 
-    .sensor-reading-panel {
-        margin: -0.25rem 0 0.5rem 0;
-        padding: 0.5rem 0.75rem;
-        background: var(--bg-tertiary);
-        border: 1px solid var(--border-color);
-        border-top: none;
-        border-radius: 0 0 8px 8px;
-    }
-
-    .reading-header {
-        font-size: 0.7rem;
-        font-weight: 600;
-        color: var(--text-secondary);
-        margin-bottom: 0.4rem;
+    .sensor-live-reading {
+        flex: 1;
+        min-width: 0;
         display: flex;
         align-items: center;
-        gap: 0.4rem;
-    }
-
-    .reading-pulse {
-        color: #22c55e;
-        animation: pulse 1.5s ease-in-out infinite;
-    }
-
-    @@keyframes pulse {
-        0%, 100% { opacity: 0.4; }
-        50% { opacity: 1; }
-    }
-
-    .reading-timestamp {
-        margin-left: auto;
-        font-weight: 400;
-        color: var(--text-tertiary);
-        font-size: 0.65rem;
+        justify-content: flex-end;
+        padding: 0 0.5rem;
     }
 
     .sensor-values {
         display: flex;
-        gap: 1rem;
-        flex-wrap: wrap;
+        gap: 0.75rem;
+        flex-wrap: nowrap;
+        align-items: center;
     }
 
     .sensor-value {
         font-family: monospace;
-        font-size: 0.85rem;
+        font-size: 0.78rem;
         color: var(--text-primary);
         display: flex;
         align-items: center;
-        gap: 0.3rem;
+        gap: 0.2rem;
+        white-space: nowrap;
     }
 
     .axis {
