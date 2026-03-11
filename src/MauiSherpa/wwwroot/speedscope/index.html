@@ -11,43 +11,59 @@
     <link rel="icon" type="image/x-icon" href="favicon-FOKUP5Y5.ico">
   </head>
   <body>
+    <script>
+    // Force localProfilePath hash BEFORE speedscope initializes.
+    // This makes speedscope set up window.speedscope.loadFileFromBase64() API.
+    // The hash must be set before the bundle runs because speedscope reads it once at init.
+    // BlazorWebView may strip hashes from iframe src attributes, so we set it here.
+    if (!window.location.hash || !window.location.hash.includes('localProfilePath')) {
+      window.location.hash = 'localProfilePath=_';
+    }
+    </script>
     <script src="speedscope-Y2522XSH.js"></script>
     <script>
-    // Bridge: receive profile data from parent via postMessage and simulate file drop.
-    // This avoids cross-frame contentWindow access issues in WKWebView.
-    window.addEventListener('message', function(event) {
-      if (!event.data || event.data.type !== 'loadProfile') return;
-      var name = event.data.name;
-      var base64 = event.data.base64;
-      if (!name || !base64) return;
+    // Load profile data via postMessage OR localStorage (whichever arrives first).
+    // The parent Blazor page writes to both channels for reliability.
+    var _ssLoaded = false;
 
+    function doLoad(name, base64) {
+      if (_ssLoaded) return;
       function tryLoad(attempts) {
-        // Prefer the loadFileFromBase64 API if speedscope set it up
+        if (_ssLoaded) return;
         if (window.speedscope && window.speedscope.loadFileFromBase64) {
+          _ssLoaded = true;
           window.speedscope.loadFileFromBase64(name, base64);
           return;
         }
-        // Fallback: simulate a file drop (works without #localProfilePath hash)
-        try {
-          var binaryString = atob(base64);
-          var bytes = new Uint8Array(binaryString.length);
-          for (var i = 0; i < binaryString.length; i++) {
-            bytes[i] = binaryString.charCodeAt(i);
-          }
-          var file = new File([bytes], name, { type: 'application/json' });
-          var dt = new DataTransfer();
-          dt.items.add(file);
-          var dropEvent = new DragEvent('drop', {
-            bubbles: true, cancelable: true, dataTransfer: dt
-          });
-          document.body.dispatchEvent(dropEvent);
-        } catch (e) {
-          if (attempts < 20) setTimeout(function() { tryLoad(attempts + 1); }, 250);
+        if (attempts < 80) {
+          setTimeout(function() { tryLoad(attempts + 1); }, 250);
         }
       }
-      // Small delay to ensure speedscope React app is mounted
-      setTimeout(function() { tryLoad(0); }, 300);
+      tryLoad(0);
+    }
+
+    // Channel 1: postMessage from parent
+    window.addEventListener('message', function(event) {
+      if (!event.data || event.data.type !== 'loadProfile') return;
+      if (event.data.name && event.data.base64) {
+        doLoad(event.data.name, event.data.base64);
+      }
     });
+
+    // Channel 2: localStorage (polled)
+    function checkStorage(attempts) {
+      if (_ssLoaded) return;
+      var data = localStorage.getItem('speedscope_profile_base64');
+      var name = localStorage.getItem('speedscope_profile_name');
+      if (data && name) {
+        localStorage.removeItem('speedscope_profile_base64');
+        localStorage.removeItem('speedscope_profile_name');
+        doLoad(name, data);
+      } else if (attempts < 80) {
+        setTimeout(function() { checkStorage(attempts + 1); }, 250);
+      }
+    }
+    checkStorage(0);
     </script>
   </body>
 </html>

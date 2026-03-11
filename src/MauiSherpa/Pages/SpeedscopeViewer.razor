@@ -31,8 +31,7 @@
         }
         <iframe id="speedscope-frame"
                 src="speedscope/index.html"
-                class="viewer-iframe @(loading ? "hidden" : "")"
-                @onload="OnIframeLoaded"></iframe>
+                class="viewer-iframe @(loading ? "hidden" : "")"></iframe>
     </div>
 </div>
 
@@ -54,19 +53,16 @@
         }
     }
 
-    private async Task OnIframeLoaded()
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (filePath is null)
-        {
-            loading = false;
-            errorMessage = "No file path specified.";
+        if (!firstRender || filePath is null)
             return;
-        }
 
         if (!File.Exists(filePath))
         {
-            loading = false;
             errorMessage = $"File not found: {filePath}";
+            loading = false;
+            StateHasChanged();
             return;
         }
 
@@ -79,7 +75,7 @@
                 "import", "./js/speedscopeInterop.js");
 
             await speedscopeModule.InvokeVoidAsync(
-                "openSpeedscopeWithFile", "speedscope-frame", filePath, base64, fileName);
+                "openSpeedscopeWithFile", "speedscope-frame", base64, fileName);
         }
         catch (Exception ex)
         {
