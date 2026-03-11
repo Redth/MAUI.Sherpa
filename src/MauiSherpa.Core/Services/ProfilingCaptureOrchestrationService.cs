@@ -675,7 +675,9 @@ public class ProfilingCaptureOrchestrationService : IProfilingCaptureOrchestrati
         arguments.Add("--output");
         arguments.Add(traceArtifactPath);
 
-        // Map capture kinds to dotnet-trace profiles for meaningful data
+        // Map capture kinds to dotnet-trace profiles for meaningful data.
+        // "dotnet-sampled-thread-time" samples managed stacks at ~100Hz (works on all platforms).
+        // "cpu-sampling" and "thread-time" are Linux-only (collect-linux).
         var profiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var kind in definition.CaptureKinds.Where(k => TraceCaptureKinds.Contains(k)))
         {
@@ -683,7 +685,7 @@ public class ProfilingCaptureOrchestrationService : IProfilingCaptureOrchestrati
             {
                 case ProfilingCaptureKind.Cpu:
                 case ProfilingCaptureKind.Startup:
-                    profiles.Add("cpu-sampling");
+                    profiles.Add("dotnet-sampled-thread-time");
                     break;
                 case ProfilingCaptureKind.Rendering:
                 case ProfilingCaptureKind.Network:
@@ -694,7 +696,7 @@ public class ProfilingCaptureOrchestrationService : IProfilingCaptureOrchestrati
             }
         }
         if (profiles.Count == 0)
-            profiles.Add("cpu-sampling");
+            profiles.Add("dotnet-sampled-thread-time");
         arguments.Add("--profile");
         arguments.Add(string.Join(",", profiles));
 
