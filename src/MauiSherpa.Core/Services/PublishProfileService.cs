@@ -147,6 +147,9 @@ public class PublishProfileService : IPublishProfileService
                     _identityState.SetSelectedIdentity(identity);
             }
 
+            // Build prefix using platform/distribution enums (must match AppleConfigVM.GetDefaultKeys)
+            var prefix = GetAppleKeyPrefix(apple);
+
             // Certificate P12
             if (!string.IsNullOrEmpty(apple.CertificateSerialNumber))
             {
@@ -157,7 +160,7 @@ public class PublishProfileService : IPublishProfileService
                     var p12Bytes = await _cloudService.GetSecretAsync(p12Key, ct);
                     if (p12Bytes is not null)
                     {
-                        var defaultKey = $"APPLE_{SanitizeLabel(apple.Label)}_CERTIFICATE_P12";
+                        var defaultKey = $"{prefix}_CERTIFICATE_P12";
                         AddMappedSecrets(secrets, apple.KeyMappings, defaultKey, Convert.ToBase64String(p12Bytes));
                     }
 
@@ -165,7 +168,7 @@ public class PublishProfileService : IPublishProfileService
                     var pwdBytes = await _cloudService.GetSecretAsync(pwdKey, ct);
                     if (pwdBytes is not null)
                     {
-                        var defaultKey = $"APPLE_{SanitizeLabel(apple.Label)}_CERTIFICATE_PASSWORD";
+                        var defaultKey = $"{prefix}_CERTIFICATE_PASSWORD";
                         AddMappedSecrets(secrets, apple.KeyMappings, defaultKey, Encoding.UTF8.GetString(pwdBytes));
                     }
                 }
@@ -185,7 +188,7 @@ public class PublishProfileService : IPublishProfileService
                     var p12Bytes = await _cloudService.GetSecretAsync(p12Key, ct);
                     if (p12Bytes is not null)
                     {
-                        var defaultKey = $"APPLE_{SanitizeLabel(apple.Label)}_INSTALLER_CERTIFICATE_P12";
+                        var defaultKey = $"{prefix}_INSTALLER_P12";
                         AddMappedSecrets(secrets, apple.KeyMappings, defaultKey, Convert.ToBase64String(p12Bytes));
                     }
 
@@ -193,7 +196,7 @@ public class PublishProfileService : IPublishProfileService
                     var pwdBytes = await _cloudService.GetSecretAsync(pwdKey, ct);
                     if (pwdBytes is not null)
                     {
-                        var defaultKey = $"APPLE_{SanitizeLabel(apple.Label)}_INSTALLER_CERTIFICATE_PASSWORD";
+                        var defaultKey = $"{prefix}_INSTALLER_PASSWORD";
                         AddMappedSecrets(secrets, apple.KeyMappings, defaultKey, Encoding.UTF8.GetString(pwdBytes));
                     }
                 }
@@ -210,7 +213,7 @@ public class PublishProfileService : IPublishProfileService
                 try
                 {
                     var profileBytes = await _appleConnect.DownloadProfileAsync(apple.ProfileId);
-                    var defaultKey = $"APPLE_{SanitizeLabel(apple.Label)}_PROVISIONING_PROFILE";
+                    var defaultKey = $"{prefix}_PROFILE";
                     AddMappedSecrets(secrets, apple.KeyMappings, defaultKey, Convert.ToBase64String(profileBytes));
                 }
                 catch (Exception ex)
@@ -355,6 +358,31 @@ public class PublishProfileService : IPublishProfileService
         {
             secrets[defaultKey] = value;
         }
+    }
+
+    /// <summary>
+    /// Build the Apple key prefix from platform/distribution enums,
+    /// matching the logic in AppleConfigVM.GetDefaultKeys().
+    /// Falls back to sanitized label if enums are null.
+    /// </summary>
+    static string GetAppleKeyPrefix(PublishProfileAppleConfig config)
+    {
+        var platLabel = config.Platform switch
+        {
+            ApplePlatformType.iOS => "IOS",
+            ApplePlatformType.MacCatalyst => "MACCATALYST",
+            ApplePlatformType.macOS => "MACOS",
+            _ => SanitizeLabel(config.Label)
+        };
+        var distLabel = config.DistributionType switch
+        {
+            AppleDistributionType.Development => "DEV",
+            AppleDistributionType.AdHoc => "ADHOC",
+            AppleDistributionType.AppStore => "APPSTORE",
+            AppleDistributionType.Direct => "DIRECT",
+            _ => ""
+        };
+        return string.IsNullOrEmpty(distLabel) ? $"APPLE_{platLabel}" : $"APPLE_{platLabel}_{distLabel}";
     }
 
     static string SanitizeLabel(string label)

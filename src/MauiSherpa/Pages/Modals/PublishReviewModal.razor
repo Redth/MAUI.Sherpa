@@ -655,12 +655,29 @@
             // Check for partial failures — items that were configured but didn't resolve
             foreach (var apple in profile!.AppleConfigs)
             {
-                var label = apple.Label.ToUpperInvariant().Replace(' ', '_').Replace('-', '_');
+                // Check for resolved keys using the same prefix pattern as GetDefaultKeys
+                var platLabel = apple.Platform switch
+                {
+                    ApplePlatformType.iOS => "IOS",
+                    ApplePlatformType.MacCatalyst => "MACCATALYST",
+                    ApplePlatformType.macOS => "MACOS",
+                    _ => apple.Label.ToUpperInvariant().Replace(' ', '_').Replace('-', '_')
+                };
+                var distLabel = apple.DistributionType switch
+                {
+                    AppleDistributionType.Development => "DEV",
+                    AppleDistributionType.AdHoc => "ADHOC",
+                    AppleDistributionType.AppStore => "APPSTORE",
+                    AppleDistributionType.Direct => "DIRECT",
+                    _ => ""
+                };
+                var applePrefix = string.IsNullOrEmpty(distLabel) ? $"APPLE_{platLabel}" : $"APPLE_{platLabel}_{distLabel}";
+
                 if (!string.IsNullOrEmpty(apple.CertificateSerialNumber)
-                    && !secretsDict.Keys.Any(k => k.Contains(label) && k.Contains("CERTIFICATE")))
+                    && !secretsDict.Keys.Any(k => k.StartsWith(applePrefix) && k.Contains("CERTIFICATE")))
                     resolveWarnings.Add($"Certificate for \"{apple.Label}\" could not be fetched");
                 if (!string.IsNullOrEmpty(apple.ProfileId)
-                    && !secretsDict.Keys.Any(k => k.Contains(label) && k.Contains("PROVISIONING")))
+                    && !secretsDict.Keys.Any(k => k.StartsWith(applePrefix) && k.Contains("PROFILE")))
                     resolveWarnings.Add($"Provisioning profile for \"{apple.Label}\" could not be fetched");
             }
 
@@ -786,6 +803,11 @@
         var checkedDests = destinations.Where(d => d.Checked).ToList();
         if (!checkedDests.Any()) return;
 
+        // Prevent the wizard from closing until publish completes and user clicks Done
+        var publishBridge = BridgeHolder.Current;
+        if (publishBridge is not null)
+            publishBridge.PreventSubmitClose = true;
+
         step = 3;
         isPublishing = true;
         UpdateWizardState();
@@ -810,7 +832,7 @@
                 });
 
                 await PublisherService.PublishSecretsAsync(
-                    dest.PublisherId, dest.RepositoryId, selectedSecrets, progress);
+                    dest.PublisherId, dest.RepositoryFullName, selectedSecrets, progress);
 
                 dest.Status = PublishStatus.Success;
                 dest.StatusMessage = $"{selectedSecrets.Count} secret(s) published successfully";
@@ -827,6 +849,11 @@
 
         isPublishing = false;
         publishComplete = true;
+
+        // Allow the wizard to close when user clicks Done
+        if (publishBridge is not null)
+            publishBridge.PreventSubmitClose = false;
+
         UpdateWizardState();
         await InvokeAsync(StateHasChanged);
     }
@@ -862,7 +889,7 @@
     private void AddNewDestination(PublisherRepository repo)
     {
         if (addDestPublisher is null) return;
-        if (destinations.Any(d => d.PublisherId == addDestPublisher.Id && d.RepositoryId == repo.Id))
+        if (destinations.Any(d => d.PublisherId == addDestPublisher.Id && d.RepositoryFullName == repo.FullName))
             return;
 
         destinations.Add(new DestinationVM
@@ -870,7 +897,7 @@
             PublisherId = addDestPublisher.Id,
             PublisherName = addDestPublisher.Name,
             ProviderId = addDestPublisher.ProviderId,
-            RepositoryId = repo.Id,
+            RepositoryId = repo.FullName,
             RepositoryFullName = repo.FullName,
             Checked = true
         });
