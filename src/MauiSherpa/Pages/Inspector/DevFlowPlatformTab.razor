@@ -688,6 +688,23 @@
         _ => "fa-wave-square"
     };
 
+    private bool TryGetDataProperty(DevFlowSensorReading reading, string name, out JsonElement value)
+    {
+        // Try exact name, then PascalCase, then camelCase
+        if (reading.Data.TryGetProperty(name, out value)) return true;
+        var pascal = char.ToUpperInvariant(name[0]) + name[1..];
+        if (reading.Data.TryGetProperty(pascal, out value)) return true;
+        var camel = char.ToLowerInvariant(name[0]) + name[1..];
+        if (reading.Data.TryGetProperty(camel, out value)) return true;
+        return false;
+    }
+
+    private double GetDataDouble(DevFlowSensorReading reading, string name)
+    {
+        if (TryGetDataProperty(reading, name, out var val)) return val.GetDouble();
+        return 0;
+    }
+
     private RenderFragment RenderSensorReadingData(DevFlowSensorReading reading) => __builder =>
     {
         var sensor = reading.Sensor.ToLowerInvariant();
@@ -698,40 +715,56 @@
                 case "accelerometer":
                 case "gyroscope":
                 case "magnetometer":
-                    if (reading.Data.TryGetProperty("x", out var ax))
+                    if (TryGetDataProperty(reading, "x", out var ax))
                     {
                         <div class="sensor-values">
                             <div class="sensor-value"><span class="axis axis-x">X</span> @ax.GetDouble().ToString("F4")</div>
-                            <div class="sensor-value"><span class="axis axis-y">Y</span> @reading.Data.GetProperty("y").GetDouble().ToString("F4")</div>
-                            <div class="sensor-value"><span class="axis axis-z">Z</span> @reading.Data.GetProperty("z").GetDouble().ToString("F4")</div>
+                            <div class="sensor-value"><span class="axis axis-y">Y</span> @GetDataDouble(reading, "y").ToString("F4")</div>
+                            <div class="sensor-value"><span class="axis axis-z">Z</span> @GetDataDouble(reading, "z").ToString("F4")</div>
                         </div>
+                    }
+                    else
+                    {
+                        <div class="sensor-values mono">@reading.Data.ToString()</div>
                     }
                     break;
                 case "barometer":
-                    if (reading.Data.TryGetProperty("pressure", out var pressure))
+                    if (TryGetDataProperty(reading, "pressureInHectopascals", out var pressure))
                     {
                         <div class="sensor-values">
                             <div class="sensor-value"><span class="axis">Pressure</span> @pressure.GetDouble().ToString("F2") hPa</div>
                         </div>
                     }
+                    else
+                    {
+                        <div class="sensor-values mono">@reading.Data.ToString()</div>
+                    }
                     break;
                 case "compass":
-                    if (reading.Data.TryGetProperty("heading", out var heading))
+                    if (TryGetDataProperty(reading, "headingMagneticNorth", out var heading))
                     {
                         <div class="sensor-values">
                             <div class="sensor-value"><span class="axis">Heading</span> @heading.GetDouble().ToString("F1")°</div>
                         </div>
                     }
+                    else
+                    {
+                        <div class="sensor-values mono">@reading.Data.ToString()</div>
+                    }
                     break;
                 case "orientation":
-                    if (reading.Data.TryGetProperty("x", out var ox))
+                    if (TryGetDataProperty(reading, "x", out var ox))
                     {
                         <div class="sensor-values">
                             <div class="sensor-value"><span class="axis axis-x">X</span> @ox.GetDouble().ToString("F4")</div>
-                            <div class="sensor-value"><span class="axis axis-y">Y</span> @reading.Data.GetProperty("y").GetDouble().ToString("F4")</div>
-                            <div class="sensor-value"><span class="axis axis-z">Z</span> @reading.Data.GetProperty("z").GetDouble().ToString("F4")</div>
-                            <div class="sensor-value"><span class="axis axis-w">W</span> @reading.Data.GetProperty("w").GetDouble().ToString("F4")</div>
+                            <div class="sensor-value"><span class="axis axis-y">Y</span> @GetDataDouble(reading, "y").ToString("F4")</div>
+                            <div class="sensor-value"><span class="axis axis-z">Z</span> @GetDataDouble(reading, "z").ToString("F4")</div>
+                            <div class="sensor-value"><span class="axis axis-w">W</span> @GetDataDouble(reading, "w").ToString("F4")</div>
                         </div>
+                    }
+                    else
+                    {
+                        <div class="sensor-values mono">@reading.Data.ToString()</div>
                     }
                     break;
                 default:
