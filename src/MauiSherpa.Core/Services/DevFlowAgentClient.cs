@@ -450,7 +450,10 @@ public class DevFlowAgentClient : IDisposable
         => await GetAsync<DevFlowVersionTracking>("/api/platform/version-tracking", ct);
 
     public async Task<List<DevFlowPermissionStatus>> GetPermissionsAsync(CancellationToken ct = default)
-        => await GetAsync<List<DevFlowPermissionStatus>>("/api/platform/permissions", ct) ?? new();
+    {
+        var result = await GetAsync<DevFlowPermissionsResponse>("/api/platform/permissions", ct);
+        return result?.Permissions ?? new();
+    }
 
     public async Task<DevFlowPermissionStatus?> CheckPermissionAsync(string permission, CancellationToken ct = default)
         => await GetAsync<DevFlowPermissionStatus>($"/api/platform/permissions/{Uri.EscapeDataString(permission)}", ct);

@@ -670,6 +670,11 @@ public class DevFlowPermissionStatus
     [JsonPropertyName("status")] public string Status { get; set; } = string.Empty;
 }
 
+public class DevFlowPermissionsResponse
+{
+    [JsonPropertyName("permissions")] public List<DevFlowPermissionStatus>? Permissions { get; set; }
+}
+
 public class DevFlowGeolocation
 {
     [JsonPropertyName("latitude")] public double Latitude { get; set; }

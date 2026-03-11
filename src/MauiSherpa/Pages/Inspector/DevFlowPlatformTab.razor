@@ -60,6 +60,7 @@
     private DevFlowConnectivityInfo? connectivityInfo;
     private DevFlowVersionTracking? versionTracking;
     private bool infoLoaded;
+    private Dictionary<string, string> cardErrors = new();
 
     // Storage state
     private List<DevFlowPreferenceEntry> preferences = new();
@@ -120,24 +121,54 @@
     {
         loading = true;
         error = null;
+        cardErrors.Clear();
         StateHasChanged();
 
         try
         {
-            var tasks = new Task[]
-            {
-                Task.Run(async () => appInfo = await Client.GetAppInfoAsync()),
-                Task.Run(async () => deviceInfo = await Client.GetDeviceInfoAsync()),
-                Task.Run(async () => displayInfo = await Client.GetDisplayInfoAsync()),
-                Task.Run(async () => batteryInfo = await Client.GetBatteryInfoAsync()),
-                Task.Run(async () => connectivityInfo = await Client.GetConnectivityAsync()),
-                Task.Run(async () => versionTracking = await Client.GetVersionTrackingAsync())
-            };
-            await Task.WhenAll(tasks);
+            await Task.WhenAll(
+                LoadInfoCardAsync<DevFlowAppInfo>("App Info", "/api/platform/app-info", r => appInfo = r),
+                LoadInfoCardAsync<DevFlowDeviceInfo>("Device", "/api/platform/device-info", r => deviceInfo = r),
+                LoadInfoCardAsync<DevFlowDisplayInfo>("Display", "/api/platform/device-display", r => displayInfo = r),
+                LoadInfoCardAsync<DevFlowBatteryInfo>("Battery", "/api/platform/battery", r => batteryInfo = r),
+                LoadInfoCardAsync<DevFlowConnectivityInfo>("Connectivity", "/api/platform/connectivity", r => connectivityInfo = r),
+                LoadInfoCardAsync<DevFlowVersionTracking>("Version Tracking", "/api/platform/version-tracking", r => versionTracking = r)
+            );
             infoLoaded = true;
         }
         catch (Exception ex) { error = ex.Message; }
         finally { loading = false; StateHasChanged(); }
+    }
+
+    private async Task LoadInfoCardAsync<T>(string cardName, string endpoint, Action<T?> setter) where T : class
+    {
+        try
+        {
+            using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+            var response = await httpClient.GetStringAsync($"{Client.BaseUrl}{endpoint}");
+            var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+
+            // Check if the response is an error ({"success": false, "error": "..."})
+            try
+            {
+                var errorCheck = JsonSerializer.Deserialize<JsonElement>(response, options);
+                if (errorCheck.TryGetProperty("success", out var successProp) && !successProp.GetBoolean())
+                {
+                    var errorMsg = errorCheck.TryGetProperty("error", out var errProp) ? errProp.GetString() : "Unknown error";
+                    cardErrors[cardName] = errorMsg ?? "Unknown error";
+                    setter(null);
+                    return;
+                }
+            }
+            catch { /* Not an error response, proceed with deserialization */ }
+
+            setter(JsonSerializer.Deserialize<T>(response, options));
+        }
+        catch (Exception ex)
+        {
+            cardErrors[cardName] = ex.Message;
+            setter(null);
+        }
     }
 
     private RenderFragment RenderInfoTab() => __builder =>
@@ -192,7 +223,7 @@
 
                 @RenderInfoCard("Battery", "fas fa-battery-half", new Dictionary<string, string?>
                 {
-                    ["Charge"] = batteryInfo != null ? $"{batteryInfo.ChargeLevel * 100:F0}%" : null,
+                    ["Charge"] = batteryInfo != null ? (batteryInfo.ChargeLevel >= 0 ? $"{batteryInfo.ChargeLevel * 100:F0}%" : "N/A") : null,
                     ["State"] = batteryInfo?.State,
                     ["Power Source"] = batteryInfo?.PowerSource,
                     ["Energy Saver"] = batteryInfo?.EnergySaverStatus
@@ -219,17 +250,27 @@
 
     private RenderFragment RenderInfoCard(string title, string icon, Dictionary<string, string?> fields) => __builder =>
     {
-        <div class="info-card">
+        <div class="info-card @(cardErrors.ContainsKey(title) ? "info-card-error" : "")">
             <div class="info-card-header">
                 <i class="@icon"></i> @title
             </div>
             <div class="info-card-body">
-                @foreach (var (key, value) in fields)
+                @if (cardErrors.TryGetValue(title, out var cardError))
                 {
-                    <div class="info-row">
-                        <span class="info-label">@key</span>
-                        <span class="info-value">@(value ?? "—")</span>
+                    <div class="card-error-message">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <span>@cardError</span>
                     </div>
+                }
+                else
+                {
+                    @foreach (var (key, value) in fields)
+                    {
+                        <div class="info-row">
+                            <span class="info-label">@key</span>
+                            <span class="info-value">@(value ?? "—")</span>
+                        </div>
+                    }
                 }
             </div>
         </div>
@@ -993,6 +1034,25 @@
 
     .info-card-body {
         padding: 0.5rem 0.75rem;
+    }
+
+    .info-card-error {
+        border-color: rgba(239, 68, 68, 0.3);
+    }
+
+    .card-error-message {
+        color: #ef4444;
+        font-size: 0.75rem;
+        padding: 0.5rem 0;
+        display: flex;
+        align-items: flex-start;
+        gap: 0.4rem;
+        line-height: 1.4;
+    }
+
+    .card-error-message i {
+        flex-shrink: 0;
+        margin-top: 0.1rem;
     }
 
     .info-row {
