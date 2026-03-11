@@ -108,8 +108,8 @@
                 <div class="metric-label">Managed Heap</div>
                 <div class="metric-value">@FormatBytes(LatestSample?.ManagedBytes)</div>
             </div>
-            <div class="metric-card">
-                <div class="metric-label">Native Heap</div>
+            <div class="metric-card" title="@(LatestSample?.NativeMemoryKind ?? "")">
+                <div class="metric-label">@NativeMemoryLabel</div>
                 <div class="metric-value">@FormatBytes(LatestSample?.NativeMemoryBytes)</div>
             </div>
             <div class="metric-card">
@@ -176,7 +176,7 @@
 
             <div class="chart-card">
                 <div class="chart-header">
-                    <span>Native heap</span>
+                    <span title="@(LatestSample?.NativeMemoryKind ?? "")">@NativeMemoryLabel</span>
                     <span>@FormatBytes(LatestSample?.NativeMemoryBytes)</span>
                 </div>
                 <svg viewBox="0 0 320 96" class="chart-svg">
@@ -309,7 +309,11 @@
                     <div><strong>Frame source:</strong> @(LatestSample?.FrameSource ?? "—")</div>
                     <div><strong>Frame quality:</strong> @FormatFrameQuality(LatestSample?.FrameQuality)</div>
                     <div><strong>Frame quality detail:</strong> @(LatestSample?.FrameQuality ?? "—")</div>
-                    <div><strong>Native heap:</strong> @FormatBytes(LatestSample?.NativeMemoryBytes)</div>
+                    <div><strong>@NativeMemoryLabel:</strong> @FormatBytes(LatestSample?.NativeMemoryBytes)</div>
+                    @if (!string.IsNullOrEmpty(LatestSample?.NativeMemoryKind))
+                    {
+                        <div><strong>Memory kind:</strong> @LatestSample.NativeMemoryKind</div>
+                    }
                 </div>
             </div>
         </div>
@@ -387,6 +391,7 @@
     private bool CanStop => !isBusy && session?.IsActive == true;
     private bool MeetsMinVersion => Version.TryParse(AgentVersion, out var v) && v >= MinRequiredVersion;
     private DevFlowProfilerSample? LatestSample => samples.Count > 0 ? samples[^1] : null;
+    private string NativeMemoryLabel => FormatNativeMemoryKind(LatestSample?.NativeMemoryKind);
     private (int Gc0, int Gc1, int Gc2) gcDelta => GetGcDelta();
     private string fpsPoints => GetSparklinePoints(s => s.Fps);
     private string frameP95Points => GetSparklinePoints(s => s.FrameTimeMsP95);
@@ -835,6 +840,15 @@
 
         return frameQuality;
     }
+
+    private static string FormatNativeMemoryKind(string? kind) => kind switch
+    {
+        "apple.phys-footprint" => "Phys Footprint",
+        "android.native-heap-allocated" => "Native Heap",
+        "windows.working-set" => "Working Set",
+        "process.working-set-minus-managed" => "Native Memory",
+        _ => "Native Memory",
+    };
 
     private static string? BuildSpanDetail(DevFlowProfilerSpan span)
     {

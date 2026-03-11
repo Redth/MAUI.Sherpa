@@ -158,6 +158,9 @@ public class DevFlowProfilerSample
     [JsonPropertyName("nativeMemoryBytes")]
     public long? NativeMemoryBytes { get; set; }
 
+    [JsonPropertyName("nativeMemoryKind")]
+    public string? NativeMemoryKind { get; set; }
+
     [JsonPropertyName("gc0")]
     public int Gc0 { get; set; }
 
