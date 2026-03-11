@@ -86,10 +86,8 @@
     // Sensors state
     private List<DevFlowSensorStatus> sensors = new();
     private bool sensorsLoaded;
-    private string? streamingSensor;
-    private DevFlowSensorReading? latestReading;
+    private Dictionary<string, DevFlowSensorReading> sensorReadings = new();
     private string sensorSpeed = "UI";
-    private CancellationTokenSource? sensorStreamCts;
 
     // Location state
     private DevFlowGeolocation? location;
@@ -674,10 +672,7 @@
         if (currentlyActive)
         {
             await Client.StopSensorAsync(sensorName);
-            if (streamingSensor == sensorName)
-            {
-                StopSensorStreaming();
-            }
+            StopSensorStreaming(sensorName);
         }
         else
         {
@@ -688,28 +683,29 @@
 
     private void StartSensorStreaming(string sensorName)
     {
-        StopSensorStreaming();
-        streamingSensor = sensorName;
-        latestReading = null;
-        sensorStreamCts = new CancellationTokenSource();
+        if (Client.IsSensorStreaming(sensorName)) return;
 
         _ = Task.Run(async () =>
         {
             await Client.StreamSensorAsync(sensorName, reading =>
             {
-                latestReading = reading;
+                sensorReadings[sensorName] = reading;
                 InvokeAsync(StateHasChanged);
-            }, sensorSpeed, 100, sensorStreamCts.Token);
+            }, sensorSpeed, 100);
         });
     }
 
-    private void StopSensorStreaming()
+    private void StopSensorStreaming(string sensorName)
     {
-        sensorStreamCts?.Cancel();
-        sensorStreamCts = null;
-        Client.StopSensorStream();
-        streamingSensor = null;
-        latestReading = null;
+        Client.StopSensorStream(sensorName);
+        sensorReadings.Remove(sensorName);
+    }
+
+    private void StopAllSensorStreaming()
+    {
+        Client.StopAllSensorStreams();
+        sensorReadings.Clear();
+        StateHasChanged();
     }
 
     private string GetSensorIcon(string sensor) => sensor.ToLowerInvariant() switch
@@ -819,6 +815,12 @@
             <button class="btn-sm" @onclick="LoadSensorsAsync" disabled="@loading">
                 <i class="fas fa-sync-alt @(loading ? "fa-spin" : "")"></i> Refresh
             </button>
+            @if (Client.StreamingSensorCount > 0)
+            {
+                <button class="btn-sm btn-danger" @onclick="StopAllSensorStreaming">
+                    <i class="fas fa-stop-circle"></i> Stop All (@Client.StreamingSensorCount)
+                </button>
+            }
             <select @bind="sensorSpeed" class="input-sm select-sm">
                 <option value="UI">UI Speed</option>
                 <option value="Game">Game Speed</option>
@@ -870,9 +872,9 @@
                                 </button>
                                 @if (sensor.Active)
                                 {
-                                    @if (streamingSensor == sensor.Sensor)
+                                    @if (Client.IsSensorStreaming(sensor.Sensor))
                                     {
-                                        <button class="btn-sm" @onclick="StopSensorStreaming">
+                                        <button class="btn-sm" @onclick="() => StopSensorStreaming(sensor.Sensor)">
                                             <i class="fas fa-stop"></i> Stop Stream
                                         </button>
                                     }
@@ -887,15 +889,15 @@
                         </div>
                     </div>
 
-                    @if (streamingSensor == sensor.Sensor && latestReading != null)
+                    @if (sensorReadings.TryGetValue(sensor.Sensor, out var reading))
                     {
                         <div class="sensor-reading-panel">
                             <div class="reading-header">
                                 <i class="fas fa-broadcast-tower reading-pulse"></i>
-                                Live: @latestReading.Sensor
-                                <span class="reading-timestamp">@latestReading.Timestamp</span>
+                                Live: @reading.Sensor
+                                <span class="reading-timestamp">@reading.Timestamp</span>
                             </div>
-                            @RenderSensorReadingData(latestReading)
+                            @RenderSensorReadingData(reading)
                         </div>
                     }
                 }
@@ -974,7 +976,8 @@
 
     public void Dispose()
     {
-        StopSensorStreaming();
+        Client.StopAllSensorStreams();
+        sensorReadings.Clear();
     }
 }
 

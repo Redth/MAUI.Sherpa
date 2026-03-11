@@ -15,8 +15,7 @@ public class DevFlowAgentClient : IDisposable
     private CancellationTokenSource? _networkWsCts;
     private ClientWebSocket? _logsWs;
     private CancellationTokenSource? _logsWsCts;
-    private ClientWebSocket? _sensorWs;
-    private CancellationTokenSource? _sensorWsCts;
+    private readonly Dictionary<string, (ClientWebSocket Ws, CancellationTokenSource Cts)> _sensorStreams = new();
     private bool _disposed;
 
     public string AgentHost { get; }
@@ -553,24 +552,24 @@ public class DevFlowAgentClient : IDisposable
 
     public async Task StreamSensorAsync(string sensor, Action<DevFlowSensorReading> onReading, string speed = "UI", int throttleMs = 100, CancellationToken ct = default)
     {
-        _sensorWsCts?.Cancel();
-        _sensorWsCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        var token = _sensorWsCts.Token;
+        StopSensorStream(sensor);
 
-        _sensorWs?.Dispose();
-        _sensorWs = new ClientWebSocket();
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var ws = new ClientWebSocket();
+        lock (_sensorStreams) { _sensorStreams[sensor] = (ws, cts); }
 
+        var token = cts.Token;
         try
         {
             var wsUrl = $"ws://{AgentHost}:{AgentPort}/ws/sensors?sensor={Uri.EscapeDataString(sensor)}&speed={Uri.EscapeDataString(speed)}&throttleMs={throttleMs}";
-            await _sensorWs.ConnectAsync(new Uri(wsUrl), token);
+            await ws.ConnectAsync(new Uri(wsUrl), token);
 
             var buffer = new byte[16 * 1024];
             var sb = new StringBuilder();
 
-            while (_sensorWs.State == WebSocketState.Open && !token.IsCancellationRequested)
+            while (ws.State == WebSocketState.Open && !token.IsCancellationRequested)
             {
-                var result = await _sensorWs.ReceiveAsync(buffer, token);
+                var result = await ws.ReceiveAsync(buffer, token);
                 if (result.MessageType == WebSocketMessageType.Close)
                     break;
 
@@ -592,17 +591,48 @@ public class DevFlowAgentClient : IDisposable
         catch (WebSocketException) { }
         finally
         {
-            if (_sensorWs?.State == WebSocketState.Open)
+            if (ws.State == WebSocketState.Open)
             {
-                try { await _sensorWs.CloseAsync(WebSocketCloseStatus.NormalClosure, null, CancellationToken.None); }
+                try { await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, null, CancellationToken.None); }
                 catch { }
+            }
+            lock (_sensorStreams) { _sensorStreams.Remove(sensor); }
+        }
+    }
+
+    public void StopSensorStream(string sensor)
+    {
+        lock (_sensorStreams)
+        {
+            if (_sensorStreams.Remove(sensor, out var entry))
+            {
+                entry.Cts.Cancel();
+                entry.Ws.Dispose();
             }
         }
     }
 
-    public void StopSensorStream()
+    public void StopAllSensorStreams()
     {
-        _sensorWsCts?.Cancel();
+        lock (_sensorStreams)
+        {
+            foreach (var entry in _sensorStreams.Values)
+            {
+                entry.Cts.Cancel();
+                entry.Ws.Dispose();
+            }
+            _sensorStreams.Clear();
+        }
+    }
+
+    public bool IsSensorStreaming(string sensor)
+    {
+        lock (_sensorStreams) { return _sensorStreams.ContainsKey(sensor); }
+    }
+
+    public int StreamingSensorCount
+    {
+        get { lock (_sensorStreams) { return _sensorStreams.Count; } }
     }
 
     // --- Helpers ---
@@ -666,8 +696,7 @@ public class DevFlowAgentClient : IDisposable
         _networkWs?.Dispose();
         _logsWsCts?.Cancel();
         _logsWs?.Dispose();
-        _sensorWsCts?.Cancel();
-        _sensorWs?.Dispose();
+        StopAllSensorStreams();
         _http.Dispose();
     }
 }
