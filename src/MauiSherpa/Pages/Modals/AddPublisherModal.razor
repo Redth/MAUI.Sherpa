@@ -60,7 +60,7 @@
                 <div class="selection-list">
                     @foreach (var repo in FilteredRepos.Take(30))
                     {
-                        var isExisting = existingPublishers.Any(p => p.PublisherId == selectedPublisher!.Id && p.RepositoryId == repo.Id);
+                        var isExisting = existingPublishers.Any(p => p.PublisherId == selectedPublisher!.Id && p.RepositoryFullName == repo.FullName);
                         <label class="selection-item @(selectedRepo?.Id == repo.Id ? "selected" : "") @(isExisting ? "disabled" : "")"
                                @onclick="@(() => { if (!isExisting) SelectRepo(repo); })">
                             <div class="item-content">
@@ -202,7 +202,7 @@
                 selectedPublisher.Id,
                 selectedPublisher.Name,
                 selectedPublisher.ProviderId,
-                repo.Id,
+                repo.FullName,
                 repo.FullName);
             bridge.SetValid(true);
         }

@@ -810,7 +810,7 @@
                 });
 
                 await PublisherService.PublishSecretsAsync(
-                    dest.PublisherId, dest.RepositoryId, selectedSecrets, progress);
+                    dest.PublisherId, dest.RepositoryFullName, selectedSecrets, progress);
 
                 dest.Status = PublishStatus.Success;
                 dest.StatusMessage = $"{selectedSecrets.Count} secret(s) published successfully";
@@ -862,7 +862,7 @@
     private void AddNewDestination(PublisherRepository repo)
     {
         if (addDestPublisher is null) return;
-        if (destinations.Any(d => d.PublisherId == addDestPublisher.Id && d.RepositoryId == repo.Id))
+        if (destinations.Any(d => d.PublisherId == addDestPublisher.Id && d.RepositoryFullName == repo.FullName))
             return;
 
         destinations.Add(new DestinationVM
@@ -870,7 +870,7 @@
             PublisherId = addDestPublisher.Id,
             PublisherName = addDestPublisher.Name,
             ProviderId = addDestPublisher.ProviderId,
-            RepositoryId = repo.Id,
+            RepositoryId = repo.FullName,
             RepositoryFullName = repo.FullName,
             Checked = true
         });
