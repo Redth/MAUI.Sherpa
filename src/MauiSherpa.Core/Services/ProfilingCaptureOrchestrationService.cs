@@ -700,10 +700,6 @@ public class ProfilingCaptureOrchestrationService : IProfilingCaptureOrchestrati
         arguments.Add("--profile");
         arguments.Add(string.Join(",", profiles));
 
-        // Emit speedscope JSON alongside the .nettrace during capture
-        arguments.Add("--format");
-        arguments.Add("Speedscope");
-
         var dependsOn = new List<string>();
         if (diagnosticPortAddress is not null)
             dependsOn.Add("start-dsrouter");
