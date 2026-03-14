@@ -155,6 +155,49 @@ public class DevFlowAgentClient : IDisposable
     public async Task<bool> FocusAsync(string elementId, CancellationToken ct = default)
         => await PostActionAsync("/api/action/focus", new { elementId }, ct);
 
+    // --- Accessibility ---
+
+    public async Task<DevFlowAccessibilityTree?> GetAccessibilityTreeAsync(int? window = null, CancellationToken ct = default)
+    {
+        var url = window != null ? $"/api/accessibility?window={window}" : "/api/accessibility";
+        return await GetAsync<DevFlowAccessibilityTree>(url, ct);
+    }
+
+    /// <summary>
+    /// Returns the native accessibility tree in the exact order the platform screen reader visits elements.
+    /// Requires MauiDevFlow agent v3+ (the /api/a11y/native-tree endpoint).
+    /// </summary>
+    public async Task<DevFlowNativeA11yTree?> GetNativeA11yTreeAsync(int? window = null, CancellationToken ct = default)
+    {
+        var url = window != null ? $"/api/a11y/native-tree?window={window}" : "/api/a11y/native-tree";
+        return await GetAsync<DevFlowNativeA11yTree>(url, ct);
+    }
+
+    /// <summary>
+    /// Highlights the element on the running device/emulator by drawing a native overlay border.
+    /// Pass null elementId to clear the current highlight.
+    /// </summary>
+    public async Task HighlightAsync(
+        string? elementId,
+        string? color = null,
+        int durationMs = 3000,
+        DevFlowBoundsInfo? fallbackBounds = null,
+        bool scrollIntoView = true,
+        CancellationToken ct = default)
+    {
+        await PostActionAsync("/api/action/highlight", new
+        {
+            elementId,
+            color,
+            durationMs,
+            scrollIntoView,
+            x      = fallbackBounds?.X,
+            y      = fallbackBounds?.Y,
+            width  = fallbackBounds?.Width,
+            height = fallbackBounds?.Height,
+        }, ct);
+    }
+
     // --- Hit Test ---
 
     public async Task<DevFlowHitTestResult?> HitTestAsync(double x, double y, int? window = null, CancellationToken ct = default)
