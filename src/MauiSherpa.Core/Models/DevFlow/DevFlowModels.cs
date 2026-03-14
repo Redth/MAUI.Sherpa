@@ -391,6 +391,15 @@ public class DevFlowElementInfo
 
     [JsonPropertyName("children")]
     public List<DevFlowElementInfo>? Children { get; set; }
+
+    [JsonPropertyName("effectiveTextColor")]
+    public string? EffectiveTextColor { get; set; }
+
+    [JsonPropertyName("effectiveBackgroundColor")]
+    public string? EffectiveBackgroundColor { get; set; }
+
+    [JsonPropertyName("accessibility")]
+    public DevFlowNativeAccessibilityInfo? Accessibility { get; set; }
 }
 
 public class DevFlowBoundsInfo
@@ -730,4 +739,217 @@ public class DevFlowSecureStorageEntry
     [JsonPropertyName("key")] public string Key { get; set; } = string.Empty;
     [JsonPropertyName("value")] public string? Value { get; set; }
     [JsonPropertyName("exists")] public bool Exists { get; set; }
+}
+
+// --- Native Accessibility Data (from agent /api/accessibility) ---
+
+public class DevFlowAccessibilityTree
+{
+    [JsonPropertyName("totalElements")]
+    public int TotalElements { get; set; }
+
+    [JsonPropertyName("accessibilityElements")]
+    public List<DevFlowAccessibilityElement> AccessibilityElements { get; set; } = new();
+}
+
+/// <summary>
+/// Response from /api/a11y/native-tree — elements in the exact order
+/// the platform screen reader (VoiceOver, TalkBack, Narrator) visits them.
+/// </summary>
+public class DevFlowNativeA11yTree
+{
+    [JsonPropertyName("platform")]
+    public string Platform { get; set; } = string.Empty;
+
+    [JsonPropertyName("count")]
+    public int Count { get; set; }
+
+    [JsonPropertyName("entries")]
+    public List<DevFlowNativeA11yEntry> Entries { get; set; } = new();
+}
+
+public class DevFlowNativeA11yEntry
+{
+    [JsonPropertyName("order")]
+    public int Order { get; set; }
+
+    [JsonPropertyName("elementId")]
+    public string? ElementId { get; set; }
+
+    [JsonPropertyName("label")]
+    public string? Label { get; set; }
+
+    [JsonPropertyName("hint")]
+    public string? Hint { get; set; }
+
+    [JsonPropertyName("value")]
+    public string? Value { get; set; }
+
+    [JsonPropertyName("role")]
+    public string? Role { get; set; }
+
+    [JsonPropertyName("traits")]
+    public List<string>? Traits { get; set; }
+
+    [JsonPropertyName("isHeading")]
+    public bool IsHeading { get; set; }
+
+    [JsonPropertyName("windowBounds")]
+    public DevFlowBoundsInfo? WindowBounds { get; set; }
+
+    [JsonPropertyName("nativeType")]
+    public string? NativeType { get; set; }
+}
+
+public class DevFlowAccessibilityElement
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = string.Empty;
+
+    [JsonPropertyName("type")]
+    public string Type { get; set; } = string.Empty;
+
+    [JsonPropertyName("automationId")]
+    public string? AutomationId { get; set; }
+
+    [JsonPropertyName("text")]
+    public string? Text { get; set; }
+
+    [JsonPropertyName("windowBounds")]
+    public DevFlowBoundsInfo? WindowBounds { get; set; }
+
+    [JsonPropertyName("accessibility")]
+    public DevFlowNativeAccessibilityInfo? Accessibility { get; set; }
+}
+
+public class DevFlowNativeAccessibilityInfo
+{
+    [JsonPropertyName("isAccessibilityElement")]
+    public bool IsAccessibilityElement { get; set; }
+
+    [JsonPropertyName("label")]
+    public string? Label { get; set; }
+
+    [JsonPropertyName("hint")]
+    public string? Hint { get; set; }
+
+    [JsonPropertyName("value")]
+    public string? Value { get; set; }
+
+    [JsonPropertyName("role")]
+    public string? Role { get; set; }
+
+    [JsonPropertyName("traits")]
+    public List<string>? Traits { get; set; }
+
+    [JsonPropertyName("isEnabled")]
+    public bool IsEnabled { get; set; } = true;
+
+    [JsonPropertyName("isFocusable")]
+    public bool IsFocusable { get; set; }
+
+    [JsonPropertyName("isFocused")]
+    public bool IsFocused { get; set; }
+
+    [JsonPropertyName("isHeading")]
+    public bool IsHeading { get; set; }
+
+    [JsonPropertyName("order")]
+    public int? Order { get; set; }
+
+    [JsonPropertyName("childCount")]
+    public int? ChildCount { get; set; }
+
+    [JsonPropertyName("liveRegion")]
+    public string? LiveRegion { get; set; }
+}
+
+// --- Accessibility Audit Models ---
+
+public enum AccessibilitySeverity
+{
+    Error,
+    Warning,
+    Info
+}
+
+/// <summary>
+/// A single accessibility issue found during an audit of the visual tree.
+/// </summary>
+public class AccessibilityIssue
+{
+    public string ElementId { get; set; } = string.Empty;
+    public string ElementType { get; set; } = string.Empty;
+    public string? ElementText { get; set; }
+    public string? AutomationId { get; set; }
+    public AccessibilitySeverity Severity { get; set; }
+    public string RuleId { get; set; } = string.Empty;
+    public string RuleName { get; set; } = string.Empty;
+    public string Message { get; set; } = string.Empty;
+    public string Suggestion { get; set; } = string.Empty;
+    public string? XamlFix { get; set; }
+    public DevFlowBoundsInfo? WindowBounds { get; set; }
+}
+
+/// <summary>
+/// Represents how a screen reader would announce an element.
+/// </summary>
+public class ScreenReaderEntry
+{
+    public int Order { get; set; }
+    public string ElementId { get; set; } = string.Empty;
+    public string ElementType { get; set; } = string.Empty;
+    public string Role { get; set; } = string.Empty;
+    public string AnnouncedText { get; set; } = string.Empty;
+    public string? Hint { get; set; }
+    public string? HeadingLevel { get; set; }
+    public bool IsInteractive { get; set; }
+    public bool HasIssue { get; set; }
+    public DevFlowBoundsInfo? WindowBounds { get; set; }
+}
+
+/// <summary>
+/// Result of a WCAG color contrast check.
+/// </summary>
+public class ContrastCheckResult
+{
+    public string ElementId { get; set; } = string.Empty;
+    public string ElementType { get; set; } = string.Empty;
+    public string? ElementText { get; set; }
+    public string ForegroundColor { get; set; } = string.Empty;
+    public string BackgroundColor { get; set; } = string.Empty;
+    public double ContrastRatio { get; set; }
+    public bool PassesAA { get; set; }
+    public bool PassesAAA { get; set; }
+    public bool IsLargeText { get; set; }
+    public DevFlowBoundsInfo? WindowBounds { get; set; }
+}
+
+/// <summary>
+/// Accessibility score breakdown by category.
+/// </summary>
+public class AccessibilityScoreCategory
+{
+    public string Name { get; set; } = string.Empty;
+    public string Icon { get; set; } = string.Empty;
+    public int Passed { get; set; }
+    public int Total { get; set; }
+    public bool IsPass => Total == 0 || Passed == Total;
+}
+
+/// <summary>
+/// Summary of an accessibility audit run.
+/// </summary>
+public class AccessibilityAuditResult
+{
+    public DateTimeOffset Timestamp { get; set; } = DateTimeOffset.UtcNow;
+    public int TotalElements { get; set; }
+    public List<AccessibilityIssue> Issues { get; set; } = new();
+    public List<ScreenReaderEntry> ScreenReaderOrder { get; set; } = new();
+    public List<ContrastCheckResult> ContrastResults { get; set; } = new();
+    public List<AccessibilityScoreCategory> ScoreCategories { get; set; } = new();
+    public int Score { get; set; }
+    public int ErrorCount => Issues.Count(i => i.Severity == AccessibilitySeverity.Error);
+    public int WarningCount => Issues.Count(i => i.Severity == AccessibilitySeverity.Warning);
+    public int InfoCount => Issues.Count(i => i.Severity == AccessibilitySeverity.Info);
 }
