@@ -1769,6 +1769,7 @@
         CloudSecretsProviderType.GoogleSecretManager => "fab fa-google",
         CloudSecretsProviderType.OnePassword => "fas fa-lock",
         CloudSecretsProviderType.Vaultwarden => "fas fa-vault",
+        CloudSecretsProviderType.AzureDevOps => "fab fa-microsoft",
         _ => "fas fa-lock"
     };
 
@@ -1793,6 +1794,7 @@
             CloudSecretsProviderType.GoogleSecretManager => GetGoogleSecretManagerUrl(provider),
             CloudSecretsProviderType.OnePassword => "https://my.1password.com",
             CloudSecretsProviderType.Vaultwarden => GetVaultwardenUrl(provider),
+            CloudSecretsProviderType.AzureDevOps => GetAzureDevOpsUrl(provider),
             _ => null
         };
     }
@@ -1850,6 +1852,17 @@
     {
         var serverUrl = provider.Settings.GetValueOrDefault("ServerUrl", "").TrimEnd('/');
         return string.IsNullOrEmpty(serverUrl) ? null : serverUrl;
+    }
+
+    private string? GetAzureDevOpsUrl(CloudSecretsProviderConfig provider)
+    {
+        var orgUrl = provider.Settings.GetValueOrDefault("OrganizationUrl", "").TrimEnd('/');
+        var project = provider.Settings.GetValueOrDefault("Project", "");
+
+        if (string.IsNullOrEmpty(orgUrl) || string.IsNullOrEmpty(project))
+            return null;
+
+        return $"{orgUrl}/{Uri.EscapeDataString(project)}/_library?itemType=VariableGroups";
     }
     
     private async Task ShowAddProviderDialog()

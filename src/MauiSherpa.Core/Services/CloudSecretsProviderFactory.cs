@@ -21,7 +21,8 @@ public class CloudSecretsProviderFactory : ICloudSecretsProviderFactory
         CloudSecretsProviderType.AwsSecretsManager,
         CloudSecretsProviderType.GoogleSecretManager,
         CloudSecretsProviderType.OnePassword,
-        CloudSecretsProviderType.Vaultwarden
+        CloudSecretsProviderType.Vaultwarden,
+        CloudSecretsProviderType.AzureDevOps
     };
 
     public ICloudSecretsProvider CreateProvider(CloudSecretsProviderConfig config)
@@ -34,6 +35,7 @@ public class CloudSecretsProviderFactory : ICloudSecretsProviderFactory
             CloudSecretsProviderType.GoogleSecretManager => new GoogleSecretManagerProvider(config, _logger),
             CloudSecretsProviderType.OnePassword => new OnePasswordProvider(config, _logger),
             CloudSecretsProviderType.Vaultwarden => new VaultwardenProvider(config, _logger),
+            CloudSecretsProviderType.AzureDevOps => new AzureDevOpsProvider(config, _logger),
             _ => throw new NotSupportedException($"Provider type {config.ProviderType} is not supported")
         };
     }
@@ -48,6 +50,7 @@ public class CloudSecretsProviderFactory : ICloudSecretsProviderFactory
             CloudSecretsProviderType.GoogleSecretManager => GetGoogleSecretManagerSettings(),
             CloudSecretsProviderType.OnePassword => GetOnePasswordSettings(),
             CloudSecretsProviderType.Vaultwarden => GetVaultwardenSettings(),
+            CloudSecretsProviderType.AzureDevOps => GetAzureDevOpsSettings(),
             _ => Array.Empty<CloudProviderSettingInfo>()
         };
     }
@@ -62,6 +65,7 @@ public class CloudSecretsProviderFactory : ICloudSecretsProviderFactory
             CloudSecretsProviderType.GoogleSecretManager => "Google Secret Manager",
             CloudSecretsProviderType.OnePassword => "1Password",
             CloudSecretsProviderType.Vaultwarden => "Vaultwarden / Bitwarden",
+            CloudSecretsProviderType.AzureDevOps => "Azure DevOps",
             CloudSecretsProviderType.None => "None",
             _ => providerType.ToString()
         };
@@ -272,5 +276,38 @@ public class CloudSecretsProviderFactory : ICloudSecretsProviderFactory
             IsSecret: false,
             DefaultValue: "MAUI.Sherpa",
             Placeholder: "MAUI.Sherpa")
+    };
+
+    private static IReadOnlyList<CloudProviderSettingInfo> GetAzureDevOpsSettings() => new[]
+    {
+        new CloudProviderSettingInfo(
+            "OrganizationUrl",
+            "Organization URL",
+            "The Azure DevOps organization URL",
+            IsRequired: true,
+            IsSecret: false,
+            Placeholder: "https://dev.azure.com/your-org"),
+        new CloudProviderSettingInfo(
+            "PersonalAccessToken",
+            "Personal Access Token",
+            "A PAT with Variable Groups read/create/manage permission",
+            IsRequired: true,
+            IsSecret: true,
+            Placeholder: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
+        new CloudProviderSettingInfo(
+            "Project",
+            "Project Name",
+            "The Azure DevOps project to store secrets in",
+            IsRequired: true,
+            IsSecret: false,
+            Placeholder: "MyProject"),
+        new CloudProviderSettingInfo(
+            "VariableGroupName",
+            "Variable Group Name",
+            "The variable group name to use for secret storage (defaults to MauiSherpa-Secrets)",
+            IsRequired: false,
+            IsSecret: false,
+            DefaultValue: "MauiSherpa-Secrets",
+            Placeholder: "MauiSherpa-Secrets")
     };
 }

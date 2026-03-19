@@ -2437,7 +2437,8 @@ public enum CloudSecretsProviderType
     GoogleSecretManager,
     Infisical,
     OnePassword,
-    Vaultwarden
+    Vaultwarden,
+    AzureDevOps
 }
 
 /// <summary>
