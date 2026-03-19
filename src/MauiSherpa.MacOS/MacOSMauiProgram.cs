@@ -121,6 +121,12 @@ public static class MacOSMauiProgram
 
         // Apple services
         builder.Services.AddSingleton<IAppleIdentityService, AppleIdentityService>();
+        builder.Services.AddSingleton<IAppleDownloadAuthService>(sp =>
+        {
+            var logger = sp.GetRequiredService<ILoggingService>();
+            var secureStorage = sp.GetRequiredService<ISecureStorageService>();
+            return new AppleDownloadAuthService(logger, secureStorage);
+        });
         builder.Services.AddSingleton<IAppleIdentityStateService, AppleIdentityStateService>();
         builder.Services.AddSingleton<IGoogleIdentityService, GoogleIdentityService>();
         builder.Services.AddSingleton<IGoogleIdentityStateService, GoogleIdentityStateService>();
@@ -135,6 +141,14 @@ public static class MacOSMauiProgram
             return new LocalCertificateService(logger, platform);
         });
         builder.Services.AddSingleton<ISimulatorService, MauiSherpa.Core.Services.SimulatorService>();
+        builder.Services.AddSingleton<IXcodeService>(sp =>
+        {
+            var logger = sp.GetRequiredService<ILoggingService>();
+            var platform = sp.GetRequiredService<IPlatformService>();
+            var httpClient = new HttpClient();
+            httpClient.DefaultRequestHeaders.Add("User-Agent", "MauiSherpa");
+            return new XcodeService(logger, platform, httpClient);
+        });
         builder.Services.AddSingleton<ISimulatorLogService, SimulatorLogService>();
         builder.Services.AddSingleton<IPhysicalDeviceService, MauiSherpa.Core.Services.PhysicalDeviceService>();
         builder.Services.AddSingleton<IPhysicalDeviceLogService, PhysicalDeviceLogService>();
@@ -173,7 +187,7 @@ public static class MacOSMauiProgram
         // ViewModels
         builder.Services.AddSingleton<DashboardViewModel>();
         builder.Services.AddSingleton<AndroidSdkViewModel>();
-        builder.Services.AddSingleton<AppleToolsViewModel>();
+        builder.Services.AddSingleton<XcodeManagementViewModel>();
         builder.Services.AddSingleton<CopilotViewModel>();
         builder.Services.AddSingleton<SettingsViewModel>();
 
@@ -209,6 +223,9 @@ public static class MacOSMauiProgram
         builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Apple.GetSimulatorDeviceTypesHandler>();
         builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Apple.GetSimulatorRuntimesHandler>();
         builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Apple.GetSimulatorAppsHandler>();
+        builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Apple.GetInstalledXcodesHandler>();
+        builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Apple.GetAvailableXcodesHandler>();
+        builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Apple.GetRuntimeStorageHandler>();
         builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.GetConnectedDevicesHandler>();
         builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Profiling.GetProfilingCatalogHandler>();
         builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Profiling.GetProfilingCapabilitiesHandler>();

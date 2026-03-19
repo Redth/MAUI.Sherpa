@@ -901,6 +901,20 @@ public record SimulatorRuntime(
     IReadOnlyList<SimulatorDeviceType>? SupportedDeviceTypes = null
 );
 
+/// <summary>
+/// Detailed simulator runtime storage info from xcrun simctl runtime list
+/// </summary>
+public record SimulatorRuntimeStorage(
+    string Identifier,
+    string? Build,
+    string? PlatformIdentifier,
+    string State,
+    long? SizeBytes,
+    bool Deletable,
+    DateTime? LastUsedAt,
+    string? MountPath
+);
+
 // ============================================================================
 // Xcode Management
 // ============================================================================
@@ -981,6 +995,124 @@ public interface IXcodeService
     /// Install Command Line Tools via xcode-select --install
     /// </summary>
     Task<bool> InstallCommandLineToolsAsync();
+
+    /// <summary>
+    /// Uninstall an Xcode installation by moving it to the Trash (requires admin privileges)
+    /// </summary>
+    Task<bool> UninstallXcodeAsync(string xcodeAppPath);
+
+    /// <summary>
+    /// Download an Xcode release .xip from Apple's CDN
+    /// </summary>
+    Task<bool> DownloadXcodeAsync(XcodeRelease release, string destinationPath, IProgress<XcodeDownloadProgress>? progress = null, CancellationToken ct = default);
+
+    /// <summary>
+    /// Install a downloaded Xcode .xip archive (unxip, move to /Applications, run first-launch)
+    /// </summary>
+    Task<bool> InstallXcodeAsync(string xipPath, string? targetDirectory = null, IProgress<string>? progress = null, CancellationToken ct = default);
+}
+
+/// <summary>
+/// Progress info for Xcode downloads
+/// </summary>
+public record XcodeDownloadProgress(
+    long BytesReceived,
+    long? TotalBytes,
+    double BytesPerSecond,
+    TimeSpan? EstimatedTimeRemaining
+);
+
+// ============================================================================
+// Apple Developer Download Authentication
+// ============================================================================
+
+/// <summary>
+/// Represents an authenticated Apple Developer session for downloading Xcode
+/// </summary>
+public record AppleAuthSession(
+    string AppleId,
+    Dictionary<string, string> Cookies,
+    DateTime ExpiresAt
+);
+
+/// <summary>
+/// 2FA method offered by Apple during authentication
+/// </summary>
+public record TwoFactorMethod(
+    string Type,          // "sms" or "device"
+    string? PhoneNumber,  // masked phone number for SMS, e.g. "+1 (•••) •••-••34"
+    int? PhoneId          // phone ID for SMS delivery
+);
+
+/// <summary>
+/// Options available during Apple ID two-factor authentication
+/// </summary>
+public record AppleAuthOptions(
+    bool CanUseTrustedDevice,
+    IReadOnlyList<TwoFactorMethod> TrustedPhoneNumbers
+);
+
+/// <summary>
+/// Result of an Apple authentication attempt
+/// </summary>
+public record AppleAuthResult(
+    bool Success,
+    bool RequiresTwoFactor,
+    AppleAuthOptions? TwoFactorOptions = null,
+    AppleAuthSession? Session = null,
+    string? ErrorMessage = null
+);
+
+/// <summary>
+/// Service for authenticating with Apple Developer for Xcode downloads.
+/// Uses Apple's SRP (Secure Remote Password) protocol + 2FA.
+/// </summary>
+public interface IAppleDownloadAuthService
+{
+    /// <summary>
+    /// Whether there is a valid, unexpired session
+    /// </summary>
+    bool IsAuthenticated { get; }
+
+    /// <summary>
+    /// The currently authenticated Apple ID, if any
+    /// </summary>
+    string? CurrentAppleId { get; }
+
+    /// <summary>
+    /// Authenticate with Apple ID credentials. May return RequiresTwoFactor.
+    /// </summary>
+    Task<AppleAuthResult> AuthenticateAsync(string appleId, string password);
+
+    /// <summary>
+    /// Submit a 2FA security code (from SMS or trusted device)
+    /// </summary>
+    Task<AppleAuthResult> SubmitTwoFactorCodeAsync(string code, TwoFactorMethod? method = null);
+
+    /// <summary>
+    /// Request an SMS code to be sent to the specified phone
+    /// </summary>
+    Task<bool> RequestSmsCodeAsync(TwoFactorMethod phone);
+
+    /// <summary>
+    /// Check if the current session is still valid
+    /// </summary>
+    Task<bool> ValidateSessionAsync();
+
+    /// <summary>
+    /// Get the current session cookies for making authenticated downloads
+    /// </summary>
+    AppleAuthSession? GetSession();
+
+    /// <summary>
+    /// Clear stored credentials and session
+    /// </summary>
+    Task SignOutAsync();
+
+    /// <summary>
+    /// Fired when authentication state changes
+    /// </summary>
+    event Action? AuthStateChanged;
 }
 
 /// <summary>
@@ -992,6 +1124,9 @@ public interface ISimulatorService
     Task<IReadOnlyList<SimulatorDevice>> GetSimulatorsAsync();
     Task<IReadOnlyList<SimulatorDeviceType>> GetDeviceTypesAsync();
     Task<IReadOnlyList<SimulatorRuntime>> GetRuntimesAsync();
+    Task<IReadOnlyList<SimulatorRuntimeStorage>> GetRuntimeStorageAsync();
+    Task<bool> InstallRuntimeAsync(string dmgPath, IProgress<string>? progress = null);
+    Task<bool> DeleteRuntimeAsync(string runtimeIdentifier, IProgress<string>? progress = null);
     Task<bool> CreateSimulatorAsync(string name, string deviceTypeId, string runtimeId, IProgress<string>? progress = null);
     Task<bool> DeleteSimulatorAsync(string udid, IProgress<string>? progress = null);
     Task<bool> BootSimulatorAsync(string udid, IProgress<string>? progress = null);
