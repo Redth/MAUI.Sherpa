@@ -188,6 +188,7 @@ class MacOSApp : Application
                 Title = "Apple",
                 Children = new List<MacOSSidebarItem>
                 {
+                    new() { Title = "Xcode Management", SystemImage = "hammer.fill", Tag = "/xcode-management" },
                     new() { Title = "Simulators", SystemImage = "ipad", Tag = "/apple-simulators" },
                     new() { Title = "Registered Devices", SystemImage = "iphone", Tag = "/apple-devices" },
                     new() { Title = "Bundle IDs", SystemImage = "touchid", Tag = "/bundle-ids" },
