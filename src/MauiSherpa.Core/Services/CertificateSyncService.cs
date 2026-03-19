@@ -401,54 +401,7 @@ public class CertificateSyncService : ICertificateSyncService
             return ImportP12ToX509Store(p12Data, password);
         }
 
-        if (!_localCertificateService.IsSupported)
-        {
-            _logger.LogWarning("Cannot import P12 to keychain: not supported on this platform");
-            return false;
-        }
-
-        // macOS: use security CLI to import into login keychain
-        var tempFile = Path.GetTempFileName() + ".p12";
-        try
-        {
-            await File.WriteAllBytesAsync(tempFile, p12Data, cancellationToken);
-
-            var loginKeychain = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                "Library/Keychains/login.keychain-db");
-            
-            var process = new System.Diagnostics.Process
-            {
-                StartInfo = new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = "security",
-                    Arguments = $"import \"{tempFile}\" -k \"{loginKeychain}\" -P \"{password}\" -T /usr/bin/codesign -T /usr/bin/security",
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                }
-            };
-
-            process.Start();
-            await process.WaitForExitAsync(cancellationToken);
-
-            var output = await process.StandardOutput.ReadToEndAsync(cancellationToken);
-            var error = await process.StandardError.ReadToEndAsync(cancellationToken);
-
-            if (process.ExitCode != 0)
-            {
-                _logger.LogError($"Failed to import P12: {error}");
-                return false;
-            }
-
-            _logger.LogInformation("Successfully imported certificate to keychain");
-            return true;
-        }
-        finally
-        {
-            try { File.Delete(tempFile); } catch { }
-        }
+        return await _localCertificateService.ImportP12Async(p12Data, password, cancellationToken);
     }
 
     private bool ImportP12ToX509Store(byte[] p12Data, string password)

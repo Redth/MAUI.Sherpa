@@ -1,4 +1,6 @@
 using System.Reflection;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using AppleAppStoreConnect;
 using MauiSherpa.Core.Interfaces;
 
@@ -444,22 +446,27 @@ public class AppleConnectService : IAppleConnectService
             // Use machine name as default common name
             var cn = commonName ?? Environment.MachineName;
             
-            // Create certificate with CSR
-            var response = await client.CreateCertificateAsync(cn, certType);
+            // Generate local RSA key pair and CSR so we retain the private key
+            using var rsa = RSA.Create(2048);
+            var csrRequest = new CertificateRequest(
+                $"CN={cn}", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+            var csrPem = csrRequest.CreateSigningRequestPem();
+
+            // Submit our CSR to Apple (private key stays local)
+            var response = await client.CreateCertificateWithSigningRequestAsync(csrPem, certType);
             
-            // Convert to X509Certificate2 to get details and export as PFX
+            // Combine Apple's signed certificate with our private key into a PFX
             var certContent = response.Data.Attributes.CertificateContent;
-            var cert = new System.Security.Cryptography.X509Certificates.X509Certificate2(
-                Convert.FromBase64String(certContent));
+            var cert = new X509Certificate2(Convert.FromBase64String(certContent));
+            using var certWithKey = cert.CopyWithPrivateKey(rsa);
             
-            var pfxData = cert.Export(
-                System.Security.Cryptography.X509Certificates.X509ContentType.Pfx, 
-                passphrase);
+            var pfxData = certWithKey.Export(X509ContentType.Pfx, passphrase);
             
             return new AppleCertificateCreateResult(
                 response.Data.Id,
                 pfxData,
-                cert.NotAfter);
+                cert.NotAfter,
+                passphrase);
         }
         catch (Exception ex)
         {

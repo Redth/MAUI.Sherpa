@@ -752,6 +752,15 @@
         var certResult = await FormModalService.ShowAsync<AppleCertificateCreateResult>(page);
         if (certResult == null) return;
 
+        // Import into the local keychain so the cert is available for signing, export, and cloud backup
+        if (LocalCertificateService.IsSupported)
+        {
+            var imported = await LocalCertificateService.ImportP12Async(
+                certResult.PfxData, certResult.Passphrase ?? "");
+            if (!imported)
+                Logger.LogWarning("Certificate was created but could not be imported into the local keychain");
+        }
+
         var fileName = $"certificate_{DateTime.Now:yyyyMMdd_HHmmss}.pfx";
         var downloadsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", fileName);
         await File.WriteAllBytesAsync(downloadsPath, certResult.PfxData);

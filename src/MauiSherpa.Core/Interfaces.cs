@@ -797,7 +797,8 @@ public record AppleProfileCreateRequest(
 public record AppleCertificateCreateResult(
     string CertificateId,
     byte[] PfxData,
-    DateTime ExpirationDate
+    DateTime ExpirationDate,
+    string? Passphrase = null
 );
 
 // Apple Root/Intermediate Certificates (for macOS keychain management)
@@ -1340,6 +1341,14 @@ public interface ILocalCertificateService
     /// </summary>
     /// <param name="identity">The identity string or serial number</param>
     Task DeleteCertificateAsync(string identity);
+    
+    /// <summary>
+    /// Imports a P12/PFX file into the local keychain or certificate store
+    /// </summary>
+    /// <param name="p12Data">The P12/PFX file contents</param>
+    /// <param name="password">Password protecting the P12 file</param>
+    /// <returns>True if import succeeded</returns>
+    Task<bool> ImportP12Async(byte[] p12Data, string password, CancellationToken cancellationToken = default);
     
     /// <summary>
     /// Invalidates the cached list of signing identities, forcing a refresh on next query
