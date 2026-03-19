@@ -271,6 +271,46 @@ public partial class LocalCertificateService : ILocalCertificateService
         }
     }
 
+    public async Task<bool> ImportP12Async(byte[] p12Data, string password, CancellationToken cancellationToken = default)
+    {
+        if (!IsSupported)
+            throw new PlatformNotSupportedException("P12 import is only supported on macOS");
+
+        _logger.LogInformation("Importing P12 into local keychain");
+
+        var tempFile = Path.GetTempFileName() + ".p12";
+        try
+        {
+            await File.WriteAllBytesAsync(tempFile, p12Data, cancellationToken);
+
+            var loginKeychain = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                "Library/Keychains/login.keychain-db");
+
+            var result = await RunSecurityCommandAsync(
+                "import", tempFile,
+                "-k", loginKeychain,
+                "-P", password,
+                "-T", "/usr/bin/codesign",
+                "-T", "/usr/bin/security"
+            );
+
+            if (result.ExitCode != 0)
+            {
+                _logger.LogError($"P12 import failed: {result.Error}");
+                return false;
+            }
+
+            InvalidateCache();
+            _logger.LogInformation("Successfully imported P12 into keychain");
+            return true;
+        }
+        finally
+        {
+            try { File.Delete(tempFile); } catch { }
+        }
+    }
+
     public async Task DeleteCertificateAsync(string identity)
     {
         if (!IsSupported)
