@@ -29,6 +29,7 @@ public class RegisterDevicePage : FormPage<AppleDevice>
         _udidEntry = CreateEntry("00008030-000000000000002E");
         _nameEntry = CreateEntry("John's iPhone");
         _platformPicker = CreatePicker(null, new[] { "iOS", "macOS" });
+        _platformPicker.SelectedIndex = 0;
 
         return new VerticalStackLayout
         {
