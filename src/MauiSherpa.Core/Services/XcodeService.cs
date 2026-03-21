@@ -198,6 +198,254 @@ public class XcodeService : IXcodeService
         }
     }
 
+    public async Task<bool> UninstallXcodeAsync(string xcodeAppPath)
+    {
+        if (!IsSupported) return false;
+
+        // Safety: only allow uninstalling from /Applications and must be an Xcode*.app
+        var fileName = Path.GetFileName(xcodeAppPath);
+        if (!xcodeAppPath.StartsWith("/Applications/", StringComparison.Ordinal) ||
+            !fileName.StartsWith("Xcode", StringComparison.OrdinalIgnoreCase) ||
+            !fileName.EndsWith(".app", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogError($"Refusing to uninstall: path does not appear to be a valid Xcode installation: {xcodeAppPath}");
+            return false;
+        }
+
+        if (!Directory.Exists(xcodeAppPath))
+        {
+            _logger.LogError($"Xcode installation not found: {xcodeAppPath}");
+            return false;
+        }
+
+        try
+        {
+            // Move to Trash via Finder (preserves "put back" capability)
+            var escapedPath = xcodeAppPath.Replace("\"", "\\\"");
+            var script = $"tell application \"Finder\" to delete POSIX file \"{escapedPath}\"";
+            var psi = new ProcessStartInfo
+            {
+                FileName = "osascript",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            psi.ArgumentList.Add("-e");
+            psi.ArgumentList.Add(script);
+
+            using var process = Process.Start(psi) ?? throw new InvalidOperationException("Failed to start osascript");
+            var error = await process.StandardError.ReadToEndAsync();
+            await process.WaitForExitAsync();
+
+            if (process.ExitCode == 0)
+            {
+                _logger.LogInformation($"Uninstalled Xcode: {xcodeAppPath} (moved to Trash)");
+                return true;
+            }
+
+            _logger.LogError($"Failed to uninstall Xcode: {error}");
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Failed to uninstall Xcode: {ex.Message}", ex);
+            return false;
+        }
+    }
+
+    public async Task<bool> DownloadXcodeAsync(
+        XcodeRelease release,
+        string destinationPath,
+        IProgress<XcodeDownloadProgress>? progress = null,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(release.DownloadUrl))
+        {
+            _logger.LogError($"No download URL available for Xcode {release.Version}");
+            return false;
+        }
+
+        try
+        {
+            _logger.LogInformation($"Downloading Xcode {release.Version} from {release.DownloadUrl}...");
+
+            var request = new HttpRequestMessage(HttpMethod.Get, release.DownloadUrl);
+
+            // Support resume if partial file exists
+            long existingBytes = 0;
+            if (File.Exists(destinationPath))
+            {
+                existingBytes = new FileInfo(destinationPath).Length;
+                request.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(existingBytes, null);
+            }
+
+            using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+
+            // Detect unauthorized redirect (Apple returns 200 with HTML when auth fails)
+            if (response.RequestMessage?.RequestUri?.AbsolutePath.Contains("unauthorized", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                _logger.LogError("Download unauthorized — Apple Developer authentication required");
+                return false;
+            }
+
+            response.EnsureSuccessStatusCode();
+
+            var totalBytes = response.Content.Headers.ContentLength;
+            if (response.StatusCode == System.Net.HttpStatusCode.PartialContent && totalBytes.HasValue)
+                totalBytes += existingBytes;
+            else if (response.StatusCode != System.Net.HttpStatusCode.PartialContent)
+                existingBytes = 0; // Server didn't honor range request, start over
+
+            var fileMode = existingBytes > 0 && response.StatusCode == System.Net.HttpStatusCode.PartialContent
+                ? FileMode.Append
+                : FileMode.Create;
+
+            await using var contentStream = await response.Content.ReadAsStreamAsync(ct);
+            await using var fileStream = new FileStream(destinationPath, fileMode, FileAccess.Write, FileShare.None, 81920, true);
+
+            var buffer = new byte[81920];
+            long totalReceived = existingBytes;
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            int bytesRead;
+
+            while ((bytesRead = await contentStream.ReadAsync(buffer, ct)) > 0)
+            {
+                await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), ct);
+                totalReceived += bytesRead;
+
+                var elapsed = stopwatch.Elapsed.TotalSeconds;
+                var speed = elapsed > 0 ? (totalReceived - existingBytes) / elapsed : 0;
+                var remaining = totalBytes.HasValue && speed > 0
+                    ? TimeSpan.FromSeconds((totalBytes.Value - totalReceived) / speed)
+                    : (TimeSpan?)null;
+
+                progress?.Report(new XcodeDownloadProgress(totalReceived, totalBytes, speed, remaining));
+            }
+
+            _logger.LogInformation($"Downloaded Xcode {release.Version} ({totalReceived:N0} bytes) to {destinationPath}");
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation($"Xcode {release.Version} download cancelled");
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Failed to download Xcode {release.Version}: {ex.Message}", ex);
+            return false;
+        }
+    }
+
+    public async Task<bool> InstallXcodeAsync(
+        string xipPath,
+        string? targetDirectory = null,
+        IProgress<string>? progress = null,
+        CancellationToken ct = default)
+    {
+        if (!IsSupported) return false;
+
+        targetDirectory ??= "/Applications";
+
+        if (!File.Exists(xipPath))
+        {
+            _logger.LogError($"Xcode archive not found: {xipPath}");
+            return false;
+        }
+
+        try
+        {
+            // Step 1: Unxip
+            progress?.Report("Unarchiving Xcode (this can take a while)...");
+            var expandDir = Path.GetDirectoryName(xipPath) ?? Path.GetTempPath();
+            var expandResult = await RunProcessAsync("xip", $"--expand \"{xipPath}\"");
+
+            // xip expands into the current directory, so we need to look for Xcode*.app
+            if (expandResult.exitCode != 0)
+            {
+                _logger.LogError($"Failed to expand archive: {expandResult.error}");
+                progress?.Report($"Failed to unarchive: {expandResult.error}");
+                return false;
+            }
+
+            // Step 2: Find the expanded .app
+            var expandedApps = Directory.GetDirectories(expandDir, "Xcode*.app");
+            var xcodeApp = expandedApps.FirstOrDefault();
+            if (xcodeApp == null)
+            {
+                _logger.LogError("No Xcode.app found after expanding archive");
+                progress?.Report("Error: No Xcode.app found in archive");
+                return false;
+            }
+
+            // Step 3: Move to target directory with admin privileges
+            var appName = Path.GetFileName(xcodeApp);
+            var destinationPath = Path.Combine(targetDirectory, appName);
+
+            if (Directory.Exists(destinationPath))
+            {
+                progress?.Report($"Removing existing {appName}...");
+                var removeScript = $"do shell script \"rm -rf '{destinationPath}'\" with administrator privileges";
+                var removePsi = new ProcessStartInfo { FileName = "osascript", UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
+                removePsi.ArgumentList.Add("-e");
+                removePsi.ArgumentList.Add(removeScript);
+                using var removeProcess = Process.Start(removePsi);
+                if (removeProcess != null) await removeProcess.WaitForExitAsync(ct);
+            }
+
+            progress?.Report($"Moving Xcode to {targetDirectory}...");
+            var moveScript = $"do shell script \"mv '{xcodeApp}' '{destinationPath}'\" with administrator privileges";
+            var movePsi = new ProcessStartInfo { FileName = "osascript", UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
+            movePsi.ArgumentList.Add("-e");
+            movePsi.ArgumentList.Add(moveScript);
+
+            using var moveProcess = Process.Start(movePsi) ?? throw new InvalidOperationException("Failed to start osascript");
+            var moveError = await moveProcess.StandardError.ReadToEndAsync();
+            await moveProcess.WaitForExitAsync(ct);
+
+            if (moveProcess.ExitCode != 0)
+            {
+                _logger.LogError($"Failed to move Xcode: {moveError}");
+                progress?.Report($"Failed to move Xcode: {moveError}");
+                return false;
+            }
+
+            // Step 4: Run first-launch setup
+            progress?.Report("Running first-launch setup...");
+            var xcodebuild = Path.Combine(destinationPath, "Contents", "Developer", "usr", "bin", "xcodebuild");
+            if (File.Exists(xcodebuild))
+            {
+                var firstLaunchScript = $"do shell script \"\'{xcodebuild}\' -runFirstLaunch\" with administrator privileges";
+                var flPsi = new ProcessStartInfo { FileName = "osascript", UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
+                flPsi.ArgumentList.Add("-e");
+                flPsi.ArgumentList.Add(firstLaunchScript);
+                using var flProcess = Process.Start(flPsi);
+                if (flProcess != null) await flProcess.WaitForExitAsync(ct);
+            }
+
+            // Step 5: Cleanup archive
+            progress?.Report("Cleaning up...");
+            try { File.Delete(xipPath); } catch { /* best effort */ }
+
+            progress?.Report($"Xcode installed to {destinationPath}");
+            _logger.LogInformation($"Installed Xcode to {destinationPath}");
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation("Xcode installation cancelled");
+            progress?.Report("Installation cancelled");
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Failed to install Xcode: {ex.Message}", ex);
+            progress?.Report($"Installation failed: {ex.Message}");
+            return false;
+        }
+    }
+
     // ── Private helpers ─────────────────────────────────────────────────
 
     private async Task<(string? version, string? build)> GetXcodeVersionAsync(string xcodeAppPath)

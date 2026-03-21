@@ -1007,4 +1007,168 @@ public class SimulatorService : ISimulatorService
         await process.WaitForExitAsync();
         return process.ExitCode == 0;
     }
+
+    // ── Runtime Management ─────────────────────────────────────────────
+
+    public async Task<IReadOnlyList<SimulatorRuntimeStorage>> GetRuntimeStorageAsync()
+    {
+        if (!IsSupported) return [];
+
+        try
+        {
+            var json = await RunSimctlAsync("runtime list -j");
+            if (json == null) return [];
+
+            var runtimes = new List<SimulatorRuntimeStorage>();
+            using var doc = JsonDocument.Parse(json);
+
+            // The output is an object with a "result" array
+            JsonElement arrayRoot;
+            if (doc.RootElement.TryGetProperty("result", out var resultProp))
+                arrayRoot = resultProp;
+            else if (doc.RootElement.ValueKind == JsonValueKind.Array)
+                arrayRoot = doc.RootElement;
+            else
+                return [];
+
+            foreach (var entry in arrayRoot.EnumerateArray())
+            {
+                try
+                {
+                    var identifier = entry.TryGetProperty("runtimeIdentifier", out var id) ? id.GetString() ?? "" : "";
+                    var build = entry.TryGetProperty("build", out var b) ? b.GetString() : null;
+                    var platformId = entry.TryGetProperty("platformIdentifier", out var pid) ? pid.GetString() : null;
+                    var state = entry.TryGetProperty("state", out var s) ? s.GetString() ?? "unknown" : "unknown";
+
+                    long? sizeBytes = null;
+                    if (entry.TryGetProperty("sizeBytes", out var sz) && sz.ValueKind == JsonValueKind.Number)
+                        sizeBytes = sz.GetInt64();
+
+                    var deletable = entry.TryGetProperty("deletable", out var del) && del.GetBoolean();
+
+                    DateTime? lastUsed = null;
+                    if (entry.TryGetProperty("lastUsedAt", out var lu) && lu.ValueKind == JsonValueKind.String)
+                    {
+                        if (DateTime.TryParse(lu.GetString(), out var parsed))
+                            lastUsed = parsed;
+                    }
+
+                    var mountPath = entry.TryGetProperty("mountPath", out var mp) ? mp.GetString() : null;
+
+                    runtimes.Add(new SimulatorRuntimeStorage(
+                        Identifier: identifier,
+                        Build: build,
+                        PlatformIdentifier: platformId,
+                        State: state,
+                        SizeBytes: sizeBytes,
+                        Deletable: deletable,
+                        LastUsedAt: lastUsed,
+                        MountPath: mountPath
+                    ));
+                }
+                catch
+                {
+                    // Skip malformed entries
+                }
+            }
+
+            return runtimes;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Failed to get runtime storage info: {ex.Message}", ex);
+            return [];
+        }
+    }
+
+    public async Task<bool> InstallRuntimeAsync(string dmgPath, IProgress<string>? progress = null)
+    {
+        if (!IsSupported) return false;
+
+        if (!File.Exists(dmgPath))
+        {
+            _logger.LogError($"Runtime image not found: {dmgPath}");
+            return false;
+        }
+
+        try
+        {
+            progress?.Report($"Installing runtime from {Path.GetFileName(dmgPath)}...");
+
+            var psi = new ProcessStartInfo
+            {
+                FileName = "xcrun",
+                Arguments = $"simctl runtime add \"{dmgPath}\"",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using var process = Process.Start(psi);
+            if (process == null) return false;
+
+            var output = await process.StandardOutput.ReadToEndAsync();
+            var error = await process.StandardError.ReadToEndAsync();
+            await process.WaitForExitAsync();
+
+            if (process.ExitCode == 0)
+            {
+                progress?.Report("Runtime installed successfully");
+                _logger.LogInformation($"Installed runtime from {dmgPath}");
+                return true;
+            }
+
+            _logger.LogError($"Failed to install runtime: {error}");
+            progress?.Report($"Failed: {error}");
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Failed to install runtime: {ex.Message}", ex);
+            return false;
+        }
+    }
+
+    public async Task<bool> DeleteRuntimeAsync(string runtimeIdentifier, IProgress<string>? progress = null)
+    {
+        if (!IsSupported) return false;
+
+        try
+        {
+            progress?.Report($"Deleting runtime {runtimeIdentifier}...");
+
+            var psi = new ProcessStartInfo
+            {
+                FileName = "xcrun",
+                Arguments = $"simctl runtime delete \"{runtimeIdentifier}\"",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using var process = Process.Start(psi);
+            if (process == null) return false;
+
+            var error = await process.StandardError.ReadToEndAsync();
+            await process.WaitForExitAsync();
+
+            if (process.ExitCode == 0)
+            {
+                progress?.Report("Runtime deleted successfully");
+                _logger.LogInformation($"Deleted runtime: {runtimeIdentifier}");
+                return true;
+            }
+
+            _logger.LogError($"Failed to delete runtime: {error}");
+            progress?.Report($"Failed: {error}");
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Failed to delete runtime: {ex.Message}", ex);
+            return false;
+        }
+    }
 }
