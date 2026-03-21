@@ -116,6 +116,56 @@ public class WindowsCertificateService : ILocalCertificateService
         });
     }
 
+    public Task<bool> ImportP12Async(byte[] p12Data, string password, CancellationToken cancellationToken = default)
+    {
+        if (!IsSupported)
+            throw new PlatformNotSupportedException("Certificate import not supported on this platform");
+
+        ArgumentNullException.ThrowIfNull(p12Data);
+
+        if (p12Data.Length == 0)
+            throw new ArgumentException("P12 data cannot be empty", nameof(p12Data));
+
+        return Task.Run(() =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            try
+            {
+                using var store = new X509Store(StoreName.My, StoreLocation.CurrentUser);
+                store.Open(OpenFlags.ReadWrite);
+
+                var collection = new X509Certificate2Collection();
+                collection.Import(
+                    p12Data,
+                    password,
+                    X509KeyStorageFlags.PersistKeySet
+                    | X509KeyStorageFlags.UserKeySet
+                    | X509KeyStorageFlags.Exportable);
+
+                foreach (var cert in collection)
+                {
+                    store.Add(cert);
+                    _logger.LogInformation($"Imported certificate: {cert.Subject} (serial: {cert.SerialNumber}, hasKey: {cert.HasPrivateKey})");
+                    cert.Dispose();
+                }
+
+                InvalidateCache();
+                _logger.LogInformation("Successfully imported P12 into Windows certificate store");
+                return true;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Failed to import P12 into Windows certificate store: {ex.Message}", ex);
+                return false;
+            }
+        }, cancellationToken);
+    }
+
     public Task<byte[]> ExportP12Async(string identity, string password)
     {
         if (!IsSupported)
