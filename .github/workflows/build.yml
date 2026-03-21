@@ -188,6 +188,14 @@ jobs:
             fi
           done
 
+          # Preserve runtime-specific files that aren't part of the lipo merge, such as
+          # the Copilot CLI under Contents/MonoBundle/runtimes/osx-x64/native/.
+          if [ -d "$X64_APP/Contents/MonoBundle/runtimes" ]; then
+            mkdir -p "$DEST_APP/Contents/MonoBundle/runtimes"
+            cp -R "$X64_APP/Contents/MonoBundle/runtimes/." "$DEST_APP/Contents/MonoBundle/runtimes/"
+            find "$DEST_APP/Contents/MonoBundle/runtimes" -name "copilot" -type f -exec chmod +x {} \;
+          fi
+
           echo "Universal binary created:"
           lipo -info "$DEST_APP/Contents/MacOS/$BINARY_NAME"
 
