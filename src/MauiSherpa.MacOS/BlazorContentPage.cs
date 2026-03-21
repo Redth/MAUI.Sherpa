@@ -363,7 +363,7 @@ public class BlazorContentPage : ContentPage
     List<NSObject> _nativeMenuTargets = new();
 
     // Superset signature for the initial build — includes all possible items
-    static readonly string SupersetSignature = "refresh,create,import,install-missing,save,reset,doctor,settings,|S|F|I";
+    static readonly string SupersetSignature = "refresh,create,import,install-missing,save,reset,|S|F|I";
 
     void OnToolbarChanged()
     {
@@ -436,13 +436,7 @@ public class BlazorContentPage : ContentPage
             bool shouldShow = activeIds.Contains(actionId);
             MacOSToolbarItem.SetIsVisible(toolbarItem, shouldShow);
             toolbarItem.Command = shouldShow
-                ? new Command(() =>
-                {
-                    if (actionId == "settings")
-                        OpenSettingsDialog();
-                    else
-                        _toolbarService.InvokeToolbarItemClicked(actionId);
-                })
+                ? new Command(() => _toolbarService.InvokeToolbarItemClicked(actionId))
                 : null;
         }
 
@@ -769,6 +763,27 @@ public class BlazorContentPage : ContentPage
             // Copilot button in sidebar trailing area (convenience mode handles it)
             var copilotItem = CreateCopilotToolbarItem();
 
+            // Doctor & Settings buttons beside Copilot in the sidebar trailing area
+            var doctorItem = new ToolbarItem
+            {
+                Text = "Doctor",
+                IconImageSource = "stethoscope",
+                Command = new Command(() => Dispatcher.Dispatch(async () =>
+                {
+                    try { await EvaluateJavaScriptAsync("window.location.href = '/doctor'"); }
+                    catch { }
+                })),
+            };
+            MacOSToolbarItem.SetPlacement(doctorItem, MacOSToolbarItemPlacement.SidebarTrailing);
+
+            var settingsItem = new ToolbarItem
+            {
+                Text = "Settings",
+                IconImageSource = "gear",
+                Command = new Command(() => OpenSettingsDialog()),
+            };
+            MacOSToolbarItem.SetPlacement(settingsItem, MacOSToolbarItemPlacement.SidebarTrailing);
+
             // Create SUPERSET of all possible action items (hidden ones toggled later)
             // Order matters for layout: [create/import] ← flex → [refresh]
             var supersetActions = new[]
@@ -778,14 +793,12 @@ public class BlazorContentPage : ContentPage
                 ("install-missing", "Install Missing", "arrow.down.circle"),
                 ("save", "Save", "checkmark"),
                 ("reset", "Reset to Defaults", "trash"),
-                ("doctor", "Doctor", "stethoscope"),
-                ("settings", "Settings", "gear"),
                 ("refresh", "Refresh", "arrow.clockwise"),
             };
 
             ToolbarItem? refreshItem = null;
             var leadingItems = new List<ToolbarItem>();
-            var allToolbarItems = new List<ToolbarItem> { copilotItem };
+            var allToolbarItems = new List<ToolbarItem> { copilotItem, doctorItem, settingsItem };
             foreach (var (id, label, icon) in supersetActions)
             {
                 var actionId = id;
