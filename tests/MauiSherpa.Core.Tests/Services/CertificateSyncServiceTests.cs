@@ -51,14 +51,21 @@ public class CertificateSyncServiceTests
             .ReturnsAsync(new byte[] { 0x01, 0x02, 0x03 });
         _cloudSecretsService.Setup(x => x.GetSecretAsync("CERT_ABC123_PWD", It.IsAny<CancellationToken>()))
             .ReturnsAsync(Encoding.UTF8.GetBytes("password"));
-
-        _localCertificateService.SetupGet(x => x.IsSupported).Returns(false);
+        _localCertificateService.Setup(x => x.ImportP12Async(
+                It.Is<byte[]>(data => data.SequenceEqual(new byte[] { 0x01, 0x02, 0x03 })),
+                "password",
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
 
         var result = await _sut.DownloadAndInstallAsync("cert-1");
 
-        Assert.False(result);
+        Assert.True(result);
         _cloudSecretsService.Verify(x => x.GetSecretAsync("CERT_ABC123_P12", It.IsAny<CancellationToken>()), Times.Once);
         _cloudSecretsService.Verify(x => x.GetSecretAsync("CERT_ABC123_PWD", It.IsAny<CancellationToken>()), Times.Once);
+        _localCertificateService.Verify(x => x.ImportP12Async(
+            It.Is<byte[]>(data => data.SequenceEqual(new byte[] { 0x01, 0x02, 0x03 })),
+            "password",
+            It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -86,5 +93,29 @@ public class CertificateSyncServiceTests
         Assert.False(result);
         _cloudSecretsService.Verify(x => x.GetSecretAsync("CERT_ABC123_P12", It.IsAny<CancellationToken>()), Times.Never);
         _cloudSecretsService.Verify(x => x.GetSecretAsync("CERT_ABC123_PWD", It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task DownloadAndInstallBySerialAsync_DelegatesToLocalCertificateImport()
+    {
+        var provider = new CloudSecretsProviderConfig("provider-1", "Provider", CloudSecretsProviderType.OnePassword, new());
+        _cloudSecretsService.Setup(x => x.ActiveProvider).Returns(provider);
+        _cloudSecretsService.Setup(x => x.GetSecretAsync("CERT_ABC123_P12", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new byte[] { 0x01, 0x02, 0x03 });
+        _cloudSecretsService.Setup(x => x.GetSecretAsync("CERT_ABC123_PWD", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Encoding.UTF8.GetBytes("password"));
+        _localCertificateService.Setup(x => x.ImportP12Async(
+                It.Is<byte[]>(data => data.SequenceEqual(new byte[] { 0x01, 0x02, 0x03 })),
+                "password",
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var result = await _sut.DownloadAndInstallBySerialAsync("ABC123");
+
+        Assert.True(result);
+        _localCertificateService.Verify(x => x.ImportP12Async(
+            It.Is<byte[]>(data => data.SequenceEqual(new byte[] { 0x01, 0x02, 0x03 })),
+            "password",
+            It.IsAny<CancellationToken>()), Times.Once);
     }
 }
