@@ -130,4 +130,84 @@ public class LocalSdkServiceTests
             result.FeatureBand.Should().Be(featureBand);
         }
     }
+
+    [Fact]
+    public async Task GetInstalledWorkloadSetAsync_PreservesManifestIds_WhenManifestBandsAreRemapped()
+    {
+        var sdks = _service.GetInstalledSdkVersions();
+
+        foreach (var sdk in sdks)
+        {
+            var workloadSet = await _service.GetInstalledWorkloadSetAsync(sdk.FeatureBand);
+            if (workloadSet == null || workloadSet.Workloads.Count == 0)
+                continue;
+
+            var remappedEntry = workloadSet.Workloads
+                .FirstOrDefault(w => !string.IsNullOrEmpty(w.Value.ManifestFeatureBand)
+                    && !string.Equals(w.Value.ManifestFeatureBand, sdk.FeatureBand, StringComparison.OrdinalIgnoreCase));
+
+            if (string.IsNullOrEmpty(remappedEntry.Key))
+                continue;
+
+            remappedEntry.Value.ManifestId.Should().Be(remappedEntry.Key);
+            remappedEntry.Value.ManifestVersion.Should().NotBeNullOrEmpty();
+            return;
+        }
+    }
+
+    [Fact]
+    public async Task GetInstalledManifestAsync_ResolvesManifestFromRemappedFeatureBand()
+    {
+        var sdks = _service.GetInstalledSdkVersions();
+
+        foreach (var sdk in sdks)
+        {
+            var workloadSet = await _service.GetInstalledWorkloadSetAsync(sdk.FeatureBand);
+            if (workloadSet == null || workloadSet.Workloads.Count == 0)
+                continue;
+
+            var remappedEntry = workloadSet.Workloads
+                .FirstOrDefault(w => !string.IsNullOrEmpty(w.Value.ManifestFeatureBand)
+                    && !string.Equals(w.Value.ManifestFeatureBand, sdk.FeatureBand, StringComparison.OrdinalIgnoreCase));
+
+            if (string.IsNullOrEmpty(remappedEntry.Key))
+                continue;
+
+            var manifest = await _service.GetInstalledManifestAsync(sdk.FeatureBand, remappedEntry.Key);
+
+            manifest.Should().NotBeNull();
+            manifest!.Version.Should().Be(remappedEntry.Value.ManifestVersion);
+            return;
+        }
+    }
+
+    [Fact]
+    public async Task GetInstalledDependenciesAsync_ResolvesDependenciesFromRemappedFeatureBand()
+    {
+        var sdks = _service.GetInstalledSdkVersions();
+
+        foreach (var sdk in sdks)
+        {
+            var workloadSet = await _service.GetInstalledWorkloadSetAsync(sdk.FeatureBand);
+            if (workloadSet == null || workloadSet.Workloads.Count == 0)
+                continue;
+
+            var remappedEntries = workloadSet.Workloads
+                .Where(w => !string.IsNullOrEmpty(w.Value.ManifestFeatureBand)
+                    && !string.Equals(w.Value.ManifestFeatureBand, sdk.FeatureBand, StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(w => w.Key.Contains("android", StringComparison.OrdinalIgnoreCase))
+                .ThenByDescending(w => w.Key.Contains("maui", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            foreach (var remappedEntry in remappedEntries)
+            {
+                var dependencies = await _service.GetInstalledDependenciesAsync(sdk.FeatureBand, remappedEntry.Key);
+                if (dependencies == null)
+                    continue;
+
+                dependencies.Entries.Should().NotBeEmpty();
+                return;
+            }
+        }
+    }
 }

@@ -33,6 +33,14 @@ public interface ILocalSdkService
     Task<WorkloadManifest?> GetInstalledManifestAsync(string featureBand, string manifestId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Reads an installed workload dependencies file from the local SDK.
+    /// </summary>
+    /// <param name="featureBand">The SDK feature band (e.g., "9.0.100").</param>
+    /// <param name="manifestId">The manifest ID (e.g., "microsoft.net.sdk.maui").</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    Task<WorkloadDependencies?> GetInstalledDependenciesAsync(string featureBand, string manifestId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Gets the installed workload set for a specific SDK band, if using workload-set mode.
     /// </summary>
     /// <param name="featureBand">The SDK feature band (e.g., "9.0.100").</param>

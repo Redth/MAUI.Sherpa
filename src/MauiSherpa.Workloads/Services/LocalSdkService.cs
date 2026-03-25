@@ -128,33 +128,38 @@ public class LocalSdkService : ILocalSdkService
     /// <inheritdoc />
     public IReadOnlyList<string> GetInstalledWorkloadManifests(string featureBand)
     {
+        var manifestIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var manifestsPath = GetManifestsPath(featureBand);
-        if (manifestsPath == null || !Directory.Exists(manifestsPath))
-            return [];
 
-        return Directory.GetDirectories(manifestsPath)
-            .Select(Path.GetFileName)
-            .Where(name => name != null)
-            .Cast<string>()
+        if (manifestsPath != null && Directory.Exists(manifestsPath))
+        {
+            foreach (var manifestId in Directory.GetDirectories(manifestsPath)
+                         .Select(Path.GetFileName)
+                         .Where(name => !string.IsNullOrEmpty(name)
+                             && !name.Equals("workloadsets", StringComparison.OrdinalIgnoreCase)))
+            {
+                manifestIds.Add(manifestId!);
+            }
+        }
+
+        var workloadSet = GetInstalledWorkloadSetCore(featureBand);
+        if (workloadSet != null)
+        {
+            foreach (var manifestId in workloadSet.Workloads.Keys)
+                manifestIds.Add(manifestId);
+        }
+
+        return manifestIds
+            .OrderBy(id => id, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
 
     /// <inheritdoc />
     public async Task<WorkloadManifest?> GetInstalledManifestAsync(string featureBand, string manifestId, CancellationToken cancellationToken = default)
     {
-        var manifestsPath = GetManifestsPath(featureBand);
-        if (manifestsPath == null)
+        var manifestDir = ResolveManifestDirectory(featureBand, manifestId);
+        if (manifestDir == null)
             return null;
-
-        // Manifest directories can have version subdirectories
-        var manifestDir = Path.Combine(manifestsPath, manifestId);
-        if (!Directory.Exists(manifestDir))
-        {
-            // Try lowercase
-            manifestDir = Path.Combine(manifestsPath, manifestId.ToLowerInvariant());
-            if (!Directory.Exists(manifestDir))
-                return null;
-        }
 
         // Look for WorkloadManifest.json, possibly in a version subdirectory
         var manifestFile = FindManifestFile(manifestDir);
@@ -173,97 +178,31 @@ public class LocalSdkService : ILocalSdkService
     }
 
     /// <inheritdoc />
-    public async Task<WorkloadSet?> GetInstalledWorkloadSetAsync(string featureBand, CancellationToken cancellationToken = default)
+    public async Task<WorkloadDependencies?> GetInstalledDependenciesAsync(string featureBand, string manifestId, CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("GetInstalledWorkloadSetAsync called with featureBand: {FeatureBand}", featureBand);
-        
-        var dotnetPath = GetDotNetSdkPath();
-        if (dotnetPath == null)
-        {
-            _logger.LogDebug("dotnetPath is null");
-            return null;
-        }
-
-        // Workload sets are stored in sdk-manifests/{band}/workloadsets/{version}/
-        var workloadSetsPath = Path.Combine(dotnetPath, "sdk-manifests", featureBand, "workloadsets");
-        _logger.LogDebug("Looking in: {Path}", workloadSetsPath);
-        
-        if (!Directory.Exists(workloadSetsPath))
-        {
-            _logger.LogDebug("Directory does not exist");
-            return null;
-        }
-
-        // Get the latest version directory using proper version comparison
-        var allDirs = Directory.GetDirectories(workloadSetsPath);
-        _logger.LogDebug("Found dirs: {Dirs}", string.Join(", ", allDirs.Select(Path.GetFileName)));
-        
-        var versionDirs = allDirs
-            .Select(d => new { Path = d, Name = Path.GetFileName(d) })
-            .Where(d => NuGetVersion.TryParse(d.Name, out _))
-            .OrderByDescending(d => NuGetVersion.Parse(d.Name))
-            .Select(d => d.Path)
-            .ToList();
-        
-        _logger.LogDebug("Sorted dirs: {Dirs}", string.Join(", ", versionDirs.Select(Path.GetFileName)));
-
-        if (versionDirs.Count == 0)
+        var manifestDir = ResolveManifestDirectory(featureBand, manifestId);
+        if (manifestDir == null)
             return null;
 
-        // Find the workload set file - it can have different names
-        var workloadSetFile = Path.Combine(versionDirs[0], "WorkloadSet.json");
-        if (!File.Exists(workloadSetFile))
-        {
-            workloadSetFile = Path.Combine(versionDirs[0], "workloadset.json");
-            if (!File.Exists(workloadSetFile))
-            {
-                // Also check for microsoft.net.workloads.workloadset.json (newer format)
-                workloadSetFile = Path.Combine(versionDirs[0], "microsoft.net.workloads.workloadset.json");
-                if (!File.Exists(workloadSetFile))
-                {
-                    _logger.LogDebug("No workload set file found in {Dir}", versionDirs[0]);
-                    return null;
-                }
-            }
-        }
+        var dependenciesFile = FindDependenciesFile(manifestDir);
+        if (dependenciesFile == null)
+            return null;
 
         try
         {
-            var json = await File.ReadAllTextAsync(workloadSetFile, cancellationToken);
-            var workloads = JsonSerializer.Deserialize<Dictionary<string, string>>(json, JsonOptions);
-            if (workloads == null)
-                return null;
-
-            var entries = new Dictionary<string, WorkloadSetEntry>();
-            foreach (var (workloadId, value) in workloads)
-            {
-                var parts = value.Split('/');
-                if (parts.Length >= 2)
-                {
-                    entries[workloadId] = new WorkloadSetEntry
-                    {
-                        ManifestId = parts[0],
-                        ManifestVersion = parts[1],
-                        ManifestFeatureBand = parts.Length >= 3 ? parts[2] : null
-                    };
-                }
-            }
-
-            var version = Path.GetFileName(versionDirs[0]);
-            _logger.LogInformation("Returning WorkloadSet version: {Version}", version);
-            
-            return new WorkloadSet
-            {
-                Version = version,
-                FeatureBand = featureBand,
-                Workloads = entries
-            };
+            var json = await File.ReadAllTextAsync(dependenciesFile, cancellationToken);
+            return WorkloadDependenciesParser.Parse(json);
         }
-        catch (Exception ex)
+        catch
         {
-            _logger.LogError(ex, "Exception reading workload set");
             return null;
         }
+    }
+
+    /// <inheritdoc />
+    public Task<WorkloadSet?> GetInstalledWorkloadSetAsync(string featureBand, CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(GetInstalledWorkloadSetCore(featureBand));
     }
 
     /// <summary>
@@ -534,6 +473,43 @@ public class LocalSdkService : ILocalSdkService
         return Path.Combine(dotnetPath, "sdk-manifests", featureBand);
     }
 
+    private string? ResolveManifestDirectory(string featureBand, string manifestId)
+    {
+        var directMatch = FindManifestDirectory(featureBand, manifestId);
+        if (directMatch != null)
+            return directMatch;
+
+        var workloadSet = GetInstalledWorkloadSetCore(featureBand);
+        if (workloadSet == null)
+            return null;
+
+        var manifestEntry = workloadSet.Workloads
+            .FirstOrDefault(entry => entry.Key.Equals(manifestId, StringComparison.OrdinalIgnoreCase));
+
+        if (manifestEntry.Key == null || string.IsNullOrEmpty(manifestEntry.Value.ManifestFeatureBand))
+            return null;
+
+        return FindManifestDirectory(manifestEntry.Value.ManifestFeatureBand, manifestEntry.Key)
+            ?? FindManifestDirectory(manifestEntry.Value.ManifestFeatureBand, manifestId);
+    }
+
+    private string? FindManifestDirectory(string featureBand, string manifestId)
+    {
+        var manifestsPath = GetManifestsPath(featureBand);
+        if (manifestsPath == null || !Directory.Exists(manifestsPath))
+            return null;
+
+        var directPath = Path.Combine(manifestsPath, manifestId);
+        if (Directory.Exists(directPath))
+            return directPath;
+
+        var lowerPath = Path.Combine(manifestsPath, manifestId.ToLowerInvariant());
+        if (Directory.Exists(lowerPath))
+            return lowerPath;
+
+        return null;
+    }
+
     private static string? FindManifestFile(string manifestDir)
     {
         // Check directly in manifest directory
@@ -558,6 +534,118 @@ public class LocalSdkService : ILocalSdkService
         }
 
         return null;
+    }
+
+    private static string? FindDependenciesFile(string manifestDir)
+    {
+        var directFile = Path.Combine(manifestDir, "WorkloadDependencies.json");
+        if (File.Exists(directFile))
+            return directFile;
+
+        directFile = Path.Combine(manifestDir, "workloaddependencies.json");
+        if (File.Exists(directFile))
+            return directFile;
+
+        foreach (var subDir in Directory.GetDirectories(manifestDir).OrderByDescending(d => d))
+        {
+            var subFile = Path.Combine(subDir, "WorkloadDependencies.json");
+            if (File.Exists(subFile))
+                return subFile;
+
+            subFile = Path.Combine(subDir, "workloaddependencies.json");
+            if (File.Exists(subFile))
+                return subFile;
+        }
+
+        return null;
+    }
+
+    private WorkloadSet? GetInstalledWorkloadSetCore(string featureBand)
+    {
+        _logger.LogDebug("GetInstalledWorkloadSetAsync called with featureBand: {FeatureBand}", featureBand);
+
+        var dotnetPath = GetDotNetSdkPath();
+        if (dotnetPath == null)
+        {
+            _logger.LogDebug("dotnetPath is null");
+            return null;
+        }
+
+        var workloadSetsPath = Path.Combine(dotnetPath, "sdk-manifests", featureBand, "workloadsets");
+        _logger.LogDebug("Looking in: {Path}", workloadSetsPath);
+
+        if (!Directory.Exists(workloadSetsPath))
+        {
+            _logger.LogDebug("Directory does not exist");
+            return null;
+        }
+
+        var versionDirs = Directory.GetDirectories(workloadSetsPath)
+            .Select(d => new { Path = d, Name = Path.GetFileName(d) })
+            .Where(d => NuGetVersion.TryParse(d.Name, out _))
+            .OrderByDescending(d => NuGetVersion.Parse(d.Name))
+            .Select(d => d.Path)
+            .ToList();
+
+        if (versionDirs.Count == 0)
+            return null;
+
+        var workloadSetFile = FindWorkloadSetFile(versionDirs[0]);
+        if (workloadSetFile == null)
+        {
+            _logger.LogDebug("No workload set file found in {Dir}", versionDirs[0]);
+            return null;
+        }
+
+        try
+        {
+            var json = File.ReadAllText(workloadSetFile);
+            var workloads = JsonSerializer.Deserialize<Dictionary<string, string>>(json, JsonOptions);
+            if (workloads == null)
+                return null;
+
+            var entries = new Dictionary<string, WorkloadSetEntry>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (manifestId, value) in workloads)
+            {
+                var parts = value.Split('/');
+                if (parts.Length >= 1)
+                {
+                    entries[manifestId] = new WorkloadSetEntry
+                    {
+                        ManifestId = manifestId,
+                        ManifestVersion = parts[0],
+                        ManifestFeatureBand = parts.Length >= 2 ? parts[1] : null
+                    };
+                }
+            }
+
+            var version = Path.GetFileName(versionDirs[0]);
+            _logger.LogInformation("Returning WorkloadSet version: {Version}", version);
+
+            return new WorkloadSet
+            {
+                Version = version,
+                FeatureBand = featureBand,
+                Workloads = entries
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Exception reading workload set");
+            return null;
+        }
+    }
+
+    private static string? FindWorkloadSetFile(string versionDir)
+    {
+        var possiblePaths = new[]
+        {
+            Path.Combine(versionDir, "WorkloadSet.json"),
+            Path.Combine(versionDir, "workloadset.json"),
+            Path.Combine(versionDir, "microsoft.net.workloads.workloadset.json")
+        };
+
+        return possiblePaths.FirstOrDefault(File.Exists);
     }
 
     private static WorkloadManifest? ParseManifest(string json)
