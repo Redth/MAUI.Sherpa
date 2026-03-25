@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Net.Http;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using MauiSherpa.Core.Interfaces;
@@ -290,27 +291,80 @@ public class XcodeService : IXcodeService
                 _logger.LogWarning($"listDownloads failed (continuing): {ex.Message}");
             }
 
-            // Step 2: Download directly from download.developer.apple.com
-            _logger.LogInformation($"Downloading from: {release.DownloadUrl}");
+            // Step 2: Download the file. We must handle redirects manually because
+            // .NET doesn't forward Cookie headers on redirects, and Apple's CDN
+            // requires the cookies on the initial request to authorize the redirect.
+            var allCookies = _authService.GetAllCookies();
+            var cookieHeader = string.Join("; ", allCookies.Select(c => $"{c.Name}={c.Value}"));
+            _logger.LogInformation($"Sending {allCookies.Count} cookies for download");
 
-            var request = new HttpRequestMessage(HttpMethod.Get, release.DownloadUrl);
+            using var noRedirectHandler = new SocketsHttpHandler
+            {
+                AllowAutoRedirect = false,
+                UseCookies = false
+            };
+            using var redirectClient = new HttpClient(noRedirectHandler);
+            redirectClient.DefaultRequestHeaders.Add("User-Agent", "MauiSherpa");
+            redirectClient.Timeout = TimeSpan.FromHours(4);
 
             // Support resume if partial file exists
             long existingBytes = 0;
             if (File.Exists(destinationPath))
-            {
                 existingBytes = new FileInfo(destinationPath).Length;
-                request.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(existingBytes, null);
+
+            // Follow redirects manually, forwarding cookies each hop
+            var currentUrl = release.DownloadUrl;
+            HttpResponseMessage response;
+            for (var redirectCount = 0; ; redirectCount++)
+            {
+                if (redirectCount > 10)
+                    throw new Exception("Too many redirects");
+
+                var req = new HttpRequestMessage(HttpMethod.Get, currentUrl);
+                req.Headers.Add("Cookie", cookieHeader);
+                if (existingBytes > 0)
+                    req.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(existingBytes, null);
+
+                response = await redirectClient.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
+                _logger.LogInformation($"Request {currentUrl} → {(int)response.StatusCode}");
+
+                // 416 = Range Not Satisfiable — file may already be fully downloaded
+                if (response.StatusCode == System.Net.HttpStatusCode.RequestedRangeNotSatisfiable && existingBytes > 0)
+                {
+                    _logger.LogInformation($"File already fully downloaded ({existingBytes:N0} bytes), skipping download");
+                    response.Dispose();
+                    return true;
+                }
+
+                if ((int)response.StatusCode is >= 300 and < 400
+                    && response.Headers.Location is { } location)
+                {
+                    var redirectUri = location.IsAbsoluteUri ? location : new Uri(new Uri(currentUrl), location);
+                    currentUrl = redirectUri.AbsoluteUri;
+                    response.Dispose();
+                    continue;
+                }
+                break;
             }
 
-            using var response = await downloadClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+            _logger.LogInformation($"Final download URL: {currentUrl}, status: {(int)response.StatusCode}");
 
-            _logger.LogInformation($"Download response: {(int)response.StatusCode}, final URL: {response.RequestMessage?.RequestUri}");
-
-            // Detect unauthorized redirect (Apple returns 200 with HTML when auth fails)
-            if (response.RequestMessage?.RequestUri?.AbsolutePath.Contains("unauthorized", StringComparison.OrdinalIgnoreCase) == true)
+            // Detect unauthorized redirect
+            if (currentUrl.Contains("unauthorized", StringComparison.OrdinalIgnoreCase)
+                || currentUrl.Contains("appleid.apple.com")
+                || currentUrl.Contains("/account/"))
             {
-                _logger.LogError("Download unauthorized — Apple Developer authentication required");
+                _logger.LogError($"Download unauthorized — redirected to {currentUrl}");
+                response.Dispose();
+                return false;
+            }
+
+            // Verify we're getting binary data, not HTML
+            var contentType = response.Content.Headers.ContentType?.MediaType ?? "";
+            if (contentType.Contains("html", StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogError($"Download returned HTML instead of binary (content-type: {contentType}, url: {currentUrl})");
+                response.Dispose();
                 return false;
             }
 
@@ -320,7 +374,7 @@ public class XcodeService : IXcodeService
             if (response.StatusCode == System.Net.HttpStatusCode.PartialContent && totalBytes.HasValue)
                 totalBytes += existingBytes;
             else if (response.StatusCode != System.Net.HttpStatusCode.PartialContent)
-                existingBytes = 0; // Server didn't honor range request, start over
+                existingBytes = 0; // Server didn't honor range, start over
 
             var fileMode = existingBytes > 0 && response.StatusCode == System.Net.HttpStatusCode.PartialContent
                 ? FileMode.Append
@@ -328,6 +382,8 @@ public class XcodeService : IXcodeService
 
             await using var contentStream = await response.Content.ReadAsStreamAsync(ct);
             await using var fileStream = new FileStream(destinationPath, fileMode, FileAccess.Write, FileShare.None, 81920, true);
+
+            _logger.LogInformation($"Starting file write, total expected: {totalBytes?.ToString("N0") ?? "unknown"} bytes");
 
             var buffer = new byte[81920];
             long totalReceived = existingBytes;
@@ -384,7 +440,7 @@ public class XcodeService : IXcodeService
             // Step 1: Unxip
             progress?.Report("Unarchiving Xcode (this can take a while)...");
             var expandDir = Path.GetDirectoryName(xipPath) ?? Path.GetTempPath();
-            var expandResult = await RunProcessAsync("xip", $"--expand \"{xipPath}\"");
+            var expandResult = await RunProcessAsync("xip", $"--expand \"{xipPath}\"", expandDir);
 
             // xip expands into the current directory, so we need to look for Xcode*.app
             if (expandResult.exitCode != 0)
@@ -622,7 +678,8 @@ public class XcodeService : IXcodeService
         return releases;
     }
 
-    private static async Task<(int exitCode, string output, string error)> RunProcessAsync(string fileName, string arguments)
+    private static async Task<(int exitCode, string output, string error)> RunProcessAsync(
+        string fileName, string arguments, string? workingDirectory = null)
     {
         var psi = new ProcessStartInfo
         {
@@ -633,6 +690,8 @@ public class XcodeService : IXcodeService
             UseShellExecute = false,
             CreateNoWindow = true
         };
+        if (workingDirectory != null)
+            psi.WorkingDirectory = workingDirectory;
 
         using var process = Process.Start(psi) ?? throw new InvalidOperationException($"Failed to start {fileName}");
         var output = await process.StandardOutput.ReadToEndAsync();

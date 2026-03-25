@@ -1111,6 +1111,11 @@ public interface IAppleDownloadAuthService
     HttpClient CreateAuthenticatedHttpClient();
 
     /// <summary>
+    /// Returns all cookies from the authenticated session's cookie jar.
+    /// </summary>
+    System.Net.CookieCollection GetAllCookies();
+
+    /// <summary>
     /// Clear stored credentials and session
     /// </summary>
     Task SignOutAsync();

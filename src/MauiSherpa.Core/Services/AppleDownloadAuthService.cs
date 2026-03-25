@@ -327,6 +327,8 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
 
     public AppleAuthSession? GetSession() => IsAuthenticated ? _session : null;
 
+    public CookieCollection GetAllCookies() => _cookieContainer.GetAllCookies();
+
     public HttpClient CreateAuthenticatedHttpClient()
     {
         // Share the same CookieContainer so cookies from listDownloads.action
