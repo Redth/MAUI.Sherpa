@@ -68,8 +68,17 @@
     else if (capabilities == null)
     {
         <div class="empty-state">
-            <i class="fas fa-spinner fa-spin"></i>
-            <span>Loading profiler capabilities...</span>
+            @if (!capabilitiesLoaded)
+            {
+                <i class="fas fa-spinner fa-spin"></i>
+                <span>Loading profiler capabilities...</span>
+            }
+            else
+            {
+                <i class="fas fa-circle-exclamation"></i>
+                <div>@(errorMessage ?? "Could not read profiler capabilities from the agent.")</div>
+                <div style="margin-top: 8px;">This agent may not expose profiling APIs yet, but the rest of the inspector can still be used.</div>
+            }
         </div>
     }
     else if (!capabilities.Available)
@@ -361,7 +370,7 @@
     [Parameter] public DevFlowAgentClient Client { get; set; } = null!;
     [Parameter] public string? AgentVersion { get; set; }
 
-    private static readonly Version MinRequiredVersion = new(0, 23, 0);
+    private static readonly Version MinRequiredVersion = DevFlowVersionSupport.MinimumSupportedVersion;
     private const int MaxSampleHistory = 600;
     private const int MaxMarkerHistory = 300;
     private const int MaxSpanHistory = 600;
@@ -380,6 +389,7 @@
     private bool livePolling = true;
     private bool isBusy;
     private int pollInFlight;
+    private bool capabilitiesLoaded;
     private string timelineTypeFilter = string.Empty;
     private string timelineSeverityFilter = "all";
     private string timelineSearchText = string.Empty;
@@ -389,7 +399,9 @@
 
     private bool CanStart => !isBusy && capabilities?.Available == true && session?.IsActive != true;
     private bool CanStop => !isBusy && session?.IsActive == true;
-    private bool MeetsMinVersion => Version.TryParse(AgentVersion, out var v) && v >= MinRequiredVersion;
+    private bool MeetsMinVersion =>
+        string.IsNullOrWhiteSpace(AgentVersion)
+        || (DevFlowVersionSupport.TryParseComparableVersion(AgentVersion, out var v) && v >= MinRequiredVersion);
     private DevFlowProfilerSample? LatestSample => samples.Count > 0 ? samples[^1] : null;
     private string NativeMemoryLabel => FormatNativeMemoryKind(LatestSample?.NativeMemoryKind);
     private (int Gc0, int Gc1, int Gc2) gcDelta => GetGcDelta();
@@ -469,6 +481,8 @@
 
     private async Task RefreshCapabilitiesAsync()
     {
+        capabilitiesLoaded = false;
+
         try
         {
             capabilities = await Client.GetProfilerCapabilitiesAsync();
@@ -483,6 +497,10 @@
         catch (Exception ex)
         {
             errorMessage = $"Capabilities request failed: {ex.Message}";
+        }
+        finally
+        {
+            capabilitiesLoaded = true;
         }
     }
 

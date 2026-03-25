@@ -78,7 +78,7 @@
                     }
                     @if (!string.IsNullOrEmpty(agent.Version))
                     {
-                        <span class="agent-version"><i class="fas fa-code-branch"></i> @FormatVersion(agent.Version)</span>
+                        <span class="agent-version"><i class="fas fa-code-branch"></i> @DevFlowVersionSupport.FormatVersionLabel(agent.Version)</span>
                     }
                 </div>
             </div>
@@ -144,7 +144,7 @@
     private List<BrokerAgent> agents = new();
     private Timer? _refreshTimer;
 
-    private static readonly Version MinSupportedAgentVersion = new("0.18.0");
+    private static readonly Version MinSupportedAgentVersion = DevFlowVersionSupport.MinimumSupportedVersion;
 
     protected override async Task OnInitializedAsync()
     {
@@ -215,34 +215,14 @@
 #if DEBUG
         return true; // allow connecting to any version in debug builds
 #else
-        return TryParseAgentVersion(agent.Version, out var v) && v >= MinSupportedAgentVersion;
+        return DevFlowVersionSupport.TryParseComparableVersion(agent.Version, out var v) && v >= MinSupportedAgentVersion;
 #endif
     }
 
     private bool IsAgentOutdated(BrokerAgent agent)
     {
         if (string.IsNullOrEmpty(agent.Version)) return false;
-        return TryParseAgentVersion(agent.Version, out var v) && v < MinSupportedAgentVersion;
-    }
-
-    private static bool TryParseAgentVersion(string versionStr, out Version version)
-    {
-        // Handle semver-like strings: "v0.14.0+hash", "0.14.0-beta.1", "v1.2.3"
-        var s = versionStr.TrimStart('v');
-        var plusIdx = s.IndexOf('+');
-        if (plusIdx >= 0) s = s[..plusIdx];
-        var dashIdx = s.IndexOf('-');
-        if (dashIdx >= 0) s = s[..dashIdx];
-        return Version.TryParse(s, out version!);
-    }
-
-    private static string FormatVersion(string version)
-    {
-        // Show clean version: "v0.14.0+hash" → "v0.14.0", "0.14.0" → "v0.14.0"
-        var s = version.TrimStart('v');
-        var plusIdx = s.IndexOf('+');
-        if (plusIdx >= 0) s = s[..plusIdx];
-        return $"v{s}";
+        return DevFlowVersionSupport.TryParseComparableVersion(agent.Version, out var v) && v < MinSupportedAgentVersion;
     }
 
     private void OpenInspector(BrokerAgent agent)
