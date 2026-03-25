@@ -1105,6 +1105,12 @@ public interface IAppleDownloadAuthService
     AppleAuthSession? GetSession();
 
     /// <summary>
+    /// Creates an HttpClient that shares the authenticated cookie jar.
+    /// The caller should dispose the client when done but cookies persist in the auth service.
+    /// </summary>
+    HttpClient CreateAuthenticatedHttpClient();
+
+    /// <summary>
     /// Clear stored credentials and session
     /// </summary>
     Task SignOutAsync();

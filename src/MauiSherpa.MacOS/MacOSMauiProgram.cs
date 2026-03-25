@@ -145,9 +145,10 @@ public static class MacOSMauiProgram
         {
             var logger = sp.GetRequiredService<ILoggingService>();
             var platform = sp.GetRequiredService<IPlatformService>();
+            var authService = sp.GetRequiredService<IAppleDownloadAuthService>();
             var httpClient = new HttpClient();
             httpClient.DefaultRequestHeaders.Add("User-Agent", "MauiSherpa");
-            return new XcodeService(logger, platform, httpClient);
+            return new XcodeService(logger, platform, httpClient, authService);
         });
         builder.Services.AddSingleton<ISimulatorLogService, SimulatorLogService>();
         builder.Services.AddSingleton<IPhysicalDeviceService, MauiSherpa.Core.Services.PhysicalDeviceService>();

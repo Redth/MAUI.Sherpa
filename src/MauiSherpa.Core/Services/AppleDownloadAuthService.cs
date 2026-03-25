@@ -22,6 +22,9 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
     private AppleAuthSession? _session;
     private AppleAuthOptions? _pendingAuthOptions;
     private string? _pendingAppleId;
+    private string? _pendingSessionId;
+    private string? _pendingScnt;
+    private string? _pendingServiceKey;
 
     // Apple auth endpoints
     // Olympus only returns authServiceKey for the iTunes Connect hostname variant.
@@ -37,15 +40,16 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
     private const string SecureStorageAppleIdKey = "apple_download_appleid";
 
     // RFC 5054 2048-bit SRP group
+    // RFC 5054 2048-bit SRP group prime
     private static readonly BigInteger SrpN = BigInteger.Parse(
         "00AC6BDB41324A9A9BF166DE5E1389582FAF72B6651987EE07FC3192943DB56050" +
-        "A37329CBB4A099ED8193E0757767A13DD52312AB4B03310DCD7F48A9DA04FD50E8" +
-        "083969EDB767B0CF6095179A163AB3661A05FBD5FAAAE82918A9962F0B93B855F9" +
-        "7993EC975EEAA80D740ADBF4FF747359D041D5C33EA71D281E446B14773BCA97B4" +
-        "3A23FB801676BD207A436C6481F1D2B9078717461A5B9D32E688F87748544523B5" +
-        "24B0D57D5EA77A2775D2ECFA032CFBDBF52FB3786160279004E57AE6AF874E7382" +
-        "8FDB35B428BCED73CBDD9FE1EEC2B984239006EE818E630E7C9E2589F77E38E7B1" +
-        "B00E6CFB742B47DA19A5CE8FDECC2A73BFBF1403B6AE7FADA1BAD70E5A5E8B93", System.Globalization.NumberStyles.HexNumber);
+        "A37329CBB4A099ED8193E0757767A13DD52312AB4B03310DCD7F48A9DA04FD50" +
+        "E8083969EDB767B0CF6095179A163AB3661A05FBD5FAAAE82918A9962F0B93B8" +
+        "55F97993EC975EEAA80D740ADBF4FF747359D041D5C33EA71D281E446B14773B" +
+        "CA97B43A23FB801676BD207A436C6481F1D2B9078717461A5B9D32E688F87748" +
+        "544523B524B0D57D5EA77A2775D2ECFA032CFBDBF52FB3786160279004E57AE6" +
+        "AF874E7303CE53299CCC041C7BC308D82A5698F3A8D0C38271AE35F8E9DBFBB6" +
+        "94B5C803D89F7AE435DE236D525F54759B65E372FCD68EF20FA7111F9E4AFF73", System.Globalization.NumberStyles.HexNumber);
     private static readonly BigInteger SrpG = new BigInteger(2);
 
     // N as big-endian unsigned bytes (256 bytes for 2048-bit)
@@ -154,6 +158,15 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
             if (completeResponse.StatusCode == HttpStatusCode.Conflict)
             {
                 _logger.LogInformation("Two-factor authentication required");
+
+                // Save session headers needed for 2FA requests
+                _pendingServiceKey = serviceKey;
+                _pendingSessionId = completeResponse.Headers.TryGetValues("X-Apple-ID-Session-Id", out var sidValues)
+                    ? sidValues.FirstOrDefault() : null;
+                _pendingScnt = completeResponse.Headers.TryGetValues("scnt", out var scntValues)
+                    ? scntValues.FirstOrDefault() : null;
+                _logger.LogInformation($"Session headers - SessionId: {(_pendingSessionId != null ? "present" : "MISSING")}, scnt: {(_pendingScnt != null ? "present" : "MISSING")}");
+
                 var authOptions = await GetAuthOptionsInternalAsync(serviceKey);
                 _pendingAuthOptions = authOptions;
                 return new AppleAuthResult(false, true, TwoFactorOptions: authOptions);
@@ -189,7 +202,7 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
     {
         try
         {
-            var serviceKey = await GetServiceKeyAsync();
+            var serviceKey = _pendingServiceKey ?? await GetServiceKeyAsync();
             if (serviceKey == null)
                 return new AppleAuthResult(false, false, ErrorMessage: "Failed to get service key");
 
@@ -216,11 +229,18 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
                     Encoding.UTF8, "application/json");
             }
 
+            _logger.LogInformation($"Submitting 2FA code to: {verifyUrl}, SessionId: {(_pendingSessionId != null ? "present" : "MISSING")}, scnt: {(_pendingScnt != null ? "present" : "MISSING")}");
+
             var request = new HttpRequestMessage(HttpMethod.Post, verifyUrl);
             request.Headers.Add("X-Apple-Widget-Key", serviceKey);
+            if (_pendingSessionId != null)
+                request.Headers.Add("X-Apple-ID-Session-Id", _pendingSessionId);
+            if (_pendingScnt != null)
+                request.Headers.Add("scnt", _pendingScnt);
             request.Content = content;
 
             var response = await _httpClient.SendAsync(request);
+            _logger.LogInformation($"2FA response status: {(int)response.StatusCode} {response.StatusCode}");
 
             if (!response.IsSuccessStatusCode)
             {
@@ -232,6 +252,10 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
             // Trust this session
             var trustRequest = new HttpRequestMessage(HttpMethod.Get, TrustUrl);
             trustRequest.Headers.Add("X-Apple-Widget-Key", serviceKey);
+            if (_pendingSessionId != null)
+                trustRequest.Headers.Add("X-Apple-ID-Session-Id", _pendingSessionId);
+            if (_pendingScnt != null)
+                trustRequest.Headers.Add("scnt", _pendingScnt);
             await _httpClient.SendAsync(trustRequest);
 
             // Establish download session
@@ -303,11 +327,29 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
 
     public AppleAuthSession? GetSession() => IsAuthenticated ? _session : null;
 
+    public HttpClient CreateAuthenticatedHttpClient()
+    {
+        // Share the same CookieContainer so cookies from listDownloads.action
+        // flow to the actual download request
+        var handler = new SocketsHttpHandler
+        {
+            CookieContainer = _cookieContainer,
+            AllowAutoRedirect = true,
+            UseCookies = true
+        };
+        var client = new HttpClient(handler);
+        client.DefaultRequestHeaders.Add("User-Agent", "MauiSherpa");
+        return client;
+    }
+
     public async Task SignOutAsync()
     {
         _session = null;
         _pendingAppleId = null;
         _pendingAuthOptions = null;
+        _pendingSessionId = null;
+        _pendingScnt = null;
+        _pendingServiceKey = null;
 
         await _secureStorage.RemoveAsync(SecureStorageSessionKey);
         await _secureStorage.RemoveAsync(SecureStorageAppleIdKey);
@@ -558,15 +600,24 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
         {
             var request = new HttpRequestMessage(HttpMethod.Get, AuthUrl);
             request.Headers.Add("X-Apple-Widget-Key", serviceKey);
+            if (_pendingSessionId != null)
+                request.Headers.Add("X-Apple-ID-Session-Id", _pendingSessionId);
+            if (_pendingScnt != null)
+                request.Headers.Add("scnt", _pendingScnt);
 
             var response = await _httpClient.SendAsync(request);
+            var json = await response.Content.ReadAsStringAsync();
+            _logger.LogInformation($"Auth options response: {(int)response.StatusCode}, body: {json[..Math.Min(json.Length, 500)]}");
             if (!response.IsSuccessStatusCode) return null;
 
-            var json = await response.Content.ReadAsStringAsync();
             using var doc = JsonDocument.Parse(json);
 
-            var canUseDevice = doc.RootElement.TryGetProperty("trustedDeviceCount", out var tdCount) &&
-                               tdCount.GetInt32() > 0;
+            // hsa2 accounts support trusted device codes even without trustedDeviceCount
+            var isHsa2 = doc.RootElement.TryGetProperty("authenticationType", out var authType) &&
+                         authType.GetString() == "hsa2";
+            var canUseDevice = isHsa2 ||
+                               (doc.RootElement.TryGetProperty("trustedDeviceCount", out var tdCount) &&
+                                tdCount.GetInt32() > 0);
 
             var phones = new List<TwoFactorMethod>();
             if (doc.RootElement.TryGetProperty("trustedPhoneNumbers", out var phonesArr))
@@ -598,13 +649,17 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
             var response = await _httpClient.SendAsync(request);
             if (!response.IsSuccessStatusCode) return null;
 
-            // Extract cookies for download.developer.apple.com
+            // Extract cookies — store domain info for proper download auth
             var cookies = new Dictionary<string, string>();
             var allCookies = _cookieContainer.GetAllCookies();
             foreach (Cookie cookie in allCookies)
             {
-                cookies[cookie.Name] = cookie.Value;
+                // Store as domain|name=value so we can restore to correct domain
+                var key = $"{cookie.Domain}|{cookie.Name}";
+                cookies[key] = cookie.Value;
             }
+            _logger.LogInformation($"Session cookies: {string.Join(", ", allCookies.Select(c => $"{c.Name}@{c.Domain}"))}");
+
 
             return new AppleAuthSession(
                 AppleId: appleId,
@@ -644,10 +699,22 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
             if (session != null && session.ExpiresAt > DateTime.UtcNow)
             {
                 _session = session;
-                // Restore cookies
-                foreach (var (name, value) in session.Cookies)
+                // Restore cookies with proper domains
+                foreach (var (key, value) in session.Cookies)
                 {
-                    _cookieContainer.Add(new Cookie(name, value, "/", ".apple.com"));
+                    string domain, name;
+                    if (key.Contains('|'))
+                    {
+                        var parts = key.Split('|', 2);
+                        domain = parts[0];
+                        name = parts[1];
+                    }
+                    else
+                    {
+                        domain = ".apple.com";
+                        name = key;
+                    }
+                    _cookieContainer.Add(new Cookie(name, value, "/", domain));
                 }
                 _logger.LogInformation($"Restored Apple session for {session.AppleId}");
                 AuthStateChanged?.Invoke();

@@ -14,16 +14,18 @@ public class XcodeService : IXcodeService
     private readonly ILoggingService _logger;
     private readonly IPlatformService _platform;
     private readonly HttpClient _httpClient;
+    private readonly IAppleDownloadAuthService _authService;
 
     private const string XcodeReleasesUrl = "https://xcodereleases.com/data.json";
 
     public bool IsSupported => _platform.IsMacCatalyst || _platform.IsMacOS;
 
-    public XcodeService(ILoggingService logger, IPlatformService platform, HttpClient httpClient)
+    public XcodeService(ILoggingService logger, IPlatformService platform, HttpClient httpClient, IAppleDownloadAuthService authService)
     {
         _logger = logger;
         _platform = platform;
         _httpClient = httpClient;
+        _authService = authService;
     }
 
     public async Task<IReadOnlyList<XcodeInstallation>> GetInstalledXcodesAsync()
@@ -270,6 +272,27 @@ public class XcodeService : IXcodeService
         {
             _logger.LogInformation($"Downloading Xcode {release.Version} from {release.DownloadUrl}...");
 
+            // Use the auth service's shared cookie jar — cookies from SRP auth + Olympus session
+            // are already there, and listDownloads.action will add ADCDownloadAuth
+            using var downloadClient = _authService.CreateAuthenticatedHttpClient();
+
+            // Step 1: POST to listDownloads.action to establish ADCDownloadAuth cookie
+            var listRequest = new HttpRequestMessage(HttpMethod.Post,
+                "https://developer.apple.com/services-account/QH65B2/downloadws/listDownloads.action");
+            listRequest.Headers.Add("Accept", "application/json");
+            try
+            {
+                var listResponse = await downloadClient.SendAsync(listRequest, ct);
+                _logger.LogInformation($"listDownloads response: {(int)listResponse.StatusCode}");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($"listDownloads failed (continuing): {ex.Message}");
+            }
+
+            // Step 2: Download directly from download.developer.apple.com
+            _logger.LogInformation($"Downloading from: {release.DownloadUrl}");
+
             var request = new HttpRequestMessage(HttpMethod.Get, release.DownloadUrl);
 
             // Support resume if partial file exists
@@ -280,7 +303,9 @@ public class XcodeService : IXcodeService
                 request.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(existingBytes, null);
             }
 
-            using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+            using var response = await downloadClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+
+            _logger.LogInformation($"Download response: {(int)response.StatusCode}, final URL: {response.RequestMessage?.RequestUri}");
 
             // Detect unauthorized redirect (Apple returns 200 with HTML when auth fails)
             if (response.RequestMessage?.RequestUri?.AbsolutePath.Contains("unauthorized", StringComparison.OrdinalIgnoreCase) == true)
