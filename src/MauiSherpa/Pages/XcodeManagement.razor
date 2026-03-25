@@ -59,13 +59,6 @@ else
                 <span class="tab-count">(@filteredReleases.Count)</span>
             }
         </button>
-        <button class="tab @(activeTab == "runtimes" ? "active" : "")" @onclick="@(() => SwitchTab("runtimes"))">
-            <i class="fas fa-mobile-alt"></i> Runtimes
-            @if (ViewModel.RuntimeStorage.Count > 0)
-            {
-                <span class="tab-count">(@ViewModel.RuntimeStorage.Count)</span>
-            }
-        </button>
     </div>
 
     @* ====== INSTALLED TAB ====== *@
@@ -263,93 +256,6 @@ else
                                         <i class="fas fa-external-link-alt"></i>
                                     </button>
                                 }
-                            }
-                        </div>
-                    </div>
-                }
-            </div>
-        }
-    }
-
-    @* ====== RUNTIMES TAB ====== *@
-    @if (activeTab == "runtimes")
-    {
-        @if (ViewModel.IsLoadingRuntimes && ViewModel.RuntimeStorage.Count == 0)
-        {
-            <div class="loading-state">
-                <div class="loading-spinner"><i class="fas fa-spinner fa-spin"></i></div>
-                <div class="loading-title">Loading Simulator Runtimes</div>
-                <div class="loading-description">Querying simctl for runtime storage info...</div>
-            </div>
-        }
-        else if (ViewModel.RuntimeStorage.Count == 0)
-        {
-            <div class="empty-state">
-                <div class="empty-icon"><i class="fas fa-mobile-alt"></i></div>
-                <h3>No Simulator Runtimes Found</h3>
-                <p>Install simulator runtimes through Xcode or by adding a .dmg file.</p>
-            </div>
-        }
-        else
-        {
-            <div class="runtime-summary">
-                <i class="fas fa-database"></i>
-                Total runtime storage: <strong>@FormatBytes(ViewModel.TotalRuntimeStorageBytes)</strong>
-                across @ViewModel.RuntimeStorage.Count runtime(s)
-            </div>
-            <div class="xcode-list">
-                @foreach (var runtime in ViewModel.RuntimeStorage.OrderBy(r => r.PlatformIdentifier).ThenByDescending(r => r.Build))
-                {
-                    <div class="xcode-card runtime-card">
-                        <div class="xcode-card-icon">
-                            @if (runtime.PlatformIdentifier?.Contains("iOS") == true)
-                            {
-                                <i class="fas fa-mobile-alt"></i>
-                            }
-                            else if (runtime.PlatformIdentifier?.Contains("watchOS") == true)
-                            {
-                                <i class="fas fa-clock"></i>
-                            }
-                            else if (runtime.PlatformIdentifier?.Contains("tvOS") == true)
-                            {
-                                <i class="fas fa-tv"></i>
-                            }
-                            else if (runtime.PlatformIdentifier?.Contains("visionOS") == true)
-                            {
-                                <i class="fas fa-vr-cardboard"></i>
-                            }
-                            else
-                            {
-                                <i class="fas fa-microchip"></i>
-                            }
-                        </div>
-                        <div class="xcode-card-info">
-                            <div class="xcode-card-title">
-                                @FormatRuntimeName(runtime)
-                                <span class="badge @GetRuntimeStateBadgeClass(runtime.State)">@runtime.State</span>
-                            </div>
-                            <div class="xcode-card-details">
-                                <span class="detail-item"><i class="fas fa-code-branch"></i> Build @(runtime.Build ?? "Unknown")</span>
-                                @if (runtime.SizeBytes.HasValue)
-                                {
-                                    <span class="detail-item"><i class="fas fa-database"></i> @FormatBytes(runtime.SizeBytes.Value)</span>
-                                }
-                                @if (runtime.LastUsedAt.HasValue)
-                                {
-                                    <span class="detail-item"><i class="fas fa-clock"></i> Last used @runtime.LastUsedAt.Value.ToString("MMM d, yyyy")</span>
-                                }
-                                @if (!string.IsNullOrEmpty(runtime.MountPath))
-                                {
-                                    <span class="detail-item"><i class="fas fa-folder"></i> @runtime.MountPath</span>
-                                }
-                            </div>
-                        </div>
-                        <div class="xcode-card-actions">
-                            @if (runtime.Deletable)
-                            {
-                                <button class="btn btn-sm btn-danger-outline" @onclick="() => DeleteRuntime(runtime)" disabled="@deletingRuntime">
-                                    <i class="fas fa-trash-alt"></i> Delete
-                                </button>
                             }
                         </div>
                     </div>
@@ -1050,8 +956,6 @@ else
             await ViewModel.LoadInstalledAsync();
         else if (activeTab == "available")
             await ViewModel.LoadAvailableAsync();
-        else if (activeTab == "runtimes")
-            await ViewModel.LoadRuntimeStorageAsync();
     }
 
     private async Task SwitchTab(string tab)
@@ -1059,8 +963,6 @@ else
         activeTab = tab;
         if (tab == "available" && ViewModel.AvailableReleases.Count == 0)
             await ViewModel.LoadAvailableAsync();
-        else if (tab == "runtimes" && ViewModel.RuntimeStorage.Count == 0)
-            await ViewModel.LoadRuntimeStorageAsync();
     }
 
     private async Task SelectXcode(XcodeInstallation xcode)
