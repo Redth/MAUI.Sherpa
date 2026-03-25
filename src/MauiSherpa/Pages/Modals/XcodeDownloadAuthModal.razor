@@ -1,0 +1,416 @@
+@page "/modal/xcode-download-auth"
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Core.ViewModels
+@using MauiSherpa.Pages.Forms
+@inject HybridFormBridgeHolder BridgeHolder
+@inject XcodeManagementViewModel ViewModel
+@implements IDisposable
+
+@{
+    var bridge = BridgeHolder.Current;
+}
+
+@if (bridge != null)
+{
+    <div class="form-content">
+        <div class="step-indicator">
+            <div class="step @(currentStep >= AuthStep.Credentials ? "active" : "") @(currentStep > AuthStep.Credentials ? "completed" : "")">
+                <div class="step-number">@(currentStep > AuthStep.Credentials ? "✓" : "1")</div>
+                <div class="step-label">Credentials</div>
+            </div>
+            <div class="step-line @(currentStep > AuthStep.Credentials ? "active" : "")"></div>
+            <div class="step @(currentStep >= AuthStep.TwoFactor ? "active" : "")">
+                <div class="step-number">2</div>
+                <div class="step-label">Verification</div>
+            </div>
+        </div>
+
+        <div class="wizard-body">
+            @if (currentStep == AuthStep.Credentials)
+            {
+                <div class="step-content">
+                    <h3>Sign in with your Apple ID</h3>
+                    <p class="step-description">Authenticate with Apple Developer to download Xcode directly from Apple.</p>
+
+                    <div class="form-group">
+                        <label>Apple ID</label>
+                        <input type="email"
+                               @bind="authAppleId"
+                               @bind:event="oninput"
+                               @bind:after="OnFieldChanged"
+                               placeholder="you@example.com"
+                               disabled="@isAuthenticating" />
+                    </div>
+
+                    <div class="form-group">
+                        <label>Password</label>
+                        <input type="password"
+                               @bind="authPassword"
+                               @bind:event="oninput"
+                               @bind:after="OnFieldChanged"
+                               placeholder="Password"
+                               disabled="@isAuthenticating" />
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="step-content">
+                    <h3>Enter your verification code</h3>
+                    <p class="step-description">
+                        @if (twoFactorOptions?.CanUseTrustedDevice == true && selectedPhoneIndex < 0)
+                        {
+                            <span>Enter the verification code shown on your trusted device.</span>
+                        }
+                        else
+                        {
+                            <span>Enter the verification code sent to your phone.</span>
+                        }
+                    </p>
+
+                    @if (twoFactorOptions?.TrustedPhoneNumbers.Count > 1)
+                    {
+                        <div class="form-group">
+                            <label>Verification method</label>
+                            <select @bind="selectedPhoneIndex" @bind:after="OnFieldChanged" disabled="@isAuthenticating">
+                                @if (twoFactorOptions.CanUseTrustedDevice)
+                                {
+                                    <option value="-1">Trusted Device</option>
+                                }
+                                @for (var i = 0; i < twoFactorOptions.TrustedPhoneNumbers.Count; i++)
+                                {
+                                    <option value="@i">SMS: @twoFactorOptions.TrustedPhoneNumbers[i].PhoneNumber</option>
+                                }
+                            </select>
+                        </div>
+                    }
+
+                    <div class="form-group">
+                        <label>Verification Code</label>
+                        <input type="text"
+                               class="code-input"
+                               @bind="authTwoFactorCode"
+                               @bind:event="oninput"
+                               @bind:after="OnFieldChanged"
+                               placeholder="000000"
+                               maxlength="6"
+                               disabled="@isAuthenticating" />
+                    </div>
+                </div>
+            }
+
+            @if (!string.IsNullOrEmpty(authError))
+            {
+                <div class="auth-error">
+                    <i class="fas fa-exclamation-circle"></i>
+                    <span>@authError</span>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private AuthStep currentStep = AuthStep.Credentials;
+    private string authAppleId = string.Empty;
+    private string authPassword = string.Empty;
+    private string authTwoFactorCode = string.Empty;
+    private string? authError;
+    private bool isAuthenticating;
+    private AppleAuthOptions? twoFactorOptions;
+    private int selectedPhoneIndex = -1;
+
+    private enum AuthStep
+    {
+        Credentials,
+        TwoFactor
+    }
+
+    protected override void OnInitialized()
+    {
+        var bridge = BridgeHolder.Current;
+        if (bridge == null)
+            return;
+
+        bridge.SubmitRequested += OnSubmitRequested;
+        bridge.BackRequested += OnBackRequested;
+        bridge.PreventSubmitClose = true;
+        UpdateWizardState();
+    }
+
+    private bool CanSubmitCurrentStep => currentStep switch
+    {
+        AuthStep.Credentials =>
+            !string.IsNullOrWhiteSpace(authAppleId) &&
+            !string.IsNullOrWhiteSpace(authPassword),
+        AuthStep.TwoFactor => !string.IsNullOrWhiteSpace(authTwoFactorCode),
+        _ => false
+    };
+
+    private void OnFieldChanged() => UpdateWizardState();
+
+    private void UpdateWizardState()
+    {
+        var bridge = BridgeHolder.Current;
+        if (bridge == null)
+            return;
+
+        bridge.PreventClose = isAuthenticating;
+        bridge.PreventSubmitClose = true;
+        bridge.SetWizardState(
+            showBack: currentStep == AuthStep.TwoFactor,
+            showNext: false,
+            showSubmit: true,
+            canProceed: CanSubmitCurrentStep,
+            isSubmitting: isAuthenticating,
+            submitText: currentStep == AuthStep.Credentials ? "Sign In" : "Verify");
+    }
+
+    private Task OnBackRequested()
+    {
+        if (isAuthenticating || currentStep != AuthStep.TwoFactor)
+            return Task.CompletedTask;
+
+        currentStep = AuthStep.Credentials;
+        authTwoFactorCode = string.Empty;
+        authError = null;
+        UpdateWizardState();
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    private async Task OnSubmitRequested()
+    {
+        if (isAuthenticating)
+            return;
+
+        var shouldClose = false;
+        isAuthenticating = true;
+        authError = null;
+        UpdateWizardState();
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            if (currentStep == AuthStep.Credentials)
+            {
+                var result = await ViewModel.SignInAsync(authAppleId, authPassword);
+                if (result.Success)
+                {
+                    shouldClose = true;
+                    CompleteSuccess();
+                    return;
+                }
+
+                if (result.RequiresTwoFactor)
+                {
+                    currentStep = AuthStep.TwoFactor;
+                    twoFactorOptions = result.TwoFactorOptions;
+                    authTwoFactorCode = string.Empty;
+                    selectedPhoneIndex = twoFactorOptions is { CanUseTrustedDevice: false }
+                        && twoFactorOptions.TrustedPhoneNumbers.Count > 0
+                        ? 0
+                        : -1;
+                }
+                else
+                {
+                    authError = result.ErrorMessage ?? "Authentication failed";
+                }
+            }
+            else
+            {
+                TwoFactorMethod? method = null;
+                if (selectedPhoneIndex >= 0 && twoFactorOptions?.TrustedPhoneNumbers.Count > selectedPhoneIndex)
+                    method = twoFactorOptions.TrustedPhoneNumbers[selectedPhoneIndex];
+
+                var result = await ViewModel.SubmitTwoFactorCodeAsync(authTwoFactorCode, method);
+                if (result.Success)
+                {
+                    shouldClose = true;
+                    CompleteSuccess();
+                    return;
+                }
+
+                authError = result.ErrorMessage ?? "Verification failed";
+            }
+        }
+        catch (Exception ex)
+        {
+            authError = ex.Message;
+        }
+        finally
+        {
+            isAuthenticating = false;
+            if (!shouldClose)
+            {
+                UpdateWizardState();
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+    }
+
+    private void CompleteSuccess()
+    {
+        var bridge = BridgeHolder.Current;
+        if (bridge == null)
+            return;
+
+        bridge.Result = true;
+        bridge.RequestClose();
+    }
+
+    public void Dispose()
+    {
+        var bridge = BridgeHolder.Current;
+        if (bridge == null)
+            return;
+
+        bridge.SubmitRequested -= OnSubmitRequested;
+        bridge.BackRequested -= OnBackRequested;
+    }
+}
+
+<style>
+    .form-content {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        padding: 0 16px;
+    }
+
+    .step-indicator {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0;
+        padding: 8px 0 16px;
+    }
+
+    .step {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+        min-width: 90px;
+    }
+
+    .step-number {
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 12px;
+        font-weight: 600;
+        background: var(--bg-tertiary, #e2e8f0);
+        color: var(--text-muted);
+    }
+
+    .step.active .step-number {
+        background: var(--accent-primary);
+        color: white;
+    }
+
+    .step.completed .step-number {
+        background: var(--accent-success, #22c55e);
+        color: white;
+    }
+
+    .step-label {
+        font-size: 11px;
+        color: var(--text-muted);
+        text-align: center;
+    }
+
+    .step.active .step-label,
+    .step.completed .step-label {
+        color: var(--text-primary);
+        font-weight: 600;
+    }
+
+    .step-line {
+        flex: 0 1 56px;
+        height: 2px;
+        background: var(--border-color);
+        margin: 0 8px;
+    }
+
+    .step-line.active {
+        background: var(--accent-primary);
+    }
+
+    .wizard-body {
+        flex: 1;
+        overflow-y: auto;
+        padding: 8px 4px 16px;
+    }
+
+    .step-content h3 {
+        margin: 0 0 8px 0;
+        font-size: 16px;
+        color: var(--text-primary);
+    }
+
+    .step-description {
+        margin: 0 0 16px 0;
+        color: var(--text-muted);
+        font-size: 13px;
+        line-height: 1.5;
+    }
+
+    .form-group {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        margin-bottom: 16px;
+    }
+
+    .form-group label {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--text-secondary);
+    }
+
+    .form-group input,
+    .form-group select {
+        width: 100%;
+        padding: 10px 12px;
+        border: 1px solid var(--input-border, #e2e8f0);
+        border-radius: 6px;
+        background: var(--input-bg, white);
+        color: var(--text-primary);
+        font-size: 14px;
+        box-sizing: border-box;
+    }
+
+    .form-group input:focus,
+    .form-group select:focus {
+        outline: none;
+        border-color: var(--accent-primary);
+        box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.12);
+    }
+
+    .form-group input:disabled,
+    .form-group select:disabled {
+        opacity: 0.7;
+        cursor: not-allowed;
+    }
+
+    .code-input {
+        letter-spacing: 0.2em;
+        font-family: var(--font-mono, monospace);
+    }
+
+    .auth-error {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        margin-top: 8px;
+        padding: 12px 14px;
+        border-radius: 10px;
+        background: var(--status-error-bg);
+        color: var(--status-error-text);
+        font-size: 13px;
+    }
+</style>

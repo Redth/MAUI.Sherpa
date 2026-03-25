@@ -1,9 +1,13 @@
 @page "/xcode-management"
 @using MauiSherpa.Core.Interfaces
 @using MauiSherpa.Core.ViewModels
+@using MauiSherpa.Pages.Forms
+@using MauiSherpa.Pages.Modals
 @inject XcodeManagementViewModel ViewModel
 @inject IPlatformService Platform
 @inject IAlertService AlertService
+@inject IFormModalService FormModalService
+@inject HybridFormBridgeHolder BridgeHolder
 @inject IXcodeService XcodeService
 @inject ISimulatorService SimulatorService
 
@@ -33,7 +37,7 @@ else
         {
             <span class="auth-status">
                 <i class="fas fa-lock-open"></i>
-                <button class="btn-link" @onclick="() => showAuthModal = true">Sign In for Downloads</button>
+                <button class="btn-link" @onclick="OpenAuthModal">Sign In for Downloads</button>
             </span>
         }
     </div>
@@ -352,94 +356,6 @@ else
                 }
             </div>
         }
-    }
-
-    @* ====== AUTH MODAL ====== *@
-    @if (showAuthModal)
-    {
-        <div class="modal-overlay" @onclick="CloseAuthModal">
-            <div class="modal" @onclick:stopPropagation="true">
-                <div class="modal-header">
-                    <h3><i class="fab fa-apple"></i> Apple Developer Sign In</h3>
-                    <button class="modal-close" @onclick="CloseAuthModal"><i class="fas fa-times"></i></button>
-                </div>
-                <div class="modal-body">
-                    @if (authStep == AuthStep.Credentials)
-                    {
-                        <p class="auth-description">Sign in with your Apple ID to download Xcode directly from Apple.</p>
-                        <div class="form-group">
-                            <label>Apple ID</label>
-                            <input type="email" @bind="authAppleId" @bind:event="oninput" placeholder="you@example.com" disabled="@isAuthenticating" />
-                        </div>
-                        <div class="form-group">
-                            <label>Password</label>
-                            <input type="password" @bind="authPassword" @bind:event="oninput" placeholder="Password" disabled="@isAuthenticating"
-                                   @onkeydown="AuthKeyDown" />
-                        </div>
-                        @if (!string.IsNullOrEmpty(authError))
-                        {
-                            <div class="auth-error"><i class="fas fa-exclamation-circle"></i> @authError</div>
-                        }
-                    }
-                    else if (authStep == AuthStep.TwoFactor)
-                    {
-                        <p class="auth-description">
-                            @if (twoFactorOptions?.CanUseTrustedDevice == true)
-                            {
-                                <span>Enter the verification code shown on your trusted device.</span>
-                            }
-                            else
-                            {
-                                <span>Enter the verification code sent to your phone.</span>
-                            }
-                        </p>
-                        @if (twoFactorOptions?.TrustedPhoneNumbers.Count > 1)
-                        {
-                            <div class="form-group">
-                                <label>Send code to</label>
-                                <select @bind="selectedPhoneIndex" @bind:event="oninput">
-                                    @if (twoFactorOptions.CanUseTrustedDevice)
-                                    {
-                                        <option value="-1">Trusted Device</option>
-                                    }
-                                    @for (var i = 0; i < twoFactorOptions.TrustedPhoneNumbers.Count; i++)
-                                    {
-                                        <option value="@i">SMS: @twoFactorOptions.TrustedPhoneNumbers[i].PhoneNumber</option>
-                                    }
-                                </select>
-                            </div>
-                        }
-                        <div class="form-group">
-                            <label>Verification Code</label>
-                            <input type="text" @bind="authTwoFactorCode" @bind:event="oninput" placeholder="000000"
-                                   maxlength="6" class="code-input" disabled="@isAuthenticating"
-                                   @onkeydown="TwoFactorKeyDown" />
-                        </div>
-                        @if (!string.IsNullOrEmpty(authError))
-                        {
-                            <div class="auth-error"><i class="fas fa-exclamation-circle"></i> @authError</div>
-                        }
-                    }
-                </div>
-                <div class="modal-footer">
-                    <button class="btn btn-secondary" @onclick="CloseAuthModal" disabled="@isAuthenticating">Cancel</button>
-                    @if (authStep == AuthStep.Credentials)
-                    {
-                        <button class="btn btn-primary" @onclick="SubmitCredentials"
-                                disabled="@(isAuthenticating || string.IsNullOrWhiteSpace(authAppleId) || string.IsNullOrWhiteSpace(authPassword))">
-                            @if (isAuthenticating) { <i class="fas fa-spinner fa-spin"></i> } Sign In
-                        </button>
-                    }
-                    else if (authStep == AuthStep.TwoFactor)
-                    {
-                        <button class="btn btn-primary" @onclick="SubmitTwoFactor"
-                                disabled="@(isAuthenticating || string.IsNullOrWhiteSpace(authTwoFactorCode))">
-                            @if (isAuthenticating) { <i class="fas fa-spinner fa-spin"></i> } Verify
-                        </button>
-                    }
-                </div>
-            </div>
-        </div>
     }
 
     @* ====== DOWNLOAD/INSTALL MODAL ====== *@
@@ -1095,17 +1011,6 @@ else
     private bool showBetas;
     private bool hasInitialized;
 
-    // Auth modal state
-    private bool showAuthModal;
-    private AuthStep authStep = AuthStep.Credentials;
-    private string authAppleId = "";
-    private string authPassword = "";
-    private string authTwoFactorCode = "";
-    private string? authError;
-    private bool isAuthenticating;
-    private AppleAuthOptions? twoFactorOptions;
-    private int selectedPhoneIndex = -1;
-
     // Download/Install state
     private XcodeRelease? downloadingRelease;
     private XcodeDownloadProgress? downloadProgress;
@@ -1118,7 +1023,6 @@ else
     // Runtime state
     private bool deletingRuntime;
 
-    private enum AuthStep { Credentials, TwoFactor }
     private enum InstallStep { Download, Extract, FirstLaunch, Complete }
 
     private double downloadProgressPercent =>
@@ -1171,97 +1075,13 @@ else
         StateHasChanged();
     }
 
-    // ---- Auth ----
-    private void CloseAuthModal()
+    private async Task OpenAuthModal()
     {
-        showAuthModal = false;
-        authStep = AuthStep.Credentials;
-        authAppleId = "";
-        authPassword = "";
-        authTwoFactorCode = "";
-        authError = null;
-        twoFactorOptions = null;
-    }
-
-    private async Task AuthKeyDown(Microsoft.AspNetCore.Components.Web.KeyboardEventArgs e)
-    {
-        if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(authAppleId) && !string.IsNullOrWhiteSpace(authPassword))
-            await SubmitCredentials();
-    }
-
-    private async Task TwoFactorKeyDown(Microsoft.AspNetCore.Components.Web.KeyboardEventArgs e)
-    {
-        if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(authTwoFactorCode))
-            await SubmitTwoFactor();
-    }
-
-    private async Task SubmitCredentials()
-    {
-        isAuthenticating = true;
-        authError = null;
+        var result = await FormModalService.ShowAsync<bool>(new XcodeDownloadAuthPage(BridgeHolder));
         StateHasChanged();
 
-        try
-        {
-            var result = await ViewModel.SignInAsync(authAppleId, authPassword);
-            if (result.Success)
-            {
-                CloseAuthModal();
-                await AlertService.ShowToastAsync("Signed in to Apple Developer");
-            }
-            else if (result.RequiresTwoFactor)
-            {
-                authStep = AuthStep.TwoFactor;
-                twoFactorOptions = result.TwoFactorOptions;
-            }
-            else
-            {
-                authError = result.ErrorMessage ?? "Authentication failed";
-            }
-        }
-        catch (Exception ex)
-        {
-            authError = ex.Message;
-        }
-        finally
-        {
-            isAuthenticating = false;
-            StateHasChanged();
-        }
-    }
-
-    private async Task SubmitTwoFactor()
-    {
-        isAuthenticating = true;
-        authError = null;
-        StateHasChanged();
-
-        try
-        {
-            TwoFactorMethod? method = null;
-            if (selectedPhoneIndex >= 0 && twoFactorOptions?.TrustedPhoneNumbers.Count > selectedPhoneIndex)
-                method = twoFactorOptions.TrustedPhoneNumbers[selectedPhoneIndex];
-
-            var result = await ViewModel.SubmitTwoFactorCodeAsync(authTwoFactorCode, method);
-            if (result.Success)
-            {
-                CloseAuthModal();
-                await AlertService.ShowToastAsync("Signed in to Apple Developer");
-            }
-            else
-            {
-                authError = result.ErrorMessage ?? "Verification failed";
-            }
-        }
-        catch (Exception ex)
-        {
-            authError = ex.Message;
-        }
-        finally
-        {
-            isAuthenticating = false;
-            StateHasChanged();
-        }
+        if (result == true)
+            await AlertService.ShowToastAsync("Signed in to Apple Developer");
     }
 
     private async Task SignOut()

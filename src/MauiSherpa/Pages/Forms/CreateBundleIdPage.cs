@@ -28,6 +28,7 @@ public class CreateBundleIdPage : FormPage<AppleBundleId>
         _identifierEntry = CreateEntry("com.example.myapp");
         _nameEntry = CreateEntry("My App");
         _platformPicker = CreatePicker(null, new[] { "iOS", "macOS" });
+        _platformPicker.SelectedIndex = 0;
 
         return new VerticalStackLayout
         {

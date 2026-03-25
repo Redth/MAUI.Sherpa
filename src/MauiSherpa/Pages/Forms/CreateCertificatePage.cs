@@ -46,6 +46,7 @@ public class CreateCertificatePage : FormPage<AppleCertificateCreateResult>
     protected override View BuildFormContent()
     {
         _typePicker = CreatePicker(null, CertTypeLabels);
+        _typePicker.SelectedIndex = 0;
 
         _commonNameEntry = CreateEntry(Environment.MachineName);
         _passphraseEntry = CreatePasswordEntry("Leave empty for no passphrase");

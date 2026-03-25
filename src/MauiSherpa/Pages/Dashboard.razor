@@ -19,23 +19,7 @@
 <h1><i class="fas fa-home"></i> @ViewModel.Title</h1>
 <p class="welcome">@ViewModel.WelcomeMessage</p>
 
-@if (!PlatformInfo.HasNativeToolbar)
-{
-    <div class="quick-actions">
-        <a href="doctor" class="action-btn doctor">
-            <i class="fas fa-stethoscope action-icon"></i>
-            <span>Doctor</span>
-        </a>
-        <a href="settings" class="action-btn settings">
-            <i class="fas fa-cog action-icon"></i>
-            <span>Settings</span>
-        </a>
-        <button class="action-btn copilot" @onclick="OpenCopilot">
-            <i class="fas fa-robot action-icon"></i>
-            <span>Copilot</span>
-        </button>
-    </div>
-}
+
 
 @* Connected Devices & Simulators *@
 <div class="devices-section">
@@ -547,10 +531,7 @@
 
     protected override void OnInitialized()
     {
-        ToolbarService.SetItems(
-            new ToolbarAction("doctor", "Doctor", "fa-stethoscope"),
-            new ToolbarAction("settings", "Settings", "fa-cog")
-        );
+        ToolbarService.SetItems();
         ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
 
         // Subscribe to device monitor changes
@@ -574,15 +555,6 @@
 
     private void OnToolbarItemClicked(string actionId)
     {
-        switch (actionId)
-        {
-            case "doctor":
-                Navigation.NavigateTo("/doctor");
-                break;
-            case "settings":
-                Navigation.NavigateTo("/settings");
-                break;
-        }
     }
 
     private void LoadCachedReleases()

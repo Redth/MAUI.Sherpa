@@ -10,7 +10,7 @@
     <div class="dialog-body">
         <div class="form-group">
             <label>Name</label>
-            <input type="text" @bind="providerName" placeholder="My Team Vault" />
+            <input type="text" @bind="providerName" @bind:event="oninput" placeholder="My Team Vault" />
             <div class="help-text">A friendly name to identify this provider</div>
         </div>
         <div class="form-group">
@@ -58,7 +58,7 @@
                 {
                     <input type="password"
                            value="@(providerSettings.GetValueOrDefault(setting.Key, ""))"
-                           @onchange="@(e => providerSettings[setting.Key] = e.Value?.ToString() ?? "")"
+                           @oninput="@(e => providerSettings[setting.Key] = e.Value?.ToString() ?? "")"
                            placeholder="@setting.Placeholder" />
                 }
                 else if (setting.Key == "CredentialsJson")
@@ -66,13 +66,14 @@
                     <textarea rows="6"
                               class="p8-textarea"
                               @bind="@providerSettings[setting.Key]"
+                              @bind:event="oninput"
                               placeholder="@setting.Placeholder"></textarea>
                 }
                 else
                 {
                     <input type="text"
                            value="@(providerSettings.GetValueOrDefault(setting.Key, setting.DefaultValue ?? ""))"
-                           @onchange="@(e => providerSettings[setting.Key] = e.Value?.ToString() ?? "")"
+                           @oninput="@(e => providerSettings[setting.Key] = e.Value?.ToString() ?? "")"
                            placeholder="@setting.Placeholder" />
                 }
                 <div class="help-text">@setting.Description</div>
@@ -163,6 +164,7 @@
         CloudSecretsProviderType.GoogleSecretManager => "fab fa-google",
         CloudSecretsProviderType.OnePassword => "fas fa-lock",
         CloudSecretsProviderType.Vaultwarden => "fas fa-vault",
+        CloudSecretsProviderType.AzureDevOps => "fab fa-microsoft",
         _ => "fas fa-lock"
     };
 }

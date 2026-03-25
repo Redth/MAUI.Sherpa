@@ -794,7 +794,10 @@
         {
             var bridge = BridgeHolder.Current;
             if (bridge is not null)
+            {
                 bridge.Result = true;
+                bridge.PreventSubmitClose = false;
+            }
             return;
         }
 
@@ -849,10 +852,6 @@
 
         isPublishing = false;
         publishComplete = true;
-
-        // Allow the wizard to close when user clicks Done
-        if (publishBridge is not null)
-            publishBridge.PreventSubmitClose = false;
 
         UpdateWizardState();
         await InvokeAsync(StateHasChanged);

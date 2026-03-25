@@ -22,7 +22,8 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
     private string? _pendingAppleId;
 
     // Apple auth endpoints
-    private const string AuthServiceKey = "https://appstoreconnect.apple.com/olympus/v1/app/config";
+    // Olympus only returns authServiceKey for the iTunes Connect hostname variant.
+    private const string AuthServiceKey = "https://appstoreconnect.apple.com/olympus/v1/app/config?hostname=itunesconnect.apple.com";
     private const string SignInInitUrl = "https://idmsa.apple.com/appleauth/auth/signin/init";
     private const string SignInCompleteUrl = "https://idmsa.apple.com/appleauth/auth/signin/complete";
     private const string AuthUrl = "https://idmsa.apple.com/appleauth/auth";
@@ -292,9 +293,22 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
     {
         try
         {
-            var response = await _httpClient.GetStringAsync(AuthServiceKey);
-            using var doc = JsonDocument.Parse(response);
-            return doc.RootElement.TryGetProperty("authServiceKey", out var key) ? key.GetString() : null;
+            using var request = new HttpRequestMessage(HttpMethod.Get, AuthServiceKey);
+            using var response = await _httpClient.SendAsync(request);
+            var responseText = await response.Content.ReadAsStringAsync();
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogError($"Failed to get service key: {(int)response.StatusCode} {response.ReasonPhrase}. Response: {responseText}");
+                return null;
+            }
+
+            using var doc = JsonDocument.Parse(responseText);
+            if (doc.RootElement.TryGetProperty("authServiceKey", out var key))
+                return key.GetString();
+
+            _logger.LogError($"Failed to get service key: authServiceKey missing from response: {responseText}");
+            return null;
         }
         catch (Exception ex)
         {

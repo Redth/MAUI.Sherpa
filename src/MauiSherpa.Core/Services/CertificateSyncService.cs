@@ -256,10 +256,10 @@ public class CertificateSyncService : ICertificateSyncService
             Console.WriteLine($"Got password: {password.Length} chars");
             _logger.LogInformation($"Got password: {password.Length} chars");
 
-            // Import into local keychain
-            Console.WriteLine("Importing P12 to keychain...");
-            _logger.LogInformation("Importing P12 to keychain...");
-            return await ImportP12ToKeychainAsync(p12Data, password, cancellationToken);
+            // Import into the local platform-backed certificate store.
+            Console.WriteLine("Importing P12 into local certificate store...");
+            _logger.LogInformation("Importing P12 into local certificate store...");
+            return await ImportP12LocallyAsync(p12Data, password, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -391,64 +391,19 @@ public class CertificateSyncService : ICertificateSyncService
         return parts[1];
     }
 
-    private async Task<bool> ImportP12ToKeychainAsync(
+    private Task<bool> ImportP12LocallyAsync(
         byte[] p12Data,
         string password,
         CancellationToken cancellationToken)
     {
-        if (OperatingSystem.IsWindows() || OperatingSystem.IsLinux())
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (OperatingSystem.IsLinux())
         {
-            return ImportP12ToX509Store(p12Data, password);
+            return Task.FromResult(ImportP12ToX509Store(p12Data, password));
         }
 
-        if (!_localCertificateService.IsSupported)
-        {
-            _logger.LogWarning("Cannot import P12 to keychain: not supported on this platform");
-            return false;
-        }
-
-        // macOS: use security CLI to import into login keychain
-        var tempFile = Path.GetTempFileName() + ".p12";
-        try
-        {
-            await File.WriteAllBytesAsync(tempFile, p12Data, cancellationToken);
-
-            var loginKeychain = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                "Library/Keychains/login.keychain-db");
-            
-            var process = new System.Diagnostics.Process
-            {
-                StartInfo = new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = "security",
-                    Arguments = $"import \"{tempFile}\" -k \"{loginKeychain}\" -P \"{password}\" -T /usr/bin/codesign -T /usr/bin/security",
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                }
-            };
-
-            process.Start();
-            await process.WaitForExitAsync(cancellationToken);
-
-            var output = await process.StandardOutput.ReadToEndAsync(cancellationToken);
-            var error = await process.StandardError.ReadToEndAsync(cancellationToken);
-
-            if (process.ExitCode != 0)
-            {
-                _logger.LogError($"Failed to import P12: {error}");
-                return false;
-            }
-
-            _logger.LogInformation("Successfully imported certificate to keychain");
-            return true;
-        }
-        finally
-        {
-            try { File.Delete(tempFile); } catch { }
-        }
+        return _localCertificateService.ImportP12Async(p12Data, password, cancellationToken);
     }
 
     private bool ImportP12ToX509Store(byte[] p12Data, string password)
@@ -460,9 +415,8 @@ public class CertificateSyncService : ICertificateSyncService
                 System.Security.Cryptography.X509Certificates.StoreLocation.CurrentUser);
             store.Open(System.Security.Cryptography.X509Certificates.OpenFlags.ReadWrite);
 
-            // Import using X509Certificate2Collection to properly persist the cert + private key.
-            // Loading X509Certificate2 from bytes and calling store.Add() can lose the private key
-            // on Windows because the ephemeral key container is cleaned up on dispose.
+            // Import the full P12 payload so the platform-backed user store gets the
+            // certificate and private key material together instead of only a transient cert instance.
             var collection = new System.Security.Cryptography.X509Certificates.X509Certificate2Collection();
             collection.Import(p12Data, password,
                 System.Security.Cryptography.X509Certificates.X509KeyStorageFlags.PersistKeySet
