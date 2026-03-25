@@ -1,4 +1,6 @@
 using System.Net;
+using System.Net.Http;
+using System.Numerics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -8,7 +10,7 @@ namespace MauiSherpa.Core.Services;
 
 /// <summary>
 /// Implements Apple Developer authentication for Xcode downloads.
-/// Uses Apple's session-based auth (SRP protocol + 2FA).
+/// Uses Apple's session-based auth (SRP-6a protocol + hashcash + 2FA).
 /// </summary>
 public class AppleDownloadAuthService : IAppleDownloadAuthService
 {
@@ -24,6 +26,7 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
     // Apple auth endpoints
     // Olympus only returns authServiceKey for the iTunes Connect hostname variant.
     private const string AuthServiceKey = "https://appstoreconnect.apple.com/olympus/v1/app/config?hostname=itunesconnect.apple.com";
+    private const string FederateUrl = "https://idmsa.apple.com/appleauth/auth/federate";
     private const string SignInInitUrl = "https://idmsa.apple.com/appleauth/auth/signin/init";
     private const string SignInCompleteUrl = "https://idmsa.apple.com/appleauth/auth/signin/complete";
     private const string AuthUrl = "https://idmsa.apple.com/appleauth/auth";
@@ -32,6 +35,22 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
 
     private const string SecureStorageSessionKey = "apple_download_session";
     private const string SecureStorageAppleIdKey = "apple_download_appleid";
+
+    // RFC 5054 2048-bit SRP group
+    private static readonly BigInteger SrpN = BigInteger.Parse(
+        "00AC6BDB41324A9A9BF166DE5E1389582FAF72B6651987EE07FC3192943DB56050" +
+        "A37329CBB4A099ED8193E0757767A13DD52312AB4B03310DCD7F48A9DA04FD50E8" +
+        "083969EDB767B0CF6095179A163AB3661A05FBD5FAAAE82918A9962F0B93B855F9" +
+        "7993EC975EEAA80D740ADBF4FF747359D041D5C33EA71D281E446B14773BCA97B4" +
+        "3A23FB801676BD207A436C6481F1D2B9078717461A5B9D32E688F87748544523B5" +
+        "24B0D57D5EA77A2775D2ECFA032CFBDBF52FB3786160279004E57AE6AF874E7382" +
+        "8FDB35B428BCED73CBDD9FE1EEC2B984239006EE818E630E7C9E2589F77E38E7B1" +
+        "B00E6CFB742B47DA19A5CE8FDECC2A73BFBF1403B6AE7FADA1BAD70E5A5E8B93", System.Globalization.NumberStyles.HexNumber);
+    private static readonly BigInteger SrpG = new BigInteger(2);
+
+    // N as big-endian unsigned bytes (256 bytes for 2048-bit)
+    private static readonly byte[] NBytes = SrpN.ToByteArray(isUnsigned: true, isBigEndian: true);
+    private static readonly int PadLength = NBytes.Length; // 256
 
     public bool IsAuthenticated => _session != null && _session.ExpiresAt > DateTime.UtcNow;
     public string? CurrentAppleId => _session?.AppleId ?? _pendingAppleId;
@@ -46,7 +65,9 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
         _secureStorage = secureStorage;
         _cookieContainer = new CookieContainer();
 
-        var handler = new HttpClientHandler
+        // Use SocketsHttpHandler explicitly — the platform default (NSUrlSessionHandler
+        // on macOS) gets a 403 from Apple's Olympus endpoint.
+        var handler = new SocketsHttpHandler
         {
             CookieContainer = _cookieContainer,
             AllowAutoRedirect = true,
@@ -73,14 +94,18 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
             if (serviceKey == null)
                 return new AppleAuthResult(false, false, ErrorMessage: "Failed to get Apple auth service key");
 
-            // Step 2: Compute SRP client values
-            var (srpInit, srpState) = ComputeSrpInit(appleId);
+            // Step 2: Compute SRP client ephemeral
+            var (aPublicBase64, aPrivate) = ComputeSrpInit();
 
-            // Step 3: Send SRP init
+            // Step 3: Federate and mint hashcash
+            var hashcashToken = await FederateAndMintHashcashAsync(appleId, serviceKey);
+
+            // Step 4: Send SRP init
             var initRequest = new HttpRequestMessage(HttpMethod.Post, SignInInitUrl);
             initRequest.Headers.Add("X-Apple-Widget-Key", serviceKey);
+            initRequest.Headers.Add("X-Requested-With", "XMLHttpRequest");
             initRequest.Content = new StringContent(
-                JsonSerializer.Serialize(new { a = srpInit, accountName = appleId, protocols = new[] { "s2k", "s2k_fo" } }),
+                JsonSerializer.Serialize(new { a = aPublicBase64, accountName = appleId, protocols = new[] { "s2k", "s2k_fo" } }),
                 Encoding.UTF8, "application/json");
 
             var initResponse = await _httpClient.SendAsync(initRequest);
@@ -100,12 +125,16 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
             var protocol = initDoc.RootElement.TryGetProperty("protocol", out var proto) ? proto.GetString() ?? "s2k" : "s2k";
             var cValue = initDoc.RootElement.TryGetProperty("c", out var cProp) ? cProp.GetString() : null;
 
-            // Step 4: Compute SRP complete values
-            var (m1, m2) = ComputeSrpComplete(password, salt, serverB, iterations, protocol, srpState);
+            // Step 5: Compute SRP complete values
+            var (m1, m2) = ComputeSrpComplete(appleId, password, salt, serverB, iterations, protocol, aPrivate);
 
-            // Step 5: Send SRP complete
+            // Step 6: Send SRP complete with hashcash
             var completeRequest = new HttpRequestMessage(HttpMethod.Post, SignInCompleteUrl);
             completeRequest.Headers.Add("X-Apple-Widget-Key", serviceKey);
+            completeRequest.Headers.Add("X-Requested-With", "XMLHttpRequest");
+            if (hashcashToken != null)
+                completeRequest.Headers.Add("X-Apple-HC", hashcashToken);
+
             var completePayload = new Dictionary<string, object>
             {
                 ["accountName"] = appleId,
@@ -287,21 +316,227 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
         _logger.LogInformation("Signed out of Apple Developer");
     }
 
+    // ── SRP-6a Implementation ───────────────────────────────────────────
+
+    private static (string ABase64, BigInteger aPrivate) ComputeSrpInit()
+    {
+        // Generate random 256-bit private exponent
+        var aBytes = RandomNumberGenerator.GetBytes(32);
+        var aPrivate = new BigInteger(aBytes, isUnsigned: true, isBigEndian: true);
+
+        // A = g^a mod N
+        var A = BigInteger.ModPow(SrpG, aPrivate, SrpN);
+        var ABytes = A.ToByteArray(isUnsigned: true, isBigEndian: true);
+
+        return (Convert.ToBase64String(ABytes), aPrivate);
+    }
+
+    private static (string M1Base64, string M2Base64) ComputeSrpComplete(
+        string accountName, string password, string saltBase64, string serverBBase64,
+        int iterations, string protocol, BigInteger aPrivate)
+    {
+        var saltBytes = Convert.FromBase64String(saltBase64);
+        var BBytes = Convert.FromBase64String(serverBBase64);
+        var B = new BigInteger(BBytes, isUnsigned: true, isBigEndian: true);
+
+        // Recompute A from aPrivate
+        var A = BigInteger.ModPow(SrpG, aPrivate, SrpN);
+        var ABytes = A.ToByteArray(isUnsigned: true, isBigEndian: true);
+
+        // Password derivation: SHA256(password) → PBKDF2
+        var passwordHash = SHA256.HashData(Encoding.UTF8.GetBytes(password));
+
+        byte[] derivedKey;
+        if (protocol == "s2k_fo")
+        {
+            // s2k_fo: hex-encode the SHA256 hash, then use hex string bytes as PBKDF2 password
+            var passHex = Encoding.UTF8.GetBytes(Convert.ToHexString(passwordHash).ToLowerInvariant());
+            using var pbkdf2 = new Rfc2898DeriveBytes(passHex, saltBytes, iterations, HashAlgorithmName.SHA256);
+            derivedKey = pbkdf2.GetBytes(32);
+        }
+        else
+        {
+            // s2k: raw SHA256 bytes as PBKDF2 password
+            using var pbkdf2 = new Rfc2898DeriveBytes(passwordHash, saltBytes, iterations, HashAlgorithmName.SHA256);
+            derivedKey = pbkdf2.GetBytes(32);
+        }
+
+        // x = SHA256(salt || SHA256(0x3A || derivedKey))  — Apple GSA variant (no username in x)
+        var innerHash = SHA256.HashData(CombineArrays(new byte[] { 0x3A }, derivedKey));
+        var xHash = SHA256.HashData(CombineArrays(saltBytes, innerHash));
+        var x = new BigInteger(xHash, isUnsigned: true, isBigEndian: true);
+
+        // u = SHA256(pad(A) || pad(B))
+        var uHash = SHA256.HashData(CombineArrays(PadTo(ABytes, PadLength), PadTo(BBytes, PadLength)));
+        var u = new BigInteger(uHash, isUnsigned: true, isBigEndian: true);
+
+        // k = SHA256(N || pad(g))
+        var gBytes = SrpG.ToByteArray(isUnsigned: true, isBigEndian: true);
+        var kHash = SHA256.HashData(CombineArrays(NBytes, PadTo(gBytes, PadLength)));
+        var k = new BigInteger(kHash, isUnsigned: true, isBigEndian: true);
+
+        // v = g^x mod N
+        var v = BigInteger.ModPow(SrpG, x, SrpN);
+
+        // S = (B - k*v) ^ (a + u*x) mod N
+        // Handle negative intermediate: ((B - k*v) % N + N) % N
+        var kv = (k * v) % SrpN;
+        var diff = (B - kv) % SrpN;
+        if (diff.Sign < 0) diff += SrpN;
+
+        var exp = aPrivate + u * x;
+        var S = BigInteger.ModPow(diff, exp, SrpN);
+        var SBytes = S.ToByteArray(isUnsigned: true, isBigEndian: true);
+
+        // K = SHA256(S) — unpadded
+        var K = SHA256.HashData(SBytes);
+
+        // M1 = SHA256(SHA256(N) XOR SHA256(g) || SHA256(accountName) || salt || A || B || K)
+        var hashN = SHA256.HashData(NBytes);
+        var hashG = SHA256.HashData(PadTo(gBytes, PadLength));
+        var xorNg = new byte[hashN.Length];
+        for (int i = 0; i < hashN.Length; i++)
+            xorNg[i] = (byte)(hashN[i] ^ hashG[i]);
+
+        var hashUser = SHA256.HashData(Encoding.UTF8.GetBytes(accountName));
+
+        var m1Input = CombineArrays(
+            xorNg,
+            hashUser,
+            saltBytes,
+            ABytes,
+            BBytes,
+            K);
+        var M1 = SHA256.HashData(m1Input);
+
+        // M2 = SHA256(A || M1 || K)
+        var m2Input = CombineArrays(ABytes, M1, K);
+        var M2 = SHA256.HashData(m2Input);
+
+        return (Convert.ToBase64String(M1), Convert.ToBase64String(M2));
+    }
+
+    // ── Hashcash Implementation ─────────────────────────────────────────
+
+    private async Task<string?> FederateAndMintHashcashAsync(string accountName, string serviceKey)
+    {
+        try
+        {
+            var request = new HttpRequestMessage(HttpMethod.Post, FederateUrl);
+            request.Headers.Add("X-Apple-Widget-Key", serviceKey);
+            request.Headers.Add("X-Requested-With", "XMLHttpRequest");
+            request.Content = new StringContent(
+                JsonSerializer.Serialize(new { accountName }),
+                Encoding.UTF8, "application/json");
+
+            var response = await _httpClient.SendAsync(request);
+
+            // Extract hashcash parameters from response headers
+            string? hcBitsStr = null;
+            string? hcChallenge = null;
+
+            if (response.Headers.TryGetValues("X-Apple-HC-Bits", out var bitsValues))
+                hcBitsStr = bitsValues.FirstOrDefault();
+            if (response.Headers.TryGetValues("X-Apple-HC-Challenge", out var challengeValues))
+                hcChallenge = challengeValues.FirstOrDefault();
+
+            if (hcBitsStr == null || hcChallenge == null)
+            {
+                _logger.LogWarning("No hashcash challenge received from federate endpoint");
+                return null;
+            }
+
+            if (!int.TryParse(hcBitsStr, out var hcBits))
+            {
+                _logger.LogWarning($"Invalid hashcash bits value: {hcBitsStr}");
+                return null;
+            }
+
+            _logger.LogInformation($"Minting hashcash: {hcBits} bits, challenge: {hcChallenge}");
+            var token = MintHashcash(hcBits, hcChallenge);
+            _logger.LogInformation($"Hashcash minted successfully");
+            return token;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning($"Federate/hashcash failed (continuing without): {ex.Message}");
+            return null;
+        }
+    }
+
+    private static string MintHashcash(int bits, string challenge)
+    {
+        var date = DateTime.UtcNow.ToString("yyMMddHHmmss");
+
+        for (long counter = 0; ; counter++)
+        {
+            var stamp = $"1:{bits}:{date}:{challenge}::{counter}";
+            var hash = SHA1.HashData(Encoding.UTF8.GetBytes(stamp));
+
+            if (HasLeadingZeroBits(hash, bits))
+                return stamp;
+        }
+    }
+
+    private static bool HasLeadingZeroBits(byte[] hash, int requiredBits)
+    {
+        int fullBytes = requiredBits / 8;
+        int remainingBits = requiredBits % 8;
+
+        for (int i = 0; i < fullBytes; i++)
+        {
+            if (hash[i] != 0) return false;
+        }
+
+        if (remainingBits > 0)
+        {
+            // Check the top `remainingBits` bits of the next byte are zero
+            var mask = (byte)(0xFF << (8 - remainingBits));
+            if ((hash[fullBytes] & mask) != 0) return false;
+        }
+
+        return true;
+    }
+
+    // ── Helper Methods ──────────────────────────────────────────────────
+
+    private static byte[] PadTo(byte[] data, int length)
+    {
+        if (data.Length >= length) return data;
+        var padded = new byte[length];
+        Buffer.BlockCopy(data, 0, padded, length - data.Length, data.Length);
+        return padded;
+    }
+
+    private static byte[] CombineArrays(params byte[][] arrays)
+    {
+        int totalLength = 0;
+        foreach (var arr in arrays) totalLength += arr.Length;
+
+        var result = new byte[totalLength];
+        int offset = 0;
+        foreach (var arr in arrays)
+        {
+            Buffer.BlockCopy(arr, 0, result, offset, arr.Length);
+            offset += arr.Length;
+        }
+        return result;
+    }
+
     // ── Private helpers ─────────────────────────────────────────────────
 
     private async Task<string?> GetServiceKeyAsync()
     {
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, AuthServiceKey);
-            using var response = await _httpClient.SendAsync(request);
-            var responseText = await response.Content.ReadAsStringAsync();
+            // Use SocketsHttpHandler explicitly — the platform default (NSUrlSessionHandler
+            // on macOS) gets a 403 from Apple's Olympus endpoint.
+            using var handler = new SocketsHttpHandler();
+            using var cleanClient = new HttpClient(handler);
+            cleanClient.DefaultRequestHeaders.Add("User-Agent", "MauiSherpa");
+            cleanClient.DefaultRequestHeaders.Add("Accept", "application/json");
 
-            if (!response.IsSuccessStatusCode)
-            {
-                _logger.LogError($"Failed to get service key: {(int)response.StatusCode} {response.ReasonPhrase}. Response: {responseText}");
-                return null;
-            }
+            var responseText = await cleanClient.GetStringAsync(AuthServiceKey);
 
             using var doc = JsonDocument.Parse(responseText);
             if (doc.RootElement.TryGetProperty("authServiceKey", out var key))
@@ -315,45 +550,6 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
             _logger.LogError($"Failed to get service key: {ex.Message}", ex);
             return null;
         }
-    }
-
-    private static (string a, byte[] privateKey) ComputeSrpInit(string accountName)
-    {
-        // Generate a random 256-bit private key for SRP
-        var privateKey = RandomNumberGenerator.GetBytes(32);
-        // For SRP, 'a' is the client's public value (simplified — real SRP uses modular exponentiation)
-        // Apple's implementation uses a custom protocol; we send our public ephemeral as base64
-        var a = Convert.ToBase64String(privateKey);
-        return (a, privateKey);
-    }
-
-    private static (string m1, string m2) ComputeSrpComplete(
-        string password, string salt, string serverB, int iterations, string protocol, byte[] clientPrivateKey)
-    {
-        // Derive key from password using PBKDF2
-        var saltBytes = Convert.FromBase64String(salt);
-        using var pbkdf2 = new Rfc2898DeriveBytes(
-            Encoding.UTF8.GetBytes(password),
-            saltBytes,
-            iterations,
-            HashAlgorithmName.SHA256);
-        var derivedKey = pbkdf2.GetBytes(32);
-
-        // Compute M1 (client proof) and M2 (server proof) using HMAC-SHA256
-        using var hmac = new HMACSHA256(derivedKey);
-        var serverBBytes = Convert.FromBase64String(serverB);
-        var m1Bytes = hmac.ComputeHash(CombineArrays(clientPrivateKey, serverBBytes));
-        var m2Bytes = hmac.ComputeHash(CombineArrays(m1Bytes, derivedKey));
-
-        return (Convert.ToBase64String(m1Bytes), Convert.ToBase64String(m2Bytes));
-    }
-
-    private static byte[] CombineArrays(byte[] a, byte[] b)
-    {
-        var result = new byte[a.Length + b.Length];
-        Buffer.BlockCopy(a, 0, result, 0, a.Length);
-        Buffer.BlockCopy(b, 0, result, a.Length, b.Length);
-        return result;
     }
 
     private async Task<AppleAuthOptions?> GetAuthOptionsInternalAsync(string serviceKey)
