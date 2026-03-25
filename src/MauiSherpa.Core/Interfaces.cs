@@ -3549,3 +3549,17 @@ public interface IFormPage<TResult>
     /// </summary>
     Task<TResult?> GetResultAsync();
 }
+
+public interface IDeepLinkValidationService
+{
+    Task<AasaValidationResult> ValidateAppleAppSiteAssociationAsync(string domain);
+    Task<AssetLinksValidationResult> ValidateAssetLinksAsync(string domain);
+}
+
+public record AasaValidationResult(bool Found, bool Valid, string? RawJson,
+    IReadOnlyList<AasaAppEntry> Apps, string? ErrorMessage);
+public record AasaAppEntry(string AppId, IReadOnlyList<string> Paths);
+
+public record AssetLinksValidationResult(bool Found, bool Valid, string? RawJson,
+    IReadOnlyList<AssetLinksEntry> Entries, string? ErrorMessage);
+public record AssetLinksEntry(string Package, string? Sha256Fingerprint);
