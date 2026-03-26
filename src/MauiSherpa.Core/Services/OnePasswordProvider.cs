@@ -214,6 +214,49 @@ public class OnePasswordProvider : ICloudSecretsProvider
 
     #region CLI Helpers
 
+    /// <summary>
+    /// Well-known locations for the 1Password CLI binary.
+    /// GUI apps on macOS don't inherit the user's shell PATH, so bare "op" won't resolve.
+    /// </summary>
+    private static readonly string[] OpSearchPaths = OperatingSystem.IsWindows()
+        ? new[]
+        {
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "1Password CLI", "op.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Microsoft", "WinGet", "Links", "op.exe"),
+        }
+        : new[]
+        {
+            "/opt/homebrew/bin/op",
+            "/usr/local/bin/op",
+        };
+
+    private string? _resolvedOpPath;
+
+    /// <summary>
+    /// Resolves the full path to the 1Password CLI (op) binary by checking well-known
+    /// install locations, then falling back to the system PATH.
+    /// </summary>
+    internal static string? ResolveOpPath()
+    {
+        foreach (var candidate in OpSearchPaths)
+        {
+            if (File.Exists(candidate))
+                return candidate;
+        }
+
+        // Fallback: search the system PATH
+        var pathEnv = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
+        var binaryName = OperatingSystem.IsWindows() ? "op.exe" : "op";
+        foreach (var dir in pathEnv.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var candidate = Path.Combine(dir, binaryName);
+            if (File.Exists(candidate))
+                return candidate;
+        }
+
+        return null;
+    }
+
     internal async Task<bool> IsCliInstalledAsync(CancellationToken cancellationToken = default)
     {
         try
@@ -229,13 +272,16 @@ public class OnePasswordProvider : ICloudSecretsProvider
 
     internal async Task<(int ExitCode, string Output)> RunOpAsync(string[] args, CancellationToken cancellationToken = default)
     {
+        _resolvedOpPath ??= ResolveOpPath();
+
         var psi = new ProcessStartInfo
         {
-            FileName = "op",
+            FileName = _resolvedOpPath ?? "op",
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
-            CreateNoWindow = true
+            CreateNoWindow = true,
+            WorkingDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
         };
 
         foreach (var arg in args)

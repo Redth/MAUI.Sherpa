@@ -100,17 +100,19 @@
                 <div class="bundle-card">
                     <div class="bundle-details">
                         <div class="bundle-identifier">
-                            <span class="@(demoMode ? "demo-blur" : "")">@bundle.Identifier</span>
+                            <span>@bundle.Identifier</span>
                             <button class="btn-copy" @onclick="@(() => CopyToClipboard(bundle.Identifier))" title="Copy to clipboard">
                                 <i class="fas fa-copy"></i>
                             </button>
                         </div>
-                        <div class="bundle-name"><span class="@(demoMode ? "demo-blur" : "")">@bundle.Name</span></div>
+                        <div class="bundle-name"><span>@bundle.Name</span></div>
                         <div class="bundle-badges">
                             <span class="badge badge-platform">@FormatPlatform(bundle.Platform)</span>
                             @if (!string.IsNullOrEmpty(bundle.SeedId))
                             {
-                                <span class="badge badge-seed @(demoMode ? "demo-blur" : "")">@bundle.SeedId</span>
+                                <span class="badge badge-seed">
+                                    <span class="badge-seed-value @(demoMode ? "demo-blur" : "")">@bundle.SeedId</span>
+                                </span>
                             }
                         </div>
                         @if (capabilities.Any())
@@ -291,6 +293,11 @@
     .badge { padding: 2px 0.625rem; border-radius: 0.75rem; font-size: 0.75rem; font-weight: 500; }
     .badge-platform { background: #bee3f8; color: #2c5282; }
     .badge-seed { background: var(--bg-hover); color: var(--text-secondary); }
+    .badge-seed-value { display: inline-block; }
+    .badge-seed-value.demo-blur {
+        text-shadow: 0 0 12px var(--text-primary), 0 0 18px var(--text-primary);
+        filter: blur(2px);
+    }
 
     .empty-state { background: var(--card-bg); border-radius: var(--card-radius); padding: 3.75rem 2.5rem; text-align: center; }
     .empty-icon { font-size: 48px; margin-bottom: 1rem; color: #a0aec0; }

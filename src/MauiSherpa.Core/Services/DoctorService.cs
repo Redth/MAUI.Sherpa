@@ -27,7 +27,6 @@ public class DoctorService : IDoctorService
     private GlobalJsonService? _globalJsonService;
     private NuGetClient? _nugetClient;
     private WorkloadSetService? _workloadSetService;
-    private WorkloadManifestService? _manifestService;
     private SdkVersionService? _sdkVersionService;
     
     public DoctorService(IAndroidSdkService androidSdkService, ILoggingService loggingService, IOpenJdkSettingsService jdkSettingsService, ILoggerFactory? loggerFactory = null, IDebugFlagService? debugFlags = null)
@@ -44,7 +43,6 @@ public class DoctorService : IDoctorService
     private GlobalJsonService GetGlobalJsonService() => _globalJsonService ??= new GlobalJsonService();
     private NuGetClient GetNuGetClient() => _nugetClient ??= new NuGetClient();
     private WorkloadSetService GetWorkloadSetService() => _workloadSetService ??= new WorkloadSetService(GetNuGetClient());
-    private WorkloadManifestService GetManifestService() => _manifestService ??= new WorkloadManifestService(GetNuGetClient());
 
     /// <summary>
     /// Resolves the full path to the dotnet executable.
@@ -411,8 +409,6 @@ public class DoctorService : IDoctorService
         if (context.EffectiveFeatureBand == null) return;
         
         var localSdkService = GetLocalSdkService();
-        var manifestService = GetManifestService();
-        
         // Collect all dependencies from installed manifests
         var manifestIds = localSdkService.GetInstalledWorkloadManifests(context.EffectiveFeatureBand);
         
@@ -429,22 +425,14 @@ public class DoctorService : IDoctorService
             var manifest = await localSdkService.GetInstalledManifestAsync(context.EffectiveFeatureBand, manifestId);
             if (manifest == null) continue;
             
-            try
+            var deps = await localSdkService.GetInstalledDependenciesAsync(context.EffectiveFeatureBand, manifestId);
+            if (deps == null || deps.Entries.Count == 0)
+                continue;
+
+            foreach (var (workloadId, entry) in deps.Entries)
             {
-                var version = NuGet.Versioning.NuGetVersion.Parse(manifest.Version);
-                var deps = await manifestService.GetDependenciesAsync(manifestId, context.EffectiveFeatureBand, version);
-                if (deps != null && deps.Entries.Count > 0)
-                {
-                    foreach (var (workloadId, entry) in deps.Entries)
-                    {
-                        if (!allEntries.ContainsKey(workloadId))
-                            allEntries[workloadId] = entry;
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug("Could not get dependencies for {Id}: {Message}", manifestId, ex.Message);
+                if (!allEntries.ContainsKey(workloadId))
+                    allEntries[workloadId] = entry;
             }
         }
         
