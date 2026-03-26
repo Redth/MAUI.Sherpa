@@ -9,6 +9,14 @@ namespace MauiSherpa.Core.Services;
 /// </summary>
 public class CopilotService : ICopilotService, IAsyncDisposable
 {
+    private sealed record ResolvedPermissionRequest(
+        string ToolCallId,
+        string ToolName,
+        string ToolDescription,
+        bool IsReadOnly,
+        string? Command,
+        string? Path);
+
     private readonly ILoggingService _logger;
     private readonly ICopilotToolsService _toolsService;
     private readonly string _skillsPath;
@@ -137,6 +145,7 @@ public class CopilotService : ICopilotService, IAsyncDisposable
         }
 
         CopilotClient? tempClient = null;
+        var tempClientStarted = false;
         try
         {
             _logger.LogInformation("Checking Copilot availability via SDK...");
@@ -149,12 +158,12 @@ public class CopilotService : ICopilotService, IAsyncDisposable
             var options = new CopilotClientOptions
             {
                 AutoStart = true,
-                AutoRestart = false,
                 CliPath = cliPath
             };
             
             tempClient = new CopilotClient(options);
             await tempClient.StartAsync();
+            tempClientStarted = true;
             
             // Get version/status info
             var statusResponse = await tempClient.GetStatusAsync();
@@ -179,6 +188,15 @@ public class CopilotService : ICopilotService, IAsyncDisposable
             }
 
             _logger.LogInformation($"Copilot authenticated as {authResponse.Login}");
+
+            if (_client == null)
+            {
+                _client = tempClient;
+                tempClient = null;
+                tempClientStarted = false;
+                _logger.LogInformation("Reusing availability-check Copilot client for the next session");
+            }
+
             _cachedAvailability = new CopilotAvailability(
                 IsInstalled: true,
                 IsAuthenticated: true,
@@ -213,6 +231,27 @@ public class CopilotService : ICopilotService, IAsyncDisposable
         {
             if (tempClient != null)
             {
+                if (tempClientStarted)
+                {
+                    try
+                    {
+                        await tempClient.StopAsync();
+                    }
+                    catch (Exception stopEx)
+                    {
+                        _logger.LogWarning($"Failed to stop temporary Copilot client cleanly: {stopEx.Message}");
+
+                        try
+                        {
+                            await tempClient.ForceStopAsync();
+                        }
+                        catch (Exception forceStopEx)
+                        {
+                            _logger.LogWarning($"Failed to force-stop temporary Copilot client: {forceStopEx.Message}");
+                        }
+                    }
+                }
+
                 await tempClient.DisposeAsync();
             }
         }
@@ -237,7 +276,6 @@ public class CopilotService : ICopilotService, IAsyncDisposable
             var options = new CopilotClientOptions
             {
                 AutoStart = true,
-                AutoRestart = true,
                 UseStdio = true,
                 Cwd = _skillsPath, // Set working directory to skills folder
                 LogLevel = "info",
@@ -370,124 +408,219 @@ public class CopilotService : ICopilotService, IAsyncDisposable
     
     private async Task<PermissionRequestResult> HandleSdkPermissionRequest(PermissionRequest request, PermissionInvocation invocation)
     {
-        _logger.LogDebug($"Permission request: Kind={request.Kind}, ToolCallId={request.ToolCallId}");
-        
-        // Log all extension data for debugging
-        if (request.ExtensionData != null)
-        {
-            foreach (var kvp in request.ExtensionData)
-            {
-                _logger.LogDebug($"  Request.ExtensionData[{kvp.Key}]: {kvp.Value}");
-            }
-        }
-        
-        // Log invocation properties using reflection
-        _logger.LogDebug($"  Invocation type: {invocation.GetType().FullName}");
-        foreach (var prop in invocation.GetType().GetProperties())
-        {
-            try
-            {
-                var value = prop.GetValue(invocation);
-                if (value != null)
-                {
-                    _logger.LogDebug($"  Invocation.{prop.Name}: {value}");
-                }
-            }
-            catch { }
-        }
-        
-        // Check for ExtensionData on invocation too
-        var invocationExtData = invocation.GetType().GetProperty("ExtensionData")?.GetValue(invocation) as IDictionary<string, object>;
-        if (invocationExtData != null)
-        {
-            foreach (var kvp in invocationExtData)
-            {
-                _logger.LogDebug($"  Invocation.ExtensionData[{kvp.Key}]: {kvp.Value}");
-            }
-        }
-        
-        // Try to get tool name from our tracked mapping first (most reliable)
-        var toolCallId = request.ToolCallId ?? "";
-        var toolName = "unknown";
-        
-        if (!string.IsNullOrEmpty(toolCallId) && _toolCallIdToName.TryGetValue(toolCallId, out var mappedName))
-        {
-            toolName = mappedName;
-        }
-        else
-        {
-            // Fall back to other sources
-            toolName = request.ExtensionData?.GetValueOrDefault("toolName")?.ToString()
-                ?? request.ExtensionData?.GetValueOrDefault("name")?.ToString()
-                ?? invocation.GetType().GetProperty("ToolName")?.GetValue(invocation)?.ToString()
-                ?? invocation.GetType().GetProperty("Name")?.GetValue(invocation)?.ToString()
-                ?? toolCallId
-                ?? "unknown";
-        }
-        
-        // Get intention/description from extension data (much more useful than generic description)
-        var intention = request.ExtensionData?.GetValueOrDefault("intention")?.ToString();
-        var path = request.ExtensionData?.GetValueOrDefault("path")?.ToString();
-        
-        // Try to get command for bash/shell tools from multiple sources
-        // The SDK uses "fullCommandText" for the actual command
-        var command = request.ExtensionData?.GetValueOrDefault("fullCommandText")?.ToString()
-            ?? request.ExtensionData?.GetValueOrDefault("command")?.ToString()
-            ?? request.ExtensionData?.GetValueOrDefault("cmd")?.ToString()
-            ?? request.ExtensionData?.GetValueOrDefault("script")?.ToString()
-            ?? request.ExtensionData?.GetValueOrDefault("code")?.ToString();
-        
-        // Also check invocation extension data
-        if (string.IsNullOrEmpty(command) && invocationExtData != null)
-        {
-            invocationExtData.TryGetValue("fullCommandText", out var fullCmd);
-            invocationExtData.TryGetValue("command", out var cmd);
-            invocationExtData.TryGetValue("code", out var code);
-            command = fullCmd?.ToString() ?? cmd?.ToString() ?? code?.ToString();
-        }
-        
-        _logger.LogDebug($"  Resolved toolName: {toolName}, intention: {intention}, path: {path}, command: {command}");
-        
-        var tool = _toolsService.GetTool(toolName);
-        var isReadOnly = tool?.IsReadOnly ?? (request.Kind == "read");
+        var resolved = ResolvePermissionRequest(request);
+
+        _logger.LogDebug(
+            $"Permission request: Kind={request.Kind}, ToolCallId={resolved.ToolCallId}, ToolName={resolved.ToolName}, SessionId={invocation.SessionId}");
+        _logger.LogDebug(
+            $"  Resolved permission context: Description={resolved.ToolDescription}, Path={resolved.Path}, Command={resolved.Command}, IsReadOnly={resolved.IsReadOnly}");
         
         // Build a better description using intention or path
-        var toolDescription = intention 
-            ?? (path != null ? $"Access: {path}" : null)
-            ?? tool?.Description 
-            ?? "";
-        
-        // Default result
         var defaultResult = new ToolPermissionResult(true);
         
         // If we have a permission handler delegate, call it
         if (PermissionHandler != null)
         {
-            var permRequest = new ToolPermissionRequest(toolName, toolDescription, isReadOnly, defaultResult, command, path);
-            _logger.LogDebug($"Calling PermissionHandler for tool: {toolName}");
+            var permRequest = new ToolPermissionRequest(
+                resolved.ToolName,
+                resolved.ToolDescription,
+                resolved.IsReadOnly,
+                defaultResult,
+                resolved.Command,
+                resolved.Path,
+                resolved.ToolCallId);
+
+            _logger.LogDebug($"Calling PermissionHandler for tool: {resolved.ToolName}");
             var result = await PermissionHandler(permRequest);
             _logger.LogDebug($"PermissionHandler returned: IsAllowed={result.IsAllowed}");
             
             if (result.IsAllowed)
             {
-                _logger.LogDebug($"Returning 'approved' for tool: {toolName}");
-                return new PermissionRequestResult { Kind = "approved" };
+                _logger.LogDebug($"Returning approved for tool: {resolved.ToolName}");
+                return new PermissionRequestResult { Kind = PermissionRequestResultKind.Approved };
             }
-            else
-            {
-                _logger.LogDebug($"Returning 'denied' for tool: {toolName}");
-                return new PermissionRequestResult { Kind = "denied" };
-            }
+
+            _logger.LogDebug($"Returning interactive denial for tool: {resolved.ToolName}");
+            return new PermissionRequestResult { Kind = PermissionRequestResultKind.DeniedInteractivelyByUser };
         }
         
         // Default: allow read-only tools, deny destructive tools
-        if (isReadOnly)
+        if (resolved.IsReadOnly)
         {
-            return new PermissionRequestResult { Kind = "approved" };
+            return new PermissionRequestResult { Kind = PermissionRequestResultKind.Approved };
         }
         
         // Default deny for destructive tools if no handler
-        return new PermissionRequestResult { Kind = "denied" };
+        return new PermissionRequestResult { Kind = PermissionRequestResultKind.DeniedCouldNotRequestFromUser };
+    }
+
+    private ResolvedPermissionRequest ResolvePermissionRequest(PermissionRequest request)
+    {
+        return request switch
+        {
+            PermissionRequestShell shell => ResolveShellPermissionRequest(shell),
+            PermissionRequestWrite write => ResolveWritePermissionRequest(write),
+            PermissionRequestRead read => ResolveReadPermissionRequest(read),
+            PermissionRequestMcp mcp => ResolveMcpPermissionRequest(mcp),
+            PermissionRequestUrl url => ResolveUrlPermissionRequest(url),
+            PermissionRequestMemory memory => ResolveMemoryPermissionRequest(memory),
+            PermissionRequestCustomTool customTool => ResolveCustomToolPermissionRequest(customTool),
+            PermissionRequestHook hook => ResolveHookPermissionRequest(hook),
+            _ => FinalizePermissionRequest(null, request.Kind, "", false, null, null)
+        };
+    }
+
+    private ResolvedPermissionRequest ResolveShellPermissionRequest(PermissionRequestShell request)
+    {
+        var path = request.PossiblePaths.FirstOrDefault();
+        var description = request.Intention;
+        if (string.IsNullOrWhiteSpace(description) && !string.IsNullOrWhiteSpace(request.Warning))
+        {
+            description = request.Warning;
+        }
+
+        return FinalizePermissionRequest(
+            request.ToolCallId,
+            "shell",
+            description,
+            false,
+            request.FullCommandText,
+            path);
+    }
+
+    private ResolvedPermissionRequest ResolveWritePermissionRequest(PermissionRequestWrite request)
+    {
+        return FinalizePermissionRequest(
+            request.ToolCallId,
+            "write",
+            request.Intention,
+            false,
+            null,
+            request.FileName);
+    }
+
+    private ResolvedPermissionRequest ResolveReadPermissionRequest(PermissionRequestRead request)
+    {
+        return FinalizePermissionRequest(
+            request.ToolCallId,
+            "read",
+            request.Intention,
+            true,
+            null,
+            request.Path);
+    }
+
+    private ResolvedPermissionRequest ResolveMcpPermissionRequest(PermissionRequestMcp request)
+    {
+        var description = request.ToolTitle;
+        if (string.IsNullOrWhiteSpace(description))
+        {
+            description = $"{request.ServerName}: {request.ToolName}";
+        }
+
+        return FinalizePermissionRequest(
+            request.ToolCallId,
+            request.ToolName,
+            description,
+            request.ReadOnly,
+            null,
+            null);
+    }
+
+    private ResolvedPermissionRequest ResolveUrlPermissionRequest(PermissionRequestUrl request)
+    {
+        var description = request.Intention;
+        if (string.IsNullOrWhiteSpace(description))
+        {
+            description = $"Fetch URL: {request.Url}";
+        }
+
+        return FinalizePermissionRequest(
+            request.ToolCallId,
+            "url",
+            description,
+            true,
+            null,
+            null);
+    }
+
+    private ResolvedPermissionRequest ResolveMemoryPermissionRequest(PermissionRequestMemory request)
+    {
+        var description = string.IsNullOrWhiteSpace(request.Subject)
+            ? "Store assistant memory"
+            : $"Store memory: {request.Subject}";
+
+        return FinalizePermissionRequest(
+            request.ToolCallId,
+            "memory",
+            description,
+            false,
+            null,
+            null);
+    }
+
+    private ResolvedPermissionRequest ResolveCustomToolPermissionRequest(PermissionRequestCustomTool request)
+    {
+        return FinalizePermissionRequest(
+            request.ToolCallId,
+            request.ToolName,
+            request.ToolDescription,
+            false,
+            null,
+            null);
+    }
+
+    private ResolvedPermissionRequest ResolveHookPermissionRequest(PermissionRequestHook request)
+    {
+        return FinalizePermissionRequest(
+            request.ToolCallId,
+            request.ToolName,
+            request.HookMessage,
+            false,
+            null,
+            null);
+    }
+
+    private ResolvedPermissionRequest FinalizePermissionRequest(
+        string? toolCallId,
+        string fallbackToolName,
+        string? description,
+        bool defaultIsReadOnly,
+        string? command,
+        string? path)
+    {
+        var resolvedToolCallId = toolCallId ?? "";
+        var toolName = ResolvePermissionToolName(resolvedToolCallId, fallbackToolName);
+        var tool = _toolsService.GetTool(toolName);
+
+        var toolDescription = description;
+        if (string.IsNullOrWhiteSpace(toolDescription) && !string.IsNullOrWhiteSpace(path))
+        {
+            toolDescription = $"Access: {path}";
+        }
+        if (string.IsNullOrWhiteSpace(toolDescription))
+        {
+            toolDescription = tool?.Description ?? "";
+        }
+
+        var isReadOnly = tool?.IsReadOnly ?? defaultIsReadOnly;
+        return new ResolvedPermissionRequest(
+            resolvedToolCallId,
+            toolName,
+            toolDescription,
+            isReadOnly,
+            command,
+            path);
+    }
+
+    private string ResolvePermissionToolName(string toolCallId, string fallbackToolName)
+    {
+        if (!string.IsNullOrWhiteSpace(toolCallId) && _toolCallIdToName.TryGetValue(toolCallId, out var mappedName))
+        {
+            return mappedName;
+        }
+
+        return string.IsNullOrWhiteSpace(fallbackToolName) ? "unknown" : fallbackToolName;
     }
 
     public async Task EndSessionAsync()
@@ -701,7 +834,18 @@ public class CopilotService : ICopilotService, IAsyncDisposable
                     _logger.LogDebug($"  ToolExecutionStart: Name={startToolName}, CallId={startCallId}");
                     OnToolStart?.Invoke(startToolName, startCallId);
                     break;
-                    
+
+                case ToolUserRequestedEvent toolRequested:
+                    var requestedToolName = toolRequested.Data.ToolName ?? "unknown";
+                    var requestedToolCallId = toolRequested.Data.ToolCallId ?? "";
+                    if (!string.IsNullOrEmpty(requestedToolCallId))
+                    {
+                        _toolCallIdToName[requestedToolCallId] = requestedToolName;
+                    }
+
+                    _logger.LogDebug($"  ToolUserRequested: Name={requestedToolName}, CallId={requestedToolCallId}");
+                    break;
+                     
                 case ToolExecutionCompleteEvent toolComplete:
                     var resultObj = toolComplete.Data.Result;
                     var errorObj = toolComplete.Data.Error;
@@ -891,6 +1035,41 @@ public class CopilotService : ICopilotService, IAsyncDisposable
         
         var msg = new CopilotChatMessage("", false, CopilotMessageType.ToolCall, toolName: toolName, toolCallId: toolCallId);
         _messages.Add(msg);
+    }
+
+    public void SetToolCommand(string? toolName, string? toolCallId, string? command)
+    {
+        if (string.IsNullOrWhiteSpace(command))
+        {
+            return;
+        }
+
+        CopilotChatMessage? msg = null;
+
+        if (!string.IsNullOrEmpty(toolCallId))
+        {
+            msg = _messages.LastOrDefault(m => m.MessageType == CopilotMessageType.ToolCall && m.ToolCallId == toolCallId);
+        }
+
+        if (msg == null && !string.IsNullOrEmpty(toolName))
+        {
+            msg = _messages.LastOrDefault(m => m.MessageType == CopilotMessageType.ToolCall && m.ToolName == toolName && !m.IsComplete);
+        }
+
+        if (msg == null)
+        {
+            msg = _messages.LastOrDefault(m => m.MessageType == CopilotMessageType.ToolCall && !m.IsComplete);
+        }
+
+        if (msg != null)
+        {
+            msg.ToolCommand = command;
+            _logger.LogDebug($"SetToolCommand: Updated command preview for tool {msg.ToolName}, callId={msg.ToolCallId}");
+        }
+        else
+        {
+            _logger.LogDebug($"SetToolCommand: Could not find tool message for name={toolName ?? "(any)"}, callId={toolCallId}");
+        }
     }
     
     public void CompleteToolMessage(string? toolName, string? toolCallId, bool success, string result)

@@ -32,7 +32,7 @@
     <PackageReference Include="Blazorise.Icons.FontAwesome" Version="1.7.2" />
     <!-- Reference the SDK directly so its build targets run with the AppKit publish RID
          instead of inheriting the build-host architecture from MauiSherpa.Core. -->
-    <PackageReference Include="GitHub.Copilot.SDK" Version="0.1.23" PrivateAssets="all" />
+    <PackageReference Include="GitHub.Copilot.SDK" Version="0.2.0" PrivateAssets="all" />
     <PackageReference Include="Microsoft.AspNetCore.Components.QuickGrid" Version="10.0.1" />
     <PackageReference Include="Markdig" Version="0.44.0" />
     <PackageReference Include="Microsoft.AspNetCore.Components.WebView.Maui" Version="10.0.1" />
@@ -90,6 +90,21 @@
     <MakeDir Directories="$(_CopilotAppBundle)" Condition="Exists('$(_CopilotSourceBinary)')" />
     <Copy SourceFiles="$(_CopilotSourceBinary)" DestinationFolder="$(_CopilotAppBundle)" SkipUnchangedFiles="true" Condition="Exists('$(_CopilotSourceBinary)')" />
     <Exec Command="chmod +x &quot;$(_CopilotAppBundle)/copilot&quot;" Condition="Exists('$(_CopilotSourceBinary)')" />
+  </Target>
+
+  <!-- Platform.Maui.MacOS leaves GitHub.Copilot.SDK.dll beside the app in Debug,
+       but CopilotService loads it from the app bundle at runtime. Copy it into
+       Contents/MonoBundle so the dedicated Copilot window can render. -->
+  <Target Name="_BundleCopilotSdkAssemblyForMacOS" AfterTargets="Build">
+    <PropertyGroup>
+      <_CopilotSdkAssembly>$(OutDir)GitHub.Copilot.SDK.dll</_CopilotSdkAssembly>
+      <_CopilotSdkBundleDir>$(OutDir)$(ApplicationTitle).app/Contents/MonoBundle</_CopilotSdkBundleDir>
+    </PropertyGroup>
+    <MakeDir Directories="$(_CopilotSdkBundleDir)" Condition="Exists('$(_CopilotSdkAssembly)')" />
+    <Copy SourceFiles="$(_CopilotSdkAssembly)"
+          DestinationFolder="$(_CopilotSdkBundleDir)"
+          SkipUnchangedFiles="true"
+          Condition="Exists('$(_CopilotSdkAssembly)')" />
   </Target>
 
   <!-- Bundle Copilot Skills into the macOS app.
