@@ -2271,6 +2271,11 @@ public interface ICopilotService
     /// Add a tool call message to the chat history
     /// </summary>
     void AddToolMessage(string toolName, string? toolCallId = null);
+
+    /// <summary>
+    /// Updates a tool message with the command being executed.
+    /// </summary>
+    void SetToolCommand(string? toolName, string? toolCallId, string? command);
     
     /// <summary>
     /// Mark a tool message as complete with result
@@ -2304,7 +2309,8 @@ public record ToolPermissionRequest(
     bool IsReadOnly,
     ToolPermissionResult DefaultResult,
     string? Command = null,
-    string? Path = null
+    string? Path = null,
+    string? ToolCallId = null
 );
 
 /// <summary>
@@ -2322,6 +2328,7 @@ public record CopilotChatMessage
     public CopilotMessageType MessageType { get; init; } = CopilotMessageType.Text;
     public string? ToolName { get; init; }
     public string? ToolCallId { get; init; }
+    public string? ToolCommand { get; set; }
     public bool IsComplete { get; set; }
     public bool IsSuccess { get; set; } = true;
     public bool IsCollapsed { get; set; }

@@ -234,67 +234,67 @@ else
                             }
                         </div>
                     }
-                    else if (msg.MessageType == CopilotMessageType.ToolCall)
-                    {
-                        @* Tool Call Message - skip internal/noisy tools *@
-                        @if (!IsInternalTool(msg.ToolName))
-                        {
+                     else if (msg.MessageType == CopilotMessageType.ToolCall)
+                     {
+                         @* Tool Call Message - skip internal/noisy tools *@
+                         @if (!IsInternalTool(msg.ToolName))
+                         {
+                        var hasToolResult = msg.IsComplete && !string.IsNullOrEmpty(msg.Content) && !IsUnusableToolResult(msg.Content);
+                        var parsed = hasToolResult ? ParseBashOutput(msg.Content) : (Command: "", Output: "");
+                        var commandPreview = !string.IsNullOrWhiteSpace(msg.ToolCommand) ? msg.ToolCommand : parsed.Command;
+                        var hasCommandPreview = !string.IsNullOrWhiteSpace(commandPreview);
+                        var expandedContent = !string.IsNullOrEmpty(parsed.Command) ? parsed.Output : msg.Content;
+                        var hasExpandableContent = hasToolResult && !string.IsNullOrWhiteSpace(expandedContent) && expandedContent.Trim() != commandPreview;
                         <div class="tool-card @(msg.IsComplete ? (msg.IsSuccess ? "success" : "error") : "running")">
-                            <div class="tool-header">
+                            <button type="button"
+                                    class="tool-header tool-header-button"
+                                    @onclick="@(() => ToggleMessageCollapse(msg))"
+                                    disabled="@(!hasExpandableContent)"
+                                    aria-expanded="@(msg.IsCollapsed ? "false" : "true")">
                                 <div class="tool-info">
                                     <i class="@GetToolIconClass(msg.ToolName ?? "") @GetToolIcon(msg.ToolName ?? "")"></i>
-                                    <span class="tool-name">@FormatToolName(msg.ToolName ?? "")</span>
+                                    <div class="tool-meta">
+                                        <span class="tool-name">@FormatToolName(msg.ToolName ?? "")</span>
+                                        @if (hasCommandPreview)
+                                        {
+                                            <code class="tool-preview" title="@commandPreview">$ @commandPreview</code>
+                                        }
+                                    </div>
                                 </div>
-                                <div class="tool-status">
-                                    @if (!msg.IsComplete)
+                                <div class="tool-actions">
+                                    <div class="tool-status">
+                                        @if (!msg.IsComplete)
+                                        {
+                                            <i class="fas fa-spinner fa-spin"></i>
+                                            <span>Running</span>
+                                        }
+                                        else if (msg.IsSuccess)
+                                        {
+                                            <i class="fas fa-check-circle"></i>
+                                            <span>Complete</span>
+                                        }
+                                        else
+                                        {
+                                            <i class="fas fa-times-circle"></i>
+                                            <span>Failed</span>
+                                        }
+                                    </div>
+                                    @if (hasExpandableContent)
                                     {
-                                        <i class="fas fa-spinner fa-spin"></i>
-                                        <span>Running</span>
-                                    }
-                                    else if (msg.IsSuccess)
-                                    {
-                                        <i class="fas fa-check-circle"></i>
-                                        <span>Complete</span>
-                                    }
-                                    else
-                                    {
-                                        <i class="fas fa-times-circle"></i>
-                                        <span>Failed</span>
+                                        <i class="fas @(msg.IsCollapsed ? "fa-chevron-down" : "fa-chevron-up") tool-expand-icon"></i>
                                     }
                                 </div>
-                            </div>
-                            @if (msg.IsComplete && !string.IsNullOrEmpty(msg.Content) && !IsUnusableToolResult(msg.Content))
+                            </button>
+                            @if (hasExpandableContent && !msg.IsCollapsed)
                             {
-                                var parsed = ParseBashOutput(msg.Content);
                                 <div class="tool-result">
-                                    @if (!string.IsNullOrEmpty(parsed.Command))
+                                    @if (hasCommandPreview)
                                     {
-                                        <div class="tool-command-box">
-                                            <span class="tool-command-prompt">$</span>
-                                            <code class="tool-command-text">@parsed.Command</code>
-                                        </div>
-                                        @if (!string.IsNullOrEmpty(parsed.Output))
-                                        {
-                                            <button class="tool-output-toggle" @onclick="@(() => ToggleMessageCollapse(msg))">
-                                                <i class="fas @(msg.IsCollapsed ? "fa-chevron-right" : "fa-chevron-down")"></i>
-                                                <span>Output</span>
-                                            </button>
-                                            @if (!msg.IsCollapsed)
-                                            {
-                                                <pre class="tool-output-content">@TruncateResult(parsed.Output)</pre>
-                                            }
-                                        }
+                                        <pre class="tool-output-content">@TruncateResult(expandedContent)</pre>
                                     }
                                     else
                                     {
-                                        <button class="tool-result-toggle" @onclick="@(() => ToggleMessageCollapse(msg))">
-                                            <span>@(msg.IsCollapsed ? "Show Result" : "Hide Result")</span>
-                                            <i class="fas @(msg.IsCollapsed ? "fa-chevron-down" : "fa-chevron-up")"></i>
-                                        </button>
-                                        @if (!msg.IsCollapsed)
-                                        {
-                                            <pre class="tool-result-content">@TruncateResult(msg.Content)</pre>
-                                        }
+                                        <pre class="tool-result-content">@TruncateResult(expandedContent)</pre>
                                     }
                                 </div>
                             }
@@ -1253,27 +1253,81 @@ else
 
     .tool-header {
         display: flex;
-        align-items: center;
+        align-items: flex-start;
         justify-content: space-between;
         padding: 0.75rem 1rem;
         background: var(--bg-tertiary);
     }
 
+    .tool-header-button {
+        width: 100%;
+        border: none;
+        cursor: pointer;
+        color: inherit;
+        text-align: left;
+    }
+
+    .tool-header-button:not(:disabled):hover {
+        background: var(--bg-hover);
+    }
+
+    .tool-header-button:disabled {
+        cursor: default;
+        opacity: 1;
+    }
+
+    .tool-header-button:focus-visible {
+        outline: 2px solid #8b5cf6;
+        outline-offset: -2px;
+    }
+
     .tool-info {
         display: flex;
-        align-items: center;
+        align-items: flex-start;
         gap: 0.625rem;
+        min-width: 0;
+        flex: 1;
     }
 
     .tool-info i {
         font-size: 0.875rem;
         color: #6366f1;
+        margin-top: 0.125rem;
+    }
+
+    .tool-meta {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+        min-width: 0;
     }
 
     .tool-name {
         font-size: 0.8125rem;
         font-weight: 600;
         color: var(--text-primary);
+    }
+
+    .tool-preview {
+        display: block;
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 0.75rem;
+        font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+        color: var(--text-secondary);
+        background: transparent;
+        padding: 0;
+    }
+
+    .tool-actions {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.75rem;
+        margin-left: 1rem;
+        flex-shrink: 0;
+        padding-top: 0.0625rem;
     }
 
     .tool-status {
@@ -1349,59 +1403,10 @@ else
         border-top: 1px solid var(--border-color);
     }
 
-    /* Bash command box - always visible */
-    .tool-command-box {
-        display: flex;
-        align-items: flex-start;
-        gap: 0.5rem;
-        padding: 0.75rem 1rem;
-        background: #1e1e2e;
-        font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-        font-size: 0.8125rem;
-        line-height: 1.5;
-    }
-
-    .tool-command-prompt {
-        color: #89b4fa;
-        font-weight: 600;
-        flex-shrink: 0;
-    }
-
-    .tool-command-text {
-        color: #cdd6f4;
-        white-space: pre-wrap;
-        word-break: break-word;
-        background: transparent;
-        padding: 0;
-        font-size: inherit;
-    }
-
-    /* Output toggle button */
-    .tool-output-toggle {
-        width: 100%;
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        padding: 0.375rem 1rem;
-        background: #181825;
-        border: none;
-        border-top: 1px solid rgba(255, 255, 255, 0.08);
-        cursor: pointer;
-        font-size: 0.6875rem;
-        font-weight: 500;
-        color: #7f849c;
-        text-transform: uppercase;
-        letter-spacing: 0.03em;
-    }
-
-    .tool-output-toggle:hover {
-        background: #1e1e2e;
-        color: #a6adc8;
-    }
-
-    .tool-output-toggle i {
-        font-size: 0.625rem;
-        transition: transform 0.15s ease;
+    .tool-expand-icon {
+        font-size: 0.75rem;
+        color: var(--text-muted);
+        margin-top: 0.125rem;
     }
 
     /* Output content */
@@ -1417,25 +1422,6 @@ else
         overflow-y: auto;
         font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
         line-height: 1.5;
-        border-top: 1px solid rgba(255, 255, 255, 0.05);
-    }
-
-    /* Keep existing styles for non-bash results */
-    .tool-result-toggle {
-        width: 100%;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 0.5rem 1rem;
-        background: transparent;
-        border: none;
-        cursor: pointer;
-        font-size: 0.75rem;
-        color: var(--text-muted);
-    }
-
-    .tool-result-toggle:hover {
-        background: var(--bg-hover);
     }
 
     .tool-result-content {
@@ -2394,7 +2380,7 @@ else
             isCheckingAvailability = false;
             
             // Auto-connect if Copilot is available and authenticated
-            if (availability.IsInstalled && availability.IsAuthenticated && !CopilotService.IsConnected)
+            if (availability.IsInstalled && availability.IsAuthenticated && CopilotService.CurrentSessionId == null)
             {
                 try
                 {
@@ -2417,7 +2403,7 @@ else
             availability = await CopilotService.CheckAvailabilityAsync();
             
             // Auto-connect if Copilot is available and authenticated
-            if (availability.IsInstalled && availability.IsAuthenticated && !CopilotService.IsConnected)
+            if (availability.IsInstalled && availability.IsAuthenticated && CopilotService.CurrentSessionId == null)
             {
                 try
                 {
@@ -2786,6 +2772,9 @@ else
     
     private async Task<ToolPermissionResult> HandlePermissionRequest(ToolPermissionRequest request)
     {
+        CopilotService.SetToolCommand(request.ToolName, request.ToolCallId, request.Command);
+        await InvokeAsync(StateHasChanged);
+
         // Auto-approve read-only tools
         if (request.IsReadOnly)
         {
