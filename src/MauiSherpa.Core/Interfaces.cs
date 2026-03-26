@@ -3365,6 +3365,13 @@ public record AppPreferences
     public string? AndroidSdkPath { get; init; }
     public bool AutoBackupEnabled { get; init; } = true;
     public bool DemoMode { get; init; } = false;
+    public string XcodeArchiveExtractor { get; init; } = XcodeArchiveExtractorOptions.SystemXip;
+}
+
+public static class XcodeArchiveExtractorOptions
+{
+    public const string SystemXip = "system-xip";
+    public const string Unxip = "unxip";
 }
 
 public record PushTestingSettings

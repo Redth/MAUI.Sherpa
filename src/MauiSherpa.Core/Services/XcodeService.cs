@@ -16,17 +16,30 @@ public class XcodeService : IXcodeService
     private readonly IPlatformService _platform;
     private readonly HttpClient _httpClient;
     private readonly IAppleDownloadAuthService _authService;
+    private readonly IEncryptedSettingsService _settingsService;
 
     private const string XcodeReleasesUrl = "https://xcodereleases.com/data.json";
+    private static readonly string[] UnxipExecutableCandidates =
+    [
+        "/opt/homebrew/bin/unxip",
+        "/usr/local/bin/unxip",
+        "/opt/local/bin/unxip"
+    ];
 
     public bool IsSupported => _platform.IsMacCatalyst || _platform.IsMacOS;
 
-    public XcodeService(ILoggingService logger, IPlatformService platform, HttpClient httpClient, IAppleDownloadAuthService authService)
+    public XcodeService(
+        ILoggingService logger,
+        IPlatformService platform,
+        HttpClient httpClient,
+        IAppleDownloadAuthService authService,
+        IEncryptedSettingsService settingsService)
     {
         _logger = logger;
         _platform = platform;
         _httpClient = httpClient;
         _authService = authService;
+        _settingsService = settingsService;
     }
 
     public async Task<IReadOnlyList<XcodeInstallation>> GetInstalledXcodesAsync()
@@ -437,10 +450,20 @@ public class XcodeService : IXcodeService
 
         try
         {
-            // Step 1: Unxip
-            progress?.Report("Unarchiving Xcode (this can take a while)...");
             var expandDir = Path.GetDirectoryName(xipPath) ?? Path.GetTempPath();
-            var expandResult = await RunProcessAsync("xip", $"--expand \"{xipPath}\"", expandDir);
+            var extractor = await ResolveArchiveExtractionCommandAsync(xipPath);
+
+            if (extractor.FellBackToSystemXip)
+            {
+                _logger.LogWarning("unxip is selected for Xcode extraction but was not found. Falling back to system xip.");
+                progress?.Report("unxip is selected but was not found. Falling back to system xip...");
+            }
+
+            progress?.Report(extractor.Preference == XcodeArchiveExtractorOptions.Unxip
+                ? "Unarchiving Xcode with unxip (faster, no signature verification)..."
+                : "Unarchiving Xcode with system xip (this can take a while)...");
+
+            var expandResult = await RunProcessAsync(extractor.FileName, extractor.Arguments, expandDir);
 
             // xip expands into the current directory, so we need to look for Xcode*.app
             if (expandResult.exitCode != 0)
@@ -528,6 +551,68 @@ public class XcodeService : IXcodeService
     }
 
     // ── Private helpers ─────────────────────────────────────────────────
+
+    internal static XcodeArchiveExtractionCommand CreateArchiveExtractionCommand(string xipPath, string? preference, string? unxipPath)
+    {
+        var normalizedPreference = NormalizeArchiveExtractorPreference(preference);
+        if (normalizedPreference == XcodeArchiveExtractorOptions.Unxip &&
+            !string.IsNullOrWhiteSpace(unxipPath))
+        {
+            return new XcodeArchiveExtractionCommand(
+                FileName: unxipPath,
+                Arguments: $"\"{xipPath}\"",
+                Preference: normalizedPreference,
+                FellBackToSystemXip: false);
+        }
+
+        return new XcodeArchiveExtractionCommand(
+            FileName: "xip",
+            Arguments: $"--expand \"{xipPath}\"",
+            Preference: XcodeArchiveExtractorOptions.SystemXip,
+            FellBackToSystemXip: normalizedPreference == XcodeArchiveExtractorOptions.Unxip);
+    }
+
+    internal static string NormalizeArchiveExtractorPreference(string? preference) =>
+        string.Equals(preference, XcodeArchiveExtractorOptions.Unxip, StringComparison.OrdinalIgnoreCase)
+            ? XcodeArchiveExtractorOptions.Unxip
+            : XcodeArchiveExtractorOptions.SystemXip;
+
+    private async Task<XcodeArchiveExtractionCommand> ResolveArchiveExtractionCommandAsync(string xipPath)
+    {
+        var preference = XcodeArchiveExtractorOptions.SystemXip;
+
+        try
+        {
+            var settings = await _settingsService.GetSettingsAsync();
+            preference = settings.Preferences.XcodeArchiveExtractor;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning($"Failed to load Xcode extractor preference, using system xip: {ex.Message}");
+        }
+
+        var unxipPath = NormalizeArchiveExtractorPreference(preference) == XcodeArchiveExtractorOptions.Unxip
+            ? await FindUnxipExecutableAsync()
+            : null;
+
+        return CreateArchiveExtractionCommand(xipPath, preference, unxipPath);
+    }
+
+    private static async Task<string?> FindUnxipExecutableAsync()
+    {
+        foreach (var candidate in UnxipExecutableCandidates)
+        {
+            if (File.Exists(candidate))
+                return candidate;
+        }
+
+        var result = await RunProcessAsync("/usr/bin/which", "unxip");
+        if (result.exitCode != 0)
+            return null;
+
+        var resolved = result.output.Trim();
+        return string.IsNullOrWhiteSpace(resolved) ? null : resolved;
+    }
 
     private async Task<(string? version, string? build)> GetXcodeVersionAsync(string xcodeAppPath)
     {
@@ -701,3 +786,10 @@ public class XcodeService : IXcodeService
         return (process.ExitCode, output, error);
     }
 }
+
+internal readonly record struct XcodeArchiveExtractionCommand(
+    string FileName,
+    string Arguments,
+    string Preference,
+    bool FellBackToSystemXip
+);
