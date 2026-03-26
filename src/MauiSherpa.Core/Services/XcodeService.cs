@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Net.Http;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using MauiSherpa.Core.Interfaces;
@@ -19,7 +20,7 @@ public class XcodeService : IXcodeService
     private readonly IEncryptedSettingsService _settingsService;
 
     private const string XcodeReleasesUrl = "https://xcodereleases.com/data.json";
-    private static readonly string[] UnxipExecutableCandidates =
+    private static readonly string[] SystemUnxipExecutableCandidates =
     [
         "/opt/homebrew/bin/unxip",
         "/usr/local/bin/unxip",
@@ -598,9 +599,30 @@ public class XcodeService : IXcodeService
         return CreateArchiveExtractionCommand(xipPath, preference, unxipPath);
     }
 
+    internal static string? FindBundledUnxipExecutable(string baseDirectory, string runtimeIdentifier)
+    {
+        if (string.IsNullOrWhiteSpace(baseDirectory) || string.IsNullOrWhiteSpace(runtimeIdentifier))
+            return null;
+
+        var bundledPath = Path.Combine(baseDirectory, "runtimes", runtimeIdentifier, "native", "unxip");
+        if (File.Exists(bundledPath))
+            return bundledPath;
+
+        if (!runtimeIdentifier.StartsWith("maccatalyst-", StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        var osxRid = runtimeIdentifier.Replace("maccatalyst-", "osx-", StringComparison.OrdinalIgnoreCase);
+        var osxPath = Path.Combine(baseDirectory, "runtimes", osxRid, "native", "unxip");
+        return File.Exists(osxPath) ? osxPath : null;
+    }
+
     private static async Task<string?> FindUnxipExecutableAsync()
     {
-        foreach (var candidate in UnxipExecutableCandidates)
+        var bundledPath = FindBundledUnxipExecutable(AppContext.BaseDirectory, RuntimeInformation.RuntimeIdentifier);
+        if (!string.IsNullOrWhiteSpace(bundledPath))
+            return bundledPath;
+
+        foreach (var candidate in SystemUnxipExecutableCandidates)
         {
             if (File.Exists(candidate))
                 return candidate;
