@@ -57,8 +57,24 @@ public class EncryptedSettingsService : IEncryptedSettingsService
 
             var encryptedData = await File.ReadAllBytesAsync(_settingsPath);
             var masterKey = await GetOrCreateMasterKeyAsync();
-            var json = Decrypt(encryptedData, masterKey);
-            _cachedSettings = JsonSerializer.Deserialize<MauiSherpaSettings>(json) ?? new MauiSherpaSettings();
+            
+            try
+            {
+                var json = Decrypt(encryptedData, masterKey);
+                _cachedSettings = JsonSerializer.Deserialize<MauiSherpaSettings>(json) ?? new MauiSherpaSettings();
+            }
+            catch (CryptographicException)
+            {
+                // Master key and settings file are out of sync (e.g. key regenerated
+                // after a debug rebuild while the old encrypted file remains).
+                // Back up the unreadable file and start fresh.
+                var backupPath = _settingsPath + ".unreadable";
+                try { File.Move(_settingsPath, backupPath, overwrite: true); } catch { }
+                System.Diagnostics.Debug.WriteLine(
+                    $"Settings decryption failed (key/file mismatch). Old file moved to {backupPath}");
+                _cachedSettings = new MauiSherpaSettings();
+            }
+
             return _cachedSettings;
         }
         finally
