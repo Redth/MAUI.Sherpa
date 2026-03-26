@@ -3,6 +3,7 @@
 @using MauiSherpa.Core.ViewModels
 @using MauiSherpa.Pages.Forms
 @using MauiSherpa.Pages.Modals
+@using Shiny.Mediator
 @inject XcodeManagementViewModel ViewModel
 @inject IPlatformService Platform
 @inject IAlertService AlertService
@@ -10,6 +11,12 @@
 @inject HybridFormBridgeHolder BridgeHolder
 @inject IXcodeService XcodeService
 @inject ISimulatorService SimulatorService
+@inject IToolbarService ToolbarService
+@inject IMediator Mediator
+@inject IProcessModalService ProcessModal
+@inject IOperationModalService OperationModal
+@inject IAppleDownloadAuthService DownloadAuthService
+@implements IDisposable
 
 <h1><i class="fab fa-apple"></i> @ViewModel.Title</h1>
 
@@ -23,30 +30,27 @@
 }
 else
 {
-    <div class="status-bar">
-        <span class="status-label">Status:</span>
-        <span class="status-text">@ViewModel.StatusMessage</span>
-        @if (ViewModel.IsAuthenticated)
-        {
-            <span class="auth-status signed-in">
-                <i class="fas fa-lock"></i> @ViewModel.AuthenticatedAppleId
-                <button class="btn-link" @onclick="SignOut">Sign Out</button>
-            </span>
-        }
-        else
-        {
-            <span class="auth-status">
-                <i class="fas fa-lock-open"></i>
-                <button class="btn-link" @onclick="OpenAuthModal">Sign In for Downloads</button>
-            </span>
-        }
-    </div>
-
-    <div class="toolbar">
-        <button class="btn btn-primary" @onclick="RefreshAll" disabled="@ViewModel.IsLoading">
-            <i class="fas fa-sync-alt"></i> @(ViewModel.IsLoading ? "Loading..." : "Refresh")
-        </button>
-    </div>
+    @if (!Platform.HasNativeToolbar)
+    {
+        <div class="toolbar">
+            <button class="btn btn-primary" @onclick="RefreshAll" disabled="@IsActiveTabLoading">
+                <i class="fas fa-sync-alt"></i> @(IsActiveTabLoading ? "Loading..." : "Refresh")
+            </button>
+            <div class="toolbar-spacer"></div>
+            @if (ViewModel.IsAuthenticated)
+            {
+                <button class="btn btn-outline" @onclick="SignOut">
+                    <i class="fas fa-lock"></i> Sign Out
+                </button>
+            }
+            else
+            {
+                <button class="btn btn-outline" @onclick="OpenAuthModal">
+                    <i class="fas fa-lock-open"></i> Sign In
+                </button>
+            }
+        </div>
+    }
 
     <div class="tabs">
         <button class="tab @(activeTab == "installed" ? "active" : "")" @onclick="@(() => SwitchTab("installed"))">
@@ -57,6 +61,13 @@ else
             @if (ViewModel.AvailableReleases.Count > 0)
             {
                 <span class="tab-count">(@filteredReleases.Count)</span>
+            }
+        </button>
+        <button class="tab @(activeTab == "runtimes" ? "active" : "")" @onclick="@(() => SwitchTab("runtimes"))">
+            <i class="fas fa-layer-group"></i> Runtimes
+            @if (hasLoadedRuntimeData)
+            {
+                <span class="tab-count">(@filteredRuntimeStorage.Count)</span>
             }
         </button>
     </div>
@@ -80,10 +91,18 @@ else
                 <p>Install Xcode from the Mac App Store or download from the Available tab.</p>
             </div>
         }
+        else if (filteredInstalledXcodes.Count == 0)
+        {
+            <div class="empty-state">
+                <div class="empty-icon"><i class="fas fa-search"></i></div>
+                <h3>No Matching Xcode Installations</h3>
+                <p>Try a different search to find an installed Xcode version.</p>
+            </div>
+        }
         else
         {
             <div class="xcode-list">
-                @foreach (var xcode in ViewModel.InstalledXcodes)
+                @foreach (var xcode in filteredInstalledXcodes)
                 {
                     <div class="xcode-card @(xcode.IsSelected ? "selected" : "")">
                         <div class="xcode-card-icon">
@@ -122,22 +141,32 @@ else
     @* ====== AVAILABLE TAB ====== *@
     @if (activeTab == "available")
     {
-        <div class="available-controls">
-            <label class="toggle-label">
-                <input type="checkbox" @bind="showBetas" @bind:event="oninput" />
-                <span>Show Betas &amp; RCs</span>
-            </label>
-            @if (!ViewModel.IsAuthenticated)
-            {
-                <span class="auth-hint">
-                    <i class="fas fa-info-circle"></i> Sign in with Apple ID to download Xcode
-                </span>
-            }
-            @if (ViewModel.IsLoadingAvailable)
-            {
-                <span class="loading-indicator"><i class="fas fa-spinner fa-spin"></i> Fetching releases...</span>
-            }
-        </div>
+        @if (!ViewModel.IsAuthenticated || ViewModel.IsLoadingAvailable)
+        {
+            <div class="available-controls">
+                @if (!ViewModel.IsAuthenticated)
+                {
+                    <span class="auth-hint">
+                        <i class="fas fa-info-circle"></i> Sign in with Apple ID to download Xcode
+                    </span>
+                }
+                @if (ViewModel.IsLoadingAvailable)
+                {
+                    <span class="loading-indicator"><i class="fas fa-spinner fa-spin"></i> Fetching releases...</span>
+                }
+            </div>
+        }
+
+        @if (!(ViewModel.IsLoadingAvailable && filteredReleases.Count == 0))
+        {
+            <div class="results-info available-results-info">
+                <span>Showing @filteredReleases.Count releases</span>
+                <label class="toggle-label available-toggle-label">
+                    <input type="checkbox" @bind="showBetas" @bind:event="oninput" />
+                    <span>Show Betas &amp; RCs</span>
+                </label>
+            </div>
+        }
 
         @if (ViewModel.IsLoadingAvailable && filteredReleases.Count == 0)
         {
@@ -149,7 +178,6 @@ else
         }
         else if (filteredReleases.Count > 0)
         {
-            <div class="results-info">Showing @filteredReleases.Count releases</div>
             <div class="xcode-list">
                 @foreach (var release in filteredReleases)
                 {
@@ -261,6 +289,131 @@ else
                     </div>
                 }
             </div>
+        }
+        else
+        {
+            <div class="empty-state">
+                <div class="empty-icon"><i class="fas @(ViewModel.AvailableReleases.Count == 0 ? "fa-cloud-download-alt" : "fa-search")"></i></div>
+                <h3>@(ViewModel.AvailableReleases.Count == 0 ? "No Xcode Releases Found" : "No Matching Xcode Releases")</h3>
+                <p>@(ViewModel.AvailableReleases.Count == 0
+                    ? "Try refreshing to load the latest releases."
+                    : "Try a different search to find an Xcode release.")</p>
+            </div>
+        }
+    }
+
+    @* ====== RUNTIMES TAB ====== *@
+    @if (activeTab == "runtimes")
+    {
+        @if ((ViewModel.IsLoadingRuntimes || ViewModel.IsLoadingDownloadableRuntimes) &&
+             ViewModel.RuntimeStorage.Count == 0 &&
+             ViewModel.DownloadableRuntimes.Count == 0)
+        {
+            <div class="loading-state">
+                <div class="loading-spinner"><i class="fas fa-spinner fa-spin"></i></div>
+                <div class="loading-title">Loading Simulator Runtimes</div>
+                <div class="loading-description">Querying installed and downloadable simulator runtimes...</div>
+            </div>
+        }
+        else
+        {
+            <div class="results-info runtime-results-info">
+                <div class="runtime-results-summary">
+                    <span>Showing @filteredRuntimeStorage.Count of @ViewModel.RuntimeStorage.Count runtime(s)</span>
+                    <span>&bull;</span>
+                    <span>@FormatBytes(filteredRuntimeStorageBytes) in view</span>
+                    @if (filteredRuntimeStorageBytes != ViewModel.TotalRuntimeStorageBytes)
+                    {
+                        <span>&bull;</span>
+                        <span>@FormatBytes(ViewModel.TotalRuntimeStorageBytes) total</span>
+                    }
+                </div>
+                <button class="btn btn-sm btn-primary-sm" @onclick="OpenRuntimePicker">
+                    @if (ViewModel.IsLoadingDownloadableRuntimes && ViewModel.DownloadableRuntimes.Count == 0)
+                    {
+                        <i class="fas fa-spinner fa-spin"></i>
+                        <span>Loading...</span>
+                    }
+                    else
+                    {
+                        <i class="fas fa-plus"></i>
+                        <span>Add Runtime...</span>
+                    }
+                </button>
+            </div>
+
+            @if (ViewModel.RuntimeStorage.Count == 0)
+            {
+                <div class="empty-state">
+                    <div class="empty-icon"><i class="fas fa-layer-group"></i></div>
+                    <h3>No Simulator Runtimes Found</h3>
+                    <p>No simulator runtimes were reported by `xcrun simctl` yet. Use <strong>Add Runtime...</strong> to install one.</p>
+                </div>
+            }
+            else if (filteredRuntimeStorage.Count == 0)
+            {
+                <div class="empty-state">
+                    <div class="empty-icon"><i class="fas fa-search"></i></div>
+                    <h3>No Matching Runtimes</h3>
+                    <p>Try a different search to find a simulator runtime.</p>
+                </div>
+            }
+            else
+            {
+                <div class="xcode-list">
+                    @foreach (var runtime in filteredRuntimeStorage)
+                    {
+                        <div class="xcode-card">
+                            <div class="xcode-card-icon">
+                                <i class="@GetRuntimeIcon(runtime.PlatformIdentifier)"></i>
+                            </div>
+                            <div class="xcode-card-info">
+                                <div class="xcode-card-title">
+                                    @FormatRuntimeName(runtime)
+                                    <span class="badge @GetRuntimeStateBadgeClass(runtime.State)">@runtime.State</span>
+                                    @if (!runtime.Deletable)
+                                    {
+                                        <span class="badge badge-unknown">Protected</span>
+                                    }
+                                </div>
+                                <div class="xcode-card-details">
+                                    <span class="detail-item"><i class="fas fa-cube"></i> @runtime.Identifier</span>
+                                    @if (!string.IsNullOrWhiteSpace(runtime.Build))
+                                    {
+                                        <span class="detail-item"><i class="fas fa-code-branch"></i> Build @runtime.Build</span>
+                                    }
+                                    @if (!string.IsNullOrWhiteSpace(runtime.PlatformIdentifier))
+                                    {
+                                        <span class="detail-item"><i class="fas fa-desktop"></i> @FriendlyPlatform(runtime.PlatformIdentifier)</span>
+                                    }
+                                    @if (runtime.SizeBytes.HasValue)
+                                    {
+                                        <span class="detail-item"><i class="fas fa-weight"></i> @FormatBytes(runtime.SizeBytes.Value)</span>
+                                    }
+                                    @if (runtime.LastUsedAt.HasValue)
+                                    {
+                                        <span class="detail-item"><i class="fas fa-clock"></i> Last used @FormatLastUsed(runtime.LastUsedAt.Value)</span>
+                                    }
+                                </div>
+                                @if (!string.IsNullOrWhiteSpace(runtime.MountPath))
+                                {
+                                    <div class="xcode-card-details">
+                                        <span class="detail-item"><i class="fas fa-folder"></i> @runtime.MountPath</span>
+                                    </div>
+                                }
+                            </div>
+                            <div class="xcode-card-actions">
+                                @if (runtime.Deletable)
+                                {
+                                    <button class="btn btn-sm btn-danger-outline" @onclick="() => DeleteRuntime(runtime)">
+                                        <i class="fas fa-trash-alt"></i> Delete
+                                    </button>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
         }
     }
 
@@ -408,39 +561,6 @@ else
     .not-supported h2 { color: var(--accent-danger); margin-bottom: 0.5rem; }
     .not-supported p { color: var(--text-muted); }
 
-    .status-bar {
-        background: var(--card-bg);
-        padding: 0.75rem 1rem;
-        border-radius: 0.5rem;
-        margin-bottom: 1rem;
-        border: 1px solid var(--border-color);
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        flex-wrap: wrap;
-    }
-    .status-label { font-weight: 600; color: var(--text-primary); }
-    .status-text { color: var(--text-secondary); flex: 1; }
-
-    .auth-status {
-        font-size: 0.8125rem;
-        display: flex;
-        align-items: center;
-        gap: 0.375rem;
-        margin-left: auto;
-    }
-    .auth-status.signed-in { color: var(--accent-success); }
-    .auth-status .btn-link {
-        background: none;
-        border: none;
-        color: var(--text-muted);
-        cursor: pointer;
-        font-size: 0.75rem;
-        text-decoration: underline;
-        padding: 0;
-    }
-    .auth-status .btn-link:hover { color: var(--accent-danger); }
-
     .auth-hint {
         font-size: 0.75rem;
         color: var(--text-muted);
@@ -454,6 +574,10 @@ else
         display: flex;
         align-items: center;
         gap: 0.5rem;
+    }
+
+    .toolbar-spacer {
+        flex: 1;
     }
 
     /* Tabs */
@@ -507,14 +631,13 @@ else
         gap: 1rem;
         padding: 1rem 1.25rem;
         background: var(--card-bg);
-        border: 1px solid var(--border-color);
+        border: none;
         border-radius: var(--card-radius);
         transition: all 0.15s ease;
     }
-    .xcode-card:hover { border-color: var(--accent-primary); box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
-    .xcode-card.selected { border-color: var(--accent-success); background: var(--status-success-bg); }
-    .xcode-card.installed { border-left: 3px solid var(--accent-success); }
-    .xcode-card.downloading { border-color: var(--accent-primary); background: rgba(66, 153, 225, 0.03); }
+    .xcode-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+    .xcode-card.selected { background: var(--status-success-bg); }
+    .xcode-card.downloading { background: rgba(66, 153, 225, 0.03); }
 
     .xcode-card-icon {
         font-size: 1.5rem;
@@ -699,12 +822,9 @@ else
     .available-controls {
         display: flex;
         align-items: center;
+        flex-wrap: wrap;
         gap: 1rem;
-        margin-bottom: 1rem;
-        padding: 0.75rem 1rem;
-        background: var(--card-bg);
-        border-radius: 0.5rem;
-        border: 1px solid var(--border-color);
+        margin-bottom: 0.75rem;
     }
 
     .toggle-label {
@@ -728,20 +848,34 @@ else
         margin-bottom: 0.75rem;
     }
 
-    /* Runtime Summary */
-    .runtime-summary {
-        padding: 0.75rem 1rem;
-        background: var(--card-bg);
-        border: 1px solid var(--border-color);
-        border-radius: 0.5rem;
+    .available-results-info {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        flex-wrap: wrap;
+    }
+
+    .available-toggle-label {
+        margin-left: auto;
+        flex-shrink: 0;
+    }
+
+    .runtime-results-info {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
         margin-bottom: 1rem;
-        font-size: 0.875rem;
-        color: var(--text-secondary);
+    }
+
+    .runtime-results-summary {
         display: flex;
         align-items: center;
         gap: 0.5rem;
+        flex-wrap: wrap;
+        min-width: 0;
     }
-    .runtime-summary i { color: var(--accent-primary); }
 
     /* Download Progress */
     .download-progress {
@@ -914,8 +1048,10 @@ else
 
 @code {
     private string activeTab = "installed";
+    private string searchQuery = "";
     private bool showBetas;
     private bool hasInitialized;
+    private bool hasLoadedRuntimeData;
 
     // Download/Install state
     private XcodeRelease? downloadingRelease;
@@ -927,7 +1063,7 @@ else
     private string? installError;
 
     // Runtime state
-    private bool deletingRuntime;
+    private string? installingDownloadableRuntimeBuild;
 
     private enum InstallStep { Download, Extract, FirstLaunch, Complete }
 
@@ -936,26 +1072,115 @@ else
             ? (double)downloadProgress.BytesReceived / downloadProgress.TotalBytes.Value * 100
             : 0;
 
+    private IReadOnlyList<XcodeInstallation> filteredInstalledXcodes =>
+        ViewModel.InstalledXcodes
+            .Where(MatchesSearch)
+            .ToList();
+
     private IReadOnlyList<XcodeRelease> filteredReleases =>
-        showBetas
-            ? ViewModel.AvailableReleases.Take(50).ToList()
-            : ViewModel.AvailableReleases.Where(r => !r.IsBeta).Take(50).ToList();
+        ViewModel.AvailableReleases
+            .Where(r => showBetas || !r.IsBeta)
+            .Where(MatchesSearch)
+            .Take(50)
+            .ToList();
+
+    private IReadOnlyList<SimulatorRuntimeStorage> filteredRuntimeStorage =>
+        ViewModel.RuntimeStorage
+            .Where(MatchesSearch)
+            .ToList();
+
+    private IReadOnlyList<DownloadableSimulatorRuntime> downloadableRuntimeCatalog =>
+        ViewModel.DownloadableRuntimes
+            .Where(IsModernDownloadableRuntime)
+            .OrderBy(runtime => GetPlatformSortOrder(runtime.PlatformIdentifier))
+            .ThenByDescending(runtime => ParseComparableVersion(runtime.Version))
+            .ThenByDescending(runtime => runtime.Build, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(runtime => runtime.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    private long filteredRuntimeStorageBytes =>
+        filteredRuntimeStorage
+            .Where(runtime => runtime.SizeBytes.HasValue)
+            .Sum(runtime => runtime.SizeBytes!.Value);
+
+    private bool IsActiveTabLoading => activeTab switch
+    {
+        "available" => ViewModel.IsLoadingAvailable,
+        "runtimes" => ViewModel.IsLoadingRuntimes || ViewModel.IsLoadingDownloadableRuntimes,
+        _ => ViewModel.IsLoading,
+    };
 
     protected override async Task OnInitializedAsync()
     {
         if (!hasInitialized)
         {
             hasInitialized = true;
+            DownloadAuthService.AuthStateChanged += OnDownloadAuthStateChanged;
+            ToolbarService.ClearItems();
+            ToolbarService.SetItems(
+                new ToolbarAction("refresh", "Refresh", "arrow.clockwise")
+            );
+            ToolbarService.SetSearch("Search Xcode versions or runtimes...");
+            ToolbarService.SetFilters();
+            ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
+            ToolbarService.SearchTextChanged += OnSearchTextChanged;
             await ViewModel.LoadInstalledAsync();
         }
+    }
+
+    private void OnToolbarItemClicked(string actionId)
+    {
+        if (actionId != "refresh")
+            return;
+
+        InvokeAsync(async () =>
+        {
+            ToolbarService.SetItemEnabled("refresh", false);
+            try
+            {
+                await RefreshAll();
+            }
+            finally
+            {
+                ToolbarService.SetItemEnabled("refresh", true);
+                StateHasChanged();
+            }
+        });
+    }
+
+    private void OnSearchTextChanged(string text)
+    {
+        InvokeAsync(() =>
+        {
+            searchQuery = text;
+            StateHasChanged();
+        });
+    }
+
+    private void OnDownloadAuthStateChanged() =>
+        InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        DownloadAuthService.AuthStateChanged -= OnDownloadAuthStateChanged;
+        ToolbarService.ToolbarItemClicked -= OnToolbarItemClicked;
+        ToolbarService.SearchTextChanged -= OnSearchTextChanged;
     }
 
     private async Task RefreshAll()
     {
         if (activeTab == "installed")
+        {
+            await Mediator.FlushStores("apple:xcode:installed");
             await ViewModel.LoadInstalledAsync();
+        }
         else if (activeTab == "available")
+        {
+            await Mediator.FlushStores("apple:xcode:available");
             await ViewModel.LoadAvailableAsync();
+        }
+        else if (activeTab == "runtimes")
+            await LoadRuntimeDataAsync(forceRefresh: true);
     }
 
     private async Task SwitchTab(string tab)
@@ -963,6 +1188,42 @@ else
         activeTab = tab;
         if (tab == "available" && ViewModel.AvailableReleases.Count == 0)
             await ViewModel.LoadAvailableAsync();
+        else if (tab == "runtimes" && !hasLoadedRuntimeData)
+            await LoadRuntimeDataAsync();
+
+        StateHasChanged();
+    }
+
+    private bool MatchesSearch(XcodeInstallation xcode) =>
+        ContainsSearchText(xcode.Version, xcode.BuildNumber, xcode.Path);
+
+    private bool MatchesSearch(XcodeRelease release)
+    {
+        if (ContainsSearchText(release.Version, release.BuildNumber, release.MinimumMacOSVersion))
+            return true;
+
+        return release.Sdks.Any(sdk => ContainsSearchText(sdk.Name, sdk.Version)) ||
+               release.Compilers.Any(compiler => ContainsSearchText(compiler.Name, compiler.Version));
+    }
+
+    private bool MatchesSearch(SimulatorRuntimeStorage runtime) =>
+        ContainsSearchText(
+            FormatRuntimeName(runtime),
+            FriendlyPlatform(runtime.PlatformIdentifier),
+            runtime.Identifier,
+            runtime.Build,
+            runtime.State,
+            runtime.MountPath);
+
+    private bool ContainsSearchText(params string?[] values)
+    {
+        if (string.IsNullOrWhiteSpace(searchQuery))
+            return true;
+
+        var trimmedQuery = searchQuery.Trim();
+        return values.Any(value =>
+            !string.IsNullOrWhiteSpace(value) &&
+            value.Contains(trimmedQuery, StringComparison.OrdinalIgnoreCase));
     }
 
     private async Task SelectXcode(XcodeInstallation xcode)
@@ -1093,29 +1354,110 @@ else
 
         if (!confirmed) return;
 
-        deletingRuntime = true;
+        var runtimeName = FormatRuntimeName(runtime);
+        var result = await OperationModal.RunAsync(
+            "Delete Runtime",
+            $"Deleting {runtimeName}...",
+            async ctx =>
+            {
+                ctx.LogInfo($"Runtime: {runtimeName}");
+                ctx.LogInfo($"Delete identifier: {runtime.DeleteIdentifier}");
+                ctx.SetStatus("Deleting runtime...");
+
+                var success = await SimulatorService.DeleteRuntimeAsync(
+                    runtime.DeleteIdentifier,
+                    new Progress<string>(message =>
+                    {
+                        ctx.LogInfo(message);
+                        ctx.SetStatus(message);
+                    }));
+
+                if (!success)
+                    return false;
+
+                ctx.SetStatus("Refreshing runtime data...");
+                ctx.LogInfo("Refreshing installed and downloadable runtimes...");
+                await LoadRuntimeDataAsync(forceRefresh: true);
+                ctx.LogSuccess("Runtime data refreshed");
+                return true;
+            },
+            canCancel: false);
+
+        if (result.Success)
+        {
+            await AlertService.ShowToastAsync($"{runtimeName} deleted");
+        }
+    }
+
+    private async Task LoadRuntimeDataAsync(bool forceRefresh = false)
+    {
+        if (forceRefresh)
+        {
+            await Mediator.FlushStores("apple:simulator:runtimes");
+            await Mediator.FlushStores("apple:simulator:runtime-storage");
+            await Mediator.FlushStores("apple:simulator:downloadable-runtimes");
+        }
+
+        await Task.WhenAll(
+            ViewModel.LoadRuntimeStorageAsync(),
+            ViewModel.LoadDownloadableRuntimesAsync());
+
+        hasLoadedRuntimeData = true;
+    }
+
+    private async Task OpenRuntimePicker()
+    {
+        if (ViewModel.DownloadableRuntimes.Count == 0 && !ViewModel.IsLoadingDownloadableRuntimes)
+        {
+            await ViewModel.LoadDownloadableRuntimesAsync();
+        }
+
+        var selectedRuntime = await FormModalService.ShowAsync<DownloadableSimulatorRuntime?>(
+            new RuntimePickerPage(
+                BridgeHolder,
+                downloadableRuntimeCatalog,
+                ViewModel.RuntimeStorage
+                    .Where(runtime => !string.IsNullOrWhiteSpace(runtime.Build))
+                    .Select(runtime => runtime.Build!)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList()));
+
+        if (selectedRuntime != null)
+            await InstallDownloadableRuntime(selectedRuntime);
+    }
+
+    private async Task InstallDownloadableRuntime(DownloadableSimulatorRuntime runtime)
+    {
+        if (installingDownloadableRuntimeBuild != null)
+            return;
+
+        installingDownloadableRuntimeBuild = runtime.Build;
         StateHasChanged();
 
         try
         {
-            var success = await SimulatorService.DeleteRuntimeAsync(runtime.Identifier);
-            if (success)
+            var result = await ProcessModal.ShowProcessAsync(
+                new ProcessRequest(
+                    Command: "/usr/bin/xcodebuild",
+                    Arguments: ["-downloadPlatform", GetDownloadPlatform(runtime.PlatformIdentifier), "-buildVersion", runtime.Build],
+                    RequiresElevation: false,
+                    Title: $"Install {FormatDownloadableRuntimeName(runtime)}",
+                    Description: $"Download and install {FormatDownloadableRuntimeName(runtime)} using Xcode."
+                ));
+
+            if (result?.Success == true)
             {
-                await ViewModel.LoadRuntimeStorageAsync();
-                await AlertService.ShowToastAsync("Runtime deleted");
+                await LoadRuntimeDataAsync(forceRefresh: true);
+                await AlertService.ShowToastAsync($"{FormatDownloadableRuntimeName(runtime)} installed");
             }
-            else
+            else if (result != null && !result.WasCancelled && !result.WasKilled)
             {
-                await AlertService.ShowAlertAsync("Error", "Failed to delete runtime.");
+                await AlertService.ShowAlertAsync("Install Failed", $"Installing {FormatDownloadableRuntimeName(runtime)} failed. Check the process output for details.");
             }
-        }
-        catch (Exception ex)
-        {
-            await AlertService.ShowAlertAsync("Error", $"Failed to delete runtime: {ex.Message}");
         }
         finally
         {
-            deletingRuntime = false;
+            installingDownloadableRuntimeBuild = null;
             StateHasChanged();
         }
     }
@@ -1138,6 +1480,16 @@ else
         return "";
     }
 
+    private static string GetRuntimeIcon(string? platformIdentifier) => FriendlyPlatform(platformIdentifier) switch
+    {
+        "iOS" => "fas fa-mobile-alt",
+        "watchOS" => "fas fa-clock",
+        "tvOS" => "fas fa-tv",
+        "visionOS" => "fas fa-vr-cardboard",
+        "macOS" => "fas fa-laptop",
+        _ => "fas fa-cube"
+    };
+
     private string GetRuntimeStateBadgeClass(string state) => state.ToLowerInvariant() switch
     {
         "ready" => "badge-ready",
@@ -1145,15 +1497,98 @@ else
         _ => "badge-unknown"
     };
 
+    private static bool IsModernDownloadableRuntime(DownloadableSimulatorRuntime runtime) =>
+        runtime.ContentType is "cryptexDiskImage" or "patchableCryptexDiskImage";
+
     private static string FormatRuntimeName(SimulatorRuntimeStorage runtime)
     {
+        var parsed = ParseRuntimeLabel(runtime.Identifier);
+        if (!string.IsNullOrWhiteSpace(parsed))
+            return parsed;
+
         if (!string.IsNullOrEmpty(runtime.PlatformIdentifier))
         {
-            var parts = runtime.PlatformIdentifier.Split('.');
-            var platform = parts.Length > 0 ? parts[^1] : runtime.PlatformIdentifier;
-            return $"{platform} (Build {runtime.Build ?? "Unknown"})";
+            return FriendlyPlatform(runtime.PlatformIdentifier);
         }
+
         return $"Runtime {runtime.Identifier}";
+    }
+
+    private static string FriendlyPlatform(string? platform) => platform switch
+    {
+        "com.apple.platform.iphonesimulator" or "com.apple.platform.iphoneos" => "iOS",
+        "com.apple.platform.watchos" or "com.apple.platform.watchsimulator" => "watchOS",
+        "com.apple.platform.tvos" or "com.apple.platform.appletvos" or "com.apple.platform.tvsimulator" or "com.apple.platform.appletvsimulator" => "tvOS",
+        "com.apple.platform.xros" or "com.apple.platform.xrsimulator" => "visionOS",
+        "com.apple.platform.macosx" => "macOS",
+        null or "" => "Unknown Platform",
+        _ => platform
+    };
+
+    private static string ParseRuntimeLabel(string identifier)
+    {
+        const string prefix = "com.apple.CoreSimulator.SimRuntime.";
+        if (string.IsNullOrWhiteSpace(identifier))
+            return string.Empty;
+
+        var trimmed = identifier.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+            ? identifier[prefix.Length..]
+            : identifier;
+
+        var firstDash = trimmed.IndexOf('-');
+        if (firstDash < 0)
+            return trimmed;
+
+        var family = trimmed[..firstDash];
+        var version = trimmed[(firstDash + 1)..].Replace('-', '.');
+        return $"{family} {version}";
+    }
+
+    private static string FormatDownloadableRuntimeName(DownloadableSimulatorRuntime runtime)
+    {
+        const string suffix = " Simulator Runtime";
+        return runtime.Name.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)
+            ? runtime.Name[..^suffix.Length]
+            : runtime.Name;
+    }
+
+    private static string FormatLastUsed(DateTime lastUsedAt) =>
+        lastUsedAt.ToLocalTime().ToString("MMM d, yyyy");
+
+    private static string GetDownloadPlatform(string platformIdentifier) => FriendlyPlatform(platformIdentifier) switch
+    {
+        "iOS" => "iOS",
+        "watchOS" => "watchOS",
+        "tvOS" => "tvOS",
+        "visionOS" => "visionOS",
+        _ => throw new InvalidOperationException($"Unsupported runtime platform: {platformIdentifier}")
+    };
+
+    private static int GetPlatformSortOrder(string? platformIdentifier) => FriendlyPlatform(platformIdentifier) switch
+    {
+        "iOS" => 0,
+        "watchOS" => 1,
+        "tvOS" => 2,
+        "visionOS" => 3,
+        "macOS" => 4,
+        _ => 5
+    };
+
+    private static Version ParseComparableVersion(string version)
+    {
+        if (Version.TryParse(version, out var parsed))
+            return parsed;
+
+        var segments = version
+            .Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(segment => int.TryParse(segment, out var value) ? value : 0)
+            .Take(4)
+            .ToList();
+
+        while (segments.Count < 4)
+            segments.Add(0);
+
+        return new Version(segments[0], segments[1], segments[2], segments[3]);
     }
 
     private static string FormatBytes(long bytes)

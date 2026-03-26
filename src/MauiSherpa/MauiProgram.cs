@@ -249,6 +249,7 @@ public static class MauiProgram
         builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Apple.GetInstalledXcodesHandler>();
         builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Apple.GetAvailableXcodesHandler>();
         builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Apple.GetRuntimeStorageHandler>();
+        builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Apple.GetDownloadableSimulatorRuntimesHandler>();
         builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.GetConnectedDevicesHandler>();
         builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Profiling.GetProfilingCatalogHandler>();
         builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Profiling.GetProfilingCapabilitiesHandler>();

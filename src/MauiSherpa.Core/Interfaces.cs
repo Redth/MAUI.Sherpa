@@ -906,6 +906,7 @@ public record SimulatorRuntime(
 /// </summary>
 public record SimulatorRuntimeStorage(
     string Identifier,
+    string DeleteIdentifier,
     string? Build,
     string? PlatformIdentifier,
     string State,
@@ -913,6 +914,23 @@ public record SimulatorRuntimeStorage(
     bool Deletable,
     DateTime? LastUsedAt,
     string? MountPath
+);
+
+/// <summary>
+/// Represents a downloadable simulator runtime from Apple's simulator runtime feed.
+/// </summary>
+public record DownloadableSimulatorRuntime(
+    string Identifier,
+    string Name,
+    string Version,
+    string Build,
+    string PlatformIdentifier,
+    string ContentType,
+    long FileSizeBytes,
+    IReadOnlyList<string> Architectures,
+    bool RequiresAuthentication,
+    bool IsPrerelease,
+    string? Source
 );
 
 // ============================================================================
@@ -1136,8 +1154,9 @@ public interface ISimulatorService
     Task<IReadOnlyList<SimulatorDeviceType>> GetDeviceTypesAsync();
     Task<IReadOnlyList<SimulatorRuntime>> GetRuntimesAsync();
     Task<IReadOnlyList<SimulatorRuntimeStorage>> GetRuntimeStorageAsync();
+    Task<IReadOnlyList<DownloadableSimulatorRuntime>> GetDownloadableRuntimesAsync();
     Task<bool> InstallRuntimeAsync(string dmgPath, IProgress<string>? progress = null);
-    Task<bool> DeleteRuntimeAsync(string runtimeIdentifier, IProgress<string>? progress = null);
+    Task<bool> DeleteRuntimeAsync(string deleteIdentifier, IProgress<string>? progress = null);
     Task<bool> CreateSimulatorAsync(string name, string deviceTypeId, string runtimeId, IProgress<string>? progress = null);
     Task<bool> DeleteSimulatorAsync(string udid, IProgress<string>? progress = null);
     Task<bool> BootSimulatorAsync(string udid, IProgress<string>? progress = null);

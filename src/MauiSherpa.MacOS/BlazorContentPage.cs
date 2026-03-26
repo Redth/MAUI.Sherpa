@@ -22,6 +22,8 @@ public class BlazorContentPage : ContentPage
     private readonly IAppleIdentityStateService _identityState;
     private readonly IGoogleIdentityService _googleIdentityService;
     private readonly IGoogleIdentityStateService _googleIdentityState;
+    private readonly IAppleDownloadAuthService _xcodeDownloadAuthService;
+    private readonly IAlertService _alertService;
     private readonly IPreferences _preferences;
     private readonly IFormModalService _formModalService;
     private readonly MauiSherpa.Pages.Forms.HybridFormBridgeHolder _bridgeHolder;
@@ -52,6 +54,11 @@ public class BlazorContentPage : ContentPage
         "/firebase-push"
     };
 
+    static readonly HashSet<string> XcodeDownloadRoutes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "/xcode-management"
+    };
+
     public BlazorContentPage(IServiceProvider serviceProvider)
     {
         Title = "";
@@ -64,10 +71,13 @@ public class BlazorContentPage : ContentPage
         _identityState = serviceProvider.GetRequiredService<IAppleIdentityStateService>();
         _googleIdentityService = serviceProvider.GetRequiredService<IGoogleIdentityService>();
         _googleIdentityState = serviceProvider.GetRequiredService<IGoogleIdentityStateService>();
+        _xcodeDownloadAuthService = serviceProvider.GetRequiredService<IAppleDownloadAuthService>();
+        _alertService = serviceProvider.GetRequiredService<IAlertService>();
         _preferences = serviceProvider.GetRequiredService<IPreferences>();
         _formModalService = serviceProvider.GetRequiredService<IFormModalService>();
         _bridgeHolder = serviceProvider.GetRequiredService<MauiSherpa.Pages.Forms.HybridFormBridgeHolder>();
         _toolbarService.RouteChanged += route => _currentRoute = route;
+        _xcodeDownloadAuthService.AuthStateChanged += OnXcodeDownloadAuthStateChanged;
 
         _splashService = serviceProvider.GetRequiredService<ISplashService>();
         _splashService.OnBlazorReady += OnBlazorReady;
@@ -427,7 +437,9 @@ public class BlazorContentPage : ContentPage
 
         bool hasSearch = _toolbarService.SearchPlaceholder != null;
         bool hasFilter = _toolbarService.CurrentFilters.Count > 0;
-        bool hasIdentity = AppleRoutes.Contains(_currentRoute) || GoogleRoutes.Contains(_currentRoute);
+        bool hasIdentity = AppleRoutes.Contains(_currentRoute) ||
+                           GoogleRoutes.Contains(_currentRoute) ||
+                           XcodeDownloadRoutes.Contains(_currentRoute);
         bool hasPublishWizard = activeIds.Contains("publish-wizard");
 
         // 1. Update action item visibility via MacOSToolbarItem.IsVisible API and commands
@@ -607,13 +619,94 @@ public class BlazorContentPage : ContentPage
     /// </summary>
     void RebuildIdentityMenuNatively()
     {
+        bool isXcodeDownloads = XcodeDownloadRoutes.Contains(_currentRoute);
         bool isApple = AppleRoutes.Contains(_currentRoute);
         bool isGoogle = GoogleRoutes.Contains(_currentRoute);
 
-        if (isApple)
+        if (isXcodeDownloads)
+            RebuildXcodeDownloadAuthMenu();
+        else if (isApple)
             RebuildAppleIdentityMenu();
         else if (isGoogle)
             RebuildGoogleIdentityMenu();
+    }
+
+    void RebuildXcodeDownloadAuthMenu()
+    {
+        var identityNative = _nativeIdentityMenu;
+        if (identityNative == null) return;
+
+        bool isAuthenticated = _xcodeDownloadAuthService.IsAuthenticated;
+        identityNative.Image = NSImage.GetSystemSymbol(isAuthenticated ? "lock.fill" : "lock.open", null);
+        identityNative.Title = string.Empty;
+        identityNative.Label = "Apple Developer Downloads";
+
+        var newMenu = new NSMenu();
+        var accountItem = new NSMenuItem(isAuthenticated
+            ? _xcodeDownloadAuthService.CurrentAppleId ?? "Signed in to Apple Developer"
+            : "Not signed in")
+        {
+            Enabled = false
+        };
+        newMenu.AddItem(accountItem);
+        newMenu.AddItem(NSMenuItem.SeparatorItem);
+
+        if (isAuthenticated)
+        {
+            var signOutItem = new NSMenuItem("Sign Out");
+            var signOutTarget = new MenuActionTarget("__xcode_sign_out__", 0, (_, _) =>
+            {
+                Dispatcher.Dispatch(async () => await SignOutXcodeDownloadAuthAsync());
+            });
+            signOutItem.Target = signOutTarget;
+            signOutItem.Action = new ObjCRuntime.Selector("menuItemClicked:");
+            _nativeMenuTargets.Add(signOutTarget);
+            newMenu.AddItem(signOutItem);
+        }
+        else
+        {
+            var signInItem = new NSMenuItem("Sign In…");
+            var signInTarget = new MenuActionTarget("__xcode_sign_in__", 0, (_, _) =>
+            {
+                Dispatcher.Dispatch(async () => await OpenXcodeDownloadAuthDialogAsync());
+            });
+            signInItem.Target = signInTarget;
+            signInItem.Action = new ObjCRuntime.Selector("menuItemClicked:");
+            _nativeMenuTargets.Add(signInTarget);
+            newMenu.AddItem(signInItem);
+        }
+
+        identityNative.Menu = newMenu;
+    }
+
+    async Task OpenXcodeDownloadAuthDialogAsync()
+    {
+        var result = await _formModalService.ShowAsync<bool>(new MauiSherpa.Pages.Modals.XcodeDownloadAuthPage(_bridgeHolder));
+        if (result == true)
+            await _alertService.ShowToastAsync("Signed in to Apple Developer");
+    }
+
+    async Task SignOutXcodeDownloadAuthAsync()
+    {
+        var confirmed = await _alertService.ShowConfirmAsync(
+            "Sign Out",
+            "Sign out of Apple Developer? You'll need to sign in again to download Xcode.",
+            "Sign Out",
+            "Cancel");
+
+        if (!confirmed)
+            return;
+
+        await _xcodeDownloadAuthService.SignOutAsync();
+        await _alertService.ShowToastAsync("Signed out of Apple Developer");
+    }
+
+    void OnXcodeDownloadAuthStateChanged()
+    {
+        if (!XcodeDownloadRoutes.Contains(_currentRoute))
+            return;
+
+        Dispatcher.Dispatch(UpdateToolbarVisibility);
     }
 
     private IReadOnlyList<GoogleIdentity>? _cachedGoogleIdentities;

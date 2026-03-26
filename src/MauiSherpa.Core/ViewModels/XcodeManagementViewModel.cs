@@ -47,6 +47,13 @@ public class XcodeManagementViewModel : ViewModelBase
         set => SetProperty(ref _runtimeStorage, value);
     }
 
+    private IReadOnlyList<DownloadableSimulatorRuntime> _downloadableRuntimes = [];
+    public IReadOnlyList<DownloadableSimulatorRuntime> DownloadableRuntimes
+    {
+        get => _downloadableRuntimes;
+        set => SetProperty(ref _downloadableRuntimes, value);
+    }
+
     private bool _isLoadingAvailable;
     public bool IsLoadingAvailable
     {
@@ -59,6 +66,13 @@ public class XcodeManagementViewModel : ViewModelBase
     {
         get => _isLoadingRuntimes;
         set => SetProperty(ref _isLoadingRuntimes, value);
+    }
+
+    private bool _isLoadingDownloadableRuntimes;
+    public bool IsLoadingDownloadableRuntimes
+    {
+        get => _isLoadingDownloadableRuntimes;
+        set => SetProperty(ref _isLoadingDownloadableRuntimes, value);
     }
 
     private bool _showBetas;
@@ -82,7 +96,11 @@ public class XcodeManagementViewModel : ViewModelBase
         _xcodeService = xcodeService;
         _mediator = mediator;
         _authService = authService;
-        _authService.AuthStateChanged += () => OnPropertyChanged(nameof(IsAuthenticated));
+        _authService.AuthStateChanged += () =>
+        {
+            OnPropertyChanged(nameof(IsAuthenticated));
+            OnPropertyChanged(nameof(AuthenticatedAppleId));
+        };
     }
 
     public async Task LoadInstalledAsync()
@@ -144,6 +162,25 @@ public class XcodeManagementViewModel : ViewModelBase
         finally
         {
             IsLoadingRuntimes = false;
+        }
+    }
+
+    public async Task LoadDownloadableRuntimesAsync()
+    {
+        IsLoadingDownloadableRuntimes = true;
+
+        try
+        {
+            var result = await _mediator.Request(new GetDownloadableSimulatorRuntimesRequest());
+            DownloadableRuntimes = result.Result;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError($"Failed to load downloadable runtimes: {ex.Message}", ex);
+        }
+        finally
+        {
+            IsLoadingDownloadableRuntimes = false;
         }
     }
 
