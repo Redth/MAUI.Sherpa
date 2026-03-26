@@ -46,6 +46,7 @@ MAUI Sherpa is a desktop application for **macOS**, **Windows**, and **Linux** t
 - Cloud sync keystores across machines
 
 ### 🍎 Apple Developer Tools (macOS only)
+- **Xcode Management**: Browse available Xcode versions, download directly from Apple with authenticated sign-in (SRP + 2FA), and install — all from within the app
 - **Simulators**: Manage iOS/iPadOS/tvOS/watchOS simulators with built-in inspector
 - **Bundle IDs**: Create and manage App IDs with capabilities editor
 - **Devices**: Register devices for development and ad-hoc distribution

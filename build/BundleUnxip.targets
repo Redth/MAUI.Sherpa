@@ -1,0 +1,68 @@
+<Project>
+  <PropertyGroup>
+    <UnxipSourceRoot>$([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)', '..', 'third_party', 'unxip'))</UnxipSourceRoot>
+    <UnxipTargetPlatform>$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)'))</UnxipTargetPlatform>
+  </PropertyGroup>
+
+  <Target Name="_BuildAndBundleUnxipHelper"
+          AfterTargets="Build"
+          Condition="('$(UnxipTargetPlatform)' == 'macos' or '$(UnxipTargetPlatform)' == 'maccatalyst') and Exists('$(UnxipSourceRoot)/unxip.swift')">
+    <PropertyGroup>
+      <_UnxipTargetPlatform>$(UnxipTargetPlatform)</_UnxipTargetPlatform>
+      <_UnxipSourceFile>$(UnxipSourceRoot)/unxip.swift</_UnxipSourceFile>
+      <_UnxipLicenseFile>$(UnxipSourceRoot)/LICENSE</_UnxipLicenseFile>
+      <_UnxipNoticeFile>$(UnxipSourceRoot)/NOTICE.txt</_UnxipNoticeFile>
+      <_UnxipArm64BinaryDir>$([MSBuild]::NormalizePath('$(IntermediateOutputPath)', 'unxip', 'arm64'))</_UnxipArm64BinaryDir>
+      <_UnxipX64BinaryDir>$([MSBuild]::NormalizePath('$(IntermediateOutputPath)', 'unxip', 'x64'))</_UnxipX64BinaryDir>
+      <_UnxipUniversalBinaryDir>$([MSBuild]::NormalizePath('$(IntermediateOutputPath)', 'unxip', 'universal'))</_UnxipUniversalBinaryDir>
+      <_UnxipArm64Binary>$(_UnxipArm64BinaryDir)/unxip</_UnxipArm64Binary>
+      <_UnxipX64Binary>$(_UnxipX64BinaryDir)/unxip</_UnxipX64Binary>
+      <_UnxipUniversalBinary>$(_UnxipUniversalBinaryDir)/unxip</_UnxipUniversalBinary>
+
+      <_UnxipPrimaryRid Condition="'$(_UnxipTargetPlatform)' == 'macos' and '$(RuntimeIdentifier)' == 'osx-x64'">osx-x64</_UnxipPrimaryRid>
+      <_UnxipPrimaryRid Condition="'$(_UnxipTargetPlatform)' == 'macos' and '$(_UnxipPrimaryRid)' == '' and '$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)' == 'X64'">osx-x64</_UnxipPrimaryRid>
+      <_UnxipPrimaryRid Condition="'$(_UnxipTargetPlatform)' == 'macos' and '$(_UnxipPrimaryRid)' == ''">osx-arm64</_UnxipPrimaryRid>
+
+      <_UnxipPrimaryRid Condition="'$(_UnxipTargetPlatform)' == 'maccatalyst' and '$(RuntimeIdentifier)' == 'maccatalyst-x64'">maccatalyst-x64</_UnxipPrimaryRid>
+      <_UnxipPrimaryRid Condition="'$(_UnxipTargetPlatform)' == 'maccatalyst' and '$(_UnxipPrimaryRid)' == '' and '$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)' == 'X64'">maccatalyst-x64</_UnxipPrimaryRid>
+      <_UnxipPrimaryRid Condition="'$(_UnxipTargetPlatform)' == 'maccatalyst' and '$(_UnxipPrimaryRid)' == ''">maccatalyst-arm64</_UnxipPrimaryRid>
+
+      <_UnxipSecondaryRid Condition="'$(_UnxipPrimaryRid)' == 'maccatalyst-arm64'">osx-arm64</_UnxipSecondaryRid>
+      <_UnxipSecondaryRid Condition="'$(_UnxipPrimaryRid)' == 'maccatalyst-x64'">osx-x64</_UnxipSecondaryRid>
+
+      <_UnxipPrimaryBundleDir>$(OutDir)$(ApplicationTitle).app/Contents/MonoBundle/runtimes/$(_UnxipPrimaryRid)/native</_UnxipPrimaryBundleDir>
+      <_UnxipSecondaryBundleDir Condition="'$(_UnxipSecondaryRid)' != ''">$(OutDir)$(ApplicationTitle).app/Contents/MonoBundle/runtimes/$(_UnxipSecondaryRid)/native</_UnxipSecondaryBundleDir>
+      <_UnxipSupportDir>$(OutDir)$(ApplicationTitle).app/Contents/Resources/ThirdParty/unxip</_UnxipSupportDir>
+    </PropertyGroup>
+
+    <MakeDir Directories="$(_UnxipArm64BinaryDir);$(_UnxipX64BinaryDir);$(_UnxipUniversalBinaryDir);$(_UnxipPrimaryBundleDir);$(_UnxipSupportDir)" />
+    <MakeDir Directories="$(_UnxipSecondaryBundleDir)" Condition="'$(_UnxipSecondaryBundleDir)' != ''" />
+
+    <Exec Command="xcrun --sdk macosx swiftc -parse-as-library -O -suppress-warnings -target arm64-apple-macos12.0 -o &quot;$(_UnxipArm64Binary)&quot; &quot;$(_UnxipSourceFile)&quot;" />
+    <Exec Command="xcrun --sdk macosx swiftc -parse-as-library -O -suppress-warnings -target x86_64-apple-macos12.0 -o &quot;$(_UnxipX64Binary)&quot; &quot;$(_UnxipSourceFile)&quot;" />
+    <Exec Command="lipo -create &quot;$(_UnxipArm64Binary)&quot; &quot;$(_UnxipX64Binary)&quot; -output &quot;$(_UnxipUniversalBinary)&quot;" />
+    <Exec Command="chmod +x &quot;$(_UnxipUniversalBinary)&quot;" />
+
+    <Copy SourceFiles="$(_UnxipUniversalBinary)"
+          DestinationFolder="$(_UnxipPrimaryBundleDir)"
+          SkipUnchangedFiles="true" />
+    <Exec Command="chmod +x &quot;$(_UnxipPrimaryBundleDir)/unxip&quot;" />
+
+    <Copy SourceFiles="$(_UnxipUniversalBinary)"
+          DestinationFolder="$(_UnxipSecondaryBundleDir)"
+          SkipUnchangedFiles="true"
+          Condition="'$(_UnxipSecondaryBundleDir)' != ''" />
+    <Exec Command="chmod +x &quot;$(_UnxipSecondaryBundleDir)/unxip&quot;"
+          Condition="'$(_UnxipSecondaryBundleDir)' != ''" />
+
+    <ItemGroup>
+      <_UnxipSupportFiles Include="$(_UnxipSourceFile)" />
+      <_UnxipSupportFiles Include="$(_UnxipLicenseFile)" />
+      <_UnxipSupportFiles Include="$(_UnxipNoticeFile)" />
+    </ItemGroup>
+
+    <Copy SourceFiles="@(_UnxipSupportFiles)"
+          DestinationFiles="@(_UnxipSupportFiles->'$(_UnxipSupportDir)/%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
+</Project>

@@ -1,0 +1,1615 @@
+@page "/xcode-management"
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Core.ViewModels
+@using MauiSherpa.Pages.Forms
+@using MauiSherpa.Pages.Modals
+@using Shiny.Mediator
+@inject XcodeManagementViewModel ViewModel
+@inject IPlatformService Platform
+@inject IAlertService AlertService
+@inject IFormModalService FormModalService
+@inject HybridFormBridgeHolder BridgeHolder
+@inject IXcodeService XcodeService
+@inject ISimulatorService SimulatorService
+@inject IToolbarService ToolbarService
+@inject IMediator Mediator
+@inject IProcessModalService ProcessModal
+@inject IOperationModalService OperationModal
+@inject IAppleDownloadAuthService DownloadAuthService
+@implements IDisposable
+
+<h1><i class="fab fa-apple"></i> @ViewModel.Title</h1>
+
+@if (!Platform.IsMacCatalyst && !Platform.IsMacOS)
+{
+    <div class="not-supported">
+        <div class="warning-icon"><i class="fas fa-exclamation-triangle"></i></div>
+        <h2>macOS Only</h2>
+        <p>Apple development tools management requires macOS with Xcode installed.</p>
+    </div>
+}
+else
+{
+    @if (!Platform.HasNativeToolbar)
+    {
+        <div class="toolbar">
+            <button class="btn btn-primary" @onclick="RefreshAll" disabled="@IsActiveTabLoading">
+                <i class="fas fa-sync-alt"></i> @(IsActiveTabLoading ? "Loading..." : "Refresh")
+            </button>
+            <div class="toolbar-spacer"></div>
+            @if (ViewModel.IsAuthenticated)
+            {
+                <button class="btn btn-outline" @onclick="SignOut">
+                    <i class="fas fa-lock"></i> Sign Out
+                </button>
+            }
+            else
+            {
+                <button class="btn btn-outline" @onclick="OpenAuthModal">
+                    <i class="fas fa-lock-open"></i> Sign In
+                </button>
+            }
+        </div>
+    }
+
+    <div class="tabs">
+        <button class="tab @(activeTab == "installed" ? "active" : "")" @onclick="@(() => SwitchTab("installed"))">
+            <i class="fas fa-hdd"></i> Installed (@ViewModel.InstalledXcodes.Count)
+        </button>
+        <button class="tab @(activeTab == "available" ? "active" : "")" @onclick="@(() => SwitchTab("available"))">
+            <i class="fas fa-cloud-download-alt"></i> Available
+            @if (ViewModel.AvailableReleases.Count > 0)
+            {
+                <span class="tab-count">(@filteredReleases.Count)</span>
+            }
+        </button>
+        <button class="tab @(activeTab == "runtimes" ? "active" : "")" @onclick="@(() => SwitchTab("runtimes"))">
+            <i class="fas fa-layer-group"></i> Runtimes
+            @if (hasLoadedRuntimeData)
+            {
+                <span class="tab-count">(@filteredRuntimeStorage.Count)</span>
+            }
+        </button>
+    </div>
+
+    @* ====== INSTALLED TAB ====== *@
+    @if (activeTab == "installed")
+    {
+        @if (ViewModel.IsLoading && ViewModel.InstalledXcodes.Count == 0)
+        {
+            <div class="loading-state">
+                <div class="loading-spinner"><i class="fas fa-spinner fa-spin"></i></div>
+                <div class="loading-title">Discovering Xcode Installations</div>
+                <div class="loading-description">Scanning /Applications for Xcode bundles...</div>
+            </div>
+        }
+        else if (ViewModel.InstalledXcodes.Count == 0)
+        {
+            <div class="empty-state">
+                <div class="empty-icon"><i class="fas fa-box-open"></i></div>
+                <h3>No Xcode Installations Found</h3>
+                <p>Install Xcode from the Mac App Store or download from the Available tab.</p>
+            </div>
+        }
+        else if (filteredInstalledXcodes.Count == 0)
+        {
+            <div class="empty-state">
+                <div class="empty-icon"><i class="fas fa-search"></i></div>
+                <h3>No Matching Xcode Installations</h3>
+                <p>Try a different search to find an installed Xcode version.</p>
+            </div>
+        }
+        else
+        {
+            <div class="xcode-list">
+                @foreach (var xcode in filteredInstalledXcodes)
+                {
+                    <div class="xcode-card @(xcode.IsSelected ? "selected" : "")">
+                        <div class="xcode-card-icon">
+                            <i class="fas fa-hammer"></i>
+                        </div>
+                        <div class="xcode-card-info">
+                            <div class="xcode-card-title">
+                                Xcode @xcode.Version
+                                @if (xcode.IsSelected)
+                                {
+                                    <span class="badge badge-active"><i class="fas fa-check"></i> Active</span>
+                                }
+                            </div>
+                            <div class="xcode-card-details">
+                                <span class="detail-item"><i class="fas fa-code-branch"></i> Build @xcode.BuildNumber</span>
+                                <span class="detail-item"><i class="fas fa-folder"></i> @xcode.Path</span>
+                            </div>
+                        </div>
+                        <div class="xcode-card-actions">
+                            @if (!xcode.IsSelected)
+                            {
+                                <button class="btn btn-sm btn-outline" @onclick="() => SelectXcode(xcode)">
+                                    <i class="fas fa-check-circle"></i> Select
+                                </button>
+                                <button class="btn btn-sm btn-danger-outline" @onclick="() => UninstallXcode(xcode)">
+                                    <i class="fas fa-trash-alt"></i> Uninstall
+                                </button>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    }
+
+    @* ====== AVAILABLE TAB ====== *@
+    @if (activeTab == "available")
+    {
+        @if (!ViewModel.IsAuthenticated || ViewModel.IsLoadingAvailable)
+        {
+            <div class="available-controls">
+                @if (!ViewModel.IsAuthenticated)
+                {
+                    <span class="auth-hint">
+                        <i class="fas fa-info-circle"></i> Sign in with Apple ID to download Xcode
+                    </span>
+                }
+                @if (ViewModel.IsLoadingAvailable)
+                {
+                    <span class="loading-indicator"><i class="fas fa-spinner fa-spin"></i> Fetching releases...</span>
+                }
+            </div>
+        }
+
+        @if (!(ViewModel.IsLoadingAvailable && filteredReleases.Count == 0))
+        {
+            <div class="results-info available-results-info">
+                <span>Showing @filteredReleases.Count releases</span>
+                <label class="toggle-label available-toggle-label">
+                    <input type="checkbox" @bind="showBetas" @bind:event="oninput" />
+                    <span>Show Betas &amp; RCs</span>
+                </label>
+            </div>
+        }
+
+        @if (ViewModel.IsLoadingAvailable && filteredReleases.Count == 0)
+        {
+            <div class="loading-state">
+                <div class="loading-spinner"><i class="fas fa-spinner fa-spin"></i></div>
+                <div class="loading-title">Fetching Available Releases</div>
+                <div class="loading-description">Querying xcodereleases.com...</div>
+            </div>
+        }
+        else if (filteredReleases.Count > 0)
+        {
+            <div class="xcode-list">
+                @foreach (var release in filteredReleases)
+                {
+                    var installed = ViewModel.IsInstalled(release);
+                    var isDownloading = downloadingRelease?.Version == release.Version;
+                    <div class="xcode-card @(installed ? "installed" : "") @(isDownloading ? "downloading" : "")">
+                        <div class="xcode-card-icon">
+                            @if (release.IsBeta)
+                            {
+                                <i class="fas fa-flask"></i>
+                            }
+                            else
+                            {
+                                <i class="fas fa-hammer"></i>
+                            }
+                        </div>
+                        <div class="xcode-card-info">
+                            <div class="xcode-card-title">
+                                Xcode @release.Version
+                                @if (release.IsBeta)
+                                {
+                                    <span class="badge badge-beta">Beta</span>
+                                }
+                                @if (installed)
+                                {
+                                    <span class="badge badge-installed"><i class="fas fa-check"></i> Installed</span>
+                                }
+                            </div>
+                            <div class="xcode-card-details">
+                                <span class="detail-item"><i class="fas fa-code-branch"></i> Build @release.BuildNumber</span>
+                                <span class="detail-item"><i class="fas fa-calendar"></i> @release.ReleaseDate.ToString("MMM d, yyyy")</span>
+                                @if (!string.IsNullOrEmpty(release.MinimumMacOSVersion))
+                                {
+                                    <span class="detail-item"><i class="fas fa-desktop"></i> macOS @release.MinimumMacOSVersion+</span>
+                                }
+                                @if (release.FileSizeBytes > 0)
+                                {
+                                    <span class="detail-item"><i class="fas fa-weight"></i> @FormatBytes(release.FileSizeBytes.Value)</span>
+                                }
+                            </div>
+                            @if (release.Sdks.Count > 0)
+                            {
+                                <div class="xcode-card-sdks">
+                                    @foreach (var sdk in release.Sdks.Take(5))
+                                    {
+                                        <span class="sdk-tag">@sdk.Name @sdk.Version</span>
+                                    }
+                                    @if (release.Sdks.Count > 5)
+                                    {
+                                        <span class="sdk-tag more">+@(release.Sdks.Count - 5) more</span>
+                                    }
+                                </div>
+                            }
+                            @if (release.Compilers.Count > 0)
+                            {
+                                <div class="xcode-card-compilers">
+                                    @foreach (var compiler in release.Compilers)
+                                    {
+                                        <span class="compiler-tag">@compiler.Name @compiler.Version</span>
+                                    }
+                                </div>
+                            }
+                            @if (isDownloading && downloadProgress != null)
+                            {
+                                <div class="download-progress">
+                                    <div class="progress-bar">
+                                        <div class="progress-fill" style="width: @(downloadProgressPercent)%"></div>
+                                    </div>
+                                    <div class="progress-details">
+                                        <span>@FormatBytes(downloadProgress.BytesReceived) / @(downloadProgress.TotalBytes.HasValue ? FormatBytes(downloadProgress.TotalBytes.Value) : "?")</span>
+                                        <span>@FormatSpeed(downloadProgress.BytesPerSecond)</span>
+                                        @if (downloadProgress.EstimatedTimeRemaining.HasValue)
+                                        {
+                                            <span>ETA: @FormatTimeSpan(downloadProgress.EstimatedTimeRemaining.Value)</span>
+                                        }
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                        <div class="xcode-card-actions">
+                            @if (!string.IsNullOrEmpty(release.ReleaseNotesUrl))
+                            {
+                                <button class="btn btn-sm btn-ghost" @onclick="() => OpenUrl(release.ReleaseNotesUrl)" title="Release Notes">
+                                    <i class="fas fa-file-alt"></i>
+                                </button>
+                            }
+                            @if (!installed && !string.IsNullOrEmpty(release.DownloadUrl))
+                            {
+                                @if (isDownloading)
+                                {
+                                    <button class="btn btn-sm btn-danger-outline" @onclick="CancelDownload">
+                                        <i class="fas fa-times"></i> Cancel
+                                    </button>
+                                }
+                                else if (ViewModel.IsAuthenticated)
+                                {
+                                    <button class="btn btn-sm btn-primary-sm" @onclick="() => DownloadAndInstall(release)" disabled="@(downloadingRelease != null)">
+                                        <i class="fas fa-download"></i> Install
+                                    </button>
+                                }
+                                else
+                                {
+                                    <button class="btn btn-sm btn-outline" @onclick="() => OpenUrl(release.DownloadUrl)" title="Open in browser">
+                                        <i class="fas fa-external-link-alt"></i>
+                                    </button>
+                                }
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+        else
+        {
+            <div class="empty-state">
+                <div class="empty-icon"><i class="fas @(ViewModel.AvailableReleases.Count == 0 ? "fa-cloud-download-alt" : "fa-search")"></i></div>
+                <h3>@(ViewModel.AvailableReleases.Count == 0 ? "No Xcode Releases Found" : "No Matching Xcode Releases")</h3>
+                <p>@(ViewModel.AvailableReleases.Count == 0
+                    ? "Try refreshing to load the latest releases."
+                    : "Try a different search to find an Xcode release.")</p>
+            </div>
+        }
+    }
+
+    @* ====== RUNTIMES TAB ====== *@
+    @if (activeTab == "runtimes")
+    {
+        @if ((ViewModel.IsLoadingRuntimes || ViewModel.IsLoadingDownloadableRuntimes) &&
+             ViewModel.RuntimeStorage.Count == 0 &&
+             ViewModel.DownloadableRuntimes.Count == 0)
+        {
+            <div class="loading-state">
+                <div class="loading-spinner"><i class="fas fa-spinner fa-spin"></i></div>
+                <div class="loading-title">Loading Simulator Runtimes</div>
+                <div class="loading-description">Querying installed and downloadable simulator runtimes...</div>
+            </div>
+        }
+        else
+        {
+            <div class="results-info runtime-results-info">
+                <div class="runtime-results-summary">
+                    <span>Showing @filteredRuntimeStorage.Count of @ViewModel.RuntimeStorage.Count runtime(s)</span>
+                    <span>&bull;</span>
+                    <span>@FormatBytes(filteredRuntimeStorageBytes) in view</span>
+                    @if (filteredRuntimeStorageBytes != ViewModel.TotalRuntimeStorageBytes)
+                    {
+                        <span>&bull;</span>
+                        <span>@FormatBytes(ViewModel.TotalRuntimeStorageBytes) total</span>
+                    }
+                </div>
+                <button class="btn btn-sm btn-primary-sm" @onclick="OpenRuntimePicker">
+                    @if (ViewModel.IsLoadingDownloadableRuntimes && ViewModel.DownloadableRuntimes.Count == 0)
+                    {
+                        <i class="fas fa-spinner fa-spin"></i>
+                        <span>Loading...</span>
+                    }
+                    else
+                    {
+                        <i class="fas fa-plus"></i>
+                        <span>Add Runtime...</span>
+                    }
+                </button>
+            </div>
+
+            @if (ViewModel.RuntimeStorage.Count == 0)
+            {
+                <div class="empty-state">
+                    <div class="empty-icon"><i class="fas fa-layer-group"></i></div>
+                    <h3>No Simulator Runtimes Found</h3>
+                    <p>No simulator runtimes were reported by `xcrun simctl` yet. Use <strong>Add Runtime...</strong> to install one.</p>
+                </div>
+            }
+            else if (filteredRuntimeStorage.Count == 0)
+            {
+                <div class="empty-state">
+                    <div class="empty-icon"><i class="fas fa-search"></i></div>
+                    <h3>No Matching Runtimes</h3>
+                    <p>Try a different search to find a simulator runtime.</p>
+                </div>
+            }
+            else
+            {
+                <div class="xcode-list">
+                    @foreach (var runtime in filteredRuntimeStorage)
+                    {
+                        <div class="xcode-card">
+                            <div class="xcode-card-icon">
+                                <i class="@GetRuntimeIcon(runtime.PlatformIdentifier)"></i>
+                            </div>
+                            <div class="xcode-card-info">
+                                <div class="xcode-card-title">
+                                    @FormatRuntimeName(runtime)
+                                    <span class="badge @GetRuntimeStateBadgeClass(runtime.State)">@runtime.State</span>
+                                    @if (!runtime.Deletable)
+                                    {
+                                        <span class="badge badge-unknown">Protected</span>
+                                    }
+                                </div>
+                                <div class="xcode-card-details">
+                                    <span class="detail-item"><i class="fas fa-cube"></i> @runtime.Identifier</span>
+                                    @if (!string.IsNullOrWhiteSpace(runtime.Build))
+                                    {
+                                        <span class="detail-item"><i class="fas fa-code-branch"></i> Build @runtime.Build</span>
+                                    }
+                                    @if (!string.IsNullOrWhiteSpace(runtime.PlatformIdentifier))
+                                    {
+                                        <span class="detail-item"><i class="fas fa-desktop"></i> @FriendlyPlatform(runtime.PlatformIdentifier)</span>
+                                    }
+                                    @if (runtime.SizeBytes.HasValue)
+                                    {
+                                        <span class="detail-item"><i class="fas fa-weight"></i> @FormatBytes(runtime.SizeBytes.Value)</span>
+                                    }
+                                    @if (runtime.LastUsedAt.HasValue)
+                                    {
+                                        <span class="detail-item"><i class="fas fa-clock"></i> Last used @FormatLastUsed(runtime.LastUsedAt.Value)</span>
+                                    }
+                                </div>
+                                @if (!string.IsNullOrWhiteSpace(runtime.MountPath))
+                                {
+                                    <div class="xcode-card-details">
+                                        <span class="detail-item"><i class="fas fa-folder"></i> @runtime.MountPath</span>
+                                    </div>
+                                }
+                            </div>
+                            <div class="xcode-card-actions">
+                                @if (runtime.Deletable)
+                                {
+                                    <button class="btn btn-sm btn-danger-outline" @onclick="() => DeleteRuntime(runtime)">
+                                        <i class="fas fa-trash-alt"></i> Delete
+                                    </button>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        }
+    }
+
+    @* ====== DOWNLOAD/INSTALL MODAL ====== *@
+    @if (showInstallModal)
+    {
+        <div class="modal-overlay">
+            <div class="modal modal-wide">
+                <div class="modal-header">
+                    <h3><i class="fas fa-download"></i> Installing Xcode @downloadingRelease?.Version</h3>
+                </div>
+                <div class="modal-body">
+                    <div class="install-steps">
+                        <div class="install-step @GetStepClass(InstallStep.Download)">
+                            <div class="step-icon">
+                                @if (currentInstallStep == InstallStep.Download)
+                                {
+                                    <i class="fas fa-spinner fa-spin"></i>
+                                }
+                                else if (currentInstallStep > InstallStep.Download)
+                                {
+                                    <i class="fas fa-check-circle text-success"></i>
+                                }
+                                else
+                                {
+                                    <i class="fas fa-circle"></i>
+                                }
+                            </div>
+                            <div class="step-content">
+                                <div class="step-title">Download</div>
+                                @if (currentInstallStep == InstallStep.Download && downloadProgress != null)
+                                {
+                                    <div class="progress-bar">
+                                        <div class="progress-fill" style="width: @(downloadProgressPercent)%"></div>
+                                    </div>
+                                    <div class="step-detail">
+                                        @FormatBytes(downloadProgress.BytesReceived) / @(downloadProgress.TotalBytes.HasValue ? FormatBytes(downloadProgress.TotalBytes.Value) : "?")
+                                        — @FormatSpeed(downloadProgress.BytesPerSecond)
+                                        @if (downloadProgress.EstimatedTimeRemaining.HasValue)
+                                        {
+                                            <text> — ETA: @FormatTimeSpan(downloadProgress.EstimatedTimeRemaining.Value)</text>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                        <div class="install-step @GetStepClass(InstallStep.Extract)">
+                            <div class="step-icon">
+                                @if (currentInstallStep == InstallStep.Extract)
+                                {
+                                    <i class="fas fa-spinner fa-spin"></i>
+                                }
+                                else if (currentInstallStep > InstallStep.Extract)
+                                {
+                                    <i class="fas fa-check-circle text-success"></i>
+                                }
+                                else
+                                {
+                                    <i class="fas fa-circle"></i>
+                                }
+                            </div>
+                            <div class="step-content">
+                                <div class="step-title">Extract &amp; Install</div>
+                                @if (currentInstallStep == InstallStep.Extract && !string.IsNullOrEmpty(installStepMessage))
+                                {
+                                    <div class="step-detail">@installStepMessage</div>
+                                }
+                            </div>
+                        </div>
+                        <div class="install-step @GetStepClass(InstallStep.FirstLaunch)">
+                            <div class="step-icon">
+                                @if (currentInstallStep == InstallStep.FirstLaunch)
+                                {
+                                    <i class="fas fa-spinner fa-spin"></i>
+                                }
+                                else if (currentInstallStep > InstallStep.FirstLaunch)
+                                {
+                                    <i class="fas fa-check-circle text-success"></i>
+                                }
+                                else
+                                {
+                                    <i class="fas fa-circle"></i>
+                                }
+                            </div>
+                            <div class="step-content">
+                                <div class="step-title">First Launch Setup</div>
+                                @if (currentInstallStep == InstallStep.FirstLaunch && !string.IsNullOrEmpty(installStepMessage))
+                                {
+                                    <div class="step-detail">@installStepMessage</div>
+                                }
+                            </div>
+                        </div>
+                        <div class="install-step @GetStepClass(InstallStep.Complete)">
+                            <div class="step-icon">
+                                @if (currentInstallStep >= InstallStep.Complete)
+                                {
+                                    <i class="fas fa-check-circle text-success"></i>
+                                }
+                                else
+                                {
+                                    <i class="fas fa-circle"></i>
+                                }
+                            </div>
+                            <div class="step-content">
+                                <div class="step-title">Complete</div>
+                            </div>
+                        </div>
+                    </div>
+                    @if (!string.IsNullOrEmpty(installError))
+                    {
+                        <div class="auth-error" style="margin-top: 1rem;"><i class="fas fa-exclamation-circle"></i> @installError</div>
+                    }
+                </div>
+                <div class="modal-footer">
+                    @if (currentInstallStep >= InstallStep.Complete || !string.IsNullOrEmpty(installError))
+                    {
+                        <button class="btn btn-primary" @onclick="CloseInstallModal">Done</button>
+                    }
+                    else
+                    {
+                        <button class="btn btn-danger-outline" @onclick="CancelDownload">Cancel</button>
+                    }
+                </div>
+            </div>
+        </div>
+    }
+}
+
+<style>
+    h1 {
+        margin-bottom: 1.25rem;
+        font-size: 1.75rem;
+        color: var(--text-primary);
+    }
+
+    .not-supported {
+        text-align: center;
+        padding: 3.75rem 1.25rem;
+        background: var(--status-error-bg);
+        border-radius: 0.75rem;
+        border: 1px solid var(--accent-danger);
+    }
+    .not-supported .warning-icon { font-size: 48px; margin-bottom: 1rem; color: var(--accent-warning); }
+    .not-supported .warning-icon i { font-size: 48px; }
+    .not-supported h2 { color: var(--accent-danger); margin-bottom: 0.5rem; }
+    .not-supported p { color: var(--text-muted); }
+
+    .auth-hint {
+        font-size: 0.75rem;
+        color: var(--text-muted);
+        display: flex;
+        align-items: center;
+        gap: 0.375rem;
+    }
+
+    .toolbar {
+        margin-bottom: 1rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .toolbar-spacer {
+        flex: 1;
+    }
+
+    /* Tabs */
+    .tabs {
+        display: flex;
+        gap: 0.25rem;
+        margin-bottom: 1rem;
+        border-bottom: 2px solid var(--border-color);
+    }
+    .tab {
+        padding: 0.75rem 1.25rem;
+        background: transparent;
+        border: none;
+        cursor: pointer;
+        color: var(--text-muted);
+        font-size: 0.875rem;
+        border-bottom: 2px solid transparent;
+        margin-bottom: -2px;
+        transition: all 0.2s ease;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    .tab:hover { color: var(--accent-primary); }
+    .tab.active {
+        color: var(--accent-primary);
+        border-bottom-color: var(--accent-primary);
+        font-weight: 600;
+    }
+    .tab-count { opacity: 0.7; }
+
+    /* Loading & Empty States */
+    .loading-state, .empty-state {
+        text-align: center;
+        padding: 3rem 1.5rem;
+        background: var(--card-bg);
+        border-radius: var(--card-radius);
+        border: 1px solid var(--border-color);
+    }
+    .loading-spinner { font-size: 2rem; color: var(--accent-primary); margin-bottom: 1rem; }
+    .loading-title, .empty-state h3 { font-size: 1.125rem; font-weight: 600; color: var(--text-primary); margin-bottom: 0.5rem; }
+    .loading-description, .empty-state p { color: var(--text-muted); font-size: 0.875rem; }
+    .empty-icon { font-size: 2.5rem; color: var(--text-muted); margin-bottom: 1rem; opacity: 0.5; }
+
+    /* Xcode Cards */
+    .xcode-list { display: flex; flex-direction: column; gap: 0.5rem; }
+
+    .xcode-card {
+        display: flex;
+        align-items: flex-start;
+        gap: 1rem;
+        padding: 1rem 1.25rem;
+        background: var(--card-bg);
+        border: none;
+        border-radius: var(--card-radius);
+        transition: all 0.15s ease;
+    }
+    .xcode-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+    .xcode-card.selected { background: var(--status-success-bg); }
+    .xcode-card.downloading { background: rgba(66, 153, 225, 0.03); }
+
+    .xcode-card-icon {
+        font-size: 1.5rem;
+        color: var(--accent-primary);
+        padding-top: 0.125rem;
+        flex-shrink: 0;
+        width: 2rem;
+        text-align: center;
+    }
+    .xcode-card.selected .xcode-card-icon { color: var(--accent-success); }
+
+    .xcode-card-info { flex: 1; min-width: 0; }
+
+    .xcode-card-title {
+        font-size: 1rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+    }
+
+    .xcode-card-details {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1rem;
+        margin-top: 0.375rem;
+        font-size: 0.8125rem;
+        color: var(--text-muted);
+    }
+    .detail-item { display: flex; align-items: center; gap: 0.375rem; }
+    .detail-item i { font-size: 0.6875rem; opacity: 0.7; }
+
+    .xcode-card-sdks, .xcode-card-compilers {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.375rem;
+        margin-top: 0.5rem;
+    }
+
+    .sdk-tag {
+        display: inline-block;
+        padding: 0.125rem 0.5rem;
+        font-size: 0.6875rem;
+        border-radius: 0.25rem;
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+        border: 1px solid var(--border-color);
+    }
+    .sdk-tag.more { font-style: italic; opacity: 0.7; }
+
+    .compiler-tag {
+        display: inline-block;
+        padding: 0.125rem 0.5rem;
+        font-size: 0.6875rem;
+        border-radius: 0.25rem;
+        background: rgba(66, 153, 225, 0.1);
+        color: var(--accent-primary);
+        border: 1px solid rgba(66, 153, 225, 0.2);
+    }
+
+    .xcode-card-actions {
+        display: flex;
+        gap: 0.375rem;
+        flex-shrink: 0;
+        align-items: flex-start;
+    }
+
+    /* Badges */
+    .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        padding: 0.125rem 0.5rem;
+        font-size: 0.6875rem;
+        font-weight: 600;
+        border-radius: 1rem;
+    }
+    .badge-active {
+        background: var(--accent-success);
+        color: white;
+    }
+    .badge-beta {
+        background: rgba(237, 137, 54, 0.15);
+        color: var(--accent-warning);
+        border: 1px solid rgba(237, 137, 54, 0.3);
+    }
+    .badge-installed {
+        background: rgba(72, 187, 120, 0.15);
+        color: var(--accent-success);
+        border: 1px solid rgba(72, 187, 120, 0.3);
+    }
+    .badge-ready {
+        background: rgba(72, 187, 120, 0.15);
+        color: var(--accent-success);
+        border: 1px solid rgba(72, 187, 120, 0.3);
+    }
+    .badge-booted {
+        background: rgba(66, 153, 225, 0.15);
+        color: var(--accent-primary);
+        border: 1px solid rgba(66, 153, 225, 0.3);
+    }
+    .badge-unknown {
+        background: var(--bg-tertiary);
+        color: var(--text-muted);
+        border: 1px solid var(--border-color);
+    }
+
+    /* Buttons */
+    .btn-sm {
+        padding: 0.375rem 0.75rem;
+        font-size: 0.8125rem;
+    }
+    .btn-outline {
+        background: transparent;
+        border: 1px solid var(--accent-primary);
+        color: var(--accent-primary);
+        border-radius: 0.375rem;
+        cursor: pointer;
+        transition: all 0.15s;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.375rem;
+    }
+    .btn-outline:hover { background: var(--accent-primary); color: white; }
+
+    .btn-primary-sm {
+        background: var(--accent-primary);
+        border: 1px solid var(--accent-primary);
+        color: white;
+        border-radius: 0.375rem;
+        cursor: pointer;
+        transition: all 0.15s;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.375rem;
+    }
+    .btn-primary-sm:hover { opacity: 0.9; }
+    .btn-primary-sm:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .btn-danger-outline {
+        background: transparent;
+        border: 1px solid var(--accent-danger);
+        color: var(--accent-danger);
+        border-radius: 0.375rem;
+        cursor: pointer;
+        transition: all 0.15s;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.375rem;
+    }
+    .btn-danger-outline:hover { background: var(--accent-danger); color: white; }
+    .btn-danger-outline:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .btn-ghost {
+        background: transparent;
+        border: 1px solid var(--border-color);
+        color: var(--text-muted);
+        border-radius: 0.375rem;
+        cursor: pointer;
+        transition: all 0.15s;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.375rem;
+    }
+    .btn-ghost:hover { color: var(--accent-primary); border-color: var(--accent-primary); }
+
+    .btn-secondary {
+        background: var(--bg-tertiary);
+        border: 1px solid var(--border-color);
+        color: var(--text-secondary);
+        padding: 0.5rem 1rem;
+        border-radius: 0.375rem;
+        cursor: pointer;
+        font-size: 0.875rem;
+    }
+    .btn-secondary:hover { background: var(--border-color); }
+    .btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* Available Controls */
+    .available-controls {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 1rem;
+        margin-bottom: 0.75rem;
+    }
+
+    .toggle-label {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.875rem;
+        color: var(--text-secondary);
+        cursor: pointer;
+    }
+    .toggle-label input[type="checkbox"] { accent-color: var(--accent-primary); }
+
+    .loading-indicator {
+        font-size: 0.8125rem;
+        color: var(--text-muted);
+    }
+
+    .results-info {
+        font-size: 0.8125rem;
+        color: var(--text-muted);
+        margin-bottom: 0.75rem;
+    }
+
+    .available-results-info {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        flex-wrap: wrap;
+    }
+
+    .available-toggle-label {
+        margin-left: auto;
+        flex-shrink: 0;
+    }
+
+    .runtime-results-info {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        margin-bottom: 1rem;
+    }
+
+    .runtime-results-summary {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+        min-width: 0;
+    }
+
+    /* Download Progress */
+    .download-progress {
+        margin-top: 0.75rem;
+    }
+    .progress-bar {
+        height: 6px;
+        background: var(--bg-tertiary);
+        border-radius: 3px;
+        overflow: hidden;
+    }
+    .progress-fill {
+        height: 100%;
+        background: var(--accent-primary);
+        border-radius: 3px;
+        transition: width 0.3s ease;
+    }
+    .progress-details {
+        display: flex;
+        gap: 1rem;
+        margin-top: 0.375rem;
+        font-size: 0.75rem;
+        color: var(--text-muted);
+    }
+
+    /* Modal Styles */
+    .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+    }
+    .modal {
+        background: var(--card-bg);
+        border-radius: 0.75rem;
+        border: 1px solid var(--border-color);
+        width: 420px;
+        max-width: 90vw;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    }
+    .modal.modal-wide { width: 520px; }
+    .modal-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 1.25rem 1.5rem 0.75rem;
+        border-bottom: 1px solid var(--border-color);
+    }
+    .modal-header h3 {
+        font-size: 1.125rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin: 0;
+    }
+    .modal-close {
+        background: transparent;
+        border: none;
+        color: var(--text-muted);
+        cursor: pointer;
+        font-size: 1rem;
+        padding: 0.25rem;
+    }
+    .modal-close:hover { color: var(--text-primary); }
+    .modal-body { padding: 1.25rem 1.5rem; }
+    .modal-footer {
+        display: flex;
+        justify-content: flex-end;
+        gap: 0.75rem;
+        padding: 0.75rem 1.5rem 1.25rem;
+    }
+
+    /* Auth Form */
+    .auth-description {
+        font-size: 0.875rem;
+        color: var(--text-muted);
+        margin-bottom: 1.25rem;
+    }
+    .form-group {
+        margin-bottom: 1rem;
+    }
+    .form-group label {
+        display: block;
+        font-size: 0.8125rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 0.375rem;
+    }
+    .form-group input, .form-group select {
+        width: 100%;
+        padding: 0.625rem 0.75rem;
+        border: 1px solid var(--border-color);
+        border-radius: 0.375rem;
+        background: var(--bg-secondary);
+        color: var(--text-primary);
+        font-size: 0.875rem;
+        box-sizing: border-box;
+    }
+    .form-group input:focus, .form-group select:focus {
+        outline: none;
+        border-color: var(--accent-primary);
+        box-shadow: 0 0 0 2px rgba(66, 153, 225, 0.2);
+    }
+    .code-input {
+        font-family: monospace;
+        font-size: 1.5rem !important;
+        letter-spacing: 0.5rem;
+        text-align: center;
+    }
+    .auth-error {
+        padding: 0.625rem 0.875rem;
+        background: var(--status-error-bg);
+        border: 1px solid var(--accent-danger);
+        border-radius: 0.375rem;
+        color: var(--accent-danger);
+        font-size: 0.8125rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    /* Install Steps */
+    .install-steps {
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+    }
+    .install-step {
+        display: flex;
+        gap: 1rem;
+        padding: 0.875rem 0;
+        border-bottom: 1px solid var(--border-color);
+        opacity: 0.5;
+    }
+    .install-step:last-child { border-bottom: none; }
+    .install-step.active { opacity: 1; }
+    .install-step.completed { opacity: 0.8; }
+    .step-icon {
+        font-size: 1.125rem;
+        width: 1.5rem;
+        text-align: center;
+        flex-shrink: 0;
+        color: var(--text-muted);
+    }
+    .install-step.active .step-icon { color: var(--accent-primary); }
+    .install-step.completed .step-icon { color: var(--accent-success); }
+    .step-content { flex: 1; }
+    .step-title {
+        font-weight: 600;
+        font-size: 0.9375rem;
+        color: var(--text-primary);
+        margin-bottom: 0.25rem;
+    }
+    .step-detail {
+        font-size: 0.8125rem;
+        color: var(--text-muted);
+        margin-top: 0.25rem;
+    }
+
+    .text-success { color: var(--accent-success); }
+</style>
+
+@code {
+    private string activeTab = "installed";
+    private string searchQuery = "";
+    private bool showBetas;
+    private bool hasInitialized;
+    private bool hasLoadedRuntimeData;
+
+    // Download/Install state
+    private XcodeRelease? downloadingRelease;
+    private XcodeDownloadProgress? downloadProgress;
+    private CancellationTokenSource? downloadCts;
+    private bool showInstallModal;
+    private InstallStep currentInstallStep = InstallStep.Download;
+    private string? installStepMessage;
+    private string? installError;
+
+    // Runtime state
+    private string? installingDownloadableRuntimeBuild;
+
+    private enum InstallStep { Download, Extract, FirstLaunch, Complete }
+
+    private double downloadProgressPercent =>
+        downloadProgress?.TotalBytes > 0
+            ? (double)downloadProgress.BytesReceived / downloadProgress.TotalBytes.Value * 100
+            : 0;
+
+    private IReadOnlyList<XcodeInstallation> filteredInstalledXcodes =>
+        ViewModel.InstalledXcodes
+            .Where(MatchesSearch)
+            .ToList();
+
+    private IReadOnlyList<XcodeRelease> filteredReleases =>
+        ViewModel.AvailableReleases
+            .Where(r => showBetas || !r.IsBeta)
+            .Where(MatchesSearch)
+            .Take(50)
+            .ToList();
+
+    private IReadOnlyList<SimulatorRuntimeStorage> filteredRuntimeStorage =>
+        ViewModel.RuntimeStorage
+            .Where(MatchesSearch)
+            .ToList();
+
+    private IReadOnlyList<DownloadableSimulatorRuntime> downloadableRuntimeCatalog =>
+        ViewModel.DownloadableRuntimes
+            .Where(IsModernDownloadableRuntime)
+            .OrderBy(runtime => GetPlatformSortOrder(runtime.PlatformIdentifier))
+            .ThenByDescending(runtime => ParseComparableVersion(runtime.Version))
+            .ThenByDescending(runtime => runtime.Build, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(runtime => runtime.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    private long filteredRuntimeStorageBytes =>
+        filteredRuntimeStorage
+            .Where(runtime => runtime.SizeBytes.HasValue)
+            .Sum(runtime => runtime.SizeBytes!.Value);
+
+    private bool IsActiveTabLoading => activeTab switch
+    {
+        "available" => ViewModel.IsLoadingAvailable,
+        "runtimes" => ViewModel.IsLoadingRuntimes || ViewModel.IsLoadingDownloadableRuntimes,
+        _ => ViewModel.IsLoading,
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!hasInitialized)
+        {
+            hasInitialized = true;
+            DownloadAuthService.AuthStateChanged += OnDownloadAuthStateChanged;
+            ToolbarService.ClearItems();
+            ToolbarService.SetItems(
+                new ToolbarAction("refresh", "Refresh", "arrow.clockwise")
+            );
+            ToolbarService.SetSearch("Search Xcode versions or runtimes...");
+            ToolbarService.SetFilters();
+            ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
+            ToolbarService.SearchTextChanged += OnSearchTextChanged;
+            await ViewModel.LoadInstalledAsync();
+        }
+    }
+
+    private void OnToolbarItemClicked(string actionId)
+    {
+        if (actionId != "refresh")
+            return;
+
+        InvokeAsync(async () =>
+        {
+            ToolbarService.SetItemEnabled("refresh", false);
+            try
+            {
+                await RefreshAll();
+            }
+            finally
+            {
+                ToolbarService.SetItemEnabled("refresh", true);
+                StateHasChanged();
+            }
+        });
+    }
+
+    private void OnSearchTextChanged(string text)
+    {
+        InvokeAsync(() =>
+        {
+            searchQuery = text;
+            StateHasChanged();
+        });
+    }
+
+    private void OnDownloadAuthStateChanged() =>
+        InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        DownloadAuthService.AuthStateChanged -= OnDownloadAuthStateChanged;
+        ToolbarService.ToolbarItemClicked -= OnToolbarItemClicked;
+        ToolbarService.SearchTextChanged -= OnSearchTextChanged;
+    }
+
+    private async Task RefreshAll()
+    {
+        if (activeTab == "installed")
+        {
+            await Mediator.FlushStores("apple:xcode:installed");
+            await ViewModel.LoadInstalledAsync();
+        }
+        else if (activeTab == "available")
+        {
+            await Mediator.FlushStores("apple:xcode:available");
+            await ViewModel.LoadAvailableAsync();
+        }
+        else if (activeTab == "runtimes")
+            await LoadRuntimeDataAsync(forceRefresh: true);
+    }
+
+    private async Task SwitchTab(string tab)
+    {
+        activeTab = tab;
+        if (tab == "available" && ViewModel.AvailableReleases.Count == 0)
+            await ViewModel.LoadAvailableAsync();
+        else if (tab == "runtimes" && !hasLoadedRuntimeData)
+            await LoadRuntimeDataAsync();
+
+        StateHasChanged();
+    }
+
+    private bool MatchesSearch(XcodeInstallation xcode) =>
+        ContainsSearchText(xcode.Version, xcode.BuildNumber, xcode.Path);
+
+    private bool MatchesSearch(XcodeRelease release)
+    {
+        if (ContainsSearchText(release.Version, release.BuildNumber, release.MinimumMacOSVersion))
+            return true;
+
+        return release.Sdks.Any(sdk => ContainsSearchText(sdk.Name, sdk.Version)) ||
+               release.Compilers.Any(compiler => ContainsSearchText(compiler.Name, compiler.Version));
+    }
+
+    private bool MatchesSearch(SimulatorRuntimeStorage runtime) =>
+        ContainsSearchText(
+            FormatRuntimeName(runtime),
+            FriendlyPlatform(runtime.PlatformIdentifier),
+            runtime.Identifier,
+            runtime.Build,
+            runtime.State,
+            runtime.MountPath);
+
+    private bool ContainsSearchText(params string?[] values)
+    {
+        if (string.IsNullOrWhiteSpace(searchQuery))
+            return true;
+
+        var trimmedQuery = searchQuery.Trim();
+        return values.Any(value =>
+            !string.IsNullOrWhiteSpace(value) &&
+            value.Contains(trimmedQuery, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private async Task SelectXcode(XcodeInstallation xcode)
+    {
+        await ViewModel.SelectXcodeAsync(xcode);
+        StateHasChanged();
+    }
+
+    private async Task UninstallXcode(XcodeInstallation xcode)
+    {
+        await ViewModel.UninstallXcodeAsync(xcode);
+        StateHasChanged();
+    }
+
+    private async Task OpenAuthModal()
+    {
+        var result = await FormModalService.ShowAsync<bool>(new XcodeDownloadAuthPage(BridgeHolder));
+        StateHasChanged();
+
+        if (result == true)
+            await AlertService.ShowToastAsync("Signed in to Apple Developer");
+    }
+
+    private async Task SignOut()
+    {
+        var confirmed = await AlertService.ShowConfirmAsync(
+            "Sign Out", "Sign out of Apple Developer? You'll need to sign in again to download Xcode.", "Sign Out", "Cancel");
+        if (confirmed)
+        {
+            await ViewModel.SignOutAsync();
+            StateHasChanged();
+        }
+    }
+
+    // ---- Download & Install ----
+    private async Task DownloadAndInstall(XcodeRelease release)
+    {
+        if (downloadingRelease != null) return;
+
+        downloadingRelease = release;
+        downloadProgress = null;
+        downloadCts = new CancellationTokenSource();
+        showInstallModal = true;
+        currentInstallStep = InstallStep.Download;
+        installStepMessage = null;
+        installError = null;
+        StateHasChanged();
+
+        try
+        {
+            var tempPath = Path.Combine(Path.GetTempPath(), $"Xcode_{release.Version}_{release.BuildNumber}.xip");
+            var progress = new Progress<XcodeDownloadProgress>(p =>
+            {
+                downloadProgress = p;
+                InvokeAsync(StateHasChanged);
+            });
+
+            var downloadOk = await XcodeService.DownloadXcodeAsync(release, tempPath, progress, downloadCts.Token);
+            if (!downloadOk)
+            {
+                installError = "Download failed. You may need to sign in again.";
+                return;
+            }
+
+            currentInstallStep = InstallStep.Extract;
+            installStepMessage = "Extracting and moving to /Applications...";
+            StateHasChanged();
+
+            var installProgress = new Progress<string>(msg =>
+            {
+                installStepMessage = msg;
+                if (msg.Contains("first launch", StringComparison.OrdinalIgnoreCase))
+                    currentInstallStep = InstallStep.FirstLaunch;
+                InvokeAsync(StateHasChanged);
+            });
+
+            var installOk = await XcodeService.InstallXcodeAsync(tempPath, null, installProgress, downloadCts.Token);
+            if (!installOk)
+            {
+                installError = "Installation failed. The Xcode .xip file has been preserved in your temp directory.";
+                return;
+            }
+
+            currentInstallStep = InstallStep.Complete;
+            installStepMessage = null;
+            await ViewModel.LoadInstalledAsync();
+        }
+        catch (OperationCanceledException)
+        {
+            installError = "Installation cancelled.";
+        }
+        catch (Exception ex)
+        {
+            installError = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            downloadingRelease = null;
+            downloadProgress = null;
+            downloadCts?.Dispose();
+            downloadCts = null;
+            StateHasChanged();
+        }
+    }
+
+    private void CancelDownload()
+    {
+        downloadCts?.Cancel();
+    }
+
+    private void CloseInstallModal()
+    {
+        showInstallModal = false;
+        downloadingRelease = null;
+        downloadProgress = null;
+        installError = null;
+        StateHasChanged();
+    }
+
+    // ---- Runtimes ----
+    private async Task DeleteRuntime(SimulatorRuntimeStorage runtime)
+    {
+        var confirmed = await AlertService.ShowConfirmAsync(
+            "Delete Runtime",
+            $"Delete {FormatRuntimeName(runtime)}?\n\nThis will free {(runtime.SizeBytes.HasValue ? FormatBytes(runtime.SizeBytes.Value) : "some")} of disk space. This cannot be undone.",
+            "Delete",
+            "Cancel");
+
+        if (!confirmed) return;
+
+        var runtimeName = FormatRuntimeName(runtime);
+        var result = await OperationModal.RunAsync(
+            "Delete Runtime",
+            $"Deleting {runtimeName}...",
+            async ctx =>
+            {
+                ctx.LogInfo($"Runtime: {runtimeName}");
+                ctx.LogInfo($"Delete identifier: {runtime.DeleteIdentifier}");
+                ctx.SetStatus("Deleting runtime...");
+
+                var success = await SimulatorService.DeleteRuntimeAsync(
+                    runtime.DeleteIdentifier,
+                    new Progress<string>(message =>
+                    {
+                        ctx.LogInfo(message);
+                        ctx.SetStatus(message);
+                    }));
+
+                if (!success)
+                    return false;
+
+                ctx.SetStatus("Refreshing runtime data...");
+                ctx.LogInfo("Refreshing installed and downloadable runtimes...");
+                await LoadRuntimeDataAsync(forceRefresh: true);
+                ctx.LogSuccess("Runtime data refreshed");
+                return true;
+            },
+            canCancel: false);
+
+        if (result.Success)
+        {
+            await AlertService.ShowToastAsync($"{runtimeName} deleted");
+        }
+    }
+
+    private async Task LoadRuntimeDataAsync(bool forceRefresh = false)
+    {
+        if (forceRefresh)
+        {
+            await Mediator.FlushStores("apple:simulator:runtimes");
+            await Mediator.FlushStores("apple:simulator:runtime-storage");
+            await Mediator.FlushStores("apple:simulator:downloadable-runtimes");
+        }
+
+        await Task.WhenAll(
+            ViewModel.LoadRuntimeStorageAsync(),
+            ViewModel.LoadDownloadableRuntimesAsync());
+
+        hasLoadedRuntimeData = true;
+    }
+
+    private async Task OpenRuntimePicker()
+    {
+        if (ViewModel.DownloadableRuntimes.Count == 0 && !ViewModel.IsLoadingDownloadableRuntimes)
+        {
+            await ViewModel.LoadDownloadableRuntimesAsync();
+        }
+
+        var selectedRuntime = await FormModalService.ShowAsync<DownloadableSimulatorRuntime?>(
+            new RuntimePickerPage(
+                BridgeHolder,
+                downloadableRuntimeCatalog,
+                ViewModel.RuntimeStorage
+                    .Where(runtime => !string.IsNullOrWhiteSpace(runtime.Build))
+                    .Select(runtime => runtime.Build!)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList()));
+
+        if (selectedRuntime != null)
+            await InstallDownloadableRuntime(selectedRuntime);
+    }
+
+    private async Task InstallDownloadableRuntime(DownloadableSimulatorRuntime runtime)
+    {
+        if (installingDownloadableRuntimeBuild != null)
+            return;
+
+        installingDownloadableRuntimeBuild = runtime.Build;
+        StateHasChanged();
+
+        try
+        {
+            var result = await ProcessModal.ShowProcessAsync(
+                new ProcessRequest(
+                    Command: "/usr/bin/xcodebuild",
+                    Arguments: ["-downloadPlatform", GetDownloadPlatform(runtime.PlatformIdentifier), "-buildVersion", runtime.Build],
+                    RequiresElevation: false,
+                    Title: $"Install {FormatDownloadableRuntimeName(runtime)}",
+                    Description: $"Download and install {FormatDownloadableRuntimeName(runtime)} using Xcode."
+                ));
+
+            if (result?.Success == true)
+            {
+                await LoadRuntimeDataAsync(forceRefresh: true);
+                await AlertService.ShowToastAsync($"{FormatDownloadableRuntimeName(runtime)} installed");
+            }
+            else if (result != null && !result.WasCancelled && !result.WasKilled)
+            {
+                await AlertService.ShowAlertAsync("Install Failed", $"Installing {FormatDownloadableRuntimeName(runtime)} failed. Check the process output for details.");
+            }
+        }
+        finally
+        {
+            installingDownloadableRuntimeBuild = null;
+            StateHasChanged();
+        }
+    }
+
+    // ---- Helpers ----
+    private void OpenUrl(string url)
+    {
+        try
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo("open", url) { UseShellExecute = false };
+            System.Diagnostics.Process.Start(psi);
+        }
+        catch { }
+    }
+
+    private string GetStepClass(InstallStep step)
+    {
+        if (currentInstallStep == step) return "active";
+        if (currentInstallStep > step) return "completed";
+        return "";
+    }
+
+    private static string GetRuntimeIcon(string? platformIdentifier) => FriendlyPlatform(platformIdentifier) switch
+    {
+        "iOS" => "fas fa-mobile-alt",
+        "watchOS" => "fas fa-clock",
+        "tvOS" => "fas fa-tv",
+        "visionOS" => "fas fa-vr-cardboard",
+        "macOS" => "fas fa-laptop",
+        _ => "fas fa-cube"
+    };
+
+    private string GetRuntimeStateBadgeClass(string state) => state.ToLowerInvariant() switch
+    {
+        "ready" => "badge-ready",
+        "booted" => "badge-booted",
+        _ => "badge-unknown"
+    };
+
+    private static bool IsModernDownloadableRuntime(DownloadableSimulatorRuntime runtime) =>
+        runtime.ContentType is "cryptexDiskImage" or "patchableCryptexDiskImage";
+
+    private static string FormatRuntimeName(SimulatorRuntimeStorage runtime)
+    {
+        var parsed = ParseRuntimeLabel(runtime.Identifier);
+        if (!string.IsNullOrWhiteSpace(parsed))
+            return parsed;
+
+        if (!string.IsNullOrEmpty(runtime.PlatformIdentifier))
+        {
+            return FriendlyPlatform(runtime.PlatformIdentifier);
+        }
+
+        return $"Runtime {runtime.Identifier}";
+    }
+
+    private static string FriendlyPlatform(string? platform) => platform switch
+    {
+        "com.apple.platform.iphonesimulator" or "com.apple.platform.iphoneos" => "iOS",
+        "com.apple.platform.watchos" or "com.apple.platform.watchsimulator" => "watchOS",
+        "com.apple.platform.tvos" or "com.apple.platform.appletvos" or "com.apple.platform.tvsimulator" or "com.apple.platform.appletvsimulator" => "tvOS",
+        "com.apple.platform.xros" or "com.apple.platform.xrsimulator" => "visionOS",
+        "com.apple.platform.macosx" => "macOS",
+        null or "" => "Unknown Platform",
+        _ => platform
+    };
+
+    private static string ParseRuntimeLabel(string identifier)
+    {
+        const string prefix = "com.apple.CoreSimulator.SimRuntime.";
+        if (string.IsNullOrWhiteSpace(identifier))
+            return string.Empty;
+
+        var trimmed = identifier.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+            ? identifier[prefix.Length..]
+            : identifier;
+
+        var firstDash = trimmed.IndexOf('-');
+        if (firstDash < 0)
+            return trimmed;
+
+        var family = trimmed[..firstDash];
+        var version = trimmed[(firstDash + 1)..].Replace('-', '.');
+        return $"{family} {version}";
+    }
+
+    private static string FormatDownloadableRuntimeName(DownloadableSimulatorRuntime runtime)
+    {
+        const string suffix = " Simulator Runtime";
+        return runtime.Name.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)
+            ? runtime.Name[..^suffix.Length]
+            : runtime.Name;
+    }
+
+    private static string FormatLastUsed(DateTime lastUsedAt) =>
+        lastUsedAt.ToLocalTime().ToString("MMM d, yyyy");
+
+    private static string GetDownloadPlatform(string platformIdentifier) => FriendlyPlatform(platformIdentifier) switch
+    {
+        "iOS" => "iOS",
+        "watchOS" => "watchOS",
+        "tvOS" => "tvOS",
+        "visionOS" => "visionOS",
+        _ => throw new InvalidOperationException($"Unsupported runtime platform: {platformIdentifier}")
+    };
+
+    private static int GetPlatformSortOrder(string? platformIdentifier) => FriendlyPlatform(platformIdentifier) switch
+    {
+        "iOS" => 0,
+        "watchOS" => 1,
+        "tvOS" => 2,
+        "visionOS" => 3,
+        "macOS" => 4,
+        _ => 5
+    };
+
+    private static Version ParseComparableVersion(string version)
+    {
+        if (Version.TryParse(version, out var parsed))
+            return parsed;
+
+        var segments = version
+            .Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(segment => int.TryParse(segment, out var value) ? value : 0)
+            .Take(4)
+            .ToList();
+
+        while (segments.Count < 4)
+            segments.Add(0);
+
+        return new Version(segments[0], segments[1], segments[2], segments[3]);
+    }
+
+    private static string FormatBytes(long bytes)
+    {
+        if (bytes < 1024) return $"{bytes} B";
+        if (bytes < 1024 * 1024) return $"{bytes / 1024.0:F1} KB";
+        if (bytes < 1024L * 1024 * 1024) return $"{bytes / (1024.0 * 1024):F1} MB";
+        return $"{bytes / (1024.0 * 1024 * 1024):F2} GB";
+    }
+
+    private static string FormatSpeed(double bytesPerSecond)
+    {
+        if (bytesPerSecond < 1024) return $"{bytesPerSecond:F0} B/s";
+        if (bytesPerSecond < 1024 * 1024) return $"{bytesPerSecond / 1024:F1} KB/s";
+        return $"{bytesPerSecond / (1024 * 1024):F1} MB/s";
+    }
+
+    private static string FormatTimeSpan(TimeSpan ts)
+    {
+        if (ts.TotalHours >= 1) return $"{ts.Hours}h {ts.Minutes}m";
+        if (ts.TotalMinutes >= 1) return $"{ts.Minutes}m {ts.Seconds}s";
+        return $"{ts.Seconds}s";
+    }
+}

@@ -1,5 +1,7 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Text.Json;
+using System.Xml.Linq;
 using MauiSherpa.Core.Interfaces;
 
 namespace MauiSherpa.Core.Services;
@@ -9,6 +11,8 @@ namespace MauiSherpa.Core.Services;
 /// </summary>
 public class SimulatorService : ISimulatorService
 {
+    private const string XcrunPath = "/usr/bin/xcrun";
+    private const string DownloadableRuntimeIndexUrl = "https://devimages-cdn.apple.com/downloads/xcode/simulators/index2.dvtdownloadableindex";
     private readonly ILoggingService _logger;
     private readonly IPlatformService _platform;
 
@@ -972,7 +976,7 @@ public class SimulatorService : ISimulatorService
     {
         var psi = new ProcessStartInfo
         {
-            FileName = "xcrun",
+            FileName = XcrunPath,
             Arguments = $"simctl {arguments}",
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -984,16 +988,21 @@ public class SimulatorService : ISimulatorService
         if (process == null) return null;
 
         var output = await process.StandardOutput.ReadToEndAsync();
+        var error = await process.StandardError.ReadToEndAsync();
         await process.WaitForExitAsync();
 
-        return process.ExitCode == 0 ? output : null;
+        if (process.ExitCode == 0)
+            return output;
+
+        _logger.LogError($"xcrun simctl {arguments} failed with exit code {process.ExitCode}: {error.Trim()}");
+        return null;
     }
 
     private async Task<bool> RunSimctlWithExitCodeAsync(string arguments)
     {
         var psi = new ProcessStartInfo
         {
-            FileName = "xcrun",
+            FileName = XcrunPath,
             Arguments = $"simctl {arguments}",
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -1004,7 +1013,425 @@ public class SimulatorService : ISimulatorService
         using var process = Process.Start(psi);
         if (process == null) return false;
 
+        var error = await process.StandardError.ReadToEndAsync();
         await process.WaitForExitAsync();
-        return process.ExitCode == 0;
+        if (process.ExitCode == 0)
+            return true;
+
+        _logger.LogError($"xcrun simctl {arguments} failed with exit code {process.ExitCode}: {error.Trim()}");
+        return false;
+    }
+
+    // ── Runtime Management ─────────────────────────────────────────────
+
+    private const int RuntimeDeletionPollAttempts = 60;
+    private static readonly TimeSpan RuntimeDeletionPollDelay = TimeSpan.FromSeconds(1);
+
+    public async Task<IReadOnlyList<SimulatorRuntimeStorage>> GetRuntimeStorageAsync()
+    {
+        if (!IsSupported) return [];
+
+        try
+        {
+            var json = await RunSimctlAsync("runtime list -j");
+            if (json == null) return [];
+            return ParseRuntimeStorageJson(json);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Failed to get runtime storage info: {ex.Message}", ex);
+            return [];
+        }
+    }
+
+    public async Task<IReadOnlyList<DownloadableSimulatorRuntime>> GetDownloadableRuntimesAsync()
+    {
+        if (!IsSupported) return [];
+
+        try
+        {
+            using var client = new HttpClient();
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("MauiSherpa");
+
+            var plist = await client.GetStringAsync(DownloadableRuntimeIndexUrl);
+            return ParseDownloadableRuntimesPlist(plist);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Failed to load downloadable simulator runtimes: {ex.Message}", ex);
+            return [];
+        }
+    }
+
+    internal static IReadOnlyList<SimulatorRuntimeStorage> ParseRuntimeStorageJson(string json)
+    {
+        using var doc = JsonDocument.Parse(json);
+        var runtimes = new List<SimulatorRuntimeStorage>();
+
+        switch (doc.RootElement.ValueKind)
+        {
+            case JsonValueKind.Array:
+                AddRuntimeEntries(doc.RootElement.EnumerateArray(), runtimes);
+                break;
+
+            case JsonValueKind.Object:
+                if (doc.RootElement.TryGetProperty("result", out var resultProp) &&
+                    resultProp.ValueKind == JsonValueKind.Array)
+                {
+                    AddRuntimeEntries(resultProp.EnumerateArray(), runtimes);
+                }
+                else if (LooksLikeRuntimeEntry(doc.RootElement))
+                {
+                    AddRuntimeEntry(doc.RootElement, runtimes);
+                }
+                else
+                {
+                    foreach (var property in doc.RootElement.EnumerateObject())
+                    {
+                        if (property.Value.ValueKind == JsonValueKind.Object)
+                            AddRuntimeEntry(property.Value, runtimes, property.Name);
+                    }
+                }
+                break;
+        }
+
+        return runtimes;
+    }
+
+    internal static IReadOnlyList<DownloadableSimulatorRuntime> ParseDownloadableRuntimesPlist(string plist)
+    {
+        if (string.IsNullOrWhiteSpace(plist))
+            return [];
+
+        var document = XDocument.Parse(plist);
+        var rootDict = document.Root?.Element("dict");
+        var downloadablesArray = rootDict is null ? null : GetPlistArray(rootDict, "downloadables");
+        if (downloadablesArray is null)
+            return [];
+
+        var runtimes = new List<DownloadableSimulatorRuntime>();
+
+        foreach (var runtimeDict in downloadablesArray.Elements("dict"))
+        {
+            var identifier = GetPlistString(runtimeDict, "identifier");
+            var name = GetPlistString(runtimeDict, "name");
+            var platformIdentifier = GetPlistString(runtimeDict, "platform");
+            var contentType = GetPlistString(runtimeDict, "contentType");
+            var simulatorVersionDict = GetPlistDict(runtimeDict, "simulatorVersion");
+            var version = simulatorVersionDict is null ? null : GetPlistString(simulatorVersionDict, "version");
+            var build = simulatorVersionDict is null ? null : GetPlistString(simulatorVersionDict, "buildUpdate");
+
+            if (string.IsNullOrWhiteSpace(identifier) ||
+                string.IsNullOrWhiteSpace(name) ||
+                string.IsNullOrWhiteSpace(platformIdentifier) ||
+                string.IsNullOrWhiteSpace(contentType) ||
+                string.IsNullOrWhiteSpace(version) ||
+                string.IsNullOrWhiteSpace(build))
+            {
+                continue;
+            }
+
+            runtimes.Add(new DownloadableSimulatorRuntime(
+                Identifier: identifier,
+                Name: name,
+                Version: version,
+                Build: build,
+                PlatformIdentifier: platformIdentifier,
+                ContentType: contentType,
+                FileSizeBytes: GetPlistLong(runtimeDict, "fileSize") ?? 0,
+                Architectures: GetPlistStringArray(runtimeDict, "architectures"),
+                RequiresAuthentication: string.Equals(GetPlistString(runtimeDict, "authentication"), "virtual", StringComparison.OrdinalIgnoreCase),
+                IsPrerelease: IsPrereleaseRuntime(name),
+                Source: GetPlistString(runtimeDict, "source")
+            ));
+        }
+
+        return runtimes
+            .GroupBy(runtime => (runtime.PlatformIdentifier, runtime.Version, runtime.Build, runtime.Name, runtime.ContentType))
+            .Select(group =>
+            {
+                var preferred = group
+                    .OrderByDescending(runtime => runtime.Architectures.Count)
+                    .ThenBy(runtime => runtime.Identifier, StringComparer.OrdinalIgnoreCase)
+                    .First();
+
+                var architectures = group
+                    .SelectMany(runtime => runtime.Architectures)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(GetArchitectureSortOrder)
+                    .ThenBy(architecture => architecture, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                return preferred with
+                {
+                    FileSizeBytes = group.Max(runtime => runtime.FileSizeBytes),
+                    Architectures = architectures,
+                    RequiresAuthentication = group.Any(runtime => runtime.RequiresAuthentication),
+                    Source = preferred.Source ?? group.Select(runtime => runtime.Source).FirstOrDefault(source => !string.IsNullOrWhiteSpace(source))
+                };
+            })
+            .ToList();
+    }
+
+    private static void AddRuntimeEntries(JsonElement.ArrayEnumerator entries, List<SimulatorRuntimeStorage> runtimes)
+    {
+        foreach (var entry in entries)
+            AddRuntimeEntry(entry, runtimes);
+    }
+
+    private static void AddRuntimeEntry(JsonElement entry, List<SimulatorRuntimeStorage> runtimes, string? rootIdentifier = null)
+    {
+        try
+        {
+            var identifier = GetString(entry, "runtimeIdentifier") ?? GetString(entry, "identifier") ?? "";
+            if (string.IsNullOrWhiteSpace(identifier))
+                return;
+
+            var deleteIdentifier = rootIdentifier ?? GetString(entry, "identifier") ?? identifier;
+
+            long? sizeBytes = null;
+            if (entry.TryGetProperty("sizeBytes", out var sizeProp) && sizeProp.ValueKind == JsonValueKind.Number)
+                sizeBytes = sizeProp.GetInt64();
+
+            DateTime? lastUsed = null;
+            if (entry.TryGetProperty("lastUsedAt", out var lastUsedProp) &&
+                lastUsedProp.ValueKind == JsonValueKind.String &&
+                DateTimeOffset.TryParse(lastUsedProp.GetString(), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var parsed))
+            {
+                lastUsed = parsed.UtcDateTime;
+            }
+
+            runtimes.Add(new SimulatorRuntimeStorage(
+                Identifier: identifier,
+                DeleteIdentifier: deleteIdentifier,
+                Build: GetString(entry, "build"),
+                PlatformIdentifier: GetString(entry, "platformIdentifier"),
+                State: GetString(entry, "state") ?? "unknown",
+                SizeBytes: sizeBytes,
+                Deletable: entry.TryGetProperty("deletable", out var deletableProp) && deletableProp.GetBoolean(),
+                LastUsedAt: lastUsed,
+                MountPath: GetString(entry, "mountPath")
+            ));
+        }
+        catch
+        {
+            // Skip malformed entries
+        }
+    }
+
+    private static bool LooksLikeRuntimeEntry(JsonElement entry) =>
+        entry.ValueKind == JsonValueKind.Object &&
+        (entry.TryGetProperty("runtimeIdentifier", out _) || entry.TryGetProperty("identifier", out _));
+
+    private static string? GetString(JsonElement entry, string propertyName) =>
+        entry.TryGetProperty(propertyName, out var property) && property.ValueKind == JsonValueKind.String
+            ? property.GetString()
+            : null;
+
+    private static bool IsPrereleaseRuntime(string name) =>
+        name.Contains("beta", StringComparison.OrdinalIgnoreCase) ||
+        name.Contains("release candidate", StringComparison.OrdinalIgnoreCase) ||
+        name.Contains("rc", StringComparison.OrdinalIgnoreCase);
+
+    private static int GetArchitectureSortOrder(string architecture) => architecture.ToLowerInvariant() switch
+    {
+        "arm64" => 0,
+        "x86_64" => 1,
+        _ => 2
+    };
+
+    private static XElement? GetPlistValue(XElement dict, string key)
+    {
+        var children = dict.Elements().ToList();
+        for (var i = 0; i < children.Count - 1; i++)
+        {
+            if (children[i].Name.LocalName == "key" && string.Equals(children[i].Value, key, StringComparison.Ordinal))
+                return children[i + 1];
+        }
+
+        return null;
+    }
+
+    private static XElement? GetPlistDict(XElement dict, string key)
+    {
+        var value = GetPlistValue(dict, key);
+        return value?.Name.LocalName == "dict" ? value : null;
+    }
+
+    private static XElement? GetPlistArray(XElement dict, string key)
+    {
+        var value = GetPlistValue(dict, key);
+        return value?.Name.LocalName == "array" ? value : null;
+    }
+
+    private static string? GetPlistString(XElement dict, string key)
+    {
+        var value = GetPlistValue(dict, key);
+        return value?.Name.LocalName == "string" ? value.Value : null;
+    }
+
+    private static long? GetPlistLong(XElement dict, string key)
+    {
+        var value = GetPlistValue(dict, key);
+        if (value is null)
+            return null;
+
+        return value.Name.LocalName switch
+        {
+            "integer" when long.TryParse(value.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var integerValue) => integerValue,
+            "string" when long.TryParse(value.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var stringValue) => stringValue,
+            _ => null
+        };
+    }
+
+    private static IReadOnlyList<string> GetPlistStringArray(XElement dict, string key)
+    {
+        var value = GetPlistArray(dict, key);
+        if (value is null)
+            return [];
+
+        return value.Elements("string")
+            .Select(element => element.Value)
+            .Where(element => !string.IsNullOrWhiteSpace(element))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    public async Task<bool> InstallRuntimeAsync(string dmgPath, IProgress<string>? progress = null)
+    {
+        if (!IsSupported) return false;
+
+        if (!File.Exists(dmgPath))
+        {
+            _logger.LogError($"Runtime image not found: {dmgPath}");
+            return false;
+        }
+
+        try
+        {
+            progress?.Report($"Installing runtime from {Path.GetFileName(dmgPath)}...");
+
+            var psi = new ProcessStartInfo
+            {
+                FileName = XcrunPath,
+                Arguments = $"simctl runtime add \"{dmgPath}\"",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using var process = Process.Start(psi);
+            if (process == null) return false;
+
+            var output = await process.StandardOutput.ReadToEndAsync();
+            var error = await process.StandardError.ReadToEndAsync();
+            await process.WaitForExitAsync();
+
+            if (process.ExitCode == 0)
+            {
+                progress?.Report("Runtime installed successfully");
+                _logger.LogInformation($"Installed runtime from {dmgPath}");
+                return true;
+            }
+
+            _logger.LogError($"Failed to install runtime: {error}");
+            progress?.Report($"Failed: {error}");
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Failed to install runtime: {ex.Message}", ex);
+            return false;
+        }
+    }
+
+    public async Task<bool> DeleteRuntimeAsync(string deleteIdentifier, IProgress<string>? progress = null)
+    {
+        if (!IsSupported) return false;
+
+        try
+        {
+            progress?.Report($"Deleting runtime {deleteIdentifier}...");
+
+            var psi = new ProcessStartInfo
+            {
+                FileName = XcrunPath,
+                Arguments = $"simctl runtime delete \"{deleteIdentifier}\"",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using var process = Process.Start(psi);
+            if (process == null) return false;
+
+            var error = await process.StandardError.ReadToEndAsync();
+            await process.WaitForExitAsync();
+
+            if (process.ExitCode == 0)
+            {
+                progress?.Report("Delete command completed. Waiting for CoreSimulator to finish...");
+
+                var completed = await WaitForRuntimeDeletionCompletionAsync(deleteIdentifier, progress);
+                if (!completed)
+                {
+                    _logger.LogError($"Timed out waiting for runtime deletion to finish: {deleteIdentifier}");
+                    return false;
+                }
+
+                progress?.Report("Runtime deleted successfully");
+                _logger.LogInformation($"Deleted runtime: {deleteIdentifier}");
+                return true;
+            }
+
+            _logger.LogError($"Failed to delete runtime: {error}");
+            progress?.Report($"Failed: {error}");
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Failed to delete runtime: {ex.Message}", ex);
+            return false;
+        }
+    }
+
+    private async Task<bool> WaitForRuntimeDeletionCompletionAsync(string deleteIdentifier, IProgress<string>? progress)
+    {
+        string? lastState = null;
+
+        for (var attempt = 1; attempt <= RuntimeDeletionPollAttempts; attempt++)
+        {
+            var json = await RunSimctlAsync("runtime list -j");
+            if (!string.IsNullOrWhiteSpace(json))
+            {
+                var runtime = ParseRuntimeStorageJson(json)
+                    .FirstOrDefault(r => string.Equals(r.DeleteIdentifier, deleteIdentifier, StringComparison.OrdinalIgnoreCase));
+
+                if (runtime is null)
+                    return true;
+
+                var state = string.IsNullOrWhiteSpace(runtime.State) ? "unknown" : runtime.State;
+                if (!string.Equals(state, lastState, StringComparison.OrdinalIgnoreCase))
+                {
+                    progress?.Report($"Runtime still present with state '{state}'. Waiting for removal...");
+                    lastState = state;
+                }
+                else if (attempt % 10 == 0)
+                {
+                    progress?.Report($"Still waiting for runtime removal ({state})...");
+                }
+            }
+            else if (attempt % 10 == 0)
+            {
+                progress?.Report("Still waiting for CoreSimulator to report the updated runtime list...");
+            }
+
+            await Task.Delay(RuntimeDeletionPollDelay);
+        }
+
+        progress?.Report("Timed out waiting for runtime deletion to finish.");
+        return false;
     }
 }
