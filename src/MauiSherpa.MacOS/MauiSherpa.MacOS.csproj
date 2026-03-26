@@ -92,6 +92,21 @@
     <Exec Command="chmod +x &quot;$(_CopilotAppBundle)/copilot&quot;" Condition="Exists('$(_CopilotSourceBinary)')" />
   </Target>
 
+  <!-- Platform.Maui.MacOS leaves GitHub.Copilot.SDK.dll beside the app in Debug,
+       but CopilotService loads it from the app bundle at runtime. Copy it into
+       Contents/MonoBundle so the dedicated Copilot window can render. -->
+  <Target Name="_BundleCopilotSdkAssemblyForMacOS" AfterTargets="Build">
+    <PropertyGroup>
+      <_CopilotSdkAssembly>$(OutDir)GitHub.Copilot.SDK.dll</_CopilotSdkAssembly>
+      <_CopilotSdkBundleDir>$(OutDir)$(ApplicationTitle).app/Contents/MonoBundle</_CopilotSdkBundleDir>
+    </PropertyGroup>
+    <MakeDir Directories="$(_CopilotSdkBundleDir)" Condition="Exists('$(_CopilotSdkAssembly)')" />
+    <Copy SourceFiles="$(_CopilotSdkAssembly)"
+          DestinationFolder="$(_CopilotSdkBundleDir)"
+          SkipUnchangedFiles="true"
+          Condition="Exists('$(_CopilotSdkAssembly)')" />
+  </Target>
+
   <!-- Bundle Copilot Skills into the macOS app.
        MauiAsset items are not processed by Platform.Maui.MacOS, so we
        copy Skills into Contents/Resources/Skills manually. -->
