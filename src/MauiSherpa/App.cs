@@ -1,4 +1,5 @@
 using MauiSherpa.Core.Interfaces;
+using MauiSherpa.Core.Services;
 
 namespace MauiSherpa;
 
@@ -39,7 +40,7 @@ public class App : Application
         
         var window = new Window
         {
-            Title = "MAUI Sherpa",
+            Title = ProductInfo.ApplicationTitle,
             Page = new MainPage(splashService),
             Width = savedWidth,
             Height = savedHeight,

@@ -1730,6 +1730,41 @@ public interface IDoctorService
     string GetDotNetExecutablePath();
 }
 
+public enum MobileDoctorCheckStatus
+{
+    Ok,
+    Warning,
+    Error
+}
+
+public record MobileDoctorCheck(
+    string Name,
+    MobileDoctorCheckStatus Status,
+    string Summary,
+    IReadOnlyList<string>? Details = null
+);
+
+public record MobileDoctorSection(
+    string Title,
+    IReadOnlyList<MobileDoctorCheck> Checks
+);
+
+public record MobileDoctorReport(
+    IReadOnlyList<MobileDoctorSection> Sections,
+    DateTime Timestamp
+)
+{
+    public int OkCount => Sections.Sum(section => section.Checks.Count(check => check.Status == MobileDoctorCheckStatus.Ok));
+    public int WarningCount => Sections.Sum(section => section.Checks.Count(check => check.Status == MobileDoctorCheckStatus.Warning));
+    public int ErrorCount => Sections.Sum(section => section.Checks.Count(check => check.Status == MobileDoctorCheckStatus.Error));
+    public bool HasIssues => WarningCount > 0 || ErrorCount > 0;
+}
+
+public interface IMobileDoctorService
+{
+    Task<MobileDoctorReport> RunDoctorAsync(IProgress<string>? progress = null);
+}
+
 // ============================================================================
 // Process Execution Service - CLI Tool Execution with Terminal UI
 // ============================================================================

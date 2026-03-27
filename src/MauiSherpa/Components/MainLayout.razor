@@ -1,5 +1,6 @@
 @inherits LayoutComponentBase
 @using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Core.Services
 @inject IThemeService ThemeService
 @inject IEncryptedSettingsService EncryptedSettings
 @inject ISplashService SplashService
@@ -95,28 +96,37 @@
                 <span>Publish</span>
             </NavLink>
 
-            <div class="nav-section"><i class="fas fa-toolbox nav-section-icon"></i> Tools</div>
-            <NavLink class="nav-item" href="profiling">
-                <i class="fas fa-chart-line nav-icon"></i>
-                <span>Profiling</span>
-            </NavLink>
-            <NavLink class="nav-item" href="devflow">
-                <i class="fas fa-wand-magic-sparkles nav-icon"></i>
-                <span>App Inspector</span>
-            </NavLink>
-
-            @if (isDebugBuild)
+            @if (ShowToolsSection)
             {
-                <NavLink class="nav-item" href="debug">
-                    <i class="fas fa-bug nav-icon"></i>
-                    <span>Debug UI</span>
-                </NavLink>
+                <div class="nav-section"><i class="fas fa-toolbox nav-section-icon"></i> Tools</div>
+                @if (Capabilities.HasProfiling)
+                {
+                    <NavLink class="nav-item" href="profiling">
+                        <i class="fas fa-chart-line nav-icon"></i>
+                        <span>Profiling</span>
+                    </NavLink>
+                }
+                @if (Capabilities.HasAppInspector)
+                {
+                    <NavLink class="nav-item" href="devflow">
+                        <i class="fas fa-wand-magic-sparkles nav-icon"></i>
+                        <span>App Inspector</span>
+                    </NavLink>
+                }
+
+                @if (isDebugBuild)
+                {
+                    <NavLink class="nav-item" href="debug">
+                        <i class="fas fa-bug nav-icon"></i>
+                        <span>Debug UI</span>
+                    </NavLink>
+                }
             }
         </div>
         @if (!PlatformInfo.HasNativeToolbar)
         {
         <div class="sidebar-actions">
-            <a href="doctor" class="sidebar-action-btn" title="Doctor">
+            <a href="@DoctorNavHref" class="sidebar-action-btn" title="@ProductInfo.DoctorTitle">
                 <i class="fas fa-stethoscope"></i>
             </a>
             <a href="settings" class="sidebar-action-btn" title="Settings">
@@ -145,6 +155,9 @@
 <MauiSherpa.Components.ToastContainer />
 
 @code {
+    private ProductCapabilities Capabilities => ProductInfo.Capabilities;
+    private string DoctorNavHref => ProductInfo.DoctorNavHref;
+    private bool ShowToolsSection => Capabilities.HasProfiling || Capabilities.HasAppInspector || isDebugBuild;
     private string ThemeClass => ThemeService.IsDarkMode ? "theme-dark" : "theme-light";
     private string PlatformClass => PlatformInfo.IsMacOS ? "platform-macos" : PlatformInfo.IsWindows ? "platform-windows" : PlatformInfo.IsMacCatalyst ? "platform-mac" : "platform-linux";
     private bool isDemoMode;

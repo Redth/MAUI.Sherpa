@@ -1,6 +1,7 @@
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.Platform.MacOS;
 using MauiSherpa.Core.Interfaces;
+using MauiSherpa.Core.Services;
 using AppKit;
 using Foundation;
 
@@ -140,17 +141,20 @@ class MacOSApp : Application
         settingsItem.Target = settingsHandler;
         appMenu.InsertItem(settingsItem, insertIndex++);
 
-        var doctorHandler = new MenuActionHandler(() => blazorPage.NavigateToRoute("/doctor"));
+        var doctorHandler = new MenuActionHandler(() => blazorPage.NavigateToRoute(ProductInfo.DoctorRoute));
         _menuHandlers.Add(doctorHandler);
-        var doctorItem = new NSMenuItem("Doctor", new ObjCRuntime.Selector("menuAction:"), "");
+        var doctorItem = new NSMenuItem(ProductInfo.DoctorTitle, new ObjCRuntime.Selector("menuAction:"), "");
         doctorItem.Target = doctorHandler;
         appMenu.InsertItem(doctorItem, insertIndex++);
 
-        var profilingHandler = new MenuActionHandler(() => blazorPage.NavigateToRoute("/profiling"));
-        _menuHandlers.Add(profilingHandler);
-        var profilingItem = new NSMenuItem("Profiling", new ObjCRuntime.Selector("menuAction:"), "");
-        profilingItem.Target = profilingHandler;
-        appMenu.InsertItem(profilingItem, insertIndex++);
+        if (ProductInfo.Capabilities.HasProfiling)
+        {
+            var profilingHandler = new MenuActionHandler(() => blazorPage.NavigateToRoute("/profiling"));
+            _menuHandlers.Add(profilingHandler);
+            var profilingItem = new NSMenuItem("Profiling", new ObjCRuntime.Selector("menuAction:"), "");
+            profilingItem.Target = profilingHandler;
+            appMenu.InsertItem(profilingItem, insertIndex++);
+        }
 
         var sep2 = NSMenuItem.SeparatorItem;
         appMenu.InsertItem(sep2, insertIndex);
@@ -161,7 +165,7 @@ class MacOSApp : Application
         var flyoutPage = new FlyoutPage
         {
             Detail = new NavigationPage(blazorPage),
-            Flyout = new ContentPage { Title = "MAUI Sherpa" },
+            Flyout = new ContentPage { Title = ProductInfo.ApplicationTitle },
             FlyoutLayoutBehavior = FlyoutLayoutBehavior.Split,
         };
         MacOSFlyoutPage.SetUseNativeSidebar(flyoutPage, true);
@@ -206,19 +210,24 @@ class MacOSApp : Application
                     new() { Title = "Publish", SystemImage = "square.and.arrow.up", Tag = "/secrets/publish" },
                 }
             },
-            new MacOSSidebarItem
+        };
+
+        var toolChildren = new List<MacOSSidebarItem>();
+        if (ProductInfo.Capabilities.HasProfiling)
+            toolChildren.Add(new MacOSSidebarItem { Title = "Profiling", SystemImage = "chart.bar.xaxis", Tag = "/profiling" });
+        if (ProductInfo.Capabilities.HasAppInspector)
+            toolChildren.Add(new MacOSSidebarItem { Title = "App Inspector", SystemImage = "wand.and.stars", Tag = "/devflow" });
+#if DEBUG
+        toolChildren.Add(new MacOSSidebarItem { Title = "Debug UI", SystemImage = "ant", Tag = "/debug" });
+#endif
+        if (toolChildren.Count > 0)
+        {
+            sidebarItems.Add(new MacOSSidebarItem
             {
                 Title = "Tools",
-                Children = new List<MacOSSidebarItem>
-                {
-                    new() { Title = "Profiling", SystemImage = "chart.bar.xaxis", Tag = "/profiling" },
-                    new() { Title = "App Inspector", SystemImage = "wand.and.stars", Tag = "/devflow" },
-#if DEBUG
-                    new() { Title = "Debug UI", SystemImage = "ant", Tag = "/debug" },
-#endif
-                }
-            },
-        };
+                Children = toolChildren
+            });
+        }
 
         MacOSFlyoutPage.SetSidebarItems(flyoutPage, sidebarItems);
         _sidebarItems = sidebarItems;

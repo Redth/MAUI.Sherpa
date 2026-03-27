@@ -15,6 +15,7 @@
 @inject ILogger<Doctor> Logger
 @inject IToolbarService ToolbarService
 @inject IPlatformService PlatformInfo
+@inject NavigationManager NavigationManager
 @implements IDisposable
 
 <h1><i class="fas fa-stethoscope"></i> Environment Doctor</h1>
@@ -747,6 +748,12 @@ else
 
     protected override async Task OnInitializedAsync()
     {
+        if (!ProductInfo.Capabilities.HasMauiDoctor)
+        {
+            NavigationManager.NavigateTo(ProductInfo.DoctorRoute);
+            return;
+        }
+
         ToolbarService.SetItems(
             new ToolbarAction("refresh", "Run Doctor", "arrow.clockwise")
         );

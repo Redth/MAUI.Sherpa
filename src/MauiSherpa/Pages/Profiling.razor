@@ -1,6 +1,7 @@
 @page "/profiling"
 @using MauiSherpa.Core.Interfaces
 @using MauiSherpa.Core.Models.Profiling
+@using MauiSherpa.Core.Services
 @using MauiSherpa.Pages.Forms
 @inject IAlertService AlertService
 @inject IToolbarService ToolbarService
@@ -11,6 +12,7 @@
 @inject IFormModalService FormModal
 @inject HybridFormBridgeHolder BridgeHolder
 @inject MauiSherpa.Services.ProfilingViewerService ViewerService
+@inject NavigationManager NavigationManager
 @implements IDisposable
 
 
@@ -175,6 +177,12 @@
 
     protected override async Task OnInitializedAsync()
     {
+        if (!ProductInfo.Capabilities.HasProfiling)
+        {
+            NavigationManager.NavigateTo(ProductInfo.DoctorRoute);
+            return;
+        }
+
         SetupToolbar();
         ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
         ToolbarService.SearchTextChanged += OnSearchTextChanged;

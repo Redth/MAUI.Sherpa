@@ -3,6 +3,7 @@
   <PropertyGroup>
     <TargetFrameworks>net10.0-maccatalyst</TargetFrameworks>
     <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('windows'))">$(TargetFrameworks);net10.0-windows10.0.19041.0</TargetFrameworks>
+    <ProductEdition Condition="'$(ProductEdition)' == ''">MauiSherpa</ProductEdition>
 
     <OutputType>Exe</OutputType>
     <RootNamespace>MauiSherpa</RootNamespace>
@@ -14,14 +15,24 @@
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <WindowsPackageType>None</WindowsPackageType>
     
-    <ApplicationTitle>MAUI Sherpa</ApplicationTitle>
-    <ApplicationId>codes.redth.mauisherpa</ApplicationId>
+    <ApplicationTitle Condition="'$(ProductEdition)' == 'MobileSherpa'">Mobile Sherpa</ApplicationTitle>
+    <ApplicationTitle Condition="'$(ProductEdition)' != 'MobileSherpa'">MAUI Sherpa</ApplicationTitle>
+    <ApplicationId Condition="'$(ProductEdition)' == 'MobileSherpa'">codes.redth.mobilesherpa</ApplicationId>
+    <ApplicationId Condition="'$(ProductEdition)' != 'MobileSherpa'">codes.redth.mauisherpa</ApplicationId>
     <ApplicationDisplayVersion>$(AppVersion)</ApplicationDisplayVersion>
     <ApplicationVersion>1</ApplicationVersion>
 
     <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">15.0</SupportedOSPlatformVersion>
     <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</SupportedOSPlatformVersion>
     <TargetPlatformMinVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</TargetPlatformMinVersion>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(ProductEdition)' == 'MobileSherpa'">
+    <DefineConstants>$(DefineConstants);MOBILE_SHERPA</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(ProductEdition)' != 'MobileSherpa'">
+    <DefineConstants>$(DefineConstants);MAUI_SHERPA</DefineConstants>
   </PropertyGroup>
 
   <PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">
