@@ -109,14 +109,14 @@ Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows Kits\Installed Roots"
 
 | Error Message | Likely Actual Cause | Quick Fix |
 |---------------|---------------------|-----------|
-| "Xcode not found" | `xcode-select` pointing to wrong path | `sudo xcode-select -s /Applications/Xcode.app` |
+| "Xcode not found" | `xcode-select` pointing to wrong path | `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer` |
 | "Android SDK not found" | SDK exists but not in current shell | `source ~/.zshrc` or restart terminal |
 | "Java not found" / "JDK not detected" | JDK installed but not in PATH | Restart terminal; tooling auto-detects |
 | "SDK mismatch" after OS upgrade | Shell config not reloaded | `source ~/.bashrc` or `source ~/.zshrc` |
 | "Xcode license not accepted" | License reset after Xcode update | `sudo xcodebuild -license accept` |
 
 **Diagnostic Steps:**
-1. **Is it actually missing?** Check with direct path: `ls /Applications/Xcode.app`, `ls /Library/Java/JavaVirtualMachines/`
+1. **Is it actually missing?** Check with direct path: `ls -d /Applications/Xcode*.app`, `ls /Library/Java/JavaVirtualMachines/`
 2. **Is it a shell issue?** Open NEW terminal and retry
 3. **Is it an env var issue?** Check `echo $ANDROID_HOME`, `echo $JAVA_HOME` - often these don't need to be set
 

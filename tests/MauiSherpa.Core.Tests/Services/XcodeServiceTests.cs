@@ -84,6 +84,102 @@ public class XcodeServiceTests
         command.FellBackToSystemXip.Should().BeTrue();
     }
 
+    [Fact]
+    public void GetManagedXcodeBundleName_UsesVersionAndBuild()
+    {
+        var bundleName = XcodeService.GetManagedXcodeBundleName("26.3", "17A123");
+
+        bundleName.Should().Be("Xcode_26.3_17A123.app");
+    }
+
+    [Fact]
+    public void GetManagedXcodeBundleName_SanitizesBetaVersions()
+    {
+        var bundleName = XcodeService.GetManagedXcodeBundleName("26.3 Beta 2", "17A123");
+
+        bundleName.Should().Be("Xcode_26.3_Beta_2_17A123.app");
+    }
+
+    [Fact]
+    public void ResolveManagedXcodeBundlePath_WhenPreferredNameExists_AppendsNumericSuffix()
+    {
+        var bundlePath = XcodeService.ResolveManagedXcodeBundlePath(
+            "/Applications",
+            "26.3",
+            "17A123",
+            ["/Applications/Xcode_26.3_17A123.app"]);
+
+        bundlePath.Should().Be("/Applications/Xcode_26.3_17A123_2.app");
+    }
+
+    [Fact]
+    public void CreateSelectionPlan_WhenCanonicalBundleIsReal_MigratesSelectedBundleToVersionedPath()
+    {
+        var managedDefaultState = new XcodeManagedDefaultState(
+            CanonicalAppPath: "/Applications/Xcode.app",
+            Exists: true,
+            IsSymlink: false,
+            LinkTargetPath: null,
+            Version: "26.3",
+            BuildNumber: "17A123");
+
+        var plan = XcodeService.CreateSelectionPlan(
+            "/Applications/Xcode.app",
+            managedDefaultState,
+            ["/Applications/Xcode.app"]);
+
+        plan.SelectedAppPath.Should().Be("/Applications/Xcode_26.3_17A123.app");
+        plan.MigrationSourcePath.Should().Be("/Applications/Xcode.app");
+        plan.MigrationDestinationPath.Should().Be("/Applications/Xcode_26.3_17A123.app");
+    }
+
+    [Fact]
+    public void CreateSelectionPlan_WhenCanonicalMigrationCollides_UsesUniqueDestinationPath()
+    {
+        var managedDefaultState = new XcodeManagedDefaultState(
+            CanonicalAppPath: "/Applications/Xcode.app",
+            Exists: true,
+            IsSymlink: false,
+            LinkTargetPath: null,
+            Version: "26.3",
+            BuildNumber: "17A123");
+
+        var plan = XcodeService.CreateSelectionPlan(
+            "/Applications/Xcode.app",
+            managedDefaultState,
+            [
+                "/Applications/Xcode.app",
+                "/Applications/Xcode_26.3_17A123.app"
+            ]);
+
+        plan.SelectedAppPath.Should().Be("/Applications/Xcode_26.3_17A123_2.app");
+        plan.MigrationDestinationPath.Should().Be("/Applications/Xcode_26.3_17A123_2.app");
+    }
+
+    [Fact]
+    public void CreateSelectionPlan_WhenCanonicalPathIsSymlink_UsesLinkTargetWithoutMigration()
+    {
+        var managedDefaultState = new XcodeManagedDefaultState(
+            CanonicalAppPath: "/Applications/Xcode.app",
+            Exists: true,
+            IsSymlink: true,
+            LinkTargetPath: "/Applications/Xcode_26.3_17A123.app",
+            Version: null,
+            BuildNumber: null);
+
+        var plan = XcodeService.CreateSelectionPlan(
+            "/Applications/Xcode.app",
+            managedDefaultState,
+            [
+                "/Applications/Xcode.app",
+                "/Applications/Xcode_26.3_17A123.app"
+            ]);
+
+        plan.SelectedAppPath.Should().Be("/Applications/Xcode_26.3_17A123.app");
+        plan.MigrationSourcePath.Should().BeNull();
+        plan.MigrationDestinationPath.Should().BeNull();
+    }
+
     private static string CreateTempDirectory()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), "MauiSherpa-XcodeServiceTests", Guid.NewGuid().ToString("N"));

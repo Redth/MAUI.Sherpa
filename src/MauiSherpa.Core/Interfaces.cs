@@ -945,6 +945,7 @@ public record XcodeInstallation(
     string Version,
     string BuildNumber,
     bool IsSelected,
+    bool IsDefault = false,
     string? BundleIdentifier = null
 );
 
@@ -1000,7 +1001,7 @@ public interface IXcodeService
     Task<IReadOnlyList<XcodeRelease>> GetAvailableReleasesAsync();
 
     /// <summary>
-    /// Switch active Xcode via sudo xcode-select -s
+    /// Switch active Xcode via sudo xcode-select -s and update /Applications/Xcode.app
     /// </summary>
     Task<bool> SelectXcodeAsync(string xcodeAppPath);
 
@@ -1729,6 +1730,7 @@ public interface IDoctorService
     /// </summary>
     string GetDotNetExecutablePath();
 }
+
 
 // ============================================================================
 // Process Execution Service - CLI Tool Execution with Terminal UI
