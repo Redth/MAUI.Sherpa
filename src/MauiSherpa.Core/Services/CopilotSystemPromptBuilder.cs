@@ -62,13 +62,19 @@ public static class CopilotSystemPromptBuilder
 
     private static string GetPlatform()
     {
-#if MACCATALYST
-        return "macOS (Mac Catalyst)";
-#elif WINDOWS
-        return "Windows";
-#else
+        if (OperatingSystem.IsMacCatalyst())
+            return "macOS (Mac Catalyst)";
+
+        if (OperatingSystem.IsWindows())
+            return "Windows";
+
+        if (OperatingSystem.IsMacOS())
+            return "macOS";
+
+        if (OperatingSystem.IsLinux())
+            return "Linux";
+
         return "Unknown";
-#endif
     }
 
     /// <summary>
@@ -108,4 +114,3 @@ public static class CopilotSystemPromptBuilder
             """;
     }
 }
-
