@@ -155,6 +155,7 @@ public static class MacOSMauiProgram
         builder.Services.AddSingleton<IPhysicalDeviceService, MauiSherpa.Core.Services.PhysicalDeviceService>();
         builder.Services.AddSingleton<IPhysicalDeviceLogService, PhysicalDeviceLogService>();
         builder.Services.AddSingleton<SimInspectorService>();
+        builder.Services.AddSingleton<IDeepLinkValidationService, DeepLinkValidationService>();
 
         // Cloud Secrets Storage services
         builder.Services.AddSingleton<ICloudSecretsProviderFactory, CloudSecretsProviderFactory>();
