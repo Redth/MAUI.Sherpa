@@ -208,8 +208,17 @@ jobs:
           APP_PATH=$(find ./artifacts/macos -name "*.app" -type d | head -1)
           if [ -n "$APP_PATH" ]; then
             echo "Re-signing with hardened runtime: $APP_PATH"
+            # Sign helper executables under MonoBundle/runtimes explicitly; --deep
+            # does not reliably recurse into that layout.
+            if [ -d "$APP_PATH/Contents/MonoBundle/runtimes" ]; then
+              find "$APP_PATH/Contents/MonoBundle/runtimes" \( -name "copilot" -o -name "unxip" \) -type f | while read -r item; do
+                chmod +x "$item"
+                codesign --force --options runtime --timestamp \
+                  --sign "$APPLE_CODESIGN_IDENTITY" "$item"
+              done
+            fi
             # Sign all nested frameworks and dylibs first
-            find "$APP_PATH" -name "*.dylib" -o -name "*.framework" | while read -r item; do
+            find "$APP_PATH" \( -name "*.dylib" -o -name "*.framework" \) | while read -r item; do
               codesign --force --options runtime --timestamp \
                 --sign "$APPLE_CODESIGN_IDENTITY" "$item"
             done
@@ -571,20 +580,39 @@ jobs:
             exit 1
           fi
 
+          rm ./artifacts/MAUI-Sherpa.macos.zip
           ditto -c -k --keepParent "$APP_PATH" ./artifacts/notarize.zip
 
           MAX_RETRIES=3
           RETRY_DELAY=30
           for i in $(seq 1 $MAX_RETRIES); do
             echo "Notarization attempt $i of $MAX_RETRIES..."
+            RESULT_FILE=$(mktemp)
             if xcrun notarytool submit ./artifacts/notarize.zip \
               --apple-id "$APPLE_NOTARIZATION_APPLE_ID" \
               --password "$APPLE_NOTARIZATION_PASSWORD" \
               --team-id "$APPLE_NOTARIZATION_TEAM_ID" \
-              --wait; then
-              echo "Notarization succeeded on attempt $i"
-              break
+              --wait \
+              --output-format json >"$RESULT_FILE"; then
+              STATUS=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1], encoding='utf-8')).get('status', ''))" "$RESULT_FILE")
+              SUBMISSION_ID=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1], encoding='utf-8')).get('id', ''))" "$RESULT_FILE")
+              rm -f "$RESULT_FILE"
+
+              if [ "$STATUS" = "Accepted" ]; then
+                echo "Notarization succeeded on attempt $i"
+                break
+              fi
+
+              echo "::error::Notarization returned status '$STATUS'"
+              if [ -n "$SUBMISSION_ID" ]; then
+                xcrun notarytool log "$SUBMISSION_ID" \
+                  --apple-id "$APPLE_NOTARIZATION_APPLE_ID" \
+                  --password "$APPLE_NOTARIZATION_PASSWORD" \
+                  --team-id "$APPLE_NOTARIZATION_TEAM_ID" || true
+              fi
+              exit 1
             fi
+            rm -f "$RESULT_FILE"
             if [ $i -lt $MAX_RETRIES ]; then
               echo "Attempt $i failed, retrying in ${RETRY_DELAY}s..."
               sleep $RETRY_DELAY
@@ -597,9 +625,21 @@ jobs:
 
           rm ./artifacts/notarize.zip
 
-          xcrun stapler staple "$APP_PATH"
-
-          rm ./artifacts/MAUI-Sherpa.macos.zip
+          STAPLER_RETRIES=3
+          STAPLER_DELAY=15
+          for i in $(seq 1 $STAPLER_RETRIES); do
+            if xcrun stapler staple "$APP_PATH"; then
+              echo "Stapling succeeded on attempt $i"
+              break
+            fi
+            if [ $i -lt $STAPLER_RETRIES ]; then
+              echo "Stapler attempt $i failed, retrying in ${STAPLER_DELAY}s..."
+              sleep $STAPLER_DELAY
+            else
+              echo "::error::Stapler failed after $STAPLER_RETRIES attempts"
+              exit 1
+            fi
+          done
           ditto -c -k --keepParent "$APP_PATH" ./artifacts/MAUI-Sherpa.macos.zip
           echo "Created notarized archive"
           ls -lh ./artifacts/MAUI-Sherpa.macos.zip
