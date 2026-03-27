@@ -32,7 +32,7 @@ public static class AppDataPath
             baseDir = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
         }
 
-        _cachedPath = Path.Combine(baseDir, "MauiSherpa");
+        _cachedPath = Path.Combine(baseDir, ProductInfo.AppDataDirectoryName);
         Directory.CreateDirectory(_cachedPath);
         return _cachedPath;
     }

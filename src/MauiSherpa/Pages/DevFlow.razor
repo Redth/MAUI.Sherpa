@@ -7,6 +7,7 @@
 @inject IAlertService AlertService
 @inject ILauncher AppLauncher
 @inject IToolbarService ToolbarService
+@inject NavigationManager NavigationManager
 @implements IDisposable
 
 <h1><i class="fas fa-wand-magic-sparkles"></i> MauiDevFlow Inspector</h1>
@@ -148,6 +149,12 @@
 
     protected override async Task OnInitializedAsync()
     {
+        if (!ProductInfo.Capabilities.HasAppInspector)
+        {
+            NavigationManager.NavigateTo(ProductInfo.DoctorRoute);
+            return;
+        }
+
         ToolbarService.SetItems(
             new ToolbarAction("refresh", "Refresh", "arrow.clockwise")
         );

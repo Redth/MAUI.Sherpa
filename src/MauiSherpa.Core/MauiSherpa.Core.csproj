@@ -1,7 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFrameworks>net10.0;net10.0-maccatalyst;net10.0-windows10.0.19041.0</TargetFrameworks>
+    <TargetFrameworks Condition="'$(LinuxGtkHeadBuild)' == 'true' Or $([MSBuild]::IsOSPlatform('linux'))">net10.0</TargetFrameworks>
+    <ProductEdition Condition="'$(ProductEdition)' == ''">MauiSherpa</ProductEdition>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
@@ -15,6 +17,14 @@
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <RepositoryUrl>https://github.com/redth/MAUI.Sherpa</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(ProductEdition)' == 'MobileSherpa'">
+    <DefineConstants>$(DefineConstants);MOBILE_SHERPA</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(ProductEdition)' != 'MobileSherpa'">
+    <DefineConstants>$(DefineConstants);MAUI_SHERPA</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>
@@ -47,7 +57,7 @@
     <PackageReference Include="SharpKml.Core" Version="6.1.0" />
     <PackageReference Include="Shiny.Mediator" Version="6.1.1" />
     <PackageReference Include="Shiny.Mediator.AppSupport" Version="6.1.1" />
-    <PackageReference Include="Sodium.Core" Version="1.4.0" />
+    <PackageReference Include="Sodium.Core" Version="1.3.7" />
   </ItemGroup>
 
   <ItemGroup>

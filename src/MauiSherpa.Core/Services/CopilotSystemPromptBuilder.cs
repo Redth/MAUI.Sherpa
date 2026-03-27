@@ -62,19 +62,13 @@ public static class CopilotSystemPromptBuilder
 
     private static string GetPlatform()
     {
-        if (OperatingSystem.IsMacCatalyst())
-            return "macOS (Mac Catalyst)";
-
-        if (OperatingSystem.IsWindows())
-            return "Windows";
-
-        if (OperatingSystem.IsMacOS())
-            return "macOS";
-
-        if (OperatingSystem.IsLinux())
-            return "Linux";
-
+#if MACCATALYST
+        return "macOS (Mac Catalyst)";
+#elif WINDOWS
+        return "Windows";
+#else
         return "Unknown";
+#endif
     }
 
     /// <summary>
@@ -82,10 +76,10 @@ public static class CopilotSystemPromptBuilder
     /// </summary>
     private static string GetDefaultPrompt()
     {
-        return """
-            # MAUI Sherpa Assistant
+        return $"""
+            # {ProductInfo.CopilotAssistantTitle}
 
-            You are MAUI Sherpa, an expert assistant for .NET MAUI mobile app development.
+            You are {ProductInfo.ApplicationTitle}, {ProductInfo.CopilotAssistantDescription}
 
             ## CRITICAL RULES
 

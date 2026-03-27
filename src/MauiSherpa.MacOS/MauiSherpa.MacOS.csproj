@@ -2,6 +2,7 @@
 
   <PropertyGroup>
     <TargetFramework>net10.0-macos</TargetFramework>
+    <ProductEdition Condition="'$(ProductEdition)' == ''">MauiSherpa</ProductEdition>
     <OutputType>Exe</OutputType>
     <RootNamespace>MauiSherpa</RootNamespace>
     <UseMaui>true</UseMaui>
@@ -12,8 +13,10 @@
     <SupportedOSPlatformVersion>14.0</SupportedOSPlatformVersion>
     <DefineConstants>$(DefineConstants);MACOSAPP</DefineConstants>
 
-    <ApplicationTitle>MAUI Sherpa</ApplicationTitle>
-    <ApplicationId>codes.redth.mauisherpa</ApplicationId>
+    <ApplicationTitle Condition="'$(ProductEdition)' == 'MobileSherpa'">Mobile Sherpa</ApplicationTitle>
+    <ApplicationTitle Condition="'$(ProductEdition)' != 'MobileSherpa'">MAUI Sherpa</ApplicationTitle>
+    <ApplicationId Condition="'$(ProductEdition)' == 'MobileSherpa'">codes.redth.mobilesherpa</ApplicationId>
+    <ApplicationId Condition="'$(ProductEdition)' != 'MobileSherpa'">codes.redth.mauisherpa</ApplicationId>
     <ApplicationDisplayVersion>$(AppVersion)</ApplicationDisplayVersion>
     <ApplicationVersion>1</ApplicationVersion>
 
@@ -23,6 +26,14 @@
 
   <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
     <CodesignEntitlements>Entitlements.Debug.plist</CodesignEntitlements>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(ProductEdition)' == 'MobileSherpa'">
+    <DefineConstants>$(DefineConstants);MOBILE_SHERPA</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(ProductEdition)' != 'MobileSherpa'">
+    <DefineConstants>$(DefineConstants);MAUI_SHERPA</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>

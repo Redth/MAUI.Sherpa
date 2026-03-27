@@ -3,7 +3,7 @@ namespace MauiSherpa.Core.ViewModels;
 public class DashboardViewModel : ViewModelBase
 {
     public string Title => "Dashboard";
-    public string WelcomeMessage => "Let .NET MAUI Sherpa guide your development environment needs!";
+    public string WelcomeMessage => MauiSherpa.Core.Services.ProductInfo.DashboardWelcomeMessage;
 
     public DashboardViewModel(Interfaces.IAlertService? alertService = null, Interfaces.ILoggingService? loggingService = null) 
         : base(alertService ?? new StubAlertService(), loggingService ?? new StubLoggingService())
