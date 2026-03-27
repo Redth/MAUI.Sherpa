@@ -8,7 +8,7 @@ Common problems and solutions when setting up or using .NET MAUI.
 
 | Error Message | Looks Like | Actually Is | 2-Min Fix |
 |---------------|------------|-------------|-----------|
-| "Xcode not found" | Xcode missing | `xcode-select` wrong path | `sudo xcode-select -s /Applications/Xcode.app` |
+| "Xcode not found" | Xcode missing | `xcode-select` wrong path | `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer` |
 | "Android SDK not found" | SDK missing | Env var not in shell | `source ~/.zshrc` or new terminal |
 | "JDK not detected" | Java missing | PATH issue | Restart terminal (auto-detection) |
 | "SDK mismatch" | Version conflict | Shell not reloaded after update | New terminal or `source ~/.bashrc` |
@@ -19,7 +19,7 @@ Common problems and solutions when setting up or using .NET MAUI.
 
 ```bash
 # Is Xcode really missing?
-ls /Applications/Xcode.app
+ls -d /Applications/Xcode*.app
 
 # Is JDK really missing?
 ls /Library/Java/JavaVirtualMachines/  # macOS

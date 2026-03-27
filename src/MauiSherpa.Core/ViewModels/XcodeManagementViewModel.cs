@@ -189,8 +189,8 @@ public class XcodeManagementViewModel : ViewModelBase
         if (xcode.IsSelected) return;
 
         var confirmed = await AlertService.ShowConfirmAsync(
-            "Switch Active Xcode",
-            $"Switch active Xcode to {Path.GetFileName(xcode.Path)} (v{xcode.Version})?\n\nThis requires administrator privileges.",
+            "Switch Default Xcode",
+            $"Switch the selected Xcode to {Path.GetFileName(xcode.Path)} (v{xcode.Version})?\n\nMaui Sherpa will update both xcode-select and /Applications/Xcode.app. This requires administrator privileges.",
             "Switch",
             "Cancel");
 
@@ -201,7 +201,7 @@ public class XcodeManagementViewModel : ViewModelBase
 
         if (success)
         {
-            await AlertService.ShowToastAsync($"Switched to Xcode {xcode.Version}");
+            await AlertService.ShowToastAsync($"Switched default Xcode to {xcode.Version}");
             await _mediator.FlushStores("apple:xcode:installed");
             await LoadInstalledAsync();
         }
@@ -213,9 +213,9 @@ public class XcodeManagementViewModel : ViewModelBase
 
     public async Task UninstallXcodeAsync(XcodeInstallation xcode)
     {
-        if (xcode.IsSelected)
+        if (xcode.IsSelected || xcode.IsDefault)
         {
-            await AlertService.ShowAlertAsync("Cannot Uninstall", "Cannot uninstall the currently active Xcode. Switch to a different version first.");
+            await AlertService.ShowAlertAsync("Cannot Uninstall", "Cannot uninstall the selected/default Xcode. Switch to a different version first.");
             return;
         }
 

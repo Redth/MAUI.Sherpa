@@ -1,12 +1,17 @@
 using System.CommandLine;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using MauiSherpa.Cli.Helpers;
 
 namespace MauiSherpa.Cli.Commands.Apple;
 
 public static class XcodeCommand
 {
+    private const string ApplicationsDirectory = "/Applications";
+    private const string ManagedXcodeAppPath = "/Applications/Xcode.app";
+    private const string ManagedXcodeAppTempLinkPath = "/Applications/.Xcode.app.maui-sherpa-tmp";
+    private const string XcodesAppName = "Xcodes.app";
     private const string XcodeReleasesUrl = "https://xcodereleases.com/data.json";
 
     public static Command Create()
@@ -128,13 +133,14 @@ public static class XcodeCommand
         }
 
         Output.WriteTable(
-            ["Version", "Build", "Path", "Active"],
+            ["Version", "Build", "Path", "Selected", "Default"],
             installations.Select(x => new[]
             {
                 x.Version ?? "unknown",
                 x.Build ?? "",
                 x.Path,
                 x.IsActive ? "✓" : "",
+                x.IsDefault ? "✓" : "",
             }));
     }
 
@@ -233,19 +239,19 @@ public static class XcodeCommand
 
     private static Command CreateSelectCommand()
     {
-        var cmd = new Command("select", "Switch the active Xcode via xcode-select (requires admin privileges).\n\nExamples:\n  maui-sherpa apple xcode select /Applications/Xcode-26.1.1.app\n  maui-sherpa apple xcode select 26.1.1");
+        var cmd = new Command("select", "Switch the selected/default Xcode and update /Applications/Xcode.app (requires admin privileges).\n\nExamples:\n  maui-sherpa apple xcode select /Applications/Xcode_26.1.1_17B100.app\n  maui-sherpa apple xcode select 26.1.1");
         var targetArg = new Argument<string>("target") { Description = "Xcode.app path or version number (e.g. 26.1.1)" };
         cmd.Add(targetArg);
         cmd.SetAction(async (parseResult, ct) =>
         {
             var json = parseResult.GetValue(CliOptions.Json);
             var target = parseResult.GetValue(targetArg)!;
-            await SelectAsync(json, target);
+            await SelectAsync(json, target, ct);
         });
         return cmd;
     }
 
-    private static async Task SelectAsync(bool json, string target)
+    private static async Task SelectAsync(bool json, string target, CancellationToken ct)
     {
         if (!OperatingSystem.IsMacOS())
         {
@@ -283,35 +289,25 @@ public static class XcodeCommand
             return;
         }
 
-        // Use osascript for admin privileges (same as GUI)
-        var script = $"do shell script \"xcode-select -s '{developerDir}'\" with administrator privileges";
-        var psi = new System.Diagnostics.ProcessStartInfo
-        {
-            FileName = "osascript",
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
-        psi.ArgumentList.Add("-e");
-        psi.ArgumentList.Add(script);
-
         try
         {
-            using var process = System.Diagnostics.Process.Start(psi);
-            if (process is null) throw new InvalidOperationException("Failed to start osascript");
-            await process.WaitForExitAsync();
+            var managedDefaultState = await GetManagedDefaultStateAsync();
+            var existingPaths = Directory.GetDirectories(ApplicationsDirectory, "Xcode*.app")
+                .Where(p => !Path.GetFileName(p).Equals(XcodesAppName, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            var selectionPlan = CreateSelectionPlan(appPath, managedDefaultState, existingPaths);
+            var result = await RunElevatedShellScriptAsync(CreateSelectionScript(selectionPlan), ct);
 
-            if (process.ExitCode == 0)
+            if (result.exitCode == 0)
             {
                 if (json)
-                    Output.WriteJson(new { success = true, path = appPath });
+                    Output.WriteJson(new { success = true, path = selectionPlan.SelectedAppPath });
                 else
-                    Output.WriteSuccess($"Switched to {Path.GetFileName(appPath)} ({developerDir})");
+                    Output.WriteSuccess($"Switched default Xcode to {Path.GetFileName(selectionPlan.SelectedAppPath)}");
             }
             else
             {
-                var err = (await process.StandardError.ReadToEndAsync()).Trim();
+                var err = result.error.Trim();
                 if (json)
                     Output.WriteJson(new { success = false, error = err });
                 else
@@ -435,11 +431,14 @@ public static class XcodeCommand
     private static async Task<List<InstalledXcode>> DiscoverInstallationsAsync(string? selectedDeveloperDir)
     {
         var installations = new List<InstalledXcode>();
+        var managedDefaultState = await GetManagedDefaultStateAsync();
+        var managedDefaultTargetPath = managedDefaultState.PhysicalTargetPath;
 
-        if (!Directory.Exists("/Applications")) return installations;
+        if (!Directory.Exists(ApplicationsDirectory)) return installations;
 
-        var xcodeApps = Directory.GetDirectories("/Applications", "Xcode*.app")
-            .Where(p => !Path.GetFileName(p).Equals("Xcodes.app", StringComparison.OrdinalIgnoreCase))
+        var xcodeApps = Directory.GetDirectories(ApplicationsDirectory, "Xcode*.app")
+            .Where(p => !Path.GetFileName(p).Equals(XcodesAppName, StringComparison.OrdinalIgnoreCase))
+            .Where(p => !(managedDefaultState.IsSymlink && PathsEqual(p, ManagedXcodeAppPath)))
             .OrderBy(p => p);
 
         foreach (var appPath in xcodeApps)
@@ -447,28 +446,293 @@ public static class XcodeCommand
             var devDir = Path.Combine(appPath, "Contents", "Developer");
             if (!Directory.Exists(devDir)) continue;
 
-            string? version = null;
-            string? build = null;
+            var (version, build) = await GetXcodeVersionAsync(appPath);
+            if (version is null) continue;
 
-            // Try xcodebuild -version with DEVELOPER_DIR
-            var result = await ProcessRunner.RunAsync("xcodebuild", "-version");
-            // We need to set DEVELOPER_DIR per-app — use defaults read instead
-            var infoResult = await ProcessRunner.RunAsync("defaults", $"read \"{Path.Combine(appPath, "Contents", "Info")}\" CFBundleShortVersionString");
-            if (infoResult.ExitCode == 0)
-                version = infoResult.Output.Trim();
+            var isDefault = managedDefaultTargetPath != null &&
+                PathsEqual(managedDefaultTargetPath, appPath);
+            var isActive = IsSelectedDeveloperDir(selectedDeveloperDir, appPath, isDefault);
 
-            var buildResult = await ProcessRunner.RunAsync("defaults", $"read \"{Path.Combine(appPath, "Contents", "version")}\" ProductBuildVersion");
-            if (buildResult.ExitCode == 0)
-                build = buildResult.Output.Trim();
-
-            var isActive = selectedDeveloperDir != null &&
-                devDir.Equals(selectedDeveloperDir, StringComparison.OrdinalIgnoreCase);
-
-            installations.Add(new InstalledXcode(appPath, version, build, isActive));
+            installations.Add(new InstalledXcode(appPath, version, build, isActive, isDefault));
         }
 
         return installations;
     }
+
+    private static async Task<(string? version, string? build)> GetXcodeVersionAsync(string xcodeAppPath)
+    {
+        var infoResult = await ProcessRunner.RunAsync(
+            "defaults",
+            $"read \"{Path.Combine(xcodeAppPath, "Contents", "Info")}\" CFBundleShortVersionString");
+        var buildResult = await ProcessRunner.RunAsync(
+            "defaults",
+            $"read \"{Path.Combine(xcodeAppPath, "Contents", "version")}\" ProductBuildVersion");
+
+        return (
+            infoResult.ExitCode == 0 ? infoResult.Output.Trim() : null,
+            buildResult.ExitCode == 0 ? buildResult.Output.Trim() : null
+        );
+    }
+
+    private static async Task<XcodeManagedDefaultState> GetManagedDefaultStateAsync()
+    {
+        var linkTargetPath = TryResolveDirectoryLinkTarget(ManagedXcodeAppPath);
+        var exists = Directory.Exists(ManagedXcodeAppPath);
+        var isSymlink = linkTargetPath != null;
+
+        if (!exists || isSymlink)
+        {
+            return new XcodeManagedDefaultState(
+                CanonicalAppPath: ManagedXcodeAppPath,
+                Exists: exists,
+                IsSymlink: isSymlink,
+                LinkTargetPath: linkTargetPath,
+                Version: null,
+                BuildNumber: null);
+        }
+
+        var (version, build) = await GetXcodeVersionAsync(ManagedXcodeAppPath);
+        return new XcodeManagedDefaultState(
+            CanonicalAppPath: ManagedXcodeAppPath,
+            Exists: true,
+            IsSymlink: false,
+            LinkTargetPath: null,
+            Version: version,
+            BuildNumber: build ?? "unknown");
+    }
+
+    private static bool IsSelectedDeveloperDir(string? selectedDeveloperDir, string appPath, bool isDefault)
+    {
+        if (string.IsNullOrWhiteSpace(selectedDeveloperDir))
+            return false;
+
+        var directDeveloperDir = Path.Combine(appPath, "Contents", "Developer");
+        if (PathStartsWith(selectedDeveloperDir, directDeveloperDir))
+            return true;
+
+        if (!isDefault)
+            return false;
+
+        var canonicalDeveloperDir = Path.Combine(ManagedXcodeAppPath, "Contents", "Developer");
+        return PathStartsWith(selectedDeveloperDir, canonicalDeveloperDir);
+    }
+
+    private static XcodeSelectionPlan CreateSelectionPlan(
+        string selectedAppPath,
+        XcodeManagedDefaultState managedDefaultState,
+        IEnumerable<string> existingPaths)
+    {
+        var normalizedSelectedAppPath = selectedAppPath;
+        if (managedDefaultState.IsSymlink &&
+            !string.IsNullOrWhiteSpace(managedDefaultState.LinkTargetPath) &&
+            PathsEqual(selectedAppPath, managedDefaultState.CanonicalAppPath))
+        {
+            normalizedSelectedAppPath = managedDefaultState.LinkTargetPath;
+        }
+
+        if (!managedDefaultState.IsRealBundle)
+        {
+            return new XcodeSelectionPlan(
+                CanonicalAppPath: managedDefaultState.CanonicalAppPath,
+                SelectedAppPath: normalizedSelectedAppPath,
+                MigrationSourcePath: null,
+                MigrationDestinationPath: null);
+        }
+
+        if (string.IsNullOrWhiteSpace(managedDefaultState.Version))
+            throw new InvalidOperationException("Cannot migrate /Applications/Xcode.app without a detected Xcode version.");
+
+        var migrationDestinationPath = ResolveManagedXcodeBundlePath(
+            Path.GetDirectoryName(managedDefaultState.CanonicalAppPath) ?? ApplicationsDirectory,
+            managedDefaultState.Version,
+            managedDefaultState.BuildNumber ?? "unknown",
+            existingPaths.Where(path => !PathsEqual(path, managedDefaultState.CanonicalAppPath)));
+
+        if (PathsEqual(normalizedSelectedAppPath, managedDefaultState.CanonicalAppPath))
+            normalizedSelectedAppPath = migrationDestinationPath;
+
+        return new XcodeSelectionPlan(
+            CanonicalAppPath: managedDefaultState.CanonicalAppPath,
+            SelectedAppPath: normalizedSelectedAppPath,
+            MigrationSourcePath: managedDefaultState.CanonicalAppPath,
+            MigrationDestinationPath: migrationDestinationPath);
+    }
+
+    private static string ResolveManagedXcodeBundlePath(
+        string targetDirectory,
+        string version,
+        string buildNumber,
+        IEnumerable<string> existingPaths)
+    {
+        var preferredPath = Path.Combine(targetDirectory, GetManagedXcodeBundleName(version, buildNumber));
+        var normalizedExistingPaths = new HashSet<string>(
+            existingPaths.Select(NormalizePath),
+            StringComparer.OrdinalIgnoreCase);
+
+        if (!normalizedExistingPaths.Contains(NormalizePath(preferredPath)))
+            return preferredPath;
+
+        var baseName = Path.GetFileNameWithoutExtension(preferredPath);
+        for (var suffix = 2; ; suffix++)
+        {
+            var candidatePath = Path.Combine(targetDirectory, $"{baseName}_{suffix}.app");
+            if (!normalizedExistingPaths.Contains(NormalizePath(candidatePath)))
+                return candidatePath;
+        }
+    }
+
+    private static string GetManagedXcodeBundleName(string version, string buildNumber) =>
+        $"Xcode_{SanitizeXcodeBundleSegment(version)}_{SanitizeXcodeBundleSegment(buildNumber)}.app";
+
+    private static string SanitizeXcodeBundleSegment(string value)
+    {
+        var sanitized = Regex.Replace(value.Trim(), @"[^A-Za-z0-9.\-]+", "_");
+        sanitized = Regex.Replace(sanitized, @"_+", "_").Trim('_');
+        return string.IsNullOrWhiteSpace(sanitized) ? "unknown" : sanitized;
+    }
+
+    private static string CreateSelectionScript(XcodeSelectionPlan plan)
+    {
+        var canonicalAppPath = EscapeShellSingleQuotedString(plan.CanonicalAppPath);
+        var selectedAppPath = EscapeShellSingleQuotedString(plan.SelectedAppPath);
+        var migrationSourcePath = EscapeShellSingleQuotedString(plan.MigrationSourcePath ?? string.Empty);
+        var migrationDestinationPath = EscapeShellSingleQuotedString(plan.MigrationDestinationPath ?? string.Empty);
+        var tempLinkPath = EscapeShellSingleQuotedString(ManagedXcodeAppTempLinkPath);
+
+        return $$"""
+            canonical_path='{{canonicalAppPath}}'
+            selected_app='{{selectedAppPath}}'
+            migration_source='{{migrationSourcePath}}'
+            migration_destination='{{migrationDestinationPath}}'
+            temp_link='{{tempLinkPath}}'
+            previous_symlink_target=""
+
+            cleanup() {
+                rm -f "$temp_link"
+            }
+
+            rollback() {
+                rm -f "$temp_link"
+
+                if [ -L "$canonical_path" ]; then
+                    rm "$canonical_path"
+                fi
+
+                if [ -n "$previous_symlink_target" ]; then
+                    ln -s "$previous_symlink_target" "$canonical_path"
+                elif [ -n "$migration_source" ] && [ -n "$migration_destination" ] && [ -d "$migration_destination" ] && [ ! -e "$migration_source" ]; then
+                    mv "$migration_destination" "$migration_source"
+                fi
+            }
+
+            trap 'status=$?; cleanup; if [ $status -ne 0 ]; then rollback; fi; exit $status' EXIT
+
+            if [ -L "$canonical_path" ]; then
+                previous_symlink_target="$(readlink "$canonical_path")"
+                rm "$canonical_path"
+            fi
+
+            if [ -n "$migration_source" ] && [ -n "$migration_destination" ] && [ -d "$migration_source" ] && [ ! -L "$migration_source" ]; then
+                mv "$migration_source" "$migration_destination"
+                if [ "$selected_app" = "$migration_source" ]; then
+                    selected_app="$migration_destination"
+                fi
+            fi
+
+            rm -f "$temp_link"
+            ln -s "$selected_app" "$temp_link"
+            mv "$temp_link" "$canonical_path"
+            xcode-select -s "$canonical_path/Contents/Developer"
+
+            trap - EXIT
+            cleanup
+            """;
+    }
+
+    private static async Task<(int exitCode, string output, string error)> RunElevatedShellScriptAsync(
+        string scriptContents,
+        CancellationToken ct)
+    {
+        var tempScriptPath = Path.Combine(Path.GetTempPath(), $"maui-sherpa-xcode-{Guid.NewGuid():N}.sh");
+        await File.WriteAllTextAsync(
+            tempScriptPath,
+            "#!/bin/bash\nset -euo pipefail\n\n" + scriptContents + "\n",
+            ct);
+
+        try
+        {
+            var command = $"/bin/bash '{EscapeShellSingleQuotedString(tempScriptPath)}'";
+            var appleScript = $"do shell script \"{EscapeAppleScriptDoubleQuotedString(command)}\" with administrator privileges";
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "osascript",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            psi.ArgumentList.Add("-e");
+            psi.ArgumentList.Add(appleScript);
+
+            using var process = System.Diagnostics.Process.Start(psi);
+            if (process is null) throw new InvalidOperationException("Failed to start osascript");
+
+            var output = await process.StandardOutput.ReadToEndAsync(ct);
+            var error = await process.StandardError.ReadToEndAsync(ct);
+            await process.WaitForExitAsync(ct);
+            return (process.ExitCode, output, error);
+        }
+        finally
+        {
+            try
+            {
+                File.Delete(tempScriptPath);
+            }
+            catch
+            {
+                // Best effort cleanup for a temp script we created in this method.
+            }
+        }
+    }
+
+    private static string? TryResolveDirectoryLinkTarget(string path)
+    {
+        try
+        {
+            var directoryInfo = new DirectoryInfo(path);
+            var linkTarget = directoryInfo.LinkTarget;
+            if (string.IsNullOrWhiteSpace(linkTarget))
+                return null;
+
+            return Path.IsPathRooted(linkTarget)
+                ? Path.GetFullPath(linkTarget)
+                : Path.GetFullPath(Path.Combine(directoryInfo.Parent?.FullName ?? ApplicationsDirectory, linkTarget));
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static bool PathStartsWith(string path, string prefix)
+    {
+        var normalizedPath = NormalizePath(path);
+        var normalizedPrefix = NormalizePath(prefix);
+        return PathsEqual(normalizedPath, normalizedPrefix) ||
+               normalizedPath.StartsWith(normalizedPrefix + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool PathsEqual(string left, string right) =>
+        string.Equals(NormalizePath(left), NormalizePath(right), StringComparison.OrdinalIgnoreCase);
+
+    private static string NormalizePath(string path) =>
+        Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar);
+
+    private static string EscapeShellSingleQuotedString(string value) =>
+        value.Replace("'", "'\"'\"'");
+
+    private static string EscapeAppleScriptDoubleQuotedString(string value) =>
+        value.Replace("\\", "\\\\").Replace("\"", "\\\"");
 
     private static ReleaseInfo? ParseRelease(JsonElement r)
     {
@@ -554,6 +818,29 @@ public static class XcodeCommand
         }
     }
 
-    private record InstalledXcode(string Path, string? Version, string? Build, bool IsActive);
+    private record InstalledXcode(string Path, string? Version, string? Build, bool IsActive, bool IsDefault);
     private record ReleaseInfo(string Version, string? Build, string? Date, bool IsBeta, string? MinMacOS, string? DownloadUrl, List<string> Sdks);
+    private record XcodeManagedDefaultState(
+        string CanonicalAppPath,
+        bool Exists,
+        bool IsSymlink,
+        string? LinkTargetPath,
+        string? Version,
+        string? BuildNumber)
+    {
+        public bool IsRealBundle => Exists && !IsSymlink;
+
+        public string? PhysicalTargetPath => IsSymlink
+            ? LinkTargetPath
+            : Exists
+                ? CanonicalAppPath
+                : null;
+    }
+
+    private record XcodeSelectionPlan(
+        string CanonicalAppPath,
+        string SelectedAppPath,
+        string? MigrationSourcePath,
+        string? MigrationDestinationPath
+    );
 }

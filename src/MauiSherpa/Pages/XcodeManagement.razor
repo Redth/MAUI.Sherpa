@@ -101,23 +101,28 @@ else
         }
         else
         {
-            <div class="xcode-list">
-                @foreach (var xcode in filteredInstalledXcodes)
-                {
-                    <div class="xcode-card @(xcode.IsSelected ? "selected" : "")">
+                <div class="xcode-list">
+                    @foreach (var xcode in filteredInstalledXcodes)
+                    {
+                    <div class="xcode-card @((xcode.IsSelected || xcode.IsDefault) ? "selected" : "")">
                         <div class="xcode-card-icon">
                             <i class="fas fa-hammer"></i>
                         </div>
                         <div class="xcode-card-info">
                             <div class="xcode-card-title">
                                 Xcode @xcode.Version
+                                @if (xcode.IsDefault)
+                                {
+                                    <span class="badge badge-installed"><i class="fas fa-link"></i> Default</span>
+                                }
                                 @if (xcode.IsSelected)
                                 {
-                                    <span class="badge badge-active"><i class="fas fa-check"></i> Active</span>
+                                    <span class="badge badge-active"><i class="fas fa-check"></i> Selected</span>
                                 }
                             </div>
                             <div class="xcode-card-details">
                                 <span class="detail-item"><i class="fas fa-code-branch"></i> Build @xcode.BuildNumber</span>
+                                <span class="detail-item"><i class="fas fa-tag"></i> @Path.GetFileName(xcode.Path)</span>
                                 <span class="detail-item"><i class="fas fa-folder"></i> @xcode.Path</span>
                             </div>
                         </div>
@@ -127,6 +132,9 @@ else
                                 <button class="btn btn-sm btn-outline" @onclick="() => SelectXcode(xcode)">
                                     <i class="fas fa-check-circle"></i> Select
                                 </button>
+                            }
+                            @if (!xcode.IsSelected && !xcode.IsDefault)
+                            {
                                 <button class="btn btn-sm btn-danger-outline" @onclick="() => UninstallXcode(xcode)">
                                     <i class="fas fa-trash-alt"></i> Uninstall
                                 </button>

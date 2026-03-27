@@ -190,7 +190,7 @@ public static class Remediation
                     {
                         "Run `maui-sherpa apple xcode` to check the active Xcode version",
                         "Run `xcode-select -p` to check the selected Xcode path",
-                        "Switch Xcode version: `sudo xcode-select -s /Applications/Xcode.app`",
+                        "Switch Xcode version: `maui-sherpa apple xcode select <version>`",
                         "Accept license: `sudo xcodebuild -license accept`",
                         "Install command line tools: `xcode-select --install`",
                     },
