@@ -1,0 +1,1479 @@
+@using MauiSherpa.Core.Models.DevFlow
+@using MauiSherpa.Core.Services
+@inject IJSRuntime JS
+@implements IDisposable
+
+<div class="a11y-layout">
+    <div class="a11y-results-pane">
+        <!-- Toolbar -->
+        <div class="pane-header a11y-toolbar">
+            <div class="a11y-view-tabs">
+                <button class="view-tab @(activeView == "audit" ? "active" : "")" @onclick='() => activeView = "audit"'>
+                    <i class="fas fa-list-check"></i> Issues
+                </button>
+                <button class="view-tab @(activeView == "screenreader" ? "active" : "")" @onclick='() => activeView = "screenreader"'>
+                    <i class="fas fa-assistive-listening-systems"></i> Screen Reader
+                </button>
+                <button class="view-tab @(activeView == "contrast" ? "active" : "")" @onclick='() => activeView = "contrast"'>
+                    <i class="fas fa-circle-half-stroke"></i> Contrast
+                </button>
+            </div>
+            <div class="pane-actions">
+                <button class="btn-icon btn-audit @(isAuditing ? "auditing" : "")" @onclick="RunAudit" disabled="@isAuditing" title="Run accessibility audit">
+                    <i class="fas @(isAuditing ? "fa-spinner fa-spin" : "fa-universal-access")"></i>
+                    @if (!isAuditing) { <span>Audit</span> }
+                </button>
+            </div>
+        </div>
+
+        <!-- Score Dashboard -->
+        @if (auditResult != null && !isAuditing)
+        {
+            <div class="score-dashboard">
+                <div class="score-circle @GetScoreClass(auditResult.Score)">
+                    <span class="score-value">@auditResult.Score</span>
+                    <span class="score-label">/ 100</span>
+                </div>
+                <div class="score-categories">
+                    @foreach (var cat in auditResult.ScoreCategories)
+                    {
+                        <div class="score-cat @(cat.IsPass ? "pass" : "fail")">
+                            <i class="fas @cat.Icon"></i>
+                            <span class="cat-name">@cat.Name</span>
+                            <span class="cat-ratio">@cat.Passed/@cat.Total</span>
+                        </div>
+                    }
+                </div>
+                <div class="score-summary">
+                    <span class="stat-badge stat-error" title="Errors">@auditResult.ErrorCount</span>
+                    <span class="stat-badge stat-warning" title="Warnings">@auditResult.WarningCount</span>
+                    <span class="stat-badge stat-info" title="Info">@auditResult.InfoCount</span>
+                    <span class="stat-elements">@auditResult.TotalElements elements</span>
+                    @if (previousScore != null)
+                    {
+                        var delta = auditResult.Score - previousScore.Value;
+                        @if (delta != 0)
+                        {
+                            <span class="score-delta @(delta > 0 ? "improved" : "regressed")">
+                                <i class="fas @(delta > 0 ? "fa-arrow-up" : "fa-arrow-down")"></i> @Math.Abs(delta)
+                            </span>
+                        }
+                    }
+                </div>
+            </div>
+        }
+
+        <div class="a11y-results-container">
+            @if (isAuditing && auditResult == null)
+            {
+                <div class="a11y-loading">
+                    <i class="fas fa-spinner fa-spin"></i>
+                    <span>Scanning visual tree for accessibility issues...</span>
+                    @if (auditProgress != null)
+                    {
+                        <span class="audit-progress">@auditProgress</span>
+                    }
+                </div>
+            }
+            else if (auditResult == null)
+            {
+                <div class="a11y-placeholder">
+                    <i class="fas fa-universal-access"></i>
+                    <span>Click <strong>Audit</strong> to scan the running app for accessibility issues.</span>
+                    <span class="placeholder-detail">Checks for missing labels, small touch targets, color contrast, keyboard accessibility, and more.</span>
+                </div>
+            }
+            else if (activeView == "audit")
+            {
+                <!-- Audit Issues View - split layout: scrollable list + pinned detail -->
+                <div class="audit-split">
+                    <div class="audit-list-section">
+                        <div class="view-toolbar">
+                            <select @bind="severityFilter" class="severity-filter">
+                                <option value="">All</option>
+                                <option value="Error">Errors</option>
+                                <option value="Warning">Warnings</option>
+                                <option value="Info">Info</option>
+                            </select>
+                            <input type="text" @bind="searchQuery" @bind:event="oninput" placeholder="Filter..." class="a11y-search" />
+                            <label class="visibility-toggle" title="Show elements not currently visible on screen">
+                                <input type="checkbox" @bind="showHiddenElements" />
+                                <i class="fas fa-eye-slash"></i> Hidden
+                            </label>
+                        </div>
+                        <div class="audit-list-scroll">
+                            @if (FilteredIssues.Any())
+                            {
+                                @foreach (var group in FilteredIssues.GroupBy(i => i.RuleId).OrderBy(g => g.First().Severity).ThenBy(g => g.Key))
+                                {
+                                    var first = group.First();
+                                    var isExpanded = expandedRules.Contains(first.RuleId);
+                                    <div class="a11y-rule-group" @key="first.RuleId">
+                                        <div class="rule-header @(isExpanded ? "expanded" : "")" @onclick="() => ToggleRule(first.RuleId)">
+                                            <span class="rule-caret">@(isExpanded ? "\u25BC" : "\u25B6")</span>
+                                            <span class="severity-icon severity-@first.Severity.ToString().ToLowerInvariant()">
+                                                <i class="fas @GetSeverityIcon(first.Severity)"></i>
+                                            </span>
+                                            <span class="rule-name">@first.RuleName</span>
+                                            <span class="rule-count">@group.Count()</span>
+                                        </div>
+                                        @if (isExpanded)
+                                        {
+                                            <div class="rule-issues">
+                                                @foreach (var issue in group)
+                                                {
+                                                    var isSelected = selectedIssue?.ElementId == issue.ElementId && selectedIssue?.RuleId == issue.RuleId;
+                                                    <div class="issue-row @(isSelected ? "selected" : "")" @onclick="() => SelectIssue(issue)" @key="@($"{issue.ElementId}_{issue.RuleId}")">
+                                                        <div class="issue-element">
+                                                            <span class="element-type">@issue.ElementType</span>
+                                                            @if (!string.IsNullOrWhiteSpace(issue.ElementText))
+                                                            {
+                                                                <span class="element-text">"@Truncate(issue.ElementText, 30)"</span>
+                                                            }
+                                                            @if (!string.IsNullOrWhiteSpace(issue.AutomationId))
+                                                            {
+                                                                <span class="element-aid">#@issue.AutomationId</span>
+                                                            }
+                                                        </div>
+                                                        <div class="issue-message">@issue.Message</div>
+                                                    </div>
+                                                }
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                            }
+                            else if (auditResult!.Issues.Count == 0)
+                            {
+                                <div class="a11y-success">
+                                    <i class="fas fa-circle-check"></i>
+                                    <span>No accessibility issues found!</span>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="a11y-empty">No issues match the current filter.</div>
+                            }
+                        </div>
+                    </div>
+
+                    @if (selectedIssue != null)
+                    {
+                        <div class="issue-detail">
+                            <div class="detail-header">
+                                <span class="severity-icon severity-@selectedIssue.Severity.ToString().ToLowerInvariant()">
+                                    <i class="fas @GetSeverityIcon(selectedIssue.Severity)"></i>
+                                </span>
+                                <span class="detail-rule">@selectedIssue.RuleName</span>
+                                <span class="detail-rule-id">@selectedIssue.RuleId</span>
+                                <button class="btn-icon detail-close" @onclick="async () => { selectedIssue = null; highlightBounds = null; await HighlightElementOnDevice(null); }" title="Close">
+                                    <i class="fas fa-xmark"></i>
+                                </button>
+                            </div>
+                            <div class="detail-element">
+                                <span class="prop-key">Element</span>
+                                <span class="prop-value">@selectedIssue.ElementType @(!string.IsNullOrWhiteSpace(selectedIssue.AutomationId) ? $"#{selectedIssue.AutomationId}" : "")</span>
+                            </div>
+                            <div class="detail-message">@selectedIssue.Message</div>
+                            <div class="detail-suggestion">
+                                <i class="fas fa-lightbulb"></i>
+                                @selectedIssue.Suggestion
+                            </div>
+                            @if (!string.IsNullOrWhiteSpace(selectedIssue.XamlFix))
+                            {
+                                <div class="detail-fix">
+                                    <div class="fix-header">
+                                        <span>XAML Fix</span>
+                                        <button class="btn-copy @(copiedFix ? "copied" : "")" @onclick="() => CopyFix(selectedIssue.XamlFix!)" title="Copy to clipboard">
+                                            <i class="fas @(copiedFix ? "fa-check" : "fa-copy")"></i> @(copiedFix ? "Copied!" : "Copy")
+                                        </button>
+                                    </div>
+                                    <pre class="fix-code">@selectedIssue.XamlFix</pre>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+            else if (activeView == "screenreader")
+            {
+                <!-- Screen Reader Navigator -->
+                @if (auditResult!.ScreenReaderOrder.Count == 0)
+                {
+                    <div class="a11y-empty">No accessible elements found in the visual tree.</div>
+                }
+                else
+                {
+                    var srEntries = auditResult.ScreenReaderOrder;
+                    var current = srEntries[_srCurrentIndex];
+                    <div class="sr-navigator" @onkeydown="HandleSrKeyDown" tabindex="0" @ref="_srNavigatorRef">
+                        <!-- Navigation controls -->
+                        <div class="sr-nav-controls">
+                            <button class="sr-nav-btn" @onclick="SrPrevious" disabled="@(_srCurrentIndex <= 0)" title="Previous element (Left arrow)">
+                                <i class="fas fa-chevron-left"></i>
+                            </button>
+                            <span class="sr-nav-counter">@(_srCurrentIndex + 1) / @srEntries.Count</span>
+                            <button class="sr-nav-btn" @onclick="SrNext" disabled="@(_srCurrentIndex >= srEntries.Count - 1)" title="Next element (Right arrow)">
+                                <i class="fas fa-chevron-right"></i>
+                            </button>
+                        </div>
+
+                        <!-- Current element announcement -->
+                        <div class="sr-announcement-panel">
+                            <div class="sr-announced-label">
+                                @if (!string.IsNullOrEmpty(current.AnnouncedText))
+                                {
+                                    <span class="sr-spoken-text">"@current.AnnouncedText"</span>
+                                }
+                                else
+                                {
+                                    <span class="sr-spoken-text sr-no-label">(no label)</span>
+                                }
+                            </div>
+                            @if (!string.IsNullOrEmpty(current.Role))
+                            {
+                                <span class="sr-current-role">@current.Role</span>
+                            }
+                            @if (!string.IsNullOrEmpty(current.Hint))
+                            {
+                                <div class="sr-current-hint">@current.Hint</div>
+                            }
+                            @if (current.HeadingLevel != null)
+                            {
+                                <span class="sr-heading-badge">@current.HeadingLevel</span>
+                            }
+                            @if (current.IsInteractive)
+                            {
+                                <span class="sr-trait-badge">Interactive</span>
+                            }
+                            @if (current.HasIssue)
+                            {
+                                <span class="sr-trait-badge sr-trait-issue">Has Issue</span>
+                            }
+                        </div>
+
+                        <!-- Element details -->
+                        <div class="sr-element-details">
+                            <div class="sr-detail-row">
+                                <span class="sr-detail-key">Type</span>
+                                <span class="sr-detail-value">@current.ElementType</span>
+                            </div>
+                            @if (current.WindowBounds != null)
+                            {
+                                <div class="sr-detail-row">
+                                    <span class="sr-detail-key">Bounds</span>
+                                    <span class="sr-detail-value">@($"{current.WindowBounds.X:F0}, {current.WindowBounds.Y:F0} - {current.WindowBounds.Width:F0}x{current.WindowBounds.Height:F0}")</span>
+                                </div>
+                            }
+                        </div>
+
+                        <!-- Element list (scrollable) -->
+                        <div class="sr-element-list">
+                            @foreach (var entry in srEntries)
+                            {
+                                var isActive = entry.Order == _srCurrentIndex;
+                                <div class="sr-list-item @(isActive ? "active" : "") @(entry.HasIssue ? "has-issue" : "")"
+                                     @onclick="() => SrGoTo(entry.Order)" @key="entry.Order">
+                                    <span class="sr-list-order">@(entry.Order + 1)</span>
+                                    <span class="sr-list-label">@(!string.IsNullOrEmpty(entry.AnnouncedText) ? entry.AnnouncedText : "(no label)")</span>
+                                    @if (!string.IsNullOrEmpty(entry.Role))
+                                    {
+                                        <span class="sr-list-role">@entry.Role</span>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+            }
+            else if (activeView == "contrast")
+            {
+                <!-- Contrast Checker View -->
+                <div class="contrast-list">
+                    <div class="view-toolbar">
+                        <span style="flex:1"></span>
+                        <label class="visibility-toggle" title="Show elements not currently visible on screen">
+                            <input type="checkbox" @bind="showHiddenElements" />
+                            <i class="fas fa-eye-slash"></i> Hidden
+                        </label>
+                    </div>
+                    @if (FilteredContrastResults.Any())
+                    {
+                        <div class="contrast-summary">
+                            <span class="contrast-stat pass">@FilteredContrastResults.Count(c => c.PassesAA) AA Pass</span>
+                            <span class="contrast-stat fail">@FilteredContrastResults.Count(c => !c.PassesAA) AA Fail</span>
+                            <span class="contrast-stat pass-aaa">@FilteredContrastResults.Count(c => c.PassesAAA) AAA Pass</span>
+                        </div>
+
+                        @foreach (var cr in FilteredContrastResults.OrderBy(c => c.ContrastRatio))
+                        {
+                            var isSelected = selectedContrastId == cr.ElementId;
+                            <div class="contrast-row @(isSelected ? "selected" : "") @(cr.PassesAA ? "" : "fail")"
+                                 @onclick="() => SelectContrast(cr)" @key="cr.ElementId">
+                                <div class="contrast-colors">
+                                    <span class="color-swatch" style="background:@cr.ForegroundColor" title="Text: @cr.ForegroundColor"></span>
+                                    <span class="color-on">on</span>
+                                    <span class="color-swatch" style="background:@cr.BackgroundColor" title="Background: @cr.BackgroundColor"></span>
+                                </div>
+                                <div class="contrast-info">
+                                    <span class="contrast-ratio">@(cr.ContrastRatio):1</span>
+                                    <span class="contrast-badges">
+                                        <span class="badge @(cr.PassesAA ? "pass" : "fail")">AA @(cr.PassesAA ? "\u2713" : "\u2717")</span>
+                                        <span class="badge @(cr.PassesAAA ? "pass" : "fail")">AAA @(cr.PassesAAA ? "\u2713" : "\u2717")</span>
+                                        @if (cr.IsLargeText) { <span class="badge large">Large</span> }
+                                    </span>
+                                </div>
+                                <div class="contrast-element">
+                                    <span class="element-type">@cr.ElementType</span>
+                                    @if (!string.IsNullOrWhiteSpace(cr.ElementText))
+                                    {
+                                        <span class="element-text">"@Truncate(cr.ElementText, 20)"</span>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    }
+                    else if (auditResult!.ContrastResults.Any())
+                    {
+                        <div class="a11y-empty">No contrast results match the current filter.</div>
+                    }
+                    else
+                    {
+                        <div class="a11y-empty">No text elements with both TextColor and Background detected. Contrast checks require explicit color values.</div>
+                    }
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public DevFlowAgentClient Client { get; set; } = null!;
+
+    private readonly AccessibilityAuditService _auditService = new();
+    private AccessibilityAuditResult? auditResult;
+    private AccessibilityIssue? selectedIssue;
+    private ScreenReaderEntry? selectedSrEntry;
+    private string? selectedContrastId;
+    private bool isAuditing;
+    private string? auditProgress;
+    private string? screenshotData;
+    private string severityFilter = "";
+    private string searchQuery = "";
+    private string activeView = "audit";
+    private HashSet<string> expandedRules = new();
+    private DevFlowBoundsInfo? highlightBounds;
+    private bool copiedFix;
+    private int? previousScore;
+    private bool showHiddenElements;
+    private CancellationTokenSource? _auditCts;
+
+    // Screenshot pixel dimensions for overlay calculation
+    private double screenshotPixelWidth;
+    private double screenshotPixelHeight;
+
+    // Screen reader navigator state
+    private int _srCurrentIndex;
+    private ElementReference _srNavigatorRef;
+    // Window logical dimensions (from tree root) for proper overlay positioning
+    private double _windowLogicalWidth;
+    private double _windowLogicalHeight;
+
+    private static bool IsElementVisible(DevFlowBoundsInfo? bounds) =>
+        bounds is { Width: > 0, Height: > 0 };
+
+    private IEnumerable<AccessibilityIssue> FilteredIssues
+    {
+        get
+        {
+            if (auditResult == null) return Enumerable.Empty<AccessibilityIssue>();
+            var issues = auditResult.Issues.AsEnumerable();
+            if (!showHiddenElements)
+                issues = issues.Where(i => IsElementVisible(i.WindowBounds));
+            if (!string.IsNullOrEmpty(severityFilter) && Enum.TryParse<AccessibilitySeverity>(severityFilter, out var sev))
+                issues = issues.Where(i => i.Severity == sev);
+            if (!string.IsNullOrWhiteSpace(searchQuery))
+                issues = issues.Where(i =>
+                    i.ElementType.Contains(searchQuery, StringComparison.OrdinalIgnoreCase)
+                    || (i.ElementText?.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) == true)
+                    || (i.AutomationId?.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) == true)
+                    || i.Message.Contains(searchQuery, StringComparison.OrdinalIgnoreCase)
+                    || i.RuleName.Contains(searchQuery, StringComparison.OrdinalIgnoreCase));
+            return issues;
+        }
+    }
+
+    private IEnumerable<ContrastCheckResult> FilteredContrastResults
+    {
+        get
+        {
+            if (auditResult == null) return Enumerable.Empty<ContrastCheckResult>();
+            var results = auditResult.ContrastResults.AsEnumerable();
+            if (!showHiddenElements)
+                results = results.Where(c => IsElementVisible(c.WindowBounds));
+            return results;
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshScreenshot();
+    }
+
+    private Task RunAudit() => RunAuditInternal(silent: false);
+
+    private async Task RunAuditInternal(bool silent)
+    {
+        if (isAuditing) return;
+        isAuditing = true;
+        previousScore = auditResult?.Score;
+
+        if (!silent)
+        {
+            auditResult = null;
+            selectedIssue = null;
+            selectedSrEntry = null;
+            selectedContrastId = null;
+            highlightBounds = null;
+            copiedFix = false;
+            auditProgress = "Fetching visual tree...";
+            StateHasChanged();
+        }
+
+        _auditCts?.Cancel();
+        _auditCts = new CancellationTokenSource();
+        var ct = _auditCts.Token;
+
+        try
+        {
+            var screenshotTask = RefreshScreenshot();
+
+            var tree = await Client.GetTreeAsync(ct: ct);
+
+            if (!silent)
+            {
+                auditProgress = "Analyzing elements...";
+                StateHasChanged();
+            }
+
+            // Compute window logical dimensions from tree root for overlay positioning
+            var rootBounds = tree.FirstOrDefault()?.WindowBounds;
+            if (rootBounds != null && rootBounds.Width > 0 && rootBounds.Height > 0)
+            {
+                _windowLogicalWidth = rootBounds.Width;
+                _windowLogicalHeight = rootBounds.Height;
+            }
+
+            var newResult = await _auditService.AuditAsync(tree, Client, ct);
+            _srCurrentIndex = 0;
+
+            auditResult = newResult;
+            expandedRules = new HashSet<string>(auditResult.Issues.Select(i => i.RuleId).Distinct());
+
+            await screenshotTask;
+        }
+        catch (Exception ex)
+        {
+            if (!silent)
+            {
+                auditResult = new AccessibilityAuditResult
+                {
+                    Issues = new List<AccessibilityIssue>
+                    {
+                        new()
+                        {
+                            Severity = AccessibilitySeverity.Error,
+                            RuleId = "ERR",
+                            RuleName = "Audit Error",
+                            Message = $"Failed to run audit: {ex.Message}",
+                            Suggestion = "Check that the DevFlow agent is running and accessible.",
+                            ElementType = "System",
+                        }
+                    }
+                };
+            }
+        }
+        finally
+        {
+            isAuditing = false;
+            auditProgress = null;
+            StateHasChanged();
+        }
+    }
+
+    // --- Screenshot ---
+
+    private async Task RefreshScreenshot()
+    {
+        try
+        {
+            var bytes = await Client.GetScreenshotAsync();
+            if (bytes != null)
+            {
+                screenshotData = Convert.ToBase64String(bytes);
+                if (bytes.Length > 24)
+                {
+                    screenshotPixelWidth = (bytes[16] << 24) | (bytes[17] << 16) | (bytes[18] << 8) | bytes[19];
+                    screenshotPixelHeight = (bytes[20] << 24) | (bytes[21] << 16) | (bytes[22] << 8) | bytes[23];
+                }
+            }
+        }
+        catch { }
+        StateHasChanged();
+    }
+
+    // --- Selection ---
+
+    private async Task SelectIssue(AccessibilityIssue issue)
+    {
+        selectedIssue = issue;
+        highlightBounds = issue.WindowBounds;
+        copiedFix = false;
+        if (IsElementVisible(issue.WindowBounds))
+            await HighlightElementOnDevice(issue.ElementId, issue.WindowBounds);
+    }
+
+    private async Task SelectSrEntry(ScreenReaderEntry entry)
+    {
+        selectedSrEntry = selectedSrEntry?.ElementId == entry.ElementId ? null : entry;
+        highlightBounds = selectedSrEntry?.WindowBounds;
+        await HighlightElementOnDevice(selectedSrEntry?.ElementId, selectedSrEntry?.WindowBounds);
+    }
+
+    private async Task SelectContrast(ContrastCheckResult cr)
+    {
+        selectedContrastId = selectedContrastId == cr.ElementId ? null : cr.ElementId;
+        highlightBounds = selectedContrastId != null ? cr.WindowBounds : null;
+        if (selectedContrastId == null || IsElementVisible(cr.WindowBounds))
+            await HighlightElementOnDevice(selectedContrastId != null ? cr.ElementId : null, selectedContrastId != null ? cr.WindowBounds : null);
+    }
+
+    private async Task HighlightElementOnDevice(string? elementId, DevFlowBoundsInfo? fallbackBounds = null)
+    {
+        try
+        {
+            await Client.HighlightAsync(elementId, color: null, durationMs: 3000,
+                fallbackBounds: fallbackBounds, ct: default);
+        }
+        catch { /* ignore — highlight is best-effort */ }
+    }
+
+    private void ToggleRule(string ruleId)
+    {
+        if (!expandedRules.Remove(ruleId))
+            expandedRules.Add(ruleId);
+    }
+
+    // --- Copy Fix ---
+
+    private async Task CopyFix(string xamlFix)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", xamlFix);
+            copiedFix = true;
+            StateHasChanged();
+            _ = Task.Delay(2000).ContinueWith(_ => InvokeAsync(() => { copiedFix = false; StateHasChanged(); }));
+        }
+        catch { }
+    }
+
+    // --- Overlay ---
+
+    private string GetOverlayStyle(DevFlowBoundsInfo bounds)
+    {
+        if (screenshotPixelWidth <= 0 || screenshotPixelHeight <= 0)
+            return "display:none";
+
+        var scale = screenshotPixelWidth / Math.Max(1, bounds.X + bounds.Width + 100);
+        var left = (bounds.X / screenshotPixelWidth * scale) * 100;
+        var top = (bounds.Y / screenshotPixelHeight * scale) * 100;
+        var width = (bounds.Width / screenshotPixelWidth * scale) * 100;
+        var height = (bounds.Height / screenshotPixelHeight * scale) * 100;
+
+        left = Math.Max(0, Math.Min(100, left));
+        top = Math.Max(0, Math.Min(100, top));
+        width = Math.Max(0.5, Math.Min(100 - left, width));
+        height = Math.Max(0.5, Math.Min(100 - top, height));
+
+        return $"left:{left:F2}%;top:{top:F2}%;width:{width:F2}%;height:{height:F2}%";
+    }
+
+    private string GetBadgeStyle(DevFlowBoundsInfo bounds)
+    {
+        if (screenshotPixelWidth <= 0 || screenshotPixelHeight <= 0)
+            return "display:none";
+
+        var scale = screenshotPixelWidth / Math.Max(1, bounds.X + bounds.Width + 100);
+        var left = (bounds.X / screenshotPixelWidth * scale) * 100;
+        var top = (bounds.Y / screenshotPixelHeight * scale) * 100;
+
+        return $"left:{left:F2}%;top:{top:F2}%";
+    }
+
+    // --- Helpers ---
+
+    private static string GetScoreClass(int score) => score switch
+    {
+        >= 90 => "score-excellent",
+        >= 70 => "score-good",
+        >= 50 => "score-fair",
+        _ => "score-poor"
+    };
+
+    private static string GetSeverityIcon(AccessibilitySeverity severity) => severity switch
+    {
+        AccessibilitySeverity.Error => "fa-circle-xmark",
+        AccessibilitySeverity.Warning => "fa-triangle-exclamation",
+        AccessibilitySeverity.Info => "fa-circle-info",
+        _ => "fa-circle-question"
+    };
+
+    private static string Truncate(string? text, int maxLength)
+    {
+        if (string.IsNullOrEmpty(text)) return "";
+        return text.Length <= maxLength ? text : text[..maxLength] + "\u2026";
+    }
+
+    // --- Screen Reader Navigator ---
+
+    private List<ScreenReaderEntry> SrEntries => auditResult?.ScreenReaderOrder ?? new();
+
+    private async Task SrNext()
+    {
+        if (_srCurrentIndex < SrEntries.Count - 1)
+        {
+            _srCurrentIndex++;
+            await UpdateSrHighlight();
+        }
+    }
+
+    private async Task SrPrevious()
+    {
+        if (_srCurrentIndex > 0)
+        {
+            _srCurrentIndex--;
+            await UpdateSrHighlight();
+        }
+    }
+
+    private async Task SrGoTo(int index)
+    {
+        if (index >= 0 && index < SrEntries.Count)
+        {
+            _srCurrentIndex = index;
+            await UpdateSrHighlight();
+        }
+    }
+
+    private async Task HandleSrKeyDown(KeyboardEventArgs e)
+    {
+        switch (e.Key)
+        {
+            case "ArrowRight": await SrNext(); break;
+            case "ArrowLeft": await SrPrevious(); break;
+            case "Home": await SrGoTo(0); break;
+            case "End": await SrGoTo(SrEntries.Count - 1); break;
+        }
+    }
+
+    private async Task UpdateSrHighlight()
+    {
+        if (_srCurrentIndex >= 0 && _srCurrentIndex < SrEntries.Count)
+        {
+            var entry = SrEntries[_srCurrentIndex];
+            highlightBounds = entry.WindowBounds;
+            StateHasChanged();
+            try { await JS.InvokeVoidAsync("eval", "requestAnimationFrame(()=>document.querySelector('.sr-list-item.active')?.scrollIntoView({block:'nearest',behavior:'instant'}))"); } catch { }
+            await HighlightElementOnDevice(entry.ElementId, entry.WindowBounds);
+        }
+        else
+        {
+            highlightBounds = null;
+            await HighlightElementOnDevice(null);
+        }
+    }
+
+    /// <summary>
+    /// Positions overlay using window logical dimensions (from tree root).
+    /// WindowBounds are in logical points; this converts to percentages correctly.
+    /// </summary>
+    private string GetLogicalOverlayStyle(DevFlowBoundsInfo bounds)
+    {
+        if (_windowLogicalWidth <= 0 || _windowLogicalHeight <= 0)
+            return "display:none";
+
+        var left = (bounds.X / _windowLogicalWidth) * 100;
+        var top = (bounds.Y / _windowLogicalHeight) * 100;
+        var width = (bounds.Width / _windowLogicalWidth) * 100;
+        var height = (bounds.Height / _windowLogicalHeight) * 100;
+
+        left = Math.Max(0, Math.Min(100, left));
+        top = Math.Max(0, Math.Min(100, top));
+        width = Math.Max(0.5, Math.Min(100 - left, width));
+        height = Math.Max(0.5, Math.Min(100 - top, height));
+
+        return $"left:{left:F2}%;top:{top:F2}%;width:{width:F2}%;height:{height:F2}%";
+    }
+
+    private string GetLogicalBadgeStyle(DevFlowBoundsInfo bounds)
+    {
+        if (_windowLogicalWidth <= 0 || _windowLogicalHeight <= 0)
+            return "display:none";
+
+        var left = (bounds.X / _windowLogicalWidth) * 100;
+        var top = (bounds.Y / _windowLogicalHeight) * 100;
+
+        return $"left:{left:F2}%;top:{top:F2}%";
+    }
+
+    public void Dispose()
+    {
+        _auditCts?.Cancel();
+        _auditCts?.Dispose();
+    }
+}
+
+<style>
+    .a11y-layout {
+        display: flex;
+        height: 100%;
+        overflow: hidden;
+    }
+
+    .a11y-results-pane {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+    }
+
+    .pane-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.4rem 0.75rem;
+        background: var(--bg-secondary);
+        border-bottom: 1px solid var(--border-color);
+        font-size: 0.8rem;
+        font-weight: 600;
+        flex-shrink: 0;
+    }
+
+    .pane-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+    }
+
+    .btn-icon {
+        background: none;
+        border: none;
+        color: var(--text-secondary);
+        cursor: pointer;
+        padding: 0.2rem 0.4rem;
+        border-radius: 4px;
+        font-size: 0.8rem;
+    }
+
+    .btn-icon:hover {
+        color: var(--text-primary);
+        background: var(--bg-tertiary);
+    }
+
+    /* View Tabs */
+    .a11y-toolbar {
+        gap: 0.5rem;
+    }
+
+    .a11y-view-tabs {
+        display: flex;
+        gap: 0;
+    }
+
+    .view-tab {
+        padding: 0.35rem 0.7rem;
+        background: none;
+        border: none;
+        border-bottom: 2px solid transparent;
+        color: var(--text-secondary);
+        cursor: pointer;
+        font-size: 0.78rem;
+        display: flex;
+        align-items: center;
+        gap: 0.3rem;
+        transition: all 0.15s;
+    }
+
+    .view-tab:hover {
+        color: var(--text-primary);
+        background: var(--bg-tertiary);
+    }
+
+    .view-tab.active {
+        color: var(--accent-color, #8b5cf6);
+        border-bottom-color: var(--accent-color, #8b5cf6);
+    }
+
+    /* Visibility toggle */
+    .visibility-toggle {
+        display: flex;
+        align-items: center;
+        gap: 0.3rem;
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        cursor: pointer;
+        user-select: none;
+        white-space: nowrap;
+    }
+
+    .visibility-toggle input { width: 14px; height: 14px; margin: 0; cursor: pointer; }
+    .visibility-toggle input:checked + i { color: var(--accent-color, #8b5cf6); }
+
+    /* Audit button */
+    .btn-audit {
+        display: flex;
+        align-items: center;
+        gap: 0.3rem;
+        padding: 0.3rem 0.7rem;
+        background: var(--accent-color, #8b5cf6);
+        color: white;
+        border-radius: 6px;
+        font-weight: 600;
+        font-size: 0.78rem;
+    }
+
+    .btn-audit:hover:not(:disabled) { opacity: 0.9; }
+    .btn-audit:disabled { opacity: 0.6; cursor: wait; }
+    .btn-audit.auditing { background: var(--bg-tertiary); color: var(--text-secondary); }
+
+    /* Score Dashboard */
+    .score-dashboard {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        padding: 0.6rem 0.75rem;
+        background: var(--bg-secondary);
+        border-bottom: 1px solid var(--border-color);
+        flex-shrink: 0;
+    }
+
+    .score-circle {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        width: 56px;
+        height: 56px;
+        border-radius: 50%;
+        border: 3px solid;
+        flex-shrink: 0;
+    }
+
+    .score-circle.score-excellent { border-color: #22c55e; color: #22c55e; }
+    .score-circle.score-good { border-color: #84cc16; color: #84cc16; }
+    .score-circle.score-fair { border-color: #f59e0b; color: #f59e0b; }
+    .score-circle.score-poor { border-color: #ef4444; color: #ef4444; }
+
+    .score-value { font-size: 1.2rem; font-weight: 700; line-height: 1; }
+    .score-label { font-size: 0.55rem; opacity: 0.7; }
+
+    .score-categories {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.3rem 0.6rem;
+        flex: 1;
+    }
+
+    .score-cat {
+        display: flex;
+        align-items: center;
+        gap: 0.3rem;
+        font-size: 0.72rem;
+        padding: 0.15rem 0.4rem;
+        border-radius: 4px;
+        background: var(--bg-tertiary);
+    }
+
+    .score-cat.pass { color: #22c55e; }
+    .score-cat.fail { color: #ef4444; }
+
+    .cat-name { font-weight: 500; }
+    .cat-ratio { opacity: 0.7; font-size: 0.65rem; }
+
+    .score-summary {
+        display: flex;
+        align-items: center;
+        gap: 0.3rem;
+        flex-shrink: 0;
+    }
+
+    .score-delta {
+        font-size: 0.72rem;
+        font-weight: 600;
+        padding: 0.1rem 0.3rem;
+        border-radius: 4px;
+    }
+
+    .score-delta.improved { color: #22c55e; background: rgba(34, 197, 94, 0.1); }
+    .score-delta.regressed { color: #ef4444; background: rgba(239, 68, 68, 0.1); }
+
+    .stat-badge {
+        padding: 0.1rem 0.4rem;
+        border-radius: 10px;
+        font-weight: 600;
+        font-size: 0.7rem;
+    }
+
+    .stat-error { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
+    .stat-warning { background: rgba(245, 158, 11, 0.15); color: #f59e0b; }
+    .stat-info { background: rgba(59, 130, 246, 0.15); color: #3b82f6; }
+    .stat-elements { color: var(--text-tertiary); font-size: 0.7rem; }
+
+    /* Screenshot */
+    .screenshot-container {
+        flex: 1;
+        overflow: auto;
+        display: flex;
+        align-items: flex-start;
+        justify-content: center;
+        padding: 0.5rem;
+    }
+
+    .screenshot-wrapper { position: relative; display: inline-block; }
+
+    .screenshot-img {
+        max-width: 100%;
+        height: auto;
+        border-radius: 4px;
+    }
+
+    .screenshot-placeholder {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        gap: 0.5rem;
+        color: var(--text-tertiary);
+        font-size: 0.85rem;
+    }
+
+    .screenshot-placeholder i { font-size: 2rem; }
+
+    .highlight-overlay {
+        position: absolute;
+        border: 2px solid #ef4444;
+        background: rgba(239, 68, 68, 0.15);
+        border-radius: 2px;
+        pointer-events: none;
+        z-index: 10;
+    }
+
+    /* VoiceOver-style focus ring on screenshot */
+    .sr-focus-ring {
+        position: absolute;
+        border: 3px solid #000;
+        border-radius: 8px;
+        pointer-events: none;
+        z-index: 10;
+        box-shadow: 0 0 0 2px rgba(255,255,255,0.8), 0 0 12px rgba(0,0,0,0.4);
+    }
+
+    .sr-focus-badge {
+        position: absolute;
+        transform: translate(-50%, -100%) translateY(-6px);
+        background: #000;
+        color: #fff;
+        font-size: 0.65rem;
+        font-weight: 700;
+        padding: 1px 6px;
+        border-radius: 8px;
+        z-index: 11;
+        pointer-events: none;
+        white-space: nowrap;
+    }
+
+    /* Filter bar */
+    .view-toolbar {
+        display: flex;
+        gap: 0.4rem;
+        padding: 0.35rem 0.75rem;
+        border-bottom: 1px solid var(--border-color);
+        flex-shrink: 0;
+    }
+
+    .severity-filter, .a11y-search {
+        padding: 0.2rem 0.4rem;
+        font-size: 0.75rem;
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+        background: var(--bg-primary);
+        color: var(--text-primary);
+    }
+
+    .a11y-search { flex: 1; }
+
+    /* Results container */
+    .a11y-results-container {
+        flex: 1;
+        overflow-y: auto;
+        overflow-x: hidden;
+        padding: 0;
+    }
+
+    /* Audit split: scrollable list + pinned detail at bottom */
+    .audit-split {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+    }
+
+    .audit-list-section {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+    }
+
+    .audit-list-scroll {
+        flex: 1;
+        overflow-y: auto;
+    }
+
+    .a11y-loading, .a11y-placeholder, .a11y-success, .a11y-empty {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        gap: 0.75rem;
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+        padding: 2rem;
+        text-align: center;
+    }
+
+    .a11y-loading i, .a11y-placeholder i { font-size: 2rem; }
+    .a11y-success { color: #22c55e; }
+    .a11y-success i { font-size: 2.5rem; }
+    .placeholder-detail { color: var(--text-tertiary); font-size: 0.78rem; }
+    .audit-progress { color: var(--text-tertiary); font-size: 0.78rem; }
+
+    /* Rule groups */
+    .a11y-rule-group { border-bottom: 1px solid var(--border-color); }
+
+    .rule-header {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.5rem 0.75rem;
+        cursor: pointer;
+        font-size: 0.82rem;
+        font-weight: 600;
+        transition: background 0.15s;
+    }
+
+    .rule-header:hover { background: var(--bg-secondary); }
+
+    .rule-caret { font-size: 0.65rem; color: var(--text-tertiary); width: 1rem; text-align: center; }
+
+    .severity-icon { font-size: 0.8rem; }
+    .severity-icon.severity-error { color: #ef4444; }
+    .severity-icon.severity-warning { color: #f59e0b; }
+    .severity-icon.severity-info { color: #3b82f6; }
+
+    .rule-name { flex: 1; }
+
+    .rule-count {
+        font-size: 0.7rem;
+        padding: 0.1rem 0.4rem;
+        border-radius: 10px;
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+        font-weight: 500;
+    }
+
+    /* Issues */
+    .rule-issues { padding: 0 0 0.25rem 0; }
+
+    .issue-row {
+        padding: 0.4rem 0.75rem 0.4rem 2.5rem;
+        cursor: pointer;
+        font-size: 0.78rem;
+        border-left: 3px solid transparent;
+        transition: all 0.15s;
+    }
+
+    .issue-row:hover { background: var(--bg-secondary); }
+    .issue-row.selected { background: var(--bg-tertiary); border-left-color: var(--accent-color, #8b5cf6); }
+
+    .issue-element { display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.15rem; }
+    .element-type { font-weight: 600; color: var(--text-primary); }
+    .element-text { color: var(--text-secondary); font-style: italic; }
+    .element-aid { color: var(--accent-color, #8b5cf6); font-family: monospace; font-size: 0.72rem; }
+    .issue-message { color: var(--text-secondary); font-size: 0.75rem; }
+
+    /* Issue detail - pinned at bottom */
+    .issue-detail {
+        border-top: 2px solid var(--border-color);
+        padding: 0.75rem;
+        background: var(--bg-secondary);
+        flex-shrink: 0;
+        max-height: 40%;
+        overflow-y: auto;
+    }
+
+    .detail-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; }
+    .detail-close { margin-left: auto; }
+    .detail-rule { font-weight: 600; font-size: 0.85rem; }
+    .detail-rule-id { font-size: 0.7rem; color: var(--text-tertiary); font-family: monospace; }
+    .detail-element { display: flex; gap: 0.5rem; font-size: 0.78rem; margin-bottom: 0.4rem; }
+    .prop-key { color: var(--text-tertiary); min-width: 60px; }
+    .prop-value { color: var(--text-primary); font-family: monospace; font-size: 0.75rem; }
+    .detail-message { font-size: 0.8rem; color: var(--text-primary); margin-bottom: 0.5rem; }
+
+    .detail-suggestion {
+        font-size: 0.78rem;
+        color: var(--text-secondary);
+        padding: 0.5rem;
+        background: var(--bg-primary);
+        border-radius: 6px;
+        border-left: 3px solid #f59e0b;
+        margin-bottom: 0.5rem;
+    }
+
+    .detail-suggestion i { color: #f59e0b; margin-right: 0.4rem; }
+
+    /* XAML Fix snippet */
+    .detail-fix {
+        background: var(--bg-primary);
+        border-radius: 6px;
+        border: 1px solid var(--border-color);
+        overflow: hidden;
+    }
+
+    .fix-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.3rem 0.5rem;
+        background: var(--bg-tertiary);
+        font-size: 0.7rem;
+        font-weight: 600;
+        color: var(--text-secondary);
+    }
+
+    .btn-copy {
+        background: none;
+        border: 1px solid var(--border-color);
+        color: var(--text-secondary);
+        cursor: pointer;
+        padding: 0.15rem 0.5rem;
+        border-radius: 4px;
+        font-size: 0.7rem;
+        display: flex;
+        align-items: center;
+        gap: 0.3rem;
+        transition: all 0.15s;
+    }
+
+    .btn-copy:hover { background: var(--bg-secondary); color: var(--text-primary); }
+    .btn-copy.copied { color: #22c55e; border-color: #22c55e; }
+
+    .fix-code {
+        padding: 0.4rem 0.6rem;
+        margin: 0;
+        font-family: monospace;
+        font-size: 0.75rem;
+        color: var(--accent-color, #8b5cf6);
+        white-space: pre-wrap;
+        word-break: break-all;
+    }
+
+    /* Screen Reader Navigator */
+    .sr-navigator {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        outline: none;
+    }
+
+    .sr-nav-controls {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.5rem 0.75rem;
+        border-bottom: 1px solid var(--border-color);
+        flex-shrink: 0;
+    }
+
+    .sr-nav-btn {
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        border: 1px solid var(--border-color);
+        background: var(--bg-primary);
+        color: var(--text-primary);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.7rem;
+    }
+
+    .sr-nav-btn:hover:not(:disabled) { background: var(--bg-secondary); }
+    .sr-nav-btn:disabled { opacity: 0.3; cursor: default; }
+
+    .sr-nav-counter {
+        font-size: 0.8rem;
+        font-weight: 600;
+        min-width: 60px;
+        text-align: center;
+    }
+
+    .sr-nav-platform {
+        margin-left: auto;
+        font-size: 0.68rem;
+        color: var(--text-tertiary);
+        padding: 0.1rem 0.4rem;
+        border-radius: 4px;
+        background: var(--bg-secondary);
+    }
+
+    /* Announcement panel */
+    .sr-announcement-panel {
+        padding: 0.75rem;
+        border-bottom: 1px solid var(--border-color);
+        background: var(--bg-secondary);
+        flex-shrink: 0;
+    }
+
+    .sr-announced-label { margin-bottom: 0.3rem; }
+
+    .sr-spoken-text {
+        font-size: 1.1rem;
+        font-weight: 600;
+        color: var(--text-primary);
+    }
+
+    .sr-spoken-text.sr-no-label {
+        color: var(--text-tertiary);
+        font-style: italic;
+    }
+
+    .sr-current-role {
+        display: inline-block;
+        font-size: 0.7rem;
+        padding: 0.1rem 0.4rem;
+        border-radius: 4px;
+        background: rgba(139, 92, 246, 0.15);
+        color: var(--accent-color, #8b5cf6);
+        font-weight: 600;
+        margin-right: 0.3rem;
+    }
+
+    .sr-current-hint {
+        font-size: 0.78rem;
+        color: var(--text-tertiary);
+        font-style: italic;
+        margin-top: 0.3rem;
+    }
+
+    .sr-current-value {
+        font-size: 0.78rem;
+        color: var(--text-secondary);
+        margin-top: 0.2rem;
+    }
+
+    .sr-current-traits {
+        display: flex;
+        gap: 0.25rem;
+        flex-wrap: wrap;
+        margin-top: 0.3rem;
+    }
+
+    .sr-trait-badge {
+        font-size: 0.62rem;
+        padding: 0.05rem 0.3rem;
+        border-radius: 3px;
+        background: var(--bg-primary);
+        border: 1px solid var(--border-color);
+        color: var(--text-secondary);
+    }
+
+    .sr-heading-badge {
+        display: inline-block;
+        font-size: 0.62rem;
+        padding: 0.05rem 0.3rem;
+        border-radius: 3px;
+        background: rgba(59, 130, 246, 0.15);
+        color: #3b82f6;
+        font-weight: 700;
+        margin-top: 0.3rem;
+    }
+
+    /* Element details */
+    .sr-element-details {
+        padding: 0.4rem 0.75rem;
+        border-bottom: 1px solid var(--border-color);
+        flex-shrink: 0;
+    }
+
+    .sr-detail-row {
+        display: flex;
+        gap: 0.5rem;
+        font-size: 0.72rem;
+        padding: 0.1rem 0;
+    }
+
+    .sr-detail-key {
+        color: var(--text-tertiary);
+        min-width: 70px;
+    }
+
+    .sr-detail-value { color: var(--text-secondary); }
+
+    /* Element list */
+    .sr-element-list {
+        flex: 1;
+        overflow-y: auto;
+        padding: 0;
+    }
+
+    .sr-list-item {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.3rem 0.75rem;
+        font-size: 0.75rem;
+        border-bottom: 1px solid var(--border-color);
+        cursor: pointer;
+        transition: background 0.1s;
+    }
+
+    .sr-list-item:hover { background: var(--bg-secondary); }
+    .sr-list-item.active {
+        background: var(--bg-tertiary);
+        border-left: 3px solid var(--accent-color, #8b5cf6);
+    }
+
+    .sr-list-order {
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        background: var(--bg-secondary);
+        color: var(--text-secondary);
+        font-size: 0.6rem;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+    }
+
+    .sr-list-item.active .sr-list-order {
+        background: var(--accent-color, #8b5cf6);
+        color: white;
+    }
+
+    .sr-list-label {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: var(--text-primary);
+    }
+
+    .sr-list-role {
+        font-size: 0.65rem;
+        color: var(--text-tertiary);
+        flex-shrink: 0;
+    }
+
+    .sr-trait-badge.sr-trait-issue {
+        background: rgba(239, 68, 68, 0.15);
+        color: #ef4444;
+        border-color: rgba(239, 68, 68, 0.3);
+    }
+
+    .sr-list-item.has-issue { border-left: 3px solid #ef4444; }
+
+    /* Contrast view */
+    .contrast-list { padding: 0; }
+
+    .contrast-summary {
+        display: flex;
+        gap: 0.6rem;
+        padding: 0.5rem 0.75rem;
+        border-bottom: 1px solid var(--border-color);
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+
+    .contrast-stat.pass { color: #22c55e; }
+    .contrast-stat.fail { color: #ef4444; }
+    .contrast-stat.pass-aaa { color: #3b82f6; }
+
+    .contrast-row {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        padding: 0.4rem 0.75rem;
+        border-bottom: 1px solid var(--border-color);
+        cursor: pointer;
+        font-size: 0.78rem;
+        transition: background 0.15s;
+    }
+
+    .contrast-row:hover { background: var(--bg-secondary); }
+    .contrast-row.selected { background: var(--bg-tertiary); border-left: 3px solid var(--accent-color, #8b5cf6); }
+    .contrast-row.fail { border-left: 3px solid #ef4444; }
+    .contrast-row.selected.fail { border-left-color: var(--accent-color, #8b5cf6); }
+
+    .contrast-colors {
+        display: flex;
+        align-items: center;
+        gap: 0.25rem;
+        flex-shrink: 0;
+    }
+
+    .color-swatch {
+        width: 20px;
+        height: 20px;
+        border-radius: 4px;
+        border: 1px solid var(--border-color);
+    }
+
+    .color-on { font-size: 0.65rem; color: var(--text-tertiary); }
+
+    .contrast-info {
+        display: flex;
+        flex-direction: column;
+        gap: 0.15rem;
+        min-width: 90px;
+    }
+
+    .contrast-ratio { font-weight: 700; font-size: 0.82rem; }
+    .contrast-badges { display: flex; gap: 0.25rem; }
+
+    .badge {
+        font-size: 0.6rem;
+        padding: 0.05rem 0.3rem;
+        border-radius: 3px;
+        font-weight: 600;
+    }
+
+    .badge.pass { background: rgba(34, 197, 94, 0.15); color: #22c55e; }
+    .badge.fail { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
+    .badge.large { background: rgba(59, 130, 246, 0.1); color: #3b82f6; }
+
+    .contrast-element {
+        display: flex;
+        align-items: center;
+        gap: 0.3rem;
+        flex: 1;
+        min-width: 0;
+    }
+</style>

@@ -20,7 +20,8 @@ public class CopilotToolsService : ICopilotToolsService
     private readonly IProfilingArtifactAnalysisService _profilingArtifactAnalysisService;
     private readonly IProfilingContextService _profilingContextService;
     private readonly ILoggingService _logger;
-    
+    private readonly IDevFlowConnectionProvider _devFlow;
+
     private readonly List<CopilotTool> _tools = new();
     private readonly HashSet<string> _readOnlyToolNames = new();
 
@@ -33,7 +34,8 @@ public class CopilotToolsService : ICopilotToolsService
         IProfilingArtifactLibraryService profilingArtifactLibraryService,
         IProfilingArtifactAnalysisService profilingArtifactAnalysisService,
         IProfilingContextService profilingContextService,
-        ILoggingService logger)
+        ILoggingService logger,
+        IDevFlowConnectionProvider devFlow)
     {
         _appleService = appleService;
         _identityState = identityState;
@@ -44,7 +46,8 @@ public class CopilotToolsService : ICopilotToolsService
         _profilingArtifactAnalysisService = profilingArtifactAnalysisService;
         _profilingContextService = profilingContextService;
         _logger = logger;
-        
+        _devFlow = devFlow;
+
         InitializeTools();
     }
     
@@ -152,9 +155,9 @@ public class CopilotToolsService : ICopilotToolsService
             "List connected Android devices and running emulators."), isReadOnly: true);
 
         // Android System Images & Device Definitions
-        AddTool(AIFunctionFactory.Create(ListSystemImagesAsync, "list_system_images", 
+        AddTool(AIFunctionFactory.Create(ListSystemImagesAsync, "list_system_images",
             "List available Android system images for creating emulators."), isReadOnly: true);
-        AddTool(AIFunctionFactory.Create(ListDeviceDefinitionsAsync, "list_device_definitions", 
+        AddTool(AIFunctionFactory.Create(ListDeviceDefinitionsAsync, "list_device_definitions",
             "List available device definitions for creating emulators."), isReadOnly: true);
 
         // Profiling Tools
@@ -168,6 +171,14 @@ public class CopilotToolsService : ICopilotToolsService
             "Get a lightweight profiling snapshot for a running MAUI app using local status, network, and visual-tree summaries instead of raw trace uploads."), isReadOnly: true);
         AddTool(AIFunctionFactory.Create(AnalyzeProfilingArtifactAsync, "analyze_profiling_artifact",
             "Analyze a captured profiling artifact from Sherpa's artifact library and return a portable summary with hotspots, metrics, and insights."), isReadOnly: true);
+
+        // DevFlow App Inspector Tools
+        AddTool(AIFunctionFactory.Create(GetConnectedAppInfoAsync, "get_connected_app_info",
+            "Get information about the currently connected MAUI app (via DevFlow agent). Returns app name, host, and connection status."), isReadOnly: true);
+        AddTool(AIFunctionFactory.Create(GetAppScreenshotAsync, "get_app_screenshot",
+            "Capture a screenshot of the currently connected MAUI app. Returns a base64-encoded PNG image (data URI) so you can visually analyze the UI."), isReadOnly: true);
+        AddTool(AIFunctionFactory.Create(AuditAppAccessibilityAsync, "audit_app_accessibility",
+            "Run a full accessibility audit on the currently connected MAUI app. Returns structured data: element tree summary, WCAG rule violations (missing labels, contrast issues, touch targets, etc.), and a list of all accessible elements with their properties. Use this to identify WCAG 2.1 compliance issues and suggest fixes."), isReadOnly: true);
     }
 
     private string? CheckIdentitySelected()
@@ -1676,6 +1687,137 @@ public class CopilotToolsService : ICopilotToolsService
         }
 
         return JsonSerializer.Serialize(result.Analysis, new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    #endregion
+
+    #region DevFlow App Inspector Tools
+
+    private DevFlowAgentClient? GetActiveClient()
+    {
+        if (!_devFlow.IsConnected || string.IsNullOrEmpty(_devFlow.Host))
+            return null;
+        return new DevFlowAgentClient(_devFlow.Host, _devFlow.Port);
+    }
+
+    [Description("Get info about the currently connected MAUI app")]
+    private Task<string> GetConnectedAppInfoAsync()
+    {
+        _logger.LogDebug("Tool: get_connected_app_info called");
+        if (!_devFlow.IsConnected)
+            return Task.FromResult("No MAUI app is currently connected. Open DevFlow Inspector and connect to an app first.");
+
+        return Task.FromResult(JsonSerializer.Serialize(new
+        {
+            connected = true,
+            appName = _devFlow.AppName,
+            host = _devFlow.Host,
+            port = _devFlow.Port,
+        }, new JsonSerializerOptions { WriteIndented = true }));
+    }
+
+    [Description("Capture a screenshot of the connected MAUI app")]
+    private async Task<string> GetAppScreenshotAsync()
+    {
+        _logger.LogDebug("Tool: get_app_screenshot called");
+        var client = GetActiveClient();
+        if (client == null)
+            return "No MAUI app is currently connected.";
+
+        try
+        {
+            var bytes = await client.GetScreenshotAsync();
+            if (bytes == null || bytes.Length == 0)
+                return "Failed to capture screenshot.";
+            return $"data:image/png;base64,{Convert.ToBase64String(bytes)}";
+        }
+        catch (Exception ex)
+        {
+            return $"Screenshot failed: {ex.Message}";
+        }
+    }
+
+    [Description("Run a full WCAG accessibility audit on the connected MAUI app")]
+    private async Task<string> AuditAppAccessibilityAsync()
+    {
+        _logger.LogDebug("Tool: audit_app_accessibility called");
+        var client = GetActiveClient();
+        if (client == null)
+            return "No MAUI app is currently connected.";
+
+        try
+        {
+            // Fetch visual tree
+            var tree = await client.GetTreeAsync();
+
+            // Run rule-based audit
+            var auditService = new AccessibilityAuditService();
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            var result = await auditService.AuditAsync(tree, client, cts.Token);
+
+            // Build compact element summary for Claude (avoid huge payloads)
+            var elements = result.ScreenReaderOrder.Select(e => new
+            {
+                order = e.Order,
+                type = e.ElementType,
+                role = e.Role,
+                label = e.AnnouncedText,
+                hint = e.Hint,
+                isInteractive = e.IsInteractive,
+                isHeading = e.HeadingLevel != null,
+                hasIssue = e.HasIssue,
+                bounds = e.WindowBounds != null
+                    ? $"{e.WindowBounds.Width:F0}x{e.WindowBounds.Height:F0}"
+                    : null,
+            }).ToList();
+
+            // Issues summary
+            var issues = result.Issues.Select(i => new
+            {
+                ruleId = i.RuleId,
+                rule = i.RuleName,
+                severity = i.Severity.ToString(),
+                element = i.ElementType,
+                text = i.ElementText,
+                automationId = i.AutomationId,
+                message = i.Message,
+                suggestion = i.Suggestion,
+            }).ToList();
+
+            // Contrast results
+            var contrast = result.ContrastResults.Select(c => new
+            {
+                element = c.ElementType,
+                text = c.ElementText,
+                ratio = Math.Round(c.ContrastRatio, 2),
+                fg = c.ForegroundColor,
+                bg = c.BackgroundColor,
+                passesAA = c.PassesAA,
+                passesAAA = c.PassesAAA,
+            }).ToList();
+
+            return JsonSerializer.Serialize(new
+            {
+                app = _devFlow.AppName,
+                score = result.Score,
+                totalElements = result.TotalElements,
+                accessibleElements = elements.Count,
+                issueCount = new
+                {
+                    errors = result.ErrorCount,
+                    warnings = result.WarningCount,
+                    info = result.InfoCount,
+                },
+                issues,
+                elements,
+                contrast,
+                note = "The 'elements' list shows what a screen reader would announce. The 'issues' list shows rule-based WCAG violations. Use your knowledge of WCAG 2.1 to identify additional issues beyond these rules.",
+            }, new JsonSerializerOptions { WriteIndented = true });
+        }
+        catch (Exception ex)
+        {
+            return $"Audit failed: {ex.Message}";
+        }
     }
 
     #endregion

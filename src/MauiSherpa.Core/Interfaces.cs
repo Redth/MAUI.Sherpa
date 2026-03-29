@@ -2548,6 +2548,18 @@ public record CopilotTool(Microsoft.Extensions.AI.AIFunction Function, bool IsRe
 }
 
 /// <summary>
+/// Provides access to the currently active DevFlow agent connection (host/port).
+/// Implemented in the platform project to avoid circular dependencies.
+/// </summary>
+public interface IDevFlowConnectionProvider
+{
+    bool IsConnected { get; }
+    string? Host { get; }
+    int Port { get; }
+    string? AppName { get; }
+}
+
+/// <summary>
 /// Service that provides Copilot SDK tool definitions for Apple Developer operations
 /// </summary>
 public interface ICopilotToolsService

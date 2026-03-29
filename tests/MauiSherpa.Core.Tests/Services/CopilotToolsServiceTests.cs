@@ -19,7 +19,8 @@ public class CopilotToolsServiceTests
             new Mock<IProfilingArtifactLibraryService>().Object,
             new Mock<IProfilingArtifactAnalysisService>().Object,
             new Mock<IProfilingContextService>().Object,
-            new Mock<ILoggingService>().Object);
+            new Mock<ILoggingService>().Object,
+            new Mock<IDevFlowConnectionProvider>().Object);
 
         sut.GetTool("get_profiling_catalog").Should().NotBeNull();
         sut.GetTool("list_profiling_targets").Should().NotBeNull();

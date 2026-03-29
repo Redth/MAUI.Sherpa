@@ -105,6 +105,7 @@ public static class MacOSMauiProgram
         builder.Services.AddSingleton<IProfilingArtifactAnalysisService, ProfilingArtifactAnalysisService>();
         builder.Services.AddSingleton<IAndroidDeviceToolsService, AndroidDeviceToolsService>();
         builder.Services.AddSingleton<IFirebasePushService, FirebasePushService>();
+        builder.Services.AddSingleton<IDevFlowConnectionProvider, DevFlowConnectionProvider>();
         builder.Services.AddSingleton<DeviceInspectorService>();
         builder.Services.AddSingleton<DevFlowInspectorService>();
         builder.Services.AddSingleton<ProfilingViewerService>();

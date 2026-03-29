@@ -41,6 +41,9 @@
             <button class="tab-btn @(activeTab == "platform" ? "active" : "")" @onclick='@(() => SwitchTab("platform"))'>
                 <i class="fas fa-microchip"></i> Platform
             </button>
+            <button class="tab-btn @(activeTab == "accessibility" ? "active" : "")" @onclick='@(() => SwitchTab("accessibility"))'>
+                <i class="fas fa-universal-access"></i> Accessibility
+            </button>
             <button class="tab-btn refresh-btn" @onclick="ReconnectAsync" title="Reconnect to agent">
                 <i class="fas fa-arrows-rotate @(isReconnecting ? "fa-spin" : "")"></i>
             </button>
@@ -77,6 +80,9 @@
                 case "platform":
                     <DevFlowPlatformTab Client="@client" AgentVersion="@agentStatus?.Version" />
                     break;
+                case "accessibility":
+                    <DevFlowAccessibilityTab Client="@client" />
+                    break;
             }
         }
     </div>
@@ -99,7 +105,7 @@
     private string activeTab = "tree";
     private static readonly HashSet<string> ValidTabs = new(StringComparer.OrdinalIgnoreCase)
     {
-        "tree", "network", "profiling", "webview", "logs", "platform"
+        "tree", "network", "profiling", "webview", "logs", "platform", "accessibility"
     };
     private bool isConnected;
     private bool isReconnecting;
