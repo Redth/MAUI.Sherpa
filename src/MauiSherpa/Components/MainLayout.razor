@@ -158,6 +158,8 @@
     protected override void OnInitialized()
     {
         ThemeService.ThemeChanged += OnThemeChanged;
+        if (PlatformInfo.IsWindows)
+            ToolbarService.NavigationRequested += OnNavigationRequested;
     }
     
     protected override void OnAfterRender(bool firstRender)
@@ -263,6 +265,8 @@
     {
         ThemeService.ThemeChanged -= OnThemeChanged;
         NavManager.LocationChanged -= OnLocationChanged;
+        if (PlatformInfo.IsWindows)
+            ToolbarService.NavigationRequested -= OnNavigationRequested;
     }
 
     private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
@@ -271,6 +275,11 @@
         var route = uri.AbsolutePath;
         if (string.IsNullOrEmpty(route)) route = "/";
         ToolbarService.NotifyRouteChanged(route);
+    }
+
+    private void OnNavigationRequested(string route)
+    {
+        InvokeAsync(() => NavManager.NavigateTo(route));
     }
 
     private void OpenCopilot() => CopilotContext.OpenOverlay();

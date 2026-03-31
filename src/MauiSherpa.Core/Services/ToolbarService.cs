@@ -103,4 +103,11 @@ public class ToolbarService : IToolbarService
         IsToolbarSuppressed = suppressed;
         ToolbarChanged?.Invoke();
     }
+
+    public event Action<string>? NavigationRequested;
+
+    public void RequestNavigation(string route)
+    {
+        NavigationRequested?.Invoke(route);
+    }
 }
