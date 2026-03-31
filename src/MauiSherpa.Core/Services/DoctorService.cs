@@ -18,6 +18,7 @@ public class DoctorService : IDoctorService
     private readonly IAndroidSdkService _androidSdkService;
     private readonly ILoggingService _loggingService;
     private readonly IOpenJdkSettingsService _jdkSettingsService;
+    private readonly IAndroidSdkSettingsService? _androidSdkSettingsService;
     private readonly IDebugFlagService? _debugFlags;
     private readonly ILogger<DoctorService> _logger;
     private readonly ILoggerFactory _loggerFactory;
@@ -29,12 +30,13 @@ public class DoctorService : IDoctorService
     private WorkloadSetService? _workloadSetService;
     private SdkVersionService? _sdkVersionService;
     
-    public DoctorService(IAndroidSdkService androidSdkService, ILoggingService loggingService, IOpenJdkSettingsService jdkSettingsService, ILoggerFactory? loggerFactory = null, IDebugFlagService? debugFlags = null)
+    public DoctorService(IAndroidSdkService androidSdkService, ILoggingService loggingService, IOpenJdkSettingsService jdkSettingsService, ILoggerFactory? loggerFactory = null, IDebugFlagService? debugFlags = null, IAndroidSdkSettingsService? androidSdkSettingsService = null)
     {
         _androidSdkService = androidSdkService;
         _loggingService = loggingService;
         _jdkSettingsService = jdkSettingsService;
         _debugFlags = debugFlags;
+        _androidSdkSettingsService = androidSdkSettingsService;
         _loggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
         _logger = _loggerFactory.CreateLogger<DoctorService>();
     }
@@ -1037,7 +1039,15 @@ public class DoctorService : IDoctorService
             if (dependency.FixAction == "install-android-sdk")
             {
                 progress?.Report("Acquiring Android SDK...");
-                return await _androidSdkService.AcquireSdkAsync(progress: progress);
+                var acquired = await _androidSdkService.AcquireSdkAsync(progress: progress);
+                
+                if (acquired && _androidSdkSettingsService != null && !string.IsNullOrEmpty(_androidSdkService.SdkPath))
+                {
+                    await _androidSdkSettingsService.SetCustomSdkPathAsync(_androidSdkService.SdkPath);
+                    progress?.Report($"SDK path saved: {_androidSdkService.SdkPath}");
+                }
+                
+                return acquired;
             }
             
             if (dependency.FixAction == "install-workloads")

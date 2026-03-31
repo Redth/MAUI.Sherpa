@@ -297,6 +297,7 @@ public class AndroidSdkService : IAndroidSdkService
                 
                 progress?.Report($"Android SDK installed at: {targetPath}");
                 _logger.LogInformation($"Acquired Android SDK at: {targetPath}");
+                SdkPathChanged?.Invoke();
                 return true;
             }
             catch (Exception ex)
