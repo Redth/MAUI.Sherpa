@@ -158,6 +158,7 @@
     protected override void OnInitialized()
     {
         ThemeService.ThemeChanged += OnThemeChanged;
+        ToolbarService.NavigationRequested += OnNavigationRequested;
     }
     
     protected override void OnAfterRender(bool firstRender)
@@ -263,6 +264,7 @@
     {
         ThemeService.ThemeChanged -= OnThemeChanged;
         NavManager.LocationChanged -= OnLocationChanged;
+        ToolbarService.NavigationRequested -= OnNavigationRequested;
     }
 
     private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
@@ -274,6 +276,11 @@
     }
 
     private void OpenCopilot() => CopilotContext.OpenOverlay();
+
+    private void OnNavigationRequested(string route)
+    {
+        _ = InvokeAsync(() => NavManager.NavigateTo(route));
+    }
 }
 
 <style>

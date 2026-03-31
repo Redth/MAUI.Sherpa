@@ -121,12 +121,24 @@ public class LinuxToolbarManager
         _copilotButton.OnClicked += (s, _) => _copilotContext.ToggleOverlay();
         _headerBar.PackStart(_copilotButton);
 
-        // Settings gear button on the right side
+        // Settings gear button beside copilot
         var settingsButton = Gtk.Button.New();
         settingsButton.SetIconName("emblem-system-symbolic");
         settingsButton.SetTooltipText("Settings");
         settingsButton.OnClicked += (s, _) => OpenSettingsDialog();
-        _headerBar.PackEnd(settingsButton);
+        _headerBar.PackStart(settingsButton);
+
+        // Doctor button beside settings
+        var doctorButton = Gtk.Button.New();
+        var doctorIconName = _themeService.IsDarkMode ? "fa-stethoscope-white-24.png" : "fa-stethoscope-24.png";
+        var doctorIconPath = System.IO.Path.Combine(AppContext.BaseDirectory, "Resources", doctorIconName);
+        if (System.IO.File.Exists(doctorIconPath))
+            doctorButton.SetChild(Gtk.Image.NewFromFile(doctorIconPath));
+        else
+            doctorButton.SetIconName("dialog-information-symbolic");
+        doctorButton.SetTooltipText("Doctor");
+        doctorButton.OnClicked += (s, _) => _toolbarService.RequestNavigation("/doctor");
+        _headerBar.PackStart(doctorButton);
 
         _window.SetTitlebar(_headerBar);
     }
