@@ -159,6 +159,22 @@ public class WindowsTitleBarManager
         leading.Children.Add(copilotBtn);
         _titleBar.PassthroughElements.Add(copilotBtn);
 
+        // Doctor button
+        var doctorBtn = CreateSidebarButton(FluentIcons.Stethoscope20, "Doctor");
+        var doctorTap = new TapGestureRecognizer();
+        doctorTap.Tapped += (s, e) => _toolbarService.RequestNavigation("/doctor");
+        doctorBtn.GestureRecognizers.Add(doctorTap);
+        leading.Children.Add(doctorBtn);
+        _titleBar.PassthroughElements.Add(doctorBtn);
+
+        // Settings button
+        var settingsBtn = CreateSidebarButton(FluentIcons.Settings20, "Settings");
+        var settingsTap = new TapGestureRecognizer();
+        settingsTap.Tapped += (s, e) => _ = OpenSettingsDialogAsync();
+        settingsBtn.GestureRecognizers.Add(settingsTap);
+        leading.Children.Add(settingsBtn);
+        _titleBar.PassthroughElements.Add(settingsBtn);
+
         // Spacer to push remaining items past sidebar width
         leading.Children.Add(new BoxView
         {
@@ -349,6 +365,41 @@ public class WindowsTitleBarManager
             }
 #endif
         };
+
+        return btn;
+    }
+
+    private Border CreateSidebarButton(FluentIcons icon, string tooltip)
+    {
+        var glyph = GetEnumDescription(icon);
+
+        var btn = new Border
+        {
+            BackgroundColor = Colors.Transparent,
+            StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 6 },
+            Stroke = Colors.Transparent,
+            Padding = new Thickness(6, 4),
+            VerticalOptions = LayoutOptions.Center,
+            Content = new Label
+            {
+                Text = glyph,
+                FontFamily = "FluentIcons",
+                FontSize = 20,
+                TextColor = Colors.White,
+                VerticalOptions = LayoutOptions.Center,
+                HorizontalOptions = LayoutOptions.Center,
+                VerticalTextAlignment = TextAlignment.Center,
+                HorizontalTextAlignment = TextAlignment.Center,
+            }
+        };
+        ToolTipProperties.SetText(btn, tooltip);
+
+        var pointerEnter = new PointerGestureRecognizer();
+        pointerEnter.PointerEntered += (s, e) => btn.BackgroundColor = BgControlHover;
+        var pointerExit = new PointerGestureRecognizer();
+        pointerExit.PointerExited += (s, e) => btn.BackgroundColor = Colors.Transparent;
+        btn.GestureRecognizers.Add(pointerEnter);
+        btn.GestureRecognizers.Add(pointerExit);
 
         return btn;
     }
