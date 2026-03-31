@@ -3671,6 +3671,10 @@ public interface IToolbarService
     bool IsToolbarSuppressed { get; }
     /// <summary>Temporarily suppress/unsuppress the toolbar. Fires ToolbarChanged.</summary>
     void SetToolbarSuppressed(bool suppressed);
+    /// <summary>Fired when native UI requests Blazor route navigation.</summary>
+    event Action<string>? NavigationRequested;
+    /// <summary>Request navigation to a Blazor route from native UI.</summary>
+    void RequestNavigation(string route);
 }
 
 /// <summary>
