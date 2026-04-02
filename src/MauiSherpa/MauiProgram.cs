@@ -125,6 +125,7 @@ public static class MauiProgram
         builder.Services.AddSingleton<IFirebasePushService, FirebasePushService>();
         builder.Services.AddSingleton<DeviceInspectorService>();
         builder.Services.AddSingleton<DevFlowInspectorService>();
+        builder.Services.AddSingleton<IDevFlowConnectionProvider, DevFlowConnectionProvider>();
         builder.Services.AddSingleton<IDebugFlagService, DebugFlagService>();
         builder.Services.AddSingleton<IDoctorService, DoctorService>();
         builder.Services.AddSingleton<IProfilingContextService, ProfilingContextService>();
