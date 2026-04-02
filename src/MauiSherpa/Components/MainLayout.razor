@@ -279,6 +279,19 @@
 
     private void OnNavigationRequested(string route)
     {
+        // Defensively validate/normalize the route coming from native UI
+        if (string.IsNullOrWhiteSpace(route))
+        {
+            return;
+        }
+
+        route = route.Trim();
+
+        // Reject absolute URIs/schemes to avoid accidental external navigation
+        if (Uri.TryCreate(route, UriKind.Absolute, out _))
+        {
+            return;
+        }
         _ = InvokeAsync(() => NavManager.NavigateTo(route));
     }
 }
