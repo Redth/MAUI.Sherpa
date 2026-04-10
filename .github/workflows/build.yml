@@ -6,6 +6,7 @@ on:
     tags: [ 'v*' ]
   pull_request:
     branches: [ main ]
+    types: [ opened, synchronize, reopened, labeled ]
   workflow_dispatch:
     inputs:
       publish_artifacts:
@@ -70,7 +71,10 @@ jobs:
     name: Publish macOS App
     runs-on: macos-26
     needs: build-test
-    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish_artifacts)
+    if: >-
+      github.event_name == 'push'
+      || (github.event_name == 'workflow_dispatch' && inputs.publish_artifacts)
+      || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'build-artifacts'))
     permissions:
       statuses: write
 
@@ -355,7 +359,10 @@ jobs:
     name: Publish Windows App
     runs-on: windows-latest
     needs: build-test
-    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish_artifacts)
+    if: >-
+      github.event_name == 'push'
+      || (github.event_name == 'workflow_dispatch' && inputs.publish_artifacts)
+      || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'build-artifacts'))
     permissions:
       statuses: write
 
@@ -469,7 +476,10 @@ jobs:
     name: Publish Linux App (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
     needs: build-test
-    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish_artifacts)
+    if: >-
+      github.event_name == 'push'
+      || (github.event_name == 'workflow_dispatch' && inputs.publish_artifacts)
+      || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'build-artifacts'))
     permissions:
       statuses: write
     strategy:
