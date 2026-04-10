@@ -167,6 +167,7 @@ jobs:
 
           DEST_APP="./artifacts/macos/MAUI Sherpa.app"
           BINARY_NAME="MauiSherpa.MacOS"
+          MONO_BUNDLE="$DEST_APP/Contents/MonoBundle"
 
           # Create universal binary with lipo
           lipo -create \
@@ -175,6 +176,7 @@ jobs:
             -output "$DEST_APP/Contents/MacOS/$BINARY_NAME"
 
           # Merge any native dylibs that differ between architectures
+          LIPO_FAILURES=0
           find "$ARM64_APP/Contents" -name "*.dylib" | while read -r arm64_lib; do
             rel_path="${arm64_lib#$ARM64_APP/}"
             x64_lib="$X64_APP/$rel_path"
@@ -183,18 +185,74 @@ jobs:
               arm64_arch=$(lipo -info "$arm64_lib" 2>/dev/null | grep -o 'arm64' || true)
               x64_arch=$(lipo -info "$x64_lib" 2>/dev/null | grep -o 'x86_64' || true)
               if [ -n "$arm64_arch" ] && [ -n "$x64_arch" ]; then
-                lipo -create "$arm64_lib" "$x64_lib" -output "$dest_lib" 2>/dev/null || true
+                if ! lipo -create "$arm64_lib" "$x64_lib" -output "$dest_lib" 2>/dev/null; then
+                  echo "::warning::Failed to lipo $rel_path"
+                  LIPO_FAILURES=$((LIPO_FAILURES + 1))
+                fi
               fi
             fi
           done
 
-            # Preserve runtime-specific files that aren't part of the lipo merge, such as
-            # the Copilot CLI and bundled unxip helper under Contents/MonoBundle/runtimes/osx-x64/native/.
-            if [ -d "$X64_APP/Contents/MonoBundle/runtimes" ]; then
-              mkdir -p "$DEST_APP/Contents/MonoBundle/runtimes"
-              cp -R "$X64_APP/Contents/MonoBundle/runtimes/." "$DEST_APP/Contents/MonoBundle/runtimes/"
-              find "$DEST_APP/Contents/MonoBundle/runtimes" \( -name "copilot" -o -name "unxip" \) -type f -exec chmod +x {} \;
+          # Also merge any x64-only dylibs not present in the arm64 build
+          find "$X64_APP/Contents" -name "*.dylib" | while read -r x64_lib; do
+            rel_path="${x64_lib#$X64_APP/}"
+            arm64_lib="$ARM64_APP/$rel_path"
+            dest_lib="$DEST_APP/$rel_path"
+            if [ ! -f "$arm64_lib" ] && [ ! -f "$dest_lib" ]; then
+              mkdir -p "$(dirname "$dest_lib")"
+              cp "$x64_lib" "$dest_lib"
+              echo "Copied x64-only dylib: $rel_path"
             fi
+          done
+
+          # Copy the x64 RID-specific managed assemblies and resources.
+          # The .NET MAUI bootstrapper probes .xamarin/<RUNTIMEIDENTIFIER>/ for
+          # RID-specific assemblies; without this the x64 slice cannot find them
+          # and coreclr_initialize fails with "Failed to initialize the VM".
+          if [ -d "$X64_APP/Contents/MonoBundle/.xamarin" ]; then
+            mkdir -p "$MONO_BUNDLE/.xamarin"
+            cp -R "$X64_APP/Contents/MonoBundle/.xamarin/." "$MONO_BUNDLE/.xamarin/"
+            echo "Copied x64 .xamarin/ directory"
+          fi
+
+          # Preserve runtime-specific files that aren't part of the lipo merge, such as
+          # the Copilot CLI and bundled unxip helper under Contents/MonoBundle/runtimes/osx-x64/native/.
+          if [ -d "$X64_APP/Contents/MonoBundle/runtimes" ]; then
+            mkdir -p "$MONO_BUNDLE/runtimes"
+            cp -R "$X64_APP/Contents/MonoBundle/runtimes/." "$MONO_BUNDLE/runtimes/"
+            find "$MONO_BUNDLE/runtimes" \( -name "copilot" -o -name "unxip" \) -type f -exec chmod +x {} \;
+          fi
+
+          # Merge deps.json so that both osx-arm64 and osx-x64 targets are present.
+          # When the x64 slice runs, coreclr uses the RUNTIME_IDENTIFIER property
+          # to select the matching target from deps.json; without an osx-x64 target
+          # the dependency resolution can fail.
+          ARM64_DEPS="$ARM64_APP/Contents/MonoBundle/$BINARY_NAME.deps.json"
+          X64_DEPS="$X64_APP/Contents/MonoBundle/$BINARY_NAME.deps.json"
+          DEST_DEPS="$MONO_BUNDLE/$BINARY_NAME.deps.json"
+          if [ -f "$ARM64_DEPS" ] && [ -f "$X64_DEPS" ]; then
+            python3 - "$ARM64_DEPS" "$X64_DEPS" "$DEST_DEPS" << 'PYEOF'
+          import json, sys
+          arm64_path, x64_path, dest_path = sys.argv[1], sys.argv[2], sys.argv[3]
+          with open(arm64_path) as f: arm64 = json.load(f)
+          with open(x64_path) as f: x64 = json.load(f)
+          merged = dict(arm64)
+          # Add x64 targets alongside arm64 targets
+          for key, val in x64.get("targets", {}).items():
+              if key not in merged.get("targets", {}):
+                  merged["targets"][key] = val
+          # Add x64 libraries alongside arm64 libraries
+          for key, val in x64.get("libraries", {}).items():
+              if key not in merged.get("libraries", {}):
+                  merged["libraries"][key] = val
+          # Merge runtimes entries
+          for key, val in x64.get("runtimes", {}).items():
+              if key not in merged.get("runtimes", {}):
+                  merged.setdefault("runtimes", {})[key] = val
+          with open(dest_path, "w") as f: json.dump(merged, f, indent=2)
+          print("Merged deps.json with both architecture targets")
+          PYEOF
+          fi
 
           echo "Universal binary created:"
           lipo -info "$DEST_APP/Contents/MacOS/$BINARY_NAME"
