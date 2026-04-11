@@ -188,13 +188,59 @@ jobs:
             fi
           done
 
-            # Preserve runtime-specific files that aren't part of the lipo merge, such as
-            # the Copilot CLI and bundled unxip helper under Contents/MonoBundle/runtimes/osx-x64/native/.
-            if [ -d "$X64_APP/Contents/MonoBundle/runtimes" ]; then
-              mkdir -p "$DEST_APP/Contents/MonoBundle/runtimes"
-              cp -R "$X64_APP/Contents/MonoBundle/runtimes/." "$DEST_APP/Contents/MonoBundle/runtimes/"
-              find "$DEST_APP/Contents/MonoBundle/runtimes" \( -name "copilot" -o -name "unxip" \) -type f -exec chmod +x {} \;
+          # Handle architecture-specific managed assemblies (.dll files).
+          # dotnet publish produces DLLs with ReadyToRun native code for the target
+          # architecture. The PE header machine field != 0x14c (IL-only) for these.
+          # The macOS bootstrapper adds both MonoBundle/ and .xamarin/<RID>/ to the
+          # Trusted Platform Assemblies list. By moving arch-specific DLLs out of
+          # MonoBundle into .xamarin/<RID>/ directories, each architecture loads only
+          # compatible assemblies.
+          MONO="$DEST_APP/Contents/MonoBundle"
+          mkdir -p "$MONO/.xamarin/osx-arm64"
+          mkdir -p "$MONO/.xamarin/osx-x64"
+
+          for dll in "$MONO"/*.dll; do
+            [ -f "$dll" ] || continue
+            name=$(basename "$dll")
+            # Read PE machine type: offset 0x3C has PE header offset, then +4 for signature, +0 for machine
+            machine=$(python3 -c "
+          import struct, sys
+          with open(sys.argv[1], 'rb') as f:
+              sig = f.read(2)
+              if sig != b'MZ':
+                  print('0')
+                  sys.exit()
+              f.seek(0x3c)
+              pe_off = struct.unpack('<I', f.read(4))[0]
+              f.seek(pe_off + 4)
+              print(struct.unpack('<H', f.read(2))[0])
+          " "$dll" 2>/dev/null || echo "0")
+
+            # 0x14c (332) = IL-only (works on any architecture) — leave in MonoBundle
+            # 0 = unreadable/unknown — also leave in MonoBundle
+            if [ "$machine" != "332" ] && [ "$machine" != "0" ]; then
+              # Architecture-specific DLL: move arm64 version to .xamarin/osx-arm64/
+              mv "$dll" "$MONO/.xamarin/osx-arm64/$name"
+              # Copy x64 version to .xamarin/osx-x64/
+              x64_dll="$X64_APP/Contents/MonoBundle/$name"
+              if [ -f "$x64_dll" ]; then
+                cp "$x64_dll" "$MONO/.xamarin/osx-x64/$name"
+              fi
             fi
+          done
+
+          ARM64_COUNT=$(ls "$MONO/.xamarin/osx-arm64/"*.dll 2>/dev/null | wc -l | tr -d ' ')
+          X64_COUNT=$(ls "$MONO/.xamarin/osx-x64/"*.dll 2>/dev/null | wc -l | tr -d ' ')
+          echo "Moved $ARM64_COUNT arch-specific DLLs to .xamarin/osx-arm64/"
+          echo "Copied $X64_COUNT arch-specific DLLs to .xamarin/osx-x64/"
+
+          # Preserve runtime-specific files that aren't part of the lipo merge, such as
+          # the Copilot CLI and bundled unxip helper under Contents/MonoBundle/runtimes/osx-x64/native/.
+          if [ -d "$X64_APP/Contents/MonoBundle/runtimes" ]; then
+            mkdir -p "$DEST_APP/Contents/MonoBundle/runtimes"
+            cp -R "$X64_APP/Contents/MonoBundle/runtimes/." "$DEST_APP/Contents/MonoBundle/runtimes/"
+            find "$DEST_APP/Contents/MonoBundle/runtimes" \( -name "copilot" -o -name "unxip" \) -type f -exec chmod +x {} \;
+          fi
 
           echo "Universal binary created:"
           lipo -info "$DEST_APP/Contents/MacOS/$BINARY_NAME"
