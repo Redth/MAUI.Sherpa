@@ -116,6 +116,11 @@ public class DeviceMonitorService : IDeviceMonitorService, IDisposable
             {
                 break;
             }
+            catch (FileNotFoundException)
+            {
+                // xcdevice not found — no point retrying until app restart
+                break;
+            }
             catch (Exception ex)
             {
                 _logger.LogWarning($"xcdevice observe error: {ex.Message}. Reconnecting in 5s...");
@@ -132,7 +137,9 @@ public class DeviceMonitorService : IDeviceMonitorService, IDisposable
         if (xcdevicePath == null)
         {
             _logger.LogWarning("xcdevice not found. Apple device monitoring disabled.");
-            return;
+            // Throw so the caller's catch block applies the 5s retry delay
+            // instead of tight-looping when xcdevice is missing.
+            throw new FileNotFoundException("xcdevice not found");
         }
 
         var psi = new ProcessStartInfo
