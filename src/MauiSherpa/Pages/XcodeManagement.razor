@@ -52,6 +52,24 @@ else
         </div>
     }
 
+    @if (!ViewModel.IsAuthenticated)
+    {
+        <div class="auth-banner">
+            <div class="auth-banner-icon">
+                <i class="fas fa-user-lock"></i>
+            </div>
+            <div class="auth-banner-content">
+                <strong>Sign in with your Apple ID to download Xcode and simulator runtimes</strong>
+                <p>Some Xcode Management tasks require an Apple Developer sign-in, including downloading Xcode and installing simulator runtimes from Apple.</p>
+            </div>
+            <div class="auth-banner-actions">
+                <button class="btn btn-primary" @onclick="OpenAuthModal">
+                    <i class="fas fa-lock-open"></i> Sign In
+                </button>
+            </div>
+        </div>
+    }
+
     <div class="tabs">
         <button class="tab @(activeTab == "installed" ? "active" : "")" @onclick="@(() => SwitchTab("installed"))">
             <i class="fas fa-hdd"></i> Installed (@ViewModel.InstalledXcodes.Count)
@@ -577,6 +595,47 @@ else
         gap: 0.375rem;
     }
 
+    .auth-banner {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        padding: 1rem 1.25rem;
+        margin-bottom: 1rem;
+        background: var(--status-warning-bg);
+        color: var(--status-warning-text);
+        border-radius: var(--card-radius);
+    }
+
+    .auth-banner-icon {
+        font-size: 1.5rem;
+        color: var(--accent-warning);
+        flex-shrink: 0;
+    }
+
+    .auth-banner-content {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+        min-width: 0;
+    }
+
+    .auth-banner-content strong {
+        color: var(--status-warning-text);
+    }
+
+    .auth-banner-content p {
+        margin: 0;
+        font-size: 0.875rem;
+        color: var(--status-warning-text);
+    }
+
+    .auth-banner-actions {
+        margin-left: auto;
+        display: flex;
+        align-items: center;
+        flex-shrink: 0;
+    }
+
     .toolbar {
         margin-bottom: 1rem;
         display: flex;
@@ -586,6 +645,17 @@ else
 
     .toolbar-spacer {
         flex: 1;
+    }
+
+    @@media (max-width: 800px) {
+        .auth-banner {
+            flex-direction: column;
+            align-items: flex-start;
+        }
+
+        .auth-banner-actions {
+            margin-left: 0;
+        }
     }
 
     /* Tabs */
