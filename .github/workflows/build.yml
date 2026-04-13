@@ -6,6 +6,7 @@ on:
     tags: [ 'v*' ]
   pull_request:
     branches: [ main ]
+    types: [ opened, synchronize, reopened, labeled ]
   workflow_dispatch:
     inputs:
       publish_artifacts:
@@ -70,7 +71,10 @@ jobs:
     name: Publish macOS App
     runs-on: macos-26
     needs: build-test
-    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish_artifacts)
+    if: >-
+      github.event_name == 'push'
+      || (github.event_name == 'workflow_dispatch' && inputs.publish_artifacts)
+      || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'build-artifacts'))
     permissions:
       statuses: write
 
@@ -175,7 +179,8 @@ jobs:
             -output "$DEST_APP/Contents/MacOS/$BINARY_NAME"
 
           # Merge any native dylibs that differ between architectures
-          find "$ARM64_APP/Contents" -name "*.dylib" | while read -r arm64_lib; do
+          LIPO_FAILURES=0
+          while IFS= read -r arm64_lib; do
             rel_path="${arm64_lib#$ARM64_APP/}"
             x64_lib="$X64_APP/$rel_path"
             dest_lib="$DEST_APP/$rel_path"
@@ -183,18 +188,108 @@ jobs:
               arm64_arch=$(lipo -info "$arm64_lib" 2>/dev/null | grep -o 'arm64' || true)
               x64_arch=$(lipo -info "$x64_lib" 2>/dev/null | grep -o 'x86_64' || true)
               if [ -n "$arm64_arch" ] && [ -n "$x64_arch" ]; then
-                lipo -create "$arm64_lib" "$x64_lib" -output "$dest_lib" 2>/dev/null || true
+                if ! lipo -create "$arm64_lib" "$x64_lib" -output "$dest_lib" 2>/dev/null; then
+                  echo "::warning::lipo failed for $rel_path"
+                  LIPO_FAILURES=$((LIPO_FAILURES + 1))
+                fi
+              fi
+            fi
+          done < <(find "$ARM64_APP/Contents" -name "*.dylib")
+          if [ "$LIPO_FAILURES" -gt 0 ]; then
+            echo "::warning::$LIPO_FAILURES dylib(s) failed lipo merge"
+          fi
+
+          # Copy x64-only dylibs not present in arm64 build
+          find "$X64_APP/Contents" -name "*.dylib" | while read -r x64_lib; do
+            rel_path="${x64_lib#$X64_APP/}"
+            arm64_lib="$ARM64_APP/$rel_path"
+            dest_lib="$DEST_APP/$rel_path"
+            if [ ! -f "$arm64_lib" ] && [ ! -f "$dest_lib" ]; then
+              mkdir -p "$(dirname "$dest_lib")"
+              cp "$x64_lib" "$dest_lib"
+              echo "Copied x64-only dylib: $rel_path"
+            fi
+          done
+
+          # Handle architecture-specific managed assemblies (.dll files).
+          # dotnet publish produces DLLs with ReadyToRun native code for the target
+          # architecture. The PE header machine field != 0x14c (IL-only) for these.
+          # The macOS bootstrapper adds both MonoBundle/ and .xamarin/<RID>/ to the
+          # Trusted Platform Assemblies list. By moving arch-specific DLLs out of
+          # MonoBundle into .xamarin/<RID>/ directories, each architecture loads only
+          # compatible assemblies.
+          MONO="$DEST_APP/Contents/MonoBundle"
+          mkdir -p "$MONO/.xamarin/osx-arm64"
+          mkdir -p "$MONO/.xamarin/osx-x64"
+
+          for dll in "$MONO"/*.dll; do
+            [ -f "$dll" ] || continue
+            name=$(basename "$dll")
+            # Read PE machine type: offset 0x3C has PE header offset, then +4 for signature, +0 for machine
+            machine=$(python3 -c "
+          import struct, sys
+          with open(sys.argv[1], 'rb') as f:
+              sig = f.read(2)
+              if sig != b'MZ':
+                  print('0')
+                  sys.exit()
+              f.seek(0x3c)
+              pe_off = struct.unpack('<I', f.read(4))[0]
+              f.seek(pe_off + 4)
+              print(struct.unpack('<H', f.read(2))[0])
+          " "$dll" 2>/dev/null || echo "0")
+
+            # 0x14c (332) = IL-only (works on any architecture) — leave in MonoBundle
+            # 0 = unreadable/unknown — also leave in MonoBundle
+            if [ "$machine" != "332" ] && [ "$machine" != "0" ]; then
+              # Architecture-specific DLL: move arm64 version to .xamarin/osx-arm64/
+              mv "$dll" "$MONO/.xamarin/osx-arm64/$name"
+              # Copy x64 version to .xamarin/osx-x64/
+              x64_dll="$X64_APP/Contents/MonoBundle/$name"
+              if [ -f "$x64_dll" ]; then
+                cp "$x64_dll" "$MONO/.xamarin/osx-x64/$name"
               fi
             fi
           done
 
-            # Preserve runtime-specific files that aren't part of the lipo merge, such as
-            # the Copilot CLI and bundled unxip helper under Contents/MonoBundle/runtimes/osx-x64/native/.
-            if [ -d "$X64_APP/Contents/MonoBundle/runtimes" ]; then
-              mkdir -p "$DEST_APP/Contents/MonoBundle/runtimes"
-              cp -R "$X64_APP/Contents/MonoBundle/runtimes/." "$DEST_APP/Contents/MonoBundle/runtimes/"
-              find "$DEST_APP/Contents/MonoBundle/runtimes" \( -name "copilot" -o -name "unxip" \) -type f -exec chmod +x {} \;
-            fi
+          ARM64_COUNT=$(ls "$MONO/.xamarin/osx-arm64/"*.dll 2>/dev/null | wc -l | tr -d ' ')
+          X64_COUNT=$(ls "$MONO/.xamarin/osx-x64/"*.dll 2>/dev/null | wc -l | tr -d ' ')
+          echo "Moved $ARM64_COUNT arch-specific DLLs to .xamarin/osx-arm64/"
+          echo "Copied $X64_COUNT arch-specific DLLs to .xamarin/osx-x64/"
+
+          # Preserve runtime-specific files that aren't part of the lipo merge, such as
+          # the Copilot CLI and bundled unxip helper under Contents/MonoBundle/runtimes/osx-x64/native/.
+          if [ -d "$X64_APP/Contents/MonoBundle/runtimes" ]; then
+            mkdir -p "$DEST_APP/Contents/MonoBundle/runtimes"
+            cp -R "$X64_APP/Contents/MonoBundle/runtimes/." "$DEST_APP/Contents/MonoBundle/runtimes/"
+            find "$DEST_APP/Contents/MonoBundle/runtimes" \( -name "copilot" -o -name "unxip" \) -type f -exec chmod +x {} \;
+          fi
+
+          # Merge deps.json from both architectures so the runtime resolver
+          # knows about assemblies and native libraries for both RIDs.
+          ARM64_DEPS="$ARM64_APP/Contents/MonoBundle/MauiSherpa.MacOS.deps.json"
+          X64_DEPS="$X64_APP/Contents/MonoBundle/MauiSherpa.MacOS.deps.json"
+          DEST_DEPS="$DEST_APP/Contents/MonoBundle/MauiSherpa.MacOS.deps.json"
+          if [ -f "$ARM64_DEPS" ] && [ -f "$X64_DEPS" ]; then
+            python3 -c "
+          import json, sys
+          with open(sys.argv[1]) as f: a = json.load(f)
+          with open(sys.argv[2]) as f: b = json.load(f)
+          def deep_merge(base, overlay):
+              for k, v in overlay.items():
+                  if k in base and isinstance(base[k], dict) and isinstance(v, dict):
+                      deep_merge(base[k], v)
+                  else:
+                      base.setdefault(k, v)
+          for section in ['targets', 'libraries', 'runtimes']:
+              if section in a and section in b:
+                  deep_merge(a[section], b[section])
+              elif section in b:
+                  a[section] = b[section]
+          with open(sys.argv[3], 'w') as f: json.dump(a, f, indent=2)
+          " "$ARM64_DEPS" "$X64_DEPS" "$DEST_DEPS"
+            echo "Merged deps.json from both architectures"
+          fi
 
           echo "Universal binary created:"
           lipo -info "$DEST_APP/Contents/MacOS/$BINARY_NAME"
@@ -297,7 +392,10 @@ jobs:
     name: Publish Windows App
     runs-on: windows-latest
     needs: build-test
-    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish_artifacts)
+    if: >-
+      github.event_name == 'push'
+      || (github.event_name == 'workflow_dispatch' && inputs.publish_artifacts)
+      || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'build-artifacts'))
     permissions:
       statuses: write
 
@@ -411,7 +509,10 @@ jobs:
     name: Publish Linux App (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
     needs: build-test
-    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish_artifacts)
+    if: >-
+      github.event_name == 'push'
+      || (github.event_name == 'workflow_dispatch' && inputs.publish_artifacts)
+      || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'build-artifacts'))
     permissions:
       statuses: write
     strategy:
