@@ -74,7 +74,9 @@ jobs:
     if: >-
       github.event_name == 'push'
       || (github.event_name == 'workflow_dispatch' && inputs.publish_artifacts)
-      || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'build-artifacts'))
+      || (github.event_name == 'pull_request' && (
+        contains(github.event.pull_request.labels.*.name, 'build-artifacts')
+        || contains(github.event.pull_request.labels.*.name, 'build-artifacts-notarized')))
     permissions:
       statuses: write
 
@@ -395,7 +397,9 @@ jobs:
     if: >-
       github.event_name == 'push'
       || (github.event_name == 'workflow_dispatch' && inputs.publish_artifacts)
-      || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'build-artifacts'))
+      || (github.event_name == 'pull_request' && (
+        contains(github.event.pull_request.labels.*.name, 'build-artifacts')
+        || contains(github.event.pull_request.labels.*.name, 'build-artifacts-notarized')))
     permissions:
       statuses: write
 
@@ -512,7 +516,9 @@ jobs:
     if: >-
       github.event_name == 'push'
       || (github.event_name == 'workflow_dispatch' && inputs.publish_artifacts)
-      || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'build-artifacts'))
+      || (github.event_name == 'pull_request' && (
+        contains(github.event.pull_request.labels.*.name, 'build-artifacts')
+        || contains(github.event.pull_request.labels.*.name, 'build-artifacts-notarized')))
     permissions:
       statuses: write
     strategy:
@@ -655,7 +661,12 @@ jobs:
     name: Notarize macOS App
     runs-on: macos-26
     needs: publish-macos
-    if: ((github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) && github.event_name == 'push') || (github.event_name == 'workflow_dispatch' && inputs.publish_artifacts)
+    if: >-
+      ((github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) && github.event_name == 'push')
+      || (github.event_name == 'workflow_dispatch' && inputs.publish_artifacts)
+      || (github.event_name == 'pull_request'
+        && !github.event.pull_request.head.repo.fork
+        && contains(github.event.pull_request.labels.*.name, 'build-artifacts-notarized'))
     permissions:
       statuses: write
 
