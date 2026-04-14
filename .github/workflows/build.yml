@@ -305,22 +305,30 @@ jobs:
           APP_PATH=$(find ./artifacts/macos -name "*.app" -type d | head -1)
           if [ -n "$APP_PATH" ]; then
             echo "Re-signing with hardened runtime: $APP_PATH"
-            # Sign helper executables under MonoBundle/runtimes explicitly; --deep
-            # does not reliably recurse into that layout.
+            # Sign nested code first, then sign the app bundle last.
+            # Avoid --deep on the final app sign: it overwrites the Copilot CLI's
+            # Node/V8 entitlements and causes "Failed to reserve virtual memory
+            # for CodeRange" crashes in release builds.
             if [ -d "$APP_PATH/Contents/MonoBundle/runtimes" ]; then
               find "$APP_PATH/Contents/MonoBundle/runtimes" \( -name "copilot" -o -name "unxip" \) -type f | while read -r item; do
                 chmod +x "$item"
-                codesign --force --options runtime --timestamp \
-                  --sign "$APPLE_CODESIGN_IDENTITY" "$item"
+                if [ "$(basename "$item")" = "copilot" ]; then
+                  codesign --force --options runtime --timestamp \
+                    --preserve-metadata=entitlements \
+                    --sign "$APPLE_CODESIGN_IDENTITY" "$item"
+                else
+                  codesign --force --options runtime --timestamp \
+                    --sign "$APPLE_CODESIGN_IDENTITY" "$item"
+                fi
               done
             fi
             # Sign all nested frameworks and dylibs first
-            find "$APP_PATH" \( -name "*.dylib" -o -name "*.framework" \) | while read -r item; do
+            find "$APP_PATH/Contents" \( -name "*.dylib" -o -name "*.framework" \) | while read -r item; do
               codesign --force --options runtime --timestamp \
                 --sign "$APPLE_CODESIGN_IDENTITY" "$item"
             done
             # Sign the app bundle
-            codesign --force --deep --options runtime --timestamp \
+            codesign --force --options runtime --timestamp \
               --entitlements src/MauiSherpa.MacOS/Entitlements.plist \
               --sign "$APPLE_CODESIGN_IDENTITY" \
               "$APP_PATH"
@@ -341,6 +349,19 @@ jobs:
             else
               echo "::error::Hardened Runtime is NOT enabled — notarization will fail"
               exit 1
+            fi
+
+            COPILOT_PATH="$APP_PATH/Contents/MonoBundle/runtimes/osx-arm64/native/copilot"
+            if [ -f "$COPILOT_PATH" ]; then
+              codesign -d --entitlements :- "$COPILOT_PATH" 2>&1 | tee /tmp/copilot-entitlements.txt
+              if grep -q "com.apple.security.cs.allow-jit" /tmp/copilot-entitlements.txt \
+                && grep -q "com.apple.security.cs.allow-unsigned-executable-memory" /tmp/copilot-entitlements.txt \
+                && grep -q "com.apple.security.cs.disable-library-validation" /tmp/copilot-entitlements.txt; then
+                echo "✅ Copilot helper entitlements are preserved"
+              else
+                echo "::error::Copilot helper entitlements are missing — the CLI will crash in release builds"
+                exit 1
+              fi
             fi
           fi
 
