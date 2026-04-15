@@ -122,7 +122,7 @@ public class AndroidSdkViewModel : ViewModelBase
             }
             else
             {
-                StatusMessage = "Android SDK not found. Click 'Install SDK' to download.";
+                StatusMessage = "Android SDK not found. Choose an install location below to get started.";
             }
         }
         catch (Exception ex)
@@ -244,25 +244,42 @@ public class AndroidSdkViewModel : ViewModelBase
         }
     }
 
-    public async Task AcquireSdkAsync()
+    public async Task<bool> AcquireSdkAsync(string? targetPath = null, IProgress<string>? progress = null)
     {
         IsLoading = true;
-        var progress = new Progress<string>(msg => StatusMessage = msg);
+
+        void ReportProgress(string message)
+        {
+            StatusMessage = message;
+            progress?.Report(message);
+        }
+
+        var combinedProgress = new Progress<string>(ReportProgress);
 
         try
         {
-            var success = await _sdkService.AcquireSdkAsync(progress: progress);
+            var installPath = string.IsNullOrWhiteSpace(targetPath)
+                ? await _sdkService.GetDefaultSdkPathAsync()
+                : targetPath;
+
+            var success = await _sdkService.AcquireSdkAsync(targetPath: installPath, progress: combinedProgress);
             if (success)
             {
+                var effectivePath = _sdkService.SdkPath ?? installPath;
+                if (!string.IsNullOrWhiteSpace(effectivePath))
+                {
+                    await _sdkSettings.SetCustomSdkPathAsync(effectivePath);
+                    await _mediator.FlushStores("android:sdkpath");
+                }
+
                 IsSdkInstalled = true;
-                SdkPath = _sdkService.SdkPath;
+                SdkPath = effectivePath;
                 await AlertService.ShowToastAsync("Android SDK installed successfully!");
-                await RefreshPackagesAsync(forceRefresh: true);
+                await DetectSdkAsync(forceRefresh: true);
+                return true;
             }
-            else
-            {
-                await AlertService.ShowAlertAsync("Installation Failed", "Could not download Android SDK");
-            }
+
+            await AlertService.ShowAlertAsync("Installation Failed", "Could not download Android SDK");
         }
         catch (Exception ex)
         {
@@ -273,5 +290,7 @@ public class AndroidSdkViewModel : ViewModelBase
         {
             IsLoading = false;
         }
+
+        return false;
     }
 }
