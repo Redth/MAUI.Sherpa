@@ -84,11 +84,11 @@ public class AndroidSdkService : IAndroidSdkService
             {
                 // Create a temporary manager to detect the default path
                 var tempManager = new AndroidSdkManager();
-                return tempManager.Home?.FullName;
+                return tempManager.Home?.FullName ?? GetRecommendedSdkPath();
             }
             catch
             {
-                return null;
+                return GetRecommendedSdkPath();
             }
         });
     }
@@ -287,10 +287,11 @@ public class AndroidSdkService : IAndroidSdkService
                 
                 if (string.IsNullOrEmpty(targetPath))
                 {
-                    targetPath = Path.Combine(
-                        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                        "android-sdk");
+                    targetPath = GetRecommendedSdkPath();
                 }
+
+                Directory.CreateDirectory(targetPath);
+                progress?.Report($"Installing Android SDK to {targetPath}...");
 
                 _sdkManager = new AndroidSdkManager(new DirectoryInfo(targetPath));
                 await _sdkManager.Acquire();
@@ -307,6 +308,31 @@ public class AndroidSdkService : IAndroidSdkService
                 return false;
             }
         });
+    }
+
+    private static string GetRecommendedSdkPath()
+    {
+        if (OperatingSystem.IsMacOS() || OperatingSystem.IsMacCatalyst())
+        {
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                "Library",
+                "Android",
+                "sdk");
+        }
+
+        if (OperatingSystem.IsWindows())
+        {
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Android",
+                "Sdk");
+        }
+
+        return Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            "Android",
+            "Sdk");
     }
 
     public Task<IReadOnlyList<Interfaces.AvdInfo>> GetAvdsAsync()

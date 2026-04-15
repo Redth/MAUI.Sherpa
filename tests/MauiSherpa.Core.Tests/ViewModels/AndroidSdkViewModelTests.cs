@@ -1,5 +1,6 @@
 using FluentAssertions;
 using MauiSherpa.Core.Interfaces;
+using MauiSherpa.Core.Requests.Android;
 using MauiSherpa.Core.ViewModels;
 using Moq;
 using Shiny.Mediator;
@@ -156,5 +157,66 @@ public class AndroidSdkViewModelTests
 
         // Assert
         _viewModel.AvailablePackages.Should().BeEquivalentTo(packages);
+    }
+
+    [Fact]
+    public async Task DetectSdkAsync_SetsInstalledStateAndLoadsPackages_WhenSdkPathExists()
+    {
+        // Arrange
+        var expectedPath = "/Users/test/Library/Android/sdk";
+        var installedPackages = new List<SdkPackageInfo>
+        {
+            new("platform-tools", "Platform Tools", "35.0.0", expectedPath, true)
+        };
+        var availablePackages = new List<SdkPackageInfo>
+        {
+            new("platforms;android-35", "Android 35", "35", null, false)
+        };
+        var devices = new List<DeviceInfo>
+        {
+            new("emulator-5554", "device", "Pixel", true)
+        };
+
+        _mockMediator
+            .Setup(m => m.Request(It.IsAny<GetSdkPathRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Mock.Of<IMediatorContext>(), expectedPath));
+        _mockMediator
+            .Setup(m => m.Request(It.IsAny<GetInstalledPackagesRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Mock.Of<IMediatorContext>(), (IReadOnlyList<SdkPackageInfo>)installedPackages));
+        _mockMediator
+            .Setup(m => m.Request(It.IsAny<GetAvailablePackagesRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Mock.Of<IMediatorContext>(), (IReadOnlyList<SdkPackageInfo>)availablePackages));
+        _mockMediator
+            .Setup(m => m.Request(It.IsAny<GetAndroidDevicesRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Mock.Of<IMediatorContext>(), (IReadOnlyList<DeviceInfo>)devices));
+
+        // Act
+        await _viewModel.DetectSdkAsync();
+
+        // Assert
+        _viewModel.IsSdkInstalled.Should().BeTrue();
+        _viewModel.SdkPath.Should().Be(expectedPath);
+        _viewModel.InstalledPackages.Should().BeEquivalentTo(installedPackages);
+        _viewModel.AvailablePackages.Should().BeEquivalentTo(availablePackages);
+        _viewModel.Devices.Should().BeEquivalentTo(devices);
+    }
+
+    [Fact]
+    public async Task AcquireSdkAsync_ReturnsFalse_WhenDownloadFails()
+    {
+        // Arrange
+        _mockSdkService
+            .Setup(s => s.AcquireSdkAsync(It.IsAny<string?>(), It.IsAny<IProgress<string>?>()))
+            .ReturnsAsync(false);
+        _mockAlertService
+            .Setup(a => a.ShowAlertAsync("Installation Failed", It.IsAny<string>()))
+            .Returns(Task.CompletedTask);
+
+        // Act
+        var result = await _viewModel.AcquireSdkAsync("/tmp/android-sdk");
+
+        // Assert
+        result.Should().BeFalse();
+        _mockAlertService.Verify(a => a.ShowAlertAsync("Installation Failed", It.IsAny<string>()), Times.Once);
     }
 }
