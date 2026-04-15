@@ -89,7 +89,7 @@ else if (availability != null && !availability.IsInstalled)
             </div>
         </div>
 
-        <button class="btn btn-secondary" @onclick="CheckAvailability">
+        <button class="btn btn-secondary" @onclick="@(() => CheckAvailability(forceRefresh: true))">
             <i class="fas fa-sync-alt"></i> Check Again
         </button>
     </div>
@@ -136,7 +136,7 @@ else if (availability != null && !availability.IsAuthenticated)
             </div>
         </div>
 
-        <button class="btn btn-secondary" @onclick="CheckAvailability">
+        <button class="btn btn-secondary" @onclick="@(() => CheckAvailability(forceRefresh: true))">
             <i class="fas fa-sync-alt"></i> Check Again
         </button>
     </div>
@@ -2371,10 +2371,10 @@ else
         _copilotDotNetRef?.Dispose();
     }
 
-    private async Task CheckAvailability()
+    private async Task CheckAvailability(bool forceRefresh = false)
     {
         // Use cached availability if available for instant display
-        if (CopilotService.CachedAvailability != null)
+        if (!forceRefresh && CopilotService.CachedAvailability != null)
         {
             availability = CopilotService.CachedAvailability;
             isCheckingAvailability = false;
@@ -2400,7 +2400,7 @@ else
 
         try
         {
-            availability = await CopilotService.CheckAvailabilityAsync();
+            availability = await CopilotService.CheckAvailabilityAsync(forceRefresh);
             
             // Auto-connect if Copilot is available and authenticated
             if (availability.IsInstalled && availability.IsAuthenticated && CopilotService.CurrentSessionId == null)
@@ -2439,6 +2439,9 @@ else
 
     private async Task Connect()
     {
+        if (isConnecting || CopilotService.IsConnected)
+            return;
+
         isConnecting = true;
         StateHasChanged();
 
@@ -2446,10 +2449,14 @@ else
         {
             await CopilotService.ConnectAsync();
             await CopilotService.StartSessionAsync(systemPrompt: _systemPrompt);
+            availability = availability is null
+                ? new CopilotAvailability(true, true, null, null, null)
+                : availability with { IsInstalled = true, IsAuthenticated = true, ErrorMessage = null };
         }
         catch (Exception ex)
         {
             _logger.LogError($"Connection failed: {ex.Message}", ex);
+            availability = await CopilotService.CheckAvailabilityAsync(forceRefresh: true);
             try
             {
                 await AlertService.ShowAlertAsync("Connection Failed", ex.Message);
