@@ -21,6 +21,7 @@ using MauiIcons.Fluent;
 using MauiIcons.FontAwesome.Brand;
 #endif
 using Shiny.Mediator;
+using Sentry.Maui;
 
 namespace MauiSherpa;
 
@@ -52,6 +53,28 @@ public static class MauiProgram
                 fonts.AddFont("OpenSans-Semibold.ttf", "OpenSansSemibold");
             });
 #endif
+
+        // Sentry — DSN is injected at build time via -p:SentryDsn=... (see Directory.Build.props).
+        // When no DSN is configured (e.g. local dev without the env var), Sentry is skipped.
+        var sentryDsn = SentryConfig.GetDsn();
+        if (!string.IsNullOrWhiteSpace(sentryDsn))
+        {
+            builder.UseSentry(options =>
+            {
+                options.Dsn = sentryDsn;
+                options.TracesSampleRate = 1.0;
+                options.EnableLogs = true;
+#if DEBUG
+                options.Debug = true;
+                options.Environment = "debug";
+#else
+                options.Environment = "release";
+#endif
+                options.Release = typeof(MauiProgram).Assembly
+                    .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+                    ?.InformationalVersion;
+            });
+        }
 
 #if LINUXGTK
         builder.Services.AddBlazorWebView();

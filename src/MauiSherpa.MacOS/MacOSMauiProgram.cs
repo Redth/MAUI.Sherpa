@@ -8,6 +8,7 @@ using Microsoft.Maui.Platform.MacOS.Hosting;
 using Microsoft.Maui.Platform.MacOS.Handlers;
 using Microsoft.Maui.Essentials.MacOS;
 using Shiny.Mediator;
+using Sentry.Maui;
 #if DEBUG
 using MauiDevFlow.Agent;
 using MauiDevFlow.Blazor;
@@ -32,6 +33,28 @@ public static class MacOSMauiProgram
                 fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");
                 fonts.AddFont("OpenSans-Semibold.ttf", "OpenSansSemibold");
             });
+
+        // Sentry — DSN is injected at build time via -p:SentryDsn=... (see Directory.Build.props).
+        // When no DSN is configured (e.g. local dev without the env var), Sentry is skipped.
+        var sentryDsn = SentryConfig.GetDsn();
+        if (!string.IsNullOrWhiteSpace(sentryDsn))
+        {
+            builder.UseSentry(options =>
+            {
+                options.Dsn = sentryDsn;
+                options.TracesSampleRate = 1.0;
+                options.EnableLogs = true;
+#if DEBUG
+                options.Debug = true;
+                options.Environment = "debug";
+#else
+                options.Environment = "release";
+#endif
+                options.Release = typeof(MacOSMauiProgram).Assembly
+                    .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+                    ?.InformationalVersion;
+            });
+        }
 
         // Use native sidebar for FlyoutPage
         builder.ConfigureMauiHandlers(handlers =>
