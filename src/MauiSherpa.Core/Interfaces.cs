@@ -3557,7 +3557,7 @@ public interface IDeepLinkValidationService
 }
 
 public record AasaValidationResult(bool Found, bool Valid, string? RawJson,
-    IReadOnlyList<AasaAppEntry> Apps, string? ErrorMessage);
+    IReadOnlyList<AasaAppEntry> Apps, string? ErrorMessage, bool Signed = false);
 public record AasaAppEntry(string AppId, IReadOnlyList<string> Paths);
 
 public record AssetLinksValidationResult(bool Found, bool Valid, string? RawJson,

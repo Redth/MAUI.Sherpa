@@ -1,3 +1,5 @@
+using System.Security.Cryptography.Pkcs;
+using System.Text;
 using System.Text.Json;
 using MauiSherpa.Core.Interfaces;
 
@@ -20,11 +22,13 @@ public class DeepLinkValidationService : IDeepLinkValidationService
             if (!response.IsSuccessStatusCode)
             {
                 return new AasaValidationResult(false, false, null, Array.Empty<AasaAppEntry>(),
-                    $"HTTP {(int)response.StatusCode} {response.ReasonPhrase}");
+                    $"HTTP {(int)response.StatusCode} {response.ReasonPhrase}", false);
             }
 
-            var json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-            var doc = JsonDocument.Parse(json);
+            var bytes = await response.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
+            var contentType = response.Content.Headers.ContentType?.MediaType;
+            var (json, wasSigned) = ExtractAasaJson(bytes, contentType);
+            using var doc = JsonDocument.Parse(json);
             var apps = new List<AasaAppEntry>();
 
             if (doc.RootElement.TryGetProperty("applinks", out var applinks) &&
@@ -71,16 +75,43 @@ public class DeepLinkValidationService : IDeepLinkValidationService
                 }
             }
 
-            return new AasaValidationResult(true, apps.Count > 0, json, apps, null);
+            return new AasaValidationResult(true, apps.Count > 0, json, apps, null, wasSigned);
         }
         catch (TaskCanceledException)
         {
-            return new AasaValidationResult(false, false, null, Array.Empty<AasaAppEntry>(), "Request timed out");
+            return new AasaValidationResult(false, false, null, Array.Empty<AasaAppEntry>(), "Request timed out", false);
         }
         catch (Exception ex)
         {
-            return new AasaValidationResult(false, false, null, Array.Empty<AasaAppEntry>(), ex.Message);
+            return new AasaValidationResult(false, false, null, Array.Empty<AasaAppEntry>(), ex.Message, false);
         }
+    }
+
+    static (string Json, bool WasSigned) ExtractAasaJson(byte[] bytes, string? contentType)
+    {
+        // AASA may be served as a CMS/PKCS7-signed blob (application/pkcs7-mime) or raw JSON.
+        // DER-encoded CMS starts with 0x30 (SEQUENCE); raw JSON starts with '{' or whitespace.
+        var looksSigned =
+            string.Equals(contentType, "application/pkcs7-mime", StringComparison.OrdinalIgnoreCase) ||
+            (bytes.Length > 0 && bytes[0] == 0x30);
+
+        if (looksSigned)
+        {
+            try
+            {
+                var cms = new SignedCms();
+                cms.Decode(bytes);
+                var inner = cms.ContentInfo.Content;
+                if (inner is { Length: > 0 })
+                    return (Encoding.UTF8.GetString(inner), true);
+            }
+            catch
+            {
+                // Fall through and try to parse as raw JSON anyway.
+            }
+        }
+
+        return (Encoding.UTF8.GetString(bytes), false);
     }
 
     public async Task<AssetLinksValidationResult> ValidateAssetLinksAsync(string domain)
@@ -97,7 +128,7 @@ public class DeepLinkValidationService : IDeepLinkValidationService
             }
 
             var json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-            var doc = JsonDocument.Parse(json);
+            using var doc = JsonDocument.Parse(json);
             var entries = new List<AssetLinksEntry>();
 
             foreach (var element in doc.RootElement.EnumerateArray())
