@@ -5,6 +5,7 @@
 @inject DeviceInspectorService Inspector
 @inject IAlertService AlertService
 @inject IDialogService DialogService
+@inject IDeepLinkValidationService DeepLinkValidator
 @implements IDisposable
 
 <div class="device-tools-tab">
@@ -204,7 +205,60 @@
                         disabled="@(isOpeningLink || string.IsNullOrWhiteSpace(deepLinkUrl))">
                     <i class="fas @(isOpeningLink ? "fa-spinner fa-spin" : "fa-rocket")"></i> Launch
                 </button>
+                <button class="btn btn-sm btn-secondary" @onclick="ValidateAssetLinks"
+                        disabled="@(isValidatingLink || string.IsNullOrWhiteSpace(deepLinkUrl))">
+                    <i class="fas @(isValidatingLink ? "fa-spinner fa-spin" : "fa-shield-alt")"></i> Validate assetlinks.json
+                </button>
             </div>
+            @if (IsNonWebScheme(deepLinkUrl))
+            {
+                <div class="deep-link-warning">
+                    <i class="fas fa-triangle-exclamation"></i>
+                    <span>Custom URL scheme detected. assetlinks.json validation requires an <code>https://</code> URL. Launch will still attempt to open the scheme on the device.</span>
+                </div>
+            }
+            @if (assetLinksResult != null)
+            {
+                <div class="validation-result @(assetLinksResult.Valid ? "success" : assetLinksResult.Found ? "warning" : "error")">
+                    <div class="validation-status">
+                        <i class="fas @(assetLinksResult.Valid ? "fa-check-circle" : assetLinksResult.Found ? "fa-exclamation-triangle" : "fa-times-circle")"></i>
+                        @if (assetLinksResult.Valid)
+                        {
+                            <span>assetlinks.json found &mdash; @assetLinksResult.Entries.Count app(s) configured</span>
+                        }
+                        else if (assetLinksResult.Found)
+                        {
+                            <span>assetlinks.json found but no handle_all_urls entries detected</span>
+                        }
+                        else
+                        {
+                            <span>@(assetLinksResult.ErrorMessage ?? "assetlinks.json not found")</span>
+                        }
+                    </div>
+                    @if (assetLinksResult.Entries.Count > 0)
+                    {
+                        <div class="validation-entries">
+                            @foreach (var entry in assetLinksResult.Entries)
+                            {
+                                <div class="validation-entry">
+                                    <strong>@entry.Package</strong>
+                                    @if (entry.Sha256Fingerprint != null)
+                                    {
+                                        <span class="validation-fingerprint" title="@entry.Sha256Fingerprint">@entry.Sha256Fingerprint[..Math.Min(23, entry.Sha256Fingerprint.Length)]&hellip;</span>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
+                    @if (assetLinksResult.RawJson != null)
+                    {
+                        <details class="validation-raw">
+                            <summary>Raw JSON</summary>
+                            <pre>@FormatJson(assetLinksResult.RawJson)</pre>
+                        </details>
+                    }
+                </div>
+            }
         </div>
     </div>
 </div>
@@ -274,6 +328,25 @@
     .tool-checkbox-row { display: flex; gap: 0.625rem; align-items: center; height: 28px; }
     .tool-checkbox { font-size: 0.6875rem; color: var(--text-secondary); display: flex; align-items: center; gap: 0.25rem; cursor: pointer; }
     .tool-checkbox input { margin: 0; }
+
+    .validation-result { margin-top: 0.375rem; padding: 0.5rem; border-radius: 0.375rem; font-size: 0.6875rem; border: 1px solid var(--border-color); }
+    .validation-result.success { background: rgba(34,197,94,0.08); border-color: rgba(34,197,94,0.3); }
+    .validation-result.warning { background: rgba(234,179,8,0.08); border-color: rgba(234,179,8,0.3); }
+    .validation-result.error { background: rgba(239,68,68,0.08); border-color: rgba(239,68,68,0.3); }
+    .validation-status { display: flex; align-items: center; gap: 0.375rem; font-weight: 600; }
+    .validation-status .fa-check-circle { color: #22c55e; }
+    .validation-status .fa-exclamation-triangle { color: #eab308; }
+    .validation-status .fa-times-circle { color: #ef4444; }
+    .validation-entries { margin-top: 0.375rem; display: flex; flex-direction: column; gap: 0.25rem; }
+    .validation-entry { padding: 0.25rem 0.375rem; background: var(--bg-tertiary); border-radius: 0.25rem; }
+    .validation-entry strong { color: var(--text-primary); }
+    .validation-fingerprint { color: var(--text-secondary); margin-left: 0.375rem; font-family: 'Consolas', 'Monaco', monospace; font-size: 0.625rem; }
+    .validation-raw { margin-top: 0.375rem; }
+    .validation-raw summary { cursor: pointer; color: var(--text-secondary); font-size: 0.625rem; }
+    .validation-raw pre { margin: 0.25rem 0 0; padding: 0.375rem; background: var(--bg-tertiary); border-radius: 0.25rem; font-size: 0.625rem; overflow-x: auto; max-height: 200px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; }
+    .deep-link-warning { margin-top: 0.375rem; padding: 0.375rem 0.5rem; border-radius: 0.375rem; font-size: 0.6875rem; background: rgba(234,179,8,0.08); border: 1px solid rgba(234,179,8,0.3); color: var(--text-primary); display: flex; gap: 0.375rem; align-items: flex-start; }
+    .deep-link-warning .fa-triangle-exclamation { color: #eab308; margin-top: 2px; }
+    .deep-link-warning code { background: var(--bg-tertiary); padding: 0 0.25rem; border-radius: 0.1875rem; font-size: 0.625rem; }
 </style>
 
 @code {
@@ -307,6 +380,8 @@
     // Deep links
     private string deepLinkUrl = "";
     private bool isOpeningLink;
+    private bool isValidatingLink;
+    private AssetLinksValidationResult? assetLinksResult;
 
     protected override void OnInitialized()
     {
@@ -492,6 +567,54 @@
             isOpeningLink = false;
             StateHasChanged();
         }
+    }
+
+    private async Task ValidateAssetLinks()
+    {
+        if (string.IsNullOrWhiteSpace(deepLinkUrl)) return;
+        isValidatingLink = true;
+        assetLinksResult = null;
+        StateHasChanged();
+        try
+        {
+            var domain = ExtractDomain(deepLinkUrl);
+            if (domain == null)
+            {
+                await AlertService.ShowToastAsync("Enter an https:// URL to validate assetlinks.json");
+                return;
+            }
+            assetLinksResult = await DeepLinkValidator.ValidateAssetLinksAsync(domain);
+        }
+        finally
+        {
+            isValidatingLink = false;
+            StateHasChanged();
+        }
+    }
+
+    private static string? ExtractDomain(string url)
+    {
+        if (Uri.TryCreate(url, UriKind.Absolute, out var uri) &&
+            (uri.Scheme == "https" || uri.Scheme == "http"))
+            return uri.Host;
+        return null;
+    }
+
+    private static bool IsNonWebScheme(string url)
+    {
+        if (string.IsNullOrWhiteSpace(url)) return false;
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)) return false;
+        return uri.Scheme != "https" && uri.Scheme != "http";
+    }
+
+    private static string FormatJson(string json)
+    {
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            return System.Text.Json.JsonSerializer.Serialize(doc, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+        }
+        catch { return json; }
     }
 
     public void Dispose()
