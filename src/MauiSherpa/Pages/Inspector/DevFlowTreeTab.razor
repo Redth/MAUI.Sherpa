@@ -165,6 +165,35 @@
                     }
                 </div>
 
+                <!-- Semantic Properties (from element info) -->
+                @if (!string.IsNullOrEmpty(selectedElement.SemanticDescription) || !string.IsNullOrEmpty(selectedElement.SemanticHint) || !string.IsNullOrEmpty(selectedElement.SemanticHeadingLevel))
+                {
+                    <div class="prop-section">
+                        <div class="prop-group-title"><i class="fas fa-universal-access prop-group-icon"></i> Accessibility</div>
+                        @if (!string.IsNullOrEmpty(selectedElement.SemanticDescription))
+                        {
+                            <div class="prop-row">
+                                <span class="prop-key">Description</span>
+                                <span class="prop-value">@selectedElement.SemanticDescription</span>
+                            </div>
+                        }
+                        @if (!string.IsNullOrEmpty(selectedElement.SemanticHint))
+                        {
+                            <div class="prop-row">
+                                <span class="prop-key">Hint</span>
+                                <span class="prop-value">@selectedElement.SemanticHint</span>
+                            </div>
+                        }
+                        @if (!string.IsNullOrEmpty(selectedElement.SemanticHeadingLevel) && !selectedElement.SemanticHeadingLevel.Equals("None", StringComparison.OrdinalIgnoreCase))
+                        {
+                            <div class="prop-row">
+                                <span class="prop-key">Heading Level</span>
+                                <span class="prop-value">@selectedElement.SemanticHeadingLevel</span>
+                            </div>
+                        }
+                    </div>
+                }
+
                 <!-- Gestures -->
                 @if (selectedElement.Gestures?.Count > 0)
                 {
@@ -380,11 +409,17 @@
             EnumValues: new[] { "Default", "Chat", "Email", "Numeric", "Plain", "Telephone", "Text", "Url" }),
         ["AutomationId"] = new(EditorType.Text, "Behavior", SortOrder: 0),
         ["Text"] = new(EditorType.Text, "Appearance", SortOrder: 0),
+
+        // --- Accessibility (SemanticProperties) ---
+        ["SemanticProperties.Description"] = new(EditorType.Text, "Accessibility", SortOrder: 0),
+        ["SemanticProperties.Hint"] = new(EditorType.Text, "Accessibility", SortOrder: 1),
+        ["SemanticProperties.HeadingLevel"] = new(EditorType.Enum, "Accessibility", SortOrder: 2,
+            EnumValues: new[] { "None", "Level1", "Level2", "Level3", "Level4", "Level5", "Level6", "Level7", "Level8", "Level9" }),
     };
 
     private static readonly string[] CommonProperties = PropertyRegistry.Keys.ToArray();
 
-    private static readonly string[] GroupOrder = new[] { "Appearance", "Layout", "Behavior", "Transform", "Other" };
+    private static readonly string[] GroupOrder = new[] { "Appearance", "Layout", "Behavior", "Accessibility", "Transform", "Other" };
 
     private static PropertyMeta GetMeta(string propName)
         => PropertyRegistry.TryGetValue(propName, out var meta) ? meta : new PropertyMeta(EditorType.Text, "Other");
@@ -2857,6 +2892,11 @@
         border-left: 3px solid var(--accent-color, #8b5cf6);
         text-transform: uppercase;
         letter-spacing: 0.04em;
+    }
+
+    .prop-group-icon {
+        margin-right: 0.25rem;
+        font-size: 0.65rem;
     }
 
     /* Boolean toggle */

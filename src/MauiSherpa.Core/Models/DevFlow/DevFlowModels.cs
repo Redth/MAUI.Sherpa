@@ -389,6 +389,15 @@ public class DevFlowElementInfo
     [JsonPropertyName("nativeProperties")]
     public Dictionary<string, string?>? NativeProperties { get; set; }
 
+    [JsonPropertyName("semanticDescription")]
+    public string? SemanticDescription { get; set; }
+
+    [JsonPropertyName("semanticHint")]
+    public string? SemanticHint { get; set; }
+
+    [JsonPropertyName("semanticHeadingLevel")]
+    public string? SemanticHeadingLevel { get; set; }
+
     [JsonPropertyName("children")]
     public List<DevFlowElementInfo>? Children { get; set; }
 }
