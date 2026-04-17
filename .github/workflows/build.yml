@@ -151,7 +151,8 @@ jobs:
             -r osx-arm64 \
             -p:CreatePackage=false \
             -p:AppVersion=${{ steps.version.outputs.app_version }} \
-            -p:AppCommitSha=${{ steps.version.outputs.commit_sha }}
+            -p:AppCommitSha=${{ steps.version.outputs.commit_sha }} \
+            -p:SentryDsn=${{ secrets.SENTRY_DSN }}
 
       - name: Publish macOS App (x64)
         run: |
@@ -161,7 +162,8 @@ jobs:
             -r osx-x64 \
             -p:CreatePackage=false \
             -p:AppVersion=${{ steps.version.outputs.app_version }} \
-            -p:AppCommitSha=${{ steps.version.outputs.commit_sha }}
+            -p:AppCommitSha=${{ steps.version.outputs.commit_sha }} \
+            -p:SentryDsn=${{ secrets.SENTRY_DSN }}
 
       - name: Create universal binary
         run: |
@@ -439,7 +441,8 @@ jobs:
             -p:WindowsAppSDKSelfContained=true `
             --self-contained true `
             -p:AppVersion=${{ steps.version.outputs.app_version }} `
-            -p:AppCommitSha=${{ steps.version.outputs.commit_sha }}
+            -p:AppCommitSha=${{ steps.version.outputs.commit_sha }} `
+            -p:SentryDsn=${{ secrets.SENTRY_DSN }}
 
       - name: Publish Windows App (arm64)
         run: |
@@ -451,7 +454,8 @@ jobs:
             -p:WindowsAppSDKSelfContained=true `
             --self-contained true `
             -p:AppVersion=${{ steps.version.outputs.app_version }} `
-            -p:AppCommitSha=${{ steps.version.outputs.commit_sha }}
+            -p:AppCommitSha=${{ steps.version.outputs.commit_sha }} `
+            -p:SentryDsn=${{ secrets.SENTRY_DSN }}
 
       - name: Create ZIP archives
         run: |
@@ -583,6 +587,7 @@ jobs:
             --disable-build-servers \
             -p:AppVersion=${{ steps.version.outputs.app_version }} \
             -p:AppCommitSha=${{ steps.version.outputs.commit_sha }} \
+            -p:SentryDsn=${{ secrets.SENTRY_DSN }} \
             -p:UseSharedCompilation=false \
             -nodeReuse:false \
             -maxcpucount:1 \
