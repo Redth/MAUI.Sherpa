@@ -226,38 +226,15 @@ public class CopilotService : ICopilotService, IAsyncDisposable
     }
 
     /// <summary>
-    /// Resolves the Copilot CLI binary path. Checks the bundled runtimes path first,
-    /// then common install locations for GUI-launched apps, and finally the system PATH.
+    /// Resolves the Copilot CLI binary path. Prefer the user's installed CLI when available
+    /// so release builds can reuse the normal auth state and avoid bundle-signing edge cases,
+    /// then fall back to the bundled runtimes copy.
     /// </summary>
     internal static string? ResolveCopilotCliPath(string? pathEnv = null, string? baseDirectory = null, IEnumerable<string>? additionalSearchPaths = null)
     {
         var rid = System.Runtime.InteropServices.RuntimeInformation.RuntimeIdentifier;
         var binaryName = System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(
             System.Runtime.InteropServices.OSPlatform.Windows) ? "copilot.exe" : "copilot";
-
-        var candidateBaseDirs = new[]
-        {
-            baseDirectory ?? AppContext.BaseDirectory,
-            Path.GetFullPath(Path.Combine(baseDirectory ?? AppContext.BaseDirectory, "..")),
-            Path.GetFullPath(Path.Combine(baseDirectory ?? AppContext.BaseDirectory, "..", "MonoBundle"))
-        }
-        .Distinct(StringComparer.Ordinal)
-        .ToArray();
-
-        foreach (var root in candidateBaseDirs)
-        {
-            var bundledPath = Path.Combine(root, "runtimes", rid, "native", binaryName);
-            if (File.Exists(bundledPath))
-                return bundledPath;
-
-            if (rid.StartsWith("maccatalyst-", StringComparison.OrdinalIgnoreCase))
-            {
-                var osxRid = rid.Replace("maccatalyst-", "osx-");
-                var osxPath = Path.Combine(root, "runtimes", osxRid, "native", binaryName);
-                if (File.Exists(osxPath))
-                    return osxPath;
-            }
-        }
 
         foreach (var candidate in additionalSearchPaths ?? Enumerable.Empty<string>())
         {
@@ -308,6 +285,30 @@ public class CopilotService : ICopilotService, IAsyncDisposable
             var candidate = Path.Combine(dir, binaryName);
             if (File.Exists(candidate))
                 return candidate;
+        }
+
+        var candidateBaseDirs = new[]
+        {
+            baseDirectory ?? AppContext.BaseDirectory,
+            Path.GetFullPath(Path.Combine(baseDirectory ?? AppContext.BaseDirectory, "..")),
+            Path.GetFullPath(Path.Combine(baseDirectory ?? AppContext.BaseDirectory, "..", "MonoBundle"))
+        }
+        .Distinct(StringComparer.Ordinal)
+        .ToArray();
+
+        foreach (var root in candidateBaseDirs)
+        {
+            var bundledPath = Path.Combine(root, "runtimes", rid, "native", binaryName);
+            if (File.Exists(bundledPath))
+                return bundledPath;
+
+            if (rid.StartsWith("maccatalyst-", StringComparison.OrdinalIgnoreCase))
+            {
+                var osxRid = rid.Replace("maccatalyst-", "osx-");
+                var osxPath = Path.Combine(root, "runtimes", osxRid, "native", binaryName);
+                if (File.Exists(osxPath))
+                    return osxPath;
+            }
         }
 
         return null;
