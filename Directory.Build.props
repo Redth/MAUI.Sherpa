@@ -9,7 +9,18 @@
     <AppVersion>0.8.1</AppVersion>
     <AppCommitSha>dev</AppCommitSha>
     <InformationalVersion>$(AppVersion)+$(AppCommitSha)</InformationalVersion>
+
+    <!-- Sentry DSN — CI injects via -p:SentryDsn=... (pulled from a secret).
+         When empty, Sentry is not initialized at runtime. -->
+    <SentryDsn Condition="'$(SentryDsn)' == ''"></SentryDsn>
   </PropertyGroup>
+
+  <!-- Bake SentryDsn into the assembly as metadata when provided. The app
+       reads this attribute at startup to configure Sentry without keeping
+       the DSN in source. -->
+  <ItemGroup Condition="'$(SentryDsn)' != ''">
+    <AssemblyMetadata Include="SentryDsn" Value="$(SentryDsn)" />
+  </ItemGroup>
 
   <!-- Override vulnerable transitive System.Data.SqlClient pulled in by AzDo SDK -->
   <ItemGroup>
