@@ -20,6 +20,8 @@ public class CopilotService : ICopilotService, IAsyncDisposable
     private readonly ILoggingService _logger;
     private readonly ICopilotToolsService _toolsService;
     private readonly string _skillsPath;
+    private readonly string _copilotWorkingDirectory;
+    private readonly SemaphoreSlim _clientGate = new(1, 1);
     private readonly List<CopilotChatMessage> _messages = new();
     private readonly Dictionary<string, string> _toolCallIdToName = new(); // Track callId -> toolName mapping
     
@@ -54,7 +56,9 @@ public class CopilotService : ICopilotService, IAsyncDisposable
         _logger = logger;
         _toolsService = toolsService;
         _skillsPath = GetSkillsPath();
+        _copilotWorkingDirectory = GetCopilotWorkingDirectory();
         _logger.LogInformation($"Copilot skills path: {_skillsPath}");
+        _logger.LogInformation($"Copilot working directory: {_copilotWorkingDirectory}");
     }
 
     private static string GetSkillsPath()
@@ -98,38 +102,213 @@ public class CopilotService : ICopilotService, IAsyncDisposable
         return baseDir;
     }
 
+    private static string GetCopilotWorkingDirectory()
+    {
+        var path = Path.Combine(AppDataPath.GetAppDataDirectory(), "copilot");
+        Directory.CreateDirectory(path);
+        return path;
+    }
+
+    private static string GetUserHomeDirectory()
+    {
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        return string.IsNullOrWhiteSpace(home) ? Environment.CurrentDirectory : home;
+    }
+
+    internal static string BuildLaunchPath(string? currentPath = null, IEnumerable<string>? extraDirectories = null)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var orderedPaths = new List<string>();
+
+        static string NormalizeDirectory(string path)
+        {
+            try
+            {
+                return Path.GetFullPath(path.Trim());
+            }
+            catch
+            {
+                return path.Trim();
+            }
+        }
+
+        void AddDirectory(string? candidate)
+        {
+            if (string.IsNullOrWhiteSpace(candidate))
+                return;
+
+            var normalized = NormalizeDirectory(candidate);
+            if (!Directory.Exists(normalized) || !seen.Add(normalized))
+                return;
+
+            orderedPaths.Add(normalized);
+        }
+
+        foreach (var dir in (currentPath ?? Environment.GetEnvironmentVariable("PATH") ?? string.Empty)
+            .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            AddDirectory(dir);
+        }
+
+        if (OperatingSystem.IsMacOS() || OperatingSystem.IsMacCatalyst() || OperatingSystem.IsLinux())
+        {
+            var home = GetUserHomeDirectory();
+
+            AddDirectory("/opt/homebrew/bin");
+            AddDirectory("/usr/local/bin");
+            AddDirectory("/opt/local/bin");
+            AddDirectory("/usr/bin");
+            AddDirectory("/bin");
+            AddDirectory("/usr/sbin");
+            AddDirectory("/sbin");
+
+            AddDirectory(Path.Combine(home, ".local", "bin"));
+            AddDirectory(Path.Combine(home, ".npm-global", "bin"));
+            AddDirectory(Path.Combine(home, ".yarn", "bin"));
+            AddDirectory(Path.Combine(home, ".volta", "bin"));
+            AddDirectory(Path.Combine(home, ".asdf", "shims"));
+            AddDirectory(Path.Combine(home, ".local", "share", "fnm", "aliases", "default", "bin"));
+            AddDirectory(Path.Combine(home, ".fnm", "aliases", "default", "bin"));
+            AddDirectory(Path.Combine(home, "bin"));
+        }
+
+        if (extraDirectories != null)
+        {
+            foreach (var dir in extraDirectories)
+                AddDirectory(dir);
+        }
+
+        return string.Join(Path.PathSeparator, orderedPaths);
+    }
+
+    private static Dictionary<string, string> BuildCliEnvironment(string? cliPath = null)
+    {
+        var environment = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var home = GetUserHomeDirectory();
+
+        if (!string.IsNullOrWhiteSpace(home))
+        {
+            environment["HOME"] = home;
+            environment["USERPROFILE"] = home;
+
+            if (OperatingSystem.IsMacOS() || OperatingSystem.IsMacCatalyst() || OperatingSystem.IsLinux())
+            {
+                var xdgConfigHome = Environment.GetEnvironmentVariable("XDG_CONFIG_HOME");
+                if (string.IsNullOrWhiteSpace(xdgConfigHome))
+                    xdgConfigHome = Path.Combine(home, ".config");
+
+                environment["XDG_CONFIG_HOME"] = xdgConfigHome;
+
+                var ghConfigDir = Environment.GetEnvironmentVariable("GH_CONFIG_DIR");
+                if (string.IsNullOrWhiteSpace(ghConfigDir))
+                    ghConfigDir = Path.Combine(xdgConfigHome, "gh");
+
+                environment["GH_CONFIG_DIR"] = ghConfigDir;
+            }
+        }
+
+        var extraDirs = !string.IsNullOrWhiteSpace(cliPath)
+            ? new[] { Path.GetDirectoryName(cliPath)! }
+            : Array.Empty<string>();
+
+        var launchPath = BuildLaunchPath(extraDirectories: extraDirs);
+        if (!string.IsNullOrWhiteSpace(launchPath))
+            environment["PATH"] = launchPath;
+
+        foreach (var variable in new[] { "TMPDIR", "TMP", "TEMP", "LANG", "LC_ALL", "SHELL", "USER", "LOGNAME" })
+        {
+            var value = Environment.GetEnvironmentVariable(variable);
+            if (!string.IsNullOrWhiteSpace(value))
+                environment[variable] = value;
+        }
+
+        return environment;
+    }
+
     /// <summary>
-    /// Resolves the Copilot CLI binary path. Checks the bundled runtimes path first,
-    /// then falls back to finding 'copilot' on the system PATH.
+    /// Resolves the Copilot CLI binary path. Prefer the user's installed CLI when available
+    /// so release builds can reuse the normal auth state and avoid bundle-signing edge cases,
+    /// then fall back to the bundled runtimes copy.
     /// </summary>
-    private static string? ResolveCopilotCliPath()
+    internal static string? ResolveCopilotCliPath(string? pathEnv = null, string? baseDirectory = null, IEnumerable<string>? additionalSearchPaths = null)
     {
         var rid = System.Runtime.InteropServices.RuntimeInformation.RuntimeIdentifier;
         var binaryName = System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(
             System.Runtime.InteropServices.OSPlatform.Windows) ? "copilot.exe" : "copilot";
 
-        // Check bundled path (runtimes/{rid}/native/copilot)
-        var bundledPath = Path.Combine(AppContext.BaseDirectory, "runtimes", rid, "native", binaryName);
-        if (File.Exists(bundledPath))
-            return bundledPath;
-
-        // On Mac Catalyst, also check osx-arm64/osx-x64 in case the RID mapping wasn't applied
-        if (rid.StartsWith("maccatalyst-", StringComparison.OrdinalIgnoreCase))
+        foreach (var candidate in additionalSearchPaths ?? Enumerable.Empty<string>())
         {
-            var osxRid = rid.Replace("maccatalyst-", "osx-");
-            var osxPath = Path.Combine(AppContext.BaseDirectory, "runtimes", osxRid, "native", binaryName);
-            if (File.Exists(osxPath))
-                return osxPath;
+            if (!string.IsNullOrWhiteSpace(candidate) && File.Exists(candidate))
+                return candidate;
         }
 
-        // Fallback: find on system PATH
-        var pathEnv = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
-        var pathDirs = pathEnv.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries);
+        if (OperatingSystem.IsWindows())
+        {
+            var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+
+            foreach (var candidate in new[]
+            {
+                Path.Combine(programFiles, "GitHub Copilot", binaryName),
+                Path.Combine(localAppData, "Microsoft", "WinGet", "Links", binaryName)
+            })
+            {
+                if (File.Exists(candidate))
+                    return candidate;
+            }
+        }
+        else
+        {
+            var home = GetUserHomeDirectory();
+            foreach (var candidate in new[]
+            {
+                "/opt/homebrew/bin/copilot",
+                "/usr/local/bin/copilot",
+                "/opt/local/bin/copilot",
+                Path.Combine(home, ".local", "bin", "copilot"),
+                Path.Combine(home, ".npm-global", "bin", "copilot"),
+                Path.Combine(home, ".yarn", "bin", "copilot"),
+                Path.Combine(home, ".volta", "bin", "copilot"),
+                Path.Combine(home, ".asdf", "shims", "copilot"),
+                Path.Combine(home, "bin", "copilot")
+            })
+            {
+                if (File.Exists(candidate))
+                    return candidate;
+            }
+        }
+
+        var pathDirs = BuildLaunchPath(pathEnv)
+            .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         foreach (var dir in pathDirs)
         {
             var candidate = Path.Combine(dir, binaryName);
             if (File.Exists(candidate))
                 return candidate;
+        }
+
+        var candidateBaseDirs = new[]
+        {
+            baseDirectory ?? AppContext.BaseDirectory,
+            Path.GetFullPath(Path.Combine(baseDirectory ?? AppContext.BaseDirectory, "..")),
+            Path.GetFullPath(Path.Combine(baseDirectory ?? AppContext.BaseDirectory, "..", "MonoBundle"))
+        }
+        .Distinct(StringComparer.Ordinal)
+        .ToArray();
+
+        foreach (var root in candidateBaseDirs)
+        {
+            var bundledPath = Path.Combine(root, "runtimes", rid, "native", binaryName);
+            if (File.Exists(bundledPath))
+                return bundledPath;
+
+            if (rid.StartsWith("maccatalyst-", StringComparison.OrdinalIgnoreCase))
+            {
+                var osxRid = rid.Replace("maccatalyst-", "osx-");
+                var osxPath = Path.Combine(root, "runtimes", osxRid, "native", binaryName);
+                if (File.Exists(osxPath))
+                    return osxPath;
+            }
         }
 
         return null;
@@ -144,132 +323,173 @@ public class CopilotService : ICopilotService, IAsyncDisposable
             return _cachedAvailability;
         }
 
-        CopilotClient? tempClient = null;
-        var tempClientStarted = false;
+        await _clientGate.WaitAsync();
         try
         {
-            _logger.LogInformation("Checking Copilot availability via SDK...");
-            
-            var cliPath = ResolveCopilotCliPath();
-            if (cliPath != null)
-                _logger.LogInformation($"Resolved Copilot CLI path: {cliPath}");
-
-            // Create a temporary client to check status
-            var options = new CopilotClientOptions
+            if (!forceRefresh && _cachedAvailability != null)
             {
-                AutoStart = true,
-                CliPath = cliPath
-            };
-            
-            tempClient = new CopilotClient(options);
-            await tempClient.StartAsync();
-            tempClientStarted = true;
-            
-            // Get version/status info
-            var statusResponse = await tempClient.GetStatusAsync();
-            var version = statusResponse?.Version;
-            _logger.LogInformation($"Copilot CLI version: {version}");
-            
-            // Check authentication status using SDK
-            var authResponse = await tempClient.GetAuthStatusAsync();
-            
-            if (authResponse == null || !authResponse.IsAuthenticated)
-            {
-                var statusMsg = authResponse?.StatusMessage ?? "Not logged in to GitHub Copilot";
-                _logger.LogWarning($"Copilot not authenticated: {statusMsg}");
-                _cachedAvailability = new CopilotAvailability(
-                    IsInstalled: true,
-                    IsAuthenticated: false,
-                    Version: version,
-                    Login: authResponse?.Login,
-                    ErrorMessage: statusMsg
-                );
+                _logger.LogInformation("Returning cached Copilot availability after synchronization");
                 return _cachedAvailability;
             }
 
-            _logger.LogInformation($"Copilot authenticated as {authResponse.Login}");
-
-            if (_client == null)
+            CopilotClient? tempClient = null;
+            var tempClientStarted = false;
+            try
             {
-                _client = tempClient;
-                tempClient = null;
-                tempClientStarted = false;
-                _logger.LogInformation("Reusing availability-check Copilot client for the next session");
-            }
+                _logger.LogInformation("Checking Copilot availability via SDK...");
 
-            _cachedAvailability = new CopilotAvailability(
-                IsInstalled: true,
-                IsAuthenticated: true,
-                Version: version,
-                Login: authResponse.Login,
-                ErrorMessage: null
-            );
-            return _cachedAvailability;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError($"Error checking Copilot availability: {ex.Message}", ex);
-            
-            // If we can't start the client, assume CLI is not installed
-            var isNotInstalled = ex.Message.Contains("not found") || 
-                                 ex.Message.Contains("No such file") ||
-                                 ex.Message.Contains("cannot find") ||
-                                 ex is System.ComponentModel.Win32Exception;
-            
-            _cachedAvailability = new CopilotAvailability(
-                IsInstalled: !isNotInstalled,
-                IsAuthenticated: false,
-                Version: null,
-                Login: null,
-                ErrorMessage: isNotInstalled 
-                    ? "GitHub Copilot CLI is not installed" 
-                    : ex.Message
-            );
-            return _cachedAvailability;
+                var cliPath = ResolveCopilotCliPath();
+                var cliEnvironment = BuildCliEnvironment(cliPath);
+
+                if (cliPath != null)
+                    _logger.LogInformation($"Resolved Copilot CLI path: {cliPath}");
+                else
+                    _logger.LogWarning("Could not resolve Copilot CLI path from bundle, well-known locations, or PATH");
+
+                var options = new CopilotClientOptions
+                {
+                    AutoStart = true,
+                    CliPath = cliPath,
+                    Cwd = _copilotWorkingDirectory,
+                    Environment = cliEnvironment
+                };
+
+                tempClient = new CopilotClient(options);
+                await tempClient.StartAsync();
+                tempClientStarted = true;
+
+                var statusResponse = await tempClient.GetStatusAsync();
+                var version = statusResponse?.Version;
+                _logger.LogInformation($"Copilot CLI version: {version}");
+
+                var authResponse = await tempClient.GetAuthStatusAsync();
+
+                if (authResponse == null || !authResponse.IsAuthenticated)
+                {
+                    var statusMsg = authResponse?.StatusMessage ?? "Not logged in to GitHub Copilot";
+                    _logger.LogWarning($"Copilot not authenticated: {statusMsg}");
+                    _cachedAvailability = new CopilotAvailability(
+                        IsInstalled: true,
+                        IsAuthenticated: false,
+                        Version: version,
+                        Login: authResponse?.Login,
+                        ErrorMessage: statusMsg
+                    );
+                    return _cachedAvailability;
+                }
+
+                _logger.LogInformation($"Copilot authenticated as {authResponse.Login}");
+
+                if (_client == null)
+                {
+                    _client = tempClient;
+                    tempClient = null;
+                    tempClientStarted = false;
+                    _logger.LogInformation("Reusing availability-check Copilot client for the next session");
+                }
+
+                _cachedAvailability = new CopilotAvailability(
+                    IsInstalled: true,
+                    IsAuthenticated: true,
+                    Version: version,
+                    Login: authResponse.Login,
+                    ErrorMessage: null
+                );
+                return _cachedAvailability;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Error checking Copilot availability: {ex.Message}", ex);
+
+                var isNotInstalled = ex.Message.Contains("not found", StringComparison.OrdinalIgnoreCase) ||
+                                     ex.Message.Contains("No such file", StringComparison.OrdinalIgnoreCase) ||
+                                     ex.Message.Contains("cannot find", StringComparison.OrdinalIgnoreCase) ||
+                                     ex is System.ComponentModel.Win32Exception;
+
+                _cachedAvailability = new CopilotAvailability(
+                    IsInstalled: !isNotInstalled,
+                    IsAuthenticated: false,
+                    Version: null,
+                    Login: null,
+                    ErrorMessage: isNotInstalled
+                        ? "GitHub Copilot CLI is not installed"
+                        : ex.Message
+                );
+                return _cachedAvailability;
+            }
+            finally
+            {
+                if (tempClient != null)
+                {
+                    if (tempClientStarted)
+                    {
+                        try
+                        {
+                            await tempClient.StopAsync();
+                        }
+                        catch (Exception stopEx)
+                        {
+                            _logger.LogWarning($"Failed to stop temporary Copilot client cleanly: {stopEx.Message}");
+
+                            try
+                            {
+                                await tempClient.ForceStopAsync();
+                            }
+                            catch (Exception forceStopEx)
+                            {
+                                _logger.LogWarning($"Failed to force-stop temporary Copilot client: {forceStopEx.Message}");
+                            }
+                        }
+                    }
+
+                    await tempClient.DisposeAsync();
+                }
+            }
         }
         finally
         {
-            if (tempClient != null)
-            {
-                if (tempClientStarted)
-                {
-                    try
-                    {
-                        await tempClient.StopAsync();
-                    }
-                    catch (Exception stopEx)
-                    {
-                        _logger.LogWarning($"Failed to stop temporary Copilot client cleanly: {stopEx.Message}");
-
-                        try
-                        {
-                            await tempClient.ForceStopAsync();
-                        }
-                        catch (Exception forceStopEx)
-                        {
-                            _logger.LogWarning($"Failed to force-stop temporary Copilot client: {forceStopEx.Message}");
-                        }
-                    }
-                }
-
-                await tempClient.DisposeAsync();
-            }
+            _clientGate.Release();
         }
     }
 
     public async Task ConnectAsync()
     {
-        if (_client != null)
-        {
-            _logger.LogWarning("Already connected to Copilot");
-            return;
-        }
-
+        await _clientGate.WaitAsync();
         try
         {
+            if (_client?.State == ConnectionState.Connected)
+            {
+                _logger.LogInformation("Already connected to Copilot");
+                return;
+            }
+
+            if (_client != null)
+            {
+                _logger.LogWarning("Discarding stale Copilot client before reconnecting");
+
+                try
+                {
+                    await _client.StopAsync();
+                }
+                catch
+                {
+                    try
+                    {
+                        await _client.ForceStopAsync();
+                    }
+                    catch
+                    {
+                    }
+                }
+
+                await _client.DisposeAsync();
+                _client = null;
+            }
+
             _logger.LogInformation("Connecting to Copilot CLI...");
-            
+
             var cliPath = ResolveCopilotCliPath();
+            var cliEnvironment = BuildCliEnvironment(cliPath);
             if (cliPath != null)
                 _logger.LogInformation($"Resolved Copilot CLI path: {cliPath}");
 
@@ -277,14 +497,19 @@ public class CopilotService : ICopilotService, IAsyncDisposable
             {
                 AutoStart = true,
                 UseStdio = true,
-                Cwd = _skillsPath, // Set working directory to skills folder
+                Cwd = _copilotWorkingDirectory,
                 LogLevel = "info",
-                CliPath = cliPath
+                CliPath = cliPath,
+                Environment = cliEnvironment
             };
 
             _client = new CopilotClient(options);
             await _client.StartAsync();
-            
+
+            _cachedAvailability = _cachedAvailability is null
+                ? new CopilotAvailability(true, true, null, null, null)
+                : _cachedAvailability with { IsInstalled = true, IsAuthenticated = true, ErrorMessage = null };
+
             _logger.LogInformation("Connected to Copilot CLI");
         }
         catch (Exception ex)
@@ -292,6 +517,10 @@ public class CopilotService : ICopilotService, IAsyncDisposable
             _logger.LogError($"Failed to connect to Copilot: {ex.Message}", ex);
             _client = null;
             throw;
+        }
+        finally
+        {
+            _clientGate.Release();
         }
     }
 
