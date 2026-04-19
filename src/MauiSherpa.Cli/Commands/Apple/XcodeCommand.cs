@@ -29,6 +29,7 @@ public static class XcodeCommand
         cmd.Add(CreateAvailableCommand());
         cmd.Add(CreateSelectCommand());
         cmd.Add(CreateDownloadCommand());
+        cmd.Add(CreateNormalizeNamesCommand());
 
         return cmd;
     }
@@ -236,6 +237,150 @@ public static class XcodeCommand
     }
 
     // ── maui-sherpa apple xcode select ──
+
+    private static Command CreateNormalizeNamesCommand()
+    {
+        var cmd = new Command("normalize-names", "Rename Sherpa-managed Xcode bundles in /Applications to match the chosen separator (requires admin privileges).\n\nExamples:\n  maui-sherpa apple xcode normalize-names\n  maui-sherpa apple xcode normalize-names --separator -\n  maui-sherpa apple xcode normalize-names --dry-run");
+        var separatorOpt = new Option<string>("--separator") { Description = "Separator to use in bundle names: '_' (GitHub runner-images style) or '-' (xcodes style). Default: '_'.", DefaultValueFactory = _ => "_" };
+        var dryRunOpt = new Option<bool>("--dry-run") { Description = "Print the rename plan without making any changes." };
+        cmd.Add(separatorOpt);
+        cmd.Add(dryRunOpt);
+        cmd.SetAction(async (parseResult, ct) =>
+        {
+            var json = parseResult.GetValue(CliOptions.Json);
+            var separator = parseResult.GetValue(separatorOpt) ?? "_";
+            var dryRun = parseResult.GetValue(dryRunOpt);
+            await NormalizeNamesAsync(json, separator, dryRun, ct);
+        });
+        return cmd;
+    }
+
+    private static async Task NormalizeNamesAsync(bool json, string separator, bool dryRun, CancellationToken ct)
+    {
+        if (!OperatingSystem.IsMacOS())
+        {
+            Output.WriteError("Xcode is only available on macOS.");
+            return;
+        }
+
+        if (separator != "_" && separator != "-")
+        {
+            Output.WriteError($"Invalid --separator '{separator}'. Must be '_' or '-'.");
+            return;
+        }
+
+        var selected = await GetSelectedDeveloperDirAsync();
+        var installs = await DiscoverInstallationsAsync(selected);
+        var bundles = installs
+            .Where(i => i.Version != null && LooksLikeManagedBundleName(Path.GetFileName(i.Path)))
+            .Where(i => !string.Equals(Path.GetFileName(i.Path), "Xcode.app", StringComparison.OrdinalIgnoreCase))
+            .Where(i => TryResolveDirectoryLinkTarget(i.Path) is null)
+            .Select(i => (i.Path, Version: i.Version!, BuildNumber: i.Build ?? "unknown"))
+            .ToList();
+
+        var plan = ComputeNormalizationPlanCli(bundles, separator, TryResolveDirectoryLinkTarget(ManagedXcodeAppPath));
+
+        if (plan.Renames.Count == 0 && plan.SymlinkRetargetPath is null)
+        {
+            if (json) Output.WriteJson(new { success = true, renames = Array.Empty<object>(), message = "Already up to date." });
+            else Output.WriteSuccess("Xcode bundle names already match the selected separator.");
+            return;
+        }
+
+        if (json)
+        {
+            Output.WriteJson(new
+            {
+                success = true,
+                dryRun,
+                separator,
+                renames = plan.Renames.Select(r => new { from = r.FromPath, to = r.ToPath, version = r.Version, build = r.BuildNumber }).ToArray(),
+                symlinkRetarget = plan.SymlinkRetargetPath
+            });
+        }
+        else
+        {
+            Output.WriteInfo($"Planned renames (separator '{separator}'):");
+            foreach (var r in plan.Renames)
+                Output.WriteInfo($"  {Path.GetFileName(r.FromPath)}  →  {Path.GetFileName(r.ToPath)}");
+            if (plan.SymlinkRetargetPath is not null)
+                Output.WriteInfo($"  /Applications/Xcode.app will be retargeted to {Path.GetFileName(plan.SymlinkRetargetPath)}");
+        }
+
+        if (dryRun) return;
+
+        var sb = new System.Text.StringBuilder();
+        foreach (var r in plan.Renames)
+        {
+            var from = EscapeShellSingleQuotedString(r.FromPath);
+            var to = EscapeShellSingleQuotedString(r.ToPath);
+            sb.AppendLine("if [ -d '" + from + "' ] && [ ! -e '" + to + "' ]; then");
+            sb.AppendLine("  mv '" + from + "' '" + to + "'");
+            sb.AppendLine("fi");
+        }
+        if (plan.SymlinkRetargetPath is not null)
+        {
+            var canonical = EscapeShellSingleQuotedString(ManagedXcodeAppPath);
+            var newTarget = EscapeShellSingleQuotedString(plan.SymlinkRetargetPath);
+            sb.AppendLine("if [ -L '" + canonical + "' ]; then");
+            sb.AppendLine("  rm '" + canonical + "'");
+            sb.AppendLine("  ln -s '" + newTarget + "' '" + canonical + "'");
+            sb.AppendLine("  xcode-select -s '" + newTarget + "/Contents/Developer' || true");
+            sb.AppendLine("fi");
+        }
+
+        var result = await RunElevatedShellScriptAsync(sb.ToString(), ct);
+        if (result.exitCode == 0)
+        {
+            if (json) Output.WriteJson(new { success = true, applied = true });
+            else Output.WriteSuccess($"Renamed {plan.Renames.Count} bundle(s).");
+        }
+        else
+        {
+            var err = result.error.Trim();
+            if (json) Output.WriteJson(new { success = false, error = err });
+            else Output.WriteError($"Normalize failed: {err}");
+        }
+    }
+
+    private sealed record CliBundleRename(string FromPath, string ToPath, string? Version, string? BuildNumber);
+    private sealed record CliNormalizationPlan(string Separator, IReadOnlyList<CliBundleRename> Renames, string? SymlinkRetargetPath);
+
+    private static CliNormalizationPlan ComputeNormalizationPlanCli(
+        IReadOnlyList<(string Path, string Version, string BuildNumber)> bundles,
+        string separator,
+        string? currentSymlinkTarget)
+    {
+        var renames = new List<CliBundleRename>();
+        var reserved = new HashSet<string>(bundles.Select(b => NormalizePath(b.Path)), StringComparer.OrdinalIgnoreCase);
+
+        foreach (var b in bundles.OrderBy(x => x.Path, StringComparer.OrdinalIgnoreCase))
+        {
+            var dir = Path.GetDirectoryName(b.Path) ?? ApplicationsDirectory;
+            reserved.Remove(NormalizePath(b.Path));
+            var desired = ResolveManagedXcodeBundlePath(dir, b.Version, b.BuildNumber, reserved.ToList(), separator);
+            if (PathsEqual(desired, b.Path))
+            {
+                reserved.Add(NormalizePath(b.Path));
+                continue;
+            }
+            renames.Add(new CliBundleRename(b.Path, desired, b.Version, b.BuildNumber));
+            reserved.Add(NormalizePath(desired));
+        }
+
+        string? symlinkRetarget = null;
+        if (!string.IsNullOrWhiteSpace(currentSymlinkTarget))
+        {
+            var match = renames.FirstOrDefault(r => PathsEqual(r.FromPath, currentSymlinkTarget!));
+            if (match is not null) symlinkRetarget = match.ToPath;
+        }
+        return new CliNormalizationPlan(separator, renames, symlinkRetarget);
+    }
+
+    private static bool LooksLikeManagedBundleName(string bundleName) =>
+        (bundleName.StartsWith("Xcode_", StringComparison.OrdinalIgnoreCase) ||
+         bundleName.StartsWith("Xcode-", StringComparison.OrdinalIgnoreCase)) &&
+        bundleName.EndsWith(".app", StringComparison.OrdinalIgnoreCase);
 
     private static Command CreateSelectCommand()
     {
@@ -562,32 +707,40 @@ public static class XcodeCommand
         string targetDirectory,
         string version,
         string buildNumber,
-        IEnumerable<string> existingPaths)
+        IEnumerable<string> existingPaths,
+        string separator = "_")
     {
-        var preferredPath = Path.Combine(targetDirectory, GetManagedXcodeBundleName(version, buildNumber));
         var normalizedExistingPaths = new HashSet<string>(
             existingPaths.Select(NormalizePath),
             StringComparer.OrdinalIgnoreCase);
 
+        var preferredPath = Path.Combine(targetDirectory, GetManagedXcodeBundleName(version, separator));
         if (!normalizedExistingPaths.Contains(NormalizePath(preferredPath)))
             return preferredPath;
 
-        var baseName = Path.GetFileNameWithoutExtension(preferredPath);
+        var withBuildPath = Path.Combine(targetDirectory, GetManagedXcodeBundleNameWithBuild(version, buildNumber, separator));
+        if (!normalizedExistingPaths.Contains(NormalizePath(withBuildPath)))
+            return withBuildPath;
+
+        var baseName = Path.GetFileNameWithoutExtension(withBuildPath);
         for (var suffix = 2; ; suffix++)
         {
-            var candidatePath = Path.Combine(targetDirectory, $"{baseName}_{suffix}.app");
+            var candidatePath = Path.Combine(targetDirectory, $"{baseName}{separator}{suffix}.app");
             if (!normalizedExistingPaths.Contains(NormalizePath(candidatePath)))
                 return candidatePath;
         }
     }
 
-    private static string GetManagedXcodeBundleName(string version, string buildNumber) =>
-        $"Xcode_{SanitizeXcodeBundleSegment(version)}_{SanitizeXcodeBundleSegment(buildNumber)}.app";
+    private static string GetManagedXcodeBundleName(string version, string separator = "_") =>
+        $"Xcode{separator}{SanitizeXcodeBundleSegment(version, separator)}.app";
 
-    private static string SanitizeXcodeBundleSegment(string value)
+    private static string GetManagedXcodeBundleNameWithBuild(string version, string buildNumber, string separator = "_") =>
+        $"Xcode{separator}{SanitizeXcodeBundleSegment(version, separator)}{separator}{SanitizeXcodeBundleSegment(buildNumber, separator)}.app";
+
+    private static string SanitizeXcodeBundleSegment(string value, string separator = "_")
     {
-        var sanitized = Regex.Replace(value.Trim(), @"[^A-Za-z0-9.\-]+", "_");
-        sanitized = Regex.Replace(sanitized, @"_+", "_").Trim('_');
+        var sanitized = Regex.Replace(value.Trim(), @"[^A-Za-z0-9.\-]+", separator);
+        sanitized = Regex.Replace(sanitized, Regex.Escape(separator) + "+", separator).Trim(separator[0]);
         return string.IsNullOrWhiteSpace(sanitized) ? "unknown" : sanitized;
     }
 

@@ -155,7 +155,7 @@ public class XcodeService : IXcodeService
                 .Where(p => !Path.GetFileName(p).Equals(XcodesAppName, StringComparison.OrdinalIgnoreCase))
                 .ToList();
 
-            var selectionPlan = CreateSelectionPlan(xcodeAppPath, managedDefaultState, existingPaths);
+            var selectionPlan = CreateSelectionPlan(xcodeAppPath, managedDefaultState, existingPaths, await GetBundleSeparatorAsync());
             var script = CreateSelectionScript(selectionPlan);
             var result = await RunElevatedShellScriptAsync(script);
 
@@ -502,7 +502,8 @@ public class XcodeService : IXcodeService
                 .Where(path => !PathsEqual(path, xcodeApp))
                 .Where(path => !Path.GetFileName(path).Equals(XcodesAppName, StringComparison.OrdinalIgnoreCase))
                 .ToList();
-            var destinationPath = ResolveManagedXcodeBundlePath(targetDirectory, version, buildNumber ?? "unknown", existingPaths);
+            var separator = await GetBundleSeparatorAsync();
+            var destinationPath = ResolveManagedXcodeBundlePath(targetDirectory, version, buildNumber ?? "unknown", existingPaths, separator);
 
             // Step 3: Move to target directory with admin privileges
             progress?.Report($"Moving Xcode to {targetDirectory}...");
@@ -563,6 +564,169 @@ public class XcodeService : IXcodeService
         }
     }
 
+    // ── Bundle name normalization ───────────────────────────────────────
+
+    public async Task<XcodeNormalizationPlan> GetNormalizationPlanAsync()
+    {
+        var separator = await GetBundleSeparatorAsync();
+
+        if (!IsSupported || !Directory.Exists(ApplicationsDirectory))
+            return new XcodeNormalizationPlan(separator, [], null);
+
+        var candidateBundles = new List<(string Path, string Version, string BuildNumber)>();
+
+        var xcodeApps = Directory.GetDirectories(ApplicationsDirectory, "Xcode*.app")
+            .Where(p =>
+            {
+                var name = Path.GetFileName(p);
+                if (name.Equals(XcodesAppName, StringComparison.OrdinalIgnoreCase)) return false;
+                // Exclude the canonical /Applications/Xcode.app slot — managed by the selection flow.
+                if (PathsEqual(p, ManagedXcodeAppPath)) return false;
+                // Exclude symlinks (resolved separately).
+                if (TryResolveDirectoryLinkTarget(p) != null) return false;
+                return true;
+            })
+            .ToList();
+
+        foreach (var appPath in xcodeApps)
+        {
+            var (version, buildNumber) = await GetXcodeVersionAsync(appPath);
+            if (string.IsNullOrWhiteSpace(version)) continue;
+            candidateBundles.Add((appPath, version!, buildNumber ?? "unknown"));
+        }
+
+        return ComputeNormalizationPlan(
+            candidateBundles,
+            separator,
+            currentSymlinkTarget: TryResolveDirectoryLinkTarget(ManagedXcodeAppPath));
+    }
+
+    /// <summary>
+    /// Pure planning helper: given the set of discovered Xcode bundles and the
+    /// desired separator, return the renames required to bring them into line.
+    /// Visible for unit tests.
+    /// </summary>
+    internal static XcodeNormalizationPlan ComputeNormalizationPlan(
+        IReadOnlyList<(string Path, string Version, string BuildNumber)> bundles,
+        string separator,
+        string? currentSymlinkTarget)
+    {
+        separator = NormalizeBundleSeparator(separator);
+        var renames = new List<XcodeBundleRename>();
+
+        // Snapshot of paths we're reserving — starts as every existing bundle path.
+        // As renames resolve, source paths are released and destination paths claimed.
+        var reservedPaths = new HashSet<string>(
+            bundles.Select(b => NormalizePath(b.Path)),
+            StringComparer.OrdinalIgnoreCase);
+
+        foreach (var bundle in bundles.OrderBy(b => b.Path, StringComparer.OrdinalIgnoreCase))
+        {
+            var directory = Path.GetDirectoryName(bundle.Path) ?? ApplicationsDirectory;
+            var currentName = Path.GetFileName(bundle.Path);
+
+            // Don't touch bundles that don't look managed. Our heuristic: starts with
+            // "Xcode_" or "Xcode-". A plain "Xcode.app" is already excluded above but
+            // skipped here too as a safety net.
+            if (!LooksLikeManagedBundleName(currentName)) continue;
+
+            // Release this bundle's path from the reserved set while we plan its move.
+            reservedPaths.Remove(NormalizePath(bundle.Path));
+
+            var existingForResolve = reservedPaths.ToList();
+            var desiredPath = ResolveManagedXcodeBundlePath(
+                directory, bundle.Version, bundle.BuildNumber, existingForResolve, separator);
+
+            if (PathsEqual(desiredPath, bundle.Path))
+            {
+                // Already in the right shape — just re-reserve and continue.
+                reservedPaths.Add(NormalizePath(bundle.Path));
+                continue;
+            }
+
+            renames.Add(new XcodeBundleRename(
+                FromPath: bundle.Path,
+                ToPath: desiredPath,
+                Version: bundle.Version,
+                BuildNumber: bundle.BuildNumber));
+
+            reservedPaths.Add(NormalizePath(desiredPath));
+        }
+
+        string? symlinkRetargetPath = null;
+        if (!string.IsNullOrWhiteSpace(currentSymlinkTarget))
+        {
+            var rename = renames.FirstOrDefault(r => PathsEqual(r.FromPath, currentSymlinkTarget!));
+            if (rename is not null)
+                symlinkRetargetPath = rename.ToPath;
+        }
+
+        return new XcodeNormalizationPlan(separator, renames, symlinkRetargetPath);
+    }
+
+    public async Task<bool> NormalizeBundleNamesAsync(
+        XcodeNormalizationPlan plan,
+        IProgress<string>? progress = null,
+        CancellationToken ct = default)
+    {
+        if (!IsSupported) return false;
+        if (plan is null || !plan.HasWork)
+        {
+            progress?.Report("No bundles to normalize.");
+            return true;
+        }
+
+        progress?.Report($"Normalizing {plan.Renames.Count} Xcode bundle name(s)...");
+
+        var sb = new System.Text.StringBuilder();
+        foreach (var rename in plan.Renames)
+        {
+            var from = EscapeShellSingleQuotedString(rename.FromPath);
+            var to = EscapeShellSingleQuotedString(rename.ToPath);
+            sb.AppendLine("if [ -d '" + from + "' ] && [ ! -e '" + to + "' ]; then");
+            sb.AppendLine("  mv '" + from + "' '" + to + "'");
+            sb.AppendLine("fi");
+        }
+
+        if (plan.SymlinkRetargetPath is not null)
+        {
+            var canonical = EscapeShellSingleQuotedString(ManagedXcodeAppPath);
+            var newTarget = EscapeShellSingleQuotedString(plan.SymlinkRetargetPath);
+            sb.AppendLine("if [ -L '" + canonical + "' ]; then");
+            sb.AppendLine("  rm '" + canonical + "'");
+            sb.AppendLine("  ln -s '" + newTarget + "' '" + canonical + "'");
+            // Re-run xcode-select so the active developer dir points at the new bundle path.
+            sb.AppendLine("  xcode-select -s '" + newTarget + "/Contents/Developer' || true");
+            sb.AppendLine("fi");
+        }
+
+        try
+        {
+            var result = await RunElevatedShellScriptAsync(sb.ToString(), ct);
+            if (result.exitCode != 0)
+            {
+                _logger.LogError($"Failed to normalize Xcode bundle names: {result.error}");
+                progress?.Report($"Failed to normalize bundle names: {result.error}");
+                return false;
+            }
+
+            progress?.Report("Xcode bundle names normalized.");
+            _logger.LogInformation($"Normalized {plan.Renames.Count} Xcode bundle name(s) with separator '{plan.Separator}'.");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Exception normalizing Xcode bundle names: {ex.Message}", ex);
+            progress?.Report($"Normalize failed: {ex.Message}");
+            return false;
+        }
+    }
+
+    private static bool LooksLikeManagedBundleName(string bundleName) =>
+        (bundleName.StartsWith("Xcode_", StringComparison.OrdinalIgnoreCase) ||
+         bundleName.StartsWith("Xcode-", StringComparison.OrdinalIgnoreCase)) &&
+        bundleName.EndsWith(".app", StringComparison.OrdinalIgnoreCase);
+
     // ── Private helpers ─────────────────────────────────────────────────
 
     private async Task<XcodeManagedDefaultState> GetManagedDefaultStateAsync()
@@ -608,31 +772,40 @@ public class XcodeService : IXcodeService
         return PathStartsWith(selectedDeveloperDir, canonicalDeveloperDir);
     }
 
-    internal static string GetManagedXcodeBundleName(string version, string buildNumber)
-    {
-        var sanitizedVersion = SanitizeXcodeBundleSegment(version);
-        var sanitizedBuildNumber = SanitizeXcodeBundleSegment(buildNumber);
-        return $"Xcode_{sanitizedVersion}_{sanitizedBuildNumber}.app";
-    }
+    internal static string GetManagedXcodeBundleName(string version, string separator) =>
+        $"Xcode{separator}{SanitizeXcodeBundleSegment(version, separator)}.app";
+
+    // Retained for tests/compat: produces the collision-disambiguated name with a
+    // build-number suffix appended. Not used for the default install path.
+    internal static string GetManagedXcodeBundleNameWithBuild(string version, string buildNumber, string separator) =>
+        $"Xcode{separator}{SanitizeXcodeBundleSegment(version, separator)}{separator}{SanitizeXcodeBundleSegment(buildNumber, separator)}.app";
 
     internal static string ResolveManagedXcodeBundlePath(
         string targetDirectory,
         string version,
         string buildNumber,
-        IEnumerable<string> existingPaths)
+        IEnumerable<string> existingPaths,
+        string separator)
     {
-        var preferredPath = Path.Combine(targetDirectory, GetManagedXcodeBundleName(version, buildNumber));
         var normalizedExistingPaths = new HashSet<string>(
             existingPaths.Select(NormalizePath),
             StringComparer.OrdinalIgnoreCase);
 
+        // 1. Prefer the plain `Xcode<sep><version>.app` form.
+        var preferredPath = Path.Combine(targetDirectory, GetManagedXcodeBundleName(version, separator));
         if (!normalizedExistingPaths.Contains(NormalizePath(preferredPath)))
             return preferredPath;
 
-        var baseName = Path.GetFileNameWithoutExtension(preferredPath);
+        // 2. Disambiguate with the build number: `Xcode<sep><version><sep><build>.app`.
+        var withBuildPath = Path.Combine(targetDirectory, GetManagedXcodeBundleNameWithBuild(version, buildNumber, separator));
+        if (!normalizedExistingPaths.Contains(NormalizePath(withBuildPath)))
+            return withBuildPath;
+
+        // 3. Final fallback: numeric suffix.
+        var baseName = Path.GetFileNameWithoutExtension(withBuildPath);
         for (var suffix = 2; ; suffix++)
         {
-            var candidatePath = Path.Combine(targetDirectory, $"{baseName}_{suffix}.app");
+            var candidatePath = Path.Combine(targetDirectory, $"{baseName}{separator}{suffix}.app");
             if (!normalizedExistingPaths.Contains(NormalizePath(candidatePath)))
                 return candidatePath;
         }
@@ -641,7 +814,8 @@ public class XcodeService : IXcodeService
     internal static XcodeSelectionPlan CreateSelectionPlan(
         string selectedAppPath,
         XcodeManagedDefaultState managedDefaultState,
-        IEnumerable<string> existingPaths)
+        IEnumerable<string> existingPaths,
+        string separator = XcodeBundleSeparatorOptions.Underscore)
     {
         var normalizedSelectedAppPath = selectedAppPath;
         if (managedDefaultState.IsSymlink &&
@@ -667,7 +841,8 @@ public class XcodeService : IXcodeService
             Path.GetDirectoryName(managedDefaultState.CanonicalAppPath) ?? ApplicationsDirectory,
             managedDefaultState.Version,
             managedDefaultState.BuildNumber ?? "unknown",
-            existingPaths.Where(path => !PathsEqual(path, managedDefaultState.CanonicalAppPath)));
+            existingPaths.Where(path => !PathsEqual(path, managedDefaultState.CanonicalAppPath)),
+            separator);
 
         if (PathsEqual(normalizedSelectedAppPath, managedDefaultState.CanonicalAppPath))
             normalizedSelectedAppPath = migrationDestinationPath;
@@ -814,13 +989,33 @@ public class XcodeService : IXcodeService
     private static string NormalizePath(string path) =>
         Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar);
 
-    private static string SanitizeXcodeBundleSegment(string value)
+    private static string SanitizeXcodeBundleSegment(string value, string separator)
     {
-        var sanitized = Regex.Replace(value.Trim(), @"[^A-Za-z0-9.\-]+", "_");
-        sanitized = Regex.Replace(sanitized, @"_+", "_");
-        sanitized = sanitized.Trim('_');
+        var sanitized = Regex.Replace(value.Trim(), @"[^A-Za-z0-9.\-]+", separator);
+        // Collapse runs of the separator.
+        sanitized = Regex.Replace(sanitized, Regex.Escape(separator) + "+", separator);
+        sanitized = sanitized.Trim(separator[0]);
         return string.IsNullOrWhiteSpace(sanitized) ? "unknown" : sanitized;
     }
+
+    private async Task<string> GetBundleSeparatorAsync()
+    {
+        try
+        {
+            var settings = await _settingsService.GetSettingsAsync();
+            return NormalizeBundleSeparator(settings.Preferences.XcodeBundleSeparator);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning($"Failed to read XcodeBundleSeparator preference; defaulting to '_': {ex.Message}");
+            return XcodeBundleSeparatorOptions.Underscore;
+        }
+    }
+
+    internal static string NormalizeBundleSeparator(string? value) =>
+        string.Equals(value, XcodeBundleSeparatorOptions.Hyphen, StringComparison.Ordinal)
+            ? XcodeBundleSeparatorOptions.Hyphen
+            : XcodeBundleSeparatorOptions.Underscore;
 
     private static string EscapeShellSingleQuotedString(string value) =>
         value.Replace("'", "'\"'\"'");

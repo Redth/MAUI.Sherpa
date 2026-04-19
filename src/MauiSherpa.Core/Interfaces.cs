@@ -1029,6 +1029,44 @@ public interface IXcodeService
     /// Install a downloaded Xcode .xip archive (unxip, move to /Applications, run first-launch)
     /// </summary>
     Task<bool> InstallXcodeAsync(string xipPath, string? targetDirectory = null, IProgress<string>? progress = null, CancellationToken ct = default);
+
+    /// <summary>
+    /// Compute the set of Sherpa-managed Xcode bundles whose names don't match the
+    /// currently selected separator/format. Empty plan means no action needed.
+    /// </summary>
+    Task<XcodeNormalizationPlan> GetNormalizationPlanAsync();
+
+    /// <summary>
+    /// Execute a bundle-name normalization plan (requires admin privileges).
+    /// Atomically renames each bundle and, if necessary, retargets /Applications/Xcode.app
+    /// and re-runs xcode-select when the currently active developer dir was renamed.
+    /// </summary>
+    Task<bool> NormalizeBundleNamesAsync(XcodeNormalizationPlan plan, IProgress<string>? progress = null, CancellationToken ct = default);
+}
+
+/// <summary>
+/// A planned rename of a single Sherpa-managed Xcode bundle.
+/// </summary>
+public record XcodeBundleRename(
+    string FromPath,
+    string ToPath,
+    string? Version,
+    string? BuildNumber
+);
+
+/// <summary>
+/// Aggregate plan for normalizing Sherpa-managed Xcode bundle names to match the
+/// currently selected separator. <paramref name="SymlinkRetargetPath"/> is the new
+/// target for <c>/Applications/Xcode.app</c> when the active symlink points at one
+/// of the bundles being renamed.
+/// </summary>
+public record XcodeNormalizationPlan(
+    string Separator,
+    IReadOnlyList<XcodeBundleRename> Renames,
+    string? SymlinkRetargetPath
+)
+{
+    public bool HasWork => Renames.Count > 0 || SymlinkRetargetPath is not null;
 }
 
 /// <summary>
@@ -3375,12 +3413,24 @@ public record AppPreferences
     public bool AutoBackupEnabled { get; init; } = true;
     public bool DemoMode { get; init; } = false;
     public string XcodeArchiveExtractor { get; init; } = XcodeArchiveExtractorOptions.SystemXip;
+    public string XcodeBundleSeparator { get; init; } = XcodeBundleSeparatorOptions.Underscore;
 }
 
 public static class XcodeArchiveExtractorOptions
 {
     public const string SystemXip = "system-xip";
     public const string Unxip = "unxip";
+}
+
+/// <summary>
+/// Separator characters used in Sherpa-managed Xcode bundle names. "_" matches the
+/// GitHub runner-images convention (<c>Xcode_26.3.app</c>); "-" matches the xcodes /
+/// Xcodes.app convention (<c>Xcode-26.3.app</c>).
+/// </summary>
+public static class XcodeBundleSeparatorOptions
+{
+    public const string Underscore = "_";
+    public const string Hyphen = "-";
 }
 
 public record PushTestingSettings

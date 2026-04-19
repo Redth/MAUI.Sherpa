@@ -30,6 +30,7 @@
 @inject ILoggingService Logger
 @inject MauiSherpa.Pages.Forms.ModalParameterService ModalParams
 @inject MauiSherpa.Pages.Forms.HybridFormBridgeHolder BridgeHolder
+@inject IXcodeService XcodeService
 
 @if (!PlatformInfo.HasNativeToolbar)
 {
@@ -90,6 +91,20 @@
                     <div class="setting-description setting-description-block">
                         Use the system <code>xip</code> extractor for the safest default, or the bundled <code>unxip</code> helper for faster extraction.
                         <code>unxip</code> does not perform signature verification. If the bundled helper is unavailable, MauiSherpa falls back to <code>xip</code>.
+                    </div>
+                </div>
+            </div>
+            <div class="setting-item setting-item-start">
+                <label class="setting-label">Xcode Bundle Naming</label>
+                <div class="setting-control setting-control-stack">
+                    <select value="@xcodeBundleSeparator" @onchange="OnXcodeBundleSeparatorChanged" class="setting-select-wide" disabled="@isNormalizingBundles">
+                        <option value="@XcodeBundleSeparatorOptions.Underscore">Xcode_26.3.app (underscore &mdash; GitHub runner-images style)</option>
+                        <option value="@XcodeBundleSeparatorOptions.Hyphen">Xcode-26.3.app (hyphen &mdash; xcodes / Xcodes.app style)</option>
+                    </select>
+                    <div class="setting-description setting-description-block">
+                        Separator used when Sherpa renames managed Xcode installs in <code>/Applications</code>.
+                        Changing this will scan for existing bundles using the other format and offer to rename them.
+                        The build number is only appended when two installs share the same version.
                     </div>
                 </div>
             </div>
@@ -1236,6 +1251,8 @@
     
     private bool demoMode = false;
     private string xcodeArchiveExtractor = XcodeArchiveExtractorOptions.SystemXip;
+    private string xcodeBundleSeparator = XcodeBundleSeparatorOptions.Underscore;
+    private bool isNormalizingBundles = false;
     private string appVersion = "";
     private UpdateCheckResult? updateResult;
 
@@ -1320,6 +1337,7 @@
             var settings = await EncryptedSettings.GetSettingsAsync();
             demoMode = settings.Preferences.DemoMode;
             xcodeArchiveExtractor = NormalizeXcodeArchiveExtractor(settings.Preferences.XcodeArchiveExtractor);
+            xcodeBundleSeparator = NormalizeXcodeBundleSeparator(settings.Preferences.XcodeBundleSeparator);
         }
         catch { }
     }
@@ -1453,6 +1471,64 @@
         xcodeArchiveExtractor = NormalizeXcodeArchiveExtractor(e.Value?.ToString());
     }
 
+    private async Task OnXcodeBundleSeparatorChanged(ChangeEventArgs e)
+    {
+        var newValue = NormalizeXcodeBundleSeparator(e.Value?.ToString());
+        if (newValue == xcodeBundleSeparator) return;
+        xcodeBundleSeparator = newValue;
+
+        // Persist the new preference first so the service picks it up when planning.
+        try
+        {
+            await EncryptedSettings.UpdateSettingsAsync(s => s with
+            {
+                Preferences = s.Preferences with { XcodeBundleSeparator = newValue }
+            });
+        }
+        catch (Exception ex)
+        {
+            await AlertService.ShowAlertAsync("Error", $"Failed to save setting: {ex.Message}");
+            return;
+        }
+
+        if (!XcodeService.IsSupported) return;
+
+        isNormalizingBundles = true;
+        StateHasChanged();
+        try
+        {
+            var plan = await XcodeService.GetNormalizationPlanAsync();
+            if (!plan.HasWork)
+            {
+                await AlertService.ShowToastAsync("Xcode bundle names already match this format.");
+                return;
+            }
+
+            var list = string.Join("\n", plan.Renames.Select(r =>
+                $"• {System.IO.Path.GetFileName(r.FromPath)}  →  {System.IO.Path.GetFileName(r.ToPath)}"));
+            if (plan.SymlinkRetargetPath is not null)
+                list += $"\n• /Applications/Xcode.app will point to {System.IO.Path.GetFileName(plan.SymlinkRetargetPath)}";
+
+            var confirmed = await AlertService.ShowConfirmAsync(
+                "Rename managed Xcode bundles?",
+                $"The following {plan.Renames.Count} bundle(s) will be renamed to match the new separator. You'll be prompted for your admin password.\n\n{list}");
+
+            if (!confirmed) return;
+
+            var ok = await XcodeService.NormalizeBundleNamesAsync(plan);
+            await AlertService.ShowToastAsync(ok ? "Xcode bundle names updated." : "Failed to rename Xcode bundles.");
+        }
+        catch (Exception ex)
+        {
+            await AlertService.ShowAlertAsync("Error", $"Failed to normalize Xcode bundle names: {ex.Message}");
+        }
+        finally
+        {
+            isNormalizingBundles = false;
+            StateHasChanged();
+        }
+    }
+
     private void OnFontScaleInput(ChangeEventArgs e)
     {
         if (double.TryParse(e.Value?.ToString(), out var scale))
@@ -1518,7 +1594,8 @@
                 {
                     Theme = ViewModel.Theme,
                     FontScale = ViewModel.FontScale,
-                    XcodeArchiveExtractor = xcodeArchiveExtractor
+                    XcodeArchiveExtractor = xcodeArchiveExtractor,
+                    XcodeBundleSeparator = xcodeBundleSeparator
                 }
             });
             await AlertService.ShowToastAsync("Settings saved");
@@ -1539,6 +1616,7 @@
         await ViewModel.ResetSettingsAsync();
         demoMode = false;
         xcodeArchiveExtractor = XcodeArchiveExtractorOptions.SystemXip;
+        xcodeBundleSeparator = XcodeBundleSeparatorOptions.Underscore;
         ThemeService.SetTheme(ViewModel.Theme);
         ThemeService.SetFontScale(ViewModel.FontScale);
     }
@@ -1804,6 +1882,11 @@
         string.Equals(value, XcodeArchiveExtractorOptions.Unxip, StringComparison.OrdinalIgnoreCase)
             ? XcodeArchiveExtractorOptions.Unxip
             : XcodeArchiveExtractorOptions.SystemXip;
+
+    private static string NormalizeXcodeBundleSeparator(string? value) =>
+        string.Equals(value, XcodeBundleSeparatorOptions.Hyphen, StringComparison.Ordinal)
+            ? XcodeBundleSeparatorOptions.Hyphen
+            : XcodeBundleSeparatorOptions.Underscore;
 
     // Google Identity Methods
 
@@ -2203,6 +2286,7 @@
             ViewModel.FontScale = settings.Preferences.FontScale;
             demoMode = settings.Preferences.DemoMode;
             xcodeArchiveExtractor = NormalizeXcodeArchiveExtractor(settings.Preferences.XcodeArchiveExtractor);
+            xcodeBundleSeparator = NormalizeXcodeBundleSeparator(settings.Preferences.XcodeBundleSeparator);
             ThemeService.SetTheme(ViewModel.Theme);
             ThemeService.SetFontScale(ViewModel.FontScale);
         }

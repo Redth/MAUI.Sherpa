@@ -85,29 +85,82 @@ public class XcodeServiceTests
     }
 
     [Fact]
-    public void GetManagedXcodeBundleName_UsesVersionAndBuild()
+    public void GetManagedXcodeBundleName_Underscore_UsesVersionOnly()
     {
-        var bundleName = XcodeService.GetManagedXcodeBundleName("26.3", "17A123");
+        var bundleName = XcodeService.GetManagedXcodeBundleName("26.3", XcodeBundleSeparatorOptions.Underscore);
+
+        bundleName.Should().Be("Xcode_26.3.app");
+    }
+
+    [Fact]
+    public void GetManagedXcodeBundleName_Hyphen_UsesVersionOnly()
+    {
+        var bundleName = XcodeService.GetManagedXcodeBundleName("26.3", XcodeBundleSeparatorOptions.Hyphen);
+
+        bundleName.Should().Be("Xcode-26.3.app");
+    }
+
+    [Theory]
+    [InlineData("_", "Xcode_26.3_Beta_2.app")]
+    [InlineData("-", "Xcode-26.3-Beta-2.app")]
+    public void GetManagedXcodeBundleName_SanitizesBetaVersions(string separator, string expected)
+    {
+        var bundleName = XcodeService.GetManagedXcodeBundleName("26.3 Beta 2", separator);
+
+        bundleName.Should().Be(expected);
+    }
+
+    [Fact]
+    public void GetManagedXcodeBundleNameWithBuild_AppendsBuildNumber()
+    {
+        var bundleName = XcodeService.GetManagedXcodeBundleNameWithBuild("26.3", "17A123", XcodeBundleSeparatorOptions.Underscore);
 
         bundleName.Should().Be("Xcode_26.3_17A123.app");
     }
 
-    [Fact]
-    public void GetManagedXcodeBundleName_SanitizesBetaVersions()
-    {
-        var bundleName = XcodeService.GetManagedXcodeBundleName("26.3 Beta 2", "17A123");
-
-        bundleName.Should().Be("Xcode_26.3_Beta_2_17A123.app");
-    }
-
-    [Fact]
-    public void ResolveManagedXcodeBundlePath_WhenPreferredNameExists_AppendsNumericSuffix()
+    [Theory]
+    [InlineData("_", "/Applications/Xcode_26.3.app")]
+    [InlineData("-", "/Applications/Xcode-26.3.app")]
+    public void ResolveManagedXcodeBundlePath_WhenNoCollision_UsesPlainVersionName(string separator, string expected)
     {
         var bundlePath = XcodeService.ResolveManagedXcodeBundlePath(
             "/Applications",
             "26.3",
             "17A123",
-            ["/Applications/Xcode_26.3_17A123.app"]);
+            [],
+            separator);
+
+        bundlePath.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("_", "/Applications/Xcode_26.3.app", "/Applications/Xcode_26.3_17A123.app")]
+    [InlineData("-", "/Applications/Xcode-26.3.app", "/Applications/Xcode-26.3-17A123.app")]
+    public void ResolveManagedXcodeBundlePath_WhenPlainNameExists_AppendsBuildNumber(
+        string separator, string existing, string expected)
+    {
+        var bundlePath = XcodeService.ResolveManagedXcodeBundlePath(
+            "/Applications",
+            "26.3",
+            "17A123",
+            [existing],
+            separator);
+
+        bundlePath.Should().Be(expected);
+    }
+
+    [Fact]
+    public void ResolveManagedXcodeBundlePath_WhenBuildNumberedNameAlsoExists_AppendsNumericSuffix()
+    {
+        var bundlePath = XcodeService.ResolveManagedXcodeBundlePath(
+            "/Applications",
+            "26.3",
+            "17A123",
+            [
+                "/Applications/Xcode_26.3.app",
+                "/Applications/Xcode_26.3_17A123.app"
+            ],
+            XcodeBundleSeparatorOptions.Underscore);
 
         bundlePath.Should().Be("/Applications/Xcode_26.3_17A123_2.app");
     }
@@ -126,11 +179,12 @@ public class XcodeServiceTests
         var plan = XcodeService.CreateSelectionPlan(
             "/Applications/Xcode.app",
             managedDefaultState,
-            ["/Applications/Xcode.app"]);
+            ["/Applications/Xcode.app"],
+            XcodeBundleSeparatorOptions.Underscore);
 
-        plan.SelectedAppPath.Should().Be("/Applications/Xcode_26.3_17A123.app");
+        plan.SelectedAppPath.Should().Be("/Applications/Xcode_26.3.app");
         plan.MigrationSourcePath.Should().Be("/Applications/Xcode.app");
-        plan.MigrationDestinationPath.Should().Be("/Applications/Xcode_26.3_17A123.app");
+        plan.MigrationDestinationPath.Should().Be("/Applications/Xcode_26.3.app");
     }
 
     [Fact]
@@ -149,11 +203,12 @@ public class XcodeServiceTests
             managedDefaultState,
             [
                 "/Applications/Xcode.app",
-                "/Applications/Xcode_26.3_17A123.app"
-            ]);
+                "/Applications/Xcode_26.3.app"
+            ],
+            XcodeBundleSeparatorOptions.Underscore);
 
-        plan.SelectedAppPath.Should().Be("/Applications/Xcode_26.3_17A123_2.app");
-        plan.MigrationDestinationPath.Should().Be("/Applications/Xcode_26.3_17A123_2.app");
+        plan.SelectedAppPath.Should().Be("/Applications/Xcode_26.3_17A123.app");
+        plan.MigrationDestinationPath.Should().Be("/Applications/Xcode_26.3_17A123.app");
     }
 
     [Fact]
@@ -173,11 +228,82 @@ public class XcodeServiceTests
             [
                 "/Applications/Xcode.app",
                 "/Applications/Xcode_26.3_17A123.app"
-            ]);
+            ],
+            XcodeBundleSeparatorOptions.Underscore);
 
         plan.SelectedAppPath.Should().Be("/Applications/Xcode_26.3_17A123.app");
         plan.MigrationSourcePath.Should().BeNull();
         plan.MigrationDestinationPath.Should().BeNull();
+    }
+
+    [Fact]
+    public void ComputeNormalizationPlan_WhenAllBundlesMatch_ReturnsEmptyPlan()
+    {
+        var plan = XcodeService.ComputeNormalizationPlan(
+            [
+                ("/Applications/Xcode_26.3.app", "26.3", "17A123"),
+                ("/Applications/Xcode_26.2.app", "26.2", "17A500")
+            ],
+            XcodeBundleSeparatorOptions.Underscore,
+            currentSymlinkTarget: null);
+
+        plan.Renames.Should().BeEmpty();
+        plan.SymlinkRetargetPath.Should().BeNull();
+        plan.HasWork.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ComputeNormalizationPlan_SwitchUnderscoreToHyphen_RenamesBundles()
+    {
+        var plan = XcodeService.ComputeNormalizationPlan(
+            [
+                ("/Applications/Xcode_26.3_17A123.app", "26.3", "17A123"),
+                ("/Applications/Xcode_26.2.app", "26.2", "17A500")
+            ],
+            XcodeBundleSeparatorOptions.Hyphen,
+            currentSymlinkTarget: null);
+
+        plan.Renames.Should().HaveCount(2);
+        plan.Renames.Should().Contain(r =>
+            r.FromPath == "/Applications/Xcode_26.3_17A123.app" &&
+            r.ToPath == "/Applications/Xcode-26.3.app");
+        plan.Renames.Should().Contain(r =>
+            r.FromPath == "/Applications/Xcode_26.2.app" &&
+            r.ToPath == "/Applications/Xcode-26.2.app");
+    }
+
+    [Fact]
+    public void ComputeNormalizationPlan_WhenSymlinkTargetIsRenamed_SetsRetargetPath()
+    {
+        var plan = XcodeService.ComputeNormalizationPlan(
+            [
+                ("/Applications/Xcode_26.3_17A123.app", "26.3", "17A123")
+            ],
+            XcodeBundleSeparatorOptions.Underscore,
+            currentSymlinkTarget: "/Applications/Xcode_26.3_17A123.app");
+
+        plan.Renames.Should().ContainSingle()
+            .Which.ToPath.Should().Be("/Applications/Xcode_26.3.app");
+        plan.SymlinkRetargetPath.Should().Be("/Applications/Xcode_26.3.app");
+    }
+
+    [Fact]
+    public void ComputeNormalizationPlan_SwappingSeparators_HandlesCollisionViaBuildNumber()
+    {
+        // Two installs of the same version exist, one in each naming style. After
+        // switching to hyphen, both want the plain `Xcode-26.3.app` slot — one must
+        // keep the build number suffix to disambiguate.
+        var plan = XcodeService.ComputeNormalizationPlan(
+            [
+                ("/Applications/Xcode_26.3.app", "26.3", "17A123"),
+                ("/Applications/Xcode_26.3_17A400.app", "26.3", "17A400")
+            ],
+            XcodeBundleSeparatorOptions.Hyphen,
+            currentSymlinkTarget: null);
+
+        plan.Renames.Should().HaveCount(2);
+        plan.Renames.Select(r => r.ToPath).Should().BeEquivalentTo(
+            new[] { "/Applications/Xcode-26.3.app", "/Applications/Xcode-26.3-17A400.app" });
     }
 
     private static string CreateTempDirectory()
