@@ -4,6 +4,7 @@
 @using MauiSherpa.Pages.Forms
 @inject HybridFormBridgeHolder BridgeHolder
 @inject XcodeManagementViewModel ViewModel
+@inject IAppleDownloadAuthService AuthService
 @implements IDisposable
 
 @{
@@ -68,11 +69,11 @@
                         }
                     </p>
 
-                    @if (twoFactorOptions?.TrustedPhoneNumbers.Count > 1)
+                    @if (twoFactorOptions?.TrustedPhoneNumbers.Count > 0)
                     {
                         <div class="form-group">
                             <label>Verification method</label>
-                            <select @bind="selectedPhoneIndex" @bind:after="OnFieldChanged" disabled="@isAuthenticating">
+                            <select @bind="selectedPhoneIndex" @bind:after="OnPhoneSelectionChanged" disabled="@isAuthenticating">
                                 @if (twoFactorOptions.CanUseTrustedDevice)
                                 {
                                     <option value="-1">Trusted Device</option>
@@ -149,6 +150,21 @@
 
     private void OnFieldChanged() => UpdateWizardState();
 
+    private async Task OnPhoneSelectionChanged()
+    {
+        UpdateWizardState();
+        await RequestSmsForSelectedPhone();
+    }
+
+    private async Task RequestSmsForSelectedPhone()
+    {
+        if (selectedPhoneIndex >= 0 && twoFactorOptions?.TrustedPhoneNumbers.Count > selectedPhoneIndex)
+        {
+            var phone = twoFactorOptions.TrustedPhoneNumbers[selectedPhoneIndex];
+            await AuthService.RequestSmsCodeAsync(phone);
+        }
+    }
+
     private void UpdateWizardState()
     {
         var bridge = BridgeHolder.Current;
@@ -211,6 +227,10 @@
                         && twoFactorOptions.TrustedPhoneNumbers.Count > 0
                         ? 0
                         : -1;
+
+                    // If SMS was auto-selected, request the code be sent
+                    if (selectedPhoneIndex >= 0)
+                        await RequestSmsForSelectedPhone();
                 }
                 else
                 {

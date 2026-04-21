@@ -284,11 +284,15 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
 
         try
         {
-            var serviceKey = await GetServiceKeyAsync();
+            var serviceKey = _pendingServiceKey ?? await GetServiceKeyAsync();
             if (serviceKey == null) return false;
 
             var request = new HttpRequestMessage(HttpMethod.Put, $"{AuthUrl}/verify/phone");
             request.Headers.Add("X-Apple-Widget-Key", serviceKey);
+            if (_pendingSessionId != null)
+                request.Headers.Add("X-Apple-ID-Session-Id", _pendingSessionId);
+            if (_pendingScnt != null)
+                request.Headers.Add("scnt", _pendingScnt);
             request.Content = new StringContent(
                 JsonSerializer.Serialize(new
                 {
@@ -298,6 +302,7 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
                 Encoding.UTF8, "application/json");
 
             var response = await _httpClient.SendAsync(request);
+            _logger.LogInformation($"SMS code request response: {(int)response.StatusCode} {response.StatusCode}");
             return response.IsSuccessStatusCode;
         }
         catch (Exception ex)
