@@ -342,7 +342,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 - [.NET MAUI](https://github.com/dotnet/maui) - Cross-platform UI framework
 - [Platform.Maui.MacOS](https://github.com/nicoleeldridge/mauiplatforms) - macOS AppKit backend for .NET MAUI
-- [Platform.Maui.Linux.Gtk4](https://github.com/nicoleeldridge/Maui.Gtk) - Linux GTK4 backend for .NET MAUI
+- [Microsoft.Maui.Platforms.Linux.Gtk4](https://github.com/dotnet/maui-labs) - Linux GTK4 backend for .NET MAUI
 - [Shiny.Mediator](https://github.com/shinyorg/mediator) - Mediator pattern with caching
 - [AndroidSdk](https://github.com/redth/androidsdk.tool) - Android SDK management APIs
 - [AppleDev.Tools](https://github.com/redth/appledev.tools) - Apple Developer Tools APIs and AppStoreConnect API client

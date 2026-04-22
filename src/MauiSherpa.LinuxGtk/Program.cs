@@ -1,11 +1,8 @@
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.Hosting;
-#if DEBUG
-using MauiDevFlow.Agent.Gtk;
-#endif
 using MauiSherpa.Core.Interfaces;
 using MauiSherpa.Services;
-using Platform.Maui.Linux.Gtk4.Platform;
+using Microsoft.Maui.Platforms.Linux.Gtk4.Platform;
 
 namespace MauiSherpa;
 
@@ -56,9 +53,7 @@ public class Program : GtkMauiApplication
         // to context events before the Blazor app loads or user clicks Copilot button.
         Services.GetService<ICopilotModalService>();
 
-#if DEBUG
-        Microsoft.Maui.Controls.Application.Current?.StartDevFlowAgent();
-#endif
+// DevFlow GTK agent removed temporarily (package conflict with new Microsoft.Maui.Platforms.Linux.Gtk4)
     }
 
     /// <summary>

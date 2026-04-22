@@ -20,9 +20,6 @@
     <DebSection>devel</DebSection>
     <DebMaintainer>Jon Dick &lt;redth@users.noreply.github.com&gt;</DebMaintainer>
     <FlatpakFinishArgs>--socket=wayland --socket=fallback-x11 --share=ipc --device=dri --share=network --filesystem=home</FlatpakFinishArgs>
-    <LocalGtkNugetSource>$(MSBuildThisFileDirectory)..\..\.nuget\local-packages</LocalGtkNugetSource>
-    <RestoreSources>$(RestoreSources);https://api.nuget.org/v3/index.json</RestoreSources>
-    <RestoreSources Condition="Exists('$(LocalGtkNugetSource)')">$(RestoreSources);$(LocalGtkNugetSource)</RestoreSources>
   </PropertyGroup>
 
   <ItemGroup>
@@ -31,15 +28,14 @@
     <PackageReference Include="Markdig" Version="0.44.0" />
     <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="10.0.0" />
     <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.0" />
-    <!-- Use local ProjectReference when Maui.Gtk repo is cloned, otherwise NuGet -->
-    <ProjectReference Condition="Exists('$(HOME)/code/Maui.Gtk/src/Platform.Maui.Linux.Gtk4/Platform.Maui.Linux.Gtk4.csproj')" Include="$(HOME)/code/Maui.Gtk/src/Platform.Maui.Linux.Gtk4/Platform.Maui.Linux.Gtk4.csproj" />
-    <ProjectReference Condition="Exists('$(HOME)/code/Maui.Gtk/src/Platform.Maui.Linux.Gtk4.BlazorWebView/Platform.Maui.Linux.Gtk4.BlazorWebView.csproj')" Include="$(HOME)/code/Maui.Gtk/src/Platform.Maui.Linux.Gtk4.BlazorWebView/Platform.Maui.Linux.Gtk4.BlazorWebView.csproj" />
-    <ProjectReference Condition="Exists('$(HOME)/code/Maui.Gtk/src/Platform.Maui.Linux.Gtk4.Essentials/Platform.Maui.Linux.Gtk4.Essentials.csproj')" Include="$(HOME)/code/Maui.Gtk/src/Platform.Maui.Linux.Gtk4.Essentials/Platform.Maui.Linux.Gtk4.Essentials.csproj" />
-    <PackageReference Condition="!Exists('$(HOME)/code/Maui.Gtk/src/Platform.Maui.Linux.Gtk4/Platform.Maui.Linux.Gtk4.csproj')" Include="Platform.Maui.Linux.Gtk4" Version="0.6.0" />
-    <PackageReference Condition="!Exists('$(HOME)/code/Maui.Gtk/src/Platform.Maui.Linux.Gtk4.BlazorWebView/Platform.Maui.Linux.Gtk4.BlazorWebView.csproj')" Include="Platform.Maui.Linux.Gtk4.BlazorWebView" Version="0.6.0" />
-    <PackageReference Condition="!Exists('$(HOME)/code/Maui.Gtk/src/Platform.Maui.Linux.Gtk4.Essentials/Platform.Maui.Linux.Gtk4.Essentials.csproj')" Include="Platform.Maui.Linux.Gtk4.Essentials" Version="0.6.0" />
-    <PackageReference Include="Redth.MauiDevFlow.Agent.Gtk" Version="0.23.0" Condition="'$(Configuration)' == 'Debug'" />
-    <PackageReference Include="Redth.MauiDevFlow.Blazor.Gtk" Version="0.23.0" Condition="'$(Configuration)' == 'Debug'" />
+    <PackageReference Include="Microsoft.Maui.Platforms.Linux.Gtk4" Version="0.1.0-preview.*" />
+    <PackageReference Include="Microsoft.Maui.Platforms.Linux.Gtk4.BlazorWebView" Version="0.1.0-preview.*" />
+    <PackageReference Include="Microsoft.Maui.Platforms.Linux.Gtk4.Essentials" Version="0.1.0-preview.*" />
+    <!-- DevFlow GTK packages temporarily removed — they depend on old Platform.Maui.Linux.Gtk4
+         and conflict with the new Microsoft.Maui.Platforms.Linux.Gtk4 packages.
+         Restore once DevFlow is updated to reference the new package names. -->
+    <!-- <PackageReference Include="Redth.MauiDevFlow.Agent.Gtk" Version="0.23.0" Condition="'$(Configuration)' == 'Debug'" /> -->
+    <!-- <PackageReference Include="Redth.MauiDevFlow.Blazor.Gtk" Version="0.23.0" Condition="'$(Configuration)' == 'Debug'" /> -->
     <PackageReference Include="Sentry.Maui" Version="6.4.0" />
     <PackageReference Include="Shiny.Mediator.Caching.MicrosoftMemoryCache" Version="6.1.1" />
     <PackageReference Include="Shiny.Mediator.Maui" Version="6.1.1" />

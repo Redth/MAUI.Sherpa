@@ -6,7 +6,7 @@ using Microsoft.Maui.Platform.MacOS.Controls;
 using Microsoft.AspNetCore.Components.WebView.Maui;
 #endif
 #if LINUXGTK
-using Platform.Maui.Linux.Gtk4.Platform;
+using Microsoft.Maui.Platforms.Linux.Gtk4.Platform;
 #endif
 
 namespace MauiSherpa.Pages.Forms;
