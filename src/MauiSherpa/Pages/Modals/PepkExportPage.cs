@@ -3,7 +3,7 @@ using MauiSherpa.Pages.Forms;
 using Microsoft.Maui.Platform.MacOS;
 #endif
 #if LINUXGTK
-using Platform.Maui.Linux.Gtk4.Platform;
+using Microsoft.Maui.Platforms.Linux.Gtk4.Platform;
 #endif
 
 namespace MauiSherpa.Pages.Modals;
