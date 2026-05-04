@@ -5,7 +5,7 @@ using MauiSherpa.Core.Models.Profiling;
 namespace MauiSherpa.Core.Services;
 
 /// <summary>
-/// Builds lightweight profiling summaries from live MauiDevFlow data.
+/// Builds lightweight profiling summaries from live MAUI DevFlow data.
 /// </summary>
 public class ProfilingContextService : IProfilingContextService
 {
@@ -70,7 +70,7 @@ public class ProfilingContextService : IProfilingContextService
         {
             return new ProfilingSnapshotResult(
                 null,
-                "No local profiling targets are available. Start a MAUI app with MauiDevFlow enabled, then try again.");
+                "No local profiling targets are available. Start a MAUI app with MAUI DevFlow enabled, then try again.");
         }
 
         var resolvedTarget = ResolveTarget(targets, options.TargetId);
@@ -230,7 +230,7 @@ public class ProfilingContextService : IProfilingContextService
                 "localhost",
                 DefaultHost,
                 DefaultAgentPort,
-                status.AppName ?? "Local MauiDevFlow agent",
+                status.AppName ?? "Local MAUI DevFlow agent",
                 status.AppName,
                 status.Platform,
                 null,

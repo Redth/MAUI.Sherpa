@@ -346,5 +346,5 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [Shiny.Mediator](https://github.com/shinyorg/mediator) - Mediator pattern with caching
 - [AndroidSdk](https://github.com/redth/androidsdk.tool) - Android SDK management APIs
 - [AppleDev.Tools](https://github.com/redth/appledev.tools) - Apple Developer Tools APIs and AppStoreConnect API client
-- [MauiDevFlow](https://github.com/Redth/MauiDevFlow) - Remote app inspection agent
+- [MAUI DevFlow](https://github.com/dotnet/maui-labs/tree/main/src/DevFlow) - Remote app inspection agent
 - [GitHub Copilot](https://github.com/github/copilot-sdk) - AI-powered assistance via Copilot SDK

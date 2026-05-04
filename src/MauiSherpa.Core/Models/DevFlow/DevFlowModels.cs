@@ -4,7 +4,7 @@ using System.Text.Json.Serialization;
 namespace MauiSherpa.Core.Models.DevFlow;
 
 /// <summary>
-/// Agent session registered with the MauiDevFlow broker.
+/// Agent session registered with the MAUI DevFlow broker.
 /// </summary>
 public class BrokerAgent
 {

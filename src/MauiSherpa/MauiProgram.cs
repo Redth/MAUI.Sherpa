@@ -11,8 +11,8 @@ using Microsoft.Maui.Platforms.Linux.Gtk4.Essentials.Hosting;
 using Microsoft.Maui.Platforms.Linux.Gtk4.Hosting;
 #else
 #if DEBUG
-using MauiDevFlow.Agent;
-using MauiDevFlow.Blazor;
+using Microsoft.Maui.DevFlow.Agent;
+using Microsoft.Maui.DevFlow.Blazor;
 #endif
 using MauiIcons.Fluent;
 using MauiIcons.FontAwesome.Brand;

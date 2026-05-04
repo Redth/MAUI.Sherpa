@@ -4,7 +4,7 @@ This document describes how to capture a complete set of screenshots for MAUI Sh
 
 ## Prerequisites
 
-1. **MauiDevFlow CLI** installed and configured (see `dotnet-tools.json`)
+1. **MAUI DevFlow CLI** installed and configured (see `dotnet-tools.json`)
 2. **Android emulator** available (any API level at or above `SupportedOSPlatformVersion`)
 3. **iOS simulator** booted (e.g., iPhone 17 Pro)
 4. App built and running on Mac Catalyst
@@ -25,8 +25,8 @@ open "bin/Debug/net10.0-maccatalyst/maccatalyst-arm64/MAUI Sherpa.app"
 
 ```bash
 cd src/MauiSherpa
-dotnet maui-devflow MAUI status    # Agent connection
-dotnet maui-devflow cdp status     # CDP (Blazor WebView)
+dotnet maui devflow ui status       # Agent connection
+dotnet maui devflow webview status  # CDP (Blazor WebView)
 ```
 
 ### Enable Demo Mode
@@ -35,17 +35,17 @@ Demo Mode blurs sensitive values (Apple identity keys, cloud secrets, device UDI
 
 ```bash
 # Navigate to Settings and enable Demo Mode toggle
-dotnet maui-devflow cdp Input dispatchClickEvent "a.nav-item[href='settings']"
+dotnet maui devflow webview Input dispatchClickEvent "a.nav-item[href='settings']"
 sleep 2
-dotnet maui-devflow cdp Input dispatchClickEvent ".toggle-switch"
+dotnet maui devflow webview Input dispatchClickEvent ".toggle-switch"
 # Verify it's on:
-dotnet maui-devflow cdp Runtime evaluate "document.querySelector('.toggle-switch input[type=\"checkbox\"]').checked"
+dotnet maui devflow webview Runtime evaluate "document.querySelector('.toggle-switch input[type=\"checkbox\"]').checked"
 ```
 
 ### Set Dark Mode (Optional)
 
 ```bash
-dotnet maui-devflow cdp Runtime evaluate "document.body.classList.remove('theme-light'); document.body.classList.add('theme-dark'); document.querySelector('.main-layout').classList.remove('theme-light'); document.querySelector('.main-layout').classList.add('theme-dark');"
+dotnet maui devflow webview Runtime evaluate "document.body.classList.remove('theme-light'); document.body.classList.add('theme-dark'); document.querySelector('.main-layout').classList.remove('theme-light'); document.querySelector('.main-layout').classList.add('theme-dark');"
 ```
 
 ### Start Devices
@@ -70,7 +70,7 @@ Examples:
 
 ```bash
 # Navigate via sidebar link
-dotnet maui-devflow cdp Input dispatchClickEvent "a.nav-item[href='<page-href>']"
+dotnet maui devflow webview Input dispatchClickEvent "a.nav-item[href='<page-href>']"
 
 # Page hrefs: (empty string)=Dashboard, doctor, settings, devices, emulators,
 #   android-sdk, keystores, apple-simulators, apple-devices, bundle-ids,
@@ -82,14 +82,14 @@ dotnet maui-devflow cdp Input dispatchClickEvent "a.nav-item[href='<page-href>']
 ```bash
 # Always wait 2-3 seconds after navigation/interaction before capturing
 sleep 2
-dotnet maui-devflow MAUI screenshot --output docs/screenshots/MAUI.Sherpa_<Name>.png
+dotnet maui devflow ui screenshot --output docs/screenshots/MAUI.Sherpa_<Name>.png
 ```
 
 ### Fill Form Fields (Blazor)
 
 ```bash
 # Use the native value setter pattern to trigger Blazor binding
-dotnet maui-devflow cdp Runtime evaluate "
+dotnet maui devflow webview Runtime evaluate "
   const input = document.querySelector('<selector>');
   Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(input, '<value>');
   input.dispatchEvent(new Event('input', { bubbles: true }));
@@ -100,7 +100,7 @@ dotnet maui-devflow cdp Runtime evaluate "
 
 ```bash
 # Blazor scrollable container is main.content, NOT document.body
-dotnet maui-devflow cdp Runtime evaluate "document.querySelector('main.content').scrollTo(0, <pixels>)"
+dotnet maui devflow webview Runtime evaluate "document.querySelector('main.content').scrollTo(0, <pixels>)"
 ```
 
 ## Screenshot Inventory

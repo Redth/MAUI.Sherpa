@@ -6,7 +6,7 @@ using MauiSherpa.Core.Models.DevFlow;
 namespace MauiSherpa.Core.Services;
 
 /// <summary>
-/// HTTP/WebSocket client for communicating with a MauiDevFlow agent and broker.
+/// HTTP/WebSocket client for communicating with a MAUI DevFlow agent and broker.
 /// </summary>
 public class DevFlowAgentClient : IDisposable
 {

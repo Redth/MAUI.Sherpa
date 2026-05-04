@@ -1,8 +1,8 @@
 using Microsoft.Extensions.Logging;
 using MauiSherpa.ProfilingSample.Services;
 #if DEBUG
-using MauiDevFlow.Agent;
-using MauiDevFlow.Blazor;
+using Microsoft.Maui.DevFlow.Agent;
+using Microsoft.Maui.DevFlow.Blazor;
 #endif
 
 namespace MauiSherpa.ProfilingSample;

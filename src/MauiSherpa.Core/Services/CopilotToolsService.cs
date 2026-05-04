@@ -159,7 +159,7 @@ public class CopilotToolsService : ICopilotToolsService
 
         // Profiling Tools
         AddTool(AIFunctionFactory.Create(ListProfilingTargetsAsync, "list_profiling_targets",
-            "List currently available local profiling targets discovered via MauiDevFlow."), isReadOnly: true);
+            "List currently available local profiling targets discovered via MAUI DevFlow."), isReadOnly: true);
         AddTool(AIFunctionFactory.Create(GetProfilingCatalogAsync, "get_profiling_catalog",
             "Get the supported profiling scenarios and platform capabilities available in Maui Sherpa. Optionally filter to a single platform."), isReadOnly: true);
         AddTool(AIFunctionFactory.Create(ListProfilingArtifactsAsync, "list_profiling_artifacts",
@@ -1544,7 +1544,7 @@ public class CopilotToolsService : ICopilotToolsService
 
     #region Profiling Tools
 
-    [Description("List currently available local profiling targets discovered via MauiDevFlow")]
+    [Description("List currently available local profiling targets discovered via MAUI DevFlow")]
     private async Task<string> ListProfilingTargetsAsync()
     {
         _logger.LogDebug("Tool: list_profiling_targets called");
@@ -1552,7 +1552,7 @@ public class CopilotToolsService : ICopilotToolsService
         var targets = await _profilingContextService.GetAvailableTargetsAsync();
         if (targets.Count == 0)
         {
-            return "No local profiling targets are available. Start a MAUI app with MauiDevFlow enabled, then try again.";
+            return "No local profiling targets are available. Start a MAUI app with MAUI DevFlow enabled, then try again.";
         }
 
         return JsonSerializer.Serialize(targets, new JsonSerializerOptions { WriteIndented = true });

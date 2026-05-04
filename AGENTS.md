@@ -226,25 +226,25 @@ input.dispatchEvent(new Event('input', { bubbles: true }));
 ```
 Use `@bind:event="oninput"` on inputs for this to work (requires `input` events, not `change`).
 
-## MauiDevFlow (AI Debugging)
+## MAUI DevFlow (AI Debugging)
 
-The project uses [MauiDevFlow](https://github.com/nicoleeldridge/MauiDevFlow) for AI-assisted debugging. Broker discovery is preferred; no `.mauidevflow` file is committed in this repo.
+The project uses [MAUI DevFlow](https://github.com/dotnet/maui-labs/tree/main/src/DevFlow) from the unified `Microsoft.Maui.Cli` tool for AI-assisted debugging. Broker discovery is preferred; no `.mauidevflow` file is committed in this repo.
 
 ```bash
 # Always run CLI commands from src/MauiSherpa/ for auto port detection
 cd src/MauiSherpa
 
 # Check agent connectivity
-dotnet maui-devflow MAUI status
+dotnet maui devflow ui status
 
 # Take screenshots
-dotnet maui-devflow MAUI screenshot --output screen.png
+dotnet maui devflow ui screenshot --output screen.png
 
 # Blazor DOM snapshot (best for AI)
-dotnet maui-devflow cdp snapshot
+dotnet maui devflow webview snapshot
 
 # Inject dark/light mode for testing (avoids navigating to Settings)
-dotnet maui-devflow cdp Runtime evaluate "document.body.classList.remove('theme-light'); document.body.classList.add('theme-dark'); document.querySelector('.main-layout').classList.remove('theme-light'); document.querySelector('.main-layout').classList.add('theme-dark');"
+dotnet maui devflow webview Runtime evaluate "document.body.classList.remove('theme-light'); document.body.classList.add('theme-dark'); document.querySelector('.main-layout').classList.remove('theme-light'); document.querySelector('.main-layout').classList.add('theme-dark');"
 ```
 
 ## CI/CD
