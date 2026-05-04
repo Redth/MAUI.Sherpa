@@ -10,8 +10,8 @@ using Microsoft.Maui.Essentials.MacOS;
 using Shiny.Mediator;
 using Sentry.Maui;
 #if DEBUG
-using MauiDevFlow.Agent;
-using MauiDevFlow.Blazor;
+using Microsoft.Maui.DevFlow.Agent;
+using Microsoft.Maui.DevFlow.Blazor;
 #endif
 
 namespace MauiSherpa;

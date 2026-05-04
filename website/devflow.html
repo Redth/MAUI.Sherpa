@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DevFlow Quick Start — MAUI Sherpa</title>
-    <meta name="description" content="Set up MauiDevFlow to inspect running .NET MAUI apps — visual tree, network capture, Blazor WebView debugging, and more.">
+    <meta name="description" content="Set up MAUI DevFlow to inspect running .NET MAUI apps — visual tree, network capture, Blazor WebView debugging, and more.">
     <link rel="icon" type="image/png" href="images/maui.sherpa.logo.png">
     <link rel="stylesheet" href="css/styles.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA==" crossorigin="anonymous">
@@ -54,7 +54,7 @@
             <div class="reveal">
                 <h2 class="text-h2" style="margin-bottom: var(--space-4);">What is DevFlow?</h2>
                 <p class="text-body-lg" style="margin-bottom: var(--space-6);">
-                    MauiDevFlow is a lightweight agent that runs inside your .NET MAUI app during development. It exposes an HTTP API that MAUI Sherpa connects to, giving you powerful debugging tools without attaching a debugger.
+                    MAUI DevFlow is a lightweight agent that runs inside your .NET MAUI app during development. It exposes an HTTP API that MAUI Sherpa connects to, giving you powerful debugging tools without attaching a debugger.
                 </p>
                 <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: var(--space-4); margin-bottom: var(--space-8);">
                     <div class="feature-card" style="padding: var(--space-5);">
@@ -105,23 +105,23 @@
                 <div class="step">
                     <h3 class="step__title">Install NuGet Packages</h3>
                     <div class="step__content">
-                        <p>Add the MauiDevFlow packages to your MAUI project. Use the <code>.Blazor</code> package if your app uses BlazorWebView.</p>
+                        <p>Add the MAUI DevFlow packages to your MAUI project. Use the <code>.Blazor</code> package if your app uses BlazorWebView.</p>
                         <div class="code-block">
                             <div class="code-block__header">
                                 <span class="code-block__lang">Terminal</span>
                                 <button class="code-block__copy">Copy</button>
                             </div>
                             <pre><code><span class="token-comment"># Required: Core agent</span>
-<span class="token-command">dotnet</span> <span class="token-function">add</span> <span class="token-function">package</span> <span class="token-param">Redth.MauiDevFlow.Agent</span>
+<span class="token-command">dotnet</span> <span class="token-function">add</span> <span class="token-function">package</span> <span class="token-param">Microsoft.Maui.DevFlow.Agent</span>
 
 <span class="token-comment"># Optional: Blazor WebView support (DOM, console, CDP)</span>
-<span class="token-command">dotnet</span> <span class="token-function">add</span> <span class="token-function">package</span> <span class="token-param">Redth.MauiDevFlow.Blazor</span></code></pre>
+<span class="token-command">dotnet</span> <span class="token-function">add</span> <span class="token-function">package</span> <span class="token-param">Microsoft.Maui.DevFlow.Blazor</span></code></pre>
                         </div>
                         <div class="callout callout--tip">
                             <p class="callout__title"><i class="fas fa-lightbulb"></i> Tip</p>
                             <p class="callout__body">
                                 For <strong>macOS AppKit</strong> apps (using <code>Platform.Maui.MacOS</code>), the standard packages include macOS support automatically.
-                                For <strong>Linux/GTK</strong> apps, use <code>Redth.MauiDevFlow.Agent.Gtk</code> and <code>Redth.MauiDevFlow.Blazor.Gtk</code> instead.
+                                For <strong>Linux/GTK</strong> apps, use <code>Microsoft.Maui.DevFlow.Agent.Gtk</code> and <code>Microsoft.Maui.DevFlow.Blazor.Gtk</code> instead.
                             </p>
                         </div>
                     </div>
@@ -147,7 +147,7 @@
     builder.<span class="token-function">AddMauiDevFlowAgent</span>();
 
     <span class="token-comment">// If using BlazorWebView:</span>
-    builder.<span class="token-function">AddMauiDevFlowBlazor</span>();
+    builder.<span class="token-function">AddMauiBlazorDevFlowTools</span>();
 <span class="token-keyword">#endif</span>
 
     <span class="token-keyword">return</span> builder.<span class="token-function">Build</span>();
@@ -306,7 +306,7 @@
             <div class="reveal">
                 <h2 class="text-h2" style="margin-bottom: var(--space-4);">Command-Line Interface</h2>
                 <p class="text-body-lg" style="margin-bottom: var(--space-6);">
-                    MauiDevFlow also includes a powerful CLI for terminal-based inspection, perfect for CI/CD pipelines and AI-assisted development.
+                    MAUI DevFlow also includes a powerful CLI for terminal-based inspection, perfect for CI/CD pipelines and AI-assisted development.
                 </p>
 
                 <div class="code-block" style="margin-bottom: var(--space-6);">
@@ -315,26 +315,26 @@
                         <button class="code-block__copy">Copy</button>
                     </div>
                     <pre><code><span class="token-comment"># Install the CLI</span>
-<span class="token-command">dotnet</span> <span class="token-function">tool</span> <span class="token-function">install</span> <span class="token-flag">--global</span> <span class="token-param">Redth.MauiDevFlow.CLI</span>
+<span class="token-command">dotnet</span> <span class="token-function">tool</span> <span class="token-function">install</span> <span class="token-flag">--global</span> <span class="token-param">Microsoft.Maui.Cli</span> <span class="token-flag">--prerelease</span>
 
 <span class="token-comment"># Wait for app to connect</span>
-<span class="token-command">maui-devflow</span> <span class="token-function">wait</span>
+<span class="token-command">maui</span> <span class="token-function">devflow</span> <span class="token-function">wait</span>
 
 <span class="token-comment"># Browse visual tree</span>
-<span class="token-command">maui-devflow</span> <span class="token-function">MAUI</span> <span class="token-function">tree</span>
+<span class="token-command">maui</span> <span class="token-function">devflow</span> <span class="token-function">ui</span> <span class="token-function">tree</span>
 
 <span class="token-comment"># Take a screenshot</span>
-<span class="token-command">maui-devflow</span> <span class="token-function">MAUI</span> <span class="token-function">screenshot</span> <span class="token-flag">--output</span> <span class="token-param">screen.png</span>
+<span class="token-command">maui</span> <span class="token-function">devflow</span> <span class="token-function">ui</span> <span class="token-function">screenshot</span> <span class="token-flag">--output</span> <span class="token-param">screen.png</span>
 
 <span class="token-comment"># Inspect Blazor DOM</span>
-<span class="token-command">maui-devflow</span> <span class="token-function">cdp</span> <span class="token-function">snapshot</span>
+<span class="token-command">maui</span> <span class="token-function">devflow</span> <span class="token-function">webview</span> <span class="token-function">snapshot</span>
 
 <span class="token-comment"># Read application logs</span>
-<span class="token-command">maui-devflow</span> <span class="token-function">MAUI</span> <span class="token-function">logs</span> <span class="token-flag">--limit</span> <span class="token-param">50</span></code></pre>
+<span class="token-command">maui</span> <span class="token-function">devflow</span> <span class="token-function">logs</span> <span class="token-flag">--limit</span> <span class="token-param">50</span></code></pre>
                 </div>
 
                 <p style="color: var(--ink-secondary);">
-                    See the <a href="https://github.com/Redth/MauiDevFlow" target="_blank" rel="noopener">MauiDevFlow repository</a> for full CLI documentation.
+                    See the <a href="https://github.com/dotnet/maui-labs/tree/main/src/DevFlow" target="_blank" rel="noopener">MAUI DevFlow documentation</a> for full CLI documentation.
                 </p>
             </div>
         </div>

@@ -1,6 +1,6 @@
 ---
 name: maui-profiling
-description: Build lightweight profiling context for a running .NET MAUI app using local MauiDevFlow status, network, and visual-tree summaries instead of uploading raw trace artifacts. Use when investigating slow screens, performance regressions, excessive network chatter, or deciding whether deeper trace capture is needed.
+description: Build lightweight profiling context for a running .NET MAUI app using local MAUI DevFlow status, network, and visual-tree summaries instead of uploading raw trace artifacts. Use when investigating slow screens, performance regressions, excessive network chatter, or deciding whether deeper trace capture is needed.
 ---
 
 # MAUI Profiling Context
@@ -10,7 +10,7 @@ Use structured, local summaries first. Avoid asking for raw `.nettrace`, `gcdump
 ## Workflow
 
 1. Run `get_profiling_catalog` to understand supported scenarios and platform capabilities.
-2. Run `list_profiling_targets` to discover locally running MauiDevFlow-enabled apps.
+2. Run `list_profiling_targets` to discover locally running MAUI DevFlow-enabled apps.
 3. Run `get_profiling_snapshot` for the relevant target.
 4. Review:
    - runtime status (platform, device type, WebView readiness)

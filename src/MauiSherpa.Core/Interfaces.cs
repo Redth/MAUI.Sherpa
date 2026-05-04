@@ -2612,7 +2612,7 @@ public interface ICopilotToolsService
 public interface IProfilingContextService
 {
     /// <summary>
-    /// Gets the currently available local profiling targets discovered from MauiDevFlow.
+    /// Gets the currently available local profiling targets discovered from MAUI DevFlow.
     /// </summary>
     Task<IReadOnlyList<ProfilingTargetInfo>> GetAvailableTargetsAsync(CancellationToken ct = default);
 
