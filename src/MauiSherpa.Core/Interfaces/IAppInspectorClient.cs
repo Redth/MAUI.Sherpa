@@ -157,6 +157,14 @@ public interface IAppInspectorClient : IDisposable
     Task<InspectorPermissionStatus> CheckPermissionAsync(string permission, CancellationToken ct = default);
     Task<InspectorGeolocation> GetGeolocationAsync(string? accuracy = null, int? timeoutSeconds = null, CancellationToken ct = default);
 
+    // ─────────────────────── Jobs ──────────────────────────────
+
+    /// <summary>List platform background jobs (iOS BGTasks / Android WorkManager).</summary>
+    Task<InspectorJobListResponse> GetJobsAsync(CancellationToken ct = default);
+
+    /// <summary>Trigger a platform background job by identifier.</summary>
+    Task<InspectorJobRunResult> RunJobAsync(string identifier, string? type = null, CancellationToken ct = default);
+
     // ─────────────────────── Storage ─────────────────────────
 
     Task<IReadOnlyList<InspectorPreferenceEntry>> GetPreferencesAsync(string? sharedName = null, CancellationToken ct = default);

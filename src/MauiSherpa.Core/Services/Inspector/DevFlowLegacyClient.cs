@@ -699,6 +699,14 @@ public class DevFlowLegacyClient : IAppInspectorClient
     public Task ClearSecureStorageAsync(CancellationToken ct = default)
         => _legacy.ClearSecureStorageAsync(ct);
 
+    // ─────────── Jobs ─────────────
+
+    public Task<InspectorJobListResponse> GetJobsAsync(CancellationToken ct = default)
+        => Task.FromResult(new InspectorJobListResponse { Supported = false, Error = "Jobs require DevFlow v1 protocol" });
+
+    public Task<InspectorJobRunResult> RunJobAsync(string identifier, string? type = null, CancellationToken ct = default)
+        => Task.FromResult(new InspectorJobRunResult { Success = false, Supported = false, Error = "Jobs require DevFlow v1 protocol" });
+
     public void Dispose()
     {
         _legacy.Dispose();

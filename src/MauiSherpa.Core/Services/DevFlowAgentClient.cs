@@ -635,6 +635,17 @@ public class DevFlowAgentClient : IDisposable
         get { lock (_sensorStreams) { return _sensorStreams.Count; } }
     }
 
+    // --- Jobs ---
+
+    public async Task<DevFlowJobListResponse?> GetJobsAsync(CancellationToken ct = default)
+        => await GetAsync<DevFlowJobListResponse>("/api/v1/device/jobs", ct);
+
+    public async Task<DevFlowJobRunResponse?> RunJobAsync(string identifier, string? type = null, CancellationToken ct = default)
+    {
+        var body = type != null ? new DevFlowJobRunRequest { Type = type } : new DevFlowJobRunRequest();
+        return await PostAsync<DevFlowJobRunResponse>($"/api/v1/device/jobs/{Uri.EscapeDataString(identifier)}/run", body, ct);
+    }
+
     // --- Helpers ---
 
     private async Task<T?> GetAsync<T>(string path, CancellationToken ct = default) where T : class

@@ -475,6 +475,24 @@ public class DevFlowV1Client : IAppInspectorClient
         return result ?? new InspectorGeolocation();
     }
 
+    // ─────────────────────── Jobs ──────────────────────────────
+
+    public async Task<InspectorJobListResponse> GetJobsAsync(CancellationToken ct = default)
+    {
+        var result = await _http.GetFromJsonAsync<InspectorJobListResponse>("/api/v1/device/jobs", JsonOptions, ct);
+        return result ?? new InspectorJobListResponse();
+    }
+
+    public async Task<InspectorJobRunResult> RunJobAsync(string identifier, string? type = null, CancellationToken ct = default)
+    {
+        var body = type != null ? new { type } : (object)new { };
+        var response = await _http.PostAsJsonAsync(
+            $"/api/v1/device/jobs/{Uri.EscapeDataString(identifier)}/run", body, JsonOptions, ct);
+        response.EnsureSuccessStatusCode();
+        var result = await response.Content.ReadFromJsonAsync<InspectorJobRunResult>(JsonOptions, ct);
+        return result ?? new InspectorJobRunResult();
+    }
+
     // ─────────────────────── Storage ─────────────────────────
 
     public async Task<IReadOnlyList<InspectorPreferenceEntry>> GetPreferencesAsync(string? sharedName = null, CancellationToken ct = default)

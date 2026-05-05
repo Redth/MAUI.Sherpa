@@ -647,6 +647,41 @@ public record InspectorSecureStorageEntry
     public bool Exists { get; init; }
 }
 
+// ─────────────────────────── Jobs ────────────────────────────────────────
+
+/// <summary>Response from listing platform background jobs.</summary>
+public record InspectorJobListResponse
+{
+    public string? Platform { get; init; }
+    public string? Type { get; init; }
+    public bool Supported { get; init; }
+    public bool RunSupported { get; init; }
+    public IReadOnlyList<InspectorPlatformJob> Jobs { get; init; } = [];
+    public string? Error { get; init; }
+}
+
+/// <summary>A platform background job (iOS BGTask or Android WorkManager work).</summary>
+public record InspectorPlatformJob
+{
+    public string Identifier { get; init; } = string.Empty;
+    public IReadOnlyList<string>? Tags { get; init; }
+    public string? State { get; init; }
+    public int? RunAttemptCount { get; init; }
+    public string? Type { get; init; }
+    public string? EarliestBeginDate { get; init; }
+}
+
+/// <summary>Result of triggering a platform background job.</summary>
+public record InspectorJobRunResult
+{
+    public bool Success { get; init; }
+    public bool? Supported { get; init; }
+    public string? Identifier { get; init; }
+    public string? Type { get; init; }
+    public string? Message { get; init; }
+    public string? Error { get; init; }
+}
+
 // ─────────────────────────── Protocol Version ────────────────────────────
 
 /// <summary>Identifies which protocol version an agent speaks.</summary>

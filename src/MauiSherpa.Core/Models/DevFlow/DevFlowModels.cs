@@ -731,3 +731,52 @@ public class DevFlowSecureStorageEntry
     [JsonPropertyName("value")] public string? Value { get; set; }
     [JsonPropertyName("exists")] public bool Exists { get; set; }
 }
+
+// ── Job DTOs ──
+
+/// <summary>
+/// Response from /api/v1/device/jobs listing platform background jobs.
+/// </summary>
+public class DevFlowJobListResponse
+{
+    [JsonPropertyName("platform")] public string? Platform { get; set; }
+    [JsonPropertyName("type")] public string? Type { get; set; }
+    [JsonPropertyName("supported")] public bool Supported { get; set; }
+    [JsonPropertyName("runSupported")] public bool RunSupported { get; set; }
+    [JsonPropertyName("jobs")] public List<DevFlowPlatformJob> Jobs { get; set; } = new();
+    [JsonPropertyName("error")] public string? Error { get; set; }
+}
+
+/// <summary>
+/// A platform background job (iOS BGTask or Android WorkManager work).
+/// </summary>
+public class DevFlowPlatformJob
+{
+    [JsonPropertyName("identifier")] public string Identifier { get; set; } = string.Empty;
+    [JsonPropertyName("tags")] public List<string>? Tags { get; set; }
+    [JsonPropertyName("state")] public string? State { get; set; }
+    [JsonPropertyName("runAttemptCount")] public int? RunAttemptCount { get; set; }
+    [JsonPropertyName("type")] public string? Type { get; set; }
+    [JsonPropertyName("earliestBeginDate")] public string? EarliestBeginDate { get; set; }
+}
+
+/// <summary>
+/// Request body for /api/v1/device/jobs/{identifier}/run.
+/// </summary>
+public class DevFlowJobRunRequest
+{
+    [JsonPropertyName("type")] public string? Type { get; set; }
+}
+
+/// <summary>
+/// Response from /api/v1/device/jobs/{identifier}/run.
+/// </summary>
+public class DevFlowJobRunResponse
+{
+    [JsonPropertyName("success")] public bool Success { get; set; }
+    [JsonPropertyName("supported")] public bool? Supported { get; set; }
+    [JsonPropertyName("identifier")] public string? Identifier { get; set; }
+    [JsonPropertyName("type")] public string? Type { get; set; }
+    [JsonPropertyName("message")] public string? Message { get; set; }
+    [JsonPropertyName("error")] public string? Error { get; set; }
+}

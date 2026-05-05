@@ -1,0 +1,478 @@
+@using MauiSherpa.Core.Models.DevFlow
+@using MauiSherpa.Core.Services
+
+<div class="jobs-layout">
+    <div class="jobs-toolbar">
+        <button class="btn-sm" @onclick="LoadJobsAsync" disabled="@loading">
+            <i class="fas fa-sync-alt @(loading ? "fa-spin" : "")"></i> Refresh
+        </button>
+        @if (jobList != null)
+        {
+            <span class="jobs-platform-badge">
+                <i class="fas @GetSchedulerIcon(jobList.Type)"></i>
+                @(jobList.Type ?? jobList.Platform ?? "Unknown")
+            </span>
+            @if (!jobList.Supported)
+            {
+                <span class="jobs-unsupported-badge">Not Supported</span>
+            }
+        }
+    </div>
+
+    @if (error != null)
+    {
+        <div class="error-banner"><i class="fas fa-exclamation-triangle"></i> @error</div>
+    }
+
+    @if (runMessage != null)
+    {
+        <div class="run-message @(runSuccess ? "run-success" : "run-error")">
+            <i class="fas @(runSuccess ? "fa-check-circle" : "fa-times-circle")"></i>
+            @runMessage
+            <button class="btn-dismiss" @onclick="() => runMessage = null"><i class="fas fa-times"></i></button>
+        </div>
+    }
+
+    @if (!loaded && loading)
+    {
+        <div class="loading-message"><i class="fas fa-spinner fa-spin"></i> Loading background jobs...</div>
+    }
+    else if (jobList == null || !jobList.Supported)
+    {
+        <div class="empty-message">
+            <i class="fas fa-clock fa-2x" style="margin-bottom: 0.5rem; opacity: 0.4;"></i>
+            <p>@(jobList?.Error ?? "Background job inspection is not supported by this agent.")</p>
+            <p class="text-muted">Requires MAUI DevFlow with iOS BGTaskScheduler or Android WorkManager support.</p>
+        </div>
+    }
+    else if (jobList.Jobs.Count == 0)
+    {
+        <div class="empty-message">
+            <i class="fas fa-check-circle fa-2x" style="margin-bottom: 0.5rem; opacity: 0.4;"></i>
+            <p>No background jobs registered.</p>
+        </div>
+    }
+    else
+    {
+        <div class="jobs-list">
+            @foreach (var job in jobList.Jobs)
+            {
+                <div class="job-card @GetJobStateClass(job.State)">
+                    <div class="job-info">
+                        <div class="job-icon">
+                            <i class="fas @GetJobTypeIcon(job)"></i>
+                        </div>
+                        <div class="job-details">
+                            <span class="job-identifier">@job.Identifier</span>
+                            <div class="job-meta">
+                                @if (job.Type != null)
+                                {
+                                    <span class="job-type-badge @($"job-type-{job.Type}")">@job.Type</span>
+                                }
+                                @if (job.State != null)
+                                {
+                                    <span class="job-state-badge @GetJobStateBadgeClass(job.State)">@job.State</span>
+                                }
+                                @if (job.RunAttemptCount.HasValue)
+                                {
+                                    <span class="job-attempts">@job.RunAttemptCount attempt(s)</span>
+                                }
+                                @if (job.Tags is { Count: > 0 })
+                                {
+                                    @foreach (var tag in job.Tags)
+                                    {
+                                        <span class="job-tag">@tag</span>
+                                    }
+                                }
+                                @if (!string.IsNullOrEmpty(job.EarliestBeginDate))
+                                {
+                                    <span class="job-schedule"><i class="fas fa-calendar-alt"></i> @job.EarliestBeginDate</span>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                    <div class="job-actions">
+                        @if (jobList.RunSupported)
+                        {
+                            <button class="btn-sm btn-primary"
+                                    disabled="@(runningJobId == job.Identifier)"
+                                    @onclick="() => RunJobAsync(job)">
+                                @if (runningJobId == job.Identifier)
+                                {
+                                    <i class="fas fa-spinner fa-spin"></i>
+                                }
+                                else
+                                {
+                                    <i class="fas fa-play"></i>
+                                }
+                                Run
+                            </button>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public DevFlowAgentClient Client { get; set; } = null!;
+
+    private DevFlowJobListResponse? jobList;
+    private bool loading;
+    private bool loaded;
+    private string? error;
+    private string? runningJobId;
+    private string? runMessage;
+    private bool runSuccess;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadJobsAsync();
+    }
+
+    private async Task LoadJobsAsync()
+    {
+        loading = true;
+        error = null;
+        StateHasChanged();
+
+        try
+        {
+            jobList = await Client.GetJobsAsync();
+            loaded = true;
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+        }
+        finally
+        {
+            loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RunJobAsync(DevFlowPlatformJob job)
+    {
+        runningJobId = job.Identifier;
+        runMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            var result = await Client.RunJobAsync(job.Identifier, job.Type);
+            if (result == null)
+            {
+                runSuccess = false;
+                runMessage = $"No response from agent for '{job.Identifier}'.";
+            }
+            else if (result.Success)
+            {
+                runSuccess = true;
+                runMessage = result.Message ?? $"Job '{job.Identifier}' triggered successfully.";
+                // Refresh list to show updated state
+                await LoadJobsAsync();
+            }
+            else
+            {
+                runSuccess = false;
+                runMessage = result.Error ?? $"Failed to trigger job '{job.Identifier}'.";
+            }
+        }
+        catch (Exception ex)
+        {
+            runSuccess = false;
+            runMessage = ex.Message;
+        }
+        finally
+        {
+            runningJobId = null;
+            StateHasChanged();
+        }
+    }
+
+    private static string GetSchedulerIcon(string? type) => type switch
+    {
+        "BGTaskScheduler" => "fa-apple",
+        "WorkManager" => "fa-robot",
+        _ => "fa-clock"
+    };
+
+    private static string GetJobTypeIcon(DevFlowPlatformJob job)
+    {
+        if (job.Type == "refresh") return "fa-arrows-rotate";
+        if (job.Type == "processing") return "fa-microchip";
+        if (job.State != null) return "fa-cogs"; // Android WorkManager
+        return "fa-clock";
+    }
+
+    private static string GetJobStateClass(string? state) => state?.ToUpperInvariant() switch
+    {
+        "RUNNING" => "job-running",
+        "FAILED" or "CANCELLED" => "job-failed",
+        _ => ""
+    };
+
+    private static string GetJobStateBadgeClass(string? state) => state?.ToUpperInvariant() switch
+    {
+        "ENQUEUED" => "state-enqueued",
+        "RUNNING" => "state-running",
+        "SUCCEEDED" => "state-succeeded",
+        "FAILED" => "state-failed",
+        "BLOCKED" => "state-blocked",
+        "CANCELLED" => "state-cancelled",
+        _ => "state-unknown"
+    };
+}
+
+<style>
+    .jobs-layout {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        padding: 0.75rem;
+        overflow-y: auto;
+    }
+
+    .jobs-toolbar {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-bottom: 0.75rem;
+    }
+
+    .jobs-platform-badge {
+        font-size: 0.75rem;
+        padding: 0.15rem 0.5rem;
+        border-radius: 4px;
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+        display: flex;
+        align-items: center;
+        gap: 0.3rem;
+    }
+
+    .jobs-unsupported-badge {
+        font-size: 0.65rem;
+        font-weight: 600;
+        padding: 0.1rem 0.4rem;
+        border-radius: 10px;
+        color: #6b7280;
+        background: rgba(107, 114, 128, 0.1);
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+    }
+
+    .btn-sm {
+        font-size: 0.75rem;
+        padding: 0.3rem 0.6rem;
+        border-radius: 4px;
+        border: 1px solid var(--border-color);
+        background: var(--bg-secondary);
+        color: var(--text-primary);
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+    }
+
+    .btn-sm:hover { background: var(--bg-tertiary); }
+    .btn-sm:disabled { opacity: 0.5; cursor: default; }
+
+    .btn-primary {
+        background: var(--accent-color, #3b82f6);
+        color: white;
+        border-color: var(--accent-color, #3b82f6);
+    }
+
+    .btn-primary:hover { opacity: 0.9; }
+
+    .btn-dismiss {
+        background: none;
+        border: none;
+        color: inherit;
+        cursor: pointer;
+        padding: 0 0.3rem;
+        opacity: 0.6;
+        margin-left: auto;
+    }
+
+    .btn-dismiss:hover { opacity: 1; }
+
+    /* Status messages */
+    .run-message {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.5rem 0.75rem;
+        border-radius: 6px;
+        font-size: 0.8rem;
+        margin-bottom: 0.75rem;
+    }
+
+    .run-success {
+        background: rgba(34, 197, 94, 0.1);
+        color: #22c55e;
+    }
+
+    .run-error {
+        background: rgba(239, 68, 68, 0.1);
+        color: #ef4444;
+    }
+
+    .error-banner {
+        background: rgba(239, 68, 68, 0.1);
+        color: #ef4444;
+        padding: 0.5rem 0.75rem;
+        border-radius: 6px;
+        font-size: 0.8rem;
+        margin-bottom: 0.75rem;
+    }
+
+    .loading-message, .empty-message {
+        color: var(--text-secondary);
+        font-size: 0.8rem;
+        padding: 2rem;
+        text-align: center;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+    }
+
+    .text-muted { color: var(--text-tertiary); font-size: 0.75rem; }
+
+    /* Job cards */
+    .jobs-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .job-card {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.6rem 0.75rem;
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        background: var(--card-bg, var(--bg-secondary));
+        transition: all 0.15s;
+    }
+
+    .job-card:hover { background: var(--bg-tertiary); }
+
+    .job-running {
+        border-color: rgba(59, 130, 246, 0.3);
+    }
+
+    .job-failed {
+        border-color: rgba(239, 68, 68, 0.2);
+    }
+
+    .job-info {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        min-width: 0;
+        flex: 1;
+    }
+
+    .job-icon {
+        font-size: 1.1rem;
+        color: var(--text-secondary);
+        flex-shrink: 0;
+        width: 1.6rem;
+        text-align: center;
+    }
+
+    .job-running .job-icon { color: #3b82f6; }
+    .job-failed .job-icon { color: #ef4444; }
+
+    .job-details {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+    }
+
+    .job-identifier {
+        font-weight: 600;
+        font-size: 0.8rem;
+        color: var(--text-primary);
+        font-family: monospace;
+        word-break: break-all;
+    }
+
+    .job-meta {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        flex-wrap: wrap;
+        margin-top: 0.2rem;
+    }
+
+    .job-type-badge {
+        font-size: 0.65rem;
+        font-weight: 600;
+        padding: 0.1rem 0.4rem;
+        border-radius: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+    }
+
+    .job-type-refresh {
+        color: #3b82f6;
+        background: rgba(59, 130, 246, 0.1);
+    }
+
+    .job-type-processing {
+        color: #8b5cf6;
+        background: rgba(139, 92, 246, 0.1);
+    }
+
+    .job-state-badge {
+        font-size: 0.65rem;
+        font-weight: 600;
+        padding: 0.1rem 0.4rem;
+        border-radius: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+    }
+
+    .state-enqueued { color: #f59e0b; background: rgba(245, 158, 11, 0.1); }
+    .state-running { color: #3b82f6; background: rgba(59, 130, 246, 0.1); }
+    .state-succeeded { color: #22c55e; background: rgba(34, 197, 94, 0.1); }
+    .state-failed { color: #ef4444; background: rgba(239, 68, 68, 0.1); }
+    .state-blocked { color: #6b7280; background: rgba(107, 114, 128, 0.1); }
+    .state-cancelled { color: #6b7280; background: rgba(107, 114, 128, 0.1); }
+    .state-unknown { color: #8b5cf6; background: rgba(139, 92, 246, 0.1); }
+
+    .job-attempts {
+        font-size: 0.65rem;
+        color: var(--text-tertiary);
+    }
+
+    .job-tag {
+        font-size: 0.65rem;
+        padding: 0.05rem 0.35rem;
+        border-radius: 3px;
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+        font-family: monospace;
+    }
+
+    .job-schedule {
+        font-size: 0.65rem;
+        color: var(--text-tertiary);
+        display: flex;
+        align-items: center;
+        gap: 0.2rem;
+    }
+
+    .job-actions {
+        display: flex;
+        gap: 0.3rem;
+        flex-shrink: 0;
+        margin-left: 0.5rem;
+    }
+</style>
