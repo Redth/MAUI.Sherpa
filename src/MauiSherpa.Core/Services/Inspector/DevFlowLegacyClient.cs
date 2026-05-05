@@ -699,6 +699,22 @@ public class DevFlowLegacyClient : IAppInspectorClient
     public Task ClearSecureStorageAsync(CancellationToken ct = default)
         => _legacy.ClearSecureStorageAsync(ct);
 
+    // File storage not supported in legacy protocol
+    public Task<IReadOnlyList<InspectorStorageRoot>> GetStorageRootsAsync(CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyList<InspectorStorageRoot>>([]);
+
+    public Task<IReadOnlyList<InspectorFileEntry>> ListFilesAsync(string path = "", string root = "appData", CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyList<InspectorFileEntry>>([]);
+
+    public Task<InspectorFileContent?> DownloadFileAsync(string path, string root = "appData", CancellationToken ct = default)
+        => Task.FromResult<InspectorFileContent?>(null);
+
+    public Task UploadFileAsync(string path, byte[] content, string root = "appData", CancellationToken ct = default)
+        => Task.CompletedTask;
+
+    public Task DeleteFileAsync(string path, string root = "appData", CancellationToken ct = default)
+        => Task.CompletedTask;
+
     public void Dispose()
     {
         _legacy.Dispose();

@@ -200,6 +200,21 @@ public interface IDeviceFileService
     Task DeleteAsync(string serial, string remotePath, CancellationToken ct = default);
 }
 
+/// <summary>
+/// Platform-agnostic file explorer provider used by the shared FileExplorerTab component.
+/// Implementations exist for ADB (Android) and DevFlow (in-app agent).
+/// </summary>
+public interface IFileExplorerProvider
+{
+    string InitialPath { get; }
+    bool SupportsUpload { get; }
+    bool SupportsDelete { get; }
+    Task<IReadOnlyList<DeviceFileEntry>> ListAsync(string path, CancellationToken ct = default);
+    Task DownloadAsync(string remotePath, string localPath, CancellationToken ct = default);
+    Task UploadAsync(string localPath, string remotePath, CancellationToken ct = default);
+    Task DeleteAsync(string remotePath, CancellationToken ct = default);
+}
+
 public interface IDeviceShellService : IDisposable
 {
     bool IsRunning { get; }

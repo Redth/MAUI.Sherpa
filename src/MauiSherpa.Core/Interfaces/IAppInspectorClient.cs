@@ -169,6 +169,23 @@ public interface IAppInspectorClient : IDisposable
     Task SetSecureStorageAsync(string key, string value, CancellationToken ct = default);
     Task DeleteSecureStorageAsync(string key, CancellationToken ct = default);
     Task ClearSecureStorageAsync(CancellationToken ct = default);
+
+    // ─────────────────────── File Storage ────────────────────────
+
+    /// <summary>Get the logical storage roots the agent advertises (e.g. appData, cache).</summary>
+    Task<IReadOnlyList<InspectorStorageRoot>> GetStorageRootsAsync(CancellationToken ct = default);
+
+    /// <summary>List files and directories under the given path within a storage root.</summary>
+    Task<IReadOnlyList<InspectorFileEntry>> ListFilesAsync(string path = "", string root = "appData", CancellationToken ct = default);
+
+    /// <summary>Download a file (returned as base64-encoded content).</summary>
+    Task<InspectorFileContent?> DownloadFileAsync(string path, string root = "appData", CancellationToken ct = default);
+
+    /// <summary>Upload (create/overwrite) a file at the given path.</summary>
+    Task UploadFileAsync(string path, byte[] content, string root = "appData", CancellationToken ct = default);
+
+    /// <summary>Delete a file at the given path.</summary>
+    Task DeleteFileAsync(string path, string root = "appData", CancellationToken ct = default);
 }
 
 /// <summary>

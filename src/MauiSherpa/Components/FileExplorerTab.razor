@@ -1,10 +1,7 @@
 @using MauiSherpa.Core.Interfaces
-@using MauiSherpa.Services
-@inject IDeviceFileService FileService
-@inject DeviceInspectorService Inspector
+@using MauiSherpa.Core.Services
 @inject IDialogService DialogService
 @inject IJSRuntime JS
-@implements IDisposable
 
 <div class="file-explorer">
     <div class="file-toolbar">
@@ -19,9 +16,12 @@
             }
         </div>
         <div class="file-toolbar-actions">
-            <button class="btn btn-sm btn-secondary" @onclick="UploadFileAsync" disabled="@isLoading" title="Upload file to current folder">
-                <i class="fas fa-upload"></i>
-            </button>
+            @if (Provider?.SupportsUpload == true)
+            {
+                <button class="btn btn-sm btn-secondary" @onclick="UploadFileAsync" disabled="@isLoading" title="Upload file to current folder">
+                    <i class="fas fa-upload"></i>
+                </button>
+            }
             <button class="btn btn-sm btn-secondary" @onclick="RefreshAsync" disabled="@isLoading">
                 <i class="fas fa-sync-alt @(isLoading ? "fa-spin" : "")"></i>
             </button>
@@ -82,9 +82,12 @@
                                     <i class="fas fa-download"></i>
                                 </button>
                             }
-                            <button class="btn-file-action btn-file-delete" @onclick="@(() => DeleteAsync(entry))" title="Delete">
-                                <i class="fas fa-trash-alt"></i>
-                            </button>
+                            @if (Provider?.SupportsDelete == true)
+                            {
+                                <button class="btn-file-action btn-file-delete" @onclick="@(() => DeleteAsync(entry))" title="Delete">
+                                    <i class="fas fa-trash-alt"></i>
+                                </button>
+                            }
                         </span>
                     </div>
                 }
@@ -185,41 +188,43 @@
 </style>
 
 @code {
-    [Parameter] public string Serial { get; set; } = "";
+    [Parameter] public IFileExplorerProvider? Provider { get; set; }
+    [Parameter] public string? InitialPath { get; set; }
 
-    private string currentPath = "/sdcard";
+    private string currentPath = "/";
     private List<DeviceFileEntry> entries = new();
     private bool isLoading;
+    private IFileExplorerProvider? _activeProvider;
 
     protected override async Task OnInitializedAsync()
     {
-        Inspector.DeviceChanged += OnDeviceChanged;
-
-        // Check if another tab requested navigation to a specific path
-        if (!string.IsNullOrEmpty(Inspector.PendingFilePath))
+        if (Provider != null)
         {
-            currentPath = Inspector.PendingFilePath;
-            Inspector.PendingFilePath = null;
+            _activeProvider = Provider;
+            currentPath = InitialPath ?? Provider.InitialPath;
+            await RefreshAsync();
         }
-
-        await RefreshAsync();
     }
 
     protected override async Task OnParametersSetAsync()
     {
-        if (!string.IsNullOrEmpty(Serial))
+        if (Provider != null && Provider != _activeProvider)
+        {
+            _activeProvider = Provider;
+            currentPath = InitialPath ?? Provider.InitialPath;
             await RefreshAsync();
+        }
     }
 
     private async Task RefreshAsync()
     {
-        if (string.IsNullOrEmpty(Serial)) return;
+        if (_activeProvider == null) return;
         isLoading = true;
         StateHasChanged();
 
         try
         {
-            var result = await FileService.ListAsync(Serial, currentPath);
+            var result = await _activeProvider.ListAsync(currentPath);
             entries = result.ToList();
         }
         catch
@@ -266,22 +271,23 @@
 
     private async Task DownloadFileAsync(DeviceFileEntry entry)
     {
+        if (_activeProvider == null) return;
         var ext = System.IO.Path.GetExtension(entry.Name)?.TrimStart('.') ?? "";
         var savePath = await DialogService.PickSaveFileAsync("Save File", entry.Name, ext);
         if (string.IsNullOrEmpty(savePath)) return;
-        await FileService.PullAsync(Serial, entry.FullPath, savePath);
+        await _activeProvider.DownloadAsync(entry.FullPath, savePath);
     }
 
     private async Task DeleteAsync(DeviceFileEntry entry)
     {
-        // Simple confirmation via alert service
-        await FileService.DeleteAsync(Serial, entry.FullPath);
+        if (_activeProvider == null) return;
+        await _activeProvider.DeleteAsync(entry.FullPath);
         await RefreshAsync();
     }
 
     private async Task UploadFileAsync()
     {
-        if (string.IsNullOrEmpty(Serial)) return;
+        if (_activeProvider == null) return;
 
         var localPath = await DialogService.PickOpenFileAsync("Select file to upload");
         if (string.IsNullOrEmpty(localPath)) return;
@@ -294,7 +300,7 @@
 
         try
         {
-            await FileService.PushAsync(Serial, localPath, remotePath);
+            await _activeProvider.UploadAsync(localPath, remotePath);
             await RefreshAsync();
         }
         catch
@@ -302,15 +308,6 @@
             isLoading = false;
             StateHasChanged();
         }
-    }
-
-    private void OnDeviceChanged(string newSerial)
-    {
-        InvokeAsync(() =>
-        {
-            currentPath = "/sdcard";
-            _ = RefreshAsync();
-        });
     }
 
     private static string FormatSize(long bytes)
@@ -337,10 +334,5 @@
             ".db" or ".sqlite" => "fa-database",
             _ => "fa-file"
         };
-    }
-
-    public void Dispose()
-    {
-        Inspector.DeviceChanged -= OnDeviceChanged;
     }
 }

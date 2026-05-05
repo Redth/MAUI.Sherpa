@@ -647,6 +647,32 @@ public record InspectorSecureStorageEntry
     public bool Exists { get; init; }
 }
 
+// ─────────────────────────── File Storage ───────────────────────────────
+
+public record InspectorStorageRoot
+{
+    public string Name { get; init; } = string.Empty;
+    public string? Description { get; init; }
+    public bool Writable { get; init; }
+}
+
+public record InspectorFileEntry
+{
+    public string Name { get; init; } = string.Empty;
+    public string Path { get; init; } = string.Empty;
+    public bool IsDirectory { get; init; }
+    public long? Size { get; init; }
+    public DateTimeOffset? LastModified { get; init; }
+}
+
+public record InspectorFileContent
+{
+    public string Path { get; init; } = string.Empty;
+    public string Content { get; init; } = string.Empty;  // base64-encoded
+    public string? MimeType { get; init; }
+    public long? Size { get; init; }
+}
+
 // ─────────────────────────── Protocol Version ────────────────────────────
 
 /// <summary>Identifies which protocol version an agent speaks.</summary>

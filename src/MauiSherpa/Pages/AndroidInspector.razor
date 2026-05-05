@@ -2,8 +2,10 @@
 @layout MauiSherpa.Components.InspectorLayout
 @using MauiSherpa.Services
 @using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Core.Services
 @inject DeviceInspectorService InspectorService
 @inject IAdbDeviceWatcherService DeviceWatcher
+@inject IDeviceFileService DeviceFileService
 @implements IDisposable
 
 <div class="inspector-page">
@@ -52,7 +54,7 @@
                 <LogcatContent Serial="@Serial" />
                 break;
             case InspectorTab.Files:
-                <FileExplorerTab Serial="@Serial" />
+                <FileExplorerTab Provider="@_fileProvider" InitialPath="@InspectorService.PendingFilePath" />
                 break;
             case InspectorTab.Shell:
                 <ShellTab Serial="@Serial" />
@@ -171,10 +173,12 @@
 
     private InspectorTab ActiveTab = InspectorTab.Logcat;
     private List<DeviceInfo> connectedDevices = new();
+    private AdbFileExplorerProvider? _fileProvider;
 
     protected override void OnInitialized()
     {
         ActiveTab = ParseTab(TabName);
+        _fileProvider = new AdbFileExplorerProvider(DeviceFileService, Serial);
         InspectorService.ActiveSerial = Serial;
         InspectorService.ActiveTab = ActiveTab;
         InspectorService.IsOpen = true;
@@ -193,6 +197,7 @@
         }
         if (InspectorService.ActiveSerial != Serial)
         {
+            _fileProvider = new AdbFileExplorerProvider(DeviceFileService, Serial);
             InspectorService.SwitchDevice(Serial);
         }
     }

@@ -545,6 +545,54 @@ public class DevFlowV1Client : IAppInspectorClient
         await _http.DeleteAsync("/api/v1/storage/secure", ct);
     }
 
+    // ─────────────────────── File Storage ─────────────────────────
+
+    public async Task<IReadOnlyList<InspectorStorageRoot>> GetStorageRootsAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            var result = await _http.GetFromJsonAsync<List<InspectorStorageRoot>>("/api/v1/storage/roots", JsonOptions, ct);
+            return result?.AsReadOnly() ?? (IReadOnlyList<InspectorStorageRoot>)[];
+        }
+        catch (HttpRequestException) { return []; }
+    }
+
+    public async Task<IReadOnlyList<InspectorFileEntry>> ListFilesAsync(string path = "", string root = "appData", CancellationToken ct = default)
+    {
+        var url = "/api/v1/storage/files";
+        var q = new List<string> { $"root={Uri.EscapeDataString(root)}" };
+        if (!string.IsNullOrEmpty(path)) q.Add($"path={Uri.EscapeDataString(path)}");
+        url += "?" + string.Join("&", q);
+
+        try
+        {
+            var result = await _http.GetFromJsonAsync<List<InspectorFileEntry>>(url, JsonOptions, ct);
+            return result?.AsReadOnly() ?? (IReadOnlyList<InspectorFileEntry>)[];
+        }
+        catch (HttpRequestException) { return []; }
+    }
+
+    public async Task<InspectorFileContent?> DownloadFileAsync(string path, string root = "appData", CancellationToken ct = default)
+    {
+        var url = $"/api/v1/storage/files/{Uri.EscapeDataString(path)}?root={Uri.EscapeDataString(root)}";
+        try { return await _http.GetFromJsonAsync<InspectorFileContent>(url, JsonOptions, ct); }
+        catch (HttpRequestException) { return null; }
+    }
+
+    public async Task UploadFileAsync(string path, byte[] content, string root = "appData", CancellationToken ct = default)
+    {
+        var url = $"/api/v1/storage/files/{Uri.EscapeDataString(path)}?root={Uri.EscapeDataString(root)}";
+        var body = new { content = Convert.ToBase64String(content) };
+        var response = await _http.PutAsJsonAsync(url, body, JsonOptions, ct);
+        response.EnsureSuccessStatusCode();
+    }
+
+    public async Task DeleteFileAsync(string path, string root = "appData", CancellationToken ct = default)
+    {
+        var url = $"/api/v1/storage/files/{Uri.EscapeDataString(path)}?root={Uri.EscapeDataString(root)}";
+        await _http.DeleteAsync(url, ct);
+    }
+
     public void Dispose()
     {
         _http.Dispose();
