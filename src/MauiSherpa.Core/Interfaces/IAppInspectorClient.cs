@@ -157,6 +157,21 @@ public interface IAppInspectorClient : IDisposable
     Task<InspectorPermissionStatus> CheckPermissionAsync(string permission, CancellationToken ct = default);
     Task<InspectorGeolocation> GetGeolocationAsync(string? accuracy = null, int? timeoutSeconds = null, CancellationToken ct = default);
 
+    // ─────────────────────── BLE ───────────────────────────────
+
+    /// <summary>Get BLE readiness status including permission and platform configuration checks.</summary>
+    Task<InspectorBleStatus> GetBleStatusAsync(CancellationToken ct = default);
+
+    /// <summary>Stream BLE events in real time via WebSocket.</summary>
+    Task StreamBleAsync(
+        Action<IReadOnlyList<InspectorBleEvent>>? onReplay,
+        Action<InspectorBleEvent> onEvent,
+        Action<string>? onError = null,
+        bool scan = true,
+        int replay = 100,
+        string? typeFilter = null,
+        CancellationToken ct = default);
+
     // ─────────────────────── Storage ─────────────────────────
 
     Task<IReadOnlyList<InspectorPreferenceEntry>> GetPreferencesAsync(string? sharedName = null, CancellationToken ct = default);

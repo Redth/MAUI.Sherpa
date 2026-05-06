@@ -1,0 +1,760 @@
+@using MauiSherpa.Core.Models.DevFlow
+@using MauiSherpa.Core.Services
+@using System.Text.Json
+@implements IDisposable
+
+<div class="ble-layout">
+    <div class="ble-toolbar">
+        <div class="ble-toolbar-left">
+            <span class="ble-title"><i class="fas fa-bluetooth-b"></i> BLE Monitor</span>
+            @if (bleStatus != null && bleStatus.Platform != null)
+            {
+                <span class="ble-platform">@bleStatus.Platform</span>
+            }
+        </div>
+        <div class="ble-toolbar-right">
+            @if (isMonitoring)
+            {
+                <span class="ble-status monitoring"><i class="fas fa-circle fa-beat-fade"></i> Monitoring</span>
+                <button class="ble-btn danger" @onclick="StopMonitoring">
+                    <i class="fas fa-stop"></i> Stop
+                </button>
+            }
+            else if (configReady)
+            {
+                <button class="ble-btn primary" @onclick="StartMonitoring" disabled="@starting">
+                    @if (starting)
+                    {
+                        <i class="fas fa-spinner fa-spin"></i>
+                    }
+                    else
+                    {
+                        <i class="fas fa-play"></i>
+                    }
+                    Start Monitoring
+                </button>
+            }
+            @if (events.Count > 0)
+            {
+                <button class="ble-btn" @onclick="ClearEvents" title="Clear events">
+                    <i class="fas fa-trash"></i>
+                </button>
+            }
+            <button class="ble-btn" @onclick="RefreshStatus" title="Re-check BLE readiness">
+                <i class="fas fa-arrows-rotate @(checkingStatus ? "fa-spin" : "")"></i>
+            </button>
+        </div>
+    </div>
+
+    @if (checkingStatus)
+    {
+        <div class="ble-center">
+            <i class="fas fa-spinner fa-spin fa-2x"></i>
+            <p>Checking BLE readiness...</p>
+        </div>
+    }
+    else if (bleStatus != null && !configReady)
+    {
+        <div class="ble-config-warning">
+            <div class="warning-icon"><i class="fas fa-triangle-exclamation"></i></div>
+            <h3>BLE Configuration Required</h3>
+
+            @if (!bleStatus.Supported)
+            {
+                <div class="config-issue">
+                    <i class="fas fa-times-circle text-danger"></i>
+                    <span>BLE is not supported on this device or platform.</span>
+                </div>
+            }
+
+            @if (bleStatus.MissingConfiguration?.Count > 0)
+            {
+                <div class="config-issue">
+                    <i class="fas fa-file-code text-warning"></i>
+                    <span>Missing platform configuration:</span>
+                </div>
+                <ul class="config-list">
+                    @foreach (var item in bleStatus.MissingConfiguration)
+                    {
+                        <li>@item</li>
+                    }
+                </ul>
+
+                @if (bleStatus.Platform?.Contains("ios", StringComparison.OrdinalIgnoreCase) == true
+                     || bleStatus.Platform?.Contains("catalyst", StringComparison.OrdinalIgnoreCase) == true)
+                {
+                    <div class="config-hint">
+                        <i class="fas fa-lightbulb"></i>
+                        <span>Add the required keys to your <code>Info.plist</code>. Missing Bluetooth usage descriptions will cause iOS to crash on BLE access.</span>
+                    </div>
+                }
+                else if (bleStatus.Platform?.Contains("android", StringComparison.OrdinalIgnoreCase) == true)
+                {
+                    <div class="config-hint">
+                        <i class="fas fa-lightbulb"></i>
+                        <span>Add the required permissions to your <code>AndroidManifest.xml</code>. On Android 12+ you need <code>BLUETOOTH_SCAN</code> and <code>BLUETOOTH_CONNECT</code>.</span>
+                    </div>
+                }
+            }
+
+            @if (!bleStatus.PermissionGranted)
+            {
+                <div class="config-issue">
+                    <i class="fas fa-shield-halved text-warning"></i>
+                    <span>Bluetooth permission has not been granted by the user.</span>
+                </div>
+            }
+
+            @if (!bleStatus.AdapterEnabled)
+            {
+                <div class="config-issue">
+                    <i class="fas fa-power-off text-warning"></i>
+                    <span>Bluetooth adapter is not enabled on the device.</span>
+                </div>
+            }
+
+            @if (bleStatus.Error != null)
+            {
+                <div class="config-issue">
+                    <i class="fas fa-exclamation-circle text-danger"></i>
+                    <span>@bleStatus.Error</span>
+                </div>
+            }
+        </div>
+    }
+    else if (!isMonitoring && events.Count == 0)
+    {
+        <div class="ble-center">
+            <i class="fas fa-bluetooth fa-3x ble-idle-icon"></i>
+            <p>Click <strong>Start Monitoring</strong> to begin capturing BLE events.</p>
+            <p class="text-muted">Scanning, connections, reads, writes, and notifications will appear here.</p>
+        </div>
+    }
+    else
+    {
+        <div class="ble-events">
+            @if (streamError != null)
+            {
+                <div class="ble-alert error">
+                    <i class="fas fa-exclamation-triangle"></i> @streamError
+                    <button class="alert-dismiss" @onclick="() => streamError = null"><i class="fas fa-times"></i></button>
+                </div>
+            }
+            <div class="ble-event-filters">
+                <select @bind="eventTypeFilter" class="event-filter">
+                    <option value="">All Events</option>
+                    <option value="scan_result">Scan Results</option>
+                    <option value="connected">Connected</option>
+                    <option value="disconnected">Disconnected</option>
+                    <option value="service_discovered">Services</option>
+                    <option value="characteristic_read">Reads</option>
+                    <option value="characteristic_write">Writes</option>
+                    <option value="notification">Notifications</option>
+                    <option value="error">Errors</option>
+                </select>
+                <input type="text" @bind="searchQuery" @bind:event="oninput" placeholder="Search peripherals..." class="event-search" />
+                <span class="event-count">@FilteredEvents.Count() events</span>
+            </div>
+            <div class="ble-event-list">
+                @foreach (var evt in FilteredEvents)
+                {
+                    <div class="ble-event @($"event-{evt.EventType}")">
+                        <div class="event-icon">
+                            <i class="fas @GetEventIcon(evt.EventType)"></i>
+                        </div>
+                        <div class="event-body">
+                            <div class="event-header">
+                                <span class="event-type">@FormatEventType(evt.EventType)</span>
+                                @if (evt.PeripheralName != null || evt.PeripheralUuid != null)
+                                {
+                                    <span class="event-peripheral">@(evt.PeripheralName ?? evt.PeripheralUuid)</span>
+                                }
+                                @if (evt.Rssi.HasValue)
+                                {
+                                    <span class="event-rssi @GetRssiClass(evt.Rssi.Value)" title="RSSI">
+                                        <i class="fas fa-signal"></i> @(evt.Rssi)dBm
+                                    </span>
+                                }
+                                <span class="event-time">@evt.Timestamp.ToLocalTime().ToString("HH:mm:ss.fff")</span>
+                            </div>
+                            @if (IsDataEvent(evt.EventType))
+                            {
+                                <div class="event-detail">
+                                    <span class="detail-tag">Svc: @(evt.ServiceUuid ?? "—")</span>
+                                    <span class="detail-tag">Char: @(evt.CharacteristicUuid ?? "—")</span>
+                                    @if (evt.Value != null)
+                                    {
+                                        <span class="detail-tag value" title="@evt.Value">@FormatHex(evt.Value)</span>
+                                    }
+                                    @if (evt.State != null)
+                                    {
+                                        <span class="detail-tag state">@evt.State</span>
+                                    }
+                                    @if (evt.Mtu.HasValue)
+                                    {
+                                        <span class="detail-tag">MTU: @evt.Mtu</span>
+                                    }
+                                    @if (evt.Error != null)
+                                    {
+                                        <span class="detail-tag error">@evt.Error</span>
+                                    }
+                                </div>
+                            }
+                            else if (evt.ServiceUuid != null || evt.CharacteristicUuid != null || evt.Value != null || evt.State != null || evt.Error != null)
+                            {
+                                <div class="event-detail">
+                                    @if (evt.ServiceUuid != null)
+                                    {
+                                        <span class="detail-tag">Svc: @evt.ServiceUuid</span>
+                                    }
+                                    @if (evt.CharacteristicUuid != null)
+                                    {
+                                        <span class="detail-tag">Char: @evt.CharacteristicUuid</span>
+                                    }
+                                    @if (evt.Value != null)
+                                    {
+                                        <span class="detail-tag value" title="@evt.Value">@FormatHex(evt.Value)</span>
+                                    }
+                                    @if (evt.State != null)
+                                    {
+                                        <span class="detail-tag state">@evt.State</span>
+                                    }
+                                    @if (evt.Mtu.HasValue)
+                                    {
+                                        <span class="detail-tag">MTU: @evt.Mtu</span>
+                                    }
+                                    @if (evt.Error != null)
+                                    {
+                                        <span class="detail-tag error">@evt.Error</span>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public DevFlowAgentClient Client { get; set; } = null!;
+
+    private DevFlowBleStatus? bleStatus;
+    private bool checkingStatus = true;
+    private bool configReady;
+    private bool isMonitoring;
+    private bool starting;
+    private string? streamError;
+    private string eventTypeFilter = "";
+    private string searchQuery = "";
+
+    private List<DevFlowBleEvent> events = new();
+    private readonly List<DevFlowBleEvent> _pendingEvents = new();
+    private Timer? _batchTimer;
+    private CancellationTokenSource? _streamCts;
+    private const int BatchIntervalMs = 150;
+
+    private IEnumerable<DevFlowBleEvent> FilteredEvents
+    {
+        get
+        {
+            IEnumerable<DevFlowBleEvent> filtered = events;
+            if (!string.IsNullOrEmpty(eventTypeFilter))
+                filtered = filtered.Where(e => e.EventType == eventTypeFilter);
+            if (!string.IsNullOrEmpty(searchQuery))
+                filtered = filtered.Where(e =>
+                    (e.PeripheralName?.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) == true) ||
+                    (e.PeripheralUuid?.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) == true) ||
+                    (e.ServiceUuid?.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) == true) ||
+                    (e.CharacteristicUuid?.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) == true));
+            return filtered.OrderByDescending(e => e.Timestamp);
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshStatus();
+    }
+
+    private async Task RefreshStatus()
+    {
+        checkingStatus = true;
+        StateHasChanged();
+
+        try
+        {
+            bleStatus = await Client.GetBleStatusAsync();
+            configReady = bleStatus != null
+                && bleStatus.Supported
+                && bleStatus.PermissionGranted
+                && bleStatus.AdapterEnabled
+                && (bleStatus.MissingConfiguration == null || bleStatus.MissingConfiguration.Count == 0)
+                && bleStatus.Error == null;
+        }
+        catch
+        {
+            bleStatus = new DevFlowBleStatus { Error = "Failed to check BLE status — the agent may not support BLE monitoring." };
+            configReady = false;
+        }
+        finally
+        {
+            checkingStatus = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task StartMonitoring()
+    {
+        if (isMonitoring || starting) return;
+        starting = true;
+        streamError = null;
+        StateHasChanged();
+
+        _streamCts?.Cancel();
+        _streamCts = new CancellationTokenSource();
+        var ct = _streamCts.Token;
+
+        isMonitoring = true;
+        starting = false;
+        StateHasChanged();
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Client.StreamBleAsync(
+                    onReplay: replayEvents =>
+                    {
+                        InvokeAsync(() =>
+                        {
+                            events = replayEvents.ToList();
+                            StateHasChanged();
+                        });
+                    },
+                    onEvent: evt =>
+                    {
+                        InvokeAsync(() =>
+                        {
+                            _pendingEvents.Add(evt);
+                            _batchTimer ??= new Timer(_ =>
+                            {
+                                InvokeAsync(FlushPendingEvents);
+                            }, null, BatchIntervalMs, Timeout.Infinite);
+                        });
+                    },
+                    onError: error =>
+                    {
+                        InvokeAsync(() =>
+                        {
+                            streamError = error;
+                            StateHasChanged();
+                        });
+                    },
+                    scan: true,
+                    replay: 100,
+                    ct: ct);
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex)
+            {
+                await InvokeAsync(() =>
+                {
+                    streamError = $"BLE stream disconnected: {ex.Message}";
+                    isMonitoring = false;
+                    StateHasChanged();
+                });
+            }
+
+            await InvokeAsync(() =>
+            {
+                isMonitoring = false;
+                StateHasChanged();
+            });
+        }, ct);
+    }
+
+    private void StopMonitoring()
+    {
+        _streamCts?.Cancel();
+        Client.StopBleStream();
+        isMonitoring = false;
+        StateHasChanged();
+    }
+
+    private void ClearEvents()
+    {
+        events.Clear();
+        _pendingEvents.Clear();
+        StateHasChanged();
+    }
+
+    private void FlushPendingEvents()
+    {
+        _batchTimer?.Dispose();
+        _batchTimer = null;
+        if (_pendingEvents.Count == 0) return;
+        events.AddRange(_pendingEvents);
+        _pendingEvents.Clear();
+        StateHasChanged();
+    }
+
+    private static bool IsDataEvent(string eventType) => eventType is
+        "characteristic_read" or "characteristic_write" or "notification";
+
+    private static string FormatHex(string value)
+    {
+        try
+        {
+            var bytes = Convert.FromBase64String(value);
+            return BitConverter.ToString(bytes).Replace("-", " ");
+        }
+        catch
+        {
+            // Not base64 — try treating as raw UTF-8 bytes
+            var bytes = System.Text.Encoding.UTF8.GetBytes(value);
+            return BitConverter.ToString(bytes).Replace("-", " ");
+        }
+    }
+
+    private static string GetEventIcon(string eventType) => eventType switch
+    {
+        "scan_result" => "fa-radar",
+        "connected" => "fa-link",
+        "disconnected" => "fa-link-slash",
+        "service_discovered" => "fa-folder-tree",
+        "characteristic_read" => "fa-arrow-down",
+        "characteristic_write" => "fa-arrow-up",
+        "notification" => "fa-bell",
+        "adapter_state_changed" => "fa-power-off",
+        "error" => "fa-exclamation-triangle",
+        _ => "fa-bluetooth-b"
+    };
+
+    private static string FormatEventType(string eventType) => eventType switch
+    {
+        "scan_result" => "Scan",
+        "connected" => "Connected",
+        "disconnected" => "Disconnected",
+        "service_discovered" => "Service",
+        "characteristic_read" => "Read",
+        "characteristic_write" => "Write",
+        "notification" => "Notify",
+        "adapter_state_changed" => "Adapter",
+        "error" => "Error",
+        _ => eventType
+    };
+
+    private static string GetRssiClass(int rssi)
+    {
+        if (rssi >= -50) return "rssi-strong";
+        if (rssi >= -70) return "rssi-medium";
+        return "rssi-weak";
+    }
+
+    public void Dispose()
+    {
+        _streamCts?.Cancel();
+        _batchTimer?.Dispose();
+        Client.StopBleStream();
+    }
+}
+
+<style>
+    .ble-layout {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        overflow: hidden;
+    }
+
+    .ble-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.5rem 1rem;
+        background: var(--bg-secondary);
+        border-bottom: 1px solid var(--border-color);
+        flex-shrink: 0;
+    }
+
+    .ble-toolbar-left, .ble-toolbar-right {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .ble-title {
+        font-weight: 600;
+        font-size: 0.9rem;
+    }
+
+    .ble-platform {
+        font-size: 0.75rem;
+        padding: 0.1rem 0.5rem;
+        border-radius: 4px;
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+    }
+
+    .ble-status.monitoring {
+        font-size: 0.8rem;
+        color: #22c55e;
+    }
+
+    .ble-btn {
+        padding: 0.35rem 0.75rem;
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        background: var(--bg-tertiary);
+        color: var(--text-primary);
+        cursor: pointer;
+        font-size: 0.8rem;
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+        transition: all 0.15s ease;
+    }
+
+    .ble-btn:hover { background: var(--bg-hover, rgba(255,255,255,0.05)); }
+    .ble-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .ble-btn.primary {
+        background: #3b82f6;
+        border-color: #3b82f6;
+        color: white;
+    }
+
+    .ble-btn.primary:hover { background: #2563eb; }
+
+    .ble-btn.danger {
+        background: #ef4444;
+        border-color: #ef4444;
+        color: white;
+    }
+
+    .ble-btn.danger:hover { background: #dc2626; }
+
+    .ble-center {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        gap: 0.75rem;
+        color: var(--text-secondary);
+        padding: 2rem;
+        text-align: center;
+    }
+
+    .ble-idle-icon { color: #3b82f6; opacity: 0.4; }
+
+    .text-muted { font-size: 0.85rem; color: var(--text-tertiary); }
+
+    /* Config warning */
+
+    .ble-config-warning {
+        max-width: 600px;
+        margin: 2rem auto;
+        padding: 1.5rem;
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+    }
+
+    .ble-config-warning h3 {
+        margin: 0 0 1rem 0;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .warning-icon { font-size: 2rem; color: #f59e0b; text-align: center; margin-bottom: 0.5rem; }
+
+    .config-issue {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.5rem;
+        padding: 0.5rem 0;
+        font-size: 0.9rem;
+    }
+
+    .text-danger { color: #ef4444; }
+    .text-warning { color: #f59e0b; }
+
+    .config-list {
+        margin: 0.25rem 0 0.75rem 2rem;
+        font-size: 0.85rem;
+        font-family: var(--font-mono, monospace);
+    }
+
+    .config-list li { padding: 0.2rem 0; }
+
+    .config-hint {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.5rem;
+        padding: 0.75rem;
+        background: rgba(59, 130, 246, 0.1);
+        border-radius: 6px;
+        font-size: 0.85rem;
+        margin-top: 0.5rem;
+    }
+
+    .config-hint code {
+        background: var(--bg-tertiary);
+        padding: 0.1rem 0.3rem;
+        border-radius: 3px;
+        font-size: 0.8rem;
+    }
+
+    /* Events */
+
+    .ble-events {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    .ble-alert {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.5rem 1rem;
+        font-size: 0.85rem;
+    }
+
+    .ble-alert.error { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
+
+    .alert-dismiss {
+        margin-left: auto;
+        background: none;
+        border: none;
+        color: inherit;
+        cursor: pointer;
+        opacity: 0.6;
+    }
+
+    .alert-dismiss:hover { opacity: 1; }
+
+    .ble-event-filters {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.5rem 1rem;
+        border-bottom: 1px solid var(--border-color);
+        flex-shrink: 0;
+    }
+
+    .event-filter, .event-search {
+        padding: 0.3rem 0.5rem;
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+        background: var(--bg-tertiary);
+        color: var(--text-primary);
+        font-size: 0.8rem;
+    }
+
+    .event-search { flex: 1; max-width: 250px; }
+
+    .event-count {
+        margin-left: auto;
+        font-size: 0.8rem;
+        color: var(--text-tertiary);
+    }
+
+    .ble-event-list {
+        flex: 1;
+        overflow-y: auto;
+        padding: 0.25rem 0;
+    }
+
+    .ble-event {
+        display: flex;
+        gap: 0.5rem;
+        padding: 0.4rem 1rem;
+        border-bottom: 1px solid var(--border-subtle, rgba(255,255,255,0.03));
+        transition: background 0.1s ease;
+    }
+
+    .ble-event:hover { background: var(--bg-hover, rgba(255,255,255,0.03)); }
+
+    .event-icon {
+        width: 24px;
+        text-align: center;
+        padding-top: 0.15rem;
+        color: var(--text-tertiary);
+        font-size: 0.8rem;
+        flex-shrink: 0;
+    }
+
+    .event-scan_result .event-icon { color: #3b82f6; }
+    .event-connected .event-icon { color: #22c55e; }
+    .event-disconnected .event-icon { color: #ef4444; }
+    .event-notification .event-icon { color: #f59e0b; }
+    .event-characteristic_read .event-icon { color: #06b6d4; }
+    .event-characteristic_write .event-icon { color: #a855f7; }
+    .event-error .event-icon { color: #ef4444; }
+
+    .event-body { flex: 1; min-width: 0; }
+
+    .event-header {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.85rem;
+    }
+
+    .event-type {
+        font-weight: 600;
+        font-size: 0.8rem;
+        min-width: 70px;
+    }
+
+    .event-peripheral {
+        color: var(--text-secondary);
+        font-family: var(--font-mono, monospace);
+        font-size: 0.8rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .event-rssi {
+        font-size: 0.75rem;
+        font-family: var(--font-mono, monospace);
+    }
+
+    .rssi-strong { color: #22c55e; }
+    .rssi-medium { color: #f59e0b; }
+    .rssi-weak { color: #ef4444; }
+
+    .event-time {
+        margin-left: auto;
+        font-size: 0.75rem;
+        color: var(--text-tertiary);
+        font-family: var(--font-mono, monospace);
+        white-space: nowrap;
+    }
+
+    .event-detail {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.35rem;
+        margin-top: 0.2rem;
+    }
+
+    .detail-tag {
+        font-size: 0.75rem;
+        padding: 0.1rem 0.4rem;
+        border-radius: 3px;
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+        font-family: var(--font-mono, monospace);
+    }
+
+    .detail-tag.value { color: #06b6d4; }
+    .detail-tag.state { color: #a855f7; }
+    .detail-tag.error { color: #ef4444; background: rgba(239, 68, 68, 0.1); }
+</style>

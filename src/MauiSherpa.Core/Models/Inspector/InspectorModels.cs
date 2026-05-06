@@ -647,6 +647,48 @@ public record InspectorSecureStorageEntry
     public bool Exists { get; init; }
 }
 
+// ─────────────────────────── BLE ────────────────────────────────────────
+
+/// <summary>
+/// BLE readiness status — whether the target app has proper permissions
+/// and platform configuration for Bluetooth Low Energy monitoring.
+/// </summary>
+public record InspectorBleStatus
+{
+    public bool Supported { get; init; }
+    public bool PermissionGranted { get; init; }
+    public bool AdapterEnabled { get; init; }
+    public string Platform { get; init; } = string.Empty;
+    /// <summary>Missing info.plist keys (iOS) or AndroidManifest.xml permissions.</summary>
+    public IReadOnlyList<string> MissingConfiguration { get; init; } = [];
+    public string? Error { get; init; }
+
+    public bool IsReady => Supported && PermissionGranted && AdapterEnabled && MissingConfiguration.Count == 0;
+}
+
+/// <summary>
+/// A single BLE event from the live event stream.
+/// </summary>
+public record InspectorBleEvent
+{
+    public string Id { get; init; } = string.Empty;
+    public DateTimeOffset Timestamp { get; init; }
+    /// <summary>
+    /// Event type: scan_result, connected, disconnected, service_discovered,
+    /// characteristic_read, characteristic_write, notification, error, adapter_state_changed.
+    /// </summary>
+    public string EventType { get; init; } = string.Empty;
+    public string? PeripheralUuid { get; init; }
+    public string? PeripheralName { get; init; }
+    public int? Rssi { get; init; }
+    public string? ServiceUuid { get; init; }
+    public string? CharacteristicUuid { get; init; }
+    public string? Value { get; init; }
+    public string? Error { get; init; }
+    public string? State { get; init; }
+    public int? Mtu { get; init; }
+}
+
 // ─────────────────────────── Protocol Version ────────────────────────────
 
 /// <summary>Identifies which protocol version an agent speaks.</summary>

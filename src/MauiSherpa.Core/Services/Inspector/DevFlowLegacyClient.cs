@@ -656,6 +656,24 @@ public class DevFlowLegacyClient : IAppInspectorClient
         };
     }
 
+    // ─────────── BLE ────────────
+
+    public Task<InspectorBleStatus> GetBleStatusAsync(CancellationToken ct = default)
+        => Task.FromResult(new InspectorBleStatus { Error = "BLE monitoring is not supported by the legacy protocol" });
+
+    public Task StreamBleAsync(
+        Action<IReadOnlyList<InspectorBleEvent>>? onReplay,
+        Action<InspectorBleEvent> onEvent,
+        Action<string>? onError = null,
+        bool scan = true,
+        int replay = 100,
+        string? typeFilter = null,
+        CancellationToken ct = default)
+    {
+        onError?.Invoke("BLE streaming is not supported by the legacy protocol");
+        return Task.CompletedTask;
+    }
+
     // ─────────── Storage ────────────
 
     public async Task<IReadOnlyList<InspectorPreferenceEntry>> GetPreferencesAsync(string? sharedName = null, CancellationToken ct = default)

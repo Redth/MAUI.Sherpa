@@ -635,6 +635,108 @@ public class DevFlowAgentClient : IDisposable
         get { lock (_sensorStreams) { return _sensorStreams.Count; } }
     }
 
+    // --- BLE ---
+
+    private ClientWebSocket? _bleWs;
+    private CancellationTokenSource? _bleWsCts;
+
+    /// <summary>
+    /// Check BLE readiness: whether the target app has Bluetooth permissions
+    /// and required platform configuration (info.plist / AndroidManifest.xml).
+    /// </summary>
+    public async Task<DevFlowBleStatus?> GetBleStatusAsync(CancellationToken ct = default)
+        => await GetAsync<DevFlowBleStatus>("/api/v1/device/ble/status", ct);
+
+    /// <summary>
+    /// Connect to /ws/v1/ble for live BLE event streaming.
+    /// Calls onReplay with buffered events, then onEvent for each live event.
+    /// </summary>
+    public async Task StreamBleAsync(
+        Action<List<DevFlowBleEvent>> onReplay,
+        Action<DevFlowBleEvent> onEvent,
+        Action<string>? onError,
+        bool scan = true,
+        int replay = 100,
+        string? typeFilter = null,
+        CancellationToken ct = default)
+    {
+        _bleWsCts?.Cancel();
+        _bleWsCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var token = _bleWsCts.Token;
+
+        _bleWs?.Dispose();
+        _bleWs = new ClientWebSocket();
+
+        try
+        {
+            var parts = new List<string>
+            {
+                $"scan={scan.ToString().ToLowerInvariant()}",
+                $"replay={replay}"
+            };
+            if (typeFilter != null) parts.Add($"type={Uri.EscapeDataString(typeFilter)}");
+            var query = string.Join("&", parts);
+            var wsUrl = $"ws://{AgentHost}:{AgentPort}/ws/v1/ble?{query}";
+            await _bleWs.ConnectAsync(new Uri(wsUrl), token);
+
+            var buffer = new byte[64 * 1024];
+            var sb = new StringBuilder();
+
+            while (_bleWs.State == WebSocketState.Open && !token.IsCancellationRequested)
+            {
+                var result = await _bleWs.ReceiveAsync(buffer, token);
+                if (result.MessageType == WebSocketMessageType.Close)
+                    break;
+
+                sb.Append(Encoding.UTF8.GetString(buffer, 0, result.Count));
+                if (result.EndOfMessage)
+                {
+                    var json = sb.ToString();
+                    sb.Clear();
+                    try
+                    {
+                        using var doc = JsonDocument.Parse(json);
+                        var type = doc.RootElement.TryGetProperty("type", out var typeProp)
+                            ? typeProp.GetString() : null;
+
+                        if (type == "bleReplay" && doc.RootElement.TryGetProperty("events", out var events))
+                        {
+                            var list = JsonSerializer.Deserialize<List<DevFlowBleEvent>>(
+                                events.GetRawText(), new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new();
+                            onReplay(list);
+                        }
+                        else if (type == "bleEvent" && doc.RootElement.TryGetProperty("event", out var evt))
+                        {
+                            var bleEvent = JsonSerializer.Deserialize<DevFlowBleEvent>(
+                                evt.GetRawText(), new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                            if (bleEvent != null) onEvent(bleEvent);
+                        }
+                        else if (type == "bleError" && doc.RootElement.TryGetProperty("error", out var error))
+                        {
+                            onError?.Invoke(error.GetString() ?? "Unknown BLE error");
+                        }
+                    }
+                    catch { /* skip malformed messages */ }
+                }
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (WebSocketException) { }
+        finally
+        {
+            if (_bleWs?.State == WebSocketState.Open)
+            {
+                try { await _bleWs.CloseAsync(WebSocketCloseStatus.NormalClosure, null, CancellationToken.None); }
+                catch { }
+            }
+        }
+    }
+
+    public void StopBleStream()
+    {
+        _bleWsCts?.Cancel();
+    }
+
     // --- Helpers ---
 
     private async Task<T?> GetAsync<T>(string path, CancellationToken ct = default) where T : class
@@ -696,6 +798,8 @@ public class DevFlowAgentClient : IDisposable
         _networkWs?.Dispose();
         _logsWsCts?.Cancel();
         _logsWs?.Dispose();
+        _bleWsCts?.Cancel();
+        _bleWs?.Dispose();
         StopAllSensorStreams();
         _http.Dispose();
     }

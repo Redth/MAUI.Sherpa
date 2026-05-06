@@ -687,6 +687,40 @@ public class DevFlowGeolocation
     [JsonPropertyName("isFromMockProvider")] public bool IsFromMockProvider { get; set; }
 }
 
+// ── BLE DTOs ──
+
+/// <summary>
+/// A single BLE event from the /ws/v1/ble stream.
+/// </summary>
+public class DevFlowBleEvent
+{
+    [JsonPropertyName("id")] public string Id { get; set; } = string.Empty;
+    [JsonPropertyName("timestamp")] public DateTimeOffset Timestamp { get; set; }
+    [JsonPropertyName("eventType")] public string EventType { get; set; } = string.Empty;
+    [JsonPropertyName("peripheralUuid")] public string? PeripheralUuid { get; set; }
+    [JsonPropertyName("peripheralName")] public string? PeripheralName { get; set; }
+    [JsonPropertyName("rssi")] public int? Rssi { get; set; }
+    [JsonPropertyName("serviceUuid")] public string? ServiceUuid { get; set; }
+    [JsonPropertyName("characteristicUuid")] public string? CharacteristicUuid { get; set; }
+    [JsonPropertyName("value")] public string? Value { get; set; }
+    [JsonPropertyName("error")] public string? Error { get; set; }
+    [JsonPropertyName("state")] public string? State { get; set; }
+    [JsonPropertyName("mtu")] public int? Mtu { get; set; }
+}
+
+/// <summary>
+/// BLE readiness status from /api/v1/device/ble/status.
+/// </summary>
+public class DevFlowBleStatus
+{
+    [JsonPropertyName("supported")] public bool Supported { get; set; }
+    [JsonPropertyName("permissionGranted")] public bool PermissionGranted { get; set; }
+    [JsonPropertyName("adapterEnabled")] public bool AdapterEnabled { get; set; }
+    [JsonPropertyName("platform")] public string? Platform { get; set; }
+    [JsonPropertyName("missingConfiguration")] public List<string>? MissingConfiguration { get; set; }
+    [JsonPropertyName("error")] public string? Error { get; set; }
+}
+
 // ── Sensor DTOs ──
 
 public class DevFlowSensorStatus

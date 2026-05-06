@@ -475,6 +475,34 @@ public class DevFlowV1Client : IAppInspectorClient
         return result ?? new InspectorGeolocation();
     }
 
+    // ─────────────────────── BLE ───────────────────────────────
+
+    public async Task<InspectorBleStatus> GetBleStatusAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            var result = await _http.GetFromJsonAsync<InspectorBleStatus>("/api/v1/device/ble/status", JsonOptions, ct);
+            return result ?? new InspectorBleStatus();
+        }
+        catch (HttpRequestException)
+        {
+            return new InspectorBleStatus { Error = "BLE status endpoint not available" };
+        }
+    }
+
+    public Task StreamBleAsync(
+        Action<IReadOnlyList<InspectorBleEvent>>? onReplay,
+        Action<InspectorBleEvent> onEvent,
+        Action<string>? onError = null,
+        bool scan = true,
+        int replay = 100,
+        string? typeFilter = null,
+        CancellationToken ct = default)
+    {
+        // WebSocket streaming — will be implemented in create-v1-websocket todo
+        throw new NotImplementedException("WebSocket BLE streaming not yet implemented in V1 client");
+    }
+
     // ─────────────────────── Storage ─────────────────────────
 
     public async Task<IReadOnlyList<InspectorPreferenceEntry>> GetPreferencesAsync(string? sharedName = null, CancellationToken ct = default)
