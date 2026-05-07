@@ -108,6 +108,26 @@
                     </div>
                 </div>
             </div>
+            <div class="setting-item setting-item-start">
+                <label class="setting-label">Xcode Selection</label>
+                <div class="setting-control setting-control-stack">
+                    <select value="@xcodeSelectionAction" @onchange="OnXcodeSelectionActionChanged" class="setting-select-wide">
+                        <option value="@XcodeSelectionActionOptions.None">Do not rename bundles; only update xcode-select</option>
+                        <option value="@XcodeSelectionActionOptions.Rename">Rename selected bundle to /Applications/Xcode.app</option>
+                    </select>
+                    <div class="setting-description setting-description-block">
+                        Matches Xcodes.app's Active/Select behavior. Rename mode makes the selected bundle the real <code>/Applications/Xcode.app</code>.
+                        Do nothing mode leaves installed bundles in place and selects their full path.
+                    </div>
+                    <div class="setting-toggle-row">
+                        <label class="toggle-switch">
+                            <input type="checkbox" checked="@xcodeCreateSymlinkOnSelect" @onchange="OnXcodeCreateSymlinkOnSelectChanged" disabled="@IsXcodeCreateSymlinkDisabled" />
+                            <span class="toggle-slider"></span>
+                        </label>
+                        <span class="setting-description">When not renaming, create <code>/Applications/Xcode.app</code> as a symbolic link to the selected bundle if possible.</span>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <div class="actions">
@@ -1252,6 +1272,8 @@
     private bool demoMode = false;
     private string xcodeArchiveExtractor = XcodeArchiveExtractorOptions.SystemXip;
     private string xcodeBundleSeparator = XcodeBundleSeparatorOptions.Underscore;
+    private string xcodeSelectionAction = XcodeSelectionActionOptions.Rename;
+    private bool xcodeCreateSymlinkOnSelect = false;
     private bool isNormalizingBundles = false;
     private string appVersion = "";
     private UpdateCheckResult? updateResult;
@@ -1270,6 +1292,7 @@
     // Computed properties for change detection
     private bool HasSdkPathChanged => editableSdkPath != (SdkService.SdkPath ?? "");
     private bool HasJdkPathChanged => editableJdkPath != (effectiveJdkPath ?? "");
+    private bool IsXcodeCreateSymlinkDisabled => xcodeSelectionAction == XcodeSelectionActionOptions.Rename;
     
     // Cloud provider state
     private List<CloudSecretsProviderConfig> cloudProviders = new();
@@ -1338,6 +1361,9 @@
             demoMode = settings.Preferences.DemoMode;
             xcodeArchiveExtractor = NormalizeXcodeArchiveExtractor(settings.Preferences.XcodeArchiveExtractor);
             xcodeBundleSeparator = NormalizeXcodeBundleSeparator(settings.Preferences.XcodeBundleSeparator);
+            xcodeSelectionAction = NormalizeXcodeSelectionAction(settings.Preferences.XcodeSelectionAction);
+            xcodeCreateSymlinkOnSelect = xcodeSelectionAction == XcodeSelectionActionOptions.None &&
+                settings.Preferences.XcodeCreateSymlinkOnSelect;
         }
         catch { }
     }
@@ -1471,6 +1497,18 @@
         xcodeArchiveExtractor = NormalizeXcodeArchiveExtractor(e.Value?.ToString());
     }
 
+    private void OnXcodeSelectionActionChanged(ChangeEventArgs e)
+    {
+        xcodeSelectionAction = NormalizeXcodeSelectionAction(e.Value?.ToString());
+        if (xcodeSelectionAction == XcodeSelectionActionOptions.Rename)
+            xcodeCreateSymlinkOnSelect = false;
+    }
+
+    private void OnXcodeCreateSymlinkOnSelectChanged(ChangeEventArgs e)
+    {
+        xcodeCreateSymlinkOnSelect = xcodeSelectionAction == XcodeSelectionActionOptions.None && e.Value is true;
+    }
+
     private async Task OnXcodeBundleSeparatorChanged(ChangeEventArgs e)
     {
         var newValue = NormalizeXcodeBundleSeparator(e.Value?.ToString());
@@ -1595,7 +1633,10 @@
                     Theme = ViewModel.Theme,
                     FontScale = ViewModel.FontScale,
                     XcodeArchiveExtractor = xcodeArchiveExtractor,
-                    XcodeBundleSeparator = xcodeBundleSeparator
+                    XcodeBundleSeparator = xcodeBundleSeparator,
+                    XcodeSelectionAction = xcodeSelectionAction,
+                    XcodeCreateSymlinkOnSelect = xcodeSelectionAction == XcodeSelectionActionOptions.None &&
+                        xcodeCreateSymlinkOnSelect
                 }
             });
             await AlertService.ShowToastAsync("Settings saved");
@@ -1617,6 +1658,8 @@
         demoMode = false;
         xcodeArchiveExtractor = XcodeArchiveExtractorOptions.SystemXip;
         xcodeBundleSeparator = XcodeBundleSeparatorOptions.Underscore;
+        xcodeSelectionAction = XcodeSelectionActionOptions.Rename;
+        xcodeCreateSymlinkOnSelect = false;
         ThemeService.SetTheme(ViewModel.Theme);
         ThemeService.SetFontScale(ViewModel.FontScale);
     }
@@ -1887,6 +1930,11 @@
         string.Equals(value, XcodeBundleSeparatorOptions.Hyphen, StringComparison.Ordinal)
             ? XcodeBundleSeparatorOptions.Hyphen
             : XcodeBundleSeparatorOptions.Underscore;
+
+    private static string NormalizeXcodeSelectionAction(string? value) =>
+        string.Equals(value, XcodeSelectionActionOptions.None, StringComparison.OrdinalIgnoreCase)
+            ? XcodeSelectionActionOptions.None
+            : XcodeSelectionActionOptions.Rename;
 
     // Google Identity Methods
 

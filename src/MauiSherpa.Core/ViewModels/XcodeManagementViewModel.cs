@@ -190,7 +190,7 @@ public class XcodeManagementViewModel : ViewModelBase
 
         var confirmed = await AlertService.ShowConfirmAsync(
             "Switch Default Xcode",
-            $"Switch the selected Xcode to {Path.GetFileName(xcode.Path)} (v{xcode.Version})?\n\nMaui Sherpa will update both xcode-select and /Applications/Xcode.app. This requires administrator privileges.",
+            $"Switch the selected Xcode to {Path.GetFileName(xcode.Path)} (v{xcode.Version})?\n\nMaui Sherpa will update xcode-select and apply your configured Xcode selection action. This requires administrator privileges.",
             "Switch",
             "Cancel");
 
