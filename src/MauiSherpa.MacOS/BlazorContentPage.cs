@@ -1,6 +1,6 @@
 using Microsoft.Maui.Controls;
-using Microsoft.Maui.Platform.MacOS;
-using Microsoft.Maui.Platform.MacOS.Controls;
+using Microsoft.Maui.Platforms.MacOS.Platform;
+using Microsoft.Maui.Platforms.MacOS.Controls;
 using MauiSherpa.Core.Interfaces;
 using AppKit;
 using CoreGraphics;
@@ -278,7 +278,7 @@ public class BlazorContentPage : ContentPage
         // BlazorContentPage -> NavigationPage (Detail) -> FlyoutPage
         var navPage = this.Parent as NavigationPage;
         var flyoutPage = navPage?.Parent as FlyoutPage;
-        var handler = flyoutPage?.Handler as Microsoft.Maui.Platform.MacOS.Handlers.NativeSidebarFlyoutPageHandler;
+        var handler = flyoutPage?.Handler as Microsoft.Maui.Platforms.MacOS.Handlers.NativeSidebarFlyoutPageHandler;
         var splitVC = handler?.SplitViewController;
         var splitView = splitVC?.SplitView;
         if (splitView == null) return;

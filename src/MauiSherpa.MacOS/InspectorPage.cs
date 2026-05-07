@@ -1,6 +1,6 @@
 using Microsoft.Maui.Controls;
-using Microsoft.Maui.Platform.MacOS;
-using Microsoft.Maui.Platform.MacOS.Controls;
+using Microsoft.Maui.Platforms.MacOS.Platform;
+using Microsoft.Maui.Platforms.MacOS.Controls;
 
 namespace MauiSherpa;
 

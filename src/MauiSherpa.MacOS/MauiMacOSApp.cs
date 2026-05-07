@@ -1,7 +1,8 @@
 using AppKit;
 using Foundation;
 using Microsoft.Maui.Hosting;
-using Microsoft.Maui.Platform.MacOS.Hosting;
+using Microsoft.Maui.Platforms.MacOS.Hosting;
+using Microsoft.Maui.Platforms.MacOS.Platform;
 
 namespace MauiSherpa;
 
