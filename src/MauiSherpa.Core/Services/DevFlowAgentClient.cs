@@ -17,7 +17,18 @@ public class DevFlowAgentClient : IDisposable
     private CancellationTokenSource? _logsWsCts;
     private readonly Dictionary<string, (ClientWebSocket Ws, CancellationTokenSource Cts)> _sensorStreams = new();
     private string? _currentProfilerSessionId;
+    // Default to v1 (modern DevFlow + Ailoha). GetStatusAsync probes both protocols
+    // and switches to legacy if only /api/status is reachable.
+    private bool _useV1 = true;
+    private bool _protocolDetected;
     private bool _disposed;
+
+    /// <summary>
+    /// Protocol the client is using once detection has run. Null until the first
+    /// successful <see cref="GetStatusAsync"/> call.
+    /// </summary>
+    public DevFlowAgentProtocol? Protocol
+        => _protocolDetected ? (_useV1 ? DevFlowAgentProtocol.V1 : DevFlowAgentProtocol.Legacy) : null;
 
     public string AgentHost { get; }
     public int AgentPort { get; }
@@ -109,12 +120,60 @@ public class DevFlowAgentClient : IDisposable
 
     public async Task<DevFlowAgentStatus?> GetStatusAsync(CancellationToken ct = default)
     {
-        // v1 status returns nested objects: { agent:{name,version,…}, device:{model,idiom,…},
-        // app:{name,packageId,…}, platform, running, cdpReady, cdpWebViewCount }
-        // Map to the flat legacy shape so existing UI keeps working unchanged.
+        // Two wire shapes exist:
+        //   v1  (/api/v1/agent/status): { agent:{name,version,…}, device:{model,idiom,…},
+        //                                 app:{name,packageId,…}, platform, running, … }
+        //   legacy (/api/status):       flat { agent, version, platform, deviceType, idiom,
+        //                                     appName, running, cdpReady, cdpWebViewCount }
+        // Probe v1 first; if 404/network-error, fall back to legacy. Cache the result so
+        // every other endpoint dispatches to the matching URL family.
+        if (!_protocolDetected)
+        {
+            try
+            {
+                var v1 = await _http.GetAsync($"{BaseUrl}/api/v1/agent/status", ct);
+                if (v1.IsSuccessStatusCode)
+                {
+                    _useV1 = true;
+                    _protocolDetected = true;
+                    var body = await v1.Content.ReadAsStringAsync(ct);
+                    return ParseV1Status(body);
+                }
+
+                if (v1.StatusCode == System.Net.HttpStatusCode.NotFound)
+                {
+                    var legacy = await _http.GetAsync($"{BaseUrl}/api/status", ct);
+                    if (legacy.IsSuccessStatusCode)
+                    {
+                        _useV1 = false;
+                        _protocolDetected = true;
+                        var body = await legacy.Content.ReadAsStringAsync(ct);
+                        return JsonSerializer.Deserialize<DevFlowAgentStatus>(body,
+                            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    }
+                }
+            }
+            catch { return null; }
+            return null;
+        }
+
+        // Protocol already detected — just call the right endpoint.
         try
         {
-            var json = await _http.GetStringAsync($"{BaseUrl}/api/v1/agent/status", ct);
+            if (_useV1)
+            {
+                var json = await _http.GetStringAsync($"{BaseUrl}/api/v1/agent/status", ct);
+                return ParseV1Status(json);
+            }
+            return await GetAsync<DevFlowAgentStatus>("/api/status", ct);
+        }
+        catch { return null; }
+    }
+
+    private static DevFlowAgentStatus? ParseV1Status(string json)
+    {
+        try
+        {
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
 
@@ -161,13 +220,15 @@ public class DevFlowAgentClient : IDisposable
         var parts = new List<string>();
         if (maxDepth > 0) parts.Add($"depth={maxDepth}");
         if (window != null) parts.Add($"window={window}");
-        var url = parts.Count > 0 ? $"/api/v1/ui/tree?{string.Join("&", parts)}" : "/api/v1/ui/tree";
+        var basePath = V("/api/v1/ui/tree", "/api/tree");
+        var url = parts.Count > 0 ? $"{basePath}?{string.Join("&", parts)}" : basePath;
         return await GetAsync<List<DevFlowElementInfo>>(url, ct) ?? new();
     }
 
     public async Task<DevFlowElementInfo?> GetElementAsync(string id, CancellationToken ct = default)
     {
-        return await GetAsync<DevFlowElementInfo>($"/api/v1/ui/elements/{Uri.EscapeDataString(id)}", ct);
+        var path = V($"/api/v1/ui/elements/{Uri.EscapeDataString(id)}", $"/api/element/{Uri.EscapeDataString(id)}");
+        return await GetAsync<DevFlowElementInfo>(path, ct);
     }
 
     public async Task<List<DevFlowElementInfo>> QueryAsync(
@@ -178,7 +239,8 @@ public class DevFlowAgentClient : IDisposable
         if (automationId != null) parts.Add($"automationId={Uri.EscapeDataString(automationId)}");
         if (text != null) parts.Add($"text={Uri.EscapeDataString(text)}");
         if (selector != null) parts.Add($"selector={Uri.EscapeDataString(selector)}");
-        var url = $"/api/v1/ui/elements?{string.Join("&", parts)}";
+        var basePath = V("/api/v1/ui/elements", "/api/query");
+        var url = $"{basePath}?{string.Join("&", parts)}";
         return await GetAsync<List<DevFlowElementInfo>>(url, ct) ?? new();
     }
 
@@ -186,7 +248,10 @@ public class DevFlowAgentClient : IDisposable
     {
         try
         {
-            var json = await _http.GetStringAsync($"{BaseUrl}/api/v1/ui/elements/{Uri.EscapeDataString(elementId)}/properties/{Uri.EscapeDataString(propertyName)}", ct);
+            var path = V(
+                $"/api/v1/ui/elements/{Uri.EscapeDataString(elementId)}/properties/{Uri.EscapeDataString(propertyName)}",
+                $"/api/property/{Uri.EscapeDataString(elementId)}/{Uri.EscapeDataString(propertyName)}");
+            var json = await _http.GetStringAsync($"{BaseUrl}{path}", ct);
             var result = JsonSerializer.Deserialize<JsonElement>(json);
             if (result.TryGetProperty("value", out var val))
                 return val.GetString();
@@ -201,9 +266,10 @@ public class DevFlowAgentClient : IDisposable
         {
             var json = JsonSerializer.Serialize(new { value });
             var content = new StringContent(json, Encoding.UTF8, "application/json");
-            var response = await _http.PostAsync(
-                $"{BaseUrl}/api/v1/ui/elements/{Uri.EscapeDataString(elementId)}/properties/{Uri.EscapeDataString(propertyName)}",
-                content, ct);
+            var path = V(
+                $"/api/v1/ui/elements/{Uri.EscapeDataString(elementId)}/properties/{Uri.EscapeDataString(propertyName)}",
+                $"/api/property/{Uri.EscapeDataString(elementId)}/{Uri.EscapeDataString(propertyName)}");
+            var response = await _http.PostAsync($"{BaseUrl}{path}", content, ct);
             return response.IsSuccessStatusCode;
         }
         catch { return false; }
@@ -216,9 +282,10 @@ public class DevFlowAgentClient : IDisposable
             var parts = new List<string>();
             if (window != null) parts.Add($"window={window}");
             if (elementId != null) parts.Add($"id={Uri.EscapeDataString(elementId)}");
+            var basePath = V("/api/v1/ui/screenshot", "/api/screenshot");
             var url = parts.Count > 0
-                ? $"{BaseUrl}/api/v1/ui/screenshot?{string.Join("&", parts)}"
-                : $"{BaseUrl}/api/v1/ui/screenshot";
+                ? $"{BaseUrl}{basePath}?{string.Join("&", parts)}"
+                : $"{BaseUrl}{basePath}";
             var response = await _http.GetAsync(url, ct);
             if (!response.IsSuccessStatusCode) return null;
             return await response.Content.ReadAsByteArrayAsync(ct);
@@ -227,13 +294,13 @@ public class DevFlowAgentClient : IDisposable
     }
 
     public async Task<bool> TapAsync(string elementId, CancellationToken ct = default)
-        => await PostActionAsync("/api/v1/ui/actions/tap", new { elementId }, ct);
+        => await PostActionAsync(V("/api/v1/ui/actions/tap", "/api/action/tap"), new { elementId }, ct);
 
     public async Task<bool> FillAsync(string elementId, string text, CancellationToken ct = default)
-        => await PostActionAsync("/api/v1/ui/actions/fill", new { elementId, text }, ct);
+        => await PostActionAsync(V("/api/v1/ui/actions/fill", "/api/action/fill"), new { elementId, text }, ct);
 
     public async Task<bool> FocusAsync(string elementId, CancellationToken ct = default)
-        => await PostActionAsync("/api/v1/ui/actions/focus", new { elementId }, ct);
+        => await PostActionAsync(V("/api/v1/ui/actions/focus", "/api/action/focus"), new { elementId }, ct);
 
     // --- Hit Test ---
 
@@ -241,7 +308,8 @@ public class DevFlowAgentClient : IDisposable
     {
         var parts = new List<string> { $"x={x}", $"y={y}" };
         if (window != null) parts.Add($"window={window}");
-        var url = $"/api/v1/ui/hit-test?{string.Join("&", parts)}";
+        var basePath = V("/api/v1/ui/hit-test", "/api/hittest");
+        var url = $"{basePath}?{string.Join("&", parts)}";
         return await GetAsync<DevFlowHitTestResult>(url, ct);
     }
 
@@ -252,7 +320,8 @@ public class DevFlowAgentClient : IDisposable
         var parts = new List<string> { $"limit={limit}" };
         if (skip > 0) parts.Add($"skip={skip}");
         if (source != null) parts.Add($"source={Uri.EscapeDataString(source)}");
-        var url = $"/api/v1/logs?{string.Join("&", parts)}";
+        var basePath = V("/api/v1/logs", "/api/logs");
+        var url = $"{basePath}?{string.Join("&", parts)}";
         return await GetAsync<List<DevFlowLogEntry>>(url, ct) ?? new();
     }
 
@@ -260,13 +329,24 @@ public class DevFlowAgentClient : IDisposable
 
     public async Task<DevFlowProfilerCapabilities?> GetProfilerCapabilitiesAsync(CancellationToken ct = default)
     {
-        return await GetAsync<DevFlowProfilerCapabilities>("/api/v1/profiler/capabilities", ct);
+        return await GetAsync<DevFlowProfilerCapabilities>(
+            V("/api/v1/profiler/capabilities", "/api/profiler/capabilities"), ct);
     }
 
     public async Task<DevFlowProfilerStartResponse?> StartProfilerAsync(int? sampleIntervalMs = null, CancellationToken ct = default)
     {
-        // v1 returns the session object directly (not wrapped). Wrap it for the legacy API,
-        // and remember the session id for subsequent samples/stop calls.
+        // Legacy: POST /api/profiler/start returns { session, capabilities }.
+        // v1: POST /api/v1/profiler/sessions returns the session directly. We track the
+        // session id internally so stop/samples can target it.
+        if (!_useV1)
+        {
+            object body = sampleIntervalMs.HasValue ? new { sampleIntervalMs = sampleIntervalMs.Value } : (object)new { };
+            var legacyResp = await PostAsync<DevFlowProfilerStartResponse>("/api/profiler/start", body, ct);
+            if (legacyResp?.Session?.SessionId is { Length: > 0 } id)
+                _currentProfilerSessionId = id;
+            return legacyResp;
+        }
+
         try
         {
             object? body = sampleIntervalMs.HasValue ? new { sampleIntervalMs = sampleIntervalMs.Value } : new { };
@@ -280,8 +360,6 @@ public class DevFlowAgentClient : IDisposable
             if (session != null && !string.IsNullOrEmpty(session.SessionId))
                 _currentProfilerSessionId = session.SessionId;
 
-            // capabilities come from a separate endpoint in v1; fetch them so callers that read
-            // .Capabilities still see the data.
             var caps = await GetProfilerCapabilitiesAsync(ct);
 
             return new DevFlowProfilerStartResponse
@@ -295,6 +373,13 @@ public class DevFlowAgentClient : IDisposable
 
     public async Task<DevFlowProfilerStopResponse?> StopProfilerAsync(CancellationToken ct = default)
     {
+        if (!_useV1)
+        {
+            var resp = await PostAsync<DevFlowProfilerStopResponse>("/api/profiler/stop", new { }, ct);
+            _currentProfilerSessionId = null;
+            return resp;
+        }
+
         var sessionId = _currentProfilerSessionId;
         if (string.IsNullOrEmpty(sessionId)) return null;
 
@@ -332,11 +417,18 @@ public class DevFlowAgentClient : IDisposable
         int limit = 200,
         CancellationToken ct = default)
     {
-        var sessionId = _currentProfilerSessionId;
-        if (string.IsNullOrEmpty(sessionId)) return null;
-
         var safeLimit = Math.Clamp(limit, 1, 5000);
-        var url = $"/api/v1/profiler/sessions/{Uri.EscapeDataString(sessionId)}/samples?sampleCursor={sampleCursor}&markerCursor={markerCursor}&spanCursor={spanCursor}&limit={safeLimit}";
+        string url;
+        if (_useV1)
+        {
+            var sessionId = _currentProfilerSessionId;
+            if (string.IsNullOrEmpty(sessionId)) return null;
+            url = $"/api/v1/profiler/sessions/{Uri.EscapeDataString(sessionId)}/samples?sampleCursor={sampleCursor}&markerCursor={markerCursor}&spanCursor={spanCursor}&limit={safeLimit}";
+        }
+        else
+        {
+            url = $"/api/profiler/samples?sampleCursor={sampleCursor}&markerCursor={markerCursor}&spanCursor={spanCursor}&limit={safeLimit}";
+        }
         return await GetAsync<DevFlowProfilerBatch>(url, ct);
     }
 
@@ -348,7 +440,8 @@ public class DevFlowAgentClient : IDisposable
     {
         limit = Math.Clamp(limit, 1, 200);
         minDurationMs = Math.Clamp(minDurationMs, 0, 60_000);
-        var url = $"/api/v1/profiler/hotspots?limit={limit}&minDurationMs={minDurationMs}";
+        var basePath = V("/api/v1/profiler/hotspots", "/api/profiler/hotspots");
+        var url = $"{basePath}?limit={limit}&minDurationMs={minDurationMs}";
         if (!string.IsNullOrWhiteSpace(kind))
             url += $"&kind={Uri.EscapeDataString(kind)}";
         return await GetAsync<List<DevFlowProfilerHotspot>>(url, ct) ?? new();
@@ -363,7 +456,9 @@ public class DevFlowAgentClient : IDisposable
         if (string.IsNullOrWhiteSpace(name))
             return false;
 
-        return await PostActionAsync("/api/v1/profiler/markers", new { name, type, payloadJson }, ct);
+        return await PostActionAsync(
+            V("/api/v1/profiler/markers", "/api/profiler/marker"),
+            new { name, type, payloadJson }, ct);
     }
 
     // --- CDP ---
@@ -383,7 +478,8 @@ public class DevFlowAgentClient : IDisposable
 
             var json = JsonSerializer.Serialize(bodyObj);
             var content = new StringContent(json, Encoding.UTF8, "application/json");
-            var response = await _http.PostAsync($"{BaseUrl}/api/v1/webview/evaluate", content, ct);
+            var path = V("/api/v1/webview/evaluate", "/api/cdp");
+            var response = await _http.PostAsync($"{BaseUrl}{path}", content, ct);
             var responseBody = await response.Content.ReadAsStringAsync(ct);
             return JsonSerializer.Deserialize<CdpResponse>(responseBody);
         }
@@ -392,26 +488,30 @@ public class DevFlowAgentClient : IDisposable
 
     public async Task<List<CdpTarget>> GetCdpTargetsAsync(CancellationToken ct = default)
     {
-        return await GetAsync<List<CdpTarget>>("/api/v1/webview/contexts", ct) ?? new();
+        return await GetAsync<List<CdpTarget>>(V("/api/v1/webview/contexts", "/api/cdp/targets"), ct) ?? new();
     }
 
     // --- Network ---
 
     public async Task<List<DevFlowNetworkRequest>> GetNetworkRequestsAsync(CancellationToken ct = default)
     {
-        return await GetAsync<List<DevFlowNetworkRequest>>("/api/v1/network/requests", ct) ?? new();
+        return await GetAsync<List<DevFlowNetworkRequest>>(V("/api/v1/network/requests", "/api/network"), ct) ?? new();
     }
 
     public async Task<DevFlowNetworkRequest?> GetNetworkRequestDetailAsync(string id, CancellationToken ct = default)
     {
-        return await GetAsync<DevFlowNetworkRequest>($"/api/v1/network/requests/{Uri.EscapeDataString(id)}", ct);
+        var path = V($"/api/v1/network/requests/{Uri.EscapeDataString(id)}", $"/api/network/{Uri.EscapeDataString(id)}");
+        return await GetAsync<DevFlowNetworkRequest>(path, ct);
     }
 
     public async Task<bool> ClearNetworkRequestsAsync(CancellationToken ct = default)
     {
         try
         {
-            var response = await _http.DeleteAsync($"{BaseUrl}/api/v1/network/requests", ct);
+            // v1: DELETE /api/v1/network/requests   |   legacy: POST /api/network/clear
+            HttpResponseMessage response = _useV1
+                ? await _http.DeleteAsync($"{BaseUrl}/api/v1/network/requests", ct)
+                : await _http.PostAsync($"{BaseUrl}/api/network/clear", null, ct);
             return response.IsSuccessStatusCode;
         }
         catch { return false; }
@@ -433,7 +533,9 @@ public class DevFlowAgentClient : IDisposable
 
         try
         {
-            var wsUrl = $"ws://{AgentHost}:{AgentPort}/ws/v1/network";
+            var wsUrl = _useV1
+                ? $"ws://{AgentHost}:{AgentPort}/ws/v1/network"
+                : $"ws://{AgentHost}:{AgentPort}/ws/network";
             await _networkWs.ConnectAsync(new Uri(wsUrl), token);
 
             var buffer = new byte[64 * 1024];
@@ -503,7 +605,10 @@ public class DevFlowAgentClient : IDisposable
             if (source != null) parts.Add($"source={Uri.EscapeDataString(source)}");
             parts.Add($"replay={replay}");
             var query = string.Join("&", parts);
-            var wsUrl = $"ws://{AgentHost}:{AgentPort}/ws/v1/logs?{query}";
+            var wsBase = _useV1
+                ? $"ws://{AgentHost}:{AgentPort}/ws/v1/logs"
+                : $"ws://{AgentHost}:{AgentPort}/ws/logs";
+            var wsUrl = $"{wsBase}?{query}";
             await _logsWs.ConnectAsync(new Uri(wsUrl), token);
 
             var buffer = new byte[64 * 1024];
@@ -563,41 +668,47 @@ public class DevFlowAgentClient : IDisposable
     // --- Platform Info ---
 
     public async Task<DevFlowAppInfo?> GetAppInfoAsync(CancellationToken ct = default)
-        => await GetAsync<DevFlowAppInfo>("/api/v1/device/app", ct);
+        => await GetAsync<DevFlowAppInfo>(V("/api/v1/device/app", "/api/platform/app-info"), ct);
 
     public async Task<DevFlowDeviceInfo?> GetDeviceInfoAsync(CancellationToken ct = default)
-        => await GetAsync<DevFlowDeviceInfo>("/api/v1/device/info", ct);
+        => await GetAsync<DevFlowDeviceInfo>(V("/api/v1/device/info", "/api/platform/device-info"), ct);
 
     public async Task<DevFlowDisplayInfo?> GetDisplayInfoAsync(CancellationToken ct = default)
-        => await GetAsync<DevFlowDisplayInfo>("/api/v1/device/display", ct);
+        => await GetAsync<DevFlowDisplayInfo>(V("/api/v1/device/display", "/api/platform/device-display"), ct);
 
     public async Task<DevFlowBatteryInfo?> GetBatteryInfoAsync(CancellationToken ct = default)
-        => await GetAsync<DevFlowBatteryInfo>("/api/v1/device/battery", ct);
+        => await GetAsync<DevFlowBatteryInfo>(V("/api/v1/device/battery", "/api/platform/battery"), ct);
 
     public async Task<DevFlowConnectivityInfo?> GetConnectivityAsync(CancellationToken ct = default)
-        => await GetAsync<DevFlowConnectivityInfo>("/api/v1/device/connectivity", ct);
+        => await GetAsync<DevFlowConnectivityInfo>(V("/api/v1/device/connectivity", "/api/platform/connectivity"), ct);
 
     public async Task<DevFlowVersionTracking?> GetVersionTrackingAsync(CancellationToken ct = default)
-        => await GetAsync<DevFlowVersionTracking>("/api/v1/device/version-tracking", ct);
+        => await GetAsync<DevFlowVersionTracking>(V("/api/v1/device/version-tracking", "/api/platform/version-tracking"), ct);
 
     public async Task<List<DevFlowPermissionStatus>> GetPermissionsAsync(CancellationToken ct = default)
     {
-        var result = await GetAsync<DevFlowPermissionsResponse>("/api/v1/device/permissions", ct);
+        var result = await GetAsync<DevFlowPermissionsResponse>(V("/api/v1/device/permissions", "/api/platform/permissions"), ct);
         return result?.Permissions ?? new();
     }
 
     public async Task<DevFlowPermissionStatus?> CheckPermissionAsync(string permission, CancellationToken ct = default)
-        => await GetAsync<DevFlowPermissionStatus>($"/api/v1/device/permissions/{Uri.EscapeDataString(permission)}", ct);
+        => await GetAsync<DevFlowPermissionStatus>(
+            V($"/api/v1/device/permissions/{Uri.EscapeDataString(permission)}",
+              $"/api/platform/permissions/{Uri.EscapeDataString(permission)}"), ct);
 
     public async Task<DevFlowGeolocation?> GetGeolocationAsync(string accuracy = "Medium", int timeoutSeconds = 10, CancellationToken ct = default)
-        => await GetAsync<DevFlowGeolocation>($"/api/v1/device/geolocation?accuracy={Uri.EscapeDataString(accuracy)}&timeout={timeoutSeconds}", ct);
+    {
+        var basePath = V("/api/v1/device/geolocation", "/api/platform/geolocation");
+        return await GetAsync<DevFlowGeolocation>($"{basePath}?accuracy={Uri.EscapeDataString(accuracy)}&timeout={timeoutSeconds}", ct);
+    }
 
     // --- Preferences ---
 
     public async Task<List<DevFlowPreferenceEntry>> GetPreferencesAsync(string? sharedName = null, CancellationToken ct = default)
     {
         var query = sharedName != null ? $"?sharedName={Uri.EscapeDataString(sharedName)}" : "";
-        var result = await GetAsync<DevFlowPreferencesListResponse>($"/api/v1/storage/preferences{query}", ct);
+        var basePath = V("/api/v1/storage/preferences", "/api/preferences");
+        var result = await GetAsync<DevFlowPreferencesListResponse>($"{basePath}{query}", ct);
         return result?.Keys ?? new();
     }
 
@@ -605,20 +716,29 @@ public class DevFlowAgentClient : IDisposable
     {
         var query = $"?type={Uri.EscapeDataString(type)}";
         if (sharedName != null) query += $"&sharedName={Uri.EscapeDataString(sharedName)}";
-        return await GetAsync<DevFlowPreferenceEntry>($"/api/v1/storage/preferences/{Uri.EscapeDataString(key)}{query}", ct);
+        var path = V(
+            $"/api/v1/storage/preferences/{Uri.EscapeDataString(key)}",
+            $"/api/preferences/{Uri.EscapeDataString(key)}");
+        return await GetAsync<DevFlowPreferenceEntry>($"{path}{query}", ct);
     }
 
     public async Task<bool> SetPreferenceAsync(string key, object? value, string? type = null, string? sharedName = null, CancellationToken ct = default)
     {
         var body = new DevFlowPreferenceSetRequest { Value = value, Type = type ?? "string", SharedName = sharedName };
-        var result = await PostAsync<DevFlowPreferenceEntry>($"/api/v1/storage/preferences/{Uri.EscapeDataString(key)}", body, ct);
+        var path = V(
+            $"/api/v1/storage/preferences/{Uri.EscapeDataString(key)}",
+            $"/api/preferences/{Uri.EscapeDataString(key)}");
+        var result = await PostAsync<DevFlowPreferenceEntry>(path, body, ct);
         return result != null;
     }
 
     public async Task<bool> DeletePreferenceAsync(string key, string? sharedName = null, CancellationToken ct = default)
     {
         var query = sharedName != null ? $"?sharedName={Uri.EscapeDataString(sharedName)}" : "";
-        return await DeleteAsync($"/api/v1/storage/preferences/{Uri.EscapeDataString(key)}{query}", ct);
+        var path = V(
+            $"/api/v1/storage/preferences/{Uri.EscapeDataString(key)}",
+            $"/api/preferences/{Uri.EscapeDataString(key)}");
+        return await DeleteAsync($"{path}{query}", ct);
     }
 
     public async Task<bool> ClearPreferencesAsync(string? sharedName = null, CancellationToken ct = default)
@@ -626,8 +746,10 @@ public class DevFlowAgentClient : IDisposable
         var query = sharedName != null ? $"?sharedName={Uri.EscapeDataString(sharedName)}" : "";
         try
         {
-            // v1 uses DELETE on the collection to clear it.
-            var response = await _http.DeleteAsync($"{BaseUrl}/api/v1/storage/preferences{query}", ct);
+            // v1: DELETE collection. Legacy: POST /api/preferences/clear.
+            HttpResponseMessage response = _useV1
+                ? await _http.DeleteAsync($"{BaseUrl}/api/v1/storage/preferences{query}", ct)
+                : await _http.PostAsync($"{BaseUrl}/api/preferences/clear{query}", null, ct);
             return response.IsSuccessStatusCode;
         }
         catch { return false; }
@@ -636,23 +758,32 @@ public class DevFlowAgentClient : IDisposable
     // --- Secure Storage ---
 
     public async Task<DevFlowSecureStorageEntry?> GetSecureStorageAsync(string key, CancellationToken ct = default)
-        => await GetAsync<DevFlowSecureStorageEntry>($"/api/v1/storage/secure/{Uri.EscapeDataString(key)}", ct);
+        => await GetAsync<DevFlowSecureStorageEntry>(
+            V($"/api/v1/storage/secure/{Uri.EscapeDataString(key)}",
+              $"/api/secure-storage/{Uri.EscapeDataString(key)}"), ct);
 
     public async Task<bool> SetSecureStorageAsync(string key, string value, CancellationToken ct = default)
     {
         var body = new { value };
-        var result = await PostAsync<DevFlowSecureStorageEntry>($"/api/v1/storage/secure/{Uri.EscapeDataString(key)}", body, ct);
+        var path = V(
+            $"/api/v1/storage/secure/{Uri.EscapeDataString(key)}",
+            $"/api/secure-storage/{Uri.EscapeDataString(key)}");
+        var result = await PostAsync<DevFlowSecureStorageEntry>(path, body, ct);
         return result != null;
     }
 
     public async Task<bool> DeleteSecureStorageAsync(string key, CancellationToken ct = default)
-        => await DeleteAsync($"/api/v1/storage/secure/{Uri.EscapeDataString(key)}", ct);
+        => await DeleteAsync(
+            V($"/api/v1/storage/secure/{Uri.EscapeDataString(key)}",
+              $"/api/secure-storage/{Uri.EscapeDataString(key)}"), ct);
 
     public async Task<bool> ClearSecureStorageAsync(CancellationToken ct = default)
     {
         try
         {
-            var response = await _http.DeleteAsync($"{BaseUrl}/api/v1/storage/secure", ct);
+            HttpResponseMessage response = _useV1
+                ? await _http.DeleteAsync($"{BaseUrl}/api/v1/storage/secure", ct)
+                : await _http.PostAsync($"{BaseUrl}/api/secure-storage/clear", null, ct);
             return response.IsSuccessStatusCode;
         }
         catch { return false; }
@@ -661,13 +792,16 @@ public class DevFlowAgentClient : IDisposable
     // --- Sensors ---
 
     public async Task<List<DevFlowSensorStatus>> GetSensorsAsync(CancellationToken ct = default)
-        => await GetAsync<List<DevFlowSensorStatus>>("/api/v1/device/sensors", ct) ?? new();
+        => await GetAsync<List<DevFlowSensorStatus>>(V("/api/v1/device/sensors", "/api/sensors"), ct) ?? new();
 
     public async Task<bool> StartSensorAsync(string sensor, string speed = "UI", CancellationToken ct = default)
     {
         try
         {
-            var response = await _http.PostAsync($"{BaseUrl}/api/v1/device/sensors/{Uri.EscapeDataString(sensor)}/start?speed={Uri.EscapeDataString(speed)}", null, ct);
+            var path = V(
+                $"/api/v1/device/sensors/{Uri.EscapeDataString(sensor)}/start",
+                $"/api/sensors/{Uri.EscapeDataString(sensor)}/start");
+            var response = await _http.PostAsync($"{BaseUrl}{path}?speed={Uri.EscapeDataString(speed)}", null, ct);
             return response.IsSuccessStatusCode;
         }
         catch { return false; }
@@ -677,7 +811,10 @@ public class DevFlowAgentClient : IDisposable
     {
         try
         {
-            var response = await _http.PostAsync($"{BaseUrl}/api/v1/device/sensors/{Uri.EscapeDataString(sensor)}/stop", null, ct);
+            var path = V(
+                $"/api/v1/device/sensors/{Uri.EscapeDataString(sensor)}/stop",
+                $"/api/sensors/{Uri.EscapeDataString(sensor)}/stop");
+            var response = await _http.PostAsync($"{BaseUrl}{path}", null, ct);
             return response.IsSuccessStatusCode;
         }
         catch { return false; }
@@ -694,7 +831,10 @@ public class DevFlowAgentClient : IDisposable
         var token = cts.Token;
         try
         {
-            var wsUrl = $"ws://{AgentHost}:{AgentPort}/ws/v1/sensors?sensor={Uri.EscapeDataString(sensor)}&speed={Uri.EscapeDataString(speed)}&throttleMs={throttleMs}";
+            var wsBase = _useV1
+                ? $"ws://{AgentHost}:{AgentPort}/ws/v1/sensors"
+                : $"ws://{AgentHost}:{AgentPort}/ws/sensors";
+            var wsUrl = $"{wsBase}?sensor={Uri.EscapeDataString(sensor)}&speed={Uri.EscapeDataString(speed)}&throttleMs={throttleMs}";
             await ws.ConnectAsync(new Uri(wsUrl), token);
 
             var buffer = new byte[16 * 1024];
@@ -770,6 +910,9 @@ public class DevFlowAgentClient : IDisposable
 
     // --- Helpers ---
 
+    /// <summary>Pick the v1 or legacy URL based on the detected protocol.</summary>
+    private string V(string v1Path, string legacyPath) => _useV1 ? v1Path : legacyPath;
+
     private async Task<T?> GetAsync<T>(string path, CancellationToken ct = default) where T : class
     {
         try
@@ -832,4 +975,13 @@ public class DevFlowAgentClient : IDisposable
         StopAllSensorStreams();
         _http.Dispose();
     }
+}
+
+/// <summary>Protocol exposed by a MAUI DevFlow / Ailoha agent.</summary>
+public enum DevFlowAgentProtocol
+{
+    /// <summary>Modern <c>/api/v1/*</c> + <c>/ws/v1/*</c> surface (DevFlow preview.7+, Ailoha).</summary>
+    V1,
+    /// <summary>Legacy <c>/api/*</c> + <c>/ws/*</c> surface (DevFlow preview.6 and earlier).</summary>
+    Legacy,
 }
