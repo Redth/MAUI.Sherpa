@@ -280,8 +280,16 @@ public class DevFlowAgentClient : IDisposable
         try
         {
             var parts = new List<string>();
-            if (window != null) parts.Add($"window={window}");
-            if (elementId != null) parts.Add($"id={Uri.EscapeDataString(elementId)}");
+            if (_useV1)
+            {
+                // v1 query parameter is `elementId` and there is no `window` parameter.
+                if (elementId != null) parts.Add($"elementId={Uri.EscapeDataString(elementId)}");
+            }
+            else
+            {
+                if (window != null) parts.Add($"window={window}");
+                if (elementId != null) parts.Add($"id={Uri.EscapeDataString(elementId)}");
+            }
             var basePath = V("/api/v1/ui/screenshot", "/api/screenshot");
             var url = parts.Count > 0
                 ? $"{BaseUrl}{basePath}?{string.Join("&", parts)}"
@@ -708,8 +716,30 @@ public class DevFlowAgentClient : IDisposable
     {
         var query = sharedName != null ? $"?sharedName={Uri.EscapeDataString(sharedName)}" : "";
         var basePath = V("/api/v1/storage/preferences", "/api/preferences");
-        var result = await GetAsync<DevFlowPreferencesListResponse>($"{basePath}{query}", ct);
-        return result?.Keys ?? new();
+        try
+        {
+            var json = await _http.GetStringAsync($"{BaseUrl}{basePath}{query}", ct);
+            if (string.IsNullOrWhiteSpace(json)) return new();
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            var opts = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+
+            // Bare array (DevFlow v1 reference shape)
+            if (root.ValueKind == JsonValueKind.Array)
+                return JsonSerializer.Deserialize<List<DevFlowPreferenceEntry>>(root.GetRawText(), opts) ?? new();
+
+            // Wrapped: {keys:[...]} (legacy MAUI DevFlow) or {preferences:[...]} (Ailoha)
+            if (root.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var name in new[] { "keys", "preferences", "items", "entries" })
+                {
+                    if (root.TryGetProperty(name, out var arr) && arr.ValueKind == JsonValueKind.Array)
+                        return JsonSerializer.Deserialize<List<DevFlowPreferenceEntry>>(arr.GetRawText(), opts) ?? new();
+                }
+            }
+            return new();
+        }
+        catch { return new(); }
     }
 
     public async Task<DevFlowPreferenceEntry?> GetPreferenceAsync(string key, string type = "string", string? sharedName = null, CancellationToken ct = default)
@@ -728,8 +758,10 @@ public class DevFlowAgentClient : IDisposable
         var path = V(
             $"/api/v1/storage/preferences/{Uri.EscapeDataString(key)}",
             $"/api/preferences/{Uri.EscapeDataString(key)}");
-        var result = await PostAsync<DevFlowPreferenceEntry>(path, body, ct);
-        return result != null;
+        // v1 uses PUT for set; legacy uses POST.
+        return _useV1
+            ? await PutAsync(path, body, ct)
+            : await PostAsync<DevFlowPreferenceEntry>(path, body, ct) != null;
     }
 
     public async Task<bool> DeletePreferenceAsync(string key, string? sharedName = null, CancellationToken ct = default)
@@ -768,8 +800,10 @@ public class DevFlowAgentClient : IDisposable
         var path = V(
             $"/api/v1/storage/secure/{Uri.EscapeDataString(key)}",
             $"/api/secure-storage/{Uri.EscapeDataString(key)}");
-        var result = await PostAsync<DevFlowSecureStorageEntry>(path, body, ct);
-        return result != null;
+        // v1 uses PUT for set; legacy uses POST.
+        return _useV1
+            ? await PutAsync(path, body, ct)
+            : await PostAsync<DevFlowSecureStorageEntry>(path, body, ct) != null;
     }
 
     public async Task<bool> DeleteSecureStorageAsync(string key, CancellationToken ct = default)
@@ -792,7 +826,29 @@ public class DevFlowAgentClient : IDisposable
     // --- Sensors ---
 
     public async Task<List<DevFlowSensorStatus>> GetSensorsAsync(CancellationToken ct = default)
-        => await GetAsync<List<DevFlowSensorStatus>>(V("/api/v1/device/sensors", "/api/sensors"), ct) ?? new();
+    {
+        var basePath = V("/api/v1/device/sensors", "/api/sensors");
+        try
+        {
+            var json = await _http.GetStringAsync($"{BaseUrl}{basePath}", ct);
+            if (string.IsNullOrWhiteSpace(json)) return new();
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            var opts = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+
+            if (root.ValueKind == JsonValueKind.Array)
+                return JsonSerializer.Deserialize<List<DevFlowSensorStatus>>(root.GetRawText(), opts) ?? new();
+
+            if (root.ValueKind == JsonValueKind.Object &&
+                root.TryGetProperty("sensors", out var arr) &&
+                arr.ValueKind == JsonValueKind.Array)
+            {
+                return JsonSerializer.Deserialize<List<DevFlowSensorStatus>>(arr.GetRawText(), opts) ?? new();
+            }
+            return new();
+        }
+        catch { return new(); }
+    }
 
     public async Task<bool> StartSensorAsync(string sensor, string speed = "UI", CancellationToken ct = default)
     {
@@ -832,7 +888,7 @@ public class DevFlowAgentClient : IDisposable
         try
         {
             var wsBase = _useV1
-                ? $"ws://{AgentHost}:{AgentPort}/ws/v1/sensors"
+                ? $"ws://{AgentHost}:{AgentPort}/ws/v1/device/sensors"
                 : $"ws://{AgentHost}:{AgentPort}/ws/sensors";
             var wsUrl = $"{wsBase}?sensor={Uri.EscapeDataString(sensor)}&speed={Uri.EscapeDataString(speed)}&throttleMs={throttleMs}";
             await ws.ConnectAsync(new Uri(wsUrl), token);
@@ -853,8 +909,26 @@ public class DevFlowAgentClient : IDisposable
                     sb.Clear();
                     try
                     {
-                        var reading = JsonSerializer.Deserialize<DevFlowSensorReading>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                        if (reading != null) onReading(reading);
+                        using var doc = JsonDocument.Parse(json);
+                        var root = doc.RootElement;
+                        var opts = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+
+                        // v1 envelope: {type:"reading", timestamp, reading:{sensor, timestamp, values}}
+                        if (root.ValueKind == JsonValueKind.Object &&
+                            root.TryGetProperty("type", out var typeProp) &&
+                            typeProp.GetString() == "reading" &&
+                            root.TryGetProperty("reading", out var readingProp))
+                        {
+                            var reading = JsonSerializer.Deserialize<DevFlowSensorReading>(readingProp.GetRawText(), opts);
+                            if (reading != null) onReading(reading);
+                        }
+                        else
+                        {
+                            // Legacy: bare reading object
+                            var reading = JsonSerializer.Deserialize<DevFlowSensorReading>(json, opts);
+                            if (reading != null && (!string.IsNullOrEmpty(reading.Sensor) || reading.Data.ValueKind != JsonValueKind.Undefined))
+                                onReading(reading);
+                        }
                     }
                     catch { }
                 }
@@ -959,6 +1033,18 @@ public class DevFlowAgentClient : IDisposable
         try
         {
             var response = await _http.DeleteAsync($"{BaseUrl}{path}", ct);
+            return response.IsSuccessStatusCode;
+        }
+        catch { return false; }
+    }
+
+    private async Task<bool> PutAsync(string path, object body, CancellationToken ct = default)
+    {
+        try
+        {
+            var json = JsonSerializer.Serialize(body);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            var response = await _http.PutAsync($"{BaseUrl}{path}", content, ct);
             return response.IsSuccessStatusCode;
         }
         catch { return false; }
