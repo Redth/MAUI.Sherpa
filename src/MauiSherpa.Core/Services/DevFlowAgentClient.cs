@@ -6,6 +6,18 @@ using MauiSherpa.Core.Models.DevFlow;
 namespace MauiSherpa.Core.Services;
 
 /// <summary>
+/// Thrown when the agent returns a non-success HTTP status or an unparseable response body.
+/// Surfaces the agent-reported status code and error message so the inspector UI can show
+/// the real cause (e.g. "Screenshot capture failed" from the Ailoha React Native agent)
+/// instead of a silent failure.
+/// </summary>
+public sealed class DevFlowAgentException : Exception
+{
+    public int StatusCode { get; }
+    public DevFlowAgentException(int statusCode, string message) : base(message) => StatusCode = statusCode;
+}
+
+/// <summary>
 /// HTTP/WebSocket client for communicating with a MAUI DevFlow agent and broker.
 /// </summary>
 public class DevFlowAgentClient : IDisposable
@@ -277,28 +289,45 @@ public class DevFlowAgentClient : IDisposable
 
     public async Task<byte[]?> GetScreenshotAsync(int? window = null, string? elementId = null, CancellationToken ct = default)
     {
+        var parts = new List<string>();
+        if (_useV1)
+        {
+            // v1 query parameter is `elementId` and there is no `window` parameter.
+            if (elementId != null) parts.Add($"elementId={Uri.EscapeDataString(elementId)}");
+        }
+        else
+        {
+            if (window != null) parts.Add($"window={window}");
+            if (elementId != null) parts.Add($"id={Uri.EscapeDataString(elementId)}");
+        }
+        var basePath = V("/api/v1/ui/screenshot", "/api/screenshot");
+        var url = parts.Count > 0
+            ? $"{BaseUrl}{basePath}?{string.Join("&", parts)}"
+            : $"{BaseUrl}{basePath}";
+        var response = await _http.GetAsync(url, ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync(ct);
+            throw new DevFlowAgentException(
+                (int)response.StatusCode,
+                ExtractError(body) ?? $"Screenshot request failed ({(int)response.StatusCode} {response.StatusCode}).");
+        }
+        return await response.Content.ReadAsByteArrayAsync(ct);
+    }
+
+    private static string? ExtractError(string body)
+    {
+        if (string.IsNullOrWhiteSpace(body)) return null;
         try
         {
-            var parts = new List<string>();
-            if (_useV1)
-            {
-                // v1 query parameter is `elementId` and there is no `window` parameter.
-                if (elementId != null) parts.Add($"elementId={Uri.EscapeDataString(elementId)}");
-            }
-            else
-            {
-                if (window != null) parts.Add($"window={window}");
-                if (elementId != null) parts.Add($"id={Uri.EscapeDataString(elementId)}");
-            }
-            var basePath = V("/api/v1/ui/screenshot", "/api/screenshot");
-            var url = parts.Count > 0
-                ? $"{BaseUrl}{basePath}?{string.Join("&", parts)}"
-                : $"{BaseUrl}{basePath}";
-            var response = await _http.GetAsync(url, ct);
-            if (!response.IsSuccessStatusCode) return null;
-            return await response.Content.ReadAsByteArrayAsync(ct);
+            using var doc = JsonDocument.Parse(body);
+            if (doc.RootElement.ValueKind == JsonValueKind.Object
+                && doc.RootElement.TryGetProperty("error", out var err)
+                && err.ValueKind == JsonValueKind.String)
+                return err.GetString();
         }
-        catch { return null; }
+        catch { }
+        return body.Length > 200 ? body.Substring(0, 200) + "…" : body;
     }
 
     public async Task<bool> TapAsync(string elementId, CancellationToken ct = default)
@@ -716,10 +745,17 @@ public class DevFlowAgentClient : IDisposable
     {
         var query = sharedName != null ? $"?sharedName={Uri.EscapeDataString(sharedName)}" : "";
         var basePath = V("/api/v1/storage/preferences", "/api/preferences");
+        var response = await _http.GetAsync($"{BaseUrl}{basePath}{query}", ct);
+        var json = await response.Content.ReadAsStringAsync(ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new DevFlowAgentException(
+                (int)response.StatusCode,
+                ExtractError(json) ?? $"Preferences request failed ({(int)response.StatusCode} {response.StatusCode}).");
+        }
+        if (string.IsNullOrWhiteSpace(json)) return new();
         try
         {
-            var json = await _http.GetStringAsync($"{BaseUrl}{basePath}{query}", ct);
-            if (string.IsNullOrWhiteSpace(json)) return new();
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
             var opts = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
@@ -739,7 +775,10 @@ public class DevFlowAgentClient : IDisposable
             }
             return new();
         }
-        catch { return new(); }
+        catch (JsonException ex)
+        {
+            throw new DevFlowAgentException(0, $"Failed to parse preferences response: {ex.Message}");
+        }
     }
 
     public async Task<DevFlowPreferenceEntry?> GetPreferenceAsync(string key, string type = "string", string? sharedName = null, CancellationToken ct = default)
