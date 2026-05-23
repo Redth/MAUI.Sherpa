@@ -9,6 +9,8 @@ using MauiSherpa.Core.Services;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 
+AppContext.SetSwitch("Microsoft.Extensions.DependencyInjection.DisableDynamicEngine", true);
+
 var options = InspectorCliOptions.Parse(args);
 if (options.ShowHelp)
 {
@@ -34,6 +36,12 @@ var builder = WebApplication.CreateBuilder(new WebApplicationOptions
     ContentRootPath = AppContext.BaseDirectory
 });
 builder.Logging.ClearProviders();
+builder.Logging.AddSimpleConsole(static options =>
+{
+    options.SingleLine = true;
+    options.TimestampFormat = "HH:mm:ss ";
+});
+builder.Logging.SetMinimumLevel(LogLevel.Warning);
 builder.WebHost.UseSetting(WebHostDefaults.PreventHostingStartupKey, "true");
 
 builder.Services.AddSingleton(options);
@@ -61,6 +69,7 @@ app.Use(async (context, next) =>
 
     context.Response.StatusCode = StatusCodes.Status404NotFound;
 });
+app.UseAntiforgery();
 
 app.MapPost("/internal/heartbeat", (InspectorLifecycleState state) =>
 {
