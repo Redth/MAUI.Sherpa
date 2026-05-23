@@ -560,7 +560,7 @@ public sealed class InspectorUiClient : IDisposable
         IsFocused = element.State.Focused,
         Opacity = element.State.Opacity,
         Bounds = MapBounds(element.Bounds),
-        WindowBounds = MapBounds(element.Bounds),
+        WindowBounds = MapBounds(element.WindowBounds ?? element.Bounds),
         Gestures = element.Gestures?.ToList(),
         NativeType = element.NativeView?.Type,
         NativeProperties = element.NativeView?.Properties?.ToDictionary(kv => kv.Key, kv => ValueToString(kv.Value)),

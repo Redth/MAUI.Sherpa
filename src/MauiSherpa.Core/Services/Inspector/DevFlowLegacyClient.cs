@@ -57,6 +57,14 @@ public class DevFlowLegacyClient : IAppInspectorClient
             Height = e.Bounds.Height,
             CoordinateSystem = null
         } : null,
+        WindowBounds = e.WindowBounds != null ? new BoundsInfo
+        {
+            X = e.WindowBounds.X,
+            Y = e.WindowBounds.Y,
+            Width = e.WindowBounds.Width,
+            Height = e.WindowBounds.Height,
+            CoordinateSystem = "window"
+        } : null,
         Gestures = e.Gestures?.AsReadOnly(),
         Style = null,
         NativeView = e.NativeType != null ? new NativeViewInfo
@@ -82,6 +90,14 @@ public class DevFlowLegacyClient : IAppInspectorClient
             Y = e.Bounds.Y,
             Width = e.Bounds.Width,
             Height = e.Bounds.Height
+        } : null,
+        WindowBounds = e.WindowBounds != null ? new BoundsInfo
+        {
+            X = e.WindowBounds.X,
+            Y = e.WindowBounds.Y,
+            Width = e.WindowBounds.Width,
+            Height = e.WindowBounds.Height,
+            CoordinateSystem = "window"
         } : null,
     };
 

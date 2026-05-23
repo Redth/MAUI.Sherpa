@@ -139,6 +139,9 @@ public record InspectorElement
     /// <summary>Bounding rectangle.</summary>
     public BoundsInfo? Bounds { get; init; }
 
+    /// <summary>Bounding rectangle in window coordinates, when reported separately by the agent.</summary>
+    public BoundsInfo? WindowBounds { get; init; }
+
     /// <summary>Gesture types recognized by this element.</summary>
     public IReadOnlyList<string>? Gestures { get; init; }
 

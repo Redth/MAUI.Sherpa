@@ -102,6 +102,7 @@ public class DevFlowV1Client : IAppInspectorClient
         var url = "/api/v1/ui/screenshot";
         var query = new List<string>();
         if (options?.ElementId != null) query.Add($"elementId={Uri.EscapeDataString(options.ElementId)}");
+        if (options?.Window != null) query.Add($"window={Uri.EscapeDataString(options.Window)}");
         if (options?.MaxWidth.HasValue == true) query.Add($"maxWidth={options.MaxWidth.Value}");
         if (options?.Scale != null) query.Add($"scale={Uri.EscapeDataString(options.Scale)}");
         if (options?.Format != null) query.Add($"format={Uri.EscapeDataString(options.Format)}");
