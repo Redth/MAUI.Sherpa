@@ -1,19 +1,16 @@
 @page "/inspector/devflow/{AgentId}/{TabName?}"
 @using MauiSherpa.Core.Models.DevFlow
-@using MauiSherpa.Core.Services
 @using MauiSherpa.Core.Interfaces
-@using MauiSherpa.Services
-@layout MauiSherpa.Components.InspectorLayout
-@inject DevFlowInspectorService InspectorService
+@layout MauiSherpa.AppInspector.Components.InspectorLayout
+@inject IAppInspectorClientFactory ClientFactory
 @inject NavigationManager NavManager
-@inject IToolbarService ToolbarService
 @implements IDisposable
 
 <div class="devflow-inspector">
     <div class="inspector-toolbar">
         <div class="inspector-title">
             <i class="fas fa-wand-magic-sparkles"></i>
-            <span>@(agentStatus?.AppName ?? "DevFlow")</span>
+            <span>@(agentStatus?.AppName ?? QueryAppName ?? "DevFlow")</span>
             @if (agentStatus != null)
             {
                 <span class="toolbar-platform">@agentStatus.Platform</span>
@@ -92,7 +89,10 @@
     [SupplyParameterFromQuery(Name = "port")]
     public int? QueryPort { get; set; }
 
-    private DevFlowAgentClient? client;
+    [SupplyParameterFromQuery(Name = "appName")]
+    public string? QueryAppName { get; set; }
+
+    private InspectorUiClient? client;
     private DevFlowAgentStatus? agentStatus;
     private string agentHost = "localhost";
     private int agentPort = 9223;
@@ -127,22 +127,8 @@
         agentPort = QueryPort ?? 9223;
         activeTab = NormalizeTab(TabName);
 
-        ToolbarService.SetItems(
-            new ToolbarAction("refresh", "Refresh", "arrow.clockwise")
-        );
-        ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
-
-        client = new DevFlowAgentClient(agentHost, agentPort);
+        client = new InspectorUiClient(await ClientFactory.CreateAsync(agentHost, agentPort));
         await ConnectAsync();
-    }
-
-    private void OnToolbarItemClicked(string actionId)
-    {
-        InvokeAsync(async () =>
-        {
-            if (actionId == "refresh")
-                await ReconnectAsync();
-        });
     }
 
     private async Task ConnectAsync()
@@ -175,7 +161,8 @@
             _pollTimer?.Dispose();
             _pollTimer = null;
 
-            client = new DevFlowAgentClient(agentHost, agentPort);
+            client?.Dispose();
+            client = new InspectorUiClient(await ClientFactory.CreateAsync(agentHost, agentPort));
             await ConnectAsync();
         }
         finally
@@ -341,8 +328,6 @@
 
     public void Dispose()
     {
-        ToolbarService.ToolbarItemClicked -= OnToolbarItemClicked;
-        ToolbarService.ClearItems();
         _logStreamCts?.Cancel();
         _logBatchTimer?.Dispose();
         _pollTimer?.Dispose();

@@ -45,7 +45,7 @@
 </div>
 
 @code {
-    [Parameter] public DevFlowAgentClient Client { get; set; } = null!;
+    [Parameter] public InspectorUiClient Client { get; set; } = null!;
     [Parameter] public string? AgentVersion { get; set; }
 
     private string activeSubTab = "info";
@@ -125,12 +125,12 @@
         try
         {
             await Task.WhenAll(
-                LoadInfoCardAsync<DevFlowAppInfo>("App Info", "/api/platform/app-info", r => appInfo = r),
-                LoadInfoCardAsync<DevFlowDeviceInfo>("Device", "/api/platform/device-info", r => deviceInfo = r),
-                LoadInfoCardAsync<DevFlowDisplayInfo>("Display", "/api/platform/device-display", r => displayInfo = r),
-                LoadInfoCardAsync<DevFlowBatteryInfo>("Battery", "/api/platform/battery", r => batteryInfo = r),
-                LoadInfoCardAsync<DevFlowConnectivityInfo>("Connectivity", "/api/platform/connectivity", r => connectivityInfo = r),
-                LoadInfoCardAsync<DevFlowVersionTracking>("Version Tracking", "/api/platform/version-tracking", r => versionTracking = r)
+                LoadInfoCardAsync("App Info", ct => Client.GetAppInfoAsync(ct), r => appInfo = r),
+                LoadInfoCardAsync("Device", ct => Client.GetDeviceInfoAsync(ct), r => deviceInfo = r),
+                LoadInfoCardAsync("Display", ct => Client.GetDisplayInfoAsync(ct), r => displayInfo = r),
+                LoadInfoCardAsync("Battery", ct => Client.GetBatteryInfoAsync(ct), r => batteryInfo = r),
+                LoadInfoCardAsync("Connectivity", ct => Client.GetConnectivityAsync(ct), r => connectivityInfo = r),
+                LoadInfoCardAsync("Version Tracking", ct => Client.GetVersionTrackingAsync(ct), r => versionTracking = r)
             );
             infoLoaded = true;
         }
@@ -138,36 +138,12 @@
         finally { loading = false; StateHasChanged(); }
     }
 
-    private async Task LoadInfoCardAsync<T>(string cardName, string endpoint, Action<T?> setter) where T : class
+    private async Task LoadInfoCardAsync<T>(string cardName, Func<CancellationToken, Task<T?>> loader, Action<T?> setter) where T : class
     {
         try
         {
-            using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
-            var httpResponse = await httpClient.GetAsync($"{Client.BaseUrl}{endpoint}");
-            var body = await httpResponse.Content.ReadAsStringAsync();
-            var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-
-            // Check if the response is an error (non-2xx or {"success": false, "error": "..."})
-            if (!httpResponse.IsSuccessStatusCode || body.Contains("\"success\":false", StringComparison.OrdinalIgnoreCase))
-            {
-                try
-                {
-                    var errorCheck = JsonSerializer.Deserialize<JsonElement>(body, options);
-                    if (errorCheck.TryGetProperty("error", out var errProp))
-                    {
-                        cardErrors[cardName] = FormatApiError(errProp.GetString());
-                        setter(null);
-                        return;
-                    }
-                }
-                catch { }
-
-                cardErrors[cardName] = $"HTTP {(int)httpResponse.StatusCode}: {httpResponse.ReasonPhrase}";
-                setter(null);
-                return;
-            }
-
-            setter(JsonSerializer.Deserialize<T>(body, options));
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            setter(await loader(cts.Token));
         }
         catch (Exception ex)
         {
