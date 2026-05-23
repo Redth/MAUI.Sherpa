@@ -90,7 +90,7 @@ app.MapGet("/internal/status", (InspectorLifecycleState state) => Results.Json(n
     lastHeartbeatUtc = state.LastHeartbeatUtc
 }));
 
-app.MapRazorComponents<MauiSherpa.AppInspector.Cli.ServerApp>()
+app.MapRazorComponents<Sherpa.AppInspector.Cli.ServerApp>()
     .AddInteractiveServerRenderMode()
     .AddAdditionalAssemblies(typeof(MauiSherpa.AppInspector.InspectorApp).Assembly);
 
@@ -105,7 +105,7 @@ var inspectorUrl = BuildInspectorUrl(endpoint, options, token);
 var ready = InspectorReadyPayload.Create(options, addresses, inspectorUrl, token);
 
 Console.WriteLine($"INSPECTOR_READY {JsonSerializer.Serialize(ready, JsonDefaults.Options)}");
-Console.Error.WriteLine($"MAUI Sherpa inspector is serving {inspectorUrl}");
+Console.Error.WriteLine($"Sherpa inspector is serving {inspectorUrl}");
 Console.Error.WriteLine($"Stop with Ctrl+C, by terminating PID {Environment.ProcessId}, or by calling {ready.Stop.ShutdownUrl}");
 
 await app.WaitForShutdownAsync();
@@ -153,11 +153,11 @@ internal sealed record InspectorCliOptions
 
     public static string HelpText =>
         """
-        MAUI Sherpa App Inspector
+        Sherpa Inspector
 
         Usage:
-          maui-sherpa-inspector serve --agent-port <port> [options]
-          maui-sherpa-inspector --agent-port <port> [options]
+          sherpa-inspector serve --agent-port <port> [options]
+          sherpa-inspector --agent-port <port> [options]
 
         Required:
           --agent-port, --port <port>       Target app inspector agent port.

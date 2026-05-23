@@ -1,13 +1,13 @@
 # App Inspector CLI
 
-`maui-sherpa-inspector` hosts only the MAUI Sherpa app inspector as a local web app. It is intended for host applications that want to start an inspector process and point an embedded WebView at the emitted URL.
+`sherpa-inspector` hosts only the MAUI Sherpa app inspector as a local web app. It is intended for host applications that want to start an inspector process and point an embedded WebView at the emitted URL.
 
 The primary distribution is a self-contained executable per platform/runtime identifier, so the host machine does not need the .NET runtime installed.
 
 ## Usage
 
 ```bash
-maui-sherpa-inspector serve --agent-port 9231
+sherpa-inspector serve --agent-port 9231
 ```
 
 `--agent-port` is the only required input. The tool defaults to `localhost` for the target agent and binds its own web server to `127.0.0.1` on an ephemeral port.
@@ -15,7 +15,7 @@ maui-sherpa-inspector serve --agent-port 9231
 Optional metadata can be supplied when the caller already has broker/session context:
 
 ```bash
-maui-sherpa-inspector serve \
+sherpa-inspector serve \
   --agent-host localhost \
   --agent-port 9231 \
   --agent-id my-agent \
@@ -69,7 +69,7 @@ Use `--listen-host` only when the caller intentionally wants a different bind ad
 Publish self-contained artifacts with a runtime identifier:
 
 ```bash
-dotnet publish src/MauiSherpa.AppInspector.Cli \
+dotnet publish src/MauiSherpa.AppInspector.Cli/Sherpa.AppInspector.Cli.csproj \
   -c Release \
   -r osx-arm64 \
   --self-contained true

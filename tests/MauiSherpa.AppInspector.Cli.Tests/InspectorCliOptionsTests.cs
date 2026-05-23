@@ -1,6 +1,6 @@
 using FluentAssertions;
 
-namespace MauiSherpa.AppInspector.Cli.Tests;
+namespace Sherpa.AppInspector.Cli.Tests;
 
 public class InspectorCliOptionsTests
 {
