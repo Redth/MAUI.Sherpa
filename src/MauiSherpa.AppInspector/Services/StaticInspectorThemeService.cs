@@ -4,14 +4,14 @@ namespace MauiSherpa.AppInspector.Services;
 
 public sealed class StaticInspectorThemeService : IThemeService
 {
-    public string CurrentTheme { get; private set; } = "Dark";
+    public string CurrentTheme { get; private set; } = "System";
     public bool IsDarkMode => CurrentTheme.Equals("Dark", StringComparison.OrdinalIgnoreCase);
     public double FontScale { get; private set; } = 1.0;
     public event Action? ThemeChanged;
 
     public void SetTheme(string theme)
     {
-        CurrentTheme = string.IsNullOrWhiteSpace(theme) ? "Dark" : theme;
+        CurrentTheme = string.IsNullOrWhiteSpace(theme) ? "System" : theme;
         ThemeChanged?.Invoke();
     }
 
