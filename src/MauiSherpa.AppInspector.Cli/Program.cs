@@ -2,7 +2,6 @@ using System.Diagnostics;
 using System.Net;
 using System.Security.Cryptography;
 using System.Text.Json;
-using MauiSherpa.AppInspector;
 using MauiSherpa.AppInspector.Services;
 using MauiSherpa.Core.Interfaces;
 using MauiSherpa.Core.Services;
@@ -59,6 +58,7 @@ var scheme = options.Https ? "https" : "http";
 app.Urls.Add($"{scheme}://{options.ListenHost}:{options.ListenPort}");
 
 app.UseStaticFiles();
+app.MapStaticAssets();
 app.Use(async (context, next) =>
 {
     if (IsPublicAsset(context.Request.Path) || security.Authorize(context))
@@ -90,8 +90,9 @@ app.MapGet("/internal/status", (InspectorLifecycleState state) => Results.Json(n
     lastHeartbeatUtc = state.LastHeartbeatUtc
 }));
 
-app.MapRazorComponents<ServerApp>()
-    .AddInteractiveServerRenderMode();
+app.MapRazorComponents<MauiSherpa.AppInspector.Cli.ServerApp>()
+    .AddInteractiveServerRenderMode()
+    .AddAdditionalAssemblies(typeof(MauiSherpa.AppInspector.InspectorApp).Assembly);
 
 await app.StartAsync();
 
