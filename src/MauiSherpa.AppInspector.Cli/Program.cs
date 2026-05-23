@@ -138,7 +138,7 @@ internal sealed record InspectorCliOptions
 {
     public bool ShowHelp { get; init; }
     public string? Error { get; init; }
-    public string AgentHost { get; init; } = "localhost";
+    public string AgentHost { get; init; } = "127.0.0.1";
     public int? AgentPort { get; init; }
     public string? AgentId { get; init; }
     public string? Project { get; init; }
@@ -163,7 +163,7 @@ internal sealed record InspectorCliOptions
           --agent-port, --port <port>       Target app inspector agent port.
 
         Agent metadata:
-          --agent-host <host>               Target agent host. Default: localhost.
+          --agent-host <host>               Target agent host. Default: 127.0.0.1.
           --agent-id <id>                   Agent/session id for the inspector route.
           --project <path-or-name>          Project metadata echoed in startup output.
           --session-id <id>                 Host session metadata echoed in startup output.
@@ -315,7 +315,7 @@ internal sealed record InspectorCliOptions
 
     private sealed class MutableOptions
     {
-        public string AgentHost = "localhost";
+        public string AgentHost = "127.0.0.1";
         public int? AgentPort;
         public string? AgentId;
         public string? Project;
