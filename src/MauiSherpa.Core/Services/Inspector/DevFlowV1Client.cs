@@ -123,7 +123,11 @@ public class DevFlowV1Client : IAppInspectorClient
     public async Task<object?> GetPropertyAsync(string elementId, string propertyName, CancellationToken ct = default)
     {
         var url = $"/api/v1/ui/elements/{Uri.EscapeDataString(elementId)}/properties/{Uri.EscapeDataString(propertyName)}";
-        var result = await _http.GetFromJsonAsync<JsonElement>(url, JsonOptions, ct);
+        var response = await _http.GetAsync(url, ct);
+        if (!response.IsSuccessStatusCode)
+            return null;
+
+        var result = await response.Content.ReadFromJsonAsync<JsonElement>(JsonOptions, ct);
         return result.TryGetProperty("value", out var val) ? val.Deserialize<object>(JsonOptions) : null;
     }
 
