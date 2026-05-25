@@ -1,0 +1,64 @@
+@page "/{*Path}"
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>AppInspector</title>
+    <base href="/" />
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+    <link rel="stylesheet" href="@Assets["_content/MauiSherpa.AppInspector/css/app.css"]" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github.min.css" media="(prefers-color-scheme: light)" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css" media="(prefers-color-scheme: dark)" />
+    <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
+    <script>
+        (function() {
+            var dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+            document.documentElement.classList.add(dark ? 'theme-dark' : 'theme-light');
+        })();
+    </script>
+    <HeadOutlet @rendermode="RenderMode.InteractiveServer" />
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html, body {
+            height: 100%;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+        }
+
+        #app {
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <InspectorApp @rendermode="RenderMode.InteractiveServer" />
+    </div>
+    <script src="@Assets["_framework/blazor.web.js"]"></script>
+    <script src="@Assets["_content/MauiSherpa.AppInspector/js/inspectorHost.js"]"></script>
+    <script>
+        window.highlightCode = function(elementId) {
+            var el = document.getElementById(elementId);
+            if (el) {
+                delete el.dataset.highlighted;
+                hljs.highlightElement(el);
+            }
+        };
+    </script>
+</body>
+</html>
+
+@code {
+    [Parameter] public string? Path { get; set; }
+}

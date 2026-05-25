@@ -267,7 +267,7 @@
 }
 
 @code {
-    [Parameter] public DevFlowAgentClient Client { get; set; } = null!;
+    [Parameter] public InspectorUiClient Client { get; set; } = null!;
 
     private List<DevFlowElementInfo> treeItems = new();
     private DevFlowElementInfo? selectedElement;
@@ -513,7 +513,10 @@
         try
         {
             screenshotError = null;
-            var bytes = await Client.GetScreenshotAsync(window: window ?? selectedWindowIndex);
+            var screenshotRoot = FindScreenshotRootElement(treeItems);
+            var bytes = screenshotRoot != null
+                ? await Client.GetScreenshotAsync(elementId: screenshotRoot.Id)
+                : await Client.GetScreenshotAsync(window: window ?? selectedWindowIndex);
             screenshotData = bytes != null ? Convert.ToBase64String(bytes) : null;
             StateHasChanged();
             await UpdateOverlayAsync();
@@ -539,6 +542,35 @@
             _syncingRefresh = true;
             try { await RefreshTree(); }
             finally { _syncingRefresh = false; }
+        }
+    }
+
+    private static DevFlowElementInfo? FindScreenshotRootElement(List<DevFlowElementInfo> items)
+    {
+        DevFlowElementInfo? best = null;
+        var bestArea = 0.0;
+        FindScreenshotRootElementRecursive(items, ref best, ref bestArea);
+        return best;
+    }
+
+    private static void FindScreenshotRootElementRecursive(List<DevFlowElementInfo> items, ref DevFlowElementInfo? best, ref double bestArea)
+    {
+        foreach (var item in items)
+        {
+            if (!item.Type.Equals("Window", StringComparison.OrdinalIgnoreCase) &&
+                !string.IsNullOrWhiteSpace(item.Id) &&
+                item.WindowBounds is { Width: > 0, Height: > 0 } bounds)
+            {
+                var area = bounds.Width * bounds.Height;
+                if (area > bestArea)
+                {
+                    best = item;
+                    bestArea = area;
+                }
+            }
+
+            if (item.Children?.Count > 0)
+                FindScreenshotRootElementRecursive(item.Children, ref best, ref bestArea);
         }
     }
 

@@ -65,6 +65,7 @@ MAUI Sherpa is a desktop application for **macOS**, **Windows**, and **Linux** t
 - Application log streaming (native + WebView)
 - Blazor WebView DOM inspection via CDP
 - Live property editing (colors, sizes, brushes)
+- Self-contained `sherpa-inspector` executable for embedding the inspector in external WebViews ([website](website/appinspector.html), [docs](docs/app-inspector-cli.md))
 
 ### 📋 Publish Profiles
 - Bundle Apple + Android signing configs into reusable profiles
