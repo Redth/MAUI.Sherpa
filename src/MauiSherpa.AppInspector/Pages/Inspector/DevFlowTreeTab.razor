@@ -42,6 +42,13 @@
                     }
                 </div>
             }
+            else if (!string.IsNullOrEmpty(screenshotError))
+            {
+                <div class="screenshot-placeholder" style="color: var(--text-error, #c0392b);">
+                    <i class="fas fa-triangle-exclamation"></i>
+                    <span>@screenshotError</span>
+                </div>
+            }
             else
             {
                 <div class="screenshot-placeholder">
@@ -269,6 +276,7 @@
     private HashSet<string> expandedNodes = new();
     private string searchQuery = "";
     private string? screenshotData;
+    private string? screenshotError;
     private bool isLoadingTree;
     private bool isLoadingProps;
     private int autoRefreshInterval;
@@ -504,6 +512,7 @@
     {
         try
         {
+            screenshotError = null;
             var screenshotRoot = FindScreenshotRootElement(treeItems);
             var bytes = screenshotRoot != null
                 ? await Client.GetScreenshotAsync(elementId: screenshotRoot.Id)
@@ -512,7 +521,20 @@
             StateHasChanged();
             await UpdateOverlayAsync();
         }
-        catch { }
+        catch (DevFlowAgentException ex)
+        {
+            screenshotData = null;
+            screenshotError = ex.StatusCode > 0
+                ? $"Agent returned {ex.StatusCode}: {ex.Message}"
+                : ex.Message;
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            screenshotData = null;
+            screenshotError = $"Screenshot failed: {ex.Message}";
+            StateHasChanged();
+        }
 
         // Keep tree in sync with screenshot (avoid recursion via flag)
         if (!_syncingRefresh)

@@ -495,10 +495,34 @@ public class DevFlowNetworkRequest
     public string? ResponseContentType { get; set; }
 
     [JsonPropertyName("requestHeaders")]
-    public Dictionary<string, string[]>? RequestHeaders { get; set; }
+    public JsonElement RequestHeadersRaw { get; set; }
 
     [JsonPropertyName("responseHeaders")]
-    public Dictionary<string, string[]>? ResponseHeaders { get; set; }
+    public JsonElement ResponseHeadersRaw { get; set; }
+
+    [JsonIgnore]
+    public Dictionary<string, string[]>? RequestHeaders => NormalizeHeaders(RequestHeadersRaw);
+
+    [JsonIgnore]
+    public Dictionary<string, string[]>? ResponseHeaders => NormalizeHeaders(ResponseHeadersRaw);
+
+    private static Dictionary<string, string[]>? NormalizeHeaders(JsonElement el)
+    {
+        if (el.ValueKind != JsonValueKind.Object) return null;
+        var dict = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
+        foreach (var prop in el.EnumerateObject())
+        {
+            string[] values;
+            if (prop.Value.ValueKind == JsonValueKind.Array)
+                values = prop.Value.EnumerateArray().Select(v => v.GetString() ?? "").ToArray();
+            else if (prop.Value.ValueKind == JsonValueKind.String)
+                values = new[] { prop.Value.GetString() ?? "" };
+            else
+                values = new[] { prop.Value.ToString() };
+            dict[prop.Name] = values;
+        }
+        return dict;
+    }
 
     [JsonPropertyName("requestBody")]
     public string? RequestBody { get; set; }
@@ -520,27 +544,54 @@ public class DevFlowNetworkRequest
 }
 
 /// <summary>
-/// Log entry from /api/logs.
+/// Log entry. Supports v1 (timestamp/level/source/message/category/exception)
+/// and legacy (t/l/s/m/c) field names.
 /// </summary>
 public class DevFlowLogEntry
 {
     [JsonPropertyName("t")]
-    public DateTimeOffset Timestamp { get; set; }
+    public DateTimeOffset? LegacyTimestamp { get; set; }
+
+    [JsonPropertyName("timestamp")]
+    public DateTimeOffset? V1Timestamp { get; set; }
 
     [JsonPropertyName("l")]
-    public string? Level { get; set; }
+    public string? LegacyLevel { get; set; }
+
+    [JsonPropertyName("level")]
+    public string? V1Level { get; set; }
 
     [JsonPropertyName("s")]
-    public string? Source { get; set; }
+    public string? LegacySource { get; set; }
+
+    [JsonPropertyName("source")]
+    public string? V1Source { get; set; }
 
     [JsonPropertyName("m")]
-    public string? Message { get; set; }
+    public string? LegacyMessage { get; set; }
+
+    [JsonPropertyName("message")]
+    public string? V1Message { get; set; }
 
     [JsonPropertyName("c")]
-    public string? Category { get; set; }
+    public string? LegacyCategory { get; set; }
+
+    [JsonPropertyName("category")]
+    public string? V1Category { get; set; }
+
+    [JsonPropertyName("exception")]
+    public string? V1Exception { get; set; }
+
+    [JsonIgnore] public DateTimeOffset Timestamp => V1Timestamp ?? LegacyTimestamp ?? default;
+    [JsonIgnore] public string? Level => V1Level ?? LegacyLevel;
+    [JsonIgnore] public string? Source => V1Source ?? LegacySource;
+    [JsonIgnore] public string? Message => V1Message ?? LegacyMessage;
+    [JsonIgnore] public string? Category => V1Category ?? LegacyCategory;
 
     [JsonPropertyName("e")]
-    public string? Exception { get; set; }
+    public string? LegacyException { get; set; }
+
+    [JsonIgnore] public string? Exception => V1Exception ?? LegacyException;
 }
 
 /// <summary>
@@ -691,17 +742,31 @@ public class DevFlowGeolocation
 
 public class DevFlowSensorStatus
 {
-    [JsonPropertyName("sensor")] public string Sensor { get; set; } = string.Empty;
+    // v1 (Ailoha/DevFlow) uses "name"+"available"; legacy used "sensor"+"supported".
+    [JsonPropertyName("name")] public string Name { get; set; } = string.Empty;
+    [JsonPropertyName("sensor")] public string? LegacySensor { get; set; }
     [JsonPropertyName("active")] public bool Active { get; set; }
-    [JsonPropertyName("supported")] public bool Supported { get; set; }
+    [JsonPropertyName("available")] public bool Available { get; set; } = true;
+    [JsonPropertyName("supported")] public bool? LegacySupported { get; set; }
     [JsonPropertyName("subscribers")] public int Subscribers { get; set; }
+
+    [JsonIgnore]
+    public string Sensor => !string.IsNullOrEmpty(Name) ? Name : (LegacySensor ?? string.Empty);
+    [JsonIgnore]
+    public bool Supported => LegacySupported ?? Available;
 }
 
 public class DevFlowSensorReading
 {
     [JsonPropertyName("sensor")] public string Sensor { get; set; } = string.Empty;
     [JsonPropertyName("timestamp")] public string? Timestamp { get; set; }
-    [JsonPropertyName("data")] public JsonElement Data { get; set; }
+    // v1 uses "values"; legacy used "data".
+    [JsonPropertyName("values")] public JsonElement Values { get; set; }
+    [JsonPropertyName("data")] public JsonElement LegacyData { get; set; }
+
+    [JsonIgnore]
+    public JsonElement Data => Values.ValueKind != JsonValueKind.Undefined && Values.ValueKind != JsonValueKind.Null
+        ? Values : LegacyData;
 }
 
 // ── Storage DTOs ──
@@ -710,6 +775,7 @@ public class DevFlowPreferenceEntry
 {
     [JsonPropertyName("key")] public string Key { get; set; } = string.Empty;
     [JsonPropertyName("value")] public string? Value { get; set; }
+    [JsonPropertyName("type")] public string? Type { get; set; }
     [JsonPropertyName("sharedName")] public string? SharedName { get; set; }
 }
 

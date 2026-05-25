@@ -18,7 +18,7 @@ public class InspectorCliOptionsTests
         var options = InspectorCliOptions.Parse(["--port", "9231"]);
 
         options.Error.Should().BeNull();
-        options.AgentHost.Should().Be("localhost");
+        options.AgentHost.Should().Be("127.0.0.1");
         options.AgentPort.Should().Be(9231);
         options.ListenHost.Should().Be("127.0.0.1");
         options.ListenPort.Should().Be(0);

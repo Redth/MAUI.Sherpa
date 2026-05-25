@@ -166,7 +166,7 @@ public class XcodeServiceTests
     }
 
     [Fact]
-    public void CreateSelectionPlan_WhenCanonicalBundleIsReal_MigratesSelectedBundleToVersionedPath()
+    public void CreateSelectionPlan_WhenSelectedBundleIsCanonical_SelectsCanonicalWithoutRename()
     {
         var managedDefaultState = new XcodeManagedDefaultState(
             CanonicalAppPath: "/Applications/Xcode.app",
@@ -180,15 +180,18 @@ public class XcodeServiceTests
             "/Applications/Xcode.app",
             managedDefaultState,
             ["/Applications/Xcode.app"],
-            XcodeBundleSeparatorOptions.Underscore);
+            selectionAction: XcodeSelectionActionOptions.Rename,
+            separator: XcodeBundleSeparatorOptions.Hyphen);
 
-        plan.SelectedAppPath.Should().Be("/Applications/Xcode_26.3.app");
-        plan.MigrationSourcePath.Should().Be("/Applications/Xcode.app");
-        plan.MigrationDestinationPath.Should().Be("/Applications/Xcode_26.3.app");
+        plan.SelectedAppPath.Should().Be("/Applications/Xcode.app");
+        plan.XcodeSelectPath.Should().Be("/Applications/Xcode.app");
+        plan.DefaultMoveDestinationPath.Should().BeNull();
+        plan.RemoveCanonicalSymlink.Should().BeFalse();
+        plan.CreateCanonicalSymlink.Should().BeFalse();
     }
 
     [Fact]
-    public void CreateSelectionPlan_WhenCanonicalMigrationCollides_UsesUniqueDestinationPath()
+    public void CreateSelectionPlan_WhenSelectingDifferentBundle_MovesCanonicalToXcodesStyleName()
     {
         var managedDefaultState = new XcodeManagedDefaultState(
             CanonicalAppPath: "/Applications/Xcode.app",
@@ -199,20 +202,104 @@ public class XcodeServiceTests
             BuildNumber: "17A123");
 
         var plan = XcodeService.CreateSelectionPlan(
-            "/Applications/Xcode.app",
+            "/Applications/Xcode_26.4.app",
             managedDefaultState,
             [
                 "/Applications/Xcode.app",
-                "/Applications/Xcode_26.3.app"
+                "/Applications/Xcode_26.4.app"
             ],
-            XcodeBundleSeparatorOptions.Underscore);
+            selectionAction: XcodeSelectionActionOptions.Rename,
+            separator: XcodeBundleSeparatorOptions.Hyphen);
 
-        plan.SelectedAppPath.Should().Be("/Applications/Xcode_26.3_17A123.app");
-        plan.MigrationDestinationPath.Should().Be("/Applications/Xcode_26.3_17A123.app");
+        plan.SelectedAppPath.Should().Be("/Applications/Xcode_26.4.app");
+        plan.XcodeSelectPath.Should().Be("/Applications/Xcode.app");
+        plan.DefaultMoveDestinationPath.Should().Be("/Applications/Xcode-26.3.app");
+        plan.RemoveCanonicalSymlink.Should().BeFalse();
+        plan.CreateCanonicalSymlink.Should().BeFalse();
     }
 
     [Fact]
-    public void CreateSelectionPlan_WhenCanonicalPathIsSymlink_UsesLinkTargetWithoutMigration()
+    public void CreateSelectionPlan_WhenCanonicalMoveCollides_UsesUniqueDestinationPath()
+    {
+        var managedDefaultState = new XcodeManagedDefaultState(
+            CanonicalAppPath: "/Applications/Xcode.app",
+            Exists: true,
+            IsSymlink: false,
+            LinkTargetPath: null,
+            Version: "26.3",
+            BuildNumber: "17A123");
+
+        var plan = XcodeService.CreateSelectionPlan(
+            "/Applications/Xcode_26.4.app",
+            managedDefaultState,
+            [
+                "/Applications/Xcode.app",
+                "/Applications/Xcode_26.4.app",
+                "/Applications/Xcode-26.3.app"
+            ],
+            selectionAction: XcodeSelectionActionOptions.Rename,
+            separator: XcodeBundleSeparatorOptions.Hyphen);
+
+        plan.DefaultMoveDestinationPath.Should().Be("/Applications/Xcode-26.3-17A123.app");
+    }
+
+    [Fact]
+    public void CreateSelectionPlan_WhenSelectionActionIsNone_SelectsOriginalBundleWithoutRenaming()
+    {
+        var managedDefaultState = new XcodeManagedDefaultState(
+            CanonicalAppPath: "/Applications/Xcode.app",
+            Exists: true,
+            IsSymlink: false,
+            LinkTargetPath: null,
+            Version: "26.3",
+            BuildNumber: "17A123");
+
+        var plan = XcodeService.CreateSelectionPlan(
+            "/Applications/Xcode_26.4.app",
+            managedDefaultState,
+            [
+                "/Applications/Xcode.app",
+                "/Applications/Xcode_26.4.app"
+            ],
+            selectionAction: XcodeSelectionActionOptions.None);
+
+        plan.SelectedAppPath.Should().Be("/Applications/Xcode_26.4.app");
+        plan.XcodeSelectPath.Should().Be("/Applications/Xcode_26.4.app");
+        plan.DefaultMoveDestinationPath.Should().BeNull();
+        plan.RemoveCanonicalSymlink.Should().BeFalse();
+        plan.CreateCanonicalSymlink.Should().BeFalse();
+    }
+
+    [Fact]
+    public void CreateSelectionPlan_WhenSelectionActionIsNoneAndSymlinkRequested_CreatesCanonicalSymlink()
+    {
+        var managedDefaultState = new XcodeManagedDefaultState(
+            CanonicalAppPath: "/Applications/Xcode.app",
+            Exists: true,
+            IsSymlink: false,
+            LinkTargetPath: null,
+            Version: "26.3",
+            BuildNumber: "17A123");
+
+        var plan = XcodeService.CreateSelectionPlan(
+            "/Applications/Xcode_26.4.app",
+            managedDefaultState,
+            [
+                "/Applications/Xcode.app",
+                "/Applications/Xcode_26.4.app"
+            ],
+            selectionAction: XcodeSelectionActionOptions.None,
+            createSymlinkOnSelect: true);
+
+        plan.SelectedAppPath.Should().Be("/Applications/Xcode_26.4.app");
+        plan.XcodeSelectPath.Should().Be("/Applications/Xcode_26.4.app");
+        plan.DefaultMoveDestinationPath.Should().BeNull();
+        plan.RemoveCanonicalSymlink.Should().BeFalse();
+        plan.CreateCanonicalSymlink.Should().BeTrue();
+    }
+
+    [Fact]
+    public void CreateSelectionPlan_WhenCanonicalPathIsSymlink_UsesLinkTargetAndRemovesSymlink()
     {
         var managedDefaultState = new XcodeManagedDefaultState(
             CanonicalAppPath: "/Applications/Xcode.app",
@@ -229,11 +316,14 @@ public class XcodeServiceTests
                 "/Applications/Xcode.app",
                 "/Applications/Xcode_26.3_17A123.app"
             ],
-            XcodeBundleSeparatorOptions.Underscore);
+            selectionAction: XcodeSelectionActionOptions.Rename,
+            separator: XcodeBundleSeparatorOptions.Underscore);
 
         plan.SelectedAppPath.Should().Be("/Applications/Xcode_26.3_17A123.app");
-        plan.MigrationSourcePath.Should().BeNull();
-        plan.MigrationDestinationPath.Should().BeNull();
+        plan.XcodeSelectPath.Should().Be("/Applications/Xcode.app");
+        plan.DefaultMoveDestinationPath.Should().BeNull();
+        plan.RemoveCanonicalSymlink.Should().BeTrue();
+        plan.CreateCanonicalSymlink.Should().BeFalse();
     }
 
     [Fact]

@@ -459,9 +459,9 @@ public sealed class InspectorUiClient : IDisposable
         var sensors = await _client.GetSensorsAsync(ct);
         return sensors.Select(s => new DevFlowSensorStatus
         {
-            Sensor = s.Name,
+            Name = s.Name,
             Active = s.Active,
-            Supported = s.Available,
+            Available = s.Available,
             Subscribers = IsSensorStreaming(s.Name) ? 1 : 0
         }).ToList();
     }
@@ -491,7 +491,7 @@ public sealed class InspectorUiClient : IDisposable
             {
                 Sensor = reading.Sensor,
                 Timestamp = reading.Timestamp.ToString("O"),
-                Data = JsonSerializer.SerializeToElement(reading.Values, JsonOptions)
+                Values = JsonSerializer.SerializeToElement(reading.Values, JsonOptions)
             }), speed, throttleMs, cts.Token);
         }
         catch (NotImplementedException)
@@ -579,12 +579,12 @@ public sealed class InspectorUiClient : IDisposable
 
     private static DevFlowLogEntry MapLogEntry(InspectorLogEntry entry) => new()
     {
-        Timestamp = entry.Timestamp,
-        Level = entry.Level,
-        Source = entry.Source,
-        Message = entry.Message,
-        Category = entry.Category,
-        Exception = entry.Exception
+        V1Timestamp = entry.Timestamp,
+        V1Level = entry.Level,
+        V1Source = entry.Source,
+        V1Message = entry.Message,
+        V1Category = entry.Category,
+        V1Exception = entry.Exception
     };
 
     private static DevFlowNetworkRequest MapNetworkRequest(InspectorNetworkRequest request)
@@ -609,8 +609,8 @@ public sealed class InspectorUiClient : IDisposable
 
         if (request is InspectorNetworkRequestDetail detail)
         {
-            result.RequestHeaders = detail.RequestHeaders?.ToDictionary(kv => kv.Key, kv => new[] { kv.Value });
-            result.ResponseHeaders = detail.ResponseHeaders?.ToDictionary(kv => kv.Key, kv => new[] { kv.Value });
+            result.RequestHeadersRaw = JsonSerializer.SerializeToElement(detail.RequestHeaders, JsonOptions);
+            result.ResponseHeadersRaw = JsonSerializer.SerializeToElement(detail.ResponseHeaders, JsonOptions);
             result.RequestBody = detail.RequestBody;
             result.ResponseBody = detail.ResponseBody;
             result.RequestBodyEncoding = detail.RequestBodyEncoding;
