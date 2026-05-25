@@ -34,7 +34,7 @@
         }
         else if (brokerConnected == false)
         {
-            <span class="status-badge status-disconnected"><i class="fas fa-circle"></i> Broker not reachable at @brokerHost:@brokerPort</span>
+            <span class="status-badge status-disconnected"><i class="fas fa-circle"></i> No broker reachable on @brokerHost (tried @brokerPort, 19223, 19323)</span>
         }
     </div>
 </div>
@@ -171,12 +171,25 @@
 
         try
         {
-            var healthy = await DevFlowAgentClient.IsBrokerHealthyAsync(brokerHost, brokerPort);
-            brokerConnected = healthy;
+            // Probe the user-entered port plus both standard broker ports (DevFlow 19223,
+            // Ailoha 19323) so users don't have to change the field for either toolchain.
+            var portsToTry = new List<int> { brokerPort };
+            foreach (var p in DevFlowAgentClient.DefaultBrokerPorts)
+                if (!portsToTry.Contains(p)) portsToTry.Add(p);
 
-            if (healthy)
+            var probes = portsToTry
+                .Select(async port => (port, healthy: await DevFlowAgentClient.IsBrokerHealthyAsync(brokerHost, port)))
+                .ToList();
+            var probeResults = await Task.WhenAll(probes);
+            var healthyPorts = probeResults.Where(r => r.healthy).Select(r => r.port).ToList();
+
+            brokerConnected = healthyPorts.Count > 0;
+
+            if (healthyPorts.Count > 0)
             {
-                agents = await DevFlowAgentClient.GetBrokerAgentsAsync(brokerHost, brokerPort);
+                var agentLists = await Task.WhenAll(healthyPorts.Select(p =>
+                    DevFlowAgentClient.GetBrokerAgentsAsync(brokerHost, p)));
+                agents = agentLists.SelectMany(a => a).ToList();
 
                 // Fetch version from each agent's status endpoint (parallel)
                 var tasks = agents.Select(async agent =>
