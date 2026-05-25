@@ -96,28 +96,24 @@
             <div class="section-header reveal">
                 <h2 class="text-h2">Install and package</h2>
                 <p class="section-header__desc">
-                    The recommended distribution is a self-contained executable built for each desktop runtime identifier.
+                    The recommended distribution is the <code>Sherpa.AppInspector.Cli</code> dotnet tool NuGet package. Self-contained executables are still available for hosts that need to bundle the inspector.
                 </p>
             </div>
 
             <div class="steps reveal">
                 <div class="step">
-                    <h3 class="step__title">Publish a runtime-specific executable</h3>
+                    <h3 class="step__title">Install the dotnet tool</h3>
                     <div class="step__content">
-                        <p>Publish from the repository using the desired runtime identifier. The output binary is named <code>sherpa-inspector</code> on macOS/Linux and <code>sherpa-inspector.exe</code> on Windows.</p>
+                        <p>Install from NuGet.org. The package ID is <code>Sherpa.AppInspector.Cli</code> and the installed command is <code>sherpa-inspector</code>.</p>
                         <div class="code-block">
                             <div class="code-block__header">
                                 <span class="code-block__lang">Terminal</span>
                                 <button class="code-block__copy">Copy</button>
                             </div>
-                            <pre><code><span class="token-command">dotnet</span> <span class="token-function">publish</span> <span class="token-param">src/MauiSherpa.AppInspector.Cli/Sherpa.AppInspector.Cli.csproj</span> \
-  <span class="token-flag">-c</span> <span class="token-param">Release</span> \
-  <span class="token-flag">-r</span> <span class="token-param">osx-arm64</span> \
-  <span class="token-flag">--self-contained</span> <span class="token-param">true</span> \
-  <span class="token-param">/p:PublishSingleFile=true</span></code></pre>
+                            <pre><code><span class="token-command">dotnet</span> <span class="token-function">tool install</span> <span class="token-flag">--global</span> <span class="token-param">Sherpa.AppInspector.Cli</span></code></pre>
                         </div>
                         <p style="color: var(--ink-secondary); margin-top: var(--space-4);">
-                            Build separate artifacts for <code>osx-arm64</code>, <code>osx-x64</code>, <code>win-x64</code>, <code>win-arm64</code>, <code>linux-x64</code>, or <code>linux-arm64</code> as needed.
+                            Tagged CI builds publish the package to NuGet.org and attach the <code>.nupkg</code> to the GitHub release.
                         </p>
                     </div>
                 </div>
@@ -125,7 +121,7 @@
                 <div class="step">
                     <h3 class="step__title">Bundle with your host app</h3>
                     <div class="step__content">
-                        <p>Include the executable next to your host app or inside your app bundle. At runtime, start it as a child process, read stdout until the <code>INSPECTOR_READY</code> line appears, parse the JSON, then navigate your WebView to <code>url</code>.</p>
+                        <p>Start <code>sherpa-inspector</code> from the tool path, or include a self-contained publish next to your host app. At runtime, read stdout until the <code>INSPECTOR_READY</code> line appears, parse the JSON, then navigate your WebView to <code>url</code>.</p>
                     </div>
                 </div>
             </div>

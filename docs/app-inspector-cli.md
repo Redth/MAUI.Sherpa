@@ -2,7 +2,15 @@
 
 `sherpa-inspector` hosts only the MAUI Sherpa app inspector as a local web app. It is intended for host applications that want to start an inspector process and point an embedded WebView at the emitted URL.
 
-The primary distribution is a self-contained executable per platform/runtime identifier, so the host machine does not need the .NET runtime installed.
+The primary distribution is a .NET global tool NuGet package. Self-contained runtime-specific executables can still be published when a host app needs to bundle the inspector and avoid a .NET runtime dependency.
+
+## Install
+
+```bash
+dotnet tool install --global Sherpa.AppInspector.Cli
+```
+
+The installed command is `sherpa-inspector`.
 
 ## Usage
 
@@ -65,6 +73,26 @@ The server binds to loopback by default and generates a per-run token. The emitt
 Use `--listen-host` only when the caller intentionally wants a different bind address. The inspector can interact with the target app, so exposing it off-machine is not recommended.
 
 ## Distribution
+
+CI builds `Sherpa.AppInspector.Cli.<version>.nupkg` as a dotnet tool package, uploads it as a workflow artifact, attaches it to tagged GitHub releases, and publishes it to NuGet.org from `v*` tag builds.
+
+Pack the tool locally with:
+
+```bash
+dotnet pack src/MauiSherpa.AppInspector.Cli/Sherpa.AppInspector.Cli.csproj \
+  -c Release \
+  -o artifacts/nuget
+```
+
+Install a local package for testing with:
+
+```bash
+dotnet tool install --tool-path ./.tools/sherpa-inspector \
+  --add-source artifacts/nuget \
+  Sherpa.AppInspector.Cli
+```
+
+### Self-contained executable
 
 Publish self-contained artifacts with a runtime identifier:
 
