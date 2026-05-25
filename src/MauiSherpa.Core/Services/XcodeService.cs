@@ -301,6 +301,12 @@ public class XcodeService : IXcodeService
         {
             _logger.LogInformation($"Downloading Xcode {release.Version} from {release.DownloadUrl}...");
 
+            if (!await _authService.ValidateSessionAsync())
+            {
+                _logger.LogError("Apple Developer session is not valid. Sign in again to download Xcode.");
+                return false;
+            }
+
             // Use the auth service's shared cookie jar — cookies from SRP auth + Olympus session
             // are already there, and listDownloads.action will add ADCDownloadAuth
             using var downloadClient = _authService.CreateAuthenticatedHttpClient();

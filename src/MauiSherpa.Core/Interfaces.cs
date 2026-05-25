@@ -1089,7 +1089,21 @@ public record XcodeDownloadProgress(
 public record AppleAuthSession(
     string AppleId,
     Dictionary<string, string> Cookies,
-    DateTime ExpiresAt
+    DateTime ExpiresAt,
+    IReadOnlyList<AppleAuthCookie>? CookieDetails = null
+);
+
+/// <summary>
+/// Persisted cookie metadata for an Apple Developer download session.
+/// </summary>
+public record AppleAuthCookie(
+    string Name,
+    string Value,
+    string Domain,
+    string Path,
+    DateTime? Expires,
+    bool Secure,
+    bool HttpOnly
 );
 
 /// <summary>
