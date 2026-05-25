@@ -25,6 +25,8 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
     private string? _pendingSessionId;
     private string? _pendingScnt;
     private string? _pendingServiceKey;
+    internal static readonly TimeSpan PersistedSessionFallbackLifetime = TimeSpan.FromDays(30);
+    internal static readonly TimeSpan SessionRenewalThreshold = TimeSpan.FromDays(7);
 
     // Apple auth endpoints
     // Olympus only returns authServiceKey for the iTunes Connect hostname variant.
@@ -315,17 +317,22 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
     public async Task<bool> ValidateSessionAsync()
     {
         if (_session == null) return false;
-        if (_session.ExpiresAt <= DateTime.UtcNow) return false;
+        if (_session.ExpiresAt <= DateTime.UtcNow)
+        {
+            await ClearPersistedSessionAsync();
+            _session = null;
+            AuthStateChanged?.Invoke();
+            return false;
+        }
 
         try
         {
-            // Try a lightweight request to see if session cookies are still valid
-            var request = new HttpRequestMessage(HttpMethod.Get, OlympusSessionUrl);
-            var response = await _httpClient.SendAsync(request);
-            return response.IsSuccessStatusCode;
+            var renewIfValid = ShouldRenewSession(_session, DateTime.UtcNow);
+            return await ValidateSessionWithServerAsync(renewIfValid);
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogWarning($"Apple Developer session validation failed: {ex.Message}");
             return false;
         }
     }
@@ -358,8 +365,7 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
         _pendingScnt = null;
         _pendingServiceKey = null;
 
-        await _secureStorage.RemoveAsync(SecureStorageSessionKey);
-        await _secureStorage.RemoveAsync(SecureStorageAppleIdKey);
+        await ClearPersistedSessionAsync();
 
         AuthStateChanged?.Invoke();
         _logger.LogInformation("Signed out of Apple Developer");
@@ -656,23 +662,7 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
             var response = await _httpClient.SendAsync(request);
             if (!response.IsSuccessStatusCode) return null;
 
-            // Extract cookies — store domain info for proper download auth
-            var cookies = new Dictionary<string, string>();
-            var allCookies = _cookieContainer.GetAllCookies();
-            foreach (Cookie cookie in allCookies)
-            {
-                // Store as domain|name=value so we can restore to correct domain
-                var key = $"{cookie.Domain}|{cookie.Name}";
-                cookies[key] = cookie.Value;
-            }
-            _logger.LogInformation($"Session cookies: {string.Join(", ", allCookies.Select(c => $"{c.Name}@{c.Domain}"))}");
-
-
-            return new AppleAuthSession(
-                AppleId: appleId,
-                Cookies: cookies,
-                ExpiresAt: DateTime.UtcNow.AddHours(12)
-            );
+            return CreateSessionFromCurrentCookies(appleId, DateTime.UtcNow);
         }
         catch (Exception ex)
         {
@@ -706,30 +696,216 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
             if (session != null && session.ExpiresAt > DateTime.UtcNow)
             {
                 _session = session;
-                // Restore cookies with proper domains
-                foreach (var (key, value) in session.Cookies)
-                {
-                    string domain, name;
-                    if (key.Contains('|'))
-                    {
-                        var parts = key.Split('|', 2);
-                        domain = parts[0];
-                        name = parts[1];
-                    }
-                    else
-                    {
-                        domain = ".apple.com";
-                        name = key;
-                    }
-                    _cookieContainer.Add(new Cookie(name, value, "/", domain));
-                }
-                _logger.LogInformation($"Restored Apple session for {session.AppleId}");
+                RestoreCookies(session);
+                _logger.LogInformation($"Restored Apple session for {session.AppleId} until {session.ExpiresAt:u}");
                 AuthStateChanged?.Invoke();
+
+                if (ShouldRenewSession(session, DateTime.UtcNow))
+                    await ValidateSessionWithServerAsync(renewIfValid: true);
+            }
+            else if (session != null)
+            {
+                _session = session;
+                RestoreCookies(session);
+
+                if (!await ValidateSessionWithServerAsync(renewIfValid: true))
+                {
+                    _session = null;
+                    _logger.LogInformation("Apple Developer session is locally expired and could not be refreshed");
+                }
             }
         }
         catch (Exception ex)
         {
             _logger.LogWarning($"Failed to restore session: {ex.Message}");
         }
+    }
+
+    private async Task<bool> ValidateSessionWithServerAsync(bool renewIfValid)
+    {
+        if (_session == null) return false;
+
+        var request = new HttpRequestMessage(HttpMethod.Get, OlympusSessionUrl);
+        var response = await _httpClient.SendAsync(request);
+        if (response.IsSuccessStatusCode)
+        {
+            if (renewIfValid)
+                await RenewSessionFromCurrentCookiesAsync();
+
+            return true;
+        }
+
+        if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+        {
+            await ClearPersistedSessionAsync();
+            _session = null;
+            AuthStateChanged?.Invoke();
+            _logger.LogInformation($"Apple Developer session validation failed with {(int)response.StatusCode}; cleared saved session");
+            return false;
+        }
+
+        _logger.LogWarning($"Apple Developer session validation returned {(int)response.StatusCode}; preserving saved session");
+        return false;
+    }
+
+    private async Task RenewSessionFromCurrentCookiesAsync()
+    {
+        if (_session == null) return;
+
+        var refreshedSession = CreateSessionFromCurrentCookies(_session.AppleId, DateTime.UtcNow);
+        _session = refreshedSession;
+        await PersistSessionAsync(refreshedSession);
+        AuthStateChanged?.Invoke();
+        _logger.LogInformation($"Renewed Apple Developer session for {refreshedSession.AppleId} until {refreshedSession.ExpiresAt:u}");
+    }
+
+    private async Task ClearPersistedSessionAsync()
+    {
+        await _secureStorage.RemoveAsync(SecureStorageSessionKey);
+        await _secureStorage.RemoveAsync(SecureStorageAppleIdKey);
+    }
+
+    private AppleAuthSession CreateSessionFromCurrentCookies(string appleId, DateTime nowUtc)
+    {
+        var allCookies = _cookieContainer.GetAllCookies();
+        var cookieDetails = CaptureCookieDetails(allCookies);
+        var cookies = CreateLegacyCookieMap(cookieDetails);
+        var expiresAt = CalculateSessionExpiresAt(cookieDetails, nowUtc);
+        _logger.LogInformation($"Session cookies: {string.Join(", ", allCookies.Select(c => $"{c.Name}@{c.Domain}"))}");
+
+        return new AppleAuthSession(
+            AppleId: appleId,
+            Cookies: cookies,
+            ExpiresAt: expiresAt,
+            CookieDetails: cookieDetails
+        );
+    }
+
+    internal static IReadOnlyList<AppleAuthCookie> CaptureCookieDetails(CookieCollection cookies)
+    {
+        var result = new List<AppleAuthCookie>();
+        foreach (Cookie cookie in cookies)
+        {
+            result.Add(new AppleAuthCookie(
+                Name: cookie.Name,
+                Value: cookie.Value,
+                Domain: cookie.Domain,
+                Path: string.IsNullOrWhiteSpace(cookie.Path) ? "/" : cookie.Path,
+                Expires: NormalizeCookieExpiration(cookie.Expires),
+                Secure: cookie.Secure,
+                HttpOnly: cookie.HttpOnly));
+        }
+
+        return result;
+    }
+
+    internal static DateTime CalculateSessionExpiresAt(IReadOnlyList<AppleAuthCookie> cookies, DateTime nowUtc)
+    {
+        var latestCookieExpiration = cookies
+            .Select(cookie => cookie.Expires)
+            .Where(expires => expires.HasValue && expires.Value > nowUtc)
+            .Select(expires => expires!.Value)
+            .DefaultIfEmpty()
+            .Max();
+
+        return latestCookieExpiration == default
+            ? nowUtc.Add(PersistedSessionFallbackLifetime)
+            : latestCookieExpiration;
+    }
+
+    internal static bool ShouldRenewSession(AppleAuthSession session, DateTime nowUtc) =>
+        session.ExpiresAt > nowUtc &&
+        session.ExpiresAt <= nowUtc.Add(SessionRenewalThreshold);
+
+    private static DateTime? NormalizeCookieExpiration(DateTime expires)
+    {
+        if (expires == DateTime.MinValue)
+            return null;
+
+        return expires.Kind == DateTimeKind.Utc
+            ? expires
+            : expires.ToUniversalTime();
+    }
+
+    private static Dictionary<string, string> CreateLegacyCookieMap(IEnumerable<AppleAuthCookie> cookies)
+    {
+        var legacyCookies = new Dictionary<string, string>();
+        foreach (var cookie in cookies)
+        {
+            legacyCookies[$"{cookie.Domain}|{cookie.Name}"] = cookie.Value;
+        }
+
+        return legacyCookies;
+    }
+
+    private void RestoreCookies(AppleAuthSession session)
+    {
+        var cookieDetails = session.CookieDetails is { Count: > 0 }
+            ? session.CookieDetails
+            : CreateCookieDetailsFromLegacyMap(session.Cookies);
+
+        foreach (var cookieDetail in cookieDetails)
+        {
+            if (cookieDetail.Expires is { } expires && expires <= DateTime.UtcNow)
+                continue;
+
+            try
+            {
+                _cookieContainer.Add(CreateCookie(cookieDetail));
+            }
+            catch (CookieException ex)
+            {
+                _logger.LogWarning($"Failed to restore Apple session cookie {cookieDetail.Name}@{cookieDetail.Domain}: {ex.Message}");
+            }
+        }
+    }
+
+    private static IReadOnlyList<AppleAuthCookie> CreateCookieDetailsFromLegacyMap(Dictionary<string, string> cookies)
+    {
+        var cookieDetails = new List<AppleAuthCookie>();
+        foreach (var (key, value) in cookies)
+        {
+            string domain, name;
+            if (key.Contains('|'))
+            {
+                var parts = key.Split('|', 2);
+                domain = parts[0];
+                name = parts[1];
+            }
+            else
+            {
+                domain = ".apple.com";
+                name = key;
+            }
+
+            cookieDetails.Add(new AppleAuthCookie(
+                Name: name,
+                Value: value,
+                Domain: domain,
+                Path: "/",
+                Expires: null,
+                Secure: false,
+                HttpOnly: false));
+        }
+
+        return cookieDetails;
+    }
+
+    private static Cookie CreateCookie(AppleAuthCookie cookieDetail)
+    {
+        var cookie = new Cookie(
+            cookieDetail.Name,
+            cookieDetail.Value,
+            string.IsNullOrWhiteSpace(cookieDetail.Path) ? "/" : cookieDetail.Path,
+            string.IsNullOrWhiteSpace(cookieDetail.Domain) ? ".apple.com" : cookieDetail.Domain)
+        {
+            Secure = cookieDetail.Secure,
+            HttpOnly = cookieDetail.HttpOnly
+        };
+
+        if (cookieDetail.Expires is { } expires)
+            cookie.Expires = expires;
+
+        return cookie;
     }
 }
