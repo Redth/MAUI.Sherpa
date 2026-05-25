@@ -10,7 +10,7 @@ The primary distribution is a self-contained executable per platform/runtime ide
 sherpa-inspector serve --agent-port 9231
 ```
 
-`--agent-port` is the only required input. The tool defaults to `localhost` for the target agent and binds its own web server to `127.0.0.1` on an ephemeral port.
+`--agent-port` is the only required input. The tool defaults to `127.0.0.1` for the target agent and binds its own web server to `127.0.0.1` on an ephemeral port.
 
 Optional metadata can be supplied when the caller already has broker/session context:
 
