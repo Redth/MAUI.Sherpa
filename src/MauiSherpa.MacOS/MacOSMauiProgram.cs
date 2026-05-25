@@ -130,6 +130,8 @@ public static class MacOSMauiProgram
         builder.Services.AddSingleton<IFirebasePushService, FirebasePushService>();
         builder.Services.AddSingleton<DeviceInspectorService>();
         builder.Services.AddSingleton<DevFlowInspectorService>();
+        builder.Services.AddHttpClient();
+        builder.Services.AddSingleton<IAppInspectorClientFactory, AppInspectorClientFactory>();
         builder.Services.AddSingleton<ProfilingViewerService>();
         builder.Services.AddSingleton<IDebugFlagService, DebugFlagService>();
         builder.Services.AddSingleton<IDoctorService, DoctorService>();
