@@ -10,9 +10,10 @@ public static class XcodeCommand
 {
     private const string ApplicationsDirectory = "/Applications";
     private const string ManagedXcodeAppPath = "/Applications/Xcode.app";
-    private const string ManagedXcodeAppTempLinkPath = "/Applications/.Xcode.app.maui-sherpa-tmp";
     private const string XcodesAppName = "Xcodes.app";
     private const string XcodeReleasesUrl = "https://xcodereleases.com/data.json";
+    private const string XcodeSelectionActionNone = "none";
+    private const string XcodeSelectionActionRename = "rename";
 
     public static Command Create()
     {
@@ -384,19 +385,37 @@ public static class XcodeCommand
 
     private static Command CreateSelectCommand()
     {
-        var cmd = new Command("select", "Switch the selected/default Xcode and update /Applications/Xcode.app (requires admin privileges).\n\nExamples:\n  maui-sherpa apple xcode select /Applications/Xcode_26.1.1_17B100.app\n  maui-sherpa apple xcode select 26.1.1");
+        var cmd = new Command("select", "Switch the selected/default Xcode using Xcodes.app-compatible selection actions (requires admin privileges).\n\nExamples:\n  maui-sherpa apple xcode select /Applications/Xcode_26.1.1_17B100.app\n  maui-sherpa apple xcode select 26.1.1\n  maui-sherpa apple xcode select 26.1.1 --selection-action none --create-symlink");
         var targetArg = new Argument<string>("target") { Description = "Xcode.app path or version number (e.g. 26.1.1)" };
+        var selectionActionOpt = new Option<string>("--selection-action")
+        {
+            Description = "Action after selecting: 'rename' renames the selected bundle to /Applications/Xcode.app; 'none' leaves bundle names unchanged.",
+            DefaultValueFactory = _ => XcodeSelectionActionRename
+        };
+        var createSymlinkOpt = new Option<bool>("--create-symlink")
+        {
+            Description = "With --selection-action none, create/update /Applications/Xcode.app as a symbolic link to the selected bundle when possible."
+        };
         cmd.Add(targetArg);
+        cmd.Add(selectionActionOpt);
+        cmd.Add(createSymlinkOpt);
         cmd.SetAction(async (parseResult, ct) =>
         {
             var json = parseResult.GetValue(CliOptions.Json);
             var target = parseResult.GetValue(targetArg)!;
-            await SelectAsync(json, target, ct);
+            var selectionAction = parseResult.GetValue(selectionActionOpt) ?? XcodeSelectionActionRename;
+            var createSymlink = parseResult.GetValue(createSymlinkOpt);
+            await SelectAsync(json, target, selectionAction, createSymlink, ct);
         });
         return cmd;
     }
 
-    private static async Task SelectAsync(bool json, string target, CancellationToken ct)
+    private static async Task SelectAsync(
+        bool json,
+        string target,
+        string selectionAction,
+        bool createSymlinkOnSelect,
+        CancellationToken ct)
     {
         if (!OperatingSystem.IsMacOS())
         {
@@ -440,15 +459,29 @@ public static class XcodeCommand
             var existingPaths = Directory.GetDirectories(ApplicationsDirectory, "Xcode*.app")
                 .Where(p => !Path.GetFileName(p).Equals(XcodesAppName, StringComparison.OrdinalIgnoreCase))
                 .ToList();
-            var selectionPlan = CreateSelectionPlan(appPath, managedDefaultState, existingPaths);
+            var selectionPlan = CreateSelectionPlan(
+                appPath,
+                managedDefaultState,
+                existingPaths,
+                selectionAction,
+                createSymlinkOnSelect);
             var result = await RunElevatedShellScriptAsync(CreateSelectionScript(selectionPlan), ct);
 
             if (result.exitCode == 0)
             {
+                var warning = result.error.Trim();
+                if (!string.IsNullOrWhiteSpace(warning) && !json)
+                    Output.WriteWarning(warning);
+
                 if (json)
-                    Output.WriteJson(new { success = true, path = selectionPlan.SelectedAppPath });
+                    Output.WriteJson(new
+                    {
+                        success = true,
+                        path = selectionPlan.XcodeSelectPath,
+                        warning = string.IsNullOrWhiteSpace(warning) ? null : warning
+                    });
                 else
-                    Output.WriteSuccess($"Switched default Xcode to {Path.GetFileName(selectionPlan.SelectedAppPath)}");
+                    Output.WriteSuccess($"Switched default Xcode to {Path.GetFileName(selectionPlan.XcodeSelectPath)}");
             }
             else
             {
@@ -665,9 +698,14 @@ public static class XcodeCommand
     private static XcodeSelectionPlan CreateSelectionPlan(
         string selectedAppPath,
         XcodeManagedDefaultState managedDefaultState,
-        IEnumerable<string> existingPaths)
+        IEnumerable<string> existingPaths,
+        string selectionAction = XcodeSelectionActionRename,
+        bool createSymlinkOnSelect = false)
     {
-        var normalizedSelectedAppPath = selectedAppPath;
+        selectionAction = NormalizeXcodeSelectionAction(selectionAction);
+        var shouldRename = selectionAction == XcodeSelectionActionRename;
+        var shouldCreateSymlink = !shouldRename && createSymlinkOnSelect;
+        var normalizedSelectedAppPath = NormalizePath(selectedAppPath);
         if (managedDefaultState.IsSymlink &&
             !string.IsNullOrWhiteSpace(managedDefaultState.LinkTargetPath) &&
             PathsEqual(selectedAppPath, managedDefaultState.CanonicalAppPath))
@@ -675,32 +713,29 @@ public static class XcodeCommand
             normalizedSelectedAppPath = managedDefaultState.LinkTargetPath;
         }
 
-        if (!managedDefaultState.IsRealBundle)
+        string? defaultMoveDestinationPath = null;
+        if (shouldRename &&
+            managedDefaultState.IsRealBundle &&
+            !PathsEqual(normalizedSelectedAppPath, managedDefaultState.CanonicalAppPath))
         {
-            return new XcodeSelectionPlan(
-                CanonicalAppPath: managedDefaultState.CanonicalAppPath,
-                SelectedAppPath: normalizedSelectedAppPath,
-                MigrationSourcePath: null,
-                MigrationDestinationPath: null);
+            if (string.IsNullOrWhiteSpace(managedDefaultState.Version))
+                throw new InvalidOperationException("Cannot rename /Applications/Xcode.app without a detected Xcode version.");
+
+            defaultMoveDestinationPath = ResolveManagedXcodeBundlePath(
+                Path.GetDirectoryName(managedDefaultState.CanonicalAppPath) ?? ApplicationsDirectory,
+                managedDefaultState.Version,
+                managedDefaultState.BuildNumber ?? "unknown",
+                existingPaths.Where(path => !PathsEqual(path, managedDefaultState.CanonicalAppPath)),
+                "-");
         }
-
-        if (string.IsNullOrWhiteSpace(managedDefaultState.Version))
-            throw new InvalidOperationException("Cannot migrate /Applications/Xcode.app without a detected Xcode version.");
-
-        var migrationDestinationPath = ResolveManagedXcodeBundlePath(
-            Path.GetDirectoryName(managedDefaultState.CanonicalAppPath) ?? ApplicationsDirectory,
-            managedDefaultState.Version,
-            managedDefaultState.BuildNumber ?? "unknown",
-            existingPaths.Where(path => !PathsEqual(path, managedDefaultState.CanonicalAppPath)));
-
-        if (PathsEqual(normalizedSelectedAppPath, managedDefaultState.CanonicalAppPath))
-            normalizedSelectedAppPath = migrationDestinationPath;
 
         return new XcodeSelectionPlan(
             CanonicalAppPath: managedDefaultState.CanonicalAppPath,
             SelectedAppPath: normalizedSelectedAppPath,
-            MigrationSourcePath: managedDefaultState.CanonicalAppPath,
-            MigrationDestinationPath: migrationDestinationPath);
+            XcodeSelectPath: shouldRename ? managedDefaultState.CanonicalAppPath : normalizedSelectedAppPath,
+            DefaultMoveDestinationPath: defaultMoveDestinationPath,
+            RemoveCanonicalSymlink: shouldRename && managedDefaultState.IsSymlink,
+            CreateCanonicalSymlink: shouldCreateSymlink);
     }
 
     private static string ResolveManagedXcodeBundlePath(
@@ -748,54 +783,85 @@ public static class XcodeCommand
     {
         var canonicalAppPath = EscapeShellSingleQuotedString(plan.CanonicalAppPath);
         var selectedAppPath = EscapeShellSingleQuotedString(plan.SelectedAppPath);
-        var migrationSourcePath = EscapeShellSingleQuotedString(plan.MigrationSourcePath ?? string.Empty);
-        var migrationDestinationPath = EscapeShellSingleQuotedString(plan.MigrationDestinationPath ?? string.Empty);
-        var tempLinkPath = EscapeShellSingleQuotedString(ManagedXcodeAppTempLinkPath);
+        var xcodeSelectPath = EscapeShellSingleQuotedString(plan.XcodeSelectPath);
+        var defaultMoveDestinationPath = EscapeShellSingleQuotedString(plan.DefaultMoveDestinationPath ?? string.Empty);
+        var removeCanonicalSymlink = plan.RemoveCanonicalSymlink ? "1" : "0";
+        var createCanonicalSymlink = plan.CreateCanonicalSymlink ? "1" : "0";
 
         return $$"""
             canonical_path='{{canonicalAppPath}}'
             selected_app='{{selectedAppPath}}'
-            migration_source='{{migrationSourcePath}}'
-            migration_destination='{{migrationDestinationPath}}'
-            temp_link='{{tempLinkPath}}'
+            xcode_select_path='{{xcodeSelectPath}}'
+            default_move_destination='{{defaultMoveDestinationPath}}'
+            remove_canonical_symlink='{{removeCanonicalSymlink}}'
+            create_canonical_symlink='{{createCanonicalSymlink}}'
             previous_symlink_target=""
+            selected_original_path="$selected_app"
+            selected_moved=""
+            default_moved=""
+            created_symlink=""
 
             cleanup() {
-                rm -f "$temp_link"
+                :
             }
 
             rollback() {
-                rm -f "$temp_link"
-
-                if [ -L "$canonical_path" ]; then
+                if [ -n "$created_symlink" ] && [ -L "$canonical_path" ]; then
                     rm "$canonical_path"
                 fi
 
-                if [ -n "$previous_symlink_target" ]; then
+                if [ -n "$selected_moved" ] && [ -d "$canonical_path" ] && [ ! -L "$canonical_path" ] && [ ! -e "$selected_original_path" ]; then
+                    mv "$canonical_path" "$selected_original_path"
+                fi
+
+                if [ -n "$default_moved" ] && [ -n "$default_move_destination" ] && [ -d "$default_move_destination" ] && [ ! -e "$canonical_path" ]; then
+                    mv "$default_move_destination" "$canonical_path"
+                fi
+
+                if [ -n "$previous_symlink_target" ] && [ ! -e "$canonical_path" ]; then
                     ln -s "$previous_symlink_target" "$canonical_path"
-                elif [ -n "$migration_source" ] && [ -n "$migration_destination" ] && [ -d "$migration_destination" ] && [ ! -e "$migration_source" ]; then
-                    mv "$migration_destination" "$migration_source"
                 fi
             }
 
             trap 'status=$?; cleanup; if [ $status -ne 0 ]; then rollback; fi; exit $status' EXIT
 
-            if [ -L "$canonical_path" ]; then
+            if [ "$remove_canonical_symlink" = "1" ] && [ -L "$canonical_path" ]; then
                 previous_symlink_target="$(readlink "$canonical_path")"
                 rm "$canonical_path"
             fi
 
-            if [ -n "$migration_source" ] && [ -n "$migration_destination" ] && [ -d "$migration_source" ] && [ ! -L "$migration_source" ]; then
-                mv "$migration_source" "$migration_destination"
-                if [ "$selected_app" = "$migration_source" ]; then
-                    selected_app="$migration_destination"
+            if [ -n "$default_move_destination" ] && [ -d "$canonical_path" ] && [ ! -L "$canonical_path" ]; then
+                if [ -e "$default_move_destination" ]; then
+                    echo "Destination already exists: $default_move_destination" >&2
+                    exit 1
                 fi
+                mv "$canonical_path" "$default_move_destination"
+                default_moved="1"
             fi
 
-            rm -f "$temp_link"
-            ln -s "$selected_app" "$temp_link"
-            mv "$temp_link" "$canonical_path"
-            xcode-select -s "$canonical_path/Contents/Developer"
+            if [ "$selected_app" != "$canonical_path" ]; then
+                if [ ! -d "$selected_app" ] || [ -L "$selected_app" ]; then
+                    echo "Selected Xcode app not found: $selected_app" >&2
+                    exit 1
+                fi
+                mv "$selected_app" "$canonical_path"
+                selected_moved="1"
+            fi
+
+            /usr/bin/xcode-select -s "$xcode_select_path"
+
+            if [ "$create_canonical_symlink" = "1" ]; then
+                if [ -e "$canonical_path" ] && [ ! -L "$canonical_path" ]; then
+                    echo "Cannot create symbolic link at $canonical_path because a real file or directory already exists." >&2
+                else
+                    if [ -L "$canonical_path" ]; then
+                        previous_symlink_target="$(readlink "$canonical_path")"
+                        rm "$canonical_path"
+                    fi
+                    ln -s "$selected_app" "$canonical_path"
+                    created_symlink="1"
+                fi
+            fi
 
             trap - EXIT
             cleanup
@@ -880,6 +946,11 @@ public static class XcodeCommand
 
     private static string NormalizePath(string path) =>
         Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar);
+
+    private static string NormalizeXcodeSelectionAction(string? value) =>
+        string.Equals(value, XcodeSelectionActionNone, StringComparison.OrdinalIgnoreCase)
+            ? XcodeSelectionActionNone
+            : XcodeSelectionActionRename;
 
     private static string EscapeShellSingleQuotedString(string value) =>
         value.Replace("'", "'\"'\"'");
@@ -993,7 +1064,9 @@ public static class XcodeCommand
     private record XcodeSelectionPlan(
         string CanonicalAppPath,
         string SelectedAppPath,
-        string? MigrationSourcePath,
-        string? MigrationDestinationPath
+        string XcodeSelectPath,
+        string? DefaultMoveDestinationPath,
+        bool RemoveCanonicalSymlink,
+        bool CreateCanonicalSymlink
     );
 }

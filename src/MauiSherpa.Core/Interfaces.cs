@@ -1001,7 +1001,7 @@ public interface IXcodeService
     Task<IReadOnlyList<XcodeRelease>> GetAvailableReleasesAsync();
 
     /// <summary>
-    /// Switch active Xcode via sudo xcode-select -s and update /Applications/Xcode.app
+    /// Switch active Xcode using the configured Xcodes.app-compatible selection action and xcode-select -s
     /// </summary>
     Task<bool> SelectXcodeAsync(string xcodeAppPath);
 
@@ -3414,6 +3414,8 @@ public record AppPreferences
     public bool DemoMode { get; init; } = false;
     public string XcodeArchiveExtractor { get; init; } = XcodeArchiveExtractorOptions.SystemXip;
     public string XcodeBundleSeparator { get; init; } = XcodeBundleSeparatorOptions.Underscore;
+    public string XcodeSelectionAction { get; init; } = XcodeSelectionActionOptions.Rename;
+    public bool XcodeCreateSymlinkOnSelect { get; init; } = false;
 }
 
 public static class XcodeArchiveExtractorOptions
@@ -3431,6 +3433,16 @@ public static class XcodeBundleSeparatorOptions
 {
     public const string Underscore = "_";
     public const string Hyphen = "-";
+}
+
+/// <summary>
+/// Xcode actions to perform after making an installed bundle active. Values match
+/// Xcodes.app's onSelectActionType preference.
+/// </summary>
+public static class XcodeSelectionActionOptions
+{
+    public const string None = "none";
+    public const string Rename = "rename";
 }
 
 public record PushTestingSettings
