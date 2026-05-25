@@ -1,7 +1,7 @@
 using Microsoft.Maui.Controls;
 #if MACOSAPP
-using Microsoft.Maui.Platform.MacOS;
-using Microsoft.Maui.Platform.MacOS.Controls;
+using Microsoft.Maui.Platforms.MacOS.Platform;
+using Microsoft.Maui.Platforms.MacOS.Controls;
 #else
 using Microsoft.AspNetCore.Components.WebView.Maui;
 #endif

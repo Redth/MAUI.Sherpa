@@ -40,8 +40,8 @@ public abstract class FormPage<TResult> : ContentPage, IFormPage<TResult>, IForm
     {
 
 #if MACOSAPP
-        Microsoft.Maui.Platform.MacOS.MacOSPage.SetModalSheetSizesToContent(this, true);
-        Microsoft.Maui.Platform.MacOS.MacOSPage.SetModalSheetMinWidth(this, 420);
+        Microsoft.Maui.Platforms.MacOS.Platform.MacOSPage.SetModalSheetSizesToContent(this, true);
+        Microsoft.Maui.Platforms.MacOS.Platform.MacOSPage.SetModalSheetMinWidth(this, 420);
 #elif LINUXGTK
         GtkPage.SetModalSizesToContent(this, true);
         GtkPage.SetModalMinWidth(this, 420);
