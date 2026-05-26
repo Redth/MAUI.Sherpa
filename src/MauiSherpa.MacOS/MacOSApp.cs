@@ -1,5 +1,5 @@
 using Microsoft.Maui.Controls;
-using Microsoft.Maui.Platform.MacOS;
+using Microsoft.Maui.Platforms.MacOS.Platform;
 using MauiSherpa.Core.Interfaces;
 using AppKit;
 using Foundation;
@@ -91,7 +91,7 @@ class MacOSApp : Application
             var splitView = _cachedSplitView;
             if (splitView == null)
             {
-                var handler = _flyoutPage?.Handler as Microsoft.Maui.Platform.MacOS.Handlers.NativeSidebarFlyoutPageHandler;
+                var handler = _flyoutPage?.Handler as Microsoft.Maui.Platforms.MacOS.Handlers.NativeSidebarFlyoutPageHandler;
                 splitView = handler?.SplitViewController?.SplitView;
             }
             if (splitView != null)
@@ -116,7 +116,7 @@ class MacOSApp : Application
     internal void CacheSplitView()
     {
         if (_cachedSplitView != null) return;
-        var handler = _flyoutPage?.Handler as Microsoft.Maui.Platform.MacOS.Handlers.NativeSidebarFlyoutPageHandler;
+        var handler = _flyoutPage?.Handler as Microsoft.Maui.Platforms.MacOS.Handlers.NativeSidebarFlyoutPageHandler;
         _cachedSplitView = handler?.SplitViewController?.SplitView;
     }
 

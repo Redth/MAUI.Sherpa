@@ -1,6 +1,6 @@
 using Microsoft.Maui.Controls;
-using Microsoft.Maui.Platform.MacOS;
-using Microsoft.Maui.Platform.MacOS.Controls;
+using Microsoft.Maui.Platforms.MacOS.Platform;
+using Microsoft.Maui.Platforms.MacOS.Controls;
 
 namespace MauiSherpa;
 
@@ -10,7 +10,7 @@ namespace MauiSherpa;
 /// </summary>
 public class InspectorPage : ContentPage
 {
-    public InspectorPage(string startPath, string title)
+    public InspectorPage(string startPath, string title, Type? rootComponentType = null)
     {
         Title = title;
 
@@ -22,7 +22,7 @@ public class InspectorPage : ContentPage
         blazorWebView.RootComponents.Add(new BlazorRootComponent
         {
             Selector = "#app",
-            ComponentType = typeof(Components.App)
+            ComponentType = rootComponentType ?? typeof(Components.App)
         });
         Content = blazorWebView;
     }

@@ -42,6 +42,7 @@ builder.Logging.AddSimpleConsole(static options =>
 });
 builder.Logging.SetMinimumLevel(LogLevel.Warning);
 builder.WebHost.UseSetting(WebHostDefaults.PreventHostingStartupKey, "true");
+builder.WebHost.UseStaticWebAssets();
 
 builder.Services.AddSingleton(options);
 builder.Services.AddSingleton(security);
@@ -57,8 +58,7 @@ var app = builder.Build();
 var scheme = options.Https ? "https" : "http";
 app.Urls.Add($"{scheme}://{options.ListenHost}:{options.ListenPort}");
 
-app.UseStaticFiles();
-app.MapStaticAssets();
+app.MapStaticAssets().ShortCircuit();
 app.Use(async (context, next) =>
 {
     if (IsPublicAsset(context.Request.Path) || security.Authorize(context))

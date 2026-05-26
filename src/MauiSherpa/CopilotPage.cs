@@ -1,8 +1,8 @@
 using Microsoft.Maui.Controls;
 using MauiSherpa.Core.Interfaces;
 #if MACOSAPP
-using Microsoft.Maui.Platform.MacOS;
-using Microsoft.Maui.Platform.MacOS.Controls;
+using Microsoft.Maui.Platforms.MacOS.Platform;
+using Microsoft.Maui.Platforms.MacOS.Controls;
 #elif LINUXGTK
 using Microsoft.Maui.Platforms.Linux.Gtk4.Platform;
 using Microsoft.AspNetCore.Components.WebView.Maui;

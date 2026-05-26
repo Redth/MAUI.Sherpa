@@ -1,6 +1,6 @@
 using MauiSherpa.Pages.Forms;
 #if MACOSAPP
-using Microsoft.Maui.Platform.MacOS;
+using Microsoft.Maui.Platforms.MacOS.Platform;
 #endif
 #if LINUXGTK
 using Microsoft.Maui.Platforms.Linux.Gtk4.Platform;

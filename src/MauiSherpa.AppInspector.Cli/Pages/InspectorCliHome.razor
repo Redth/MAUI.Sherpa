@@ -1,0 +1,60 @@
+@page "/"
+@inject NavigationManager Navigation
+
+<div class="connecting-overlay">
+    <i class="fas fa-spinner fa-spin"></i>
+    <p>Opening inspector...</p>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "agentId")]
+    public string? AgentId { get; set; }
+
+    [SupplyParameterFromQuery(Name = "host")]
+    public string? Host { get; set; }
+
+    [SupplyParameterFromQuery(Name = "port")]
+    public int? Port { get; set; }
+
+    [SupplyParameterFromQuery(Name = "tab")]
+    public string? Tab { get; set; }
+
+    [SupplyParameterFromQuery(Name = "token")]
+    public string? Token { get; set; }
+
+    [SupplyParameterFromQuery(Name = "project")]
+    public string? Project { get; set; }
+
+    [SupplyParameterFromQuery(Name = "sessionId")]
+    public string? SessionId { get; set; }
+
+    [SupplyParameterFromQuery(Name = "appName")]
+    public string? AppName { get; set; }
+
+    protected override void OnInitialized()
+    {
+        var agentId = Uri.EscapeDataString(AgentId ?? "agent");
+        var tab = Uri.EscapeDataString(Tab ?? "tree");
+        var query = new List<string>
+        {
+            CreateQueryParameter("host", Host ?? "localhost"),
+            CreateQueryParameter("port", (Port ?? 9223).ToString())
+        };
+
+        AddOptionalQueryParameter(query, "token", Token);
+        AddOptionalQueryParameter(query, "project", Project);
+        AddOptionalQueryParameter(query, "sessionId", SessionId);
+        AddOptionalQueryParameter(query, "appName", AppName);
+
+        Navigation.NavigateTo($"/inspector/devflow/{agentId}/{tab}?{string.Join("&", query)}", replace: true);
+    }
+
+    private static void AddOptionalQueryParameter(List<string> query, string name, string? value)
+    {
+        if (!string.IsNullOrWhiteSpace(value))
+            query.Add(CreateQueryParameter(name, value));
+    }
+
+    private static string CreateQueryParameter(string name, string value) =>
+        $"{Uri.EscapeDataString(name)}={Uri.EscapeDataString(value)}";
+}

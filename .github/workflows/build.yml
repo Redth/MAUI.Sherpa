@@ -389,7 +389,7 @@ jobs:
           retention-days: 30
 
       - name: Set commit status with artifact link
-        if: always()
+        if: ${{ always() && (github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork) }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -517,7 +517,7 @@ jobs:
           retention-days: 30
 
       - name: Set commit status with artifact link
-        if: always()
+        if: ${{ always() && (github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork) }}
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -614,9 +614,9 @@ jobs:
             -p:UseSharedCompilation=false \
             -nodeReuse:false \
             -maxcpucount:1 \
-            -p:CreateAppImage=true \
+            -p:CreateAppImage=false \
             -p:CreateDeb=true \
-            -p:CreateFlatpak=true
+            -p:CreateFlatpak=false
 
       - name: Collect artifacts
         run: |
@@ -657,6 +657,7 @@ jobs:
         with:
           name: MAUI-Sherpa.linux-appimage-${{ matrix.arch }}
           path: ./artifacts/*.AppImage
+          if-no-files-found: ignore
           retention-days: 30
 
       - name: Upload Linux Flatpak
@@ -664,10 +665,11 @@ jobs:
         with:
           name: MAUI-Sherpa.linux-flatpak-${{ matrix.arch }}
           path: ./artifacts/*.flatpak
+          if-no-files-found: ignore
           retention-days: 30
 
       - name: Set commit status with artifact link
-        if: always()
+        if: ${{ always() && (github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork) }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -751,7 +753,7 @@ jobs:
             --skip-duplicate
 
       - name: Set commit status with package link
-        if: always()
+        if: ${{ always() && (github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork) }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -877,7 +879,7 @@ jobs:
           retention-days: 30
 
       - name: Set commit status
-        if: always()
+        if: ${{ always() && (github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork) }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -948,24 +950,28 @@ jobs:
 
       - name: Download Linux AppImage (x64)
         uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
           name: MAUI-Sherpa.linux-appimage-x64
           path: ./release
 
       - name: Download Linux AppImage (arm64)
         uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
           name: MAUI-Sherpa.linux-appimage-arm64
           path: ./release
 
       - name: Download Linux Flatpak (x64)
         uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
           name: MAUI-Sherpa.linux-flatpak-x64
           path: ./release
 
       - name: Download Linux Flatpak (arm64)
         uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
           name: MAUI-Sherpa.linux-flatpak-arm64
           path: ./release

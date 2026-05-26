@@ -8,7 +8,7 @@ namespace MauiSherpa;
 /// </summary>
 public class InspectorPage : ContentPage
 {
-    public InspectorPage(string startPath, string title)
+    public InspectorPage(string startPath, string title, Type? rootComponentType = null)
     {
         Title = title;
 
@@ -20,7 +20,7 @@ public class InspectorPage : ContentPage
         blazorWebView.RootComponents.Add(new RootComponent
         {
             Selector = "#app",
-            ComponentType = typeof(Components.App)
+            ComponentType = rootComponentType ?? typeof(Components.App)
         });
         Content = blazorWebView;
     }

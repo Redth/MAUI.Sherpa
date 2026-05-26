@@ -4,9 +4,9 @@ using MauiSherpa.Services;
 using MauiSherpa.Core.ViewModels;
 using MauiSherpa.Core.Interfaces;
 using MauiSherpa.Core.Services;
-using Microsoft.Maui.Platform.MacOS.Hosting;
-using Microsoft.Maui.Platform.MacOS.Handlers;
-using Microsoft.Maui.Essentials.MacOS;
+using Microsoft.Maui.Platforms.MacOS.Hosting;
+using Microsoft.Maui.Platforms.MacOS.Handlers;
+using Microsoft.Maui.Platforms.MacOS.Essentials;
 using Shiny.Mediator;
 using Sentry.Maui;
 #if DEBUG
@@ -130,6 +130,8 @@ public static class MacOSMauiProgram
         builder.Services.AddSingleton<IFirebasePushService, FirebasePushService>();
         builder.Services.AddSingleton<DeviceInspectorService>();
         builder.Services.AddSingleton<DevFlowInspectorService>();
+        builder.Services.AddHttpClient();
+        builder.Services.AddSingleton<IAppInspectorClientFactory, AppInspectorClientFactory>();
         builder.Services.AddSingleton<ProfilingViewerService>();
         builder.Services.AddSingleton<IDebugFlagService, DebugFlagService>();
         builder.Services.AddSingleton<IDoctorService, DoctorService>();

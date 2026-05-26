@@ -35,7 +35,8 @@ public class DevFlowInspectorService
         var title = $"DevFlow — {ActiveAppName}";
         var page = new InspectorPage(
             $"/inspector/devflow/{Uri.EscapeDataString(agentId)}/{tabName}?host={Uri.EscapeDataString(host)}&port={port}",
-            title);
+            title,
+            typeof(MauiSherpa.AppInspector.InspectorApp));
         _window = new Window(page)
         {
             Title = title,
