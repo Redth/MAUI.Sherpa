@@ -22,6 +22,23 @@ public static class CloudSecretsProviderPathExtensions
         return provider.GetSecretAsync(path.ToFlatKey(), cancellationToken);
     }
 
+    public static Task<Dictionary<string, string>?> GetSecretMetadataAsync(
+        this ICloudSecretsProvider provider,
+        SecretPath path,
+        CancellationToken cancellationToken = default)
+    {
+        return provider.GetSecretMetadataAsync(path.ToFlatKey(), cancellationToken);
+    }
+
+    public static Task<bool> SetSecretMetadataAsync(
+        this ICloudSecretsProvider provider,
+        SecretPath path,
+        Dictionary<string, string> metadata,
+        CancellationToken cancellationToken = default)
+    {
+        return provider.SetSecretMetadataAsync(path.ToFlatKey(), metadata, cancellationToken);
+    }
+
     public static Task<bool> DeleteSecretAsync(
         this ICloudSecretsProvider provider,
         SecretPath path,

@@ -277,6 +277,30 @@ public class CloudSecretsService : ICloudSecretsService
         return await provider.GetSecretAsync(key, cancellationToken);
     }
 
+    public async Task<Dictionary<string, string>?> GetSecretMetadataAsync(string key, CancellationToken cancellationToken = default)
+    {
+        var provider = await GetActiveProviderInstanceAsync();
+        if (provider == null)
+        {
+            _logger.LogWarning("No active cloud secrets provider configured");
+            return null;
+        }
+
+        return await provider.GetSecretMetadataAsync(key, cancellationToken);
+    }
+
+    public async Task<bool> SetSecretMetadataAsync(string key, Dictionary<string, string> metadata, CancellationToken cancellationToken = default)
+    {
+        var provider = await GetActiveProviderInstanceAsync();
+        if (provider == null)
+        {
+            _logger.LogWarning("No active cloud secrets provider configured");
+            return false;
+        }
+
+        return await provider.SetSecretMetadataAsync(key, metadata, cancellationToken);
+    }
+
     public async Task<bool> DeleteSecretAsync(string key, CancellationToken cancellationToken = default)
     {
         var provider = await GetActiveProviderInstanceAsync();

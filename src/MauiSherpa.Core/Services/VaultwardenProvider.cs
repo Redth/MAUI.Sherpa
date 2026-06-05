@@ -116,6 +116,9 @@ public class VaultwardenProvider : ICloudSecretsProvider
             SetField(fields, key, base64Value);
 
             await UpdateCipherFieldsAsync(cipherId, cipher.Value, fields, cancellationToken);
+            if (metadata is not null && !await SetSecretMetadataAsync(key, metadata, cancellationToken))
+                return false;
+
             _logger.LogInformation($"Stored secret: {key}");
             return true;
         }
@@ -152,6 +155,47 @@ public class VaultwardenProvider : ICloudSecretsProvider
         }
     }
 
+    public async Task<Dictionary<string, string>?> GetSecretMetadataAsync(string key, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            if (!await SecretExistsAsync(key, cancellationToken))
+                return null;
+
+            var metadataBytes = await GetSecretAsync(GetMetadataFieldName(key), cancellationToken);
+            return metadataBytes is null
+                ? new Dictionary<string, string>(StringComparer.Ordinal)
+                : CloudSecretMetadata.Deserialize(metadataBytes);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Vaultwarden get secret metadata error: {ex.Message}", ex);
+            return null;
+        }
+    }
+
+    public async Task<bool> SetSecretMetadataAsync(
+        string key,
+        Dictionary<string, string> metadata,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            if (!await SecretExistsAsync(key, cancellationToken))
+                return false;
+
+            var metadataKey = GetMetadataFieldName(key);
+            return metadata.Count == 0
+                ? await DeleteSecretAsync(metadataKey, cancellationToken)
+                : await StoreSecretAsync(metadataKey, CloudSecretMetadata.Serialize(metadata), cancellationToken: cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Vaultwarden set secret metadata error: {ex.Message}", ex);
+            return false;
+        }
+    }
+
     public async Task<bool> DeleteSecretAsync(string key, CancellationToken cancellationToken = default)
     {
         try
@@ -171,11 +215,16 @@ public class VaultwardenProvider : ICloudSecretsProvider
             var fields = GetFieldsList(cipher.Value);
             if (!RemoveField(fields, key))
             {
+                if (!CloudSecretMetadata.IsMetadataKey(key) && RemoveField(fields, GetMetadataFieldName(key)))
+                    await UpdateCipherFieldsAsync(cipherId, cipher.Value, fields, cancellationToken);
                 _logger.LogInformation($"Secret field not found: {key}");
                 return true;
             }
 
             await UpdateCipherFieldsAsync(cipherId, cipher.Value, fields, cancellationToken);
+            if (!CloudSecretMetadata.IsMetadataKey(key))
+                await DeleteSecretAsync(GetMetadataFieldName(key), cancellationToken);
+
             _logger.LogInformation($"Deleted secret: {key}");
             return true;
         }
@@ -214,6 +263,10 @@ public class VaultwardenProvider : ICloudSecretsProvider
             if (cipher == null) return Array.Empty<string>();
 
             var labels = GetCustomFieldNames(cipher.Value);
+
+            labels = labels
+                .Where(l => !CloudSecretMetadata.IsMetadataKey(l))
+                .ToList();
 
             if (!string.IsNullOrEmpty(prefix))
                 labels = labels.Where(l => l.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)).ToList();
@@ -793,6 +846,11 @@ public class VaultwardenProvider : ICloudSecretsProvider
 
         fields.Remove(existing);
         return true;
+    }
+
+    private static string GetMetadataFieldName(string key)
+    {
+        return CloudSecretMetadata.GetMetadataKey(key);
     }
 
     #endregion

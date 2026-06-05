@@ -76,9 +76,12 @@ public class LocalSqlCipherSecretsProvider : ICloudSecretsProvider
         {
             await EnsureLegacyDatabaseMigratedAsync(cancellationToken);
             var path = SecretPath.FromFlatKey(key);
-            var itemMetadata = metadata is null
-                ? new Dictionary<string, string>(StringComparer.Ordinal)
-                : new Dictionary<string, string>(metadata, StringComparer.Ordinal);
+            var existing = await FindItemByFlatKeyAsync(key, cancellationToken);
+            var itemMetadata = metadata is null && existing is not null
+                ? new Dictionary<string, string>(existing.Metadata, StringComparer.Ordinal)
+                : metadata is null
+                    ? new Dictionary<string, string>(StringComparer.Ordinal)
+                    : new Dictionary<string, string>(metadata, StringComparer.Ordinal);
             itemMetadata[OriginalFlatKeyMetadataName] = key;
 
             await _vaultStore.PutAsync(
@@ -112,6 +115,62 @@ public class LocalSqlCipherSecretsProvider : ICloudSecretsProvider
         {
             _logger.LogError($"Local secrets provider get error: {ex.Message}", ex);
             return null;
+        }
+    }
+
+    public async Task<Dictionary<string, string>?> GetSecretMetadataAsync(string key, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await EnsureLegacyDatabaseMigratedAsync(cancellationToken);
+            var item = await FindItemByFlatKeyAsync(key, cancellationToken);
+            if (item is null)
+                return null;
+
+            var metadata = new Dictionary<string, string>(item.Metadata, StringComparer.Ordinal);
+            metadata.Remove(OriginalFlatKeyMetadataName);
+            return metadata;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Local secrets provider metadata get error: {ex.Message}", ex);
+            return null;
+        }
+    }
+
+    public async Task<bool> SetSecretMetadataAsync(
+        string key,
+        Dictionary<string, string> metadata,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await EnsureLegacyDatabaseMigratedAsync(cancellationToken);
+            var item = await FindItemByFlatKeyAsync(key, cancellationToken);
+            if (item is null)
+                return false;
+
+            var itemMetadata = new Dictionary<string, string>(metadata, StringComparer.Ordinal)
+            {
+                [OriginalFlatKeyMetadataName] = GetFlatKey(item)
+            };
+
+            await _vaultStore.PutAsync(
+                LocalVaultScopes.LocalProviderSecret,
+                item.Path,
+                item.Key,
+                item.Value,
+                item.ContentType,
+                itemMetadata,
+                cancellationToken);
+
+            _logger.LogInformation($"Updated local secret metadata: {key}");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Local secrets provider metadata set error: {ex.Message}", ex);
+            return false;
         }
     }
 

@@ -2838,6 +2838,20 @@ public interface ICloudSecretsProvider
     /// <param name="key">The secret key/name</param>
     /// <returns>The secret value, or null if not found</returns>
     Task<byte[]?> GetSecretAsync(string key, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Gets arbitrary key/value metadata stored for a secret.
+    /// </summary>
+    /// <param name="key">The secret key/name</param>
+    /// <returns>The metadata dictionary, null if the secret is not found, or an empty dictionary if no metadata exists</returns>
+    Task<Dictionary<string, string>?> GetSecretMetadataAsync(string key, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Replaces arbitrary key/value metadata for a secret without changing the secret value.
+    /// </summary>
+    /// <param name="key">The secret key/name</param>
+    /// <param name="metadata">The complete metadata dictionary to store</param>
+    Task<bool> SetSecretMetadataAsync(string key, Dictionary<string, string> metadata, CancellationToken cancellationToken = default);
     
     /// <summary>
     /// Deletes a secret
@@ -2902,8 +2916,14 @@ public record ManagedSecret(
     string? Description,
     string? OriginalFileName,
     DateTime CreatedAt,
-    DateTime UpdatedAt
-);
+    DateTime UpdatedAt,
+    Dictionary<string, string>? Metadata = null
+)
+{
+    public Dictionary<string, string> Metadata { get; init; } = Metadata is null
+        ? new Dictionary<string, string>(StringComparer.Ordinal)
+        : new Dictionary<string, string>(Metadata, StringComparer.Ordinal);
+}
 
 /// <summary>
 /// A logical folder for Sherpa-managed secrets.
@@ -2962,17 +2982,17 @@ public interface IManagedSecretsService
     /// <summary>
     /// Creates a new managed secret
     /// </summary>
-    Task<bool> CreateAsync(string key, byte[] value, ManagedSecretType type, string? description = null, string? originalFileName = null, CancellationToken cancellationToken = default);
+    Task<bool> CreateAsync(string key, byte[] value, ManagedSecretType type, string? description = null, string? originalFileName = null, Dictionary<string, string>? metadata = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Updates an existing managed secret's value and/or metadata
     /// </summary>
-    Task<bool> UpdateAsync(string key, byte[]? value = null, string? description = null, CancellationToken cancellationToken = default);
+    Task<bool> UpdateAsync(string key, byte[]? value = null, string? description = null, Dictionary<string, string>? metadata = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Moves an existing managed secret to a new key and optionally updates value/metadata.
     /// </summary>
-    Task<bool> MoveAsync(string key, string newKey, byte[]? value = null, string? description = null, CancellationToken cancellationToken = default);
+    Task<bool> MoveAsync(string key, string newKey, byte[]? value = null, string? description = null, Dictionary<string, string>? metadata = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Deletes a managed secret and its metadata
@@ -3040,6 +3060,16 @@ public interface ICloudSecretsService
     /// Retrieves a secret from the active provider
     /// </summary>
     Task<byte[]?> GetSecretAsync(string key, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Gets arbitrary key/value metadata stored for a secret from the active provider.
+    /// </summary>
+    Task<Dictionary<string, string>?> GetSecretMetadataAsync(string key, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Replaces arbitrary key/value metadata for a secret in the active provider.
+    /// </summary>
+    Task<bool> SetSecretMetadataAsync(string key, Dictionary<string, string> metadata, CancellationToken cancellationToken = default);
     
     /// <summary>
     /// Deletes a secret from the active provider

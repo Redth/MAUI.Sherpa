@@ -41,6 +41,36 @@ public class LocalSqlCipherSecretsProviderTests : IDisposable
     }
 
     [Fact]
+    public async Task Metadata_RoundTripsAndUpdatesIndependently()
+    {
+        var provider = CreateProvider();
+        var value = Encoding.UTF8.GetBytes("secret-value");
+
+        await provider.StoreSecretAsync("sherpa-secrets/api-key", value, new Dictionary<string, string>
+        {
+            ["environment/name"] = "prod",
+            ["owner=email"] = "team@example.com"
+        });
+
+        var createdMetadata = await provider.GetSecretMetadataAsync("sherpa-secrets/api-key");
+        var updated = await provider.SetSecretMetadataAsync("sherpa-secrets/api-key", new Dictionary<string, string>
+        {
+            ["environment/name"] = "stage"
+        });
+        var updatedMetadata = await provider.GetSecretMetadataAsync("sherpa-secrets/api-key");
+        var retrieved = await provider.GetSecretAsync("sherpa-secrets/api-key");
+        await provider.StoreSecretAsync("sherpa-secrets/api-key", Encoding.UTF8.GetBytes("new-value"));
+        var preservedMetadata = await provider.GetSecretMetadataAsync("sherpa-secrets/api-key");
+
+        createdMetadata.Should().ContainKey("environment/name").WhoseValue.Should().Be("prod");
+        createdMetadata.Should().ContainKey("owner=email").WhoseValue.Should().Be("team@example.com");
+        updated.Should().BeTrue();
+        updatedMetadata.Should().ContainSingle().Which.Should().Be(new KeyValuePair<string, string>("environment/name", "stage"));
+        retrieved.Should().BeEquivalentTo(value);
+        preservedMetadata.Should().ContainSingle().Which.Should().Be(new KeyValuePair<string, string>("environment/name", "stage"));
+    }
+
+    [Fact]
     public async Task SameKey_ReopensExistingDatabase()
     {
         var keyStore = new TestLocalSecretsKeyStore("same-key");

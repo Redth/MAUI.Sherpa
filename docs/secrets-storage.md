@@ -89,6 +89,25 @@ Recommended mappings for Sherpa-managed keys:
 
 Remote provider migrations should rewrite Sherpa-managed legacy keys into canonical paths only after the local vault migration has completed and the provider can verify all rewritten values.
 
+## Per-secret metadata
+
+`ICloudSecretsProvider` supports arbitrary string key/value metadata for each secret through `StoreSecretAsync(..., metadata)`, `GetSecretMetadataAsync`, and `SetSecretMetadataAsync`. `ICloudSecretsService` forwards the same operations to the active provider.
+
+The metadata contract is intentionally exact: metadata keys and values are serialized as one JSON dictionary instead of spreading individual metadata keys into provider-native tag, label, or variable names. That avoids data loss in providers that restrict tag characters, force lower-case labels, or sanitize variable names.
+
+Provider mapping:
+
+| Provider | Metadata storage |
+| --- | --- |
+| Local | Inline `LocalVaultItem.Metadata` in the SQLCipher vault item. Value updates preserve existing metadata unless replacement metadata is provided. |
+| Azure Key Vault, AWS Secrets Manager, Google Secret Manager, Infisical | Reserved companion secret containing the metadata JSON. The companion name is derived from the provider's actual storage key and hidden from `ListSecretsAsync`. |
+| 1Password, Vaultwarden / Bitwarden | Reserved companion field on the same secure note/cipher item. The field is hidden from `ListSecretsAsync`. |
+| Azure DevOps variable groups | One reserved non-secret companion variable containing the metadata JSON. Legacy per-key `__meta__` variables are still cleaned up on delete. |
+
+`GetSecretMetadataAsync` returns `null` when the primary secret does not exist and an empty dictionary when the secret exists but has no metadata. `SetSecretMetadataAsync` replaces the complete metadata dictionary without changing the secret value; an empty dictionary clears the metadata companion where a companion store is used. Deleting a primary secret also attempts to remove its metadata companion.
+
+Sherpa-managed secrets still keep their typed metadata (`Type`, `Description`, `OriginalFileName`, timestamps, and arbitrary user metadata) in the existing `sherpa-secrets-meta/` JSON record. That remains the source of truth for the managed-secrets UI and avoids creating two independent metadata records for the same Sherpa-managed secret.
+
 ## Compatibility adapters
 
 `VaultSecureStorageService` keeps the existing `ISecureStorageService` contract while changing its persistence boundary. Consumers such as Apple identities, Google identities, Firebase push, publisher config, and keystore passwords do not need immediate rewrites; their values are stored as vault records in the `secure` scope. Legacy secure-storage values are migrated on first read and deleted from the legacy store after the vault write succeeds.

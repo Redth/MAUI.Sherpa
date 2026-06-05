@@ -213,7 +213,14 @@ public class ManagedSecretsServiceTests
     public async Task GetAsync_ReturnsMetadata()
     {
         SetupActiveProvider();
-        var expected = new ManagedSecret("my-key", ManagedSecretType.File, "A file", "data.bin", DateTime.UtcNow, DateTime.UtcNow);
+        var expected = new ManagedSecret(
+            "my-key",
+            ManagedSecretType.File,
+            "A file",
+            "data.bin",
+            DateTime.UtcNow,
+            DateTime.UtcNow,
+            new Dictionary<string, string> { ["environment/name"] = "prod" });
         SetupMetadata("my-key", expected);
 
         var result = await _sut.GetAsync("my-key");
@@ -222,6 +229,7 @@ public class ManagedSecretsServiceTests
         result!.Key.Should().Be("my-key");
         result.Type.Should().Be(ManagedSecretType.File);
         result.OriginalFileName.Should().Be("data.bin");
+        result.Metadata.Should().ContainKey("environment/name").WhoseValue.Should().Be("prod");
     }
 
     [Fact]
@@ -242,6 +250,11 @@ public class ManagedSecretsServiceTests
     {
         SetupActiveProvider();
         var value = Encoding.UTF8.GetBytes("test-value");
+        var metadata = new Dictionary<string, string>
+        {
+            ["environment/name"] = "prod",
+            ["owner=email"] = "team@example.com"
+        };
 
         _cloudService.Setup(x => x.StoreSecretAsync("sherpa-secrets/new-key", value, null, It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
@@ -250,13 +263,17 @@ public class ManagedSecretsServiceTests
                 It.IsAny<byte[]>(), null, It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
 
-        var result = await _sut.CreateAsync("new-key", value, ManagedSecretType.String, "A test secret");
+        var result = await _sut.CreateAsync("new-key", value, ManagedSecretType.String, "A test secret", metadata: metadata);
 
         result.Should().BeTrue();
         _cloudService.Verify(x => x.StoreSecretAsync("sherpa-secrets/new-key", value, null, It.IsAny<CancellationToken>()), Times.Once);
         _cloudService.Verify(x => x.StoreSecretAsync(
             "sherpa-secrets-meta/new-key",
-            It.IsAny<byte[]>(), null, It.IsAny<CancellationToken>()), Times.Once);
+            It.Is<byte[]>(b =>
+                Encoding.UTF8.GetString(b).Contains("\"environment/name\":\"prod\"") &&
+                Encoding.UTF8.GetString(b).Contains("\"owner=email\":\"team@example.com\"")),
+            null,
+            It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]

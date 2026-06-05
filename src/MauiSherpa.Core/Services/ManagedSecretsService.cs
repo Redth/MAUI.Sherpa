@@ -240,7 +240,7 @@ public class ManagedSecretsService : IManagedSecretsService
     }
 
     public async Task<bool> CreateAsync(string key, byte[] value, ManagedSecretType type,
-        string? description = null, string? originalFileName = null,
+        string? description = null, string? originalFileName = null, Dictionary<string, string>? metadata = null,
         CancellationToken cancellationToken = default)
     {
         if (_cloudService.ActiveProvider is null)
@@ -259,7 +259,7 @@ public class ManagedSecretsService : IManagedSecretsService
         if (!stored)
             return false;
 
-        var meta = new ManagedSecret(key, type, description, originalFileName, now, now);
+        var meta = new ManagedSecret(key, type, description, originalFileName, now, now, metadata);
         if (!await SaveMetadataAsync(meta, cancellationToken))
         {
             await _cloudService.DeleteSecretAsync(fullKey, cancellationToken);
@@ -271,6 +271,7 @@ public class ManagedSecretsService : IManagedSecretsService
     }
 
     public async Task<bool> UpdateAsync(string key, byte[]? value = null, string? description = null,
+        Dictionary<string, string>? metadata = null,
         CancellationToken cancellationToken = default)
     {
         if (_cloudService.ActiveProvider is null)
@@ -291,6 +292,9 @@ public class ManagedSecretsService : IManagedSecretsService
         var updated = existing with
         {
             Description = description ?? existing.Description,
+            Metadata = metadata is null
+                ? existing.Metadata
+                : new Dictionary<string, string>(metadata, StringComparer.Ordinal),
             UpdatedAt = DateTime.UtcNow
         };
         if (!await SaveMetadataAsync(updated, cancellationToken))
@@ -301,6 +305,7 @@ public class ManagedSecretsService : IManagedSecretsService
     }
 
     public async Task<bool> MoveAsync(string key, string newKey, byte[]? value = null, string? description = null,
+        Dictionary<string, string>? metadata = null,
         CancellationToken cancellationToken = default)
     {
         if (_cloudService.ActiveProvider is null)
@@ -317,7 +322,7 @@ public class ManagedSecretsService : IManagedSecretsService
             throw new ArgumentException("Secret key is reserved for folder metadata.", nameof(newKey));
 
         if (oldPath.ToFlatKey() == newPath.ToFlatKey())
-            return await UpdateAsync(key, value, description, cancellationToken);
+            return await UpdateAsync(key, value, description, metadata, cancellationToken);
 
         var existing = await LoadMetadataAsync(key, cancellationToken);
         if (existing is null)
@@ -344,6 +349,9 @@ public class ManagedSecretsService : IManagedSecretsService
         {
             Key = newKey,
             Description = description ?? existing.Description,
+            Metadata = metadata is null
+                ? existing.Metadata
+                : new Dictionary<string, string>(metadata, StringComparer.Ordinal),
             UpdatedAt = DateTime.UtcNow
         };
         var metadataStored = await SaveMetadataAsync(moved, cancellationToken);
