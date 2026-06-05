@@ -85,6 +85,40 @@ public class CloudSecretsServiceTests
     }
 
     [Fact]
+    public async Task InitializeAsync_WithRemoteProviderAndLocalVaultUnavailable_ActivatesRemoteProvider()
+    {
+        var secureStorage = new InMemorySecureStorage();
+        var service = CreateService(
+            secureStorage: secureStorage,
+            localVaultAccess: new TestLocalVaultAccessService(
+                new LocalVaultAccessState(LocalVaultAccessProblem.AccessDenied, "Denied")));
+        var provider = new CloudSecretsProviderConfig(
+            "remote",
+            "Remote",
+            CloudSecretsProviderType.AzureKeyVault,
+            new Dictionary<string, string>
+            {
+                ["VaultUrl"] = "https://test.vault.azure.net",
+                ["TenantId"] = "tenant",
+                ["ClientId"] = "client",
+                ["ClientSecret"] = "secret"
+            });
+
+        await service.SaveProviderAsync(provider);
+
+        await service.InitializeAsync();
+
+        service.ActiveProvider.Should().NotBeNull();
+        service.ActiveProvider!.Id.Should().Be("remote");
+        service.ActiveProvider.ProviderType.Should().Be(CloudSecretsProviderType.AzureKeyVault);
+        secureStorage.Values["cloud_secrets_active_provider"].Should().Be("remote");
+
+        var providers = await service.GetProvidersAsync();
+        providers.Should().Contain(p => p.Id == "remote");
+        providers.Should().ContainSingle(p => p.Id == "local" && p.ProviderType == CloudSecretsProviderType.Local);
+    }
+
+    [Fact]
     public async Task DeleteProviderAsync_LocalProvider_DoesNotDeleteLocal()
     {
         var service = CreateService();
@@ -126,6 +160,31 @@ public class CloudSecretsServiceTests
         metadataItem.Should().NotBeNull();
         settingsItem.Should().NotBeNull();
         fileSystem.Files.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task SaveProviderAsync_WithUnavailableVaultStore_PersistsMetadataAndSettingsToJson()
+    {
+        var fileSystem = new InMemoryFileSystem();
+        var service = CreateService(fileSystem: fileSystem, vaultStore: new ThrowingLocalVaultStore());
+        var provider = new CloudSecretsProviderConfig(
+            "remote",
+            "Remote",
+            CloudSecretsProviderType.AzureKeyVault,
+            new Dictionary<string, string>
+            {
+                ["VaultUrl"] = "https://test.vault.azure.net",
+                ["TenantId"] = "tenant",
+                ["ClientId"] = "client",
+                ["ClientSecret"] = "secret"
+            });
+
+        await service.SaveProviderAsync(provider);
+        var providers = await service.GetProvidersAsync();
+
+        providers.Should().ContainSingle(p => p.Id == "remote");
+        fileSystem.Files.Should().ContainKey(Path.Combine(AppDataPath.GetAppDataDirectory(), "cloud-secrets-providers.json"));
+        fileSystem.Files.Should().ContainKey(Path.Combine(AppDataPath.GetAppDataDirectory(), "cloud-secrets-remote.json"));
     }
 
     [Fact]
@@ -174,7 +233,8 @@ public class CloudSecretsServiceTests
     private static CloudSecretsService CreateService(
         InMemorySecureStorage? secureStorage = null,
         InMemoryFileSystem? fileSystem = null,
-        ILocalVaultStore? vaultStore = null)
+        ILocalVaultStore? vaultStore = null,
+        ILocalVaultAccessService? localVaultAccess = null)
     {
         var logger = new TestLogger();
         return new CloudSecretsService(
@@ -182,7 +242,8 @@ public class CloudSecretsServiceTests
             fileSystem ?? new InMemoryFileSystem(),
             logger,
             new CloudSecretsProviderFactory(logger, new TestLocalSecretsKeyStore(), vaultStore),
-            vaultStore);
+            vaultStore,
+            localVaultAccess);
     }
 
     private static SqlCipherLocalVaultStore CreateVaultStore()
@@ -199,6 +260,63 @@ public class CloudSecretsServiceTests
     {
         public Task<string> GetOrCreateKeyAsync(CancellationToken cancellationToken = default)
             => Task.FromResult("test-key");
+    }
+
+    private sealed class TestLocalVaultAccessService(LocalVaultAccessState state) : ILocalVaultAccessService
+    {
+        public LocalVaultAccessState GetState() => state;
+
+        public Task<LocalVaultAccessState> RequestAccessAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(state);
+
+        public event Action? StateChanged
+        {
+            add { }
+            remove { }
+        }
+    }
+
+    private sealed class ThrowingLocalVaultStore : ILocalVaultStore
+    {
+        public string DatabasePath => "throwing";
+
+        public Task<LocalVaultItem> PutAsync(
+            string scope,
+            string path,
+            string key,
+            byte[] value,
+            string contentType,
+            Dictionary<string, string>? metadata = null,
+            CancellationToken cancellationToken = default)
+            => throw new LocalVaultUnavailableException("Vault unavailable");
+
+        public Task<LocalVaultItem?> GetAsync(
+            string scope,
+            string path,
+            string key,
+            CancellationToken cancellationToken = default)
+            => throw new LocalVaultUnavailableException("Vault unavailable");
+
+        public Task<bool> RemoveAsync(
+            string scope,
+            string path,
+            string key,
+            CancellationToken cancellationToken = default)
+            => throw new LocalVaultUnavailableException("Vault unavailable");
+
+        public Task<bool> ExistsAsync(
+            string scope,
+            string path,
+            string key,
+            CancellationToken cancellationToken = default)
+            => throw new LocalVaultUnavailableException("Vault unavailable");
+
+        public Task<IReadOnlyList<LocalVaultItem>> ListAsync(
+            string scope,
+            string? path = null,
+            string? keyPrefix = null,
+            CancellationToken cancellationToken = default)
+            => throw new LocalVaultUnavailableException("Vault unavailable");
     }
 
     private sealed class InMemorySecureStorage : ISecureStorageService

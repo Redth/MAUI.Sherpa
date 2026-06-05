@@ -31,6 +31,7 @@
 @inject MauiSherpa.Pages.Forms.ModalParameterService ModalParams
 @inject MauiSherpa.Pages.Forms.HybridFormBridgeHolder BridgeHolder
 @inject IXcodeService XcodeService
+@inject ILocalVaultAccessService LocalVaultAccess
 
 @if (!PlatformInfo.HasNativeToolbar)
 {
@@ -418,6 +419,22 @@
         Store app secrets, signing certificates, and publish profiles securely.
         The default Local provider keeps secrets on this machine; cloud providers can sync across machines and CI/CD pipelines.
     </p>
+
+    @if (ShouldShowLocalVaultNotice)
+    {
+        <div class="vault-access-card">
+            <div class="vault-access-content">
+                <i class="fas fa-key"></i>
+                <div>
+                    <strong>Local Vault access is disabled</strong>
+                    <p>MAUI Sherpa cannot access the Local Vault key in OS secure storage. Grant access to use Local secrets on this Mac.</p>
+                </div>
+            </div>
+            <button class="btn btn-primary" @onclick="GrantLocalVaultAccessAsync" disabled="@isGrantingLocalVaultAccess">
+                <i class="fas @(isGrantingLocalVaultAccess ? "fa-spinner fa-spin" : "fa-unlock")"></i> Grant Access
+            </button>
+        </div>
+    }
     
     @if (cloudProviders.Count == 0)
     {
@@ -1142,6 +1159,36 @@
     .empty-identities { padding: 1.25rem; text-align: center; color: var(--text-muted); }
 
     /* Cloud Provider Styles */
+    .vault-access-card {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 1rem;
+        padding: 1rem;
+        margin-bottom: 1rem;
+        background: var(--card-bg);
+        border-radius: var(--card-radius, 1rem);
+    }
+    .vault-access-content {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.875rem;
+        color: var(--text-secondary);
+    }
+    .vault-access-content i {
+        color: var(--accent-primary);
+        margin-top: 0.125rem;
+    }
+    .vault-access-content strong {
+        display: block;
+        color: var(--text-primary);
+        margin-bottom: 0.25rem;
+    }
+    .vault-access-content p {
+        margin: 0;
+        color: var(--text-muted);
+        font-size: 0.875rem;
+    }
     .empty-providers { padding: 1.25rem; text-align: center; color: var(--text-muted); }
     
     .provider-list { display: flex; flex-direction: column; gap: 1rem; }
@@ -1306,6 +1353,7 @@
     
     // Cloud provider state
     private List<CloudSecretsProviderConfig> cloudProviders = new();
+    private bool isGrantingLocalVaultAccess;
 
     // CI/CD Publisher state
     private List<SecretsPublisherConfig> secretsPublishers = new();
@@ -1339,6 +1387,7 @@
         
         // Subscribe to cloud provider changes
         CloudSecretsService.OnActiveProviderChanged += OnCloudProviderChanged;
+        LocalVaultAccess.StateChanged += OnLocalVaultStateChanged;
         
         // Subscribe to secrets publisher changes
         SecretsPublisherService.OnPublishersChanged += OnPublishersChanged;
@@ -1448,7 +1497,43 @@
         SdkSettings.SdkPathChanged -= OnSdkPathChanged;
         JdkSettings.JdkPathChanged -= OnJdkPathChanged;
         CloudSecretsService.OnActiveProviderChanged -= OnCloudProviderChanged;
+        LocalVaultAccess.StateChanged -= OnLocalVaultStateChanged;
         SecretsPublisherService.OnPublishersChanged -= OnPublishersChanged;
+    }
+
+    private bool ShouldShowLocalVaultNotice =>
+        LocalVaultAccess.GetState().RequiresUserAction &&
+        (CloudSecretsService.ActiveProvider?.ProviderType == CloudSecretsProviderType.Local ||
+            cloudProviders.All(p => p.ProviderType == CloudSecretsProviderType.Local));
+
+    private void OnLocalVaultStateChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    private async Task GrantLocalVaultAccessAsync()
+    {
+        isGrantingLocalVaultAccess = true;
+        StateHasChanged();
+        try
+        {
+            var state = await LocalVaultAccess.RequestAccessAsync();
+            if (state.RequiresUserAction)
+            {
+                await AlertService.ShowToastAsync("Local Vault access was not granted.");
+                return;
+            }
+
+            await AlertService.ShowToastAsync("Local Vault access granted.");
+            if (CloudSecretsService is CloudSecretsService svc)
+                await svc.InitializeAsync();
+            await LoadCloudProviders();
+        }
+        finally
+        {
+            isGrantingLocalVaultAccess = false;
+            StateHasChanged();
+        }
     }
 
     private async Task LoadAppleIdentities()

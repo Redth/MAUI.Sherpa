@@ -264,13 +264,13 @@ public class CreateSecretPage : FormPage<SecretCreateResult>
         {
             Text = "Remove",
             BorderWidth = 0,
-            CornerRadius = 6,
-            FontSize = 13,
+            CornerRadius = 5,
+            FontSize = 12,
             HeightRequest = 36,
             Padding = new Thickness(10, 0),
             VerticalOptions = LayoutOptions.Center,
         };
-        removeButton.SetDynamicResource(Button.BackgroundColorProperty, FormTheme.InputBg);
+        removeButton.SetDynamicResource(Button.BackgroundColorProperty, FormTheme.InputBorder);
         removeButton.SetDynamicResource(Button.TextColorProperty, FormTheme.AccentDanger);
 
         var rowLayout = new Grid
@@ -315,6 +315,8 @@ public class CreateSecretPage : FormPage<SecretCreateResult>
         _metadataRows.Children.Add(rowLayout);
         UpdateMetadataHint();
         UpdateMetadataError();
+        _metadataRows.InvalidateMeasure();
+        InvalidateMeasure();
         UpdateSubmitEnabled();
     }
 

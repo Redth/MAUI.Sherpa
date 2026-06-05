@@ -87,6 +87,37 @@ public interface ILocalSecretsKeyStore : ILocalVaultKeyStore
 {
 }
 
+public enum LocalVaultAccessProblem
+{
+    None,
+    AccessDenied
+}
+
+public sealed record LocalVaultAccessState(
+    LocalVaultAccessProblem Problem,
+    string? Message = null,
+    DateTime? LastFailureUtc = null)
+{
+    public bool RequiresUserAction => Problem != LocalVaultAccessProblem.None;
+
+    public static LocalVaultAccessState Available { get; } = new(LocalVaultAccessProblem.None);
+}
+
+public sealed class LocalVaultUnavailableException : InvalidOperationException
+{
+    public LocalVaultUnavailableException(string message, Exception? innerException = null)
+        : base(message, innerException)
+    {
+    }
+}
+
+public interface ILocalVaultAccessService
+{
+    LocalVaultAccessState GetState();
+    Task<LocalVaultAccessState> RequestAccessAsync(CancellationToken cancellationToken = default);
+    event Action? StateChanged;
+}
+
 public interface ILocalVaultStore
 {
     string DatabasePath { get; }

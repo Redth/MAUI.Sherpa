@@ -87,6 +87,7 @@ public static class MacOSMauiProgram
         builder.Services.AddSingleton<LocalSecretsKeyStore>();
         builder.Services.AddSingleton<ILocalSecretsKeyStore>(sp => sp.GetRequiredService<LocalSecretsKeyStore>());
         builder.Services.AddSingleton<ILocalVaultKeyStore>(sp => sp.GetRequiredService<LocalSecretsKeyStore>());
+        builder.Services.AddSingleton<ILocalVaultAccessService>(sp => sp.GetRequiredService<LocalSecretsKeyStore>());
         builder.Services.AddSingleton<ILocalVaultStore, SqlCipherLocalVaultStore>();
         builder.Services.AddSingleton<IThemeService, MacOSThemeService>();
 
