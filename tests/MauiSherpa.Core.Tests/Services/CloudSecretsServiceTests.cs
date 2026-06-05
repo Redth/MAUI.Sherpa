@@ -25,6 +25,65 @@ public class CloudSecretsServiceTests
     }
 
     [Fact]
+    public async Task InitializeAsync_WithNoProvidersAndIntroNotSeen_DoesNotActivateLocalProvider()
+    {
+        var secureStorage = new InMemorySecureStorage();
+        var service = CreateService(
+            secureStorage: secureStorage,
+            localVaultIntroduction: new TestLocalVaultIntroductionService(LocalVaultIntroductionState.NotShown));
+
+        await service.InitializeAsync();
+
+        service.ActiveProvider.Should().BeNull();
+        secureStorage.Values.Should().NotContainKey("cloud_secrets_active_provider");
+
+        var providers = await service.GetProvidersAsync();
+        providers.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task InitializeAsync_WithRemoteProviderAndIntroNotSeen_ActivatesRemoteWithoutLocal()
+    {
+        var secureStorage = new InMemorySecureStorage();
+        var intro = new TestLocalVaultIntroductionService(LocalVaultIntroductionState.NotShown);
+        var service = CreateService(secureStorage: secureStorage, localVaultIntroduction: intro);
+        var provider = new CloudSecretsProviderConfig(
+            "remote",
+            "Remote",
+            CloudSecretsProviderType.AzureKeyVault,
+            new Dictionary<string, string>
+            {
+                ["VaultUrl"] = "https://test.vault.azure.net",
+                ["TenantId"] = "tenant",
+                ["ClientId"] = "client",
+                ["ClientSecret"] = "secret"
+            });
+
+        await service.SaveProviderAsync(provider);
+        await service.InitializeAsync();
+
+        service.ActiveProvider.Should().NotBeNull();
+        service.ActiveProvider!.Id.Should().Be("remote");
+        secureStorage.Values["cloud_secrets_active_provider"].Should().Be("remote");
+
+        var providers = await service.GetProvidersAsync();
+        providers.Should().ContainSingle(p => p.Id == "remote");
+        providers.Should().NotContain(p => p.Id == "local");
+    }
+
+    [Fact]
+    public async Task GetProvidersAsync_WithIntroNotSeen_DoesNotTouchVaultStore()
+    {
+        var service = CreateService(
+            vaultStore: new ThrowingLocalVaultStore(),
+            localVaultIntroduction: new TestLocalVaultIntroductionService(LocalVaultIntroductionState.NotShown));
+
+        var providers = await service.GetProvidersAsync();
+
+        providers.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task InitializeAsync_WithExistingActiveProvider_AddsLocalAndDoesNotOverride()
     {
         var service = CreateService();
@@ -163,6 +222,25 @@ public class CloudSecretsServiceTests
     }
 
     [Fact]
+    public async Task EnableDefaultLocalProviderAsync_WithIntroEnabled_CreatesAndActivatesLocalProvider()
+    {
+        var secureStorage = new InMemorySecureStorage();
+        var service = CreateService(
+            secureStorage: secureStorage,
+            localVaultIntroduction: new TestLocalVaultIntroductionService(
+                new LocalVaultIntroductionState(
+                    LocalVaultIntroductionState.CurrentVersion,
+                    LocalVaultIntroductionDecision.Enabled,
+                    DateTime.UtcNow)));
+
+        await service.EnableDefaultLocalProviderAsync();
+
+        service.ActiveProvider.Should().NotBeNull();
+        service.ActiveProvider!.Id.Should().Be("local");
+        secureStorage.Values["cloud_secrets_active_provider"].Should().Be("local");
+    }
+
+    [Fact]
     public async Task SaveProviderAsync_WithUnavailableVaultStore_PersistsMetadataAndSettingsToJson()
     {
         var fileSystem = new InMemoryFileSystem();
@@ -234,7 +312,8 @@ public class CloudSecretsServiceTests
         InMemorySecureStorage? secureStorage = null,
         InMemoryFileSystem? fileSystem = null,
         ILocalVaultStore? vaultStore = null,
-        ILocalVaultAccessService? localVaultAccess = null)
+        ILocalVaultAccessService? localVaultAccess = null,
+        ILocalVaultIntroductionService? localVaultIntroduction = null)
     {
         var logger = new TestLogger();
         return new CloudSecretsService(
@@ -243,7 +322,8 @@ public class CloudSecretsServiceTests
             logger,
             new CloudSecretsProviderFactory(logger, new TestLocalSecretsKeyStore(), vaultStore),
             vaultStore,
-            localVaultAccess);
+            localVaultAccess,
+            localVaultIntroduction);
     }
 
     private static SqlCipherLocalVaultStore CreateVaultStore()
@@ -268,6 +348,21 @@ public class CloudSecretsServiceTests
 
         public Task<LocalVaultAccessState> RequestAccessAsync(CancellationToken cancellationToken = default)
             => Task.FromResult(state);
+
+        public event Action? StateChanged
+        {
+            add { }
+            remove { }
+        }
+    }
+
+    private sealed class TestLocalVaultIntroductionService(LocalVaultIntroductionState state) : ILocalVaultIntroductionService
+    {
+        public LocalVaultIntroductionState GetState() => state;
+
+        public Task MarkEnabledAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task MarkDeclinedAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 
         public event Action? StateChanged
         {

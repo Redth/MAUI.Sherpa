@@ -10,20 +10,26 @@ public sealed class VaultSecureStorageService : ISecureStorageService
     private readonly ILocalVaultStore _vaultStore;
     private readonly ILegacySecureStorageService _legacySecureStorage;
     private readonly ILoggingService _logger;
+    private readonly ILocalVaultIntroductionService? _localVaultIntroduction;
 
     public VaultSecureStorageService(
         ILocalVaultStore vaultStore,
         ILegacySecureStorageService legacySecureStorage,
-        ILoggingService logger)
+        ILoggingService logger,
+        ILocalVaultIntroductionService? localVaultIntroduction = null)
     {
         _vaultStore = vaultStore;
         _legacySecureStorage = legacySecureStorage;
         _logger = logger;
+        _localVaultIntroduction = localVaultIntroduction;
     }
 
     public async Task<string?> GetAsync(string key)
     {
         ValidateKey(key);
+
+        if (!IsLocalVaultEnabled())
+            return await _legacySecureStorage.GetAsync(key);
 
         var vaultKey = EncodeKey(key);
         var item = await _vaultStore.GetAsync(LocalVaultScopes.SecureStorage, "/", vaultKey);
@@ -44,6 +50,12 @@ public sealed class VaultSecureStorageService : ISecureStorageService
     {
         ValidateKey(key);
 
+        if (!IsLocalVaultEnabled())
+        {
+            await _legacySecureStorage.SetAsync(key, value);
+            return;
+        }
+
         var vaultKey = EncodeKey(key);
         await _vaultStore.PutAsync(
             LocalVaultScopes.SecureStorage,
@@ -63,9 +75,18 @@ public sealed class VaultSecureStorageService : ISecureStorageService
     {
         ValidateKey(key);
 
+        if (!IsLocalVaultEnabled())
+        {
+            await _legacySecureStorage.RemoveAsync(key);
+            return;
+        }
+
         await _vaultStore.RemoveAsync(LocalVaultScopes.SecureStorage, "/", EncodeKey(key));
         await _legacySecureStorage.RemoveAsync(key);
     }
+
+    private bool IsLocalVaultEnabled() =>
+        _localVaultIntroduction?.GetState().IsLocalVaultEnabled != false;
 
     private static void ValidateKey(string key)
     {

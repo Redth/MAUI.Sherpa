@@ -11,6 +11,7 @@
 @inject MauiSherpa.Pages.Forms.ModalParameterService ModalParams
 @inject IAndroidSdkService AndroidSdkService
 @inject IDebugFlagService DebugFlags
+@inject LocalVaultIntroModalService LocalVaultIntroModal
 
 <div class="page-header">
     <div class="page-title-row">
@@ -168,6 +169,19 @@
             <div class="button-grid">
                 <button class="btn btn-primary" @onclick="ShowUpdateModal">
                     <i class="fa-solid fa-arrow-up"></i> Show Update Modal
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Local Vault Intro Modal -->
+    <div class="debug-section">
+        <h2><i class="fa-solid fa-vault"></i> Local Vault Intro Modal</h2>
+        <p class="section-description">Preview the first-run Local Vault introduction dialog. Actions are not saved in preview mode.</p>
+        <div class="debug-card">
+            <div class="button-grid">
+                <button class="btn btn-primary" @onclick="ShowLocalVaultIntroModal">
+                    <i class="fa-solid fa-vault"></i> Show Local Vault Intro
                 </button>
             </div>
         </div>
@@ -398,6 +412,13 @@
         await nav.PushModalAsync(page, animated: true);
         await resultTask;
         await nav.PopModalAsync(animated: true);
+    }
+
+    // === Local Vault Intro Modal ===
+
+    private async Task ShowLocalVaultIntroModal()
+    {
+        await LocalVaultIntroModal.ShowPreviewAsync();
     }
 
     // === Process Execution Modal ===

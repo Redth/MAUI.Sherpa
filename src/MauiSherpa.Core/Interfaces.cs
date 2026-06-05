@@ -118,6 +118,42 @@ public interface ILocalVaultAccessService
     event Action? StateChanged;
 }
 
+public enum LocalVaultIntroductionDecision
+{
+    NotSet,
+    Enabled,
+    Declined
+}
+
+public enum LocalVaultIntroductionResult
+{
+    EnableLocal,
+    DeclineLocal
+}
+
+public sealed record LocalVaultIntroductionState(
+    int Version,
+    LocalVaultIntroductionDecision Decision,
+    DateTime? DecidedAtUtc = null)
+{
+    public const int CurrentVersion = 1;
+
+    public bool HasSeenCurrentVersion => Version == CurrentVersion && Decision != LocalVaultIntroductionDecision.NotSet;
+    public bool IsLocalVaultEnabled => Version == CurrentVersion && Decision == LocalVaultIntroductionDecision.Enabled;
+    public bool HasDeclined => Version == CurrentVersion && Decision == LocalVaultIntroductionDecision.Declined;
+
+    public static LocalVaultIntroductionState NotShown { get; } =
+        new(CurrentVersion, LocalVaultIntroductionDecision.NotSet);
+}
+
+public interface ILocalVaultIntroductionService
+{
+    LocalVaultIntroductionState GetState();
+    Task MarkEnabledAsync(CancellationToken cancellationToken = default);
+    Task MarkDeclinedAsync(CancellationToken cancellationToken = default);
+    event Action? StateChanged;
+}
+
 public interface ILocalVaultStore
 {
     string DatabasePath { get; }
@@ -3052,6 +3088,11 @@ public interface ICloudSecretsService
     /// Saves (adds or updates) a provider configuration
     /// </summary>
     Task SaveProviderAsync(CloudSecretsProviderConfig provider);
+
+    /// <summary>
+    /// Enables the built-in Local provider after the user opts in to the local vault.
+    /// </summary>
+    Task EnableDefaultLocalProviderAsync(bool setActiveProvider = true);
     
     /// <summary>
     /// Deletes a provider configuration

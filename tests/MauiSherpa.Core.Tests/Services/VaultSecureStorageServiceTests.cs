@@ -56,6 +56,26 @@ public class VaultSecureStorageServiceTests : IDisposable
         legacy.Values.Should().NotContainKey("api-key");
     }
 
+    [Fact]
+    public async Task BeforeIntroEnabled_UsesLegacySecureStorageOnly()
+    {
+        var legacy = new InMemoryLegacySecureStorage();
+        await legacy.SetAsync("api-key", "legacy-value");
+        var service = new VaultSecureStorageService(
+            new ThrowingLocalVaultStore(),
+            legacy,
+            new TestLogger(),
+            new TestLocalVaultIntroductionService(LocalVaultIntroductionState.NotShown));
+
+        var value = await service.GetAsync("api-key");
+        await service.SetAsync("new-key", "new-value");
+        await service.RemoveAsync("api-key");
+
+        value.Should().Be("legacy-value");
+        legacy.Values.Should().NotContainKey("api-key");
+        legacy.Values["new-key"].Should().Be("new-value");
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_tempDirectory))
@@ -96,6 +116,61 @@ public class VaultSecureStorageServiceTests : IDisposable
     {
         public Task<string> GetOrCreateKeyAsync(CancellationToken cancellationToken = default)
             => Task.FromResult("test-key");
+    }
+
+    private sealed class TestLocalVaultIntroductionService(LocalVaultIntroductionState state) : ILocalVaultIntroductionService
+    {
+        public LocalVaultIntroductionState GetState() => state;
+        public Task MarkEnabledAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task MarkDeclinedAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public event Action? StateChanged
+        {
+            add { }
+            remove { }
+        }
+    }
+
+    private sealed class ThrowingLocalVaultStore : ILocalVaultStore
+    {
+        public string DatabasePath => "throwing";
+
+        public Task<LocalVaultItem> PutAsync(
+            string scope,
+            string path,
+            string key,
+            byte[] value,
+            string contentType,
+            Dictionary<string, string>? metadata = null,
+            CancellationToken cancellationToken = default)
+            => throw new InvalidOperationException("Vault should not be used before intro is enabled.");
+
+        public Task<LocalVaultItem?> GetAsync(
+            string scope,
+            string path,
+            string key,
+            CancellationToken cancellationToken = default)
+            => throw new InvalidOperationException("Vault should not be used before intro is enabled.");
+
+        public Task<bool> RemoveAsync(
+            string scope,
+            string path,
+            string key,
+            CancellationToken cancellationToken = default)
+            => throw new InvalidOperationException("Vault should not be used before intro is enabled.");
+
+        public Task<bool> ExistsAsync(
+            string scope,
+            string path,
+            string key,
+            CancellationToken cancellationToken = default)
+            => throw new InvalidOperationException("Vault should not be used before intro is enabled.");
+
+        public Task<IReadOnlyList<LocalVaultItem>> ListAsync(
+            string scope,
+            string? path = null,
+            string? keyPrefix = null,
+            CancellationToken cancellationToken = default)
+            => throw new InvalidOperationException("Vault should not be used before intro is enabled.");
     }
 
     private sealed class TestLogger : ILoggingService

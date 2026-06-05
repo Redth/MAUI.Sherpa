@@ -8,7 +8,7 @@ MAUI Sherpa stores credentials, signing material, provider configuration, and ap
 | --- | --- | --- | --- |
 | SQLCipher root key | `ILocalVaultKeyStore`, `LocalSecretsKeyStore` | Local vault encryption key | OS secure storage entry `MAUI Sherpa Local Vault`. This is the only long-term OS secure-storage dependency for migrated app-owned data. |
 | Central local vault | `ILocalVaultStore`, `SqlCipherLocalVaultStore` | Generic app-owned secrets, metadata, settings, and provider data | Shiny DocumentDB over SQLCipher in `local-vault.db`. Records use a generic scope/path/key envelope. |
-| Local secrets provider | `LocalSqlCipherSecretsProvider` | Managed secrets, local copies of synced certs/keystores, publish profile payloads | Built-in default provider and logical provider view over the central local vault under `local-provider-secret`. It is always present in Settings so users can switch back to local-only storage while leaving cloud providers configured. Existing flat keys are preserved in metadata for compatibility. |
+| Local secrets provider | `LocalSqlCipherSecretsProvider` | Managed secrets, local copies of synced certs/keystores, publish profile payloads | Built-in provider and logical provider view over the central local vault under `local-provider-secret`. It is created and offered as a default only after the user opts in to the Local Vault introduction. Existing flat keys are preserved in metadata for compatibility. |
 | Legacy Local provider DB | first-pass `local-secrets.db` | Local-provider secret values | Lazily migrated into the central vault on Local provider use, then deleted after successful verification/write. |
 | Secure-storage compatibility | `VaultSecureStorageService` | Existing app-owned key/value secrets | Reads/writes the central vault under `secure`. On first read, legacy OS/fallback secure-storage values are copied into the vault and removed from the old store. |
 | Encrypted settings | `EncryptedSettingsService` | Settings snapshots that may include sensitive config | Vault-backed settings document under `settings`. Existing `settings.enc`, `.bak`, `.unreadable`, and `MauiSherpa_MasterKey` are removed after successful migration. |
@@ -55,6 +55,22 @@ flowchart LR
     Vault --> KeyStore[ILocalVaultKeyStore]
     KeyStore --> OS[OS secure storage: MAUI Sherpa Local Vault]
 ```
+
+## First-run Local Vault introduction
+
+The app does not create or activate the Local provider until the user has seen the Local Vault introduction and explicitly enables it. `ILocalVaultIntroductionService` persists the current introduction version and decision in preferences:
+
+- `NotSet`: the current introduction has not been answered. The app shows the introduction on startup and treats Local Vault as disabled.
+- `Enabled`: the user approved Local Vault. Sherpa may request OS secure-storage access for the root key, create the built-in Local provider, migrate legacy local values into the vault, and make Local the default provider when requested.
+- `Declined`: the user chose not to use Local Vault for now. Sherpa does not show the introduction repeatedly and does not auto-create or auto-select Local.
+
+While the decision is `NotSet` or `Declined`, compatibility adapters intentionally stay on legacy storage:
+
+- `VaultSecureStorageService` reads and writes the legacy `ILegacySecureStorageService` instead of touching `ILocalVaultStore`.
+- `EncryptedSettingsService` reads and writes `settings.enc` instead of opening the vault.
+- `CloudSecretsService` stores provider metadata/settings in the legacy JSON files, hides Local from provider lists, and chooses a remote provider as the implicit default if one exists.
+
+The startup flow shows the Local Vault introduction before update prompts, and the modal's enable action calls `ILocalVaultAccessService.RequestAccessAsync()` before marking Local Vault as enabled. If the OS secure-storage prompt is denied or unavailable, Sherpa leaves the decision unset so the user can retry or decline without leaving a half-enabled Local provider.
 
 ## Canonical secret paths
 
@@ -110,11 +126,11 @@ Sherpa-managed secrets still keep their typed metadata (`Type`, `Description`, `
 
 ## Compatibility adapters
 
-`VaultSecureStorageService` keeps the existing `ISecureStorageService` contract while changing its persistence boundary. Consumers such as Apple identities, Google identities, Firebase push, publisher config, and keystore passwords do not need immediate rewrites; their values are stored as vault records in the `secure` scope. Legacy secure-storage values are migrated on first read and deleted from the legacy store after the vault write succeeds.
+`VaultSecureStorageService` keeps the existing `ISecureStorageService` contract while changing its persistence boundary. Consumers such as Apple identities, Google identities, Firebase push, publisher config, and keystore passwords do not need immediate rewrites; after Local Vault is enabled, their values are stored as vault records in the `secure` scope. Legacy secure-storage values are migrated on first read and deleted from the legacy store after the vault write succeeds. Before Local Vault is enabled, the facade deliberately delegates to legacy secure storage so startup can run without prompting for the vault key.
 
-`EncryptedSettingsService` is also a compatibility facade. It reads the vault first, migrates an existing `settings.enc` file when needed, and writes new settings directly to the `settings` scope. After a successful migration, it deletes `settings.enc`, `settings.enc.bak`, `settings.enc.unreadable`, and the old `MauiSherpa_MasterKey`.
+`EncryptedSettingsService` is also a compatibility facade. After Local Vault is enabled, it reads the vault first, migrates an existing `settings.enc` file when needed, and writes new settings directly to the `settings` scope. After a successful migration, it deletes `settings.enc`, `settings.enc.bak`, `settings.enc.unreadable`, and the old `MauiSherpa_MasterKey`. Before Local Vault is enabled, it keeps using `settings.enc`.
 
-`CloudSecretsService` stores provider metadata and non-secret provider settings in the `cloud-provider` scope. If legacy `cloud-secrets-providers.json` or `cloud-secrets-{id}.json` files exist, they are imported into the vault and deleted after successful writes. Provider secret settings continue to use `ISecureStorageService`, which now maps them to the vault.
+`CloudSecretsService` stores provider metadata and non-secret provider settings in the `cloud-provider` scope after Local Vault is enabled. If legacy `cloud-secrets-providers.json` or `cloud-secrets-{id}.json` files exist, they are imported into the vault and deleted after successful writes. Provider secret settings continue to use `ISecureStorageService`, which maps them to the vault only after the Local Vault introduction has been enabled.
 
 ## Export/import impact
 

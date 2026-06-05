@@ -21,6 +21,7 @@ public class EncryptedSettingsService : IEncryptedSettingsService
     private readonly IFileSystemService _fileSystem;
     private readonly ISecureStorageService _secureStorage;
     private readonly ILocalVaultStore? _vaultStore;
+    private readonly ILocalVaultIntroductionService? _localVaultIntroduction;
     private readonly string _settingsPath;
     private MauiSherpaSettings? _cachedSettings;
     private readonly SemaphoreSlim _lock = new(1, 1);
@@ -30,11 +31,13 @@ public class EncryptedSettingsService : IEncryptedSettingsService
     public EncryptedSettingsService(
         IFileSystemService fileSystem,
         ISecureStorageService secureStorage,
-        ILocalVaultStore? vaultStore = null)
+        ILocalVaultStore? vaultStore = null,
+        ILocalVaultIntroductionService? localVaultIntroduction = null)
         : this(
             fileSystem,
             secureStorage,
             vaultStore,
+            localVaultIntroduction,
             Path.Combine(AppDataPath.GetAppDataDirectory(), SettingsFileName))
     {
     }
@@ -44,10 +47,21 @@ public class EncryptedSettingsService : IEncryptedSettingsService
         ISecureStorageService secureStorage,
         ILocalVaultStore? vaultStore,
         string settingsPath)
+        : this(fileSystem, secureStorage, vaultStore, null, settingsPath)
+    {
+    }
+
+    internal EncryptedSettingsService(
+        IFileSystemService fileSystem,
+        ISecureStorageService secureStorage,
+        ILocalVaultStore? vaultStore,
+        ILocalVaultIntroductionService? localVaultIntroduction,
+        string settingsPath)
     {
         _fileSystem = fileSystem;
         _secureStorage = secureStorage;
         _vaultStore = vaultStore;
+        _localVaultIntroduction = localVaultIntroduction;
         _settingsPath = settingsPath;
     }
 
@@ -68,7 +82,7 @@ public class EncryptedSettingsService : IEncryptedSettingsService
             if (_cachedSettings != null)
                 return _cachedSettings;
 
-            if (_vaultStore is not null)
+            if (CanUseLocalVault())
             {
                 var vaultSettings = await LoadVaultSettingsAsync();
                 if (vaultSettings is not null)
@@ -91,7 +105,7 @@ public class EncryptedSettingsService : IEncryptedSettingsService
             {
                 var json = Decrypt(encryptedData, masterKey);
                 _cachedSettings = JsonSerializer.Deserialize<MauiSherpaSettings>(json) ?? new MauiSherpaSettings();
-                if (_vaultStore is not null)
+                if (CanUseLocalVault())
                 {
                     await SaveVaultSettingsAsync(_cachedSettings);
                     await CleanupLegacySettingsAsync();
@@ -124,7 +138,7 @@ public class EncryptedSettingsService : IEncryptedSettingsService
         {
             var settingsToSave = settings with { LastModified = DateTime.UtcNow };
 
-            if (_vaultStore is not null)
+            if (CanUseLocalVault())
             {
                 await SaveVaultSettingsAsync(settingsToSave);
                 _cachedSettings = settingsToSave;
@@ -172,7 +186,7 @@ public class EncryptedSettingsService : IEncryptedSettingsService
 
     private async Task<bool> SettingsExistCoreAsync()
     {
-        if (_vaultStore is not null &&
+        if (CanUseLocalVault() &&
             await _vaultStore.ExistsAsync(LocalVaultScopes.Settings, VaultSettingsPath, VaultSettingsKey))
         {
             return true;
@@ -182,6 +196,10 @@ public class EncryptedSettingsService : IEncryptedSettingsService
     }
 
     private bool LegacySettingsFileExists() => File.Exists(_settingsPath);
+
+    private bool CanUseLocalVault() =>
+        _vaultStore is not null &&
+        _localVaultIntroduction?.GetState().IsLocalVaultEnabled != false;
 
     private async Task<MauiSherpaSettings?> LoadVaultSettingsAsync()
     {

@@ -98,6 +98,7 @@ public static class MacOSMauiProgram
         builder.Services.AddSingleton<ILauncher>(_ => Launcher.Default);
         builder.Services.AddSingleton<IClipboard>(_ => Clipboard.Default);
         builder.Services.AddSingleton<ISecureStorage>(_ => SecureStorage.Default);
+        builder.Services.AddSingleton<ILocalVaultIntroductionService, LocalVaultIntroductionService>();
 
         // Toolbar service for native macOS toolbar integration
         builder.Services.AddSingleton<IToolbarService, ToolbarService>();
@@ -150,6 +151,7 @@ public static class MacOSMauiProgram
         builder.Services.AddSingleton<IFormModalService, MauiSherpa.Services.FormModalService>();
         builder.Services.AddSingleton<MauiSherpa.Pages.Forms.HybridFormBridgeHolder>();
         builder.Services.AddSingleton<MauiSherpa.Pages.Forms.ModalParameterService>();
+        builder.Services.AddSingleton<LocalVaultIntroModalService>();
 
         // Apple services
         builder.Services.AddSingleton<IAppleIdentityService, AppleIdentityService>();
