@@ -62,6 +62,7 @@ public class CreateSecretPage : FormPage<SecretCreateResult>
         _descriptionEntry = CreateEntry("Optional description");
 
         _typePicker = CreatePicker(null, new[] { "String", "File" });
+        _typePicker.SelectedIndex = 0;
         _typePicker.SelectedIndexChanged += (_, _) => OnTypeChanged();
 
         _valueEditor = new Editor
