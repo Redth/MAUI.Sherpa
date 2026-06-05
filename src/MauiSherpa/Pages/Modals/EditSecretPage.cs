@@ -10,7 +10,8 @@ public record EditSecretResult(
     string? Description,
     byte[]? Value,
     byte[]? FileBytes,
-    ManagedSecretType Type);
+    ManagedSecretType Type,
+    Dictionary<string, string> Metadata);
 
 public class EditSecretPage : HybridFormPage<EditSecretResult>
 {
@@ -43,6 +44,7 @@ public class EditSecretPage : HybridFormPage<EditSecretResult>
         Bridge.Parameters["Description"] = secret.Description ?? "";
         Bridge.Parameters["Type"] = secret.Type;
         Bridge.Parameters["FileName"] = secret.OriginalFileName ?? "";
+        Bridge.Parameters["Metadata"] = secret.Metadata;
     }
 
     private static string GetSecretFolder(string key)

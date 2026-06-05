@@ -4,7 +4,13 @@ using MauiSherpa.Core.Services;
 
 namespace MauiSherpa.Pages.Forms;
 
-public record SecretCreateResult(string Key, string? Description, ManagedSecretType Type, byte[] Value, string? OriginalFileName);
+public record SecretCreateResult(
+    string Key,
+    string? Description,
+    ManagedSecretType Type,
+    byte[] Value,
+    string? OriginalFileName,
+    Dictionary<string, string> Metadata);
 
 public class CreateSecretPage : FormPage<SecretCreateResult>
 {
@@ -19,6 +25,10 @@ public class CreateSecretPage : FormPage<SecretCreateResult>
     private Button _fileButton = null!;
     private View _stringGroup = null!;
     private View _fileGroup = null!;
+    private VerticalStackLayout _metadataRows = null!;
+    private Label _metadataHint = null!;
+    private Label _metadataError = null!;
+    private readonly List<MetadataRow> _metadataEntries = new();
 
     private byte[]? _fileBytes;
     private string? _fileName;
@@ -43,6 +53,7 @@ public class CreateSecretPage : FormPage<SecretCreateResult>
             if (_folderPicker?.SelectedIndex < 0) return false;
             if (!IsKeyValid()) return false;
             if (_typePicker?.SelectedIndex < 0) return false;
+            if (!IsMetadataValid()) return false;
             if (_typePicker?.SelectedIndex == 0) // String
                 return !string.IsNullOrWhiteSpace(_valueEditor?.Text);
             else // File
@@ -106,6 +117,52 @@ public class CreateSecretPage : FormPage<SecretCreateResult>
         });
         _fileGroup.IsVisible = false;
 
+        _metadataRows = new VerticalStackLayout
+        {
+            Spacing = 8
+        };
+
+        _metadataHint = new Label
+        {
+            Text = "Add optional key/value metadata for this secret.",
+            FontSize = 11,
+        };
+        _metadataHint.SetDynamicResource(Label.TextColorProperty, FormTheme.TextMuted);
+
+        _metadataError = new Label
+        {
+            Text = "Metadata keys must be unique. A row with a value also needs a key.",
+            FontSize = 11,
+            IsVisible = false,
+        };
+        _metadataError.SetDynamicResource(Label.TextColorProperty, FormTheme.AccentDanger);
+
+        var addMetadataButton = new Button
+        {
+            Text = "Add Metadata",
+            BorderWidth = 0,
+            CornerRadius = 6,
+            FontSize = 13,
+            HeightRequest = 34,
+            Padding = new Thickness(12, 0),
+            HorizontalOptions = LayoutOptions.Start,
+        };
+        addMetadataButton.SetDynamicResource(Button.BackgroundColorProperty, FormTheme.InputBg);
+        addMetadataButton.SetDynamicResource(Button.TextColorProperty, FormTheme.TextPrimary);
+        addMetadataButton.Clicked += (_, _) => AddMetadataRow();
+
+        var metadataGroup = CreateFormGroup("Metadata", new VerticalStackLayout
+        {
+            Spacing = 8,
+            Children =
+            {
+                _metadataHint,
+                _metadataRows,
+                _metadataError,
+                addMetadataButton,
+            }
+        });
+
         return new VerticalStackLayout
         {
             Spacing = 16,
@@ -117,6 +174,7 @@ public class CreateSecretPage : FormPage<SecretCreateResult>
                 CreateFormGroup("Type", _typePicker),
                 _stringGroup,
                 _fileGroup,
+                metadataGroup,
             }
         };
     }
@@ -171,7 +229,13 @@ public class CreateSecretPage : FormPage<SecretCreateResult>
             originalFileName = _fileName;
         }
 
-        return Task.FromResult(new SecretCreateResult(key, description, type, value, originalFileName));
+        return Task.FromResult(new SecretCreateResult(
+            key,
+            description,
+            type,
+            value,
+            originalFileName,
+            GetMetadata()));
     }
 
     private bool IsKeyValid()
@@ -188,4 +252,119 @@ public class CreateSecretPage : FormPage<SecretCreateResult>
     }
 
     private static string FormatFolderPath(string folderPath) => folderPath == "/" ? "Root (/)" : folderPath;
+
+    private void AddMetadataRow(string key = "", string value = "")
+    {
+        var keyEntry = CreateEntry("metadata-key");
+        keyEntry.Text = key;
+        var valueEntry = CreateEntry("metadata value");
+        valueEntry.Text = value;
+
+        var removeButton = new Button
+        {
+            Text = "Remove",
+            BorderWidth = 0,
+            CornerRadius = 6,
+            FontSize = 13,
+            HeightRequest = 36,
+            Padding = new Thickness(10, 0),
+            VerticalOptions = LayoutOptions.Center,
+        };
+        removeButton.SetDynamicResource(Button.BackgroundColorProperty, FormTheme.InputBg);
+        removeButton.SetDynamicResource(Button.TextColorProperty, FormTheme.AccentDanger);
+
+        var rowLayout = new Grid
+        {
+            ColumnDefinitions =
+            {
+                new ColumnDefinition(GridLength.Star),
+                new ColumnDefinition(GridLength.Star),
+                new ColumnDefinition(GridLength.Auto),
+            },
+            ColumnSpacing = 8,
+        };
+        Grid.SetColumn(keyEntry, 0);
+        Grid.SetColumn(valueEntry, 1);
+        Grid.SetColumn(removeButton, 2);
+        rowLayout.Children.Add(keyEntry);
+        rowLayout.Children.Add(valueEntry);
+        rowLayout.Children.Add(removeButton);
+
+        var row = new MetadataRow(keyEntry, valueEntry, rowLayout);
+        removeButton.Clicked += (_, _) =>
+        {
+            _metadataEntries.Remove(row);
+            _metadataRows.Children.Remove(rowLayout);
+            UpdateMetadataHint();
+            UpdateMetadataError();
+            UpdateSubmitEnabled();
+        };
+
+        keyEntry.TextChanged += (_, _) =>
+        {
+            UpdateMetadataError();
+            UpdateSubmitEnabled();
+        };
+        valueEntry.TextChanged += (_, _) =>
+        {
+            UpdateMetadataError();
+            UpdateSubmitEnabled();
+        };
+
+        _metadataEntries.Add(row);
+        _metadataRows.Children.Add(rowLayout);
+        UpdateMetadataHint();
+        UpdateMetadataError();
+        UpdateSubmitEnabled();
+    }
+
+    private void UpdateMetadataHint()
+    {
+        _metadataHint.Text = _metadataEntries.Count == 0
+            ? "Add optional key/value metadata for this secret."
+            : "Leave a value empty to store an empty value. Remove a row to delete it.";
+    }
+
+    private void UpdateMetadataError()
+    {
+        _metadataError.IsVisible = !IsMetadataValid();
+    }
+
+    private bool IsMetadataValid()
+    {
+        var keys = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var row in _metadataEntries)
+        {
+            var key = row.KeyEntry.Text?.Trim() ?? "";
+            var value = row.ValueEntry.Text ?? "";
+            if (string.IsNullOrEmpty(key))
+            {
+                if (!string.IsNullOrEmpty(value))
+                    return false;
+                continue;
+            }
+
+            if (!keys.Add(key))
+                return false;
+        }
+
+        return true;
+    }
+
+    private Dictionary<string, string> GetMetadata()
+    {
+        var metadata = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var row in _metadataEntries)
+        {
+            var key = row.KeyEntry.Text?.Trim() ?? "";
+            if (string.IsNullOrEmpty(key))
+                continue;
+
+            metadata[key] = row.ValueEntry.Text ?? "";
+        }
+
+        return metadata;
+    }
+
+    private sealed record MetadataRow(Entry KeyEntry, Entry ValueEntry, View Layout);
 }
