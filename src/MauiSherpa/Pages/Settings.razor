@@ -413,17 +413,17 @@
 </div>
 
 <div class="settings-section">
-    <h2><i class="fas fa-cloud"></i> Cloud Secrets Storage</h2>
+    <h2><i class="fas fa-vault"></i> Secrets Storage</h2>
     <p class="section-description">
-        Store certificate private keys securely in the cloud to sync across machines.
-        This enables sharing signing certificates between development machines and CI/CD pipelines.
+        Store app secrets, signing certificates, and publish profiles securely.
+        The default Local provider keeps secrets on this machine; cloud providers can sync across machines and CI/CD pipelines.
     </p>
     
     @if (cloudProviders.Count == 0)
     {
         <div class="settings-container">
             <div class="empty-providers">
-                <p>No cloud providers configured</p>
+                <p>No secrets providers configured</p>
             </div>
         </div>
     }
@@ -460,12 +460,15 @@
                             <button class="btn btn-sm btn-secondary" @onclick="@(() => TestProvider(provider))" title="Test Connection">
                                 <i class="fas fa-plug"></i> Test
                             </button>
-                            <button class="btn btn-sm btn-secondary" @onclick="@(() => EditProvider(provider))" title="Edit">
-                                <i class="fas fa-edit"></i> Edit
-                            </button>
-                            <button class="btn btn-sm btn-danger" @onclick="@(() => DeleteProvider(provider))" title="Delete">
-                                <i class="fas fa-trash"></i> Delete
-                            </button>
+                            @if (!IsBuiltInLocalProvider(provider))
+                            {
+                                <button class="btn btn-sm btn-secondary" @onclick="@(() => EditProvider(provider))" title="Edit">
+                                    <i class="fas fa-edit"></i> Edit
+                                </button>
+                                <button class="btn btn-sm btn-danger" @onclick="@(() => DeleteProvider(provider))" title="Delete">
+                                    <i class="fas fa-trash"></i> Delete
+                                </button>
+                            }
                         </div>
                     </div>
                     <div class="provider-details">
@@ -473,6 +476,13 @@
                             <span class="detail-label">TYPE</span>
                             <span class="detail-value">@CloudSecretsProviderFactory.GetProviderDisplayName(provider.ProviderType)</span>
                         </div>
+                        @if (IsBuiltInLocalProvider(provider))
+                        {
+                            <div class="detail-item">
+                                <span class="detail-label">SCOPE</span>
+                                <span class="detail-value">Built-in encrypted local vault</span>
+                            </div>
+                        }
                         @if (provider.ProviderType == CloudSecretsProviderType.Infisical)
                         {
                             <div class="detail-item">
@@ -535,7 +545,7 @@
     
     <div class="section-add-action">
         <button class="btn btn-success" @onclick="ShowAddProviderDialog">
-            <i class="fas fa-plus"></i> Add Cloud Provider
+            <i class="fas fa-plus"></i> Add Secrets Provider
         </button>
     </div>
 </div>
@@ -1453,13 +1463,13 @@
     
     private async Task LoadCloudProviders()
     {
-        cloudProviders = (await CloudSecretsService.GetProvidersAsync()).ToList();
-        
         // Initialize service if needed
         if (CloudSecretsService is CloudSecretsService svc)
         {
             await svc.InitializeAsync();
         }
+
+        cloudProviders = (await CloudSecretsService.GetProvidersAsync()).ToList();
     }
 
     private async Task LoadSecretsPublishers()
@@ -1996,10 +2006,11 @@
         await LoadGoogleIdentities();
     }
     
-    // Cloud Provider Methods
+    // Secrets Provider Methods
     
     private string GetProviderIcon(CloudSecretsProviderType type) => type switch
     {
+        CloudSecretsProviderType.Local => "fas fa-database",
         CloudSecretsProviderType.Infisical => "fas fa-shield-alt",
         CloudSecretsProviderType.AzureKeyVault => "fas fa-key",
         CloudSecretsProviderType.AwsSecretsManager => "fab fa-aws",
@@ -2009,6 +2020,10 @@
         CloudSecretsProviderType.AzureDevOps => "fab fa-microsoft",
         _ => "fas fa-lock"
     };
+
+    private static bool IsBuiltInLocalProvider(CloudSecretsProviderConfig provider) =>
+        provider.Id == MauiSherpa.Core.Services.CloudSecretsService.DefaultLocalProviderId &&
+        provider.ProviderType == CloudSecretsProviderType.Local;
 
     private static string GetVaultwardenServerDisplay(CloudSecretsProviderConfig provider)
     {
@@ -2159,7 +2174,7 @@
         if (success)
             await AlertService.ShowToastAsync("Connection successful!");
         else
-            await AlertService.ShowAlertAsync("Connection Failed", "Could not connect to the cloud provider. Check your credentials and settings.");
+            await AlertService.ShowAlertAsync("Connection Failed", "Could not connect to the secrets provider. Check your credentials and settings.");
     }
     
     private async Task SetActiveProvider(CloudSecretsProviderConfig provider)

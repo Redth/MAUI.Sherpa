@@ -252,6 +252,14 @@ public class BlazorContentPage : ContentPage
         }
     }
 
+    static string GetFilterMenuTitle(IReadOnlyList<ToolbarFilter> filters)
+    {
+        if (filters.Count == 1)
+            return filters[0].Label;
+
+        return "Filters";
+    }
+
     private void HideSplash()
     {
         if (_loadingOverlay == null) return;
@@ -369,6 +377,7 @@ public class BlazorContentPage : ContentPage
     // Toolbar caching: create items once, then show/hide natively
     bool _toolbarInitialized;
     bool _toolbarVisibilityApplied;
+    string _lastFilterSignature = "";
     Dictionary<string, ToolbarItem> _actionItemMap = new();
     List<NSObject> _nativeMenuTargets = new();
 
@@ -379,10 +388,21 @@ public class BlazorContentPage : ContentPage
     {
         Dispatcher.Dispatch(() =>
         {
+            var filterSignature = GetFilterSignature(_toolbarService.CurrentFilters);
+            if (_toolbarInitialized && !string.Equals(_lastFilterSignature, filterSignature, StringComparison.Ordinal))
+            {
+                _toolbarInitialized = false;
+                _toolbarVisibilityApplied = false;
+                _nativeIdentityMenu = null;
+                _nativeFilterMenu = null;
+                _nativePublishMenu = null;
+            }
+
             if (!_toolbarInitialized)
             {
                 // First time: build with all possible items (superset)
                 _toolbarInitialized = true;
+                _lastFilterSignature = filterSignature;
                 FullRebuildToolbar();
             }
 
@@ -392,6 +412,15 @@ public class BlazorContentPage : ContentPage
             if (!TryUpdateToolbarVisibility())
                 ScheduleToolbarVisibilityRetry();
         });
+    }
+
+    static string GetFilterSignature(IReadOnlyList<ToolbarFilter> filters)
+    {
+        if (filters.Count == 0)
+            return "";
+
+        return string.Join("|", filters.Select(f =>
+            $"{f.Id}:{f.Label}:{f.SelectedIndex}:{string.Join('\u001f', f.Options)}"));
     }
 
     /// <summary>
@@ -506,8 +535,9 @@ public class BlazorContentPage : ContentPage
     }
 
     /// <summary>
-    /// Finds and caches native NSMenuToolbarItem references by MauiMenu_ identifier.
-    /// Menu order: 0=Identity, 1=Publish, 2=Backup, 3=Filter
+    /// Finds and caches native NSMenuToolbarItem references.
+    /// Menu identifiers can shift when the content layout changes, so prefer
+    /// stable labels/menu contents over positional MauiMenu_* assumptions.
     /// </summary>
     void CacheNativeMenuItems(NSToolbar toolbar)
     {
@@ -515,9 +545,50 @@ public class BlazorContentPage : ContentPage
         foreach (var nsItem in toolbar.Items)
         {
             if (nsItem is not NSMenuToolbarItem m) continue;
-            if (nsItem.Identifier == "MauiMenu_0") _nativeIdentityMenu = m;
-            else if (nsItem.Identifier == "MauiMenu_1") _nativePublishMenu = m;
-            else if (nsItem.Identifier == "MauiMenu_3") _nativeFilterMenu = m;
+            if (IsFilterMenuItem(m))
+                _nativeFilterMenu = m;
+            else if (IsPublishMenuItem(m))
+                _nativePublishMenu = m;
+            else if (IsIdentityMenuItem(m))
+                _nativeIdentityMenu = m;
+        }
+    }
+
+    static bool IsFilterMenuItem(NSMenuToolbarItem item)
+    {
+        var label = item.Label ?? "";
+        return label.Equals("Filters", StringComparison.OrdinalIgnoreCase) ||
+            label.Equals("Providers", StringComparison.OrdinalIgnoreCase) ||
+            label.Equals("Provider", StringComparison.OrdinalIgnoreCase) ||
+            EnumerateMenuItems(item.Menu).Any(i =>
+                (i.Title ?? "").Equals("Providers", StringComparison.OrdinalIgnoreCase) ||
+                (i.Submenu?.Title ?? "").Equals("Providers", StringComparison.OrdinalIgnoreCase));
+    }
+
+    static bool IsPublishMenuItem(NSMenuToolbarItem item)
+    {
+        var label = item.Label ?? "";
+        return label.Equals("Publish", StringComparison.OrdinalIgnoreCase) ||
+            EnumerateMenuItems(item.Menu).Any(i => (i.Title ?? "").Contains("Publish", StringComparison.OrdinalIgnoreCase));
+    }
+
+    static bool IsIdentityMenuItem(NSMenuToolbarItem item)
+    {
+        var label = item.Label ?? "";
+        return label.Equals("Identity", StringComparison.OrdinalIgnoreCase) ||
+            EnumerateMenuItems(item.Menu).Any(i => (i.Title ?? "").Equals("Settings…", StringComparison.OrdinalIgnoreCase));
+    }
+
+    static IEnumerable<NSMenuItem> EnumerateMenuItems(NSMenu? menu)
+    {
+        if (menu == null)
+            yield break;
+
+        for (nint i = 0; i < menu.Count; i++)
+        {
+            var item = menu.ItemAt(i);
+            if (item != null)
+                yield return item;
         }
     }
 
@@ -580,8 +651,35 @@ public class BlazorContentPage : ContentPage
         var filterNative = _nativeFilterMenu;
         if (filterNative?.Menu == null) return;
 
+        filterNative.Label = GetFilterMenuTitle(filters);
+        filterNative.PaletteLabel = filterNative.Label;
+
         var menu = filterNative.Menu;
         menu.RemoveAllItems();
+
+        if (filters.Count == 1)
+        {
+            var filter = filters[0];
+            var filterId = filter.Id;
+            if (filter.Options.Length > 0)
+                menu.AddItem(NSMenuItem.SeparatorItem);
+
+            for (int oi = 0; oi < filter.Options.Length; oi++)
+            {
+                var optIndex = oi;
+                var optionItem = new NSMenuItem(filter.Options[oi]);
+                optionItem.State = oi == filter.SelectedIndex ? NSCellStateValue.On : NSCellStateValue.Off;
+
+                var target = new MenuActionTarget(filterId, optIndex,
+                    (fid, idx) => _toolbarService.NotifyFilterChanged(fid, idx));
+                optionItem.Target = target;
+                optionItem.Action = new ObjCRuntime.Selector("menuItemClicked:");
+                _nativeMenuTargets.Add(target);
+
+                menu.AddItem(optionItem);
+            }
+            return;
+        }
 
         for (int fi = 0; fi < filters.Count; fi++)
         {
@@ -878,10 +976,14 @@ public class BlazorContentPage : ContentPage
             MacOSToolbarItem.SetPlacement(settingsItem, MacOSToolbarItemPlacement.SidebarTrailing);
 
             // Create SUPERSET of all possible action items (hidden ones toggled later)
-            // Order matters for layout: [create/import] ← flex → [refresh]
+            // Order matters for layout: [create/import/folder actions] ← flex → [refresh]
             var supersetActions = new[]
             {
-                ("create", "Create", "plus"),
+                ("create", "New Secret", "plus"),
+                ("create-folder", "New Folder", "folder.badge.plus"),
+                ("rename-folder", "Rename Folder", "pencil"),
+                ("delete-folder", "Delete Folder", "trash"),
+                ("up-folder", "Up Folder", "arrow.up"),
                 ("import", "Import", "square.and.arrow.down"),
                 ("install-missing", "Install Missing", "arrow.down.circle"),
                 ("save", "Save", "checkmark"),
@@ -946,17 +1048,20 @@ public class BlazorContentPage : ContentPage
             _filterMenu = new MacOSMenuToolbarItem
             {
                 Icon = "line.3.horizontal.decrease",
-                Text = "Filters",
+                Text = GetFilterMenuTitle(_toolbarService.CurrentFilters),
+                ShowsTitle = true,
                 ShowsIndicator = true,
             };
             var filters = _toolbarService.CurrentFilters;
             if (filters.Count > 0)
             {
-                for (int fi = 0; fi < filters.Count; fi++)
+                if (filters.Count == 1)
                 {
-                    var filter = filters[fi];
+                    var filter = filters[0];
                     var filterId = filter.Id;
-                    var submenuItem = new MacOSMenuItem { Text = filter.Label };
+                    if (filter.Options.Length > 0)
+                        _filterMenu.Items.Add(new MacOSMenuItem { IsSeparator = true });
+
                     for (int oi = 0; oi < filter.Options.Length; oi++)
                     {
                         var optIndex = oi;
@@ -966,11 +1071,31 @@ public class BlazorContentPage : ContentPage
                             IsChecked = oi == filter.SelectedIndex,
                         };
                         option.Clicked += (s, e) => _toolbarService.NotifyFilterChanged(filterId, optIndex);
-                        submenuItem.SubItems.Add(option);
+                        _filterMenu.Items.Add(option);
                     }
-                    if (fi > 0)
-                        _filterMenu.Items.Add(new MacOSMenuItem { IsSeparator = true });
-                    _filterMenu.Items.Add(submenuItem);
+                }
+                else
+                {
+                    for (int fi = 0; fi < filters.Count; fi++)
+                    {
+                        var filter = filters[fi];
+                        var filterId = filter.Id;
+                        var submenuItem = new MacOSMenuItem { Text = filter.Label };
+                        for (int oi = 0; oi < filter.Options.Length; oi++)
+                        {
+                            var optIndex = oi;
+                            var option = new MacOSMenuItem
+                            {
+                                Text = filter.Options[oi],
+                                IsChecked = oi == filter.SelectedIndex,
+                            };
+                            option.Clicked += (s, e) => _toolbarService.NotifyFilterChanged(filterId, optIndex);
+                            submenuItem.SubItems.Add(option);
+                        }
+                        if (fi > 0)
+                            _filterMenu.Items.Add(new MacOSMenuItem { IsSeparator = true });
+                        _filterMenu.Items.Add(submenuItem);
+                    }
                 }
             }
 
@@ -999,14 +1124,14 @@ public class BlazorContentPage : ContentPage
             _publishMenu.Items.Add(publishSelectedAction);
 
             // Build explicit content layout with ALL items:
-            // [Identity] [Publish] [Create] [Import] ← FlexibleSpace → [Filter] [Search] [Refresh]
+            // [Filter/Provider] [Identity] [Publish] [Create] [Import] ← FlexibleSpace → [Search] [Refresh]
             var layout = new List<MacOSToolbarLayoutItem>();
+            layout.Add(MacOSToolbarLayoutItem.Menu(_filterMenu));
             layout.Add(MacOSToolbarLayoutItem.Menu(_identityMenu));
             layout.Add(MacOSToolbarLayoutItem.Menu(_publishMenu));
             foreach (var item in leadingItems)
                 layout.Add(MacOSToolbarLayoutItem.Item(item));
             layout.Add(MacOSToolbarLayoutItem.FlexibleSpace);
-            layout.Add(MacOSToolbarLayoutItem.Menu(_filterMenu));
             layout.Add(MacOSToolbarLayoutItem.Search(_searchItem));
             if (refreshItem != null)
                 layout.Add(MacOSToolbarLayoutItem.Item(refreshItem));
@@ -1143,6 +1268,20 @@ public class BlazorContentPage : ContentPage
                 if (filters[i].Id == filterId) { filterIndex = i; break; }
             }
             if (filterIndex < 0) return;
+
+            if (filters.Count == 1)
+            {
+                var directMenu = filterNative.Menu;
+                for (int i = 0; i < directMenu.Count; i++)
+                {
+                    var mi = directMenu.ItemAt(i);
+                    if (mi != null)
+                        mi.State = i == selectedIndex + 1 ? NSCellStateValue.On : NSCellStateValue.Off;
+                }
+                filterNative.Label = GetFilterMenuTitle(filters);
+                filterNative.PaletteLabel = filterNative.Label;
+                return;
+            }
 
             // Account for separator items between filter submenus
             int menuItemIndex = 0;

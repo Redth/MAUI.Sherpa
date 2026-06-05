@@ -5,7 +5,7 @@
 
 <div class="dialog-content">
     <div class="dialog-header">
-        <h2><i class="fas fa-cloud"></i> @(isEditing ? "Edit" : "Add") Cloud Provider</h2>
+        <h2><i class="fas fa-vault"></i> @(isEditing ? "Edit" : "Add") Secrets Provider</h2>
     </div>
     <div class="dialog-body">
         <div class="form-group">
@@ -22,7 +22,7 @@
             else
             {
                 <div class="provider-type-selector">
-                    @foreach (var type in CloudSecretsProviderFactory.SupportedProviders)
+                    @foreach (var type in AddableProviderTypes)
                     {
                         <div class="provider-type-card @(providerType == type ? "selected" : "")"
                              @onclick="@(() => OnProviderTypeChanged(type))">
@@ -95,8 +95,10 @@
     private bool isEditing;
     private string editingId = "";
     private string providerName = "";
-    private CloudSecretsProviderType providerType = CloudSecretsProviderType.Infisical;
+    private CloudSecretsProviderType providerType = CloudSecretsProviderType.Local;
     private Dictionary<string, string> providerSettings = new();
+    private IEnumerable<CloudSecretsProviderType> AddableProviderTypes =>
+        CloudSecretsProviderFactory.SupportedProviders.Where(type => type != CloudSecretsProviderType.Local);
 
     private bool CanSave
     {
@@ -123,7 +125,7 @@
         }
         else
         {
-            providerType = CloudSecretsProviderFactory.SupportedProviders.FirstOrDefault();
+            providerType = AddableProviderTypes.FirstOrDefault();
             InitializeDefaultSettings();
         }
     }
@@ -158,6 +160,7 @@
 
     private static string GetProviderIcon(CloudSecretsProviderType type) => type switch
     {
+        CloudSecretsProviderType.Local => "fas fa-database",
         CloudSecretsProviderType.Infisical => "fas fa-shield-alt",
         CloudSecretsProviderType.AzureKeyVault => "fas fa-key",
         CloudSecretsProviderType.AwsSecretsManager => "fab fa-aws",

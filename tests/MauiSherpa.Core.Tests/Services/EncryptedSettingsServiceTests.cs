@@ -232,6 +232,132 @@ public class EncryptedSettingsServiceTests
         loaded.AppleIdentities[0].Name.Should().Be("Test 日本語 émojis 🎉");
         loaded.AppleIdentities[0].P8Content.Should().Contain("BEGIN PRIVATE KEY");
     }
+
+    [Fact]
+    public async Task GetSettingsAsync_WithVault_MigratesLegacyEncryptedFileAndCleansUp()
+    {
+        var legacySecureStorage = new InMemorySecureStorage();
+        var settingsPath = Path.Combine(_testDir, "vault-migration-settings.enc");
+        var legacyService = new EncryptedSettingsService(
+            new InMemoryFileSystem(),
+            legacySecureStorage,
+            vaultStore: null,
+            settingsPath);
+        await legacyService.SaveSettingsAsync(new MauiSherpaSettings
+        {
+            Preferences = new AppPreferences { Theme = "Dark" }
+        });
+        File.Exists(settingsPath).Should().BeTrue();
+        legacySecureStorage.Values.Should().ContainKey("MauiSherpa_MasterKey");
+
+        var vaultStore = CreateVaultStore();
+        var vaultService = new EncryptedSettingsService(
+            new InMemoryFileSystem(),
+            legacySecureStorage,
+            vaultStore,
+            settingsPath);
+
+        var settings = await vaultService.GetSettingsAsync();
+        var savedItem = await vaultStore.GetAsync(LocalVaultScopes.Settings, "/", "maui-sherpa-settings");
+
+        settings.Preferences.Theme.Should().Be("Dark");
+        savedItem.Should().NotBeNull();
+        File.Exists(settingsPath).Should().BeFalse();
+        legacySecureStorage.Values.Should().NotContainKey("MauiSherpa_MasterKey");
+    }
+
+    [Fact]
+    public async Task SaveSettingsAsync_WithVault_DoesNotCreateLegacyEncryptedFile()
+    {
+        var settingsPath = Path.Combine(_testDir, "vault-only-settings.enc");
+        var vaultStore = CreateVaultStore();
+        var service = new EncryptedSettingsService(
+            new InMemoryFileSystem(),
+            new InMemorySecureStorage(),
+            vaultStore,
+            settingsPath);
+
+        await service.SaveSettingsAsync(new MauiSherpaSettings
+        {
+            Preferences = new AppPreferences { Theme = "Light" }
+        });
+        var loaded = await service.GetSettingsAsync();
+
+        loaded.Preferences.Theme.Should().Be("Light");
+        File.Exists(settingsPath).Should().BeFalse();
+    }
+
+    private SqlCipherLocalVaultStore CreateVaultStore()
+    {
+        return new SqlCipherLocalVaultStore(
+            new TestLocalVaultKeyStore(),
+            new TestLogger(),
+            new LocalVaultOptions(Path.Combine(_testDir, $"{Guid.NewGuid():N}.db")));
+    }
+
+    private sealed class TestLocalVaultKeyStore : ILocalVaultKeyStore
+    {
+        public Task<string> GetOrCreateKeyAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult("test-key");
+    }
+
+    private sealed class InMemorySecureStorage : ISecureStorageService
+    {
+        public Dictionary<string, string> Values { get; } = new();
+
+        public Task<string?> GetAsync(string key)
+            => Task.FromResult(Values.TryGetValue(key, out var value) ? value : null);
+
+        public Task SetAsync(string key, string value)
+        {
+            Values[key] = value;
+            return Task.CompletedTask;
+        }
+
+        public Task RemoveAsync(string key)
+        {
+            Values.Remove(key);
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class InMemoryFileSystem : IFileSystemService
+    {
+        public Task<string?> ReadFileAsync(string path) => Task.FromResult<string?>(null);
+        public Task WriteFileAsync(string path, string content) => Task.CompletedTask;
+        public Task<bool> FileExistsAsync(string path) => Task.FromResult(File.Exists(path));
+        public Task<bool> DirectoryExistsAsync(string path) => Task.FromResult(Directory.Exists(path));
+        public Task<IReadOnlyList<string>> GetFilesAsync(string path, string searchPattern = "*") => Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
+        public Task CreateDirectoryAsync(string path)
+        {
+            Directory.CreateDirectory(path);
+            return Task.CompletedTask;
+        }
+        public Task DeleteFileAsync(string path)
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+            return Task.CompletedTask;
+        }
+        public Task DeleteDirectoryAsync(string path)
+        {
+            if (Directory.Exists(path))
+                Directory.Delete(path, recursive: true);
+            return Task.CompletedTask;
+        }
+        public void RevealInFileManager(string path) { }
+    }
+
+    private sealed class TestLogger : ILoggingService
+    {
+        public void LogInformation(string message) { }
+        public void LogWarning(string message) { }
+        public void LogError(string message, Exception? exception = null) { }
+        public void LogDebug(string message) { }
+        public IReadOnlyList<LogEntry> GetRecentLogs(int maxCount = 500) => Array.Empty<LogEntry>();
+        public void ClearLogs() { }
+        public event Action? OnLogAdded;
+    }
 }
 
 /// <summary>

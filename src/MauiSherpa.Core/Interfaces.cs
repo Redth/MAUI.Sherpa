@@ -74,6 +74,57 @@ public interface ISecureStorageService
     Task RemoveAsync(string key);
 }
 
+public interface ILegacySecureStorageService : ISecureStorageService
+{
+}
+
+public interface ILocalVaultKeyStore
+{
+    Task<string> GetOrCreateKeyAsync(CancellationToken cancellationToken = default);
+}
+
+public interface ILocalSecretsKeyStore : ILocalVaultKeyStore
+{
+}
+
+public interface ILocalVaultStore
+{
+    string DatabasePath { get; }
+
+    Task<LocalVaultItem> PutAsync(
+        string scope,
+        string path,
+        string key,
+        byte[] value,
+        string contentType,
+        Dictionary<string, string>? metadata = null,
+        CancellationToken cancellationToken = default);
+
+    Task<LocalVaultItem?> GetAsync(
+        string scope,
+        string path,
+        string key,
+        CancellationToken cancellationToken = default);
+
+    Task<bool> RemoveAsync(
+        string scope,
+        string path,
+        string key,
+        CancellationToken cancellationToken = default);
+
+    Task<bool> ExistsAsync(
+        string scope,
+        string path,
+        string key,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<LocalVaultItem>> ListAsync(
+        string scope,
+        string? path = null,
+        string? keyPrefix = null,
+        CancellationToken cancellationToken = default);
+}
+
 public interface IPlatformService
 {
     bool IsWindows { get; }
@@ -2673,7 +2724,8 @@ public enum CloudSecretsProviderType
     Infisical,
     OnePassword,
     Vaultwarden,
-    AzureDevOps
+    AzureDevOps,
+    Local
 }
 
 /// <summary>
@@ -2854,6 +2906,15 @@ public record ManagedSecret(
 );
 
 /// <summary>
+/// A logical folder for Sherpa-managed secrets.
+/// </summary>
+public record ManagedSecretFolder(
+    string Path,
+    string Name,
+    DateTime CreatedAt
+);
+
+/// <summary>
 /// Service for managing Sherpa-owned secrets in cloud storage.
 /// Uses key prefixes to distinguish Sherpa-managed secrets from others.
 /// </summary>
@@ -2861,11 +2922,32 @@ public interface IManagedSecretsService
 {
     const string SecretPrefix = "sherpa-secrets/";
     const string MetadataPrefix = "sherpa-secrets-meta/";
+    const string FolderPrefix = "sherpa-secret-folders/";
 
     /// <summary>
     /// Lists all Sherpa-managed secrets
     /// </summary>
     Task<IReadOnlyList<ManagedSecret>> ListAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Lists explicitly created Sherpa-managed secret folders.
+    /// </summary>
+    Task<IReadOnlyList<ManagedSecretFolder>> ListFoldersAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Creates a logical folder for Sherpa-managed secrets.
+    /// </summary>
+    Task<bool> CreateFolderAsync(string folderPath, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Renames a logical folder and moves any managed secrets and child folders under it.
+    /// </summary>
+    Task<bool> RenameFolderAsync(string folderPath, string newFolderPath, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Deletes an empty logical folder.
+    /// </summary>
+    Task<bool> DeleteFolderAsync(string folderPath, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Gets metadata for a specific managed secret
@@ -2886,6 +2968,11 @@ public interface IManagedSecretsService
     /// Updates an existing managed secret's value and/or metadata
     /// </summary>
     Task<bool> UpdateAsync(string key, byte[]? value = null, string? description = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Moves an existing managed secret to a new key and optionally updates value/metadata.
+    /// </summary>
+    Task<bool> MoveAsync(string key, string newKey, byte[]? value = null, string? description = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Deletes a managed secret and its metadata

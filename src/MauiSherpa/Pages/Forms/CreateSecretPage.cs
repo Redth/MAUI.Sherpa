@@ -1,5 +1,6 @@
 using Microsoft.Maui.Controls;
 using MauiSherpa.Core.Interfaces;
+using MauiSherpa.Core.Services;
 
 namespace MauiSherpa.Pages.Forms;
 
@@ -7,6 +8,9 @@ public record SecretCreateResult(string Key, string? Description, ManagedSecretT
 
 public class CreateSecretPage : FormPage<SecretCreateResult>
 {
+    private readonly string _initialFolderPath;
+    private readonly IReadOnlyList<string> _folderPaths;
+    private Picker _folderPicker = null!;
     private Entry _keyEntry = null!;
     private Entry _descriptionEntry = null!;
     private Picker _typePicker = null!;
@@ -21,11 +25,23 @@ public class CreateSecretPage : FormPage<SecretCreateResult>
 
     protected override string FormTitle => "Create Secret";
 
+    public CreateSecretPage(string initialFolderPath = "/", IReadOnlyList<string>? folderPaths = null)
+    {
+        _initialFolderPath = SecretPath.NormalizeFolderPath(initialFolderPath);
+        _folderPaths = new[] { "/" }
+            .Concat(folderPaths ?? Array.Empty<string>())
+            .Select(SecretPath.NormalizeFolderPath)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(path => path == "/" ? "" : path, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
     protected override bool CanSubmit
     {
         get
         {
-            if (string.IsNullOrWhiteSpace(_keyEntry?.Text)) return false;
+            if (_folderPicker?.SelectedIndex < 0) return false;
+            if (!IsKeyValid()) return false;
             if (_typePicker?.SelectedIndex < 0) return false;
             if (_typePicker?.SelectedIndex == 0) // String
                 return !string.IsNullOrWhiteSpace(_valueEditor?.Text);
@@ -36,7 +52,11 @@ public class CreateSecretPage : FormPage<SecretCreateResult>
 
     protected override View BuildFormContent()
     {
-        _keyEntry = CreateEntry("my-secret-key");
+        _folderPicker = CreatePicker(null, _folderPaths.Select(FormatFolderPath).ToList());
+        var selectedFolderIndex = _folderPaths.ToList().FindIndex(path => path == _initialFolderPath);
+        _folderPicker.SelectedIndex = selectedFolderIndex >= 0 ? selectedFolderIndex : 0;
+
+        _keyEntry = CreateEntry("api-key");
         _keyEntry.TextChanged += (_, _) => UpdateSubmitEnabled();
 
         _descriptionEntry = CreateEntry("Optional description");
@@ -90,7 +110,8 @@ public class CreateSecretPage : FormPage<SecretCreateResult>
             Spacing = 16,
             Children =
             {
-                CreateFormGroup("Key", _keyEntry, "Unique identifier for this secret"),
+                CreateFormGroup("Folder", _folderPicker, "Create folders from the Secrets page, then choose one here"),
+                CreateFormGroup("Key", _keyEntry, "Secret name within the selected folder"),
                 CreateFormGroup("Description", _descriptionEntry),
                 CreateFormGroup("Type", _typePicker),
                 _stringGroup,
@@ -131,7 +152,8 @@ public class CreateSecretPage : FormPage<SecretCreateResult>
 
     protected override Task<SecretCreateResult> OnSubmitAsync()
     {
-        var key = _keyEntry.Text.Trim();
+        var path = new SecretPath(_folderPaths[_folderPicker.SelectedIndex], _keyEntry.Text);
+        var key = path.ToFlatKey();
         var description = string.IsNullOrWhiteSpace(_descriptionEntry.Text) ? null : _descriptionEntry.Text.Trim();
         var type = _typePicker.SelectedIndex == 0 ? ManagedSecretType.String : ManagedSecretType.File;
 
@@ -150,4 +172,19 @@ public class CreateSecretPage : FormPage<SecretCreateResult>
 
         return Task.FromResult(new SecretCreateResult(key, description, type, value, originalFileName));
     }
+
+    private bool IsKeyValid()
+    {
+        try
+        {
+            _ = SecretPath.NormalizeKey(_keyEntry?.Text ?? "");
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    private static string FormatFolderPath(string folderPath) => folderPath == "/" ? "Root (/)" : folderPath;
 }

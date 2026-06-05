@@ -12,25 +12,43 @@ public class EncryptedSettingsService : IEncryptedSettingsService
 {
     private const string MasterKeyStorageKey = "MauiSherpa_MasterKey";
     private const string SettingsFileName = "settings.enc";
+    private const string VaultSettingsPath = "/";
+    private const string VaultSettingsKey = "maui-sherpa-settings";
     private const int NonceSize = 12;
     private const int TagSize = 16;
     private const int KeySize = 32; // 256 bits
     
     private readonly IFileSystemService _fileSystem;
     private readonly ISecureStorageService _secureStorage;
+    private readonly ILocalVaultStore? _vaultStore;
     private readonly string _settingsPath;
     private MauiSherpaSettings? _cachedSettings;
     private readonly SemaphoreSlim _lock = new(1, 1);
     
     public event Action? OnSettingsChanged;
 
-    public EncryptedSettingsService(IFileSystemService fileSystem, ISecureStorageService secureStorage)
+    public EncryptedSettingsService(
+        IFileSystemService fileSystem,
+        ISecureStorageService secureStorage,
+        ILocalVaultStore? vaultStore = null)
+        : this(
+            fileSystem,
+            secureStorage,
+            vaultStore,
+            Path.Combine(AppDataPath.GetAppDataDirectory(), SettingsFileName))
+    {
+    }
+
+    internal EncryptedSettingsService(
+        IFileSystemService fileSystem,
+        ISecureStorageService secureStorage,
+        ILocalVaultStore? vaultStore,
+        string settingsPath)
     {
         _fileSystem = fileSystem;
         _secureStorage = secureStorage;
-        _settingsPath = Path.Combine(
-            AppDataPath.GetAppDataDirectory(),
-            SettingsFileName);
+        _vaultStore = vaultStore;
+        _settingsPath = settingsPath;
     }
 
     // Protected constructor for testing
@@ -38,6 +56,7 @@ public class EncryptedSettingsService : IEncryptedSettingsService
     {
         _fileSystem = null!;
         _secureStorage = null!;
+        _vaultStore = null;
         _settingsPath = "";
     }
 
@@ -49,7 +68,17 @@ public class EncryptedSettingsService : IEncryptedSettingsService
             if (_cachedSettings != null)
                 return _cachedSettings;
 
-            if (!await SettingsExistAsync())
+            if (_vaultStore is not null)
+            {
+                var vaultSettings = await LoadVaultSettingsAsync();
+                if (vaultSettings is not null)
+                {
+                    _cachedSettings = vaultSettings;
+                    return _cachedSettings;
+                }
+            }
+
+            if (!LegacySettingsFileExists())
             {
                 _cachedSettings = new MauiSherpaSettings();
                 return _cachedSettings;
@@ -62,6 +91,11 @@ public class EncryptedSettingsService : IEncryptedSettingsService
             {
                 var json = Decrypt(encryptedData, masterKey);
                 _cachedSettings = JsonSerializer.Deserialize<MauiSherpaSettings>(json) ?? new MauiSherpaSettings();
+                if (_vaultStore is not null)
+                {
+                    await SaveVaultSettingsAsync(_cachedSettings);
+                    await CleanupLegacySettingsAsync();
+                }
             }
             catch (CryptographicException)
             {
@@ -88,23 +122,34 @@ public class EncryptedSettingsService : IEncryptedSettingsService
         await _lock.WaitAsync();
         try
         {
+            var settingsToSave = settings with { LastModified = DateTime.UtcNow };
+
+            if (_vaultStore is not null)
+            {
+                await SaveVaultSettingsAsync(settingsToSave);
+                _cachedSettings = settingsToSave;
+                await CleanupLegacySettingsAsync();
+                OnSettingsChanged?.Invoke();
+                return;
+            }
+
+            // Create backup before saving
             var directory = Path.GetDirectoryName(_settingsPath);
             if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
                 Directory.CreateDirectory(directory);
 
-            // Create backup before saving
             if (File.Exists(_settingsPath))
             {
                 var backupPath = _settingsPath + ".bak";
                 File.Copy(_settingsPath, backupPath, overwrite: true);
             }
 
-            var json = JsonSerializer.Serialize(settings with { LastModified = DateTime.UtcNow });
+            var json = JsonSerializer.Serialize(settingsToSave);
             var masterKey = await GetOrCreateMasterKeyAsync();
             var encrypted = Encrypt(json, masterKey);
             await File.WriteAllBytesAsync(_settingsPath, encrypted);
             
-            _cachedSettings = settings;
+            _cachedSettings = settingsToSave;
             OnSettingsChanged?.Invoke();
         }
         finally
@@ -122,7 +167,67 @@ public class EncryptedSettingsService : IEncryptedSettingsService
 
     public Task<bool> SettingsExistAsync()
     {
-        return Task.FromResult(File.Exists(_settingsPath));
+        return SettingsExistCoreAsync();
+    }
+
+    private async Task<bool> SettingsExistCoreAsync()
+    {
+        if (_vaultStore is not null &&
+            await _vaultStore.ExistsAsync(LocalVaultScopes.Settings, VaultSettingsPath, VaultSettingsKey))
+        {
+            return true;
+        }
+
+        return LegacySettingsFileExists();
+    }
+
+    private bool LegacySettingsFileExists() => File.Exists(_settingsPath);
+
+    private async Task<MauiSherpaSettings?> LoadVaultSettingsAsync()
+    {
+        if (_vaultStore is null)
+            return null;
+
+        var item = await _vaultStore.GetAsync(LocalVaultScopes.Settings, VaultSettingsPath, VaultSettingsKey);
+        if (item is null)
+            return null;
+
+        var json = Encoding.UTF8.GetString(item.Value);
+        return JsonSerializer.Deserialize<MauiSherpaSettings>(json) ?? new MauiSherpaSettings();
+    }
+
+    private async Task SaveVaultSettingsAsync(MauiSherpaSettings settings)
+    {
+        if (_vaultStore is null)
+            return;
+
+        var json = JsonSerializer.Serialize(settings);
+        await _vaultStore.PutAsync(
+            LocalVaultScopes.Settings,
+            VaultSettingsPath,
+            VaultSettingsKey,
+            Encoding.UTF8.GetBytes(json),
+            LocalVaultContentTypes.Json,
+            new Dictionary<string, string>
+            {
+                ["LegacyFileName"] = SettingsFileName
+            });
+    }
+
+    private async Task CleanupLegacySettingsAsync()
+    {
+        foreach (var path in new[]
+        {
+            _settingsPath,
+            _settingsPath + ".bak",
+            _settingsPath + ".unreadable"
+        })
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+
+        await _secureStorage.RemoveAsync(MasterKeyStorageKey);
     }
 
     protected virtual async Task<byte[]> GetOrCreateMasterKeyAsync()
