@@ -3200,6 +3200,9 @@ public record PublishProfile(
 {
     /// <summary>Multiple publisher targets for this profile</summary>
     public List<PublishProfilePublisher> Publishers { get; init; } = new();
+
+    /// <summary>Optional settings for assembling this profile into a .sherpabundle file.</summary>
+    public PublishProfileBundleSettings? BundleSettings { get; init; }
 }
 
 /// <summary>
@@ -3417,6 +3420,7 @@ public record PublishProfileData(
 )
 {
     public List<PublishProfilePublisher> Publishers { get; init; } = new();
+    public PublishProfileBundleSettings? BundleSettings { get; init; }
 }
 
 public record AppPreferences

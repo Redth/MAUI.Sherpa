@@ -1,0 +1,457 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.sherpa.dev/sherpabundle/v1.json",
+  "title": "Sherpa Bundle",
+  "description": "Configuration bundle for sherpacli. Defines setup, build, and deploy for cross-platform .NET (typically .NET MAUI) projects across Android, iOS, MacOS, MacCatalyst, and Windows.",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "URI of the JSON Schema for editor tooling."
+    },
+    "Build": {
+      "$ref": "#/$defs/buildDefaults",
+      "description": "Global defaults merged into every environment as the lowest-precedence layer."
+    }
+  },
+  "additionalProperties": {
+    "$ref": "#/$defs/environment"
+  },
+  "$defs": {
+    "stringMap": {
+      "type": "object",
+      "description": "String-to-string map. Values may contain ${variable} references resolved from -variable: CLI flags and Variables blocks.",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "buildDefaults": {
+      "type": "object",
+      "description": "Top-level Build block. Applied to every environment before environment-specific values override.",
+      "additionalProperties": false,
+      "properties": {
+        "Variables": {
+          "$ref": "#/$defs/stringMap",
+          "description": "Default values for ${name} substitution. Overridden by environment Variables and CLI -variable:."
+        },
+        "ReplaceTokens": {
+          "$ref": "#/$defs/stringMap",
+          "description": "Default replace tokens. Overridden by environment, platform, and CLI -replacetoken: layers."
+        },
+        "MSBuildProperties": {
+          "$ref": "#/$defs/stringMap",
+          "description": "Default MSBuild properties. Overridden by environment, platform, and CLI -msbuild: layers."
+        }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "description": "A named environment block (e.g. Production, Development, Staging). Selected at runtime via -environment:<name>.",
+      "additionalProperties": false,
+      "properties": {
+        "Variables": {
+          "$ref": "#/$defs/stringMap"
+        },
+        "ReplaceTokens": {
+          "$ref": "#/$defs/stringMap"
+        },
+        "MSBuildProperties": {
+          "$ref": "#/$defs/stringMap"
+        },
+        "Android": {
+          "$ref": "#/$defs/androidPlatform"
+        },
+        "iOS": {
+          "$ref": "#/$defs/iosPlatform"
+        },
+        "MacOS": {
+          "$ref": "#/$defs/desktopApplePlatform"
+        },
+        "MacCatalyst": {
+          "$ref": "#/$defs/desktopApplePlatform"
+        },
+        "Windows": {
+          "$ref": "#/$defs/windowsPlatform"
+        }
+      }
+    },
+    "androidPlatform": {
+      "type": "object",
+      "description": "Android-specific configuration.",
+      "additionalProperties": false,
+      "properties": {
+        "Setup": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "Keystores": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/$defs/keystore"
+              }
+            }
+          }
+        },
+        "Build": {
+          "$ref": "#/$defs/platformBuild"
+        },
+        "Deploy": {
+          "$ref": "#/$defs/deployTargets"
+        }
+      }
+    },
+    "iosPlatform": {
+      "type": "object",
+      "description": "iOS-specific configuration. Profiles and certificates are arrays to support multi-target apps (main app + widgets / extensions).",
+      "additionalProperties": false,
+      "properties": {
+        "Setup": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "Profiles": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/$defs/provisioningProfile"
+              }
+            },
+            "Certificates": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/$defs/certificate"
+              }
+            }
+          }
+        },
+        "Build": {
+          "$ref": "#/$defs/platformBuild"
+        },
+        "Deploy": {
+          "$ref": "#/$defs/deployTargets"
+        }
+      }
+    },
+    "desktopApplePlatform": {
+      "type": "object",
+      "description": "Flat configuration shared by MacOS and MacCatalyst: a single provisioning profile and signing certificate plus a Variables map.",
+      "additionalProperties": false,
+      "properties": {
+        "ProvisioningProfile": {
+          "type": "string",
+          "description": "Base64-encoded .provisionprofile file."
+        },
+        "Certificate": {
+          "type": "string",
+          "description": "Base64-encoded signing certificate (.p12)."
+        },
+        "CertificatePassword": {
+          "type": "string"
+        },
+        "Variables": {
+          "$ref": "#/$defs/stringMap"
+        }
+      }
+    },
+    "windowsPlatform": {
+      "type": "object",
+      "description": "Flat Windows configuration: a code-signing certificate and Variables map.",
+      "additionalProperties": false,
+      "properties": {
+        "Certificate": {
+          "type": "string",
+          "description": "Base64-encoded code-signing certificate (.pfx)."
+        },
+        "CertificatePassword": {
+          "type": "string"
+        },
+        "Variables": {
+          "$ref": "#/$defs/stringMap"
+        }
+      }
+    },
+    "platformBuild": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "MSBuildProperties": {
+          "$ref": "#/$defs/stringMap"
+        },
+        "ReplaceTokens": {
+          "$ref": "#/$defs/stringMap"
+        }
+      }
+    },
+    "deployTargets": {
+      "type": "array",
+      "description": "Ordered list of deploy destinations for the built artifact.",
+      "items": {
+        "$ref": "#/$defs/deployTarget"
+      }
+    },
+    "deployTarget": {
+      "type": "object",
+      "description": "A single deploy destination. Provider determines which additional fields are required at run time.",
+      "required": [
+        "Provider"
+      ],
+      "properties": {
+        "Provider": {
+          "type": "string",
+          "description": "Deployment provider identifier.",
+          "examples": [
+            "TestFlight",
+            "Firebase",
+            "PlayStore",
+            "AmazonAppStore",
+            "MicrosoftStore",
+            "AppCenter"
+          ]
+        }
+      },
+      "additionalProperties": true,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "Provider": {
+                "const": "TestFlight"
+              }
+            },
+            "required": [
+              "Provider"
+            ]
+          },
+          "then": {
+            "required": [
+              "ApiKey"
+            ],
+            "properties": {
+              "ApiKey": {
+                "type": "string",
+                "description": "Base64-encoded App Store Connect API key (.p8)."
+              },
+              "IssuerId": {
+                "type": "string"
+              },
+              "KeyId": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "Provider": {
+                "const": "Firebase"
+              }
+            },
+            "required": [
+              "Provider"
+            ]
+          },
+          "then": {
+            "required": [
+              "ApiKey"
+            ],
+            "properties": {
+              "ApiKey": {
+                "type": "string"
+              },
+              "AppId": {
+                "type": "string"
+              },
+              "TesterGroups": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "Provider": {
+                "const": "PlayStore"
+              }
+            },
+            "required": [
+              "Provider"
+            ]
+          },
+          "then": {
+            "required": [
+              "ServiceAccountKey",
+              "Track"
+            ],
+            "properties": {
+              "ServiceAccountKey": {
+                "type": "string",
+                "description": "Base64-encoded service account JSON."
+              },
+              "Track": {
+                "type": "string",
+                "enum": [
+                  "internal",
+                  "alpha",
+                  "beta",
+                  "production"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "Provider": {
+                "const": "AmazonAppStore"
+              }
+            },
+            "required": [
+              "Provider"
+            ]
+          },
+          "then": {
+            "required": [
+              "ClientId",
+              "ClientSecret"
+            ],
+            "properties": {
+              "ClientId": {
+                "type": "string"
+              },
+              "ClientSecret": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "Provider": {
+                "const": "MicrosoftStore"
+              }
+            },
+            "required": [
+              "Provider"
+            ]
+          },
+          "then": {
+            "required": [
+              "TenantId",
+              "ClientId",
+              "ClientSecret"
+            ],
+            "properties": {
+              "TenantId": {
+                "type": "string"
+              },
+              "ClientId": {
+                "type": "string"
+              },
+              "ClientSecret": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "Provider": {
+                "const": "AppCenter"
+              }
+            },
+            "required": [
+              "Provider"
+            ]
+          },
+          "then": {
+            "required": [
+              "ApiToken",
+              "OwnerName",
+              "AppName"
+            ],
+            "properties": {
+              "ApiToken": {
+                "type": "string"
+              },
+              "OwnerName": {
+                "type": "string"
+              },
+              "AppName": {
+                "type": "string"
+              },
+              "DistributionGroup": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "keystore": {
+      "type": "object",
+      "description": "Android signing keystore.",
+      "additionalProperties": false,
+      "required": [
+        "Content",
+        "KeyAlias",
+        "KeyPassword"
+      ],
+      "properties": {
+        "Content": {
+          "type": "string",
+          "description": "Base64-encoded .jks / .keystore file."
+        },
+        "StorePassword": {
+          "type": "string"
+        },
+        "KeyAlias": {
+          "type": "string"
+        },
+        "KeyPassword": {
+          "type": "string"
+        }
+      }
+    },
+    "provisioningProfile": {
+      "type": "object",
+      "description": "iOS provisioning profile.",
+      "additionalProperties": false,
+      "required": [
+        "Content"
+      ],
+      "properties": {
+        "Content": {
+          "type": "string",
+          "description": "Base64-encoded .mobileprovision file."
+        }
+      }
+    },
+    "certificate": {
+      "type": "object",
+      "description": "Signing certificate.",
+      "additionalProperties": false,
+      "required": [
+        "Content"
+      ],
+      "properties": {
+        "Content": {
+          "type": "string",
+          "description": "Base64-encoded certificate (.p12 / .pfx)."
+        },
+        "Password": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

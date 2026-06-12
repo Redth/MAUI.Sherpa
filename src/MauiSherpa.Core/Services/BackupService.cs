@@ -235,7 +235,7 @@ public class BackupService : IBackupService
                     AppleConfigs: p.AppleConfigs,
                     AndroidConfigs: p.AndroidConfigs,
                     SecretMappings: p.SecretMappings)
-                { Publishers = p.Publishers })
+                { Publishers = p.Publishers, BundleSettings = p.BundleSettings })
                 .ToList()
         };
     }

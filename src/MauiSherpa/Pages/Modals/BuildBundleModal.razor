@@ -1,0 +1,344 @@
+@page "/modal/build-bundle"
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Pages.Forms
+@using MauiSherpa.Services
+@inject HybridFormBridgeHolder BridgeHolder
+@inject IDialogService DialogService
+@inject IPublishProfileService ProfileService
+@inject ISherpaBundleBuilderService BundleBuilder
+@inject IAppleIdentityService AppleIdentityService
+@inject IFileSystemService FileSystem
+@implements IDisposable
+
+@{
+    var bridge = BridgeHolder.Current;
+}
+
+@if (bridge != null && profile != null)
+{
+    <div class="form-content">
+        <!-- Environment -->
+        <div class="section">
+            <div class="section-title"><i class="fas fa-layer-group"></i> Environment</div>
+            <div class="form-group">
+                <label>Environment name</label>
+                <input type="text" class="form-control" @bind="envName" @bind:event="oninput" placeholder="Production" />
+                <div class="form-hint">The bundle is keyed under this name (run with <code>-environment:@(string.IsNullOrWhiteSpace(envName) ? "Production" : envName)</code>).</div>
+            </div>
+        </div>
+
+        <!-- Platforms -->
+        <div class="section">
+            <div class="section-title"><i class="fas fa-mobile-screen"></i> Platforms</div>
+            <div class="checkbox-row">
+                <label class="chk"><input type="checkbox" @bind="wantsIOS" /> iOS</label>
+                <label class="chk"><input type="checkbox" @bind="wantsAndroid" /> Android</label>
+                <label class="chk"><input type="checkbox" @bind="wantsMacOS" /> macOS</label>
+                <label class="chk"><input type="checkbox" @bind="wantsMacCatalyst" /> MacCatalyst</label>
+                <label class="chk"><input type="checkbox" @bind="wantsWindows" /> Windows</label>
+            </div>
+            <div class="form-hint">Signing material is pulled from this profile's Apple certificates/profiles and Android keystores.</div>
+        </div>
+
+        <!-- Build substitution -->
+        <div class="section">
+            <div class="section-title"><i class="fas fa-code"></i> Build Substitution</div>
+            @RenderKvEditor("MSBuild properties", msbuildProps, "ApplicationVersion", "1.0.${buildNumber}")
+            @RenderKvEditor("Replace tokens", replaceTokens, "SentryDsn", "https://...")
+            @RenderKvEditor("Variables", variables, "buildNumber", "1234")
+        </div>
+
+        <!-- Deploy targets -->
+        <div class="section">
+            <div class="section-title"><i class="fas fa-paper-plane"></i> Deploy Targets</div>
+            @foreach (var target in deployTargets)
+            {
+                <div class="deploy-card">
+                    <div class="deploy-head">
+                        <select class="form-control compact" value="@target.Provider" @onchange="e => OnProviderChanged(target, e)">
+                            @foreach (var p in Providers)
+                            {
+                                <option value="@p">@p</option>
+                            }
+                        </select>
+                        <select class="form-control compact" @bind="target.Platform">
+                            @foreach (var pl in AllPlatforms)
+                            {
+                                <option value="@pl">@pl</option>
+                            }
+                        </select>
+                        <button class="btn-clear" title="Remove" @onclick="() => deployTargets.Remove(target)"><i class="fas fa-trash-can"></i></button>
+                    </div>
+
+                    @if (target.Provider == "TestFlight")
+                    {
+                        <div class="form-group">
+                            <label>App Store Connect identity</label>
+                            <select class="form-control" @bind="target.AppleIdentityId">
+                                <option value="">— none —</option>
+                                @foreach (var id in identities)
+                                {
+                                    <option value="@id.Id">@id.Name (@id.KeyId)</option>
+                                }
+                            </select>
+                            <div class="form-hint">Supplies the <code>.p8</code> ApiKey, KeyId, and IssuerId at build time.</div>
+                        </div>
+                    }
+
+                    @RenderKvEditor("Fields", target.Fields, FieldHintKey(target.Provider), FieldHintVal(target.Provider))
+                </div>
+            }
+            <button class="btn btn-secondary" @onclick="AddDeployTarget"><i class="fas fa-plus"></i> Add deploy target</button>
+        </div>
+
+        <!-- Output -->
+        <div class="section">
+            <div class="section-title"><i class="fas fa-floppy-disk"></i> Output</div>
+            <div class="file-picker">
+                @if (!string.IsNullOrEmpty(savePath))
+                {
+                    <div class="file-selected">
+                        <i class="fas fa-file-code"></i>
+                        <span>@savePath</span>
+                        <button class="btn-clear" @onclick="() => { savePath = null; UpdateValidity(); }"><i class="fas fa-times"></i></button>
+                    </div>
+                }
+                else
+                {
+                    <button class="btn btn-secondary" @onclick="ChooseSaveLocation">
+                        <i class="fas fa-folder-open"></i> Choose location…
+                    </button>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    PublishProfile? profile;
+    string envName = "Production";
+    bool wantsIOS, wantsAndroid, wantsMacOS, wantsMacCatalyst, wantsWindows;
+
+    readonly List<Kv> variables = new();
+    readonly List<Kv> replaceTokens = new();
+    readonly List<Kv> msbuildProps = new();
+    readonly List<DeployRow> deployTargets = new();
+
+    IReadOnlyList<AppleIdentity> identities = Array.Empty<AppleIdentity>();
+    string? savePath;
+
+    static readonly string[] Providers = { "TestFlight", "Firebase", "PlayStore", "AmazonAppStore", "MicrosoftStore" };
+    static readonly BundlePlatform[] AllPlatforms =
+        { BundlePlatform.iOS, BundlePlatform.Android, BundlePlatform.MacOS, BundlePlatform.MacCatalyst, BundlePlatform.Windows };
+
+    protected override async Task OnInitializedAsync()
+    {
+        var bridge = BridgeHolder.Current;
+        if (bridge == null) return;
+
+        profile = bridge.Parameters.GetValueOrDefault("Profile") as PublishProfile;
+        if (profile == null) return;
+
+        try { identities = await AppleIdentityService.GetIdentitiesAsync(); } catch { }
+
+        var s = profile.BundleSettings;
+        if (s != null)
+        {
+            envName = s.EnvironmentName;
+            wantsIOS = s.Platforms.Contains(BundlePlatform.iOS);
+            wantsAndroid = s.Platforms.Contains(BundlePlatform.Android);
+            wantsMacOS = s.Platforms.Contains(BundlePlatform.MacOS);
+            wantsMacCatalyst = s.Platforms.Contains(BundlePlatform.MacCatalyst);
+            wantsWindows = s.Platforms.Contains(BundlePlatform.Windows);
+            foreach (var (k, v) in s.MSBuildProperties) msbuildProps.Add(new Kv { Key = k, Value = v });
+            foreach (var (k, v) in s.ReplaceTokens) replaceTokens.Add(new Kv { Key = k, Value = v });
+            foreach (var (k, v) in s.Variables) variables.Add(new Kv { Key = k, Value = v });
+            foreach (var d in s.DeployTargets)
+                deployTargets.Add(new DeployRow
+                {
+                    Provider = d.Provider,
+                    Platform = d.Platform,
+                    AppleIdentityId = d.AppleIdentityId ?? "",
+                    Fields = d.Fields.Select(f => new Kv { Key = f.Key, Value = f.Value }).ToList(),
+                });
+        }
+        else
+        {
+            // Infer platforms from the profile's existing configs.
+            wantsAndroid = profile.AndroidConfigs.Count > 0;
+            foreach (var a in profile.AppleConfigs)
+            {
+                switch (a.Platform)
+                {
+                    case ApplePlatformType.iOS: wantsIOS = true; break;
+                    case ApplePlatformType.macOS: wantsMacOS = true; break;
+                    case ApplePlatformType.MacCatalyst: wantsMacCatalyst = true; break;
+                    default: wantsIOS = true; break;
+                }
+            }
+        }
+
+        bridge.SubmitRequested += OnSubmitRequested;
+        UpdateValidity();
+    }
+
+    void UpdateValidity() => BridgeHolder.Current?.SetValid(!string.IsNullOrEmpty(savePath));
+
+    async Task ChooseSaveLocation()
+    {
+        try
+        {
+            var suggested = $"{Sanitize(profile!.Name)}.sherpabundle";
+            var path = await DialogService.PickSaveFileAsync("Save Sherpa Bundle", suggested, "sherpabundle");
+            if (!string.IsNullOrEmpty(path))
+            {
+                savePath = path;
+                UpdateValidity();
+                StateHasChanged();
+            }
+        }
+        catch { }
+    }
+
+    void AddDeployTarget()
+        => deployTargets.Add(new DeployRow { Provider = "TestFlight", Platform = BundlePlatform.iOS, Fields = new() });
+
+    void OnProviderChanged(DeployRow target, ChangeEventArgs e)
+    {
+        target.Provider = e.Value?.ToString() ?? "TestFlight";
+        target.Platform = target.Provider switch
+        {
+            "PlayStore" or "AmazonAppStore" => BundlePlatform.Android,
+            "MicrosoftStore" => BundlePlatform.Windows,
+            _ => BundlePlatform.iOS,
+        };
+    }
+
+    async Task OnSubmitRequested()
+    {
+        var bridge = BridgeHolder.Current;
+        if (bridge == null || profile == null || string.IsNullOrEmpty(savePath)) return;
+
+        var platforms = new List<BundlePlatform>();
+        if (wantsIOS) platforms.Add(BundlePlatform.iOS);
+        if (wantsAndroid) platforms.Add(BundlePlatform.Android);
+        if (wantsMacOS) platforms.Add(BundlePlatform.MacOS);
+        if (wantsMacCatalyst) platforms.Add(BundlePlatform.MacCatalyst);
+        if (wantsWindows) platforms.Add(BundlePlatform.Windows);
+
+        var settings = new PublishProfileBundleSettings
+        {
+            EnvironmentName = string.IsNullOrWhiteSpace(envName) ? "Production" : envName.Trim(),
+            Platforms = platforms,
+            MSBuildProperties = ToMap(msbuildProps),
+            ReplaceTokens = ToMap(replaceTokens),
+            Variables = ToMap(variables),
+            DeployTargets = deployTargets.Select(d => new PublishProfileDeployTarget(d.Provider, d.Platform)
+            {
+                AppleIdentityId = string.IsNullOrEmpty(d.AppleIdentityId) ? null : d.AppleIdentityId,
+                Fields = ToMap(d.Fields),
+            }).ToList(),
+        };
+
+        var updated = profile with { BundleSettings = settings, UpdatedAt = DateTime.UtcNow };
+
+        // Persist the settings so they're remembered next time.
+        try { await ProfileService.SaveProfileAsync(updated); } catch { }
+
+        // Resolve material and write the bundle file.
+        await BundleBuilder.BuildAndSaveAsync(updated, savePath);
+
+        FileSystem.RevealInFileManager(savePath);
+        bridge.Result = true;
+    }
+
+    static Dictionary<string, string> ToMap(List<Kv> rows)
+        => rows.Where(r => !string.IsNullOrWhiteSpace(r.Key))
+               .GroupBy(r => r.Key.Trim())
+               .ToDictionary(g => g.Key, g => g.Last().Value ?? "");
+
+    static string Sanitize(string name)
+    {
+        var clean = new string(name.Select(c => char.IsLetterOrDigit(c) || c is '-' or '_' ? c : '-').ToArray());
+        return string.IsNullOrWhiteSpace(clean) ? "app" : clean;
+    }
+
+    static string FieldHintKey(string provider) => provider switch
+    {
+        "Firebase" => "AppId",
+        "PlayStore" => "Track",
+        "AmazonAppStore" => "ClientId",
+        "MicrosoftStore" => "TenantId",
+        _ => "Field",
+    };
+
+    static string FieldHintVal(string provider) => provider switch
+    {
+        "PlayStore" => "internal",
+        _ => "value",
+    };
+
+    RenderFragment RenderKvEditor(string title, List<Kv> rows, string keyPlaceholder, string valPlaceholder) => __builder =>
+    {
+        <div class="kv-block">
+            <div class="kv-title">@title</div>
+            @foreach (var row in rows)
+            {
+                <div class="kv-row">
+                    <input class="form-control compact" placeholder="@keyPlaceholder" @bind="row.Key" @bind:event="oninput" />
+                    <input class="form-control compact" placeholder="@valPlaceholder" @bind="row.Value" @bind:event="oninput" />
+                    <button class="btn-clear" @onclick="() => rows.Remove(row)"><i class="fas fa-times"></i></button>
+                </div>
+            }
+            <button class="btn-add" @onclick="() => rows.Add(new Kv())"><i class="fas fa-plus"></i> Add</button>
+        </div>
+    };
+
+    public void Dispose()
+    {
+        var bridge = BridgeHolder.Current;
+        if (bridge != null)
+            bridge.SubmitRequested -= OnSubmitRequested;
+    }
+
+    class Kv { public string Key { get; set; } = ""; public string? Value { get; set; } = ""; }
+
+    class DeployRow
+    {
+        public string Provider { get; set; } = "TestFlight";
+        public BundlePlatform Platform { get; set; } = BundlePlatform.iOS;
+        public string AppleIdentityId { get; set; } = "";
+        public List<Kv> Fields { get; set; } = new();
+    }
+}
+
+<style>
+    .form-content { display: flex; flex-direction: column; gap: 18px; padding: 8px 4px; }
+    .section { display: flex; flex-direction: column; gap: 10px; }
+    .section-title { font-size: 13px; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 8px; }
+    .section-title i { color: var(--accent-primary); }
+    .form-group { display: flex; flex-direction: column; gap: 6px; }
+    .form-group label { font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+    .form-control { padding: 8px 12px; border: 1px solid var(--input-border); border-radius: 6px; background: var(--input-bg); color: var(--text-primary); font-size: 14px; }
+    .form-control.compact { padding: 6px 10px; font-size: 13px; }
+    .form-hint { font-size: 11px; color: var(--text-muted); }
+    .form-hint code, code { background: var(--bg-tertiary); padding: 1px 5px; border-radius: 4px; font-size: 11px; }
+    .checkbox-row { display: flex; flex-wrap: wrap; gap: 14px; }
+    .chk { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-primary); cursor: pointer; }
+
+    .kv-block { display: flex; flex-direction: column; gap: 6px; }
+    .kv-title { font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+    .kv-row { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: center; }
+    .btn-add { align-self: flex-start; background: none; border: none; color: var(--accent-primary); cursor: pointer; font-size: 12px; padding: 2px 0; }
+
+    .deploy-card { border: 1px solid var(--border-color); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 10px; background: var(--bg-tertiary); }
+    .deploy-head { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: center; }
+
+    .file-picker { display: flex; align-items: center; gap: 8px; }
+    .file-selected { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--bg-tertiary); border-radius: 6px; word-break: break-all; }
+    .btn-clear { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 2px 6px; }
+    .btn-clear:hover { color: var(--accent-danger); }
+    .btn { padding: 6px 14px; border-radius: 6px; border: none; cursor: pointer; font-size: 13px; display: inline-flex; align-items: center; gap: 6px; }
+    .btn-secondary { background: var(--btn-secondary-bg); color: var(--text-primary); }
+    .btn-secondary:hover { background: var(--border-color); }
+</style>

@@ -214,6 +214,7 @@ public static class MauiProgram
 
         // Publish Profiles
         builder.Services.AddSingleton<IPublishProfileService, PublishProfileService>();
+        builder.Services.AddSingleton<ISherpaBundleBuilderService, SherpaBundleBuilderService>();
 
         // Encrypted Settings services
         builder.Services.AddSingleton<IEncryptedSettingsService, EncryptedSettingsService>();
