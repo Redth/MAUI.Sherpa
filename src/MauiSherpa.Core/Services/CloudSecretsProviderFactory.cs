@@ -8,14 +8,22 @@ namespace MauiSherpa.Core.Services;
 public class CloudSecretsProviderFactory : ICloudSecretsProviderFactory
 {
     private readonly ILoggingService _logger;
+    private readonly ILocalSecretsKeyStore? _localSecretsKeyStore;
+    private readonly ILocalVaultStore? _localVaultStore;
 
-    public CloudSecretsProviderFactory(ILoggingService logger)
+    public CloudSecretsProviderFactory(
+        ILoggingService logger,
+        ILocalSecretsKeyStore? localSecretsKeyStore = null,
+        ILocalVaultStore? localVaultStore = null)
     {
         _logger = logger;
+        _localSecretsKeyStore = localSecretsKeyStore;
+        _localVaultStore = localVaultStore;
     }
 
     public IReadOnlyList<CloudSecretsProviderType> SupportedProviders => new[]
     {
+        CloudSecretsProviderType.Local,
         CloudSecretsProviderType.Infisical,
         CloudSecretsProviderType.AzureKeyVault,
         CloudSecretsProviderType.AwsSecretsManager,
@@ -29,6 +37,7 @@ public class CloudSecretsProviderFactory : ICloudSecretsProviderFactory
     {
         return config.ProviderType switch
         {
+            CloudSecretsProviderType.Local => CreateLocalProvider(config),
             CloudSecretsProviderType.Infisical => new InfisicalProvider(config, _logger),
             CloudSecretsProviderType.AzureKeyVault => new AzureKeyVaultProvider(config, _logger),
             CloudSecretsProviderType.AwsSecretsManager => new AwsSecretsManagerProvider(config, _logger),
@@ -44,6 +53,7 @@ public class CloudSecretsProviderFactory : ICloudSecretsProviderFactory
     {
         return providerType switch
         {
+            CloudSecretsProviderType.Local => Array.Empty<CloudProviderSettingInfo>(),
             CloudSecretsProviderType.Infisical => GetInfisicalSettings(),
             CloudSecretsProviderType.AzureKeyVault => GetAzureKeyVaultSettings(),
             CloudSecretsProviderType.AwsSecretsManager => GetAwsSecretsManagerSettings(),
@@ -59,6 +69,7 @@ public class CloudSecretsProviderFactory : ICloudSecretsProviderFactory
     {
         return providerType switch
         {
+            CloudSecretsProviderType.Local => "Local",
             CloudSecretsProviderType.Infisical => "Infisical",
             CloudSecretsProviderType.AzureKeyVault => "Azure Key Vault",
             CloudSecretsProviderType.AwsSecretsManager => "AWS Secrets Manager",
@@ -69,6 +80,17 @@ public class CloudSecretsProviderFactory : ICloudSecretsProviderFactory
             CloudSecretsProviderType.None => "None",
             _ => providerType.ToString()
         };
+    }
+
+    private ICloudSecretsProvider CreateLocalProvider(CloudSecretsProviderConfig config)
+    {
+        if (_localVaultStore is not null)
+            return new LocalSqlCipherSecretsProvider(config, _logger, _localVaultStore, _localSecretsKeyStore);
+
+        if (_localSecretsKeyStore is not null)
+            return new LocalSqlCipherSecretsProvider(config, _logger, _localSecretsKeyStore);
+
+        throw new InvalidOperationException("Local secrets key storage is not configured.");
     }
 
     private static IReadOnlyList<CloudProviderSettingInfo> GetInfisicalSettings() => new[]

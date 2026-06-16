@@ -109,15 +109,6 @@ public class GoogleSecretManagerProvider : ICloudSecretsProvider
                     Replication = new Replication { Automatic = new Replication.Types.Automatic() }
                 };
                 
-                // Add labels if metadata provided
-                if (metadata != null)
-                {
-                    foreach (var kvp in metadata)
-                    {
-                        secret.Labels[SanitizeLabel(kvp.Key)] = SanitizeLabel(kvp.Value);
-                    }
-                }
-                
                 var createRequest = new CreateSecretRequest
                 {
                     Parent = parent,
@@ -141,6 +132,8 @@ public class GoogleSecretManagerProvider : ICloudSecretsProvider
             };
             
             await client.AddSecretVersionAsync(addVersionRequest, cancellationToken);
+            if (metadata is not null && !await SetSecretMetadataAsync(key, metadata, cancellationToken))
+                return false;
 
             _logger.LogInformation($"Stored secret: {key}");
             return true;
@@ -186,6 +179,49 @@ public class GoogleSecretManagerProvider : ICloudSecretsProvider
         }
     }
 
+    public async Task<Dictionary<string, string>?> GetSecretMetadataAsync(string key, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var secretId = GetSecretId(key);
+            if (!await SecretExistsInternalAsync(secretId, cancellationToken))
+                return null;
+
+            var metadataBytes = await GetSecretAsync(CloudSecretMetadata.GetMetadataKey(secretId), cancellationToken);
+            return metadataBytes is null
+                ? new Dictionary<string, string>(StringComparer.Ordinal)
+                : CloudSecretMetadata.Deserialize(metadataBytes);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Google Secret Manager get secret metadata error: {ex.Message}", ex);
+            return null;
+        }
+    }
+
+    public async Task<bool> SetSecretMetadataAsync(
+        string key,
+        Dictionary<string, string> metadata,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var secretId = GetSecretId(key);
+            if (!await SecretExistsInternalAsync(secretId, cancellationToken))
+                return false;
+
+            var metadataKey = CloudSecretMetadata.GetMetadataKey(secretId);
+            return metadata.Count == 0
+                ? await DeleteSecretAsync(metadataKey, cancellationToken)
+                : await StoreSecretAsync(metadataKey, CloudSecretMetadata.Serialize(metadata), cancellationToken: cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Google Secret Manager set secret metadata error: {ex.Message}", ex);
+            return false;
+        }
+    }
+
     public async Task<bool> DeleteSecretAsync(string key, CancellationToken cancellationToken = default)
     {
         try
@@ -196,12 +232,16 @@ public class GoogleSecretManagerProvider : ICloudSecretsProvider
             
             var request = new DeleteSecretRequest { Name = secretName };
             await client.DeleteSecretAsync(request, cancellationToken);
+            if (!CloudSecretMetadata.IsMetadataKey(key))
+                await DeleteSecretAsync(CloudSecretMetadata.GetMetadataKey(secretId), cancellationToken);
             
             _logger.LogInformation($"Deleted secret: {key}");
             return true;
         }
         catch (Grpc.Core.RpcException ex) when (ex.StatusCode == Grpc.Core.StatusCode.NotFound)
         {
+            if (!CloudSecretMetadata.IsMetadataKey(key))
+                await DeleteSecretAsync(CloudSecretMetadata.GetMetadataKey(GetSecretId(key)), cancellationToken);
             _logger.LogInformation($"Secret already deleted or not found: {key}");
             return true;
         }
@@ -274,6 +314,9 @@ public class GoogleSecretManagerProvider : ICloudSecretsProvider
 
                 // Remove our prefix to get the original key
                 var originalKey = RemoveSecretPrefix(secretId);
+                if (CloudSecretMetadata.IsMetadataKey(originalKey))
+                    continue;
+
                 allSecrets.Add(originalKey);
             }
 
@@ -333,33 +376,6 @@ public class GoogleSecretManagerProvider : ICloudSecretsProvider
         // Limit to 255 characters
         if (result.Length > 255)
             result = result[..255];
-        
-        return result;
-    }
-
-    /// <summary>
-    /// Sanitize label key/value for Google Cloud
-    /// </summary>
-    private static string SanitizeLabel(string value)
-    {
-        var sanitized = new StringBuilder();
-        foreach (var c in value.ToLowerInvariant())
-        {
-            if (char.IsLetterOrDigit(c) || c == '-' || c == '_')
-                sanitized.Append(c);
-            else
-                sanitized.Append('-');
-        }
-        
-        var result = sanitized.ToString();
-        
-        // Must start with a letter
-        if (result.Length > 0 && !char.IsLetter(result[0]))
-            result = "l" + result;
-        
-        // Limit to 63 characters
-        if (result.Length > 63)
-            result = result[..63];
         
         return result;
     }

@@ -7,7 +7,7 @@ namespace MauiSherpa.Services;
 /// Secure storage service that uses platform Keychain/DPAPI when available,
 /// with a fallback to local JSON file for debugging scenarios where entitlements aren't configured.
 /// </summary>
-public class SecureStorageService : ISecureStorageService
+public class SecureStorageService : ILegacySecureStorageService
 {
     private readonly string _fallbackPath;
     private readonly ISecureStorage _secureStorage;

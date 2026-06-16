@@ -143,6 +143,9 @@ public class InfisicalProvider : ICloudSecretsProvider
                 await client.Secrets().CreateAsync(createOptions);
             }
 
+            if (metadata is not null && !await SetSecretMetadataAsync(key, metadata, cancellationToken))
+                return false;
+
             _logger.LogInformation($"Stored secret: {key}");
             return true;
         }
@@ -200,6 +203,55 @@ public class InfisicalProvider : ICloudSecretsProvider
         }
     }
 
+    public async Task<Dictionary<string, string>?> GetSecretMetadataAsync(string key, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var secretName = SanitizeSecretName(key);
+            var client = await GetClientAsync(cancellationToken);
+            if (client == null)
+                return null;
+            if (!await SecretExistsInternalAsync(client, secretName, cancellationToken))
+                return null;
+
+            var metadataBytes = await GetSecretAsync(CloudSecretMetadata.GetMetadataKey(secretName), cancellationToken);
+            return metadataBytes is null
+                ? new Dictionary<string, string>(StringComparer.Ordinal)
+                : CloudSecretMetadata.Deserialize(metadataBytes);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Infisical get secret metadata error: {ex.Message}", ex);
+            return null;
+        }
+    }
+
+    public async Task<bool> SetSecretMetadataAsync(
+        string key,
+        Dictionary<string, string> metadata,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var secretName = SanitizeSecretName(key);
+            var client = await GetClientAsync(cancellationToken);
+            if (client == null)
+                return false;
+            if (!await SecretExistsInternalAsync(client, secretName, cancellationToken))
+                return false;
+
+            var metadataKey = CloudSecretMetadata.GetMetadataKey(secretName);
+            return metadata.Count == 0
+                ? await DeleteSecretAsync(metadataKey, cancellationToken)
+                : await StoreSecretAsync(metadataKey, CloudSecretMetadata.Serialize(metadata), cancellationToken: cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Infisical set secret metadata error: {ex.Message}", ex);
+            return false;
+        }
+    }
+
     public async Task<bool> DeleteSecretAsync(string key, CancellationToken cancellationToken = default)
     {
         try
@@ -219,6 +271,8 @@ public class InfisicalProvider : ICloudSecretsProvider
             };
             
             await client.Secrets().DeleteAsync(options);
+            if (!CloudSecretMetadata.IsMetadataKey(key))
+                await DeleteSecretAsync(CloudSecretMetadata.GetMetadataKey(secretName), cancellationToken);
             
             _logger.LogInformation($"Deleted secret: {key}");
             return true;
@@ -227,6 +281,8 @@ public class InfisicalProvider : ICloudSecretsProvider
             ex.Message.Contains("not found", StringComparison.OrdinalIgnoreCase) ||
             ex.InnerException?.Message?.Contains("not found", StringComparison.OrdinalIgnoreCase) == true)
         {
+            if (!CloudSecretMetadata.IsMetadataKey(key))
+                await DeleteSecretAsync(CloudSecretMetadata.GetMetadataKey(SanitizeSecretName(key)), cancellationToken);
             _logger.LogInformation($"Secret already deleted or not found: {key}");
             return true;
         }
@@ -321,6 +377,8 @@ public class InfisicalProvider : ICloudSecretsProvider
                 
                 // Filter by sanitized prefix if specified
                 if (sanitizedPrefix != null && !secretKey.StartsWith(sanitizedPrefix, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (CloudSecretMetadata.IsMetadataKey(secretKey))
                     continue;
                 
                 result.Add(secretKey);

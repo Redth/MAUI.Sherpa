@@ -108,14 +108,11 @@ public class AwsSecretsManagerProvider : ICloudSecretsProvider
                     SecretBinary = new MemoryStream(value)
                 };
                 
-                // Add tags if metadata provided
-                if (metadata != null && metadata.Count > 0)
-                {
-                    createRequest.Tags = metadata.Select(kv => new Tag { Key = kv.Key, Value = kv.Value }).ToList();
-                }
-                
                 await client.CreateSecretAsync(createRequest, cancellationToken);
             }
+
+            if (metadata is not null && !await SetSecretMetadataAsync(key, metadata, cancellationToken))
+                return false;
 
             _logger.LogInformation($"Stored secret: {key}");
             return true;
@@ -173,6 +170,49 @@ public class AwsSecretsManagerProvider : ICloudSecretsProvider
         }
     }
 
+    public async Task<Dictionary<string, string>?> GetSecretMetadataAsync(string key, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var secretName = GetSecretName(key);
+            if (!await SecretExistsInternalAsync(secretName, cancellationToken))
+                return null;
+
+            var metadataBytes = await GetSecretAsync(CloudSecretMetadata.GetMetadataKey(secretName), cancellationToken);
+            return metadataBytes is null
+                ? new Dictionary<string, string>(StringComparer.Ordinal)
+                : CloudSecretMetadata.Deserialize(metadataBytes);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"AWS Secrets Manager get secret metadata error: {ex.Message}", ex);
+            return null;
+        }
+    }
+
+    public async Task<bool> SetSecretMetadataAsync(
+        string key,
+        Dictionary<string, string> metadata,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var secretName = GetSecretName(key);
+            if (!await SecretExistsInternalAsync(secretName, cancellationToken))
+                return false;
+
+            var metadataKey = CloudSecretMetadata.GetMetadataKey(secretName);
+            return metadata.Count == 0
+                ? await DeleteSecretAsync(metadataKey, cancellationToken)
+                : await StoreSecretAsync(metadataKey, CloudSecretMetadata.Serialize(metadata), cancellationToken: cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"AWS Secrets Manager set secret metadata error: {ex.Message}", ex);
+            return false;
+        }
+    }
+
     public async Task<bool> DeleteSecretAsync(string key, CancellationToken cancellationToken = default)
     {
         try
@@ -187,12 +227,16 @@ public class AwsSecretsManagerProvider : ICloudSecretsProvider
             };
             
             await client.DeleteSecretAsync(request, cancellationToken);
+            if (!CloudSecretMetadata.IsMetadataKey(key))
+                await DeleteSecretAsync(CloudSecretMetadata.GetMetadataKey(secretName), cancellationToken);
             
             _logger.LogInformation($"Deleted secret: {key}");
             return true;
         }
         catch (ResourceNotFoundException)
         {
+            if (!CloudSecretMetadata.IsMetadataKey(key))
+                await DeleteSecretAsync(CloudSecretMetadata.GetMetadataKey(GetSecretName(key)), cancellationToken);
             _logger.LogInformation($"Secret already deleted or not found: {key}");
             return true;
         }
@@ -261,7 +305,8 @@ public class AwsSecretsManagerProvider : ICloudSecretsProvider
                         continue;
 
                     // Filter by prefix if specified
-                    if (!string.IsNullOrEmpty(effectivePrefix) && !secret.Name.StartsWith(effectivePrefix, StringComparison.OrdinalIgnoreCase))
+                    if (CloudSecretMetadata.IsMetadataKey(RemoveSecretPrefix(secret.Name)) ||
+                        (!string.IsNullOrEmpty(effectivePrefix) && !secret.Name.StartsWith(effectivePrefix, StringComparison.OrdinalIgnoreCase)))
                         continue;
 
                     // Remove our prefix to get the original key

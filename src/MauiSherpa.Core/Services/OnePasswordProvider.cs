@@ -103,6 +103,9 @@ public class OnePasswordProvider : ICloudSecretsProvider
                 return false;
             }
 
+            if (metadata is not null && !await SetSecretMetadataAsync(key, metadata, cancellationToken))
+                return false;
+
             _logger.LogInformation($"Stored secret: {key}");
             return true;
         }
@@ -139,6 +142,47 @@ public class OnePasswordProvider : ICloudSecretsProvider
         }
     }
 
+    public async Task<Dictionary<string, string>?> GetSecretMetadataAsync(string key, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            if (!await SecretExistsAsync(key, cancellationToken))
+                return null;
+
+            var metadataBytes = await GetSecretAsync(GetMetadataFieldLabel(key), cancellationToken);
+            return metadataBytes is null
+                ? new Dictionary<string, string>(StringComparer.Ordinal)
+                : CloudSecretMetadata.Deserialize(metadataBytes);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"1Password get secret metadata error: {ex.Message}", ex);
+            return null;
+        }
+    }
+
+    public async Task<bool> SetSecretMetadataAsync(
+        string key,
+        Dictionary<string, string> metadata,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            if (!await SecretExistsAsync(key, cancellationToken))
+                return false;
+
+            var metadataKey = GetMetadataFieldLabel(key);
+            return metadata.Count == 0
+                ? await DeleteSecretAsync(metadataKey, cancellationToken)
+                : await StoreSecretAsync(metadataKey, CloudSecretMetadata.Serialize(metadata), cancellationToken: cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"1Password set secret metadata error: {ex.Message}", ex);
+            return false;
+        }
+    }
+
     public async Task<bool> DeleteSecretAsync(string key, CancellationToken cancellationToken = default)
     {
         try
@@ -153,6 +197,8 @@ public class OnePasswordProvider : ICloudSecretsProvider
                 if (output.Contains("isn't a field", StringComparison.OrdinalIgnoreCase) ||
                     output.Contains("not found", StringComparison.OrdinalIgnoreCase))
                 {
+                    if (!CloudSecretMetadata.IsMetadataKey(key))
+                        await DeleteSecretAsync(GetMetadataFieldLabel(key), cancellationToken);
                     _logger.LogInformation($"Secret already deleted or not found: {key}");
                     return true;
                 }
@@ -160,6 +206,9 @@ public class OnePasswordProvider : ICloudSecretsProvider
                 _logger.LogError($"1Password delete secret failed (exit code {exitCode}): {output}");
                 return false;
             }
+
+            if (!CloudSecretMetadata.IsMetadataKey(key))
+                await DeleteSecretAsync(GetMetadataFieldLabel(key), cancellationToken);
 
             _logger.LogInformation($"Deleted secret: {key}");
             return true;
@@ -197,6 +246,10 @@ public class OnePasswordProvider : ICloudSecretsProvider
                 return Array.Empty<string>();
 
             var labels = GetCustomFieldLabels(item.Value);
+
+            labels = labels
+                .Where(l => !CloudSecretMetadata.IsMetadataKey(l))
+                .ToList();
 
             if (!string.IsNullOrEmpty(prefix))
                 labels = labels.Where(l => l.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)).ToList();
@@ -414,6 +467,11 @@ public class OnePasswordProvider : ICloudSecretsProvider
             sb.Append(c);
         }
         return sb.ToString();
+    }
+
+    private static string GetMetadataFieldLabel(string key)
+    {
+        return CloudSecretMetadata.GetMetadataKey(SanitizeFieldLabel(key));
     }
 
     #endregion

@@ -93,17 +93,9 @@ public class AzureKeyVaultProvider : ICloudSecretsProvider
             var base64Value = Convert.ToBase64String(value);
             
             var secret = new KeyVaultSecret(sanitizedKey, base64Value);
-            
-            // Add metadata as tags
-            if (metadata != null)
-            {
-                foreach (var kvp in metadata)
-                {
-                    secret.Properties.Tags[kvp.Key] = kvp.Value;
-                }
-            }
-
             await client.SetSecretAsync(secret, cancellationToken);
+            if (metadata is not null && !await SetSecretMetadataAsync(key, metadata, cancellationToken))
+                return false;
             
             _logger.LogInformation($"Stored secret: {key}");
             return true;
@@ -151,6 +143,49 @@ public class AzureKeyVaultProvider : ICloudSecretsProvider
         }
     }
 
+    public async Task<Dictionary<string, string>?> GetSecretMetadataAsync(string key, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var sanitizedKey = SanitizeKey(key);
+            if (!await SecretExistsAsync(key, cancellationToken))
+                return null;
+
+            var metadataBytes = await GetSecretAsync(CloudSecretMetadata.GetMetadataKey(sanitizedKey), cancellationToken);
+            return metadataBytes is null
+                ? new Dictionary<string, string>(StringComparer.Ordinal)
+                : CloudSecretMetadata.Deserialize(metadataBytes);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Azure Key Vault get secret metadata error: {ex.Message}", ex);
+            return null;
+        }
+    }
+
+    public async Task<bool> SetSecretMetadataAsync(
+        string key,
+        Dictionary<string, string> metadata,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var sanitizedKey = SanitizeKey(key);
+            if (!await SecretExistsAsync(key, cancellationToken))
+                return false;
+
+            var metadataKey = CloudSecretMetadata.GetMetadataKey(sanitizedKey);
+            return metadata.Count == 0
+                ? await DeleteSecretAsync(metadataKey, cancellationToken)
+                : await StoreSecretAsync(metadataKey, CloudSecretMetadata.Serialize(metadata), cancellationToken: cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Azure Key Vault set secret metadata error: {ex.Message}", ex);
+            return false;
+        }
+    }
+
     public async Task<bool> DeleteSecretAsync(string key, CancellationToken cancellationToken = default)
     {
         try
@@ -162,12 +197,16 @@ public class AzureKeyVaultProvider : ICloudSecretsProvider
             
             // Wait for deletion to complete
             await operation.WaitForCompletionAsync(cancellationToken);
+            if (!CloudSecretMetadata.IsMetadataKey(key))
+                await DeleteSecretAsync(CloudSecretMetadata.GetMetadataKey(sanitizedKey), cancellationToken);
             
             _logger.LogInformation($"Deleted secret: {key}");
             return true;
         }
         catch (RequestFailedException ex) when (ex.Status == 404)
         {
+            if (!CloudSecretMetadata.IsMetadataKey(key))
+                await DeleteSecretAsync(CloudSecretMetadata.GetMetadataKey(SanitizeKey(key)), cancellationToken);
             _logger.LogInformation($"Secret already deleted or not found: {key}");
             return true;
         }
@@ -218,7 +257,8 @@ public class AzureKeyVaultProvider : ICloudSecretsProvider
             {
                 var secretName = secretProperties.Name;
 
-                if (sanitizedPrefix == null || secretName.StartsWith(sanitizedPrefix, StringComparison.OrdinalIgnoreCase))
+                if (!CloudSecretMetadata.IsMetadataKey(secretName) &&
+                    (sanitizedPrefix == null || secretName.StartsWith(sanitizedPrefix, StringComparison.OrdinalIgnoreCase)))
                 {
                     allSecrets.Add(secretName);
                 }

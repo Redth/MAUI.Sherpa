@@ -13,7 +13,7 @@ public class CloudProviderPage : HybridFormPage<CloudSecretsProviderConfig>
 {
     private readonly bool _isEditing;
 
-    protected override string FormTitle => _isEditing ? "Edit Cloud Provider" : "Add Cloud Provider";
+    protected override string FormTitle => _isEditing ? "Edit Secrets Provider" : "Add Secrets Provider";
     protected override string SubmitButtonText => "Save";
     protected override string BlazorRoute => "/modal/cloud-provider";
 

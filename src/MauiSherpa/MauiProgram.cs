@@ -107,7 +107,15 @@ public static class MauiProgram
         builder.Services.AddSingleton<ILauncher>(_ => Launcher.Default);
         builder.Services.AddSingleton<IClipboard>(_ => Clipboard.Default);
         builder.Services.AddSingleton<ISecureStorage>(_ => SecureStorage.Default);
-        builder.Services.AddSingleton<ISecureStorageService, SecureStorageService>();
+        builder.Services.AddSingleton<ILocalVaultIntroductionService, LocalVaultIntroductionService>();
+        builder.Services.AddSingleton<SecureStorageService>();
+        builder.Services.AddSingleton<ILegacySecureStorageService>(sp => sp.GetRequiredService<SecureStorageService>());
+        builder.Services.AddSingleton<ISecureStorageService, VaultSecureStorageService>();
+        builder.Services.AddSingleton<LocalSecretsKeyStore>();
+        builder.Services.AddSingleton<ILocalSecretsKeyStore>(sp => sp.GetRequiredService<LocalSecretsKeyStore>());
+        builder.Services.AddSingleton<ILocalVaultKeyStore>(sp => sp.GetRequiredService<LocalSecretsKeyStore>());
+        builder.Services.AddSingleton<ILocalVaultAccessService>(sp => sp.GetRequiredService<LocalSecretsKeyStore>());
+        builder.Services.AddSingleton<ILocalVaultStore, SqlCipherLocalVaultStore>();
         builder.Services.AddSingleton<IThemeService, ThemeService>();
         builder.Services.AddSingleton<IToolbarService, MauiSherpa.Core.Services.ToolbarService>();
 
@@ -160,6 +168,7 @@ public static class MauiProgram
         builder.Services.AddSingleton<MauiSherpa.Pages.Forms.HybridFormBridgeHolder>();
         builder.Services.AddSingleton<MauiSherpa.Pages.Forms.ProgressBridgeHolder>();
         builder.Services.AddSingleton<MauiSherpa.Pages.Forms.ModalParameterService>();
+        builder.Services.AddSingleton<LocalVaultIntroModalService>();
         
         // Apple services
         builder.Services.AddSingleton<IXcodeService>(sp =>

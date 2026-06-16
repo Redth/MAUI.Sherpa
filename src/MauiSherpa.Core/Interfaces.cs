@@ -74,6 +74,124 @@ public interface ISecureStorageService
     Task RemoveAsync(string key);
 }
 
+public interface ILegacySecureStorageService : ISecureStorageService
+{
+}
+
+public interface ILocalVaultKeyStore
+{
+    Task<string> GetOrCreateKeyAsync(CancellationToken cancellationToken = default);
+}
+
+public interface ILocalSecretsKeyStore : ILocalVaultKeyStore
+{
+}
+
+public enum LocalVaultAccessProblem
+{
+    None,
+    AccessDenied
+}
+
+public sealed record LocalVaultAccessState(
+    LocalVaultAccessProblem Problem,
+    string? Message = null,
+    DateTime? LastFailureUtc = null)
+{
+    public bool RequiresUserAction => Problem != LocalVaultAccessProblem.None;
+
+    public static LocalVaultAccessState Available { get; } = new(LocalVaultAccessProblem.None);
+}
+
+public sealed class LocalVaultUnavailableException : InvalidOperationException
+{
+    public LocalVaultUnavailableException(string message, Exception? innerException = null)
+        : base(message, innerException)
+    {
+    }
+}
+
+public interface ILocalVaultAccessService
+{
+    LocalVaultAccessState GetState();
+    Task<LocalVaultAccessState> RequestAccessAsync(CancellationToken cancellationToken = default);
+    event Action? StateChanged;
+}
+
+public enum LocalVaultIntroductionDecision
+{
+    NotSet,
+    Enabled,
+    Declined
+}
+
+public enum LocalVaultIntroductionResult
+{
+    EnableLocal,
+    DeclineLocal
+}
+
+public sealed record LocalVaultIntroductionState(
+    int Version,
+    LocalVaultIntroductionDecision Decision,
+    DateTime? DecidedAtUtc = null)
+{
+    public const int CurrentVersion = 1;
+
+    public bool HasSeenCurrentVersion => Version == CurrentVersion && Decision != LocalVaultIntroductionDecision.NotSet;
+    public bool IsLocalVaultEnabled => Version == CurrentVersion && Decision == LocalVaultIntroductionDecision.Enabled;
+    public bool HasDeclined => Version == CurrentVersion && Decision == LocalVaultIntroductionDecision.Declined;
+
+    public static LocalVaultIntroductionState NotShown { get; } =
+        new(CurrentVersion, LocalVaultIntroductionDecision.NotSet);
+}
+
+public interface ILocalVaultIntroductionService
+{
+    LocalVaultIntroductionState GetState();
+    Task MarkEnabledAsync(CancellationToken cancellationToken = default);
+    Task MarkDeclinedAsync(CancellationToken cancellationToken = default);
+    event Action? StateChanged;
+}
+
+public interface ILocalVaultStore
+{
+    string DatabasePath { get; }
+
+    Task<LocalVaultItem> PutAsync(
+        string scope,
+        string path,
+        string key,
+        byte[] value,
+        string contentType,
+        Dictionary<string, string>? metadata = null,
+        CancellationToken cancellationToken = default);
+
+    Task<LocalVaultItem?> GetAsync(
+        string scope,
+        string path,
+        string key,
+        CancellationToken cancellationToken = default);
+
+    Task<bool> RemoveAsync(
+        string scope,
+        string path,
+        string key,
+        CancellationToken cancellationToken = default);
+
+    Task<bool> ExistsAsync(
+        string scope,
+        string path,
+        string key,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<LocalVaultItem>> ListAsync(
+        string scope,
+        string? path = null,
+        string? keyPrefix = null,
+        CancellationToken cancellationToken = default);
+}
+
 public interface IPlatformService
 {
     bool IsWindows { get; }
@@ -2673,7 +2791,8 @@ public enum CloudSecretsProviderType
     Infisical,
     OnePassword,
     Vaultwarden,
-    AzureDevOps
+    AzureDevOps,
+    Local
 }
 
 /// <summary>
@@ -2786,6 +2905,20 @@ public interface ICloudSecretsProvider
     /// <param name="key">The secret key/name</param>
     /// <returns>The secret value, or null if not found</returns>
     Task<byte[]?> GetSecretAsync(string key, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Gets arbitrary key/value metadata stored for a secret.
+    /// </summary>
+    /// <param name="key">The secret key/name</param>
+    /// <returns>The metadata dictionary, null if the secret is not found, or an empty dictionary if no metadata exists</returns>
+    Task<Dictionary<string, string>?> GetSecretMetadataAsync(string key, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Replaces arbitrary key/value metadata for a secret without changing the secret value.
+    /// </summary>
+    /// <param name="key">The secret key/name</param>
+    /// <param name="metadata">The complete metadata dictionary to store</param>
+    Task<bool> SetSecretMetadataAsync(string key, Dictionary<string, string> metadata, CancellationToken cancellationToken = default);
     
     /// <summary>
     /// Deletes a secret
@@ -2850,7 +2983,22 @@ public record ManagedSecret(
     string? Description,
     string? OriginalFileName,
     DateTime CreatedAt,
-    DateTime UpdatedAt
+    DateTime UpdatedAt,
+    Dictionary<string, string>? Metadata = null
+)
+{
+    public Dictionary<string, string> Metadata { get; init; } = Metadata is null
+        ? new Dictionary<string, string>(StringComparer.Ordinal)
+        : new Dictionary<string, string>(Metadata, StringComparer.Ordinal);
+}
+
+/// <summary>
+/// A logical folder for Sherpa-managed secrets.
+/// </summary>
+public record ManagedSecretFolder(
+    string Path,
+    string Name,
+    DateTime CreatedAt
 );
 
 /// <summary>
@@ -2861,11 +3009,32 @@ public interface IManagedSecretsService
 {
     const string SecretPrefix = "sherpa-secrets/";
     const string MetadataPrefix = "sherpa-secrets-meta/";
+    const string FolderPrefix = "sherpa-secret-folders/";
 
     /// <summary>
     /// Lists all Sherpa-managed secrets
     /// </summary>
     Task<IReadOnlyList<ManagedSecret>> ListAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Lists explicitly created Sherpa-managed secret folders.
+    /// </summary>
+    Task<IReadOnlyList<ManagedSecretFolder>> ListFoldersAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Creates a logical folder for Sherpa-managed secrets.
+    /// </summary>
+    Task<bool> CreateFolderAsync(string folderPath, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Renames a logical folder and moves any managed secrets and child folders under it.
+    /// </summary>
+    Task<bool> RenameFolderAsync(string folderPath, string newFolderPath, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Deletes an empty logical folder.
+    /// </summary>
+    Task<bool> DeleteFolderAsync(string folderPath, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Gets metadata for a specific managed secret
@@ -2880,12 +3049,17 @@ public interface IManagedSecretsService
     /// <summary>
     /// Creates a new managed secret
     /// </summary>
-    Task<bool> CreateAsync(string key, byte[] value, ManagedSecretType type, string? description = null, string? originalFileName = null, CancellationToken cancellationToken = default);
+    Task<bool> CreateAsync(string key, byte[] value, ManagedSecretType type, string? description = null, string? originalFileName = null, Dictionary<string, string>? metadata = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Updates an existing managed secret's value and/or metadata
     /// </summary>
-    Task<bool> UpdateAsync(string key, byte[]? value = null, string? description = null, CancellationToken cancellationToken = default);
+    Task<bool> UpdateAsync(string key, byte[]? value = null, string? description = null, Dictionary<string, string>? metadata = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Moves an existing managed secret to a new key and optionally updates value/metadata.
+    /// </summary>
+    Task<bool> MoveAsync(string key, string newKey, byte[]? value = null, string? description = null, Dictionary<string, string>? metadata = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Deletes a managed secret and its metadata
@@ -2914,6 +3088,11 @@ public interface ICloudSecretsService
     /// Saves (adds or updates) a provider configuration
     /// </summary>
     Task SaveProviderAsync(CloudSecretsProviderConfig provider);
+
+    /// <summary>
+    /// Enables the built-in Local provider after the user opts in to the local vault.
+    /// </summary>
+    Task EnableDefaultLocalProviderAsync(bool setActiveProvider = true);
     
     /// <summary>
     /// Deletes a provider configuration
@@ -2953,6 +3132,16 @@ public interface ICloudSecretsService
     /// Retrieves a secret from the active provider
     /// </summary>
     Task<byte[]?> GetSecretAsync(string key, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Gets arbitrary key/value metadata stored for a secret from the active provider.
+    /// </summary>
+    Task<Dictionary<string, string>?> GetSecretMetadataAsync(string key, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Replaces arbitrary key/value metadata for a secret in the active provider.
+    /// </summary>
+    Task<bool> SetSecretMetadataAsync(string key, Dictionary<string, string> metadata, CancellationToken cancellationToken = default);
     
     /// <summary>
     /// Deletes a secret from the active provider

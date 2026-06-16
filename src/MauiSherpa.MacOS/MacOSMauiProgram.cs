@@ -81,7 +81,14 @@ public static class MacOSMauiProgram
         builder.Services.AddScoped<INavigationService, NavigationService>();
         builder.Services.AddSingleton<IDialogService, DialogService>();
         builder.Services.AddSingleton<IFileSystemService, FileSystemService>();
-        builder.Services.AddSingleton<ISecureStorageService, SecureStorageService>();
+        builder.Services.AddSingleton<SecureStorageService>();
+        builder.Services.AddSingleton<ILegacySecureStorageService>(sp => sp.GetRequiredService<SecureStorageService>());
+        builder.Services.AddSingleton<ISecureStorageService, VaultSecureStorageService>();
+        builder.Services.AddSingleton<LocalSecretsKeyStore>();
+        builder.Services.AddSingleton<ILocalSecretsKeyStore>(sp => sp.GetRequiredService<LocalSecretsKeyStore>());
+        builder.Services.AddSingleton<ILocalVaultKeyStore>(sp => sp.GetRequiredService<LocalSecretsKeyStore>());
+        builder.Services.AddSingleton<ILocalVaultAccessService>(sp => sp.GetRequiredService<LocalSecretsKeyStore>());
+        builder.Services.AddSingleton<ILocalVaultStore, SqlCipherLocalVaultStore>();
         builder.Services.AddSingleton<IThemeService, MacOSThemeService>();
 
         // macOS Essentials — AddMacOSEssentials() sets the .Default statics via reflection,
@@ -91,6 +98,7 @@ public static class MacOSMauiProgram
         builder.Services.AddSingleton<ILauncher>(_ => Launcher.Default);
         builder.Services.AddSingleton<IClipboard>(_ => Clipboard.Default);
         builder.Services.AddSingleton<ISecureStorage>(_ => SecureStorage.Default);
+        builder.Services.AddSingleton<ILocalVaultIntroductionService, LocalVaultIntroductionService>();
 
         // Toolbar service for native macOS toolbar integration
         builder.Services.AddSingleton<IToolbarService, ToolbarService>();
@@ -143,6 +151,7 @@ public static class MacOSMauiProgram
         builder.Services.AddSingleton<IFormModalService, MauiSherpa.Services.FormModalService>();
         builder.Services.AddSingleton<MauiSherpa.Pages.Forms.HybridFormBridgeHolder>();
         builder.Services.AddSingleton<MauiSherpa.Pages.Forms.ModalParameterService>();
+        builder.Services.AddSingleton<LocalVaultIntroModalService>();
 
         // Apple services
         builder.Services.AddSingleton<IAppleIdentityService, AppleIdentityService>();
@@ -264,13 +273,25 @@ public static class MacOSMauiProgram
 
 #if DEBUG
         builder.Services.AddBlazorWebViewDeveloperTools();
-        builder.AddMauiDevFlowAgent();
-        builder.AddMauiBlazorDevFlowTools();
+        if (IsDevFlowEnabled())
+        {
+            builder.AddMauiDevFlowAgent();
+            builder.AddMauiBlazorDevFlowTools();
+        }
         builder.Logging.AddDebug();
 #endif
 
         return builder.Build();
     }
+
+#if DEBUG
+    static bool IsDevFlowEnabled()
+    {
+        var value = Environment.GetEnvironmentVariable("MAUI_SHERPA_ENABLE_DEVFLOW");
+        return string.Equals(value, "1", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
+    }
+#endif
 
     static void MigrateAppData()
     {

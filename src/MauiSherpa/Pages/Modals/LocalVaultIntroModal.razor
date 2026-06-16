@@ -1,0 +1,406 @@
+@page "/modal/local-vault-intro"
+@using MauiSherpa.Core.Interfaces
+@inject MauiSherpa.Pages.Forms.ModalParameterService ModalParams
+@inject ICloudSecretsService CloudSecrets
+@inject ILocalVaultAccessService LocalVaultAccess
+@inject ILocalVaultIntroductionService LocalVaultIntro
+@inject ILoggingService Logger
+
+<div class="vault-intro">
+    <div class="dialog-header">
+        <div class="icon-wrap" aria-hidden="true">
+            <i class="fas fa-vault"></i>
+        </div>
+        <div>
+            <p class="eyebrow">New secure storage option</p>
+            <h2>Use Sherpa's Local Vault</h2>
+        </div>
+    </div>
+
+    <div class="dialog-body">
+        @if (previewOnly)
+        {
+            <div class="preview-note">
+                <i class="fas fa-flask" aria-hidden="true"></i>
+                <span>Debug preview: choosing an action here will not change your saved Local Vault preference.</span>
+            </div>
+        }
+
+        <p class="lead">
+            Sherpa can now store secrets locally in an encrypted vault. The operating system protects only the vault key.
+        </p>
+
+        <div class="trust-card">
+            <div class="trust-item">
+                <i class="fas fa-lock" aria-hidden="true"></i>
+                <div>
+                    <strong>Encrypted at rest</strong>
+                    <span>Secrets, provider settings, and metadata stay in the vault.</span>
+                </div>
+            </div>
+            <div class="trust-item">
+                <i class="fas fa-shield-halved" aria-hidden="true"></i>
+                <div>
+                    <strong>Uses OS protection</strong>
+                    <span>@SecureStoragePromptCopy</span>
+                </div>
+            </div>
+            <div class="trust-item">
+                <i class="fas fa-folder-tree" aria-hidden="true"></i>
+                <div>
+                    <strong>Works with folders and metadata</strong>
+                    <span>Local secrets support the same folders and key/value metadata as cloud providers.</span>
+                </div>
+            </div>
+        </div>
+
+        @if (isLoadingProviders)
+        {
+            <div class="status-row">
+                <i class="fas fa-spinner fa-spin" aria-hidden="true"></i>
+                <span>Checking your current secrets providers...</span>
+            </div>
+        }
+        else if (hasExistingProvider)
+        {
+            <div class="context-message">
+                <i class="fas fa-circle-info" aria-hidden="true"></i>
+                <span>You already have a secrets provider configured. You can keep using it, or enable Local Vault and make it the default provider for new secrets.</span>
+            </div>
+        }
+        else
+        {
+            <div class="context-message warning">
+                <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
+                <span>If you skip Local Vault, you will need to configure a secrets provider later in Settings before Sherpa can store secrets.</span>
+            </div>
+        }
+
+        @if (!string.IsNullOrWhiteSpace(errorMessage))
+        {
+            <div class="error-message" role="alert">
+                <i class="fas fa-circle-exclamation" aria-hidden="true"></i>
+                <span>@errorMessage</span>
+            </div>
+        }
+    </div>
+
+    <div class="dialog-footer">
+        <button class="btn btn-secondary" @onclick="DeclineAsync" disabled="@isBusy">
+            @SecondaryActionText
+        </button>
+        <button class="btn btn-primary" @onclick="EnableAsync" disabled="@isBusy">
+            @if (isBusy)
+            {
+                <i class="fas fa-spinner fa-spin" aria-hidden="true"></i>
+                <span>Enabling...</span>
+            }
+            else
+            {
+                <i class="fas fa-lock" aria-hidden="true"></i>
+                <span>@PrimaryActionText</span>
+            }
+        </button>
+    </div>
+</div>
+
+@code {
+    private bool previewOnly;
+    private bool isLoadingProviders = true;
+    private bool hasExistingProvider;
+    private bool isBusy;
+    private string? errorMessage;
+
+    private string PrimaryActionText => hasExistingProvider ? "Enable & Make Default" : "Enable Local Vault";
+    private string SecondaryActionText => hasExistingProvider ? "Keep Current Provider" : "Configure Later";
+
+    private static string SecureStoragePromptCopy =>
+        OperatingSystem.IsMacOS() || OperatingSystem.IsMacCatalyst()
+            ? "macOS may ask you to allow Sherpa access to Keychain before the vault is created."
+            : "Your platform may show a secure-storage prompt before the vault is created.";
+
+    protected override async Task OnInitializedAsync()
+    {
+        previewOnly = ModalParams.Get<bool>("PreviewOnly");
+
+        try
+        {
+            var providers = await CloudSecrets.GetProvidersAsync();
+            hasExistingProvider = providers.Any(p => p.ProviderType != CloudSecretsProviderType.Local);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning($"Failed to inspect existing secrets providers for Local Vault intro: {ex.Message}");
+        }
+        finally
+        {
+            isLoadingProviders = false;
+        }
+    }
+
+    private async Task EnableAsync()
+    {
+        if (isBusy)
+            return;
+
+        errorMessage = null;
+
+        if (previewOnly)
+        {
+            ModalParams.Complete(LocalVaultIntroductionResult.EnableLocal);
+            return;
+        }
+
+        isBusy = true;
+        try
+        {
+            var accessState = await LocalVaultAccess.RequestAccessAsync();
+            if (accessState.Problem != LocalVaultAccessProblem.None)
+            {
+                errorMessage = accessState.Message
+                    ?? "Sherpa couldn't access the operating system secure storage needed for the Local Vault key. You can try again, or configure a different provider later in Settings.";
+                return;
+            }
+
+            await LocalVaultIntro.MarkEnabledAsync();
+            await CloudSecrets.EnableDefaultLocalProviderAsync(setActiveProvider: true);
+            ModalParams.Complete(LocalVaultIntroductionResult.EnableLocal);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError("Failed to enable Local Vault", ex);
+            errorMessage = "Sherpa couldn't enable Local Vault. You can try again, or configure a different provider later in Settings.";
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private async Task DeclineAsync()
+    {
+        if (isBusy)
+            return;
+
+        if (!previewOnly)
+            await LocalVaultIntro.MarkDeclinedAsync();
+
+        ModalParams.Complete(LocalVaultIntroductionResult.DeclineLocal);
+    }
+}
+
+<style>
+    html,
+    body,
+    #app {
+        background: var(--bg-primary) !important;
+    }
+
+    .vault-intro {
+        display: flex;
+        flex-direction: column;
+        height: calc(100% + 2rem);
+        width: calc(100% + 2.5rem);
+        margin: -1rem -1.25rem;
+        color: var(--text-primary);
+        background: var(--bg-primary);
+        font-size: 13px;
+    }
+
+    .vault-intro .dialog-header {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 1rem 1.25rem 0.875rem;
+        border-bottom: 1px solid var(--border-color);
+        background: var(--bg-primary);
+    }
+
+    .vault-intro .icon-wrap {
+        width: 2.5rem;
+        height: 2.5rem;
+        border-radius: 0.75rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: color-mix(in srgb, var(--accent-primary) 14%, transparent);
+        color: var(--accent-primary);
+        font-size: 1.05rem;
+        flex-shrink: 0;
+    }
+
+    .vault-intro .eyebrow {
+        margin: 0 0 0.15rem;
+        font-size: 0.68rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--accent-primary);
+    }
+
+    .vault-intro h2 {
+        margin: 0;
+        font-size: 1.12rem;
+        line-height: 1.2;
+        font-weight: 700;
+        color: var(--text-primary);
+    }
+
+    .vault-intro .dialog-body {
+        flex: 1;
+        overflow-y: auto;
+        padding: 1rem 1.25rem;
+    }
+
+    .vault-intro .lead {
+        margin: 0 0 0.75rem;
+        color: var(--text-secondary);
+        font-size: 0.84rem;
+        line-height: 1.45;
+    }
+
+    .vault-intro .preview-note,
+    .vault-intro .context-message,
+    .vault-intro .error-message,
+    .vault-intro .status-row {
+        display: flex;
+        gap: 0.55rem;
+        align-items: flex-start;
+        padding: 0.65rem 0.75rem;
+        border-radius: 0.65rem;
+        font-size: 0.8rem;
+        line-height: 1.35;
+        margin-bottom: 0.75rem;
+    }
+
+    .vault-intro .preview-note {
+        background: color-mix(in srgb, var(--accent-purple) 12%, transparent);
+        color: var(--text-secondary);
+        border: 1px solid color-mix(in srgb, var(--accent-purple) 24%, transparent);
+    }
+
+    .vault-intro .context-message,
+    .vault-intro .status-row {
+        background: var(--bg-secondary);
+        color: var(--text-secondary);
+        border: 1px solid var(--border-color);
+    }
+
+    .vault-intro .context-message i,
+    .vault-intro .status-row i {
+        color: var(--accent-primary);
+        margin-top: 0.1rem;
+    }
+
+    .vault-intro .context-message.warning {
+        background: color-mix(in srgb, var(--accent-warning, #f59e0b) 12%, transparent);
+        border-color: color-mix(in srgb, var(--accent-warning, #f59e0b) 26%, transparent);
+    }
+
+    .vault-intro .context-message.warning i {
+        color: var(--accent-warning, #f59e0b);
+    }
+
+    .vault-intro .error-message {
+        margin-top: 0.75rem;
+        margin-bottom: 0;
+        background: color-mix(in srgb, var(--accent-danger, #ef4444) 12%, transparent);
+        border: 1px solid color-mix(in srgb, var(--accent-danger, #ef4444) 28%, transparent);
+        color: var(--text-primary);
+    }
+
+    .vault-intro .error-message i {
+        color: var(--accent-danger, #ef4444);
+        margin-top: 0.1rem;
+    }
+
+    .vault-intro .trust-card {
+        display: grid;
+        gap: 0.55rem;
+        padding: 0.75rem;
+        border-radius: 0.75rem;
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        margin-bottom: 0.75rem;
+    }
+
+    .vault-intro .trust-item {
+        display: flex;
+        gap: 0.65rem;
+        align-items: flex-start;
+    }
+
+    .vault-intro .trust-item i {
+        width: 1.5rem;
+        height: 1.5rem;
+        border-radius: 0.5rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--accent-primary);
+        background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
+        flex-shrink: 0;
+        font-size: 0.78rem;
+        margin-top: 0.05rem;
+    }
+
+    .vault-intro .trust-item strong {
+        display: block;
+        font-size: 0.83rem;
+        color: var(--text-primary);
+        margin-bottom: 0.05rem;
+    }
+
+    .vault-intro .trust-item span {
+        display: block;
+        font-size: 0.76rem;
+        line-height: 1.32;
+        color: var(--text-secondary);
+    }
+
+    .vault-intro .dialog-footer {
+        display: flex;
+        justify-content: flex-end;
+        gap: 0.6rem;
+        padding: 0.75rem 1.25rem 1rem;
+        border-top: 1px solid var(--border-color);
+        background: var(--bg-primary);
+    }
+
+    .vault-intro .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.4rem;
+        min-height: 2.25rem;
+        padding: 0.45rem 0.85rem;
+        border-radius: 0.55rem;
+        font-weight: 600;
+        font-size: 0.82rem;
+        border: 1px solid transparent;
+        cursor: pointer;
+        transition: opacity 0.15s ease, transform 0.15s ease;
+    }
+
+    .vault-intro .btn:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+    }
+
+    .vault-intro .btn:not(:disabled):active {
+        transform: scale(0.98);
+    }
+
+    .vault-intro .btn-primary {
+        color: var(--text-inverse);
+        background: var(--accent-primary);
+        border-color: var(--accent-primary);
+        box-shadow: 0 2px 8px color-mix(in srgb, var(--accent-primary) 28%, transparent);
+    }
+
+    .vault-intro .btn-secondary {
+        color: var(--text-primary);
+        background: var(--bg-secondary);
+        border-color: var(--border-color);
+    }
+</style>

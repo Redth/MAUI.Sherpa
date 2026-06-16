@@ -1,14 +1,17 @@
 using MauiSherpa.Core.Interfaces;
+using MauiSherpa.Core.Services;
 using MauiSherpa.Pages.Forms;
 
 namespace MauiSherpa.Pages.Modals;
 
 public record EditSecretResult(
+    string OriginalKey,
     string Key,
     string? Description,
     byte[]? Value,
     byte[]? FileBytes,
-    ManagedSecretType Type);
+    ManagedSecretType Type,
+    Dictionary<string, string> Metadata);
 
 public class EditSecretPage : HybridFormPage<EditSecretResult>
 {
@@ -18,17 +21,41 @@ public class EditSecretPage : HybridFormPage<EditSecretResult>
 
     public EditSecretPage(
         HybridFormBridgeHolder bridgeHolder,
-        ManagedSecret secret)
+        ManagedSecret secret,
+        IReadOnlyList<string>? folderPaths = null)
         : base(bridgeHolder)
     {
-        ConfigureParameters(secret);
+        ConfigureParameters(secret, folderPaths);
     }
 
-    private void ConfigureParameters(ManagedSecret secret)
+    private void ConfigureParameters(ManagedSecret secret, IReadOnlyList<string>? folderPaths)
     {
-        Bridge.Parameters["Key"] = secret.Key;
+        var normalizedFolders = new[] { "/" }
+            .Concat(folderPaths ?? Array.Empty<string>())
+            .Select(SecretPath.NormalizeFolderPath)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(path => path == "/" ? "" : path, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        Bridge.Parameters["FolderPath"] = GetSecretFolder(secret.Key);
+        Bridge.Parameters["FolderPaths"] = normalizedFolders;
+        Bridge.Parameters["Key"] = GetSecretName(secret.Key);
+        Bridge.Parameters["FullKey"] = secret.Key;
         Bridge.Parameters["Description"] = secret.Description ?? "";
         Bridge.Parameters["Type"] = secret.Type;
         Bridge.Parameters["FileName"] = secret.OriginalFileName ?? "";
+        Bridge.Parameters["Metadata"] = secret.Metadata;
+    }
+
+    private static string GetSecretFolder(string key)
+    {
+        var lastSeparator = key.LastIndexOf('/');
+        return lastSeparator < 0 ? "/" : SecretPath.NormalizeFolderPath(key[..lastSeparator]);
+    }
+
+    private static string GetSecretName(string key)
+    {
+        var lastSeparator = key.LastIndexOf('/');
+        return lastSeparator < 0 ? key : key[(lastSeparator + 1)..];
     }
 }

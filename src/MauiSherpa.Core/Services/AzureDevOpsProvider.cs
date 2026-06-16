@@ -2,6 +2,7 @@ using MauiSherpa.Core.Interfaces;
 using Microsoft.VisualStudio.Services.Common;
 using Microsoft.VisualStudio.Services.WebApi;
 using Microsoft.TeamFoundation.DistributedTask.WebApi;
+using System.Text;
 
 namespace MauiSherpa.Core.Services;
 
@@ -146,17 +147,9 @@ public class AzureDevOpsProvider : ICloudSecretsProvider
 
             group.Variables[sanitizedKey] = new VariableValue { Value = base64Value, IsSecret = true };
 
-            // Store metadata as companion variables if provided
-            if (metadata != null)
-            {
-                foreach (var kvp in metadata)
-                {
-                    var metaKey = $"{sanitizedKey}__meta__{SanitizeKey(kvp.Key)}";
-                    group.Variables[metaKey] = new VariableValue { Value = kvp.Value, IsSecret = false };
-                }
-            }
-
             await UpdateVariableGroupAsync(client, group, cancellationToken);
+            if (metadata is not null && !await SetSecretMetadataAsync(key, metadata, cancellationToken))
+                return false;
 
             _logger.LogInformation($"Stored secret in Azure DevOps: {key}");
             return true;
@@ -197,6 +190,71 @@ public class AzureDevOpsProvider : ICloudSecretsProvider
         }
     }
 
+    public async Task<Dictionary<string, string>?> GetSecretMetadataAsync(string key, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var client = await GetTaskClientAsync(cancellationToken);
+            var group = await GetVariableGroupAsync(client, cancellationToken);
+            if (group == null)
+                return null;
+
+            var sanitizedKey = SanitizeKey(key);
+            if (!group.Variables.ContainsKey(sanitizedKey))
+                return null;
+
+            var metadataKey = GetMetadataVariableKey(sanitizedKey);
+            return group.Variables.TryGetValue(metadataKey, out var variable) && variable.Value is not null
+                ? CloudSecretMetadata.Deserialize(Encoding.UTF8.GetBytes(variable.Value))
+                : new Dictionary<string, string>(StringComparer.Ordinal);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Azure DevOps get secret metadata error: {ex.Message}", ex);
+            return null;
+        }
+    }
+
+    public async Task<bool> SetSecretMetadataAsync(
+        string key,
+        Dictionary<string, string> metadata,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var client = await GetTaskClientAsync(cancellationToken);
+            var group = await GetVariableGroupAsync(client, cancellationToken);
+            if (group == null)
+                return false;
+
+            var sanitizedKey = SanitizeKey(key);
+            if (!group.Variables.ContainsKey(sanitizedKey))
+                return false;
+
+            var metadataKey = GetMetadataVariableKey(sanitizedKey);
+            if (metadata.Count == 0)
+            {
+                group.Variables.Remove(metadataKey);
+            }
+            else
+            {
+                group.Variables[metadataKey] = new VariableValue
+                {
+                    Value = Encoding.UTF8.GetString(CloudSecretMetadata.Serialize(metadata)),
+                    IsSecret = false
+                };
+            }
+
+            await UpdateVariableGroupAsync(client, group, cancellationToken);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Azure DevOps set secret metadata error: {ex.Message}", ex);
+            return false;
+        }
+    }
+
     public async Task<bool> DeleteSecretAsync(string key, CancellationToken cancellationToken = default)
     {
         try
@@ -215,7 +273,11 @@ public class AzureDevOpsProvider : ICloudSecretsProvider
 
             // Also remove any companion metadata variables
             var metaPrefix = $"{sanitizedKey}__meta__";
-            var metaKeys = group.Variables.Keys.Where(k => k.StartsWith(metaPrefix)).ToList();
+            var metadataKey = GetMetadataVariableKey(sanitizedKey);
+            var metaKeys = group.Variables.Keys
+                .Where(k => k.StartsWith(metaPrefix, StringComparison.Ordinal) ||
+                    string.Equals(k, metadataKey, StringComparison.Ordinal))
+                .ToList();
             foreach (var metaKey in metaKeys)
             {
                 group.Variables.Remove(metaKey);
@@ -270,6 +332,7 @@ public class AzureDevOpsProvider : ICloudSecretsProvider
 
             var secrets = group.Variables.Keys
                 .Where(k => !k.Contains("__meta__")) // Exclude metadata companion variables
+                .Where(k => !CloudSecretMetadata.IsMetadataKey(k))
                 .Where(k => sanitizedPrefix == null || k.StartsWith(sanitizedPrefix, StringComparison.OrdinalIgnoreCase))
                 .ToList()
                 .AsReadOnly();
@@ -284,4 +347,9 @@ public class AzureDevOpsProvider : ICloudSecretsProvider
     }
 
     #endregion
+
+    private static string GetMetadataVariableKey(string sanitizedKey)
+    {
+        return SanitizeKey(CloudSecretMetadata.GetMetadataKey(sanitizedKey));
+    }
 }

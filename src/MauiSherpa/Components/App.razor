@@ -1,8 +1,10 @@
 @using Microsoft.AspNetCore.Components.Routing
 @using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Services
 @inject IUpdateService UpdateService
 @inject ILoggingService Logger
 @inject MauiSherpa.Pages.Forms.ModalParameterService ModalParams
+@inject LocalVaultIntroModalService LocalVaultIntroModal
 @implements IDisposable
 
 <Router AppAssembly="@typeof(App).Assembly">
@@ -24,16 +26,31 @@
     protected override async Task OnInitializedAsync()
     {
         await base.OnInitializedAsync();
+        _ = RunStartupDialogsAsync();
+    }
+
+    private async Task RunStartupDialogsAsync()
+    {
+        try
+        {
+            await Task.Delay(1000, _cts.Token);
+            await InvokeAsync(async () => await LocalVaultIntroModal.ShowIfNeededAsync());
 #if !DEBUG
-        _ = CheckForUpdatesWithDelayAsync();
+            await CheckForUpdatesWithDelayAsync();
 #endif
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            Logger.LogError("Failed to run startup dialogs", ex);
+        }
     }
 
     private async Task CheckForUpdatesWithDelayAsync()
     {
         try
         {
-            await Task.Delay(3000, _cts.Token);
+            await Task.Delay(2000, _cts.Token);
             var result = await UpdateService.CheckForUpdateAsync(_cts.Token);
 
             if (result.UpdateAvailable && result.LatestRelease != null)
