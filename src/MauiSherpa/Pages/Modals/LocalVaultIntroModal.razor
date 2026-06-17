@@ -183,7 +183,12 @@
             return;
 
         if (!previewOnly)
+        {
             await LocalVaultIntro.MarkDeclinedAsync();
+            if (CloudSecrets.ActiveProvider?.ProviderType == CloudSecretsProviderType.Local)
+                await CloudSecrets.SetActiveProviderAsync(null);
+            await CloudSecrets.InitializeAsync();
+        }
 
         ModalParams.Complete(LocalVaultIntroductionResult.DeclineLocal);
     }

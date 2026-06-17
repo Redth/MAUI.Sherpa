@@ -3090,7 +3090,7 @@ public interface ICloudSecretsService
     Task SaveProviderAsync(CloudSecretsProviderConfig provider);
 
     /// <summary>
-    /// Enables the built-in Local provider after the user opts in to the local vault.
+    /// Ensures the built-in Local provider exists and optionally makes it active.
     /// </summary>
     Task EnableDefaultLocalProviderAsync(bool setActiveProvider = true);
     
