@@ -68,14 +68,36 @@ public class CloudSecretsService : ICloudSecretsService
     public async Task<IReadOnlyList<CloudSecretsProviderConfig>> GetProvidersAsync()
     {
         await LoadMetadataAsync();
-        if (IsLocalProviderEnabled())
+
+        var metadata = _providerMetadata;
+        if (ShouldOfferDefaultLocalProvider() && _providerMetadata.All(p => p.Id != DefaultLocalProviderId))
+        {
+            if (CanUseLocalVault())
+            {
+                await EnsureDefaultLocalProviderMetadataAsync();
+                metadata = _providerMetadata;
+            }
+            else
+            {
+                var withDefaultLocal = new List<CloudSecretsProviderMetadata>
+                {
+                    CreateDefaultLocalProviderMetadata()
+                };
+                withDefaultLocal.AddRange(_providerMetadata);
+                metadata = withDefaultLocal;
+            }
+        }
+        else if (CanUseLocalVault())
+        {
             await EnsureDefaultLocalProviderMetadataAsync();
+            metadata = _providerMetadata;
+        }
 
         var result = new List<CloudSecretsProviderConfig>();
 
-        foreach (var meta in _providerMetadata)
+        foreach (var meta in metadata)
         {
-            if (meta.Id == DefaultLocalProviderId && !IsLocalProviderEnabled())
+            if (meta.Id == DefaultLocalProviderId && !ShouldOfferDefaultLocalProvider())
                 continue;
 
             var config = await LoadProviderConfigAsync(meta);
@@ -152,7 +174,7 @@ public class CloudSecretsService : ICloudSecretsService
     {
         if (providerId == DefaultLocalProviderId)
         {
-            if (IsLocalProviderEnabled())
+            if (CanUseLocalVault())
                 await EnsureDefaultLocalProviderAsync();
             _logger.LogInformation("The default Local secrets provider cannot be deleted.");
             return;
@@ -466,15 +488,16 @@ public class CloudSecretsService : ICloudSecretsService
         if (_providerMetadata.Any(p => p.Id == DefaultLocalProviderId))
             return;
 
-        var localProvider = new CloudSecretsProviderMetadata(
+        _providerMetadata.Insert(0, CreateDefaultLocalProviderMetadata());
+        await PersistMetadataAsync();
+    }
+
+    private static CloudSecretsProviderMetadata CreateDefaultLocalProviderMetadata() =>
+        new(
             DefaultLocalProviderId,
             "Local",
             CloudSecretsProviderType.Local,
             new List<string>());
-
-        _providerMetadata.Insert(0, localProvider);
-        await PersistMetadataAsync();
-    }
 
     private async Task PersistMetadataAsync()
     {
@@ -621,7 +644,7 @@ public class CloudSecretsService : ICloudSecretsService
                 return nonLocal.Id;
         }
 
-        if (IsLocalProviderEnabled())
+        if (ShouldOfferDefaultLocalProvider())
         {
             return providers.FirstOrDefault(p => p.Id == DefaultLocalProviderId)?.Id
                 ?? providers.FirstOrDefault()?.Id;
@@ -630,11 +653,14 @@ public class CloudSecretsService : ICloudSecretsService
         return providers.FirstOrDefault(p => p.ProviderType != CloudSecretsProviderType.Local)?.Id;
     }
 
-    private bool IsLocalProviderEnabled() =>
+    private bool ShouldOfferDefaultLocalProvider() =>
+        _localVaultIntroduction?.GetState().HasDeclined != true;
+
+    private bool IsLocalVaultStorageEnabled() =>
         _localVaultIntroduction?.GetState().IsLocalVaultEnabled != false;
 
     private bool CanUseLocalVault() =>
-        _vaultStore is not null && IsLocalProviderEnabled();
+        _vaultStore is not null && IsLocalVaultStorageEnabled();
 
     private async Task<string?> TryGetSecureStorageAsync(string key)
     {
