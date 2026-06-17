@@ -706,17 +706,76 @@
 
 
 <style>
+    body:has(.modal-layout),
+    body:has(.modal-layout) #app {
+        background: transparent !important;
+    }
+
+    .modal-layout {
+        background: transparent;
+        padding: 0;
+    }
+
     h1 { margin-bottom: 1.25rem; font-size: 1.75rem; color: var(--text-primary); font-weight: 600; }
-    h2 { margin: 0 0 0.25rem 0; font-size: 1.125rem; color: var(--text-primary); font-weight: 600; display: flex; align-items: center; gap: 0.625rem; }
-    h2 i { color: var(--text-secondary); }
+    h2 {
+        margin: 0 0 0.35rem 0;
+        font-size: 1.075rem;
+        line-height: 1.25;
+        color: var(--text-primary);
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+
+    h2 i {
+        width: 2rem;
+        height: 2rem;
+        border-radius: 0.75rem;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--accent-primary);
+        background: var(--accent-bg);
+        font-size: 0.95rem;
+        flex: 0 0 auto;
+    }
 
     /* Extra padding when rendered inside hybrid modal dialog */
-    .modal-layout .settings-section { padding-left: 24px; padding-right: 24px; }
-    .modal-layout .settings-section:first-child { padding-top: 16px; }
+    .modal-layout .settings-section {
+        margin-left: 16px;
+        margin-right: 16px;
+    }
 
-    .settings-section { margin-bottom: 1.25rem; }
-    .section-description { color: var(--text-muted); margin-bottom: 0.5rem; font-size: 0.875rem; }
-    .section-description a { color: var(--accent-primary); }
+    .modal-layout .settings-section:first-child {
+        margin-top: 16px;
+    }
+
+    .modal-layout .settings-section:last-of-type {
+        margin-bottom: 24px;
+    }
+
+    .settings-section {
+        margin-bottom: 1.5rem;
+        padding: 0;
+        background: transparent;
+        border: 0;
+        border-radius: 0;
+        box-shadow: none;
+    }
+
+    .section-description {
+        color: var(--text-muted);
+        margin: 0 0 0.875rem 2.75rem;
+        max-width: 58rem;
+        font-size: 0.875rem;
+        line-height: 1.45;
+    }
+
+    .section-description a {
+        color: var(--accent-primary);
+        font-weight: 500;
+    }
 
     .btn-update-available {
         display: inline-flex;
@@ -739,6 +798,7 @@
 
     .settings-container {
         background: var(--card-bg);
+        border: 1px solid var(--border-color-light);
         padding: 1rem 1.25rem;
         border-radius: var(--card-radius);
     }
@@ -753,7 +813,7 @@
         column-gap: 1.5rem;
         row-gap: 0.5rem;
         padding: 1rem 0;
-        border-bottom: 1px solid var(--border-color);
+        border-bottom: 1px solid var(--border-color-light);
     }
 
     .setting-item:first-child { padding-top: 0; }
@@ -929,27 +989,34 @@
     /* Connected list pattern - items share one card with separators */
     .connected-list {
         background: var(--card-bg);
+        border: 1px solid var(--border-color-light);
         border-radius: var(--card-radius);
         overflow: hidden;
     }
 
     .connected-list-item {
-        padding: 0.75rem 0.75rem;
+        padding: 1rem 1.25rem;
         position: relative;
+        transition: background 0.15s ease;
+    }
+
+    .connected-list-item:hover {
+        background: var(--bg-hover);
     }
 
     .connected-list-item:not(:last-child)::after {
         content: '';
         position: absolute;
         bottom: 0;
-        left: 0.75rem;
-        right: 0.75rem;
+        left: 1.25rem;
+        right: 1.25rem;
         height: 1px;
-        background: var(--border-color);
+        background: var(--border-color-light);
     }
 
     .connected-list-item.active {
-        border-left: 3px solid var(--accent-primary);
+        box-shadow: inset 4px 0 0 var(--accent-primary);
+        background: var(--bg-secondary);
     }
 
     .section-add-action {
@@ -968,7 +1035,8 @@
         display: flex;
         justify-content: space-between;
         align-items: center;
-        margin-bottom: 0.75rem;
+        margin-bottom: 0.875rem;
+        gap: 1rem;
     }
 
     .identity-info {
@@ -978,17 +1046,24 @@
     }
 
     .identity-icon {
-        font-size: 1.25rem;
+        width: 2rem;
+        height: 2rem;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.15rem;
+        border-radius: 0.625rem;
+        background: var(--bg-tertiary);
         color: var(--text-secondary);
     }
 
-    .identity-name { font-weight: 600; color: var(--text-primary); font-size: 0.9375rem; }
-    .identity-actions { display: flex; gap: 0.5rem; }
+    .identity-name { font-weight: 700; color: var(--text-primary); font-size: 0.975rem; }
+    .identity-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; justify-content: flex-end; }
 
     .identity-details {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-        gap: 1rem;
+        gap: 1rem 1.25rem;
     }
 
     .detail-item {
@@ -1001,13 +1076,15 @@
         font-size: 0.6875rem;
         color: var(--text-muted);
         text-transform: uppercase;
-        letter-spacing: 0.05em;
-        font-weight: 500;
+        letter-spacing: 0.08em;
+        font-weight: 700;
     }
 
     .detail-value {
-        font-size: 0.875rem;
+        font-size: 0.9rem;
         color: var(--text-primary);
+        line-height: 1.35;
+        overflow-wrap: anywhere;
     }
 
     .detail-value.mono {
@@ -1089,8 +1166,8 @@
         gap: 0.375rem;
         margin-top: 0.5rem;
         padding: 0.25rem 0.625rem;
-        background: #bee3f8;
-        color: #2c5282;
+        background: var(--status-info-bg);
+        color: var(--status-info-text);
         border-radius: 0.75rem;
         font-size: 0.75rem;
         font-weight: 500;
@@ -1156,7 +1233,15 @@
         cursor: not-allowed;
     }
 
-    .empty-identities { padding: 1.25rem; text-align: center; color: var(--text-muted); }
+    .empty-identities {
+        padding: 1.5rem;
+        text-align: center;
+        color: var(--text-muted);
+    }
+
+    .empty-identities p {
+        margin: 0;
+    }
 
     /* Cloud Provider Styles */
     .vault-access-card {
@@ -1167,6 +1252,7 @@
         padding: 1rem;
         margin-bottom: 1rem;
         background: var(--card-bg);
+        border: 1px solid var(--border-color-light);
         border-radius: var(--card-radius, 1rem);
     }
     .vault-access-content {
@@ -1189,7 +1275,15 @@
         color: var(--text-muted);
         font-size: 0.875rem;
     }
-    .empty-providers { padding: 1.25rem; text-align: center; color: var(--text-muted); }
+    .empty-providers {
+        padding: 1.5rem;
+        text-align: center;
+        color: var(--text-muted);
+    }
+
+    .empty-providers p {
+        margin: 0;
+    }
     
     .provider-list { display: flex; flex-direction: column; gap: 1rem; }
     
@@ -1208,7 +1302,8 @@
         display: flex;
         justify-content: space-between;
         align-items: center;
-        margin-bottom: 0.75rem;
+        margin-bottom: 0.875rem;
+        gap: 1rem;
     }
     
     .provider-info {
@@ -1218,14 +1313,21 @@
     }
     
     .provider-icon {
-        font-size: 1.25rem;
+        width: 2rem;
+        height: 2rem;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.15rem;
+        border-radius: 0.625rem;
+        background: var(--bg-tertiary);
         color: var(--text-secondary);
     }
     
     .provider-name {
-        font-weight: 600;
+        font-weight: 700;
         color: var(--text-primary);
-        font-size: 0.9375rem;
+        font-size: 0.975rem;
     }
 
     .provider-link {
@@ -1254,12 +1356,14 @@
     .provider-actions {
         display: flex;
         gap: 0.5rem;
+        flex-wrap: wrap;
+        justify-content: flex-end;
     }
     
     .provider-details {
         display: flex;
         flex-wrap: wrap;
-        gap: 1rem;
+        gap: 1rem 1.25rem;
     }
 
     /* Backup & Restore Styles */
@@ -1275,6 +1379,7 @@
         gap: 1.25rem;
         padding: 1.25rem;
         background: var(--card-bg);
+        border: 1px solid var(--border-color-light);
         border-radius: var(--card-radius, 1rem);
     }
 
