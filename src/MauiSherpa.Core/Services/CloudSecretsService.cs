@@ -70,7 +70,7 @@ public class CloudSecretsService : ICloudSecretsService
         await LoadMetadataAsync();
 
         var metadata = _providerMetadata;
-        if (ShouldOfferDefaultLocalProvider() && _providerMetadata.All(p => p.Id != DefaultLocalProviderId))
+        if (_providerMetadata.All(p => p.Id != DefaultLocalProviderId))
         {
             if (CanUseLocalVault())
             {
@@ -97,9 +97,6 @@ public class CloudSecretsService : ICloudSecretsService
 
         foreach (var meta in metadata)
         {
-            if (meta.Id == DefaultLocalProviderId && !ShouldOfferDefaultLocalProvider())
-                continue;
-
             var config = await LoadProviderConfigAsync(meta);
             if (config != null)
                 result.Add(config);
@@ -644,16 +641,18 @@ public class CloudSecretsService : ICloudSecretsService
                 return nonLocal.Id;
         }
 
-        if (ShouldOfferDefaultLocalProvider())
+        if (ShouldPreferDefaultLocalProvider())
         {
             return providers.FirstOrDefault(p => p.Id == DefaultLocalProviderId)?.Id
                 ?? providers.FirstOrDefault()?.Id;
         }
 
-        return providers.FirstOrDefault(p => p.ProviderType != CloudSecretsProviderType.Local)?.Id;
+        return providers.FirstOrDefault(p => p.ProviderType != CloudSecretsProviderType.Local)?.Id
+            ?? providers.FirstOrDefault(p => p.Id == DefaultLocalProviderId)?.Id
+            ?? providers.FirstOrDefault()?.Id;
     }
 
-    private bool ShouldOfferDefaultLocalProvider() =>
+    private bool ShouldPreferDefaultLocalProvider() =>
         _localVaultIntroduction?.GetState().HasDeclined != true;
 
     private bool IsLocalVaultStorageEnabled() =>

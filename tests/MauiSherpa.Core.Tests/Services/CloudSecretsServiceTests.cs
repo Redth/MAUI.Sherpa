@@ -87,7 +87,7 @@ public class CloudSecretsServiceTests
     }
 
     [Fact]
-    public async Task InitializeAsync_WithNoProvidersAndIntroDeclined_DoesNotActivateLocalProvider()
+    public async Task InitializeAsync_WithNoProvidersAndIntroDeclined_StillCreatesAndActivatesLocalProvider()
     {
         var secureStorage = new InMemorySecureStorage();
         var service = CreateService(
@@ -96,15 +96,17 @@ public class CloudSecretsServiceTests
 
         await service.InitializeAsync();
 
-        service.ActiveProvider.Should().BeNull();
-        secureStorage.Values.Should().NotContainKey("cloud_secrets_active_provider");
+        service.ActiveProvider.Should().NotBeNull();
+        service.ActiveProvider!.Id.Should().Be("local");
+        service.ActiveProvider.ProviderType.Should().Be(CloudSecretsProviderType.Local);
+        secureStorage.Values["cloud_secrets_active_provider"].Should().Be("local");
 
         var providers = await service.GetProvidersAsync();
-        providers.Should().BeEmpty();
+        providers.Should().ContainSingle(p => p.Id == "local" && p.ProviderType == CloudSecretsProviderType.Local);
     }
 
     [Fact]
-    public async Task InitializeAsync_WithRemoteProviderAndIntroDeclined_ActivatesRemoteWithoutLocal()
+    public async Task InitializeAsync_WithRemoteProviderAndIntroDeclined_ActivatesRemoteAndKeepsLocalVisible()
     {
         var secureStorage = new InMemorySecureStorage();
         var service = CreateService(
@@ -131,7 +133,7 @@ public class CloudSecretsServiceTests
 
         var providers = await service.GetProvidersAsync();
         providers.Should().ContainSingle(p => p.Id == "remote");
-        providers.Should().NotContain(p => p.Id == "local");
+        providers.Should().ContainSingle(p => p.Id == "local" && p.ProviderType == CloudSecretsProviderType.Local);
     }
 
     [Fact]

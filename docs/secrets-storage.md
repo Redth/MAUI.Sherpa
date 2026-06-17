@@ -8,7 +8,7 @@ MAUI Sherpa stores credentials, signing material, provider configuration, and ap
 | --- | --- | --- | --- |
 | SQLCipher root key | `ILocalVaultKeyStore`, `LocalSecretsKeyStore` | Local vault encryption key | OS secure storage entry `MAUI Sherpa Local Vault`. This is the only long-term OS secure-storage dependency for migrated app-owned data. |
 | Central local vault | `ILocalVaultStore`, `SqlCipherLocalVaultStore` | Generic app-owned secrets, metadata, settings, and provider data | Shiny DocumentDB over SQLCipher in `local-vault.db`. Records use a generic scope/path/key envelope. |
-| Local secrets provider | `LocalSqlCipherSecretsProvider` | Managed secrets, local copies of synced certs/keystores, publish profile payloads | Built-in provider and logical provider view over the central local vault under `local-provider-secret`. It is offered as the default provider unless the user declines the Local Vault introduction. Existing flat keys are preserved in metadata for compatibility. |
+| Local secrets provider | `LocalSqlCipherSecretsProvider` | Managed secrets, local copies of synced certs/keystores, publish profile payloads | Built-in provider and logical provider view over the central local vault under `local-provider-secret`. It is always offered as the local default provider. Existing flat keys are preserved in metadata for compatibility. |
 | Legacy Local provider DB | first-pass `local-secrets.db` | Local-provider secret values | Lazily migrated into the central vault on Local provider use, then deleted after successful verification/write. |
 | Secure-storage compatibility | `VaultSecureStorageService` | Existing app-owned key/value secrets | Reads/writes the central vault under `secure`. On first read, legacy OS/fallback secure-storage values are copied into the vault and removed from the old store. |
 | Encrypted settings | `EncryptedSettingsService` | Settings snapshots that may include sensitive config | Vault-backed settings document under `settings`. Existing `settings.enc`, `.bak`, `.unreadable`, and `MauiSherpa_MasterKey` are removed after successful migration. |
@@ -62,13 +62,13 @@ The app offers and can select the built-in Local provider before the user answer
 
 - `NotSet`: the current introduction has not been answered. The app shows the introduction on startup, offers Local as the default secrets provider, and keeps non-provider compatibility adapters on legacy storage.
 - `Enabled`: the user approved Local Vault. Sherpa may request OS secure-storage access for the root key, create the built-in Local provider, migrate legacy local values into the vault, and make Local the default provider when requested.
-- `Declined`: the user chose not to use Local Vault for now. Sherpa does not show the introduction repeatedly, hides Local from provider lists, and chooses a remote provider as the implicit default if one exists.
+- `Declined`: the user chose not to use Local Vault for now. Sherpa does not show the introduction repeatedly, keeps Local visible, and chooses a remote provider as the implicit default if one exists.
 
 While the decision is `NotSet` or `Declined`, compatibility adapters intentionally stay on legacy storage:
 
 - `VaultSecureStorageService` reads and writes the legacy `ILegacySecureStorageService` instead of touching `ILocalVaultStore`.
 - `EncryptedSettingsService` reads and writes `settings.enc` instead of opening the vault.
-- `CloudSecretsService` stores provider metadata/settings in the legacy JSON files until Local Vault is enabled. It still surfaces Local while the decision is `NotSet`, but hides Local after a decline.
+- `CloudSecretsService` stores provider metadata/settings in the legacy JSON files until Local Vault is enabled. It still surfaces Local while the decision is `NotSet` or `Declined`; declined only prevents Local from being preferred over an available remote provider.
 
 The startup flow shows the Local Vault introduction before update prompts, and the modal's enable action calls `ILocalVaultAccessService.RequestAccessAsync()` before marking Local Vault as enabled. If the OS secure-storage prompt is denied or unavailable, Sherpa leaves the decision unset so the user can retry or decline without leaving a half-enabled Local provider.
 
