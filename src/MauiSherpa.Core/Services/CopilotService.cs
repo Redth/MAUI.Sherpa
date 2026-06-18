@@ -1,5 +1,6 @@
-using GitHub.Copilot.SDK;
+using GitHub.Copilot;
 using MauiSherpa.Core.Interfaces;
+using Microsoft.Extensions.AI;
 using System.Text.Json;
 
 namespace MauiSherpa.Core.Services;
@@ -30,7 +31,7 @@ public class CopilotService : ICopilotService, IAsyncDisposable
     private IDisposable? _eventSubscription;
     private CopilotAvailability? _cachedAvailability;
 
-    public bool IsConnected => _client?.State == ConnectionState.Connected;
+    public bool IsConnected => _client != null;
     public string? CurrentSessionId => _session?.SessionId;
     public IReadOnlyList<CopilotChatMessage> Messages => _messages.AsReadOnly();
     public CopilotAvailability? CachedAvailability => _cachedAvailability;
@@ -348,9 +349,9 @@ public class CopilotService : ICopilotService, IAsyncDisposable
 
                 var options = new CopilotClientOptions
                 {
-                    AutoStart = true,
-                    CliPath = cliPath,
-                    Cwd = _copilotWorkingDirectory,
+                    Connection = RuntimeConnection.ForStdio(cliPath),
+                    WorkingDirectory = _copilotWorkingDirectory,
+                    BaseDirectory = _copilotWorkingDirectory,
                     Environment = cliEnvironment
                 };
 
@@ -457,7 +458,7 @@ public class CopilotService : ICopilotService, IAsyncDisposable
         await _clientGate.WaitAsync();
         try
         {
-            if (_client?.State == ConnectionState.Connected)
+            if (_client != null)
             {
                 _logger.LogInformation("Already connected to Copilot");
                 return;
@@ -495,11 +496,10 @@ public class CopilotService : ICopilotService, IAsyncDisposable
 
             var options = new CopilotClientOptions
             {
-                AutoStart = true,
-                UseStdio = true,
-                Cwd = _copilotWorkingDirectory,
-                LogLevel = "info",
-                CliPath = cliPath,
+                Connection = RuntimeConnection.ForStdio(cliPath),
+                WorkingDirectory = _copilotWorkingDirectory,
+                BaseDirectory = _copilotWorkingDirectory,
+                LogLevel = CopilotLogLevel.Info,
                 Environment = cliEnvironment
             };
 
@@ -588,7 +588,7 @@ public class CopilotService : ICopilotService, IAsyncDisposable
             {
                 Model = model ?? "claude-opus-4.5", // Use Claude Opus 4.5 as default
                 Streaming = true,
-                Tools = tools.ToList(),
+                Tools = tools.Cast<AIFunctionDeclaration>().ToList(),
                 OnPermissionRequest = HandleSdkPermissionRequest,
                 SystemMessage = new SystemMessageConfig
                 {
@@ -624,7 +624,7 @@ public class CopilotService : ICopilotService, IAsyncDisposable
             _session = await _client.CreateSessionAsync(config);
             
             // Subscribe to session events
-            _eventSubscription = _session.On(HandleSessionEvent);
+            _eventSubscription = _session.On<SessionEvent>(HandleSessionEvent);
             
             _logger.LogInformation($"Session started: {_session.SessionId}");
         }
@@ -635,7 +635,8 @@ public class CopilotService : ICopilotService, IAsyncDisposable
         }
     }
     
-    private async Task<PermissionRequestResult> HandleSdkPermissionRequest(PermissionRequest request, PermissionInvocation invocation)
+#pragma warning disable GHCP001
+    private async Task<GitHub.Copilot.Rpc.PermissionDecision> HandleSdkPermissionRequest(PermissionRequest request, PermissionInvocation invocation)
     {
         var resolved = ResolvePermissionRequest(request);
 
@@ -666,22 +667,23 @@ public class CopilotService : ICopilotService, IAsyncDisposable
             if (result.IsAllowed)
             {
                 _logger.LogDebug($"Returning approved for tool: {resolved.ToolName}");
-                return new PermissionRequestResult { Kind = PermissionRequestResultKind.Approved };
+                return GitHub.Copilot.Rpc.PermissionDecision.ApproveOnce();
             }
 
             _logger.LogDebug($"Returning interactive denial for tool: {resolved.ToolName}");
-            return new PermissionRequestResult { Kind = PermissionRequestResultKind.DeniedInteractivelyByUser };
+            return GitHub.Copilot.Rpc.PermissionDecision.Reject(result.DenialReason);
         }
         
         // Default: allow read-only tools, deny destructive tools
         if (resolved.IsReadOnly)
         {
-            return new PermissionRequestResult { Kind = PermissionRequestResultKind.Approved };
+            return GitHub.Copilot.Rpc.PermissionDecision.ApproveOnce();
         }
         
         // Default deny for destructive tools if no handler
-        return new PermissionRequestResult { Kind = PermissionRequestResultKind.DeniedCouldNotRequestFromUser };
+        return GitHub.Copilot.Rpc.PermissionDecision.UserNotAvailable();
     }
+#pragma warning restore GHCP001
 
     private ResolvedPermissionRequest ResolvePermissionRequest(PermissionRequest request)
     {
@@ -880,7 +882,7 @@ public class CopilotService : ICopilotService, IAsyncDisposable
     {
         if (_session == null)
         {
-            throw new InvalidOperationException("No active session. Call StartSessionAsync first.");
+            await StartSessionAsync();
         }
 
         try
