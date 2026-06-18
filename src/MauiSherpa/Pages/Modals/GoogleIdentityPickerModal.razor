@@ -1,0 +1,162 @@
+@page "/modal/google-identity-picker"
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Pages.Forms
+@inject HybridFormBridgeHolder BridgeHolder
+@implements IDisposable
+
+@{
+    var bridge = BridgeHolder.Current;
+}
+
+@if (bridge != null)
+{
+    <div class="form-content">
+        <div class="search-box">
+            <i class="fas fa-search"></i>
+            <input type="text" @bind="searchQuery" @bind:event="oninput" placeholder="Search Google identities..." />
+            @if (!string.IsNullOrEmpty(searchQuery))
+            {
+                <button class="clear-search" @onclick="@(() => searchQuery = "")">×</button>
+            }
+        </div>
+
+        <div class="selection-list">
+            @foreach (var identity in FilteredIdentities)
+            {
+                var isExisting = existingIdentityIds.Contains(identity.Id);
+                <label class="selection-item @(selectedIdentity?.Id == identity.Id ? "selected" : "") @(isExisting ? "disabled" : "")"
+                       @onclick="@(() => { if (!isExisting) SelectIdentity(identity); })">
+                    <div class="item-content">
+                        <div class="item-name">@identity.Name</div>
+                        <div class="item-detail">
+                            @if (isExisting)
+                            {
+                                <span class="already-added">Already added</span>
+                            }
+                            else
+                            {
+                                <span class="mono">@identity.ProjectId</span>
+                                <span> · </span>
+                                <span class="mono">@identity.ClientEmail</span>
+                            }
+                        </div>
+                    </div>
+                    @if (selectedIdentity?.Id == identity.Id)
+                    {
+                        <i class="fas fa-check" style="color: var(--accent-color, #8b5cf6);"></i>
+                    }
+                </label>
+            }
+            @if (!FilteredIdentities.Any())
+            {
+                <div class="empty-hint">No matching Google identities</div>
+            }
+        </div>
+    </div>
+}
+
+<style>
+    .form-content { display: flex; flex-direction: column; gap: 0.75rem; }
+    .search-box {
+        display: flex; align-items: center; gap: 0.5rem;
+        background: var(--input-bg, #edf2f7); border-radius: 6px; padding: 0.5rem 0.75rem;
+        border: 1px solid var(--border-color, #e2e8f0);
+    }
+    .search-box i { color: var(--text-muted, #a0aec0); font-size: 0.8rem; flex-shrink: 0; }
+    .search-box input {
+        flex: 1; border: none; background: transparent; outline: none; font-size: 0.85rem;
+        color: var(--text-primary, #1a202c);
+    }
+    .clear-search {
+        background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1rem;
+        padding: 0 4px; line-height: 1;
+    }
+    .selection-list {
+        display: flex; flex-direction: column; gap: 2px;
+        max-height: 320px; overflow-y: auto;
+    }
+    .selection-item {
+        display: flex; align-items: center; gap: 0.75rem;
+        padding: 0.5rem 0.75rem; border-radius: 6px; cursor: pointer;
+        transition: background 0.15s;
+    }
+    .selection-item:hover:not(.disabled) { background: var(--hover-bg, rgba(0,0,0,0.04)); }
+    .selection-item.selected { background: var(--accent-bg, rgba(139,92,246,0.08)); }
+    .selection-item.disabled { opacity: 0.5; cursor: not-allowed; }
+    .item-content { flex: 1; min-width: 0; }
+    .item-name { font-size: 0.85rem; font-weight: 500; color: var(--text-primary); }
+    .item-detail { font-size: 0.75rem; color: var(--text-secondary, #718096); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .mono { font-family: "SF Mono", Menlo, Monaco, monospace; }
+    .already-added { color: var(--text-muted, #a0aec0); font-style: italic; }
+    .empty-hint {
+        text-align: center; color: var(--text-muted); padding: 2rem; font-size: 0.85rem;
+    }
+</style>
+
+@code {
+    private string searchQuery = "";
+    private GoogleIdentity? selectedIdentity;
+    private IReadOnlyList<GoogleIdentity> googleIdentities = Array.Empty<GoogleIdentity>();
+    private HashSet<string> existingIdentityIds = new();
+
+    private IEnumerable<GoogleIdentity> FilteredIdentities =>
+        string.IsNullOrEmpty(searchQuery)
+            ? googleIdentities
+            : googleIdentities.Where(i =>
+                i.Name.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) ||
+                i.ProjectId.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) ||
+                i.ClientEmail.Contains(searchQuery, StringComparison.OrdinalIgnoreCase));
+
+    protected override void OnInitialized()
+    {
+        var bridge = BridgeHolder.Current;
+        if (bridge == null) return;
+
+        if (bridge.Parameters.TryGetValue("GoogleIdentities", out var identities) && identities is IReadOnlyList<GoogleIdentity> list)
+            googleIdentities = list;
+
+        if (bridge.Parameters.TryGetValue("ExistingIdentityIds", out var ids) && ids is IReadOnlyList<string> existing)
+            existingIdentityIds = new HashSet<string>(existing);
+
+        bridge.SubmitRequested += OnSubmit;
+        bridge.CancelRequested += OnCancel;
+        bridge.SetValid(false);
+    }
+
+    private void SelectIdentity(GoogleIdentity identity)
+    {
+        selectedIdentity = identity;
+        var bridge = BridgeHolder.Current;
+        if (bridge != null)
+        {
+            bridge.Result = selectedIdentity;
+            bridge.SetValid(true);
+        }
+        StateHasChanged();
+    }
+
+    private Task OnSubmit()
+    {
+        var bridge = BridgeHolder.Current;
+        if (bridge != null)
+            bridge.Result = selectedIdentity;
+        return Task.CompletedTask;
+    }
+
+    private void OnCancel()
+    {
+        var bridge = BridgeHolder.Current;
+        if (bridge != null)
+            bridge.Result = null;
+    }
+
+    public void Dispose()
+    {
+        var bridge = BridgeHolder.Current;
+        if (bridge != null)
+        {
+            bridge.SubmitRequested -= OnSubmit;
+            bridge.CancelRequested -= OnCancel;
+        }
+    }
+}

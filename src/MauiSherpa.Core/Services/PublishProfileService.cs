@@ -16,6 +16,7 @@ public class PublishProfileService : IPublishProfileService
     readonly IAppleConnectService _appleConnect;
     readonly IAppleIdentityService _appleIdentity;
     readonly IAppleIdentityStateService _identityState;
+    readonly IGoogleIdentityService _googleIdentity;
     readonly ILoggingService _logger;
 
     static readonly JsonSerializerOptions JsonOptions = new()
@@ -37,6 +38,7 @@ public class PublishProfileService : IPublishProfileService
         IAppleConnectService appleConnect,
         IAppleIdentityService appleIdentity,
         IAppleIdentityStateService identityState,
+        IGoogleIdentityService googleIdentity,
         ILoggingService logger)
     {
         _cloudService = cloudService;
@@ -47,6 +49,7 @@ public class PublishProfileService : IPublishProfileService
         _appleConnect = appleConnect;
         _appleIdentity = appleIdentity;
         _identityState = identityState;
+        _googleIdentity = googleIdentity;
         _logger = logger;
     }
 
@@ -269,6 +272,40 @@ public class PublishProfileService : IPublishProfileService
             }
         }
 
+        // Resolve Apple developer identities
+        foreach (var appleIdentity in profile.AppleIdentities ?? Enumerable.Empty<PublishProfileAppleIdentity>())
+        {
+            ct.ThrowIfCancellationRequested();
+
+            if (string.IsNullOrWhiteSpace(appleIdentity.IdentityId))
+                continue;
+
+            progress?.Report($"Fetching Apple identity {appleIdentity.Label}...");
+            try
+            {
+                var identity = await _appleIdentity.GetIdentityAsync(appleIdentity.IdentityId);
+                if (identity is null)
+                {
+                    _logger.LogWarning($"Apple identity '{appleIdentity.IdentityId}' was not found for publish profile item '{appleIdentity.Label}'");
+                    continue;
+                }
+
+                var defaultKeys = GetAppleIdentityDefaultKeys(appleIdentity);
+                if (!string.IsNullOrEmpty(identity.KeyId))
+                    AddMappedSecrets(secrets, appleIdentity.KeyMappings, defaultKeys.KeyId, identity.KeyId);
+                if (!string.IsNullOrEmpty(identity.IssuerId))
+                    AddMappedSecrets(secrets, appleIdentity.KeyMappings, defaultKeys.IssuerId, identity.IssuerId);
+                if (!string.IsNullOrEmpty(identity.P8KeyContent))
+                    AddMappedSecrets(secrets, appleIdentity.KeyMappings, defaultKeys.P8Key, identity.P8KeyContent);
+                else
+                    _logger.LogWarning($"Apple identity '{identity.Name}' has no private key content to publish");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($"Failed to resolve Apple identity for {appleIdentity.Label}: {ex.Message}");
+            }
+        }
+
         // Resolve Android configs
         foreach (var android in profile.AndroidConfigs)
         {
@@ -312,6 +349,40 @@ public class PublishProfileService : IPublishProfileService
                 {
                     _logger.LogWarning($"Failed to resolve keystore for {android.Label}: {ex.Message}");
                 }
+            }
+        }
+
+        // Resolve Google developer identities
+        foreach (var googleIdentity in profile.GoogleIdentities ?? Enumerable.Empty<PublishProfileGoogleIdentity>())
+        {
+            ct.ThrowIfCancellationRequested();
+
+            if (string.IsNullOrWhiteSpace(googleIdentity.IdentityId))
+                continue;
+
+            progress?.Report($"Fetching Google identity {googleIdentity.Label}...");
+            try
+            {
+                var identity = await _googleIdentity.GetIdentityAsync(googleIdentity.IdentityId);
+                if (identity is null)
+                {
+                    _logger.LogWarning($"Google identity '{googleIdentity.IdentityId}' was not found for publish profile item '{googleIdentity.Label}'");
+                    continue;
+                }
+
+                var defaultKeys = GetGoogleIdentityDefaultKeys(googleIdentity);
+                if (!string.IsNullOrEmpty(identity.ProjectId))
+                    AddMappedSecrets(secrets, googleIdentity.KeyMappings, defaultKeys.ProjectId, identity.ProjectId);
+                if (!string.IsNullOrEmpty(identity.ClientEmail))
+                    AddMappedSecrets(secrets, googleIdentity.KeyMappings, defaultKeys.ClientEmail, identity.ClientEmail);
+                if (!string.IsNullOrEmpty(identity.ServiceAccountJson))
+                    AddMappedSecrets(secrets, googleIdentity.KeyMappings, defaultKeys.ServiceAccountJson, identity.ServiceAccountJson);
+                else
+                    _logger.LogWarning($"Google identity '{identity.Name}' has no service account JSON to publish");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($"Failed to resolve Google identity for {googleIdentity.Label}: {ex.Message}");
             }
         }
 
@@ -383,6 +454,24 @@ public class PublishProfileService : IPublishProfileService
             _ => ""
         };
         return string.IsNullOrEmpty(distLabel) ? $"APPLE_{platLabel}" : $"APPLE_{platLabel}_{distLabel}";
+    }
+
+    static (string KeyId, string IssuerId, string P8Key) GetAppleIdentityDefaultKeys(PublishProfileAppleIdentity identity)
+    {
+        var label = SanitizeLabel(identity.Label);
+        return (
+            $"APPLE_{label}_KEY_ID",
+            $"APPLE_{label}_ISSUER_ID",
+            $"APPLE_{label}_P8_KEY");
+    }
+
+    static (string ProjectId, string ClientEmail, string ServiceAccountJson) GetGoogleIdentityDefaultKeys(PublishProfileGoogleIdentity identity)
+    {
+        var label = SanitizeLabel(identity.Label);
+        return (
+            $"GOOGLE_{label}_PROJECT_ID",
+            $"GOOGLE_{label}_CLIENT_EMAIL",
+            $"GOOGLE_{label}_SERVICE_ACCOUNT_JSON");
     }
 
     static string SanitizeLabel(string label)

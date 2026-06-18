@@ -3389,6 +3389,12 @@ public record PublishProfile(
 {
     /// <summary>Multiple publisher targets for this profile</summary>
     public List<PublishProfilePublisher> Publishers { get; init; } = new();
+
+    /// <summary>Apple developer identities whose credentials should be published as secrets</summary>
+    public List<PublishProfileAppleIdentity> AppleIdentities { get; init; } = new();
+
+    /// <summary>Google developer identities whose credentials should be published as secrets</summary>
+    public List<PublishProfileGoogleIdentity> GoogleIdentities { get; init; } = new();
 }
 
 /// <summary>
@@ -3422,6 +3428,24 @@ public record PublishProfileAppleConfig(
     string? NotarizationAppleIdManualValue,
     string? NotarizationPasswordManualValue,
     string? NotarizationTeamIdManualValue,
+    Dictionary<string, List<string>> KeyMappings
+);
+
+/// <summary>
+/// Apple developer identity within a publish profile.
+/// </summary>
+public record PublishProfileAppleIdentity(
+    string Label,
+    string IdentityId,
+    Dictionary<string, List<string>> KeyMappings
+);
+
+/// <summary>
+/// Google developer identity within a publish profile.
+/// </summary>
+public record PublishProfileGoogleIdentity(
+    string Label,
+    string IdentityId,
     Dictionary<string, List<string>> KeyMappings
 );
 
@@ -3606,6 +3630,8 @@ public record PublishProfileData(
 )
 {
     public List<PublishProfilePublisher> Publishers { get; init; } = new();
+    public List<PublishProfileAppleIdentity> AppleIdentities { get; init; } = new();
+    public List<PublishProfileGoogleIdentity> GoogleIdentities { get; init; } = new();
 }
 
 public record AppPreferences
