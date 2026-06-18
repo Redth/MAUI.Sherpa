@@ -699,6 +699,7 @@ jobs:
         || contains(github.event.pull_request.labels.*.name, 'build-artifacts-notarized')))
     permissions:
       contents: read
+      id-token: write
       statuses: write
 
     steps:
@@ -738,17 +739,18 @@ jobs:
           path: ./artifacts/nuget/*.nupkg
           retention-days: 30
 
+      - name: NuGet trusted publishing login
+        id: nuget-login
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        uses: NuGet/login@v1
+        with:
+          user: redth
+
       - name: Publish sherpa-inspector to NuGet.org
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-        env:
-          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
         run: |
-          if [ -z "$NUGET_API_KEY" ]; then
-            echo "::error::NUGET_API_KEY secret is required to publish sherpa-inspector"
-            exit 1
-          fi
           dotnet nuget push "./artifacts/nuget/*.nupkg" \
-            --api-key "$NUGET_API_KEY" \
+            --api-key "${{ steps.nuget-login.outputs.NUGET_API_KEY }}" \
             --source https://api.nuget.org/v3/index.json \
             --skip-duplicate
 

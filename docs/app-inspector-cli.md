@@ -74,7 +74,7 @@ Use `--listen-host` only when the caller intentionally wants a different bind ad
 
 ## Distribution
 
-CI builds `Sherpa.AppInspector.Cli.<version>.nupkg` as a dotnet tool package, uploads it as a workflow artifact, attaches it to tagged GitHub releases, and publishes it to NuGet.org from `v*` tag builds.
+CI builds `Sherpa.AppInspector.Cli.<version>.nupkg` as a dotnet tool package, uploads it as a workflow artifact, attaches it to tagged GitHub releases, and publishes it to NuGet.org from `v*` tag builds via trusted publishing.
 
 Pack the tool locally with:
 
