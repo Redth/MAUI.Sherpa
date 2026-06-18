@@ -4,6 +4,7 @@
 @using Shiny.Mediator
 @inject HybridFormBridgeHolder BridgeHolder
 @inject IAppleIdentityService AppleIdentityService
+@inject IGoogleIdentityService GoogleIdentityService
 @inject IKeystoreService KeystoreService
 @inject IManagedSecretsService ManagedSecrets
 @inject ISecretsPublisherService PublisherService
@@ -11,6 +12,7 @@
 @inject IMediator Mediator
 @inject IFormModalService FormModal
 @inject IEncryptedSettingsService SettingsService
+@inject ILoggingService Logger
 @implements IDisposable
 
 <div class="profile-editor">
@@ -217,6 +219,102 @@
                             </div>
                         }
                     }
+
+                <div class="section-header section-spaced">
+                    <span>Apple Identities</span>
+                    <button class="btn-action small" @onclick="OpenAppleIdentityPicker">
+                        <i class="fa-solid fa-plus"></i> Add Identity
+                    </button>
+                </div>
+                <div class="form-hint">App Store Connect identities to publish as CI/CD secrets</div>
+
+                @if (!appleIdentityConfigs.Any())
+                {
+                    <div class="empty-state">
+                        <i class="fa-solid fa-id-badge"></i>
+                        <p>No Apple identities added</p>
+                        @if (!appleIdentities.Any())
+                        {
+                            <div class="form-hint text-muted">No Apple identities configured. Configure in Settings first.</div>
+                        }
+                    </div>
+                }
+                else
+                {
+                    @foreach (var config in appleIdentityConfigs)
+                    {
+                        var identity = appleIdentities.FirstOrDefault(i => i.Id == config.IdentityId);
+                        <div class="config-card">
+                            <div class="config-header">
+                                <div class="config-badges">
+                                    <i class="fa-solid fa-id-badge"></i>
+                                    <span class="config-label-text">@config.Label</span>
+                                    @if (identity is null)
+                                    {
+                                        <span class="badge warning">Missing</span>
+                                    }
+                                </div>
+                                <div class="config-actions">
+                                    <button class="btn-icon-action danger" @onclick="@(() => appleIdentityConfigs.Remove(config))" title="Remove">
+                                        <i class="fa-solid fa-trash-can"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="config-summary">
+                                @if (identity is not null)
+                                {
+                                    <div class="summary-item"><i class="fa-solid fa-key"></i> <span class="@(demoMode ? "demo-blur" : "")">@identity.KeyId</span></div>
+                                    <div class="summary-item"><i class="fa-solid fa-fingerprint"></i> <span class="@(demoMode ? "demo-blur" : "")">@identity.IssuerId</span></div>
+                                    <div class="summary-item"><i class="fa-solid fa-file-code"></i> Private key (.p8)</div>
+                                }
+                                else
+                                {
+                                    <div class="summary-item"><i class="fa-solid fa-triangle-exclamation"></i> Identity no longer exists in Settings</div>
+                                }
+                            </div>
+                            @{
+                                var keys = config.GetDefaultKeys();
+                                if (keys.Any())
+                                {
+                                    <div class="key-mappings-section">
+                                        <div class="key-mappings-label"><i class="fa-solid fa-key"></i> Key Mappings</div>
+                                        <div class="key-mappings">
+                                            @foreach (var defaultKey in keys)
+                                            {
+                                                <div class="key-mapping-row">
+                                                    <div class="key-label">@defaultKey</div>
+                                                    <div class="key-destinations">
+                                                        @{
+                                                            var destinations = config.KeyMappings.GetValueOrDefault(defaultKey) ?? new List<string>();
+                                                        }
+                                                        @foreach (var dest in destinations)
+                                                        {
+                                                            <div class="destination-row">
+                                                                <input type="text" class="dest-input" value="@dest"
+                                                                       @onchange="@(e => UpdateDestination(config.KeyMappings, defaultKey, dest, e.Value?.ToString() ?? ""))" />
+                                                                @if (destinations.Count > 1)
+                                                                {
+                                                                    <button class="chip-remove" @onclick="@(() => RemoveDestination(config.KeyMappings, defaultKey, dest))">×</button>
+                                                                }
+                                                                else
+                                                                {
+                                                                    <div class="btn-placeholder"></div>
+                                                                }
+                                                            </div>
+                                                        }
+                                                        <button class="btn-add-dest" @onclick="@(() => AddDestination(config.KeyMappings, defaultKey))" title="Add another destination">
+                                                            <i class="fa-solid fa-plus"></i>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            }
+                                        </div>
+                                    </div>
+                                }
+                            }
+                        </div>
+                    }
+                }
             </div>
         }
 
@@ -310,6 +408,102 @@
                                     </div>
                                 }
                             </div>
+                        </div>
+                    }
+                }
+
+                <div class="section-header section-spaced">
+                    <span>Google Identities</span>
+                    <button class="btn-action small" @onclick="OpenGoogleIdentityPicker">
+                        <i class="fa-solid fa-plus"></i> Add Identity
+                    </button>
+                </div>
+                <div class="form-hint">Google service account identities to publish as CI/CD secrets</div>
+
+                @if (!googleIdentityConfigs.Any())
+                {
+                    <div class="empty-state">
+                        <i class="fa-brands fa-google"></i>
+                        <p>No Google identities added</p>
+                        @if (!googleIdentities.Any())
+                        {
+                            <div class="form-hint text-muted">No Google identities configured. Configure in Settings first.</div>
+                        }
+                    </div>
+                }
+                else
+                {
+                    @foreach (var config in googleIdentityConfigs)
+                    {
+                        var identity = googleIdentities.FirstOrDefault(i => i.Id == config.IdentityId);
+                        <div class="config-card">
+                            <div class="config-header">
+                                <div class="config-badges">
+                                    <i class="fa-brands fa-google"></i>
+                                    <span class="config-label-text">@config.Label</span>
+                                    @if (identity is null)
+                                    {
+                                        <span class="badge warning">Missing</span>
+                                    }
+                                </div>
+                                <div class="config-actions">
+                                    <button class="btn-icon-action danger" @onclick="@(() => googleIdentityConfigs.Remove(config))" title="Remove">
+                                        <i class="fa-solid fa-trash-can"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="config-summary">
+                                @if (identity is not null)
+                                {
+                                    <div class="summary-item"><i class="fa-solid fa-diagram-project"></i> <span class="@(demoMode ? "demo-blur" : "")">@identity.ProjectId</span></div>
+                                    <div class="summary-item"><i class="fa-solid fa-envelope"></i> <span class="@(demoMode ? "demo-blur" : "")">@identity.ClientEmail</span></div>
+                                    <div class="summary-item"><i class="fa-solid fa-file-code"></i> Service account JSON</div>
+                                }
+                                else
+                                {
+                                    <div class="summary-item"><i class="fa-solid fa-triangle-exclamation"></i> Identity no longer exists in Settings</div>
+                                }
+                            </div>
+                            @{
+                                var keys = config.GetDefaultKeys();
+                                if (keys.Any())
+                                {
+                                    <div class="key-mappings-section">
+                                        <div class="key-mappings-label"><i class="fa-solid fa-key"></i> Key Mappings</div>
+                                        <div class="key-mappings">
+                                            @foreach (var defaultKey in keys)
+                                            {
+                                                <div class="key-mapping-row">
+                                                    <div class="key-label">@defaultKey</div>
+                                                    <div class="key-destinations">
+                                                        @{
+                                                            var destinations = config.KeyMappings.GetValueOrDefault(defaultKey) ?? new List<string>();
+                                                        }
+                                                        @foreach (var dest in destinations)
+                                                        {
+                                                            <div class="destination-row">
+                                                                <input type="text" class="dest-input" value="@dest"
+                                                                       @onchange="@(e => UpdateDestination(config.KeyMappings, defaultKey, dest, e.Value?.ToString() ?? ""))" />
+                                                                @if (destinations.Count > 1)
+                                                                {
+                                                                    <button class="chip-remove" @onclick="@(() => RemoveDestination(config.KeyMappings, defaultKey, dest))">×</button>
+                                                                }
+                                                                else
+                                                                {
+                                                                    <div class="btn-placeholder"></div>
+                                                                }
+                                                            </div>
+                                                        }
+                                                        <button class="btn-add-dest" @onclick="@(() => AddDestination(config.KeyMappings, defaultKey))" title="Add another destination">
+                                                            <i class="fa-solid fa-plus"></i>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            }
+                                        </div>
+                                    </div>
+                                }
+                            }
                         </div>
                     }
                 }
@@ -533,6 +727,10 @@
         color: var(--text-primary);
     }
 
+    .section-spaced {
+        margin-top: 8px;
+    }
+
     .btn-action {
         display: inline-flex;
         align-items: center;
@@ -550,6 +748,11 @@
 
     .btn-action:hover {
         opacity: 0.9;
+    }
+
+    .btn-action:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
     }
 
     .btn-action.small {
@@ -1000,6 +1203,11 @@
         color: var(--success-color, #22c55e);
     }
 
+    .badge.warning {
+        background: rgba(245, 158, 11, 0.12);
+        color: var(--warning-color, #f59e0b);
+    }
+
     .config-summary {
         padding: 8px 14px 10px 18px;
         display: flex;
@@ -1036,11 +1244,14 @@
 
     // Apple
     private List<AppleConfigVM> appleConfigs = new();
+    private List<AppleIdentityConfigVM> appleIdentityConfigs = new();
     private List<AppleIdentity> appleIdentities = new();
 
     // Android
     private List<AndroidConfigVM> androidConfigs = new();
+    private List<GoogleIdentityConfigVM> googleIdentityConfigs = new();
     private List<AndroidKeystore> keystores = new();
+    private List<GoogleIdentity> googleIdentities = new();
 
     // Secrets
     private List<SecretMappingVM> secretMappings = new();
@@ -1104,11 +1315,25 @@
                 IsComplete = true
             }).ToList();
 
+            appleIdentityConfigs = (existing.AppleIdentities ?? new()).Select(a => new AppleIdentityConfigVM
+            {
+                Label = a.Label,
+                IdentityId = a.IdentityId,
+                KeyMappings = a.KeyMappings.ToDictionary(k => k.Key, k => k.Value.ToList())
+            }).ToList();
+
             androidConfigs = existing.AndroidConfigs.Select(a => new AndroidConfigVM
             {
                 Label = a.Label,
                 KeystoreId = a.KeystoreId,
                 KeyMappings = a.KeyMappings.ToDictionary(k => k.Key, k => k.Value.ToList())
+            }).ToList();
+
+            googleIdentityConfigs = (existing.GoogleIdentities ?? new()).Select(g => new GoogleIdentityConfigVM
+            {
+                Label = g.Label,
+                IdentityId = g.IdentityId,
+                KeyMappings = g.KeyMappings.ToDictionary(k => k.Key, k => k.Value.ToList())
             }).ToList();
 
             secretMappings = existing.SecretMappings.Select(s => new SecretMappingVM
@@ -1133,10 +1358,16 @@
 
             // Load Apple identities (cert/profile loading deferred to wizard identity selection)
             try { appleIdentities = (await AppleIdentityService.GetIdentitiesAsync()).ToList(); }
-            catch { }
+            catch (Exception ex) { Logger.LogWarning($"Failed to load Apple identities for publish profile editor: {ex.Message}"); }
+
+            try { googleIdentities = (await GoogleIdentityService.GetIdentitiesAsync()).ToList(); }
+            catch (Exception ex) { Logger.LogWarning($"Failed to load Google identities for publish profile editor: {ex.Message}"); }
 
         }
-        catch { }
+        catch (Exception ex)
+        {
+            Logger.LogWarning($"Failed to load publish profile editor data: {ex.Message}");
+        }
 
         StateHasChanged();
     }
@@ -1215,7 +1446,20 @@
                 ? (BridgeHolder.Current?.Parameters.TryGetValue("Profile", out var p) == true && p is PublishProfile ep ? ep.CreatedAt : DateTime.UtcNow)
                 : DateTime.UtcNow,
             UpdatedAt: DateTime.UtcNow
-        ) { Publishers = profilePublishers.ToList() };
+        )
+        {
+            Publishers = profilePublishers.ToList(),
+            AppleIdentities = appleIdentityConfigs.Select(a => new PublishProfileAppleIdentity(
+                a.Label,
+                a.IdentityId,
+                a.KeyMappings.ToDictionary(k => k.Key, k => k.Value.ToList())
+            )).ToList(),
+            GoogleIdentities = googleIdentityConfigs.Select(g => new PublishProfileGoogleIdentity(
+                g.Label,
+                g.IdentityId,
+                g.KeyMappings.ToDictionary(k => k.Key, k => k.Value.ToList())
+            )).ToList()
+        };
 
         try
         {
@@ -1256,10 +1500,46 @@
         ValidateForm();
     }
 
+    private async Task OpenAppleIdentityPicker()
+    {
+        var existingIdentityIds = appleIdentityConfigs.Select(a => a.IdentityId).ToList();
+        var page = new AppleIdentityPickerPage(BridgeHolder, appleIdentities, existingIdentityIds);
+        var result = await FormModal.ShowAsync(page);
+        if (result is null || appleIdentityConfigs.Any(a => a.IdentityId == result.Id))
+            return;
+
+        var config = new AppleIdentityConfigVM
+        {
+            Label = result.Name,
+            IdentityId = result.Id
+        };
+        config.GetDefaultKeys();
+        appleIdentityConfigs.Add(config);
+        ValidateForm();
+    }
+
     // Android helpers
     private void AddAndroidConfig()
     {
         androidConfigs.Add(new AndroidConfigVM { Label = "PlayStore" });
+    }
+
+    private async Task OpenGoogleIdentityPicker()
+    {
+        var existingIdentityIds = googleIdentityConfigs.Select(g => g.IdentityId).ToList();
+        var page = new GoogleIdentityPickerPage(BridgeHolder, googleIdentities, existingIdentityIds);
+        var result = await FormModal.ShowAsync(page);
+        if (result is null || googleIdentityConfigs.Any(g => g.IdentityId == result.Id))
+            return;
+
+        var config = new GoogleIdentityConfigVM
+        {
+            Label = result.Name,
+            IdentityId = result.Id
+        };
+        config.GetDefaultKeys();
+        googleIdentityConfigs.Add(config);
+        ValidateForm();
     }
 
     // Secrets helpers
@@ -1338,6 +1618,74 @@
                 keys.Add($"ANDROID_{label}_KEY_ALIAS");
                 keys.Add($"ANDROID_{label}_KEY_PASSWORD");
             }
+
+            foreach (var key in keys)
+            {
+                if (!KeyMappings.ContainsKey(key))
+                    KeyMappings[key] = new List<string> { key };
+            }
+
+            foreach (var k in KeyMappings.Keys.ToList())
+            {
+                if (!keys.Contains(k))
+                    KeyMappings.Remove(k);
+            }
+
+            return keys;
+        }
+    }
+
+    private class AppleIdentityConfigVM
+    {
+        public string Label { get; set; } = "";
+        public string IdentityId { get; set; } = "";
+        public Dictionary<string, List<string>> KeyMappings { get; set; } = new();
+
+        public List<string> GetDefaultKeys()
+        {
+            var label = string.IsNullOrWhiteSpace(Label)
+                ? "IDENTITY"
+                : Label.ToUpperInvariant().Replace(' ', '_').Replace('-', '_');
+            var keys = new List<string>
+            {
+                $"APPLE_{label}_KEY_ID",
+                $"APPLE_{label}_ISSUER_ID",
+                $"APPLE_{label}_P8_KEY"
+            };
+
+            foreach (var key in keys)
+            {
+                if (!KeyMappings.ContainsKey(key))
+                    KeyMappings[key] = new List<string> { key };
+            }
+
+            foreach (var k in KeyMappings.Keys.ToList())
+            {
+                if (!keys.Contains(k))
+                    KeyMappings.Remove(k);
+            }
+
+            return keys;
+        }
+    }
+
+    private class GoogleIdentityConfigVM
+    {
+        public string Label { get; set; } = "";
+        public string IdentityId { get; set; } = "";
+        public Dictionary<string, List<string>> KeyMappings { get; set; } = new();
+
+        public List<string> GetDefaultKeys()
+        {
+            var label = string.IsNullOrWhiteSpace(Label)
+                ? "IDENTITY"
+                : Label.ToUpperInvariant().Replace(' ', '_').Replace('-', '_');
+            var keys = new List<string>
+            {
+                $"GOOGLE_{label}_PROJECT_ID",
+                $"GOOGLE_{label}_CLIENT_EMAIL",
+                $"GOOGLE_{label}_SERVICE_ACCOUNT_JSON"
+            };
 
             foreach (var key in keys)
             {
