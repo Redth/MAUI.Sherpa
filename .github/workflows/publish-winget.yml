@@ -1,0 +1,150 @@
+name: Publish Winget Manifest
+
+on:
+  push:
+    branches:
+      - main
+      - redth-winget-publishing
+    paths:
+      - '.github/workflows/publish-winget.yml'
+      - 'winget/**'
+  pull_request:
+    paths:
+      - '.github/workflows/publish-winget.yml'
+      - 'winget/**'
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to build the Winget manifest for (for example v0.8.1)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  generate-manifest:
+    name: Generate Winget manifest
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Determine release tag
+        id: release
+        shell: bash
+        env:
+          RELEASE_TAG_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || '' }}
+          RELEASE_EVENT_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          if [[ -n "$RELEASE_TAG_INPUT" ]]; then
+            TAG="$RELEASE_TAG_INPUT"
+          elif [[ -n "$RELEASE_EVENT_TAG" ]]; then
+            TAG="$RELEASE_EVENT_TAG"
+          elif [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            VERSION=$(grep '<AppVersion>' Directory.Build.props | sed 's/.*<AppVersion>\(.*\)<\/AppVersion>.*/\1/')
+            TAG="v$VERSION"
+          else
+            echo "No release tag was provided"
+            exit 1
+          fi
+
+          VERSION="${TAG#v}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare Windows release assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p ./artifacts
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            python3 - <<'PY'
+import zipfile
+from pathlib import Path
+artifacts = Path('./artifacts')
+artifacts.mkdir(parents=True, exist_ok=True)
+(artifacts / 'placeholder.txt').write_text('placeholder', encoding='utf-8')
+for archive_name in ['MAUI-Sherpa.win-x64.zip', 'MAUI-Sherpa.win-arm64.zip']:
+    with zipfile.ZipFile(artifacts / archive_name, 'w') as zf:
+        zf.write(artifacts / 'placeholder.txt', 'placeholder.txt')
+PY
+          else
+            gh release download "${{ steps.release.outputs.tag }}" \
+              --repo "${{ github.repository }}" \
+              --pattern "MAUI-Sherpa.win-x64.zip" \
+              --dir ./artifacts
+            gh release download "${{ steps.release.outputs.tag }}" \
+              --repo "${{ github.repository }}" \
+              --pattern "MAUI-Sherpa.win-arm64.zip" \
+              --dir ./artifacts
+          fi
+
+      - name: Compute SHA256 hashes
+        id: hashes
+        shell: pwsh
+        run: |
+          $x64Hash = (Get-FileHash ./artifacts/MAUI-Sherpa.win-x64.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          $arm64Hash = (Get-FileHash ./artifacts/MAUI-Sherpa.win-arm64.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Output "x64_sha256=$x64Hash" >> $env:GITHUB_OUTPUT
+          Write-Output "arm64_sha256=$arm64Hash" >> $env:GITHUB_OUTPUT
+
+      - name: Render Winget manifest
+        shell: bash
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          X64_SHA256: ${{ steps.hashes.outputs.x64_sha256 }}
+          ARM64_SHA256: ${{ steps.hashes.outputs.arm64_sha256 }}
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          version = os.environ['VERSION']
+          release_tag = os.environ['RELEASE_TAG']
+          x64_sha = os.environ['X64_SHA256']
+          arm64_sha = os.environ['ARM64_SHA256']
+
+          output_dir = Path('./artifacts/manifests')
+          output_dir.mkdir(parents=True, exist_ok=True)
+
+          templates = {
+              'winget/Maui.Sherpa.version.template.yaml': 'Maui.Sherpa.yaml',
+              'winget/Maui.Sherpa.installer.template.yaml': 'Maui.Sherpa.installer.yaml',
+              'winget/Maui.Sherpa.locale.en-US.template.yaml': 'Maui.Sherpa.locale.en-US.yaml',
+          }
+
+          for template_path, output_name in templates.items():
+              content = Path(template_path).read_text(encoding='utf-8')
+              content = content.replace('__VERSION__', version)
+              content = content.replace('__RELEASE_TAG__', release_tag)
+              content = content.replace('__X64_SHA256__', x64_sha)
+              content = content.replace('__ARM64_SHA256__', arm64_sha)
+
+              output = output_dir / output_name
+              output.write_text(content, encoding='utf-8')
+              print(output)
+              print(content)
+          PY
+
+      - name: Validate Winget manifest
+        shell: pwsh
+        run: |
+          winget validate --manifest ./artifacts/manifests
+
+      - name: Upload generated manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: maui-sherpa-winget-manifest
+          path: ./artifacts/manifests
+          retention-days: 30
+
+      - name: Notify about manual submission
+        if: ${{ github.event_name == 'release' }}
+        run: |
+          Write-Host "The manifest is ready. To publish it in winget, submit the generated file to the microsoft/winget-pkgs repository."
