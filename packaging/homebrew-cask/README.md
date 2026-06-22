@@ -21,9 +21,10 @@ Gatekeeper. MAUI Sherpa meets both:
 - **Notable**: well above the ~75-star / 30-fork / 30-watcher threshold.
 - **Signed + notarized + stapled**: the macOS app is hardened-runtime signed,
   notarized with `notarytool`, and stapled by the `notarize-macos` job.
-- **Minimum macOS**: the binary's load command requires macOS **Sonoma (14)**,
-  which is why the cask declares `depends_on macos: :sonoma`. Keep this in sync
-  if the app's deployment target changes.
+- **Minimum macOS**: the app's supported minimum is macOS **Sequoia (15)** —
+  set via `SupportedOSPlatformVersion` in `MauiSherpa.MacOS.csproj` (the
+  `net10.0-macos` head) — so the cask declares `depends_on macos: :sequoia`.
+  Keep this in sync if the app's deployment target changes.
 
 ## One-time submission steps
 
