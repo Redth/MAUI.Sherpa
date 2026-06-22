@@ -110,28 +110,38 @@ PY
           x64_sha = os.environ['X64_SHA256']
           arm64_sha = os.environ['ARM64_SHA256']
 
-          template = Path('winget/maui-sherpa.template.yaml').read_text(encoding='utf-8')
-          template = template.replace('__VERSION__', version)
-          template = template.replace('__RELEASE_TAG__', release_tag)
-          template = template.replace('__X64_SHA256__', x64_sha)
-          template = template.replace('__ARM64_SHA256__', arm64_sha)
+          output_dir = Path('./artifacts/manifests')
+          output_dir.mkdir(parents=True, exist_ok=True)
 
-          output = Path('./artifacts/maui-sherpa.yaml')
-          output.write_text(template, encoding='utf-8')
-          print(output)
-          print(template)
+          templates = {
+              'winget/Maui.Sherpa.version.template.yaml': 'Maui.Sherpa.yaml',
+              'winget/Maui.Sherpa.installer.template.yaml': 'Maui.Sherpa.installer.yaml',
+              'winget/Maui.Sherpa.locale.en-US.template.yaml': 'Maui.Sherpa.locale.en-US.yaml',
+          }
+
+          for template_path, output_name in templates.items():
+              content = Path(template_path).read_text(encoding='utf-8')
+              content = content.replace('__VERSION__', version)
+              content = content.replace('__RELEASE_TAG__', release_tag)
+              content = content.replace('__X64_SHA256__', x64_sha)
+              content = content.replace('__ARM64_SHA256__', arm64_sha)
+
+              output = output_dir / output_name
+              output.write_text(content, encoding='utf-8')
+              print(output)
+              print(content)
           PY
 
       - name: Validate Winget manifest
         shell: pwsh
         run: |
-          winget validate --manifest ./artifacts/maui-sherpa.yaml
+          winget validate --manifest ./artifacts/manifests
 
       - name: Upload generated manifest
         uses: actions/upload-artifact@v4
         with:
           name: maui-sherpa-winget-manifest
-          path: ./artifacts/maui-sherpa.yaml
+          path: ./artifacts/manifests
           retention-days: 30
 
       - name: Notify about manual submission
