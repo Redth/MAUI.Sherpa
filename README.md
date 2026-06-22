@@ -234,8 +234,15 @@ brew install --cask redth/tap/maui-sherpa
 2. Extract and move `MAUI Sherpa.app` to Applications
 3. Right-click and select "Open" on first launch (to bypass Gatekeeper)
 
-#### Windows
-1. Download `MAUI-Sherpa.windows-x64.zip` or `MAUI-Sherpa.windows-arm64.zip`
+#### Windows (Winget)
+```powershell
+winget install Maui.Sherpa
+```
+
+This becomes available once the generated manifest is accepted into the upstream `microsoft/winget-pkgs` repository.
+
+#### Windows (Manual)
+1. Download `MAUI-Sherpa.win-x64.zip` or `MAUI-Sherpa.win-arm64.zip`
 2. Extract to your preferred location
 3. Run `MauiSherpa.exe`
 

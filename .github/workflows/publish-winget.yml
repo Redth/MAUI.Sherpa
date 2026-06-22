@@ -1,0 +1,113 @@
+name: Publish Winget Manifest
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to build the Winget manifest for (for example v0.8.1)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  generate-manifest:
+    name: Generate Winget manifest
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Determine release tag
+        id: release
+        shell: bash
+        env:
+          RELEASE_TAG_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || '' }}
+          RELEASE_EVENT_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          if [[ -n "$RELEASE_TAG_INPUT" ]]; then
+            TAG="$RELEASE_TAG_INPUT"
+          elif [[ -n "$RELEASE_EVENT_TAG" ]]; then
+            TAG="$RELEASE_EVENT_TAG"
+          else
+            echo "No release tag was provided"
+            exit 1
+          fi
+
+          VERSION="${TAG#v}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Download Windows release assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p ./artifacts
+          gh release download "${{ steps.release.outputs.tag }}" \
+            --repo "${{ github.repository }}" \
+            --pattern "MAUI-Sherpa.win-x64.zip" \
+            --dir ./artifacts
+          gh release download "${{ steps.release.outputs.tag }}" \
+            --repo "${{ github.repository }}" \
+            --pattern "MAUI-Sherpa.win-arm64.zip" \
+            --dir ./artifacts
+
+      - name: Compute SHA256 hashes
+        id: hashes
+        shell: pwsh
+        run: |
+          $x64Hash = (Get-FileHash ./artifacts/MAUI-Sherpa.win-x64.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          $arm64Hash = (Get-FileHash ./artifacts/MAUI-Sherpa.win-arm64.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Output "x64_sha256=$x64Hash" >> $env:GITHUB_OUTPUT
+          Write-Output "arm64_sha256=$arm64Hash" >> $env:GITHUB_OUTPUT
+
+      - name: Render Winget manifest
+        shell: bash
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          X64_SHA256: ${{ steps.hashes.outputs.x64_sha256 }}
+          ARM64_SHA256: ${{ steps.hashes.outputs.arm64_sha256 }}
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          version = os.environ['VERSION']
+          release_tag = os.environ['RELEASE_TAG']
+          x64_sha = os.environ['X64_SHA256']
+          arm64_sha = os.environ['ARM64_SHA256']
+
+          template = Path('winget/maui-sherpa.template.yaml').read_text(encoding='utf-8')
+          template = template.replace('__VERSION__', version)
+          template = template.replace('__RELEASE_TAG__', release_tag)
+          template = template.replace('__X64_SHA256__', x64_sha)
+          template = template.replace('__ARM64_SHA256__', arm64_sha)
+
+          output = Path('./artifacts/maui-sherpa.yaml')
+          output.write_text(template, encoding='utf-8')
+          print(output)
+          print(template)
+          PY
+
+      - name: Validate Winget manifest
+        shell: pwsh
+        run: |
+          winget validate --manifest ./artifacts/maui-sherpa.yaml
+
+      - name: Upload generated manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: maui-sherpa-winget-manifest
+          path: ./artifacts/maui-sherpa.yaml
+          retention-days: 30
+
+      - name: Notify about manual submission
+        if: ${{ github.event_name == 'release' }}
+        run: |
+          Write-Host "The manifest is ready. To publish it in winget, submit the generated file to the microsoft/winget-pkgs repository."
