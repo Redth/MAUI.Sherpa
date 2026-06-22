@@ -37,6 +37,9 @@ jobs:
             TAG="$RELEASE_TAG_INPUT"
           elif [[ -n "$RELEASE_EVENT_TAG" ]]; then
             TAG="$RELEASE_EVENT_TAG"
+          elif [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            VERSION=$(grep '<AppVersion>' Directory.Build.props | sed 's/.*<AppVersion>\(.*\)<\/AppVersion>.*/\1/')
+            TAG="v$VERSION"
           else
             echo "No release tag was provided"
             exit 1
@@ -46,20 +49,33 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Download Windows release assets
+      - name: Prepare Windows release assets
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p ./artifacts
-          gh release download "${{ steps.release.outputs.tag }}" \
-            --repo "${{ github.repository }}" \
-            --pattern "MAUI-Sherpa.win-x64.zip" \
-            --dir ./artifacts
-          gh release download "${{ steps.release.outputs.tag }}" \
-            --repo "${{ github.repository }}" \
-            --pattern "MAUI-Sherpa.win-arm64.zip" \
-            --dir ./artifacts
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            python3 - <<'PY'
+import zipfile
+from pathlib import Path
+artifacts = Path('./artifacts')
+artifacts.mkdir(parents=True, exist_ok=True)
+(artifacts / 'placeholder.txt').write_text('placeholder', encoding='utf-8')
+for archive_name in ['MAUI-Sherpa.win-x64.zip', 'MAUI-Sherpa.win-arm64.zip']:
+    with zipfile.ZipFile(artifacts / archive_name, 'w') as zf:
+        zf.write(artifacts / 'placeholder.txt', 'placeholder.txt')
+PY
+          else
+            gh release download "${{ steps.release.outputs.tag }}" \
+              --repo "${{ github.repository }}" \
+              --pattern "MAUI-Sherpa.win-x64.zip" \
+              --dir ./artifacts
+            gh release download "${{ steps.release.outputs.tag }}" \
+              --repo "${{ github.repository }}" \
+              --pattern "MAUI-Sherpa.win-arm64.zip" \
+              --dir ./artifacts
+          fi
 
       - name: Compute SHA256 hashes
         id: hashes
