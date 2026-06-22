@@ -223,6 +223,29 @@ public class CopilotService : ICopilotService, IAsyncDisposable
                 environment[variable] = value;
         }
 
+        if (OperatingSystem.IsWindows())
+        {
+            // The Copilot CLI is a Node.js binary. On Windows, Node initializes its CSPRNG
+            // (via bcryptprimitives.dll) during startup and aborts with
+            // "Assertion failed: ncrypto::CSPRNG(nullptr, 0)" when SystemRoot/windir are not
+            // present in its environment. Because we pass a replacement environment to the
+            // child process, these (and other essential Windows variables) must be forwarded
+            // explicitly or the CLI crashes before it can connect.
+            foreach (var variable in new[]
+            {
+                "SystemRoot", "windir", "SystemDrive", "ComSpec", "PATHEXT",
+                "ProgramData", "ProgramFiles", "ProgramFiles(x86)", "ProgramW6432",
+                "LOCALAPPDATA", "APPDATA", "ALLUSERSPROFILE", "PUBLIC",
+                "USERNAME", "USERDOMAIN", "COMPUTERNAME",
+                "NUMBER_OF_PROCESSORS", "PROCESSOR_ARCHITECTURE"
+            })
+            {
+                var value = Environment.GetEnvironmentVariable(variable);
+                if (!string.IsNullOrWhiteSpace(value) && !environment.ContainsKey(variable))
+                    environment[variable] = value;
+            }
+        }
+
         return environment;
     }
 
