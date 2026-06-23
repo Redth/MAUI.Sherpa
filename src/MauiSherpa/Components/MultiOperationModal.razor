@@ -63,29 +63,6 @@
                             <div class="operation-info">
                                 <span class="operation-name">@op.Name</span>
                                 <span class="operation-desc">@op.Description</span>
-                                @if (showSecondary)
-                                {
-                                    <div class="operation-secondary-list" @onclick:stopPropagation="true">
-                                        @if (op.SecondaryOptions.Count > 1)
-                                        {
-                                            <div class="secondary-bulk">
-                                                <button type="button" class="link-btn" @onclick="@(() => SetAllSecondary(op.Id, true))">Select all</button>
-                                                <span class="secondary-bulk-sep">·</span>
-                                                <button type="button" class="link-btn" @onclick="@(() => SetAllSecondary(op.Id, false))">Deselect all</button>
-                                            </div>
-                                        }
-                                        @foreach (var opt in op.SecondaryOptions)
-                                        {
-                                            <label class="operation-secondary">
-                                                <input type="checkbox"
-                                                       checked="@opt.Enabled"
-                                                       disabled="@(!op.IsEnabled)"
-                                                       @onchange="@(e => HandleSecondaryToggle(op.Id, opt.Id, (bool)(e.Value ?? false)))" />
-                                                <span>@opt.Label</span>
-                                            </label>
-                                        }
-                                    </div>
-                                }
                             </div>
                         </div>
                         <div class="operation-right">
@@ -99,7 +76,31 @@
                             }
                         </div>
                     </div>
-                    
+
+                    @if (showSecondary)
+                    {
+                        <div class="operation-secondary-list" @onclick:stopPropagation="true">
+                            @if (op.SecondaryOptions.Count > 1)
+                            {
+                                <div class="secondary-bulk">
+                                    <button type="button" class="link-btn" @onclick="@(() => SetAllSecondary(op.Id, true))">Select all</button>
+                                    <span class="secondary-bulk-sep">·</span>
+                                    <button type="button" class="link-btn" @onclick="@(() => SetAllSecondary(op.Id, false))">Deselect all</button>
+                                </div>
+                            }
+                            @foreach (var opt in op.SecondaryOptions)
+                            {
+                                <label class="operation-secondary">
+                                    <input type="checkbox"
+                                           checked="@opt.Enabled"
+                                           disabled="@(!op.IsEnabled)"
+                                           @onchange="@(e => HandleSecondaryToggle(op.Id, opt.Id, (bool)(e.Value ?? false)))" />
+                                    <span>@opt.Label</span>
+                                </label>
+                            }
+                        </div>
+                    }
+
                     @if (isExpanded && op.Log.Any())
                     {
                         <div class="operation-log">
@@ -308,7 +309,7 @@
         display: flex;
         flex-direction: column;
         gap: 0.2rem;
-        margin-top: 0.35rem;
+        padding: 0 1rem 0.75rem calc(1rem + 18px + 0.75rem);
     }
 
     .operation-secondary {
