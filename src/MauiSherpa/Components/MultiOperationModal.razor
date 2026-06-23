@@ -14,16 +14,6 @@
     <div class="multi-op-content" id="multi-op-modal">
         <p class="description">@ModalService.Description</p>
 
-        @if (ModalService.IsConfirming && !ModalService.IsRunning && ModalService.HasSecondaryOptions)
-        {
-            <div class="secondary-bulk">
-                <span class="secondary-bulk-label">Clean up older versions:</span>
-                <button type="button" class="link-btn" @onclick="@(() => SetAllSecondary(true))">Select all</button>
-                <span class="secondary-bulk-sep">·</span>
-                <button type="button" class="link-btn" @onclick="@(() => SetAllSecondary(false))">Deselect all</button>
-            </div>
-        }
-
         <div class="operations-list">
             @foreach (var op in ModalService.Operations)
             {
@@ -76,6 +66,14 @@
                                 @if (showSecondary)
                                 {
                                     <div class="operation-secondary-list" @onclick:stopPropagation="true">
+                                        @if (op.SecondaryOptions.Count > 1)
+                                        {
+                                            <div class="secondary-bulk">
+                                                <button type="button" class="link-btn" @onclick="@(() => SetAllSecondary(op.Id, true))">Select all</button>
+                                                <span class="secondary-bulk-sep">·</span>
+                                                <button type="button" class="link-btn" @onclick="@(() => SetAllSecondary(op.Id, false))">Deselect all</button>
+                                            </div>
+                                        }
                                         @foreach (var opt in op.SecondaryOptions)
                                         {
                                             <label class="operation-secondary">
@@ -336,12 +334,11 @@
         display: flex;
         align-items: center;
         gap: 0.4rem;
-        font-size: 0.75rem;
+        font-size: 0.72rem;
         color: var(--text-secondary, #718096);
-        margin: -0.25rem 0 0 0;
+        margin: 0 0 0.1rem 0;
     }
 
-    .secondary-bulk-label { font-weight: 500; }
     .secondary-bulk-sep { opacity: 0.5; }
 
     .secondary-bulk .link-btn {
@@ -562,9 +559,9 @@
         StateHasChanged();
     }
 
-    private void SetAllSecondary(bool enabled)
+    private void SetAllSecondary(string operationId, bool enabled)
     {
-        ModalService.SetAllSecondaryOptions(enabled);
+        ModalService.SetAllSecondaryOptions(operationId, enabled);
         StateHasChanged();
     }
 

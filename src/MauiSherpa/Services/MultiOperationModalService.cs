@@ -128,12 +128,6 @@ public class MultiOperationModalService : IMultiOperationModalService
     }
 
     /// <summary>
-    /// Whether any operation offers secondary options (used to show the
-    /// global select/deselect-all control)
-    /// </summary>
-    public bool HasSecondaryOptions => Operations.Any(o => o.SecondaryOptions.Count > 0);
-
-    /// <summary>
     /// Toggle a single secondary option on an operation (called from UI)
     /// </summary>
     public void ToggleSecondaryOption(string operationId, string optionId, bool enabled)
@@ -148,19 +142,18 @@ public class MultiOperationModalService : IMultiOperationModalService
     }
 
     /// <summary>
-    /// Select or deselect every secondary option across all operations
+    /// Select or deselect every secondary option on a single operation
     /// </summary>
-    public void SetAllSecondaryOptions(bool enabled)
+    public void SetAllSecondaryOptions(string operationId, bool enabled)
     {
         if (IsRunning) return;
 
-        foreach (var op in Operations)
-        {
-            if (op.SecondaryOptions.Count == 0) continue;
-            foreach (var option in op.SecondaryOptions)
-                option.Enabled = enabled;
-            OnOperationStateChanged?.Invoke(op);
-        }
+        var op = Operations.FirstOrDefault(o => o.Id == operationId);
+        if (op == null || op.SecondaryOptions.Count == 0) return;
+
+        foreach (var option in op.SecondaryOptions)
+            option.Enabled = enabled;
+        OnOperationStateChanged?.Invoke(op);
     }
 
     /// <summary>
