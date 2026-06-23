@@ -74,8 +74,14 @@ public class MultiOperationModalService : IMultiOperationModalService
                 IsEnabled = op.IsEnabled,
                 CanDisable = op.CanDisable,
                 State = OperationItemState.Pending,
-                SecondaryOptionLabel = op.SecondaryOptionLabel,
-                SecondaryOptionEnabled = op.SecondaryOptionDefault
+                SecondaryOptions = op.SecondaryOptions?
+                    .Select(o => new OperationSecondaryOptionStatus
+                    {
+                        Id = o.Id,
+                        Label = o.Label,
+                        Enabled = o.DefaultEnabled
+                    })
+                    .ToList() ?? new List<OperationSecondaryOptionStatus>()
             });
         }
 
@@ -122,14 +128,37 @@ public class MultiOperationModalService : IMultiOperationModalService
     }
 
     /// <summary>
-    /// Toggle an operation's optional secondary choice (called from UI)
+    /// Whether any operation offers secondary options (used to show the
+    /// global select/deselect-all control)
     /// </summary>
-    public void ToggleSecondaryOption(string operationId, bool enabled)
+    public bool HasSecondaryOptions => Operations.Any(o => o.SecondaryOptions.Count > 0);
+
+    /// <summary>
+    /// Toggle a single secondary option on an operation (called from UI)
+    /// </summary>
+    public void ToggleSecondaryOption(string operationId, string optionId, bool enabled)
     {
         var op = Operations.FirstOrDefault(o => o.Id == operationId);
-        if (op != null && op.SecondaryOptionLabel != null && !IsRunning)
+        var option = op?.SecondaryOptions.FirstOrDefault(o => o.Id == optionId);
+        if (op != null && option != null && !IsRunning)
         {
-            op.SecondaryOptionEnabled = enabled;
+            option.Enabled = enabled;
+            OnOperationStateChanged?.Invoke(op);
+        }
+    }
+
+    /// <summary>
+    /// Select or deselect every secondary option across all operations
+    /// </summary>
+    public void SetAllSecondaryOptions(bool enabled)
+    {
+        if (IsRunning) return;
+
+        foreach (var op in Operations)
+        {
+            if (op.SecondaryOptions.Count == 0) continue;
+            foreach (var option in op.SecondaryOptions)
+                option.Enabled = enabled;
             OnOperationStateChanged?.Invoke(op);
         }
     }
@@ -186,7 +215,11 @@ public class MultiOperationModalService : IMultiOperationModalService
             {
                 if (opLookup.TryGetValue(status.Id, out var operation))
                 {
-                    var context = new OperationItemContext(this, status.Id, _cts!.Token, status.SecondaryOptionEnabled);
+                    var enabledSecondary = status.SecondaryOptions
+                        .Where(o => o.Enabled)
+                        .Select(o => o.Id)
+                        .ToList();
+                    var context = new OperationItemContext(this, status.Id, _cts!.Token, enabledSecondary);
                     var success = await operation.Execute(context);
                     
                     status.Duration = DateTime.Now - opStartTime;
@@ -312,14 +345,14 @@ public class MultiOperationModalService : IMultiOperationModalService
 
         public CancellationToken CancellationToken { get; }
         public bool IsCancellationRequested => CancellationToken.IsCancellationRequested;
-        public bool SecondaryOptionEnabled { get; }
+        public IReadOnlyCollection<string> EnabledSecondaryOptionIds { get; }
 
-        public OperationItemContext(MultiOperationModalService service, string operationId, CancellationToken cancellationToken, bool secondaryOptionEnabled = false)
+        public OperationItemContext(MultiOperationModalService service, string operationId, CancellationToken cancellationToken, IReadOnlyCollection<string>? enabledSecondaryOptionIds = null)
         {
             _service = service;
             _operationId = operationId;
             CancellationToken = cancellationToken;
-            SecondaryOptionEnabled = secondaryOptionEnabled;
+            EnabledSecondaryOptionIds = enabledSecondaryOptionIds ?? Array.Empty<string>();
         }
 
         public void Log(string message, OperationLogLevel level = OperationLogLevel.Info)

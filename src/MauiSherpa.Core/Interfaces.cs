@@ -2159,10 +2159,16 @@ public interface IOperationContext
     bool IsCancellationRequested { get; }
 
     /// <summary>
-    /// Whether the operation's optional secondary choice (if any) was selected
-    /// by the user. False when the operation defines no secondary option.
+    /// Ids of the operation's optional secondary choices that the user selected
+    /// (e.g. specific older package versions to remove). Empty when the
+    /// operation defines no secondary options or none were selected.
     /// </summary>
-    bool SecondaryOptionEnabled { get; }
+    IReadOnlyCollection<string> EnabledSecondaryOptionIds { get; }
+
+    /// <summary>
+    /// Convenience check for whether a specific secondary option was selected.
+    /// </summary>
+    bool IsSecondaryOptionEnabled(string optionId) => EnabledSecondaryOptionIds.Contains(optionId);
 }
 
 /// <summary>
@@ -2226,8 +2232,17 @@ public record OperationItem(
     Func<IOperationContext, Task<bool>> Execute,
     bool IsEnabled = true,
     bool CanDisable = true,
-    string? SecondaryOptionLabel = null,
-    bool SecondaryOptionDefault = false
+    IReadOnlyList<OperationSecondaryOption>? SecondaryOptions = null
+);
+
+/// <summary>
+/// An optional per-item secondary choice (e.g. "Remove older version 35.0.0").
+/// Each option is independently selectable in the confirmation UI.
+/// </summary>
+public record OperationSecondaryOption(
+    string Id,
+    string Label,
+    bool DefaultEnabled = false
 );
 
 /// <summary>
@@ -2246,16 +2261,21 @@ public class OperationItemStatus
     public TimeSpan? Duration { get; set; }
 
     /// <summary>
-    /// Optional secondary per-item choice (e.g. "Remove older versions"). When
-    /// non-null, the modal renders a secondary checkbox during confirmation.
+    /// Optional per-item secondary choices (e.g. older versions to remove).
+    /// When non-empty, the modal renders a sub-checkbox for each during
+    /// confirmation.
     /// </summary>
-    public string? SecondaryOptionLabel { get; init; }
+    public List<OperationSecondaryOptionStatus> SecondaryOptions { get; init; } = new();
+}
 
-    /// <summary>
-    /// Whether the secondary option is currently selected. Exposed to the
-    /// operation via <see cref="IOperationContext.SecondaryOptionEnabled"/>.
-    /// </summary>
-    public bool SecondaryOptionEnabled { get; set; }
+/// <summary>
+/// Runtime state of a single secondary option (selected or not).
+/// </summary>
+public class OperationSecondaryOptionStatus
+{
+    public string Id { get; init; } = "";
+    public string Label { get; init; } = "";
+    public bool Enabled { get; set; }
 }
 
 /// <summary>

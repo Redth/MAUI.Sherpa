@@ -1579,17 +1579,19 @@ else if (!ViewModel.IsSdkInstalled)
                 : new List<SdkPackageInfo>();
 
             string description;
-            string? secondaryLabel = null;
+            List<OperationSecondaryOption>? secondaryOptions = null;
             if (isSideBySide)
             {
                 hasSideBySide = true;
                 description = $"Install v{newVersion} (keeps existing version{(olderVersions.Count == 1 ? "" : "s")})";
                 if (olderVersions.Count > 0)
                 {
-                    var versionsList = string.Join(", ", olderVersions.Select(p => p.Version));
-                    secondaryLabel = olderVersions.Count == 1
-                        ? $"Remove older version {versionsList} after updating"
-                        : $"Remove {olderVersions.Count} older versions ({versionsList}) after updating";
+                    secondaryOptions = olderVersions
+                        .Select(p => new OperationSecondaryOption(
+                            Id: p.Path,
+                            Label: $"Remove older version {p.Version}",
+                            DefaultEnabled: false))
+                        .ToList();
                 }
             }
             else
@@ -1623,10 +1625,14 @@ else if (!ViewModel.IsSdkInstalled)
 
                     ctx.LogSuccess($"Installed {updatePath}");
 
-                    // Optionally clean up older side-by-side versions.
-                    if (isSideBySide && ctx.SecondaryOptionEnabled && olderVersions.Count > 0)
+                    // Clean up only the older side-by-side versions the user selected.
+                    if (isSideBySide && olderVersions.Count > 0)
                     {
-                        foreach (var older in olderVersions)
+                        var toRemove = olderVersions
+                            .Where(o => ctx.EnabledSecondaryOptionIds.Contains(o.Path))
+                            .ToList();
+
+                        foreach (var older in toRemove)
                         {
                             ctx.LogInfo($"Removing older version: {older.Path}");
                             var removed = await SdkService.UninstallPackageAsync(older.Path);
@@ -1635,25 +1641,24 @@ else if (!ViewModel.IsSdkInstalled)
                             else
                                 ctx.LogWarning($"Could not remove {older.Path}");
                         }
-                    }
-                    else if (isSideBySide && olderVersions.Count > 0)
-                    {
-                        ctx.LogInfo($"Keeping {olderVersions.Count} older version(s) installed.");
+
+                        var kept = olderVersions.Count - toRemove.Count;
+                        if (kept > 0)
+                            ctx.LogInfo($"Keeping {kept} older version(s) installed.");
                     }
 
                     return true;
                 },
                 IsEnabled: true,
                 CanDisable: true,
-                SecondaryOptionLabel: secondaryLabel,
-                SecondaryOptionDefault: false
+                SecondaryOptions: secondaryOptions
             );
         }).ToList();
 
         var description = $"The following {updatable.Count} package(s) have updates available. Uncheck any you want to skip.";
         if (hasSideBySide)
         {
-            description += " Side-by-side tools (build-tools, NDK, CMake) install alongside existing versions — use the per-item option to remove older ones.";
+            description += " Side-by-side tools (build-tools, NDK, CMake) install alongside existing versions — tick the older versions you want removed.";
         }
 
         var result = await MultiOpModal.RunAsync(

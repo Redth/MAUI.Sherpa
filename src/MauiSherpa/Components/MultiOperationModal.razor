@@ -14,6 +14,16 @@
     <div class="multi-op-content" id="multi-op-modal">
         <p class="description">@ModalService.Description</p>
 
+        @if (ModalService.IsConfirming && !ModalService.IsRunning && ModalService.HasSecondaryOptions)
+        {
+            <div class="secondary-bulk">
+                <span class="secondary-bulk-label">Clean up older versions:</span>
+                <button type="button" class="link-btn" @onclick="@(() => SetAllSecondary(true))">Select all</button>
+                <span class="secondary-bulk-sep">·</span>
+                <button type="button" class="link-btn" @onclick="@(() => SetAllSecondary(false))">Deselect all</button>
+            </div>
+        }
+
         <div class="operations-list">
             @foreach (var op in ModalService.Operations)
             {
@@ -23,7 +33,7 @@
                 var canToggle = !ModalService.IsRunning && op.CanDisable && ModalService.IsConfirming;
                 var hasExpandableContent = op.Log.Any() ||
                     (!string.IsNullOrEmpty(op.ErrorMessage) && op.State == OperationItemState.Failed);
-                var showSecondary = !string.IsNullOrEmpty(op.SecondaryOptionLabel)
+                var showSecondary = op.SecondaryOptions.Count > 0
                     && ModalService.IsConfirming && !ModalService.IsRunning;
 
                 <div class="operation-card @GetOperationCardClass(op) @(isExpanded ? "expanded" : "")">
@@ -65,13 +75,18 @@
                                 <span class="operation-desc">@op.Description</span>
                                 @if (showSecondary)
                                 {
-                                    <label class="operation-secondary" @onclick:stopPropagation="true">
-                                        <input type="checkbox"
-                                               checked="@op.SecondaryOptionEnabled"
-                                               disabled="@(!op.IsEnabled)"
-                                               @onchange="@(e => HandleSecondaryToggle(op.Id, (bool)(e.Value ?? false)))" />
-                                        <span>@op.SecondaryOptionLabel</span>
-                                    </label>
+                                    <div class="operation-secondary-list" @onclick:stopPropagation="true">
+                                        @foreach (var opt in op.SecondaryOptions)
+                                        {
+                                            <label class="operation-secondary">
+                                                <input type="checkbox"
+                                                       checked="@opt.Enabled"
+                                                       disabled="@(!op.IsEnabled)"
+                                                       @onchange="@(e => HandleSecondaryToggle(op.Id, opt.Id, (bool)(e.Value ?? false)))" />
+                                                <span>@opt.Label</span>
+                                            </label>
+                                        }
+                                    </div>
                                 }
                             </div>
                         </div>
@@ -291,11 +306,17 @@
         color: #718096;
     }
 
+    .operation-secondary-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.2rem;
+        margin-top: 0.35rem;
+    }
+
     .operation-secondary {
         display: inline-flex;
         align-items: center;
         gap: 0.4rem;
-        margin-top: 0.35rem;
         font-size: 0.75rem;
         color: var(--text-secondary, #718096);
         cursor: pointer;
@@ -310,6 +331,30 @@
 
     .operation-secondary input[type="checkbox"]:disabled { cursor: not-allowed; }
     .operation-secondary:has(input:disabled) { opacity: 0.5; cursor: not-allowed; }
+
+    .secondary-bulk {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        font-size: 0.75rem;
+        color: var(--text-secondary, #718096);
+        margin: -0.25rem 0 0 0;
+    }
+
+    .secondary-bulk-label { font-weight: 500; }
+    .secondary-bulk-sep { opacity: 0.5; }
+
+    .secondary-bulk .link-btn {
+        background: none;
+        border: none;
+        padding: 0;
+        font-size: 0.75rem;
+        color: var(--accent-primary, #4299e1);
+        cursor: pointer;
+        text-decoration: none;
+    }
+
+    .secondary-bulk .link-btn:hover { text-decoration: underline; }
 
     .operation-right {
         display: flex;
@@ -511,9 +556,15 @@
         StateHasChanged();
     }
 
-    private void HandleSecondaryToggle(string operationId, bool enabled)
+    private void HandleSecondaryToggle(string operationId, string optionId, bool enabled)
     {
-        ModalService.ToggleSecondaryOption(operationId, enabled);
+        ModalService.ToggleSecondaryOption(operationId, optionId, enabled);
+        StateHasChanged();
+    }
+
+    private void SetAllSecondary(bool enabled)
+    {
+        ModalService.SetAllSecondaryOptions(enabled);
         StateHasChanged();
     }
 
