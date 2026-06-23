@@ -988,10 +988,12 @@ public class BlazorContentPage : ContentPage
                 ("install-missing", "Install Missing", "arrow.down.circle"),
                 ("save", "Save", "checkmark"),
                 ("reset", "Reset to Defaults", "trash"),
+                ("update-all", "Update Packages", "arrow.up.circle"),
                 ("refresh", "Refresh", "arrow.clockwise"),
             };
 
             ToolbarItem? refreshItem = null;
+            ToolbarItem? updateItem = null;
             var leadingItems = new List<ToolbarItem>();
             var allToolbarItems = new List<ToolbarItem> { copilotItem, doctorItem, settingsItem };
             foreach (var (id, label, icon) in supersetActions)
@@ -1014,6 +1016,8 @@ public class BlazorContentPage : ContentPage
 
                 if (actionId == "refresh")
                     refreshItem = item;
+                else if (actionId == "update-all")
+                    updateItem = item;
                 else
                     leadingItems.Add(item);
             }
@@ -1133,6 +1137,8 @@ public class BlazorContentPage : ContentPage
                 layout.Add(MacOSToolbarLayoutItem.Item(item));
             layout.Add(MacOSToolbarLayoutItem.FlexibleSpace);
             layout.Add(MacOSToolbarLayoutItem.Search(_searchItem));
+            if (updateItem != null)
+                layout.Add(MacOSToolbarLayoutItem.Item(updateItem));
             if (refreshItem != null)
                 layout.Add(MacOSToolbarLayoutItem.Item(refreshItem));
 

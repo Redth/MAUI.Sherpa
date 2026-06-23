@@ -1,6 +1,7 @@
 @page "/android-sdk"
 @using MauiSherpa.Core.ViewModels
 @using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Core.Services
 @using MauiSherpa.Services
 @inject AndroidSdkViewModel ViewModel
 @inject IAndroidSdkService SdkService
@@ -34,12 +35,13 @@
         <button class="btn btn-primary" @onclick="RefreshData" disabled="@ViewModel.IsLoading">
             <i class="fas fa-sync-alt"></i> @(ViewModel.IsLoading ? "Loading..." : "Refresh")
         </button>
-        @if (GetUpdatablePackages().Any())
-        {
-            <button class="btn btn-success" @onclick="UpdateAllPackages" disabled="@ViewModel.IsLoading">
-                <i class="fas fa-arrow-up"></i> Update All (@GetUpdatablePackages().Count())
-            </button>
-        }
+        <button class="btn btn-success" @onclick="UpdatePackages" disabled="@ViewModel.IsLoading">
+            <i class="fas fa-arrow-up"></i> Update Packages
+            @if (GetUpdatablePackages().Any())
+            {
+                <span class="toolbar-update-count">@GetUpdatablePackages().Count()</span>
+            }
+        </button>
     }
 </div>
 }
@@ -169,6 +171,9 @@ else if (!ViewModel.IsSdkInstalled)
 @if (ViewModel.IsSdkInstalled)
 {
     <div class="tabs">
+        <button class="tab @(activeTab == "all" ? "active" : "")" @onclick="@(() => activeTab = "all")">
+            All (@FilteredAllPackages.Count())
+        </button>
         <button class="tab @(activeTab == "installed" ? "active" : "")" @onclick="@(() => activeTab = "installed")">
             Installed (@FilteredInstalledPackages.Count())
             @if (GetUpdatablePackages().Any())
@@ -239,14 +244,16 @@ else if (!ViewModel.IsSdkInstalled)
                             <span class="group-name">@group.Key</span>
                             @if (groupUpdates > 0)
                             {
-                                <span class="group-update-badge">@groupUpdates update@(groupUpdates > 1 ? "s" : "")</span>
+                                <span class="section-update-flag" title="@groupUpdates update@(groupUpdates > 1 ? "s" : "") available">
+                                    <i class="fas fa-circle-arrow-up"></i> @groupUpdates update@(groupUpdates > 1 ? "s" : "")
+                                </span>
                             }
                             <span class="group-count">@group.Count()</span>
                         </div>
                         @if (IsGroupExpanded(group.Key))
                         {
                             <div class="group-content">
-                                @foreach (var package in group.OrderBy(p => p.Path))
+                                @foreach (var package in OrderPackagesByNewestVersion(group))
                                 {
                                     var availableUpdate = GetAvailableUpdate(package);
                                     var hasUpdate = availableUpdate != null;
@@ -256,7 +263,9 @@ else if (!ViewModel.IsSdkInstalled)
                                                 <span class="package-path">@GetPackageShortName(package.Path)</span>
                                                 @if (hasUpdate)
                                                 {
-                                                    <span class="update-indicator"><i class="fas fa-arrow-up"></i> Update</span>
+                                                    <span class="item-update-flag" title="Newer version available">
+                                                        <i class="fas fa-circle-arrow-up"></i> Update available
+                                                    </span>
                                                 }
                                             </div>
                                             <span class="package-description">@package.Description</span>
@@ -272,15 +281,106 @@ else if (!ViewModel.IsSdkInstalled)
                                             </div>
                                         </div>
                                         <div class="package-actions">
-                                            @if (hasUpdate)
-                                            {
-                                                <button class="btn btn-success btn-sm" @onclick="@(() => InstallPackage(package.Path))" disabled="@ViewModel.IsLoading">
-                                                    <i class="fas fa-arrow-up"></i> Update
-                                                </button>
-                                            }
                                             <button class="btn btn-danger btn-sm" @onclick="@(() => UninstallPackage(package.Path))" disabled="@ViewModel.IsLoading">
                                                 <i class="fas fa-trash"></i> Uninstall
                                             </button>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+            }
+        </div>
+    }
+
+    @if (activeTab == "all")
+    {
+        <div class="package-groups">
+            @if (!FilteredAllPackages.Any())
+            {
+                <div class="empty-state">
+                    <div class="empty-icon"><i class="fas fa-search"></i></div>
+                    <div class="empty-title">No matching packages</div>
+                    <div class="empty-description">No packages match your search or filters. Try adjusting your criteria.</div>
+                </div>
+            }
+            else
+            {
+                @foreach (var group in GetUnifiedPackageGroups(FilteredAllPackages))
+                {
+                    var groupHasStableUpdates = group.Any(p => p.HasUpdate);
+                    <div class="package-group">
+                        <div class="group-header" @onclick="@(() => ToggleGroup("all_" + group.Key))">
+                            <span class="group-chevron">@(IsGroupExpanded("all_" + group.Key) ? "▼" : "▶")</span>
+                            <span class="group-name">@group.Key</span>
+                            @if (groupHasStableUpdates)
+                            {
+                                <span class="section-update-flag" title="Updates available in this section">
+                                    <i class="fas fa-circle-arrow-up"></i> Updates available
+                                </span>
+                            }
+                            <span class="group-count">@group.Count()</span>
+                        </div>
+                        @if (IsGroupExpanded("all_" + group.Key))
+                        {
+                            <div class="group-content">
+                                @foreach (var package in OrderUnifiedPackagesByNewestVersion(group))
+                                {
+                                    var installedVersion = package.InstalledPackage?.Version;
+                                    var availableVersion = package.AvailablePackage?.Version;
+                                    var hasUpdate = package.HasUpdate;
+                                    var isInstalled = package.InstalledPackage != null;
+
+                                    <div class="package-item @(hasUpdate ? "has-update" : "") @(isInstalled && !hasUpdate ? "is-installed" : "")">
+                                        <div class="package-info">
+                                            <div class="package-name-row">
+                                                <span class="package-path">@GetPackageShortName(package.Path)</span>
+                                                @if (hasUpdate)
+                                                {
+                                                    <span class="item-update-flag" title="Newer version available">
+                                                        <i class="fas fa-circle-arrow-up"></i> Update available
+                                                    </span>
+                                                }
+                                                else if (isInstalled)
+                                                {
+                                                    <span class="installed-indicator">Installed</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="available-indicator">Available</span>
+                                                }
+                                            </div>
+                                            <span class="package-description">@package.Description</span>
+                                            <div class="version-row">
+                                                @if (package.InstalledPackage != null && !string.IsNullOrEmpty(installedVersion))
+                                                {
+                                                    <span class="package-version">Installed v@(installedVersion)</span>
+                                                }
+                                                @if (hasUpdate && !string.IsNullOrEmpty(availableVersion))
+                                                {
+                                                    <span class="update-version">→ v@(availableVersion)</span>
+                                                }
+                                                else if (!isInstalled && package.AvailablePackage != null && !string.IsNullOrEmpty(availableVersion))
+                                                {
+                                                    <span class="package-version">Available v@(availableVersion)</span>
+                                                }
+                                            </div>
+                                        </div>
+                                        <div class="package-actions">
+                                            @if (isInstalled)
+                                            {
+                                                <button class="btn btn-danger btn-sm" @onclick="@(() => UninstallPackage(package.Path))" disabled="@ViewModel.IsLoading">
+                                                    <i class="fas fa-trash"></i> Uninstall
+                                                </button>
+                                            }
+                                            else
+                                            {
+                                                <button class="btn btn-primary btn-sm" @onclick="@(() => InstallPackage(package.Path))" disabled="@ViewModel.IsLoading">
+                                                    <i class="fas fa-download"></i> Install
+                                                </button>
+                                            }
                                         </div>
                                     </div>
                                 }
@@ -307,37 +407,61 @@ else if (!ViewModel.IsSdkInstalled)
             {
                 @foreach (var group in GetPackageGroups(FilteredAvailablePackages))
                 {
+                    var groupHasUpdates = group.Any(p => GetInstalledVersion(p.Path) != null);
                     <div class="package-group">
                         <div class="group-header" @onclick="@(() => ToggleGroup("avail_" + group.Key))">
                             <span class="group-chevron">@(IsGroupExpanded("avail_" + group.Key) ? "▼" : "▶")</span>
                             <span class="group-name">@group.Key</span>
+                            @if (groupHasUpdates)
+                            {
+                                <span class="section-update-flag" title="Updates available in this section">
+                                    <i class="fas fa-circle-arrow-up"></i> Updates available
+                                </span>
+                            }
                             <span class="group-count">@group.Count()</span>
                         </div>
                         @if (IsGroupExpanded("avail_" + group.Key))
                         {
                             <div class="group-content">
-                                @foreach (var package in group.OrderBy(p => p.Path))
+                                @foreach (var package in OrderPackagesByNewestVersion(group))
                                 {
                                     var installedVersion = GetInstalledVersion(package.Path);
                                     var isUpdate = installedVersion != null;
-                                    <div class="package-item @(isUpdate ? "is-update" : "")">
+                                    <div class="package-item @(isUpdate ? "has-update" : "")">
                                         <div class="package-info">
                                             <div class="package-name-row">
                                                 <span class="package-path">@GetPackageShortName(package.Path)</span>
                                                 @if (isUpdate)
                                                 {
-                                                    <span class="installed-indicator">Installed: v@(installedVersion)</span>
+                                                    <span class="item-update-flag" title="Newer version available">
+                                                        <i class="fas fa-circle-arrow-up"></i> Update available
+                                                    </span>
                                                 }
                                             </div>
                                             <span class="package-description">@package.Description</span>
-                                            @if (!string.IsNullOrEmpty(package.Version))
+                                            <div class="version-row">
+                                                @if (isUpdate)
+                                                {
+                                                    <span class="package-version">Installed v@(installedVersion)</span>
+                                                    @if (!string.IsNullOrEmpty(package.Version))
+                                                    {
+                                                        <span class="update-version">→ v@(package.Version)</span>
+                                                    }
+                                                }
+                                                else if (!string.IsNullOrEmpty(package.Version))
+                                                {
+                                                    <span class="package-version">v@(package.Version)</span>
+                                                }
+                                            </div>
+                                        </div>
+                                        <div class="package-actions">
+                                            @if (!isUpdate)
                                             {
-                                                <span class="package-version">v@(package.Version)</span>
+                                                <button class="btn btn-primary btn-sm" @onclick="@(() => InstallPackage(package.Path))" disabled="@ViewModel.IsLoading">
+                                                    <i class="fas fa-download"></i> Install
+                                                </button>
                                             }
                                         </div>
-                                        <button class="btn @(isUpdate ? "btn-success" : "btn-primary") btn-sm" @onclick="@(() => InstallPackage(package.Path))" disabled="@ViewModel.IsLoading">
-                                            <i class="fas @(isUpdate ? "fa-arrow-up" : "fa-download")"></i> @(isUpdate ? "Update" : "Install")
-                                        </button>
                                     </div>
                                 }
                             </div>
@@ -730,14 +854,33 @@ else if (!ViewModel.IsSdkInstalled)
         font-weight: 500;
     }
 
-    .group-update-badge {
-        background: var(--status-warning-bg);
-        color: var(--status-warning-text);
-        padding: 2px 0.625rem;
-        border-radius: 0.75rem;
+    .section-update-flag {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+        color: var(--accent-warning);
         font-size: 0.6875rem;
-        font-weight: 500;
-        margin-right: 0.5rem;
+        font-weight: 600;
+        margin-right: 0.625rem;
+    }
+
+    .section-update-flag i {
+        font-size: 0.625rem;
+    }
+
+    .toolbar-update-count {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 1.1rem;
+        height: 1.1rem;
+        padding: 0 0.35rem;
+        margin-left: 0.4rem;
+        background: rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        font-size: 0.6875rem;
+        font-weight: 700;
+        line-height: 1;
     }
 
     .group-content {
@@ -761,11 +904,11 @@ else if (!ViewModel.IsSdkInstalled)
     }
 
     .package-item.has-update {
-        background: var(--status-warning-bg);
+        border-left: 3px solid var(--accent-warning);
     }
 
-    .package-item.is-update {
-        background: var(--status-success-bg);
+    .package-item.is-installed {
+        background: var(--bg-secondary);
     }
 
     .package-info {
@@ -809,22 +952,37 @@ else if (!ViewModel.IsSdkInstalled)
         font-weight: 500;
     }
 
-    .update-indicator {
-        background: var(--status-warning-bg);
-        color: var(--status-warning-text);
-        padding: 1px 0.375rem;
-        border-radius: 0.25rem;
+    .item-update-flag {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+        color: var(--accent-warning);
         font-size: 0.625rem;
         font-weight: 600;
+    }
+
+    .item-update-flag i {
+        font-size: 0.5625rem;
     }
 
     .installed-indicator {
         background: var(--status-success-bg);
         color: var(--status-success-text);
-        padding: 1px 0.375rem;
-        border-radius: 0.25rem;
+        padding: 0.18rem 0.45rem;
+        border-radius: 999px;
         font-size: 0.625rem;
-        font-weight: 500;
+        font-weight: 600;
+        border: 1px solid var(--border-color);
+    }
+
+    .available-indicator {
+        background: var(--status-info-bg);
+        color: var(--status-info-text);
+        padding: 0.18rem 0.45rem;
+        border-radius: 999px;
+        font-size: 0.625rem;
+        font-weight: 600;
+        border: 1px solid var(--border-color);
     }
 
     .package-actions {
@@ -922,7 +1080,7 @@ else if (!ViewModel.IsSdkInstalled)
 </style>
 
 @code {
-    private string activeTab = "installed";
+    private string activeTab = "all";
     private HashSet<string> expandedGroups = new();
     private bool hasInitialized = false;
     private string recommendedSdkPath = "";
@@ -985,6 +1143,40 @@ else if (!ViewModel.IsSdkInstalled)
         }
     }
 
+    private IList<PackageListItem> FilteredAllPackages
+    {
+        get
+        {
+            var packages = BuildAllPackageItems();
+
+            if (!string.IsNullOrWhiteSpace(searchQuery))
+            {
+                var query = searchQuery.ToLowerInvariant();
+                packages = packages.Where(p =>
+                    p.Path.ToLowerInvariant().Contains(query) ||
+                    (p.Description?.ToLowerInvariant().Contains(query) ?? false) ||
+                    (p.InstalledPackage?.Version?.ToLowerInvariant().Contains(query) ?? false) ||
+                    (p.AvailablePackage?.Version?.ToLowerInvariant().Contains(query) ?? false));
+            }
+
+            if (!string.IsNullOrEmpty(filterCategory))
+            {
+                packages = packages.Where(p => p.GroupKey == filterCategory);
+            }
+
+            if (filterUpdates == "updates")
+            {
+                packages = packages.Where(p => p.HasUpdate);
+            }
+            else if (filterUpdates == "current")
+            {
+                packages = packages.Where(p => !p.HasUpdate && p.InstalledPackage != null);
+            }
+
+            return packages.ToList();
+        }
+    }
+
     private IList<SdkPackageInfo> FilteredAvailablePackages
     {
         get
@@ -1022,7 +1214,7 @@ else if (!ViewModel.IsSdkInstalled)
     {
         ToolbarService.SetItems(
             new ToolbarAction("refresh", "Refresh", "arrow.clockwise"),
-            new ToolbarAction("update-all", "Update All", "square.and.arrow.up")
+            new ToolbarAction("update-all", "Update Packages", "square.and.arrow.up")
         );
         ToolbarService.SetSearch("Search packages...");
         ToolbarService.SetFilters(
@@ -1081,7 +1273,7 @@ else if (!ViewModel.IsSdkInstalled)
                     try { await RefreshData(); } finally { ToolbarService.SetItemEnabled("refresh", true); }
                     break;
                 case "update-all":
-                    await UpdateAllPackages();
+                    await UpdatePackages();
                     break;
             }
             StateHasChanged();
@@ -1102,6 +1294,42 @@ else if (!ViewModel.IsSdkInstalled)
             .OrderBy(g => g.Key);
     }
 
+    private IEnumerable<IGrouping<string, PackageListItem>> GetUnifiedPackageGroups(IEnumerable<PackageListItem> packages)
+    {
+        return packages
+            .GroupBy(p => p.GroupKey)
+            .OrderBy(g => g.Key);
+    }
+
+    private IEnumerable<PackageListItem> BuildAllPackageItems()
+    {
+        var installedByPath = ViewModel.InstalledPackages
+            .ToDictionary(p => p.Path, StringComparer.OrdinalIgnoreCase);
+
+        var items = new List<PackageListItem>();
+
+        foreach (var installed in ViewModel.InstalledPackages)
+        {
+            var available = GetAvailableUpdate(installed);
+            var hasUpdate = available != null;
+            items.Add(new PackageListItem(installed, available, hasUpdate, GetPackageGroup(installed.Path)));
+        }
+
+        foreach (var available in ViewModel.AvailablePackages.Where(a => !installedByPath.ContainsKey(a.Path)))
+        {
+            items.Add(new PackageListItem(null, available, false, GetPackageGroup(available.Path)));
+        }
+
+        return items;
+    }
+
+    private IEnumerable<PackageListItem> OrderUnifiedPackagesByNewestVersion(IEnumerable<PackageListItem> packages)
+    {
+        return packages
+            .OrderByDescending(p => p.PrimaryPackage, SdkPackageComparer.Instance)
+            .ThenBy(p => p.Path, StringComparer.OrdinalIgnoreCase);
+    }
+
     private string GetPackageGroup(string path)
     {
         var parts = path.Split(';');
@@ -1114,9 +1342,24 @@ else if (!ViewModel.IsSdkInstalled)
         return parts.Length > 1 ? string.Join(";", parts.Skip(1)) : path;
     }
 
+    private IEnumerable<SdkPackageInfo> OrderPackagesByNewestVersion(IEnumerable<SdkPackageInfo> packages)
+    {
+        return packages
+            .OrderByDescending(p => p, SdkPackageComparer.Instance)
+            .ThenBy(p => p.Path, StringComparer.OrdinalIgnoreCase);
+    }
+
     private bool IsGroupExpanded(string groupKey)
     {
         return expandedGroups.Contains(groupKey);
+    }
+
+    private sealed record PackageListItem(SdkPackageInfo? InstalledPackage, SdkPackageInfo? AvailablePackage, bool HasUpdate, string GroupKey)
+    {
+        public string Path => InstalledPackage?.Path ?? AvailablePackage?.Path ?? string.Empty;
+        public string Description => InstalledPackage?.Description ?? AvailablePackage?.Description ?? string.Empty;
+        public string? Version => InstalledPackage?.Version ?? AvailablePackage?.Version;
+        public SdkPackageInfo? PrimaryPackage => InstalledPackage ?? AvailablePackage;
     }
 
     private void ToggleGroup(string groupKey)
@@ -1127,63 +1370,54 @@ else if (!ViewModel.IsSdkInstalled)
             expandedGroups.Add(groupKey);
     }
 
-    // Check if an installed package has an update available
+    private sealed class SdkPackageComparer : IComparer<SdkPackageInfo?>
+    {
+        public static SdkPackageComparer Instance { get; } = new();
+
+        public int Compare(SdkPackageInfo? x, SdkPackageInfo? y)
+        {
+            if (ReferenceEquals(x, y)) return 0;
+            if (x is null) return -1;
+            if (y is null) return 1;
+
+            var versionComparison = CompareVersionStrings(x.Version, y.Version);
+            if (versionComparison != 0)
+                return versionComparison;
+
+            var pathComparison = string.Compare(x.Path, y.Path, StringComparison.OrdinalIgnoreCase);
+            if (pathComparison != 0)
+                return pathComparison;
+
+            return string.Compare(x.Description, y.Description, StringComparison.OrdinalIgnoreCase);
+        }
+
+        public static int CompareVersionStrings(string? version1, string? version2)
+            => AndroidSdkPackageVersioning.CompareVersions(version1, version2);
+    }
+
+    // Check if an installed package has a genuine in-place update available.
     private bool HasUpdate(SdkPackageInfo installedPackage)
     {
         return GetAvailableUpdate(installedPackage) != null;
     }
 
-    // Get the available update for an installed package
-    private SdkPackageInfo? GetAvailableUpdate(SdkPackageInfo installedPackage)
+    // Get the available stable in-place update for an installed package.
+    // Delegates to the central, audited classifier: an update is the same exact
+    // package Path with a newer stable Version. Side-by-side groups (build-tools,
+    // ndk, cmake) embed their version in the Path and never produce updates.
+    private SdkPackageInfo? GetAvailableUpdate(SdkPackageInfo installedPackage, bool requireStable = true)
     {
-        var available = ViewModel.AvailablePackages
-            .FirstOrDefault(a => a.Path == installedPackage.Path);
-        
-        if (available == null) return null;
-        
-        // Compare versions - only return if available is actually newer
-        if (string.IsNullOrEmpty(installedPackage.Version) || string.IsNullOrEmpty(available.Version))
+        if (installedPackage == null || ViewModel?.AvailablePackages == null)
             return null;
-            
-        if (IsNewerVersion(available.Version, installedPackage.Version))
-        {
-            return available;
-        }
-        
-        return null;
+
+        return AndroidSdkPackageVersioning.GetInPlaceUpdate(
+            installedPackage, ViewModel.AvailablePackages, requireStable);
     }
 
     // Compare version strings, returns true if version1 > version2
     private bool IsNewerVersion(string version1, string version2)
     {
-        // Try parsing as Version objects first
-        var parts1 = version1.Split('.', '-', '_');
-        var parts2 = version2.Split('.', '-', '_');
-        
-        var maxParts = Math.Max(parts1.Length, parts2.Length);
-        
-        for (int i = 0; i < maxParts; i++)
-        {
-            var p1 = i < parts1.Length ? parts1[i] : "0";
-            var p2 = i < parts2.Length ? parts2[i] : "0";
-            
-            // Try numeric comparison first
-            if (int.TryParse(p1, out var n1) && int.TryParse(p2, out var n2))
-            {
-                if (n1 > n2) return true;
-                if (n1 < n2) return false;
-                // Equal, continue to next part
-            }
-            else
-            {
-                // String comparison as fallback
-                var cmp = string.Compare(p1, p2, StringComparison.OrdinalIgnoreCase);
-                if (cmp > 0) return true;
-                if (cmp < 0) return false;
-            }
-        }
-        
-        return false; // Versions are equal
+        return AndroidSdkPackageVersioning.CompareVersions(version1, version2) > 0;
     }
 
     // Get installed version for an available package (to show on Available tab)
@@ -1194,10 +1428,11 @@ else if (!ViewModel.IsSdkInstalled)
         return installed?.Version;
     }
 
-    // Get all packages that have updates
+    // Get all installed packages that have a genuine in-place update available.
     private IEnumerable<SdkPackageInfo> GetUpdatablePackages()
     {
-        return ViewModel.InstalledPackages.Where(p => HasUpdate(p));
+        return AndroidSdkPackageVersioning.GetUpdates(
+            ViewModel.InstalledPackages, ViewModel.AvailablePackages);
     }
 
     private async Task RefreshData()
@@ -1303,10 +1538,14 @@ else if (!ViewModel.IsSdkInstalled)
         }
     }
 
-    private async Task UpdateAllPackages()
+    private async Task UpdatePackages()
     {
         var updatable = GetUpdatablePackages().ToList();
-        if (!updatable.Any()) return;
+        if (!updatable.Any())
+        {
+            await AlertService.ShowAlertAsync("Up to Date", "All installed packages are up to date.", "OK");
+            return;
+        }
 
         // Build operation items for each updatable package
         var operations = updatable.Select(pkg =>
@@ -1319,7 +1558,7 @@ else if (!ViewModel.IsSdkInstalled)
             return new OperationItem(
                 Id: pkg.Path,
                 Name: GetPackageDisplayName(pkg.Path),
-                Description: $"Update from {pkg.Version} to {newVersion}",
+                Description: $"v{pkg.Version} → v{newVersion}",
                 Execute: async ctx =>
                 {
                     ctx.LogInfo($"Updating {pkg.Path}");
