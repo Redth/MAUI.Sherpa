@@ -21,9 +21,13 @@
                                 (ModalService.IsRunning && ModalService.CurrentOperationIndex >= 0 && 
                                  ModalService.Operations[ModalService.CurrentOperationIndex].Id == op.Id);
                 var canToggle = !ModalService.IsRunning && op.CanDisable && ModalService.IsConfirming;
+                var hasExpandableContent = op.Log.Any() ||
+                    (!string.IsNullOrEmpty(op.ErrorMessage) && op.State == OperationItemState.Failed);
+                var showSecondary = op.SecondaryOptions.Count > 0
+                    && ModalService.IsConfirming && !ModalService.IsRunning;
 
                 <div class="operation-card @GetOperationCardClass(op) @(isExpanded ? "expanded" : "")">
-                    <div class="operation-header" @onclick="() => ToggleExpanded(op.Id)">
+                    <div class="operation-header @(hasExpandableContent ? "clickable" : "")" @onclick="@(() => { if (hasExpandableContent) ToggleExpanded(op.Id); })">
                         <div class="operation-left">
                             @if (ModalService.IsConfirming && !ModalService.IsRunning)
                             {
@@ -66,10 +70,37 @@
                             {
                                 <span class="duration">@op.Duration.Value.ToString(@"mm\:ss\.f")</span>
                             }
-                            <i class="fas @(isExpanded ? "fa-chevron-up" : "fa-chevron-down") expand-icon"></i>
+                            @if (hasExpandableContent)
+                            {
+                                <i class="fas @(isExpanded ? "fa-chevron-up" : "fa-chevron-down") expand-icon"></i>
+                            }
                         </div>
                     </div>
-                    
+
+                    @if (showSecondary)
+                    {
+                        <div class="operation-secondary-list" @onclick:stopPropagation="true">
+                            @if (op.SecondaryOptions.Count > 1)
+                            {
+                                <div class="secondary-bulk">
+                                    <button type="button" class="link-btn" @onclick="@(() => SetAllSecondary(op.Id, true))">Select all</button>
+                                    <span class="secondary-bulk-sep">·</span>
+                                    <button type="button" class="link-btn" @onclick="@(() => SetAllSecondary(op.Id, false))">Deselect all</button>
+                                </div>
+                            }
+                            @foreach (var opt in op.SecondaryOptions)
+                            {
+                                <label class="operation-secondary">
+                                    <input type="checkbox"
+                                           checked="@opt.Enabled"
+                                           disabled="@(!op.IsEnabled)"
+                                           @onchange="@(e => HandleSecondaryToggle(op.Id, opt.Id, (bool)(e.Value ?? false)))" />
+                                    <span>@opt.Label</span>
+                                </label>
+                            }
+                        </div>
+                    }
+
                     @if (isExpanded && op.Log.Any())
                     {
                         <div class="operation-log">
@@ -226,13 +257,15 @@
         justify-content: space-between;
         align-items: center;
         padding: 0.75rem 1rem;
-        cursor: pointer;
+        cursor: default;
         background: var(--card-bg, #f7fafc);
     }
 
+    .operation-header.clickable { cursor: pointer; }
+
     .operation-card.running .operation-header { background: #ebf8ff; }
 
-    .operation-header:hover { background: var(--bg-tertiary, #edf2f7); }
+    .operation-header.clickable:hover { background: var(--bg-tertiary, #edf2f7); }
 
     .operation-left {
         display: flex;
@@ -271,6 +304,55 @@
         font-size: 0.75rem;
         color: #718096;
     }
+
+    .operation-secondary-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.2rem;
+        padding: 0 1rem 0.75rem calc(1rem + 18px + 0.75rem);
+    }
+
+    .operation-secondary {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        font-size: 0.75rem;
+        color: var(--text-secondary, #718096);
+        cursor: pointer;
+        user-select: none;
+    }
+
+    .operation-secondary input[type="checkbox"] {
+        width: 14px;
+        height: 14px;
+        cursor: pointer;
+    }
+
+    .operation-secondary input[type="checkbox"]:disabled { cursor: not-allowed; }
+    .operation-secondary:has(input:disabled) { opacity: 0.5; cursor: not-allowed; }
+
+    .secondary-bulk {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        font-size: 0.72rem;
+        color: var(--text-secondary, #718096);
+        margin: 0 0 0.1rem 0;
+    }
+
+    .secondary-bulk-sep { opacity: 0.5; }
+
+    .secondary-bulk .link-btn {
+        background: none;
+        border: none;
+        padding: 0;
+        font-size: 0.75rem;
+        color: var(--accent-primary, #4299e1);
+        cursor: pointer;
+        text-decoration: none;
+    }
+
+    .secondary-bulk .link-btn:hover { text-decoration: underline; }
 
     .operation-right {
         display: flex;
@@ -469,6 +551,18 @@
     private void HandleToggle(string operationId, bool enabled)
     {
         ModalService.ToggleOperation(operationId, enabled);
+        StateHasChanged();
+    }
+
+    private void HandleSecondaryToggle(string operationId, string optionId, bool enabled)
+    {
+        ModalService.ToggleSecondaryOption(operationId, optionId, enabled);
+        StateHasChanged();
+    }
+
+    private void SetAllSecondary(string operationId, bool enabled)
+    {
+        ModalService.SetAllSecondaryOptions(operationId, enabled);
         StateHasChanged();
     }
 
