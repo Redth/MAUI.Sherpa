@@ -226,6 +226,11 @@ Download the latest release from the [Releases](https://github.com/Redth/MAUI.Sh
 
 #### macOS (Homebrew)
 ```bash
+brew install --cask maui-sherpa
+```
+
+If the cask hasn't propagated to your Homebrew yet, or to track pre-release builds, use the tap:
+```bash
 brew install --cask redth/tap/maui-sherpa
 ```
 
