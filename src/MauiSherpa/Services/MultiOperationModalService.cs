@@ -73,7 +73,9 @@ public class MultiOperationModalService : IMultiOperationModalService
                 Description = op.Description,
                 IsEnabled = op.IsEnabled,
                 CanDisable = op.CanDisable,
-                State = OperationItemState.Pending
+                State = OperationItemState.Pending,
+                SecondaryOptionLabel = op.SecondaryOptionLabel,
+                SecondaryOptionEnabled = op.SecondaryOptionDefault
             });
         }
 
@@ -115,6 +117,19 @@ public class MultiOperationModalService : IMultiOperationModalService
         if (op != null && op.CanDisable && !IsRunning)
         {
             op.IsEnabled = enabled;
+            OnOperationStateChanged?.Invoke(op);
+        }
+    }
+
+    /// <summary>
+    /// Toggle an operation's optional secondary choice (called from UI)
+    /// </summary>
+    public void ToggleSecondaryOption(string operationId, bool enabled)
+    {
+        var op = Operations.FirstOrDefault(o => o.Id == operationId);
+        if (op != null && op.SecondaryOptionLabel != null && !IsRunning)
+        {
+            op.SecondaryOptionEnabled = enabled;
             OnOperationStateChanged?.Invoke(op);
         }
     }
@@ -171,7 +186,7 @@ public class MultiOperationModalService : IMultiOperationModalService
             {
                 if (opLookup.TryGetValue(status.Id, out var operation))
                 {
-                    var context = new OperationItemContext(this, status.Id, _cts!.Token);
+                    var context = new OperationItemContext(this, status.Id, _cts!.Token, status.SecondaryOptionEnabled);
                     var success = await operation.Execute(context);
                     
                     status.Duration = DateTime.Now - opStartTime;
@@ -297,12 +312,14 @@ public class MultiOperationModalService : IMultiOperationModalService
 
         public CancellationToken CancellationToken { get; }
         public bool IsCancellationRequested => CancellationToken.IsCancellationRequested;
+        public bool SecondaryOptionEnabled { get; }
 
-        public OperationItemContext(MultiOperationModalService service, string operationId, CancellationToken cancellationToken)
+        public OperationItemContext(MultiOperationModalService service, string operationId, CancellationToken cancellationToken, bool secondaryOptionEnabled = false)
         {
             _service = service;
             _operationId = operationId;
             CancellationToken = cancellationToken;
+            SecondaryOptionEnabled = secondaryOptionEnabled;
         }
 
         public void Log(string message, OperationLogLevel level = OperationLogLevel.Info)

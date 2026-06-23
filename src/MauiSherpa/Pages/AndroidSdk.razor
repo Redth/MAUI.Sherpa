@@ -1551,6 +1551,8 @@ else if (!ViewModel.IsSdkInstalled)
             return;
         }
 
+        var hasSideBySide = false;
+
         // Build operation items for each updatable package
         var operations = updatable.Select(pkg =>
         {
@@ -1558,11 +1560,47 @@ else if (!ViewModel.IsSdkInstalled)
             var newVersion = update?.Version ?? "latest";
             // Use the available package's path which may include version info
             var updatePath = update?.Path ?? pkg.Path;
-            
+
+            var isSideBySide = AndroidSdkPackageVersioning.Classify(pkg.Path)
+                == SdkPackageVersioningStrategy.SideBySide;
+
+            // For side-by-side groups (build-tools, ndk, cmake, numbered
+            // cmdline-tools) the newer release installs into its own path and
+            // older versions remain unless the user opts to clean them up.
+            var olderVersions = isSideBySide
+                ? ViewModel.InstalledPackages
+                    .Where(p => string.Equals(
+                        AndroidSdkPackageVersioning.GetGroup(p.Path),
+                        AndroidSdkPackageVersioning.GetGroup(pkg.Path),
+                        StringComparison.OrdinalIgnoreCase))
+                    .Where(p => !string.Equals(p.Path, updatePath, StringComparison.OrdinalIgnoreCase))
+                    .OrderByDescending(p => p, SdkPackageComparer.Instance)
+                    .ToList()
+                : new List<SdkPackageInfo>();
+
+            string description;
+            string? secondaryLabel = null;
+            if (isSideBySide)
+            {
+                hasSideBySide = true;
+                description = $"Install v{newVersion} (keeps existing version{(olderVersions.Count == 1 ? "" : "s")})";
+                if (olderVersions.Count > 0)
+                {
+                    var versionsList = string.Join(", ", olderVersions.Select(p => p.Version));
+                    secondaryLabel = olderVersions.Count == 1
+                        ? $"Remove older version {versionsList} after updating"
+                        : $"Remove {olderVersions.Count} older versions ({versionsList}) after updating";
+                }
+            }
+            else
+            {
+                description = $"v{pkg.Version} → v{newVersion}";
+            }
+
             return new OperationItem(
                 Id: pkg.Path,
                 Name: GetPackageDisplayName(pkg.Path),
-                Description: $"v{pkg.Version} → v{newVersion}",
+                Description: description,
                 Execute: async ctx =>
                 {
                     ctx.LogInfo($"Updating {pkg.Path}");
@@ -1570,31 +1608,57 @@ else if (!ViewModel.IsSdkInstalled)
                     ctx.LogInfo($"Available path: {updatePath}");
                     ctx.LogInfo($"Current version: {pkg.Version}");
                     ctx.LogInfo($"New version: {newVersion}");
-                    
+
                     // Use the available package path for installation
                     var success = await SdkService.InstallPackageAsync(updatePath, new Progress<string>(msg =>
                     {
                         ctx.LogInfo(msg);
                     }));
-                    
-                    if (success)
-                    {
-                        ctx.LogSuccess($"Updated {pkg.Path}");
-                    }
-                    else
+
+                    if (!success)
                     {
                         ctx.LogError($"Failed to update {pkg.Path}");
+                        return false;
                     }
-                    return success;
+
+                    ctx.LogSuccess($"Installed {updatePath}");
+
+                    // Optionally clean up older side-by-side versions.
+                    if (isSideBySide && ctx.SecondaryOptionEnabled && olderVersions.Count > 0)
+                    {
+                        foreach (var older in olderVersions)
+                        {
+                            ctx.LogInfo($"Removing older version: {older.Path}");
+                            var removed = await SdkService.UninstallPackageAsync(older.Path);
+                            if (removed)
+                                ctx.LogSuccess($"Removed {older.Path}");
+                            else
+                                ctx.LogWarning($"Could not remove {older.Path}");
+                        }
+                    }
+                    else if (isSideBySide && olderVersions.Count > 0)
+                    {
+                        ctx.LogInfo($"Keeping {olderVersions.Count} older version(s) installed.");
+                    }
+
+                    return true;
                 },
                 IsEnabled: true,
-                CanDisable: true
+                CanDisable: true,
+                SecondaryOptionLabel: secondaryLabel,
+                SecondaryOptionDefault: false
             );
         }).ToList();
 
+        var description = $"The following {updatable.Count} package(s) have updates available. Uncheck any you want to skip.";
+        if (hasSideBySide)
+        {
+            description += " Side-by-side tools (build-tools, NDK, CMake) install alongside existing versions — use the per-item option to remove older ones.";
+        }
+
         var result = await MultiOpModal.RunAsync(
             "Update SDK Packages",
-            $"The following {updatable.Count} package(s) have updates available. Uncheck any you want to skip.",
+            description,
             operations);
 
         if (result.Completed > 0)

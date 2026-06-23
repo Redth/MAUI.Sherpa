@@ -231,6 +231,7 @@ public class OperationModalService : IOperationModalService
         
         public CancellationToken CancellationToken { get; }
         public bool IsCancellationRequested => CancellationToken.IsCancellationRequested;
+        public bool SecondaryOptionEnabled => false;
 
         public OperationContext(OperationModalService service, CancellationToken cancellationToken)
         {

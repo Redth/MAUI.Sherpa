@@ -21,9 +21,13 @@
                                 (ModalService.IsRunning && ModalService.CurrentOperationIndex >= 0 && 
                                  ModalService.Operations[ModalService.CurrentOperationIndex].Id == op.Id);
                 var canToggle = !ModalService.IsRunning && op.CanDisable && ModalService.IsConfirming;
+                var hasExpandableContent = op.Log.Any() ||
+                    (!string.IsNullOrEmpty(op.ErrorMessage) && op.State == OperationItemState.Failed);
+                var showSecondary = !string.IsNullOrEmpty(op.SecondaryOptionLabel)
+                    && ModalService.IsConfirming && !ModalService.IsRunning;
 
                 <div class="operation-card @GetOperationCardClass(op) @(isExpanded ? "expanded" : "")">
-                    <div class="operation-header" @onclick="() => ToggleExpanded(op.Id)">
+                    <div class="operation-header @(hasExpandableContent ? "clickable" : "")" @onclick="@(() => { if (hasExpandableContent) ToggleExpanded(op.Id); })">
                         <div class="operation-left">
                             @if (ModalService.IsConfirming && !ModalService.IsRunning)
                             {
@@ -59,6 +63,16 @@
                             <div class="operation-info">
                                 <span class="operation-name">@op.Name</span>
                                 <span class="operation-desc">@op.Description</span>
+                                @if (showSecondary)
+                                {
+                                    <label class="operation-secondary" @onclick:stopPropagation="true">
+                                        <input type="checkbox"
+                                               checked="@op.SecondaryOptionEnabled"
+                                               disabled="@(!op.IsEnabled)"
+                                               @onchange="@(e => HandleSecondaryToggle(op.Id, (bool)(e.Value ?? false)))" />
+                                        <span>@op.SecondaryOptionLabel</span>
+                                    </label>
+                                }
                             </div>
                         </div>
                         <div class="operation-right">
@@ -66,7 +80,10 @@
                             {
                                 <span class="duration">@op.Duration.Value.ToString(@"mm\:ss\.f")</span>
                             }
-                            <i class="fas @(isExpanded ? "fa-chevron-up" : "fa-chevron-down") expand-icon"></i>
+                            @if (hasExpandableContent)
+                            {
+                                <i class="fas @(isExpanded ? "fa-chevron-up" : "fa-chevron-down") expand-icon"></i>
+                            }
                         </div>
                     </div>
                     
@@ -226,13 +243,15 @@
         justify-content: space-between;
         align-items: center;
         padding: 0.75rem 1rem;
-        cursor: pointer;
+        cursor: default;
         background: var(--card-bg, #f7fafc);
     }
 
+    .operation-header.clickable { cursor: pointer; }
+
     .operation-card.running .operation-header { background: #ebf8ff; }
 
-    .operation-header:hover { background: var(--bg-tertiary, #edf2f7); }
+    .operation-header.clickable:hover { background: var(--bg-tertiary, #edf2f7); }
 
     .operation-left {
         display: flex;
@@ -271,6 +290,26 @@
         font-size: 0.75rem;
         color: #718096;
     }
+
+    .operation-secondary {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        margin-top: 0.35rem;
+        font-size: 0.75rem;
+        color: var(--text-secondary, #718096);
+        cursor: pointer;
+        user-select: none;
+    }
+
+    .operation-secondary input[type="checkbox"] {
+        width: 14px;
+        height: 14px;
+        cursor: pointer;
+    }
+
+    .operation-secondary input[type="checkbox"]:disabled { cursor: not-allowed; }
+    .operation-secondary:has(input:disabled) { opacity: 0.5; cursor: not-allowed; }
 
     .operation-right {
         display: flex;
@@ -469,6 +508,12 @@
     private void HandleToggle(string operationId, bool enabled)
     {
         ModalService.ToggleOperation(operationId, enabled);
+        StateHasChanged();
+    }
+
+    private void HandleSecondaryToggle(string operationId, bool enabled)
+    {
+        ModalService.ToggleSecondaryOption(operationId, enabled);
         StateHasChanged();
     }
 

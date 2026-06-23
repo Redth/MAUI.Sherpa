@@ -2157,6 +2157,12 @@ public interface IOperationContext
     /// Whether cancellation has been requested
     /// </summary>
     bool IsCancellationRequested { get; }
+
+    /// <summary>
+    /// Whether the operation's optional secondary choice (if any) was selected
+    /// by the user. False when the operation defines no secondary option.
+    /// </summary>
+    bool SecondaryOptionEnabled { get; }
 }
 
 /// <summary>
@@ -2219,7 +2225,9 @@ public record OperationItem(
     string Description,
     Func<IOperationContext, Task<bool>> Execute,
     bool IsEnabled = true,
-    bool CanDisable = true
+    bool CanDisable = true,
+    string? SecondaryOptionLabel = null,
+    bool SecondaryOptionDefault = false
 );
 
 /// <summary>
@@ -2236,6 +2244,18 @@ public class OperationItemStatus
     public List<OperationLogEntry> Log { get; } = new();
     public string? ErrorMessage { get; set; }
     public TimeSpan? Duration { get; set; }
+
+    /// <summary>
+    /// Optional secondary per-item choice (e.g. "Remove older versions"). When
+    /// non-null, the modal renders a secondary checkbox during confirmation.
+    /// </summary>
+    public string? SecondaryOptionLabel { get; init; }
+
+    /// <summary>
+    /// Whether the secondary option is currently selected. Exposed to the
+    /// operation via <see cref="IOperationContext.SecondaryOptionEnabled"/>.
+    /// </summary>
+    public bool SecondaryOptionEnabled { get; set; }
 }
 
 /// <summary>
