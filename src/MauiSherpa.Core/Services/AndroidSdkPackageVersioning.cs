@@ -182,7 +182,100 @@ public static class AndroidSdkPackageVersioning
         => GetInPlaceUpdate(installed, availablePackages, requireStable) is not null;
 
     /// <summary>
-    /// Returns all installed packages that have a genuine in-place update available.
+    /// Finds a newer side-by-side release for an installed package, or null.
+    ///
+    /// Side-by-side groups (build-tools, ndk, cmake, numbered cmdline-tools) embed
+    /// the version in the Path, so a newer release is a distinct, coexisting
+    /// package rather than an in-place update. Detection is therefore anchored on
+    /// the <em>newest installed</em> package in the group: this method returns the
+    /// newest available (stable, by default) release in the same group, but only
+    /// when <paramref name="installed"/> is that newest-installed anchor and the
+    /// newest available is strictly newer. For every other (older, coexisting)
+    /// installed package in the group it returns null, so only the anchor surfaces
+    /// the hint and acts as the update target.
+    /// </summary>
+    public static SdkPackageInfo? GetSideBySideUpdate(
+        SdkPackageInfo installed,
+        IEnumerable<SdkPackageInfo> installedPackages,
+        IEnumerable<SdkPackageInfo> availablePackages,
+        bool requireStable = true)
+    {
+        if (installed is null || installedPackages is null || availablePackages is null)
+            return null;
+
+        if (string.IsNullOrWhiteSpace(installed.Version))
+            return null;
+
+        if (Classify(installed.Path) != SdkPackageVersioningStrategy.SideBySide)
+            return null;
+
+        var group = GetGroup(installed.Path);
+
+        var newestInstalled = installedPackages
+            .Where(p => p is not null)
+            .Where(p => !string.IsNullOrWhiteSpace(p.Version))
+            .Where(p => string.Equals(GetGroup(p.Path), group, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(p => p.Version, VersionComparer.Instance)
+            .FirstOrDefault();
+
+        if (newestInstalled is null)
+            return null;
+
+        // Only the newest installed package in the group is the anchor.
+        if (!string.Equals(installed.Path, newestInstalled.Path, StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        var newestAvailable = availablePackages
+            .Where(a => a is not null)
+            .Where(a => !string.IsNullOrWhiteSpace(a.Version))
+            .Where(a => string.Equals(GetGroup(a.Path), group, StringComparison.OrdinalIgnoreCase))
+            .Where(a => !requireStable || IsStableVersion(a.Version))
+            .OrderByDescending(a => a.Version, VersionComparer.Instance)
+            .FirstOrDefault();
+
+        if (newestAvailable is not null
+            && CompareVersions(newestAvailable.Version, newestInstalled.Version) > 0)
+            return newestAvailable;
+
+        return null;
+    }
+
+    /// <summary>
+    /// Returns the available package to install in order to update
+    /// <paramref name="installed"/>, honoring its versioning strategy: an in-place
+    /// update for FixedPath/Revision groups, or the newest side-by-side release for
+    /// SideBySide groups. Null when no update is available.
+    /// </summary>
+    public static SdkPackageInfo? GetUpdate(
+        SdkPackageInfo installed,
+        IEnumerable<SdkPackageInfo> installedPackages,
+        IEnumerable<SdkPackageInfo> availablePackages,
+        bool requireStable = true)
+    {
+        if (installed is null)
+            return null;
+
+        return Classify(installed.Path) == SdkPackageVersioningStrategy.SideBySide
+            ? GetSideBySideUpdate(installed, installedPackages, availablePackages, requireStable)
+            : GetInPlaceUpdate(installed, availablePackages, requireStable);
+    }
+
+    /// <summary>
+    /// True when an installed package has any update available (in-place or a newer
+    /// side-by-side release).
+    /// </summary>
+    public static bool HasUpdate(
+        SdkPackageInfo installed,
+        IEnumerable<SdkPackageInfo> installedPackages,
+        IEnumerable<SdkPackageInfo> availablePackages,
+        bool requireStable = true)
+        => GetUpdate(installed, installedPackages, availablePackages, requireStable) is not null;
+
+    /// <summary>
+    /// Returns all installed packages that have an update available, honoring each
+    /// package group's versioning strategy. In-place groups yield the installed
+    /// package whose Path has a newer Version; side-by-side groups yield the newest
+    /// installed package in the group when a newer release is available.
     /// </summary>
     public static IEnumerable<SdkPackageInfo> GetUpdates(
         IEnumerable<SdkPackageInfo> installedPackages,
@@ -192,8 +285,9 @@ public static class AndroidSdkPackageVersioning
         if (installedPackages is null || availablePackages is null)
             return [];
 
+        var installed = installedPackages.ToList();
         var available = availablePackages.ToList();
-        return installedPackages.Where(p => HasInPlaceUpdate(p, available, requireStable)).ToList();
+        return installed.Where(p => GetUpdate(p, installed, available, requireStable) is not null).ToList();
     }
 
     /// <summary>

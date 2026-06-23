@@ -216,29 +216,150 @@ public class AndroidSdkPackageVersioningTests
             .Should().BeNull();
     }
 
+    // ---- GetSideBySideUpdate / GetUpdate ----
+
+    [Fact]
+    public void GetSideBySideUpdate_AnchorNewestInstalled_ReturnsNewestAvailable()
+    {
+        var installed = Pkg("build-tools;36.1.0", "36.1.0", installed: true);
+        var installedAll = new[] { installed };
+        var available = new[]
+        {
+            Pkg("build-tools;36.1.0", "36.1.0"),
+            Pkg("build-tools;37.0.0", "37.0.0"),
+        };
+
+        var update = AndroidSdkPackageVersioning.GetSideBySideUpdate(installed, installedAll, available);
+
+        update.Should().NotBeNull();
+        update!.Path.Should().Be("build-tools;37.0.0");
+        update.Version.Should().Be("37.0.0");
+    }
+
+    [Fact]
+    public void GetSideBySideUpdate_NonAnchorOlderInstalled_ReturnsNull()
+    {
+        // Both 36.1.0 and 37.0.0 are installed; only the newest (37.0.0) is the anchor.
+        var older = Pkg("build-tools;36.1.0", "36.1.0", installed: true);
+        var newer = Pkg("build-tools;37.0.0", "37.0.0", installed: true);
+        var installedAll = new[] { older, newer };
+        var available = new[]
+        {
+            Pkg("build-tools;36.1.0", "36.1.0"),
+            Pkg("build-tools;37.0.0", "37.0.0"),
+            Pkg("build-tools;38.0.0", "38.0.0"),
+        };
+
+        // The older installed package is not the anchor -> no update surfaced on it.
+        AndroidSdkPackageVersioning.GetSideBySideUpdate(older, installedAll, available)
+            .Should().BeNull();
+
+        // The newest installed package is the anchor -> points at 38.0.0.
+        var update = AndroidSdkPackageVersioning.GetSideBySideUpdate(newer, installedAll, available);
+        update.Should().NotBeNull();
+        update!.Path.Should().Be("build-tools;38.0.0");
+    }
+
+    [Fact]
+    public void GetSideBySideUpdate_NewestInstalledEqualsNewestAvailable_ReturnsNull()
+    {
+        var installed = Pkg("build-tools;37.0.0", "37.0.0", installed: true);
+        var installedAll = new[] { installed };
+        var available = new[] { Pkg("build-tools;37.0.0", "37.0.0") };
+
+        AndroidSdkPackageVersioning.GetSideBySideUpdate(installed, installedAll, available)
+            .Should().BeNull();
+    }
+
+    [Fact]
+    public void GetSideBySideUpdate_PrereleaseFilteredByDefault()
+    {
+        var installed = Pkg("build-tools;36.1.0", "36.1.0", installed: true);
+        var installedAll = new[] { installed };
+        var available = new[] { Pkg("build-tools;37.0.0-rc1", "37.0.0-rc1") };
+
+        AndroidSdkPackageVersioning.GetSideBySideUpdate(installed, installedAll, available)
+            .Should().BeNull();
+
+        AndroidSdkPackageVersioning.GetSideBySideUpdate(installed, installedAll, available, requireStable: false)
+            .Should().NotBeNull();
+    }
+
+    [Fact]
+    public void GetUpdate_DispatchesByStrategy()
+    {
+        // In-place (FixedPath): same path, newer version.
+        var emulator = Pkg("emulator", "36.4.10", installed: true);
+        var emulatorAvail = new[] { Pkg("emulator", "36.6.11") };
+        AndroidSdkPackageVersioning.GetUpdate(emulator, new[] { emulator }, emulatorAvail)!
+            .Version.Should().Be("36.6.11");
+
+        // Side-by-side: newer release is a distinct path.
+        var buildTools = Pkg("build-tools;36.1.0", "36.1.0", installed: true);
+        var buildToolsAvail = new[]
+        {
+            Pkg("build-tools;36.1.0", "36.1.0"),
+            Pkg("build-tools;37.0.0", "37.0.0"),
+        };
+        AndroidSdkPackageVersioning.GetUpdate(buildTools, new[] { buildTools }, buildToolsAvail)!
+            .Path.Should().Be("build-tools;37.0.0");
+    }
+
+    [Fact]
+    public void GetInPlaceUpdate_StillIgnoresSideBySide()
+    {
+        // GetInPlaceUpdate remains pure in-place: a newer build-tools path is never
+        // an in-place update even though GetUpdate/GetSideBySideUpdate surfaces it.
+        var installed = Pkg("build-tools;36.1.0", "36.1.0", installed: true);
+        var available = new[] { Pkg("build-tools;37.0.0", "37.0.0") };
+
+        AndroidSdkPackageVersioning.GetInPlaceUpdate(installed, available).Should().BeNull();
+    }
+
     // ---- GetUpdates ----
 
     [Fact]
-    public void GetUpdates_ReturnsOnlyGenuineInPlaceUpdates()
+    public void GetUpdates_IncludesInPlaceAndSideBySide()
     {
         var installed = new[]
         {
-            Pkg("emulator", "36.4.10", installed: true),                         // update -> 36.6.11
-            Pkg("platform-tools", "36.0.0", installed: true),                    // update -> 37.0.0
-            Pkg("build-tools;36.1.0", "36.1.0", installed: true),                // NOT an update (side-by-side)
+            Pkg("emulator", "36.4.10", installed: true),                         // in-place -> 36.6.11
+            Pkg("platform-tools", "36.0.0", installed: true),                    // in-place -> 37.0.0
+            Pkg("build-tools;36.1.0", "36.1.0", installed: true),                // side-by-side anchor -> 37.0.0
             Pkg("platforms;android-33", "3", installed: true),                   // already newest revision
         };
         var available = new[]
         {
             Pkg("emulator", "36.6.11"),
             Pkg("platform-tools", "37.0.0"),
+            Pkg("build-tools;36.1.0", "36.1.0"),
             Pkg("build-tools;37.0.0", "37.0.0"),
             Pkg("platforms;android-33", "3"),
         };
 
         var updates = AndroidSdkPackageVersioning.GetUpdates(installed, available).ToList();
 
-        updates.Select(u => u.Path).Should().BeEquivalentTo("emulator", "platform-tools");
+        updates.Select(u => u.Path)
+            .Should().BeEquivalentTo("emulator", "platform-tools", "build-tools;36.1.0");
+    }
+
+    [Fact]
+    public void GetUpdates_SideBySide_OnlyAnchorWhenMultipleInstalled()
+    {
+        var installed = new[]
+        {
+            Pkg("build-tools;35.0.0", "35.0.0", installed: true),
+            Pkg("build-tools;36.1.0", "36.1.0", installed: true), // anchor
+        };
+        var available = new[]
+        {
+            Pkg("build-tools;36.1.0", "36.1.0"),
+            Pkg("build-tools;37.0.0", "37.0.0"),
+        };
+
+        var updates = AndroidSdkPackageVersioning.GetUpdates(installed, available).ToList();
+
+        updates.Select(u => u.Path).Should().BeEquivalentTo("build-tools;36.1.0");
     }
 
     // ---- CompareVersions ----

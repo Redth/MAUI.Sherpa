@@ -1395,23 +1395,26 @@ else if (!ViewModel.IsSdkInstalled)
             => AndroidSdkPackageVersioning.CompareVersions(version1, version2);
     }
 
-    // Check if an installed package has a genuine in-place update available.
+    // Check if an installed package has an update available (in-place or a newer
+    // side-by-side release).
     private bool HasUpdate(SdkPackageInfo installedPackage)
     {
         return GetAvailableUpdate(installedPackage) != null;
     }
 
-    // Get the available stable in-place update for an installed package.
-    // Delegates to the central, audited classifier: an update is the same exact
-    // package Path with a newer stable Version. Side-by-side groups (build-tools,
-    // ndk, cmake) embed their version in the Path and never produce updates.
+    // Get the available stable update for an installed package. Delegates to the
+    // central, audited classifier: for in-place groups (emulator, platform-tools,
+    // platforms, system-images, ...) this is the same Path with a newer stable
+    // Version; for side-by-side groups (build-tools, ndk, cmake, numbered
+    // cmdline-tools) this is the newest available stable release in the group,
+    // anchored on the newest installed package.
     private SdkPackageInfo? GetAvailableUpdate(SdkPackageInfo installedPackage, bool requireStable = true)
     {
-        if (installedPackage == null || ViewModel?.AvailablePackages == null)
+        if (installedPackage == null || ViewModel?.AvailablePackages == null || ViewModel.InstalledPackages == null)
             return null;
 
-        return AndroidSdkPackageVersioning.GetInPlaceUpdate(
-            installedPackage, ViewModel.AvailablePackages, requireStable);
+        return AndroidSdkPackageVersioning.GetUpdate(
+            installedPackage, ViewModel.InstalledPackages, ViewModel.AvailablePackages, requireStable);
     }
 
     // Compare version strings, returns true if version1 > version2
@@ -1428,7 +1431,8 @@ else if (!ViewModel.IsSdkInstalled)
         return installed?.Version;
     }
 
-    // Get all installed packages that have a genuine in-place update available.
+    // Get all installed packages that have an update available (in-place or a newer
+    // side-by-side release).
     private IEnumerable<SdkPackageInfo> GetUpdatablePackages()
     {
         return AndroidSdkPackageVersioning.GetUpdates(
