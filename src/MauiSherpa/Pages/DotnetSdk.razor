@@ -1,0 +1,552 @@
+@page "/dotnet-sdk"
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Core.Services
+@using MauiSherpa.Services
+@using MauiSherpa.Workloads.Models
+@inject IDotnetUpService DotnetUp
+@inject IProcessModalService ProcessModal
+@inject IOperationModalService OperationModal
+@inject IAlertService AlertService
+@inject IPlatformService PlatformInfo
+@implements IDisposable
+
+<h1><i class="fas fa-layer-group"></i> .NET SDK Manager</h1>
+
+@if (!PlatformInfo.HasNativeToolbar)
+{
+<div class="toolbar">
+    <button class="btn btn-primary" @onclick="Refresh" disabled="@isLoading">
+        @if (isLoading)
+        {
+            <i class="fas fa-spinner fa-spin"></i> <span>Loading...</span>
+        }
+        else
+        {
+            <i class="fas fa-sync-alt"></i> <span>Refresh</span>
+        }
+    </button>
+    @if (DotnetUp.IsInstalled)
+    {
+        <button class="btn btn-success" @onclick="RunUpdateAll" disabled="@isLoading">
+            <i class="fas fa-arrow-up-from-bracket"></i> <span>Update All</span>
+        </button>
+    }
+</div>
+}
+
+@if (!string.IsNullOrEmpty(errorMessage))
+{
+    <div class="error-bar">@errorMessage</div>
+}
+
+<!-- dotnetup status card -->
+<div class="section-card status-card">
+    <div class="status-row">
+        <div class="status-icon @(DotnetUp.IsInstalled ? "ok" : "missing")">
+            <i class="fas @(DotnetUp.IsInstalled ? "fa-circle-check" : "fa-circle-exclamation")"></i>
+        </div>
+        <div class="status-body">
+            @if (DotnetUp.IsInstalled)
+            {
+                <strong>dotnetup is installed</strong>
+                <div class="status-meta mono">
+                    @if (toolInfo != null)
+                    {
+                        <span>v@(toolInfo.Version)</span>
+                        @if (!string.IsNullOrEmpty(toolInfo.Rid))
+                        {
+                            <span class="dot">·</span><span>@toolInfo.Rid</span>
+                        }
+                    }
+                    else
+                    {
+                        <span>@DotnetUp.ExecutablePath</span>
+                    }
+                </div>
+                @if (managedRoots.Count > 0)
+                {
+                    <div class="status-meta">
+                        Managed install root@(managedRoots.Count > 1 ? "s" : ""):
+                        @foreach (var root in managedRoots)
+                        {
+                            <span class="mono root-chip">@root</span>
+                        }
+                    </div>
+                }
+            }
+            else
+            {
+                <strong>dotnetup is not installed</strong>
+                <div class="status-meta">Install the .NET toolchain manager to install and update SDKs &amp; runtimes from here.</div>
+            }
+        </div>
+        <div class="status-actions">
+            @if (DotnetUp.IsInstalled)
+            {
+                <button class="btn btn-secondary btn-sm" @onclick="ReinstallDotnetUp" disabled="@isLoading">
+                    <i class="fas fa-rotate"></i> <span>Reinstall</span>
+                </button>
+            }
+            else
+            {
+                <button class="btn btn-success" @onclick="InstallDotnetUp" disabled="@isLoading">
+                    <i class="fas fa-download"></i> <span>Install dotnetup</span>
+                </button>
+            }
+        </div>
+    </div>
+</div>
+
+@if (DotnetUp.IsInstalled)
+{
+    <!-- Install / update controls -->
+    <div class="section-card">
+        <div class="card-title-row">
+            <h2 class="card-title"><i class="fas fa-download"></i> Install a .NET SDK</h2>
+        </div>
+        <div class="install-row">
+            <select class="channel-select" @bind="selectedChannel" disabled="@isLoading">
+                @foreach (var ch in channelOptions)
+                {
+                    <option value="@ch.Value">@ch.Label</option>
+                }
+                <option value="__custom__">Custom channel…</option>
+            </select>
+            @if (selectedChannel == "__custom__")
+            {
+                <input type="text" class="channel-input" placeholder="e.g. 9.0.1xx or 10.0.103"
+                       @bind="customChannel" @bind:event="oninput" disabled="@isLoading" />
+            }
+            <label class="terminal-toggle" title="Configure PATH and DOTNET_ROOT so the terminal 'dotnet' uses this install">
+                <input type="checkbox" @bind="terminalMode" disabled="@isLoading" />
+                <span>Set as default (Terminal Mode)</span>
+            </label>
+            <button class="btn btn-primary" @onclick="RunInstallSdk" disabled="@(isLoading || !HasInstallChannel)">
+                <i class="fas fa-download"></i> <span>Install SDK</span>
+            </button>
+        </div>
+        <div class="install-row secondary">
+            <button class="btn btn-secondary btn-sm" @onclick="RunUpdateSdks" disabled="@isLoading">
+                <i class="fas fa-arrow-up"></i> <span>Update tracked SDKs</span>
+            </button>
+            <button class="btn btn-secondary btn-sm" @onclick="RunUpdateRuntimes" disabled="@isLoading">
+                <i class="fas fa-arrow-up"></i> <span>Update tracked runtimes</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Installations -->
+    <div class="section-card">
+        <div class="card-title-row">
+            <h2 class="card-title"><i class="fas fa-cubes"></i> Installed components</h2>
+            @if (list != null)
+            {
+                <span class="badge badge-secondary">@list.Installations.Count</span>
+            }
+        </div>
+
+        @if (list == null)
+        {
+            <div class="empty-state"><i class="fas fa-spinner fa-spin"></i> Loading…</div>
+        }
+        else if (list.Installations.Count == 0)
+        {
+            <div class="empty-state">
+                <i class="fas fa-box-open"></i>
+                <p>No dotnetup-managed .NET components yet. Install an SDK above to get started.</p>
+            </div>
+        }
+        else
+        {
+            @foreach (var group in list.Installations.GroupBy(i => i.InstallRoot))
+            {
+                <div class="install-group">
+                    <div class="install-group-root mono">
+                        <i class="fas fa-folder"></i> @group.Key
+                    </div>
+                    @foreach (var item in group.OrderByDescending(i => i.Version))
+                    {
+                        <div class="install-item">
+                            <span class="badge @ComponentBadgeClass(item.Component)">@item.ComponentRaw</span>
+                            <span class="install-version mono">@item.Version</span>
+                            @if (!string.IsNullOrEmpty(item.FrameworkName))
+                            {
+                                <span class="install-framework mono">@item.FrameworkName</span>
+                            }
+                            @if (!string.IsNullOrEmpty(item.Architecture))
+                            {
+                                <span class="install-arch">@item.Architecture</span>
+                            }
+                            @if (!item.IsValid)
+                            {
+                                <span class="badge badge-warning">invalid</span>
+                            }
+                            <span class="spacer"></span>
+                            <button class="btn btn-danger btn-sm" @onclick="@(() => RunUninstall(item))" disabled="@isLoading"
+                                    title="Uninstall this component">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    }
+                </div>
+            }
+        }
+    </div>
+
+    <!-- Tracked channels -->
+    @if (list != null && list.InstallSpecs.Count > 0)
+    {
+        <div class="section-card">
+            <div class="card-title-row">
+                <h2 class="card-title"><i class="fas fa-list-check"></i> Tracked channels</h2>
+                <span class="badge badge-secondary">@list.InstallSpecs.Count</span>
+            </div>
+            @foreach (var spec in list.InstallSpecs)
+            {
+                <div class="install-item">
+                    <span class="badge @ComponentBadgeClass(spec.Component)">@spec.ComponentRaw</span>
+                    <span class="install-version mono">@spec.VersionOrChannel</span>
+                    <span class="badge badge-info">@spec.Source</span>
+                    @if (!string.IsNullOrEmpty(spec.GlobalJsonPath))
+                    {
+                        <span class="install-framework mono" title="@spec.GlobalJsonPath">global.json</span>
+                    }
+                </div>
+            }
+        </div>
+    }
+}
+
+@code {
+    private bool isLoading;
+    private string? errorMessage;
+    private DotnetUpToolInfo? toolInfo;
+    private DotnetUpListResult? list;
+    private List<string> managedRoots = new();
+
+    private string selectedChannel = "latest";
+    private string customChannel = string.Empty;
+    private bool terminalMode = true;
+
+    private record ChannelOption(string Value, string Label);
+
+    private readonly List<ChannelOption> channelOptions = new()
+    {
+        new("latest", "Latest"),
+        new("lts", "LTS (Long-Term Support)"),
+        new("preview", "Preview"),
+        new("10.0.1xx", "10.0 (feature band 1xx)"),
+        new("9.0.1xx", "9.0 (feature band 1xx)"),
+        new("8.0.1xx", "8.0 (feature band 1xx)"),
+        new("daily", "Daily build"),
+    };
+
+    private bool HasInstallChannel =>
+        selectedChannel != "__custom__" || !string.IsNullOrWhiteSpace(customChannel);
+
+    private string? CurrentChannel =>
+        selectedChannel == "__custom__"
+            ? (string.IsNullOrWhiteSpace(customChannel) ? null : customChannel.Trim())
+            : selectedChannel;
+
+    protected override async Task OnInitializedAsync() => await Refresh();
+
+    private async Task Refresh()
+    {
+        isLoading = true;
+        errorMessage = null;
+        StateHasChanged();
+        try
+        {
+            if (DotnetUp.IsInstalled)
+            {
+                toolInfo = await DotnetUp.GetToolInfoAsync();
+                list = await DotnetUp.GetListAsync();
+                managedRoots = list?.InstallRoots.ToList() ?? new();
+            }
+            else
+            {
+                toolInfo = null;
+                list = null;
+                managedRoots = new();
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to query dotnetup: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task<bool> EnsureInstalled(bool force = false)
+    {
+        if (DotnetUp.IsInstalled && !force)
+            return true;
+
+        var result = await OperationModal.RunAsync(
+            force ? "Reinstall dotnetup" : "Install dotnetup",
+            "Downloading and verifying the dotnetup .NET toolchain manager",
+            async ctx =>
+            {
+                var progress = new Progress<string>(msg =>
+                {
+                    ctx.SetStatus(msg);
+                    ctx.LogInfo(msg);
+                });
+                var ok = await DotnetUp.EnsureInstalledAsync(force: force, progress: progress);
+                if (ok) ctx.LogSuccess("dotnetup installed");
+                else ctx.LogError("Failed to install dotnetup");
+                return ok;
+            },
+            canCancel: true);
+
+        return result.Success;
+    }
+
+    private async Task InstallDotnetUp()
+    {
+        if (await EnsureInstalled())
+        {
+            await AlertService.ShowToastAsync("dotnetup installed");
+            await Refresh();
+        }
+    }
+
+    private async Task ReinstallDotnetUp()
+    {
+        var confirm = await AlertService.ShowConfirmAsync(
+            "Reinstall dotnetup",
+            "Download and overwrite the dotnetup binary with the latest published build?",
+            "Reinstall", "Cancel");
+        if (!confirm) return;
+
+        if (await EnsureInstalled(force: true))
+        {
+            await AlertService.ShowToastAsync("dotnetup reinstalled");
+            await Refresh();
+        }
+    }
+
+    private async Task RunInstallSdk()
+    {
+        if (!await EnsureInstalled()) return;
+        var channel = CurrentChannel;
+        var request = DotnetUp.InstallSdkRequest(channel, terminalMode);
+        await RunProcessAndRefresh(request, $"Installed .NET SDK ({channel ?? "latest"})", "The .NET SDK install failed.");
+    }
+
+    private async Task RunUpdateAll()
+    {
+        if (!await EnsureInstalled()) return;
+        await RunProcessAndRefresh(DotnetUp.UpdateAllRequest(), "All components updated", "The update failed.");
+    }
+
+    private async Task RunUpdateSdks()
+    {
+        if (!await EnsureInstalled()) return;
+        await RunProcessAndRefresh(DotnetUp.UpdateSdksRequest(), "SDKs updated", "The SDK update failed.");
+    }
+
+    private async Task RunUpdateRuntimes()
+    {
+        if (!await EnsureInstalled()) return;
+        await RunProcessAndRefresh(DotnetUp.UpdateRuntimesRequest(), "Runtimes updated", "The runtime update failed.");
+    }
+
+    private async Task RunUninstall(DotnetUpInstallation item)
+    {
+        var label = $"{item.ComponentRaw} {item.Version}";
+        var confirm = await AlertService.ShowConfirmAsync(
+            "Uninstall component",
+            $"Remove {label} from {item.InstallRoot}?",
+            "Uninstall", "Cancel");
+        if (!confirm) return;
+
+        ProcessRequest request = item.Component == DotnetUpComponent.Sdk
+            ? DotnetUp.UninstallSdkRequest(item.Version)
+            : DotnetUp.UninstallRuntimeRequest($"{RuntimeToken(item)}@{item.Version}");
+
+        await RunProcessAndRefresh(request, $"Uninstalled {label}", "The uninstall failed.");
+    }
+
+    private async Task RunProcessAndRefresh(ProcessRequest request, string successToast, string failureMessage)
+    {
+        var result = await ProcessModal.ShowProcessAsync(request);
+        if (result?.Success == true)
+        {
+            await AlertService.ShowToastAsync(successToast);
+            await Refresh();
+        }
+        else if (result != null && !result.WasCancelled && !result.WasKilled)
+        {
+            await AlertService.ShowAlertAsync("Operation Failed", $"{failureMessage} Check the output for details.");
+        }
+    }
+
+    private static string RuntimeToken(DotnetUpInstallation item) => item.Component switch
+    {
+        DotnetUpComponent.AspNetCore => "aspnetcore",
+        DotnetUpComponent.WindowsDesktop => "windowsdesktop",
+        _ => "runtime"
+    };
+
+    private static string ComponentBadgeClass(DotnetUpComponent component) => component switch
+    {
+        DotnetUpComponent.Sdk => "badge-success",
+        DotnetUpComponent.Runtime => "badge-info",
+        DotnetUpComponent.AspNetCore => "badge-info",
+        DotnetUpComponent.WindowsDesktop => "badge-info",
+        _ => "badge-secondary"
+    };
+
+    public void Dispose() { }
+}
+
+<style>
+    .status-card {
+        padding: 1rem 1.25rem;
+        margin-bottom: 1rem;
+    }
+
+    .status-row {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+    }
+
+    .status-icon {
+        font-size: 1.75rem;
+        flex-shrink: 0;
+    }
+
+    .status-icon.ok {
+        color: var(--status-success-text, #16a34a);
+    }
+
+    .status-icon.missing {
+        color: var(--status-warning-text, #d97706);
+    }
+
+    .status-body {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+    }
+
+    .status-meta {
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.35rem;
+    }
+
+    .status-meta .dot {
+        opacity: 0.5;
+    }
+
+    .root-chip {
+        background: var(--bg-tertiary);
+        border-radius: 4px;
+        padding: 0.1rem 0.4rem;
+    }
+
+    .status-actions {
+        flex-shrink: 0;
+    }
+
+    .section-card {
+        padding: 1rem 1.25rem;
+        margin-bottom: 1rem;
+    }
+
+    .card-title-row {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-bottom: 0.75rem;
+    }
+
+    .card-title {
+        font-size: 1rem;
+        font-weight: 600;
+        margin: 0;
+        color: var(--text-primary);
+    }
+
+    .install-row {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 0.6rem;
+    }
+
+    .install-row.secondary {
+        margin-top: 0.75rem;
+        padding-top: 0.75rem;
+        border-top: 1px solid var(--border-color);
+    }
+
+    .channel-select,
+    .channel-input {
+        padding: 0.4rem 0.6rem;
+        border: 1px solid var(--input-border);
+        border-radius: 6px;
+        font-size: 0.9rem;
+        min-width: 12rem;
+    }
+
+    .terminal-toggle {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+        cursor: pointer;
+    }
+
+    .install-group {
+        margin-bottom: 0.75rem;
+    }
+
+    .install-group-root {
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+        margin-bottom: 0.35rem;
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+    }
+
+    .install-item {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        padding: 0.45rem 0.6rem;
+        border-radius: 6px;
+        background: var(--bg-tertiary);
+        margin-bottom: 0.35rem;
+    }
+
+    .install-version {
+        font-weight: 600;
+        color: var(--text-primary);
+    }
+
+    .install-framework,
+    .install-arch {
+        font-size: 0.78rem;
+        color: var(--text-secondary);
+    }
+
+    .spacer {
+        flex: 1;
+    }
+</style>

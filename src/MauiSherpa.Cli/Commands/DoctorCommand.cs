@@ -23,6 +23,7 @@ public static class DoctorCommand
         var checks = new List<HealthCheck>();
 
         checks.Add(await CheckDotNetAsync());
+        checks.Add(await CheckDotnetUpAsync());
         checks.Add(await CheckAndroidSdkAsync());
         checks.Add(await CheckJdkAsync());
 
@@ -110,6 +111,50 @@ public static class DoctorCommand
         catch
         {
             return new HealthCheck(".NET SDK", "error", "dotnet not found on PATH");
+        }
+    }
+
+    private static async Task<HealthCheck> CheckDotnetUpAsync()
+    {
+        // dotnetup is the optional .NET user-level toolchain manager (~/.dotnetup/dotnetup).
+        // It is never required, so this check stays "ok" whether or not it is present.
+        try
+        {
+            var rid = MauiSherpa.Workloads.Services.DotnetUpRuntimeIdentifier.DetectCurrent();
+            var exeName = MauiSherpa.Workloads.Services.DotnetUpRuntimeIdentifier.GetExecutableFileName(rid);
+            var exePath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".dotnetup", exeName);
+
+            if (!File.Exists(exePath))
+            {
+                return new HealthCheck("dotnetup", "ok",
+                    "not installed (optional — manage .NET SDKs via MAUI Sherpa)");
+            }
+
+            var infoResult = await ProcessRunner.RunAsync(exePath, "--info");
+            var info = MauiSherpa.Workloads.Services.DotnetUpParser.ParseInfo(infoResult.Output);
+
+            var details = new List<string>();
+            var listResult = await ProcessRunner.RunAsync(exePath, "list --format Json");
+            if (listResult.ExitCode == 0)
+            {
+                var parsed = MauiSherpa.Workloads.Services.DotnetUpParser.ParseList(listResult.Output);
+                var sdks = parsed.Installations
+                    .Where(i => i.Component == MauiSherpa.Workloads.Models.DotnetUpComponent.Sdk)
+                    .Select(i => i.Version)
+                    .ToArray();
+                if (sdks.Length > 0)
+                    details.Add($"Managed SDKs: {string.Join(", ", sdks)}");
+                foreach (var root in parsed.InstallRoots)
+                    details.Add($"Install root: {root}");
+            }
+
+            var version = info?.Version ?? "installed";
+            return new HealthCheck("dotnetup", "ok", $"v{version}", details.Count > 0 ? details.ToArray() : null);
+        }
+        catch
+        {
+            return new HealthCheck("dotnetup", "ok", "not installed (optional)");
         }
     }
 

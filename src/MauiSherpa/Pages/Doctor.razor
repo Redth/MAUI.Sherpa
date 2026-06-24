@@ -4,6 +4,7 @@
 @using MauiSherpa.Services
 @using Microsoft.Extensions.Logging
 @inject IDoctorService DoctorService
+@inject IDotnetUpService DotnetUp
 @inject IAlertService AlertService
 @inject IDialogService DialogService
 @inject IProcessModalService ProcessModal
@@ -892,6 +893,18 @@ else
                 await RunWorkloadFix(dep);
                 return;
             }
+
+            if (dep.FixAction == "install-dotnetup")
+            {
+                await RunInstallDotnetUp(dep);
+                return;
+            }
+
+            if (dep.FixAction.StartsWith("dotnetup-update-sdk"))
+            {
+                await RunDotnetUpSdkUpdate(dep);
+                return;
+            }
         }
 
         // Build command based on dependency type
@@ -1046,6 +1059,67 @@ else
         else if (result != null && !result.WasCancelled && !result.WasKilled)
         {
             await AlertService.ShowAlertAsync("Update Failed", "Workload update failed. Check the output for details.");
+        }
+    }
+
+    private async Task<bool> EnsureDotnetUpInstalled()
+    {
+        if (DotnetUp.IsInstalled)
+            return true;
+
+        var result = await OperationModal.RunAsync(
+            "Install dotnetup",
+            "Downloading and verifying the dotnetup .NET toolchain manager",
+            async ctx =>
+            {
+                var progress = new Progress<string>(msg =>
+                {
+                    ctx.SetStatus(msg);
+                    ctx.LogInfo(msg);
+                });
+                var ok = await DotnetUp.EnsureInstalledAsync(progress: progress);
+                if (ok) ctx.LogSuccess("dotnetup installed");
+                else ctx.LogError("Failed to install dotnetup");
+                return ok;
+            },
+            canCancel: true);
+
+        return result.Success;
+    }
+
+    private async Task RunInstallDotnetUp(DependencyStatus dep)
+    {
+        var installed = await EnsureDotnetUpInstalled();
+        if (installed)
+        {
+            await AlertService.ShowToastAsync("dotnetup installed");
+            await RunDoctor();
+        }
+    }
+
+    private async Task RunDotnetUpSdkUpdate(DependencyStatus dep)
+    {
+        // dotnetup must be present before we can drive an SDK install.
+        if (!await EnsureDotnetUpInstalled())
+            return;
+
+        // FixAction is "dotnetup-update-sdk:<channel>" — install that channel in Terminal Mode.
+        string? channel = null;
+        var colon = dep.FixAction!.IndexOf(':');
+        if (colon >= 0 && colon < dep.FixAction.Length - 1)
+            channel = dep.FixAction[(colon + 1)..];
+
+        var request = DotnetUp.InstallSdkRequest(channel);
+        var result = await ProcessModal.ShowProcessAsync(request);
+
+        if (result?.Success == true)
+        {
+            await AlertService.ShowToastAsync($"Installed .NET SDK ({channel ?? "latest"})");
+            await RunDoctor();
+        }
+        else if (result != null && !result.WasCancelled && !result.WasKilled)
+        {
+            await AlertService.ShowAlertAsync("Update Failed", "The .NET SDK install failed. Check the output for details.");
         }
     }
 

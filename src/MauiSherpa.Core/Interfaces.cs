@@ -1774,7 +1774,10 @@ public record DoctorContext(
     bool IsPreviewSdk = false,
     string? ActiveSdkVersion = null,
     string? RollForwardPolicy = null,
-    string? ResolvedSdkVersion = null
+    string? ResolvedSdkVersion = null,
+    bool DotnetUpInstalled = false,
+    string? DotnetUpVersion = null,
+    string? DotnetUpManagedInstallRoot = null
 );
 
 /// <summary>
@@ -1901,6 +1904,72 @@ public interface IDoctorService
     string GetDotNetExecutablePath();
 }
 
+
+/// <summary>
+/// Manages the <c>dotnetup</c> user-level .NET toolchain manager: downloading/bootstrapping
+/// the binary, querying its installed SDKs/runtimes, and building process requests that drive
+/// install/update/uninstall operations. Sherpa always invokes <c>dotnetup</c> by full path so
+/// it never depends on the user's shell PATH.
+/// </summary>
+public interface IDotnetUpService
+{
+    /// <summary>The directory the dotnetup binary lives in (Sherpa-managed, default <c>~/.dotnetup</c>).</summary>
+    string ToolDirectory { get; }
+
+    /// <summary>The full path to the dotnetup executable within <see cref="ToolDirectory"/>.</summary>
+    string ExecutablePath { get; }
+
+    /// <summary>True when the dotnetup binary is present on disk.</summary>
+    bool IsInstalled { get; }
+
+    /// <summary>
+    /// Ensures the dotnetup binary is present, downloading and SHA-512 verifying it from aka.ms
+    /// when missing (or always when <paramref name="force"/> is true). Returns true on success.
+    /// </summary>
+    Task<bool> EnsureInstalledAsync(
+        bool force = false,
+        IProgress<string>? progress = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Reads <c>dotnetup --info</c> and returns parsed tool diagnostics, or null when the tool is
+    /// missing or the call fails.
+    /// </summary>
+    Task<MauiSherpa.Workloads.Models.DotnetUpToolInfo?> GetToolInfoAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Reads <c>dotnetup list --format Json</c> and returns parsed installations/specs, or null
+    /// when the tool is missing or the call fails.
+    /// </summary>
+    Task<MauiSherpa.Workloads.Models.DotnetUpListResult?> GetListAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Builds a <see cref="ProcessRequest"/> for arbitrary dotnetup arguments.</summary>
+    ProcessRequest CreateProcessRequest(IReadOnlyList<string> arguments, string? title = null, string? description = null);
+
+    /// <summary>
+    /// Builds a request to install (or update to) an SDK channel. When <paramref name="terminalMode"/>
+    /// is true, passes <c>--set-default-install</c> so dotnetup configures PATH/DOTNET_ROOT.
+    /// </summary>
+    ProcessRequest InstallSdkRequest(string? channel = null, bool terminalMode = true);
+
+    /// <summary>Builds a request to update all tracked SDKs.</summary>
+    ProcessRequest UpdateSdksRequest();
+
+    /// <summary>Builds a request to uninstall an SDK channel.</summary>
+    ProcessRequest UninstallSdkRequest(string channel, MauiSherpa.Workloads.Models.DotnetUpInstallSource? source = null);
+
+    /// <summary>Builds a request to install a runtime spec (channel or <c>component@version</c>).</summary>
+    ProcessRequest InstallRuntimeRequest(string? spec = null);
+
+    /// <summary>Builds a request to update all tracked runtimes.</summary>
+    ProcessRequest UpdateRuntimesRequest();
+
+    /// <summary>Builds a request to uninstall a runtime spec.</summary>
+    ProcessRequest UninstallRuntimeRequest(string spec);
+
+    /// <summary>Builds a request to update every tracked component.</summary>
+    ProcessRequest UpdateAllRequest();
+}
 
 // ============================================================================
 // Process Execution Service - CLI Tool Execution with Terminal UI
