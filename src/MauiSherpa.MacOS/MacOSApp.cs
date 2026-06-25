@@ -172,6 +172,14 @@ class MacOSApp : Application
             new() { Title = "Dashboard", SystemImage = "house.fill", Tag = "/" },
             new MacOSSidebarItem
             {
+                Title = ".NET",
+                Children = new List<MacOSSidebarItem>
+                {
+                    new() { Title = "SDK Manager", SystemImage = "square.stack.3d.up.fill", Tag = "/dotnet-sdk" },
+                }
+            },
+            new MacOSSidebarItem
+            {
                 Title = "Android",
                 Children = new List<MacOSSidebarItem>
                 {
