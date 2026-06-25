@@ -249,6 +249,12 @@ public static class MauiProgram
         builder.Services.AddSingleton<CopilotViewModel>();
         builder.Services.AddSingleton<SettingsViewModel>();
 
+        // Shiny.Mediator 6.6.x serializes the persistent cache via Shiny.Json, which is strict
+        // (source-gen contexts only) and throws "No JsonTypeInfo registered" for any cached type.
+        // We don't ship [ShinyJsonInclude]/source-gen contexts, so register the reflection-based
+        // resolver to restore plain serialization for all cached request/response types.
+        Shiny.Json.AddResolver(new System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver());
+
         // Shiny Mediator with caching and offline support
         builder.AddShinyMediator(cfg =>
         {
