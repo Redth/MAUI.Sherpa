@@ -19,6 +19,7 @@ public class DoctorService : IDoctorService
     private readonly ILoggingService _loggingService;
     private readonly IOpenJdkSettingsService _jdkSettingsService;
     private readonly IAndroidSdkSettingsService? _androidSdkSettingsService;
+    private readonly IDotnetUpService? _dotnetUpService;
     private readonly IDebugFlagService? _debugFlags;
     private readonly ILogger<DoctorService> _logger;
     private readonly ILoggerFactory _loggerFactory;
@@ -30,13 +31,14 @@ public class DoctorService : IDoctorService
     private WorkloadSetService? _workloadSetService;
     private SdkVersionService? _sdkVersionService;
     
-    public DoctorService(IAndroidSdkService androidSdkService, ILoggingService loggingService, IOpenJdkSettingsService jdkSettingsService, ILoggerFactory? loggerFactory = null, IDebugFlagService? debugFlags = null, IAndroidSdkSettingsService? androidSdkSettingsService = null)
+    public DoctorService(IAndroidSdkService androidSdkService, ILoggingService loggingService, IOpenJdkSettingsService jdkSettingsService, ILoggerFactory? loggerFactory = null, IDebugFlagService? debugFlags = null, IAndroidSdkSettingsService? androidSdkSettingsService = null, IDotnetUpService? dotnetUpService = null)
     {
         _androidSdkService = androidSdkService;
         _loggingService = loggingService;
         _jdkSettingsService = jdkSettingsService;
         _debugFlags = debugFlags;
         _androidSdkSettingsService = androidSdkSettingsService;
+        _dotnetUpService = dotnetUpService;
         _loggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
         _logger = _loggerFactory.CreateLogger<DoctorService>();
     }
@@ -128,6 +130,20 @@ public class DoctorService : IDoctorService
             }
         }
         
+        // Query dotnetup (if available) so the Doctor is aware of the user-level toolchain
+        // manager and the SDKs it manages (which may live outside LocalSdkService's scan paths).
+        bool dotnetUpInstalled = false;
+        string? dotnetUpVersion = null;
+        string? dotnetUpManagedRoot = null;
+        if (_dotnetUpService is { IsInstalled: true })
+        {
+            dotnetUpInstalled = true;
+            var info = await TryGetDotnetUpInfoAsync();
+            dotnetUpVersion = info?.Version;
+            var list = await TryGetDotnetUpListAsync();
+            dotnetUpManagedRoot = list?.InstallRoots.FirstOrDefault();
+        }
+
         return new DoctorContext(
             WorkingDirectory: effectiveDir,
             DotNetSdkPath: sdkPath,
@@ -138,14 +154,74 @@ public class DoctorService : IDoctorService
             IsPreviewSdk: isPreviewSdk,
             ActiveSdkVersion: activeSdkVersion,
             RollForwardPolicy: globalJson?.RollForward,
-            ResolvedSdkVersion: resolvedSdkVersion
+            ResolvedSdkVersion: resolvedSdkVersion,
+            DotnetUpInstalled: dotnetUpInstalled,
+            DotnetUpVersion: dotnetUpVersion,
+            DotnetUpManagedInstallRoot: dotnetUpManagedRoot
         );
+    }
+
+    private async Task<MauiSherpa.Workloads.Models.DotnetUpToolInfo?> TryGetDotnetUpInfoAsync()
+    {
+        if (_dotnetUpService is null)
+            return null;
+        try
+        {
+            return await _dotnetUpService.GetToolInfoAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning($"Failed to query dotnetup --info: {ex.Message}");
+            return null;
+        }
+    }
+
+    private async Task<MauiSherpa.Workloads.Models.DotnetUpListResult?> TryGetDotnetUpListAsync()
+    {
+        if (_dotnetUpService is null)
+            return null;
+        try
+        {
+            return await _dotnetUpService.GetListAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning($"Failed to query dotnetup list: {ex.Message}");
+            return null;
+        }
     }
     
     /// <summary>
-    /// Resolves the effective SDK version based on the rollForward policy from global.json.
-    /// See: https://learn.microsoft.com/dotnet/core/tools/global-json#rollforward
+    /// Merges dotnetup-managed SDK versions into the locally discovered set, de-duplicating by
+    /// version string and re-sorting descending so the "latest installed" reflects dotnetup installs.
     /// </summary>
+    internal static IReadOnlyList<SdkVersion> MergeManagedSdks(
+        IReadOnlyList<SdkVersion> localSdks, MauiSherpa.Workloads.Models.DotnetUpListResult dotnetUpList)
+    {
+        var byVersion = new Dictionary<string, SdkVersion>(StringComparer.OrdinalIgnoreCase);
+        foreach (var sdk in localSdks)
+            byVersion[sdk.Version] = sdk;
+
+        foreach (var managed in DotnetUpParser.GetManagedSdkVersions(dotnetUpList))
+        {
+            if (byVersion.ContainsKey(managed))
+                continue;
+            if (SdkVersion.TryParse(managed, out var parsed) && parsed != null)
+                byVersion[managed] = parsed;
+        }
+
+        return byVersion.Values
+            .OrderByDescending(v => v.Major)
+            .ThenByDescending(v => v.Minor)
+            .ThenByDescending(v => v.Patch)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Resolves the effective SDK version based on the rollForward policy from global.json.</summary>
+    /// <remarks>
+    /// See: https://learn.microsoft.com/dotnet/core/tools/global-json#rollforward
+    /// </remarks>
     private static SdkVersion? ResolveRollForward(
         string pinnedVersion, string? rollForward, IReadOnlyList<SdkVersion> installedSdks)
     {
@@ -209,6 +285,17 @@ public class DoctorService : IDoctorService
         
         // Get installed SDKs
         var sdkVersions = localSdkService.GetInstalledSdkVersions();
+
+        // Merge in SDKs managed by dotnetup. dotnetup installs to a user-level root
+        // (e.g. ~/Library/Application Support/dotnet on macOS) that LocalSdkService does not
+        // scan, so without this the GUI Doctor would never "see" a dotnetup-applied update.
+        var dotnetUpList = await TryGetDotnetUpListAsync();
+        var dotnetUpInstalled = _dotnetUpService is { IsInstalled: true };
+        if (dotnetUpList != null)
+        {
+            sdkVersions = MergeManagedSdks(sdkVersions, dotnetUpList);
+        }
+
         var sdkInfos = sdkVersions.Select(s => new SdkVersionInfo(
             s.Version, s.FeatureBand, s.Major, s.Minor, s.IsPreview
         )).ToList();
@@ -265,6 +352,9 @@ public class DoctorService : IDoctorService
                 var isLatestForMajor = latestAvailableForMajor == null 
                     || latestSdk.Version == latestAvailableForMajor.Version;
                 
+                // dotnetup can fix an out-of-date preview by installing the recommended version.
+                var canFix = !isLatestForMajor && _dotnetUpService != null && latestAvailableForMajor != null;
+
                 // Add an informational status about being on a preview SDK
                 dependencies.Add(new DependencyStatus(
                     ".NET SDK",
@@ -276,7 +366,8 @@ public class DoctorService : IDoctorService
                     isLatestForMajor
                         ? $"Preview SDK ({latestSdk.Version})"
                         : $"Update available: {latestAvailableForMajor?.Version}",
-                    IsFixable: false
+                    IsFixable: canFix,
+                    FixAction: canFix ? $"dotnetup-update-sdk:{latestAvailableForMajor!.Version}" : null
                 ));
             }
             else
@@ -284,7 +375,10 @@ public class DoctorService : IDoctorService
                 var latestAvailable = availableSdkVersions?
                     .FirstOrDefault(s => !s.IsPreview);
                 var isLatest = latestAvailable == null || latestSdk.Version == latestAvailable.Version;
-                
+
+                // dotnetup can fix an out-of-date stable SDK by installing the latest.
+                var canFix = !isLatest && _dotnetUpService != null && latestAvailable != null;
+
                 dependencies.Add(new DependencyStatus(
                     ".NET SDK",
                     DependencyCategory.DotNetSdk,
@@ -295,7 +389,40 @@ public class DoctorService : IDoctorService
                     isLatest 
                         ? $"{sdkVersions.Count} SDK(s) installed, using {latestSdk.Version}"
                         : $"Update available: {latestAvailable?.Version}",
+                    IsFixable: canFix,
+                    FixAction: canFix ? $"dotnetup-update-sdk:{latestAvailable!.Version}" : null
+                ));
+            }
+        }
+
+        // dotnetup presence check — informational, with an install action when missing.
+        if (_dotnetUpService != null)
+        {
+            if (dotnetUpInstalled)
+            {
+                var version = context.DotnetUpVersion;
+                dependencies.Add(new DependencyStatus(
+                    "dotnetup",
+                    DependencyCategory.DotNetSdk,
+                    null, null,
+                    version,
+                    DependencyStatusType.Info,
+                    version != null
+                        ? $"Installed ({version}) — manages .NET SDKs & runtimes"
+                        : "Installed — manages .NET SDKs & runtimes",
                     IsFixable: false
+                ));
+            }
+            else
+            {
+                dependencies.Add(new DependencyStatus(
+                    "dotnetup",
+                    DependencyCategory.DotNetSdk,
+                    null, null, null,
+                    DependencyStatusType.Info,
+                    "Not installed — install to manage .NET SDKs & runtimes",
+                    IsFixable: true,
+                    FixAction: "install-dotnetup"
                 ));
             }
         }
@@ -1049,6 +1176,42 @@ public class DoctorService : IDoctorService
                 
                 return acquired;
             }
+
+            if (dependency.FixAction == "install-dotnetup")
+            {
+                if (_dotnetUpService == null)
+                {
+                    progress?.Report("dotnetup service unavailable");
+                    return false;
+                }
+                progress?.Report("Downloading and verifying dotnetup...");
+                return await _dotnetUpService.EnsureInstalledAsync(progress: progress);
+            }
+
+            if (dependency.FixAction.StartsWith("dotnetup-update-sdk"))
+            {
+                if (_dotnetUpService == null)
+                {
+                    progress?.Report("dotnetup service unavailable");
+                    return false;
+                }
+
+                if (!_dotnetUpService.IsInstalled)
+                {
+                    progress?.Report("Downloading and verifying dotnetup...");
+                    if (!await _dotnetUpService.EnsureInstalledAsync(progress: progress))
+                        return false;
+                }
+
+                string? channel = null;
+                var colon = dependency.FixAction.IndexOf(':');
+                if (colon >= 0 && colon < dependency.FixAction.Length - 1)
+                    channel = dependency.FixAction[(colon + 1)..];
+
+                progress?.Report($"Installing .NET SDK ({channel ?? "latest"}) via dotnetup...");
+                var request = _dotnetUpService.InstallSdkRequest(channel);
+                return await RunProcessRequestAsync(request, progress);
+            }
             
             if (dependency.FixAction == "install-workloads")
             {
@@ -1243,6 +1406,60 @@ public class DoctorService : IDoctorService
         catch (Exception ex)
         {
             _logger.LogError($"Failed to switch workload mode: {ex.Message}", ex);
+            progress?.Report($"Error: {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Runs a <see cref="ProcessRequest"/> (used for dotnetup commands), streaming combined
+    /// stdout/stderr lines to <paramref name="progress"/>. Returns true on a zero exit code.
+    /// </summary>
+    private async Task<bool> RunProcessRequestAsync(ProcessRequest request, IProgress<string>? progress = null)
+    {
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = request.Command,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WorkingDirectory = request.WorkingDirectory ?? string.Empty
+            };
+            foreach (var arg in request.Arguments)
+                psi.ArgumentList.Add(arg);
+            if (request.Environment != null)
+            {
+                foreach (var kvp in request.Environment)
+                    psi.Environment[kvp.Key] = kvp.Value;
+            }
+
+            using var process = Process.Start(psi);
+            if (process == null)
+            {
+                progress?.Report("Failed to start process.");
+                return false;
+            }
+
+            process.OutputDataReceived += (_, e) => { if (e.Data != null) progress?.Report(e.Data); };
+            process.ErrorDataReceived += (_, e) => { if (e.Data != null) progress?.Report(e.Data); };
+            process.BeginOutputReadLine();
+            process.BeginErrorReadLine();
+
+            await process.WaitForExitAsync();
+
+            if (process.ExitCode != 0)
+            {
+                _logger.LogWarning($"Process exited with code {process.ExitCode}: {request.CommandLine}");
+                return false;
+            }
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Failed to run process: {ex.Message}", ex);
             progress?.Report($"Error: {ex.Message}");
             return false;
         }

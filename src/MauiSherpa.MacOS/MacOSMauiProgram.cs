@@ -143,6 +143,7 @@ public static class MacOSMauiProgram
         builder.Services.AddSingleton<ProfilingViewerService>();
         builder.Services.AddSingleton<IDebugFlagService, DebugFlagService>();
         builder.Services.AddSingleton<IDoctorService, DoctorService>();
+        builder.Services.AddSingleton<IDotnetUpService, DotnetUpService>();
         builder.Services.AddSingleton<IProfilingContextService, ProfilingContextService>();
         builder.Services.AddSingleton<ICopilotToolsService, CopilotToolsService>();
         builder.Services.AddSingleton<ICopilotService, CopilotService>();
@@ -227,6 +228,12 @@ public static class MacOSMauiProgram
         builder.Services.AddSingleton<XcodeManagementViewModel>();
         builder.Services.AddSingleton<CopilotViewModel>();
         builder.Services.AddSingleton<SettingsViewModel>();
+
+        // Shiny.Mediator 6.6.x serializes the persistent cache via Shiny.Json, which is strict
+        // (source-gen contexts only) and throws "No JsonTypeInfo registered" for any cached type.
+        // We don't ship [ShinyJsonInclude]/source-gen contexts, so register the reflection-based
+        // resolver to restore plain serialization for all cached request/response types.
+        Shiny.Json.AddResolver(new System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver());
 
         // Shiny Mediator with caching
         builder.AddShinyMediator(cfg =>
