@@ -12,16 +12,16 @@ namespace MauiSherpa.Bundle.Pipeline;
 /// </summary>
 public sealed class SherpaPipeline
 {
-    private readonly IBundleLoader _loader;
+    private readonly IReadOnlyList<IBundleLoader> _loaders;
     private readonly IProcessRunner _process;
     private readonly DeployProviderRegistry _deployRegistry;
 
     public SherpaPipeline(
-        IBundleLoader? loader = null,
+        IEnumerable<IBundleLoader>? loaders = null,
         IProcessRunner? process = null,
         DeployProviderRegistry? deployRegistry = null)
     {
-        _loader = loader ?? new JsonBundleLoader();
+        _loaders = loaders?.ToList() ?? new List<IBundleLoader> { new JsonBundleLoader(), new SqlCipherBundleLoader() };
         _process = process ?? new ProcessRunner();
         _deployRegistry = deployRegistry ?? DeployProviderRegistry.CreateDefault();
     }
@@ -29,7 +29,11 @@ public sealed class SherpaPipeline
     public async Task<SherpaResult> RunAsync(SherpaRunOptions options, ISherpaLog log, CancellationToken ct = default)
     {
         // 1. Load + select environment.
-        var bundle = _loader.Load(options.BundlePath);
+        if (!File.Exists(options.BundlePath))
+            throw new SherpaBundleException($"Bundle file not found: {options.BundlePath}");
+        var loader = _loaders.FirstOrDefault(l => l.CanLoad(options.BundlePath))
+            ?? throw new SherpaBundleException($"No loader recognizes bundle '{options.BundlePath}'.");
+        var bundle = await loader.LoadAsync(options.BundlePath, options.Password, ct);
         if (!bundle.TryGetEnvironment(options.Environment, out var envName, out var env))
             throw new SherpaBundleException(
                 $"Environment '{options.Environment}' not found. Available: {string.Join(", ", bundle.Environments.Keys)}.");

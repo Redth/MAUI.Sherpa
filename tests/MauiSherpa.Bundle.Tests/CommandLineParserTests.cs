@@ -88,4 +88,23 @@ public class CommandLineParserTests
     [Fact]
     public void Unknown_option_errors()
         => CommandLineParser.Parse(new[] { "b", "-environment:p", "-bogus:1" }).Error.Should().Contain("Unknown option");
+
+    [Fact]
+    public void Parses_password_flag()
+    {
+        var r = CommandLineParser.Parse(new[] { "b", "-environment:p", "-password:hunter2" });
+        r.Error.Should().BeNull();
+        r.Options!.Password.Should().Be("hunter2");
+    }
+
+    [Fact]
+    public void Password_is_null_when_absent()
+        => CommandLineParser.Parse(new[] { "b", "-environment:p" }).Options!.Password.Should().BeNull();
+
+    [Fact]
+    public void Password_preserves_colons_and_equals()
+    {
+        var r = CommandLineParser.Parse(new[] { "b", "-environment:p", "-password:p@ss:w0rd=x" });
+        r.Options!.Password.Should().Be("p@ss:w0rd=x");
+    }
 }

@@ -26,6 +26,13 @@ public sealed class SherpaRunOptions
     /// <summary>Explicit project path (<c>-project</c>); null triggers inference (spec §6).</summary>
     public string? ProjectPath { get; init; }
 
+    /// <summary>
+    /// Password for an encrypted (SQLCipher) bundle (<c>-password</c>); null for
+    /// plain-JSON bundles. Encrypted loaders also fall back to the
+    /// <c>SHERPA_BUNDLE_PASSWORD</c> environment variable when this is null.
+    /// </summary>
+    public string? Password { get; init; }
+
     public IReadOnlyDictionary<string, string> Variables { get; init; } =
         new Dictionary<string, string>(StringComparer.Ordinal);
 

@@ -12,7 +12,8 @@ internal static class HelpText
           sherpacli <bundle>.sherpabundle -environment:<name> [options]
 
         REQUIRED:
-          <bundle>                 Path to the .sherpabundle file (positional).
+          <bundle>                 Path to the .sherpabundle file (positional). May be a
+                                   plain-JSON bundle or an encrypted SQLCipher bundle.
           -environment:<name>      Environment block to apply (case-insensitive).
 
         OPTIONS:
@@ -21,6 +22,9 @@ internal static class HelpText
           -step:<list>             Comma-separated: setup,build,deploy,all (default: all).
                                    Always run in order: setup → build → deploy.
           -project:<path>          Target .csproj. Inferred from the CWD if omitted.
+          -password:<value>        Password for an encrypted bundle. Falls back to the
+                                   SHERPA_BUNDLE_PASSWORD environment variable. Ignored
+                                   for plain-JSON bundles.
           -variable:"name=value"   Set a ${name} substitution variable. Repeatable.
           -replacetoken:"name=val" Override a ReplaceTokens entry. Repeatable.
           -msbuild:"prop=value"    Override an MSBuildProperties entry. Repeatable.
@@ -30,7 +34,7 @@ internal static class HelpText
 
         EXAMPLE:
           sherpacli app.sherpabundle -environment:production -platform:android,ios \
-            -variable:"buildNumber=1234" -replacetoken:"Hello=Android World 2"
+            -password:"hunter2" -variable:"buildNumber=1234"
         """);
     }
 }

@@ -91,6 +91,24 @@
             <button class="btn btn-secondary" @onclick="AddDeployTarget"><i class="fas fa-plus"></i> Add deploy target</button>
         </div>
 
+        <!-- Encryption -->
+        <div class="section">
+            <div class="section-title"><i class="fas fa-lock"></i> Encryption</div>
+            <div class="form-group">
+                <label>Bundle password</label>
+                <input type="password" class="form-control" @bind="password" @bind:event="oninput" @bind:after="UpdateValidity" placeholder="Required" autocomplete="new-password" />
+                <div class="form-hint">The bundle is written as an encrypted SQLCipher database. Supply this password to <code>sherpacli -password:…</code> (or <code>SHERPA_BUNDLE_PASSWORD</code>) when running it.</div>
+            </div>
+            <div class="form-group">
+                <label>Confirm password</label>
+                <input type="password" class="form-control" @bind="confirmPassword" @bind:event="oninput" @bind:after="UpdateValidity" placeholder="Re-enter" autocomplete="new-password" />
+                @if (!string.IsNullOrEmpty(confirmPassword) && password != confirmPassword)
+                {
+                    <div class="form-error">Passwords do not match.</div>
+                }
+            </div>
+        </div>
+
         <!-- Output -->
         <div class="section">
             <div class="section-title"><i class="fas fa-floppy-disk"></i> Output</div>
@@ -126,6 +144,8 @@
 
     IReadOnlyList<AppleIdentity> identities = Array.Empty<AppleIdentity>();
     string? savePath;
+    string password = "";
+    string confirmPassword = "";
 
     static readonly string[] Providers = { "TestFlight", "Firebase", "PlayStore", "AmazonAppStore", "MicrosoftStore" };
     static readonly BundlePlatform[] AllPlatforms =
@@ -182,7 +202,10 @@
         UpdateValidity();
     }
 
-    void UpdateValidity() => BridgeHolder.Current?.SetValid(!string.IsNullOrEmpty(savePath));
+    void UpdateValidity() => BridgeHolder.Current?.SetValid(
+        !string.IsNullOrEmpty(savePath)
+        && !string.IsNullOrEmpty(password)
+        && password == confirmPassword);
 
     async Task ChooseSaveLocation()
     {
@@ -217,7 +240,8 @@
     async Task OnSubmitRequested()
     {
         var bridge = BridgeHolder.Current;
-        if (bridge == null || profile == null || string.IsNullOrEmpty(savePath)) return;
+        if (bridge == null || profile == null || string.IsNullOrEmpty(savePath)
+            || string.IsNullOrEmpty(password) || password != confirmPassword) return;
 
         var platforms = new List<BundlePlatform>();
         if (wantsIOS) platforms.Add(BundlePlatform.iOS);
@@ -245,8 +269,8 @@
         // Persist the settings so they're remembered next time.
         try { await ProfileService.SaveProfileAsync(updated); } catch { }
 
-        // Resolve material and write the bundle file.
-        await BundleBuilder.BuildAndSaveAsync(updated, savePath);
+        // Resolve material and write the encrypted bundle file.
+        await BundleBuilder.BuildAndSaveAsync(updated, savePath, password);
 
         FileSystem.RevealInFileManager(savePath);
         bridge.Result = true;
@@ -322,6 +346,7 @@
     .form-control { padding: 8px 12px; border: 1px solid var(--input-border); border-radius: 6px; background: var(--input-bg); color: var(--text-primary); font-size: 14px; }
     .form-control.compact { padding: 6px 10px; font-size: 13px; }
     .form-hint { font-size: 11px; color: var(--text-muted); }
+    .form-error { font-size: 11px; color: var(--accent-danger); }
     .form-hint code, code { background: var(--bg-tertiary); padding: 1px 5px; border-radius: 4px; font-size: 11px; }
     .checkbox-row { display: flex; flex-wrap: wrap; gap: 14px; }
     .chk { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-primary); cursor: pointer; }

@@ -17,8 +17,11 @@ public interface ISherpaBundleBuilderService
     /// <summary>Resolves all material and produces an in-memory bundle model.</summary>
     Task<SherpaBundle> BuildAsync(PublishProfile profile, IProgress<string>? progress = null, CancellationToken ct = default);
 
-    /// <summary>Builds the bundle and writes the serialized JSON to <paramref name="filePath"/>.</summary>
-    Task BuildAndSaveAsync(PublishProfile profile, string filePath, IProgress<string>? progress = null, CancellationToken ct = default);
+    /// <summary>
+    /// Builds the bundle and writes it to <paramref name="filePath"/> as an
+    /// encrypted SQLCipher database protected by <paramref name="password"/>.
+    /// </summary>
+    Task BuildAndSaveAsync(PublishProfile profile, string filePath, string password, IProgress<string>? progress = null, CancellationToken ct = default);
 }
 
 public sealed class SherpaBundleBuilderService : ISherpaBundleBuilderService
@@ -55,17 +58,14 @@ public sealed class SherpaBundleBuilderService : ISherpaBundleBuilderService
         _logger = logger;
     }
 
-    public async Task BuildAndSaveAsync(PublishProfile profile, string filePath, IProgress<string>? progress = null, CancellationToken ct = default)
+    public async Task BuildAndSaveAsync(PublishProfile profile, string filePath, string password, IProgress<string>? progress = null, CancellationToken ct = default)
     {
+        if (string.IsNullOrEmpty(password))
+            throw new ArgumentException("A password is required to write an encrypted bundle.", nameof(password));
+
         var bundle = await BuildAsync(profile, progress, ct);
-        progress?.Report("Writing bundle file...");
-        var json = SherpaBundleWriter.Write(bundle);
-
-        var dir = Path.GetDirectoryName(filePath);
-        if (!string.IsNullOrEmpty(dir))
-            Directory.CreateDirectory(dir);
-
-        await File.WriteAllTextAsync(filePath, json, new UTF8Encoding(false), ct);
+        progress?.Report("Encrypting bundle...");
+        await SqlCipherBundleStore.SaveAsync(bundle, filePath, password, ct);
         progress?.Report($"Saved {filePath}");
     }
 

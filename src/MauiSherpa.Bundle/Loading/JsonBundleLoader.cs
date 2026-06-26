@@ -3,16 +3,16 @@ using MauiSherpa.Bundle.Models;
 namespace MauiSherpa.Bundle.Loading;
 
 /// <summary>
-/// Loads a raw-JSON <c>.sherpabundle</c> file (the current format). A BOM, if
-/// present, is tolerated even though the spec calls for UTF-8 without one.
+/// Loads a raw-JSON <c>.sherpabundle</c> file (the unencrypted format). A BOM, if
+/// present, is tolerated even though the spec calls for UTF-8 without one. The
+/// <c>password</c> argument is ignored.
 /// </summary>
 public sealed class JsonBundleLoader : IBundleLoader
 {
     public bool CanLoad(string path)
-        => path.EndsWith(".sherpabundle", StringComparison.OrdinalIgnoreCase)
-           || path.EndsWith(".json", StringComparison.OrdinalIgnoreCase);
+        => File.Exists(path) && BundleFormat.LooksLikeJson(path);
 
-    public SherpaBundle Load(string path)
+    public Task<SherpaBundle> LoadAsync(string path, string? password, CancellationToken ct = default)
     {
         if (!File.Exists(path))
             throw new SherpaBundleException($"Bundle file not found: {path}");
@@ -27,7 +27,7 @@ public sealed class JsonBundleLoader : IBundleLoader
             throw new SherpaBundleException($"Could not read bundle file '{path}': {ex.Message}", ex);
         }
 
-        return SherpaBundleSerializer.Deserialize(StripBom(bytes));
+        return Task.FromResult(SherpaBundleSerializer.Deserialize(StripBom(bytes)));
     }
 
     private static ReadOnlySpan<byte> StripBom(byte[] bytes)

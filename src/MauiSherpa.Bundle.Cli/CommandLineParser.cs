@@ -20,7 +20,7 @@ public static class CommandLineParser
 
     private static readonly HashSet<string> ValueFlags = new(StringComparer.OrdinalIgnoreCase)
     {
-        "environment", "platform", "step", "project", "variable", "replacetoken", "msbuild",
+        "environment", "platform", "step", "project", "variable", "replacetoken", "msbuild", "password",
     };
 
     public static ParseResult Parse(string[] args)
@@ -30,6 +30,7 @@ public static class CommandLineParser
         string? platformList = null;
         string? stepList = null;
         string? projectPath = null;
+        string? password = null;
         var variables = new Dictionary<string, string>(StringComparer.Ordinal);
         var replaceTokens = new Dictionary<string, string>(StringComparer.Ordinal);
         var msbuild = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -78,6 +79,7 @@ public static class CommandLineParser
                 case "platform": platformList = value; break;
                 case "step": stepList = value; break;
                 case "project": projectPath = value; break;
+                case "password": password = value; break;
                 case "variable": if (!AddPair(variables, value, out var ve)) return Fail(ve!); break;
                 case "replacetoken": if (!AddPair(replaceTokens, value, out var re)) return Fail(re!); break;
                 case "msbuild": if (!AddPair(msbuild, value, out var me)) return Fail(me!); break;
@@ -108,6 +110,7 @@ public static class CommandLineParser
                 Platforms = platforms,
                 Steps = steps,
                 ProjectPath = projectPath,
+                Password = password,
                 Variables = variables,
                 ReplaceTokens = replaceTokens,
                 MSBuildProperties = msbuild,

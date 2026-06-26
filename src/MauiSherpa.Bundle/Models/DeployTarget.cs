@@ -12,8 +12,11 @@ public sealed class DeployTarget
 {
     public string? Provider { get; init; }
 
+    // A regular `set` (not `init`): System.Text.Json's source generator rejects
+    // an init-only [JsonExtensionData] property, and bundles are serialized through
+    // a source-generated context for AOT/trim safety.
     [JsonExtensionData]
-    public Dictionary<string, JsonElement> Fields { get; init; } = new(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, JsonElement> Fields { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Gets a provider-specific string field (case-insensitive), or null.</summary>
     public string? GetString(string name)

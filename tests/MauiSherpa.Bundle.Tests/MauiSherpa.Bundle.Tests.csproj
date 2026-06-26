@@ -15,11 +15,21 @@
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
     <PackageReference Include="FluentAssertions" Version="8.3.0" />
+    <PackageReference Include="NSubstitute" Version="5.3.0" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="../../src/MauiSherpa.Bundle/MauiSherpa.Bundle.csproj" />
     <ProjectReference Include="../../src/MauiSherpa.Bundle.Cli/MauiSherpa.Bundle.Cli.csproj" />
+    <ProjectReference Include="../../src/MauiSherpa.Core/MauiSherpa.Core.csproj" />
+  </ItemGroup>
+
+  <!-- The bundle builder used by the UI lives in the MAUI head project (maccatalyst-only)
+       but has no MAUI dependencies — link the single source file so it can be unit-tested
+       directly against mocked services on net10.0. -->
+  <ItemGroup>
+    <Compile Include="../../src/MauiSherpa/Services/SherpaBundleBuilderService.cs"
+             Link="Linked/SherpaBundleBuilderService.cs" />
   </ItemGroup>
 
   <ItemGroup>
