@@ -105,3 +105,90 @@ public record DotnetUpToolInfo
 
     public string? Rid { get; init; }
 }
+
+/// <summary>
+/// Preview of whether a tracked channel has a newer version available, computed by resolving the
+/// channel against the official .NET release metadata — <b>without</b> running any install/update.
+/// </summary>
+public record DotnetUpdatePreview
+{
+    public required DotnetUpComponent Component { get; init; }
+
+    /// <summary>The tracked channel or pinned version this preview was computed for (e.g. "latest", "9.0.3xx").</summary>
+    public required string Channel { get; init; }
+
+    /// <summary>The newest installed version that currently satisfies this channel, or null when none matched.</summary>
+    public string? InstalledVersion { get; init; }
+
+    /// <summary>The newest available version the channel resolves to, or null when it couldn't be resolved (offline/unknown).</summary>
+    public string? AvailableVersion { get; init; }
+
+    /// <summary>True when <see cref="AvailableVersion"/> is newer than <see cref="InstalledVersion"/>.</summary>
+    public bool UpdateAvailable { get; init; }
+
+    /// <summary>True when the spec is a pinned exact version, so no channel update applies.</summary>
+    public bool IsPinned { get; init; }
+}
+
+/// <summary>
+/// The outcome of resolving a folder's <c>global.json</c> context.
+/// </summary>
+public enum GlobalJsonStatus
+{
+    /// <summary>No <c>global.json</c> was found walking up from the folder.</summary>
+    NoGlobalJson,
+
+    /// <summary>A <c>global.json</c> was found but it has no <c>sdk.version</c>, so no channel is pinned.</summary>
+    NoSdkVersion,
+
+    /// <summary>A channel was derived and resolved against the release feed.</summary>
+    Resolved,
+
+    /// <summary>A channel was derived but it couldn't be resolved (offline / unknown).</summary>
+    Unresolved,
+}
+
+/// <summary>
+/// Read-only resolution of the .NET SDK a project folder requires via its <c>global.json</c> —
+/// computed without running dotnetup. dotnetup walks up from a directory to the nearest
+/// <c>global.json</c> (the same algorithm as the <c>dotnet</c> host) and maps
+/// <c>sdk.version</c> + <c>sdk.rollForward</c> to a channel.
+/// </summary>
+public record GlobalJsonResolution
+{
+    /// <summary>The folder the user picked to inspect.</summary>
+    public required string FolderPath { get; init; }
+
+    /// <summary>Full path to the nearest <c>global.json</c> found walking up, or null when none exists.</summary>
+    public string? GlobalJsonPath { get; init; }
+
+    /// <summary>The <c>sdk.version</c> value from <c>global.json</c>, if present.</summary>
+    public string? RequestedVersion { get; init; }
+
+    /// <summary>The <c>sdk.rollForward</c> policy (e.g. "latestPatch"), defaulted to "latestPatch" when omitted.</summary>
+    public string? RollForward { get; init; }
+
+    /// <summary>The <c>sdk.allowPrerelease</c> value, if specified.</summary>
+    public bool? AllowPrerelease { get; init; }
+
+    /// <summary>The dotnetup channel derived from version + rollForward (e.g. "10.0.1xx", "latest", "10.0.100").</summary>
+    public string? Channel { get; init; }
+
+    /// <summary>True when the derived channel is a pinned exact version that never auto-updates.</summary>
+    public bool IsPinned { get; init; }
+
+    /// <summary>The newest version the channel resolves to from the release feed, or null when unresolved.</summary>
+    public string? ResolvedVersion { get; init; }
+
+    /// <summary>The newest installed SDK that satisfies the channel, or null when none is installed.</summary>
+    public string? InstalledVersion { get; init; }
+
+    /// <summary>True when an installed SDK satisfies this project's requirement.</summary>
+    public bool Satisfied { get; init; }
+
+    /// <summary>True when dotnetup already tracks a spec sourced from this <c>global.json</c> (or matching channel).</summary>
+    public bool AlreadyTracked { get; init; }
+
+    /// <summary>Overall resolution status.</summary>
+    public required GlobalJsonStatus Status { get; init; }
+}

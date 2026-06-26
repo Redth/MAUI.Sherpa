@@ -1,0 +1,291 @@
+@page "/modal/add-channel"
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Pages.Forms
+@inject HybridFormBridgeHolder BridgeHolder
+@implements IDisposable
+
+@{
+    var bridge = BridgeHolder.Current;
+}
+
+@if (bridge != null)
+{
+    <div class="add-channel-dialog">
+        <p class="intro">
+            Pick a channel to install and track. dotnetup keeps it installed and up to date.
+            You can track several at once (e.g. <strong>Latest</strong> plus an older band like <strong>9.0.1xx</strong>).
+        </p>
+
+        <div class="selection-list">
+            @foreach (var ch in channelOptions)
+            {
+                var tracked = IsTracked(ch.Value);
+                <label class="channel-item @(selectedChannel == ch.Value ? "selected" : "")"
+                       @onclick="@(() => SelectChannel(ch.Value))">
+                    <div class="channel-content">
+                        <div class="channel-title">
+                            @ch.Label
+                            @if (tracked)
+                            {
+                                <span class="badge badge-secondary"><i class="fas fa-thumbtack"></i> tracking</span>
+                            }
+                        </div>
+                        <div class="channel-desc">@ch.Description</div>
+                    </div>
+                    @if (selectedChannel == ch.Value)
+                    {
+                        <i class="fas fa-check selected-mark"></i>
+                    }
+                </label>
+            }
+
+            <label class="channel-item @(selectedChannel == CustomValue ? "selected" : "")"
+                   @onclick="@(() => SelectChannel(CustomValue))">
+                <div class="channel-content">
+                    <div class="channel-title">Custom…</div>
+                    <div class="channel-desc">Enter an exact version or feature band (e.g. 10.0.203, 9.0.2xx).</div>
+                    @if (selectedChannel == CustomValue)
+                    {
+                        <input type="text" class="channel-input" placeholder="e.g. 9.0.1xx or 10.0.103"
+                               @bind="customChannel" @bind:event="oninput" @bind:after="UpdateBridge"
+                               @onclick:stopPropagation="true" />
+                    }
+                </div>
+                @if (selectedChannel == CustomValue)
+                {
+                    <i class="fas fa-check selected-mark"></i>
+                }
+            </label>
+        </div>
+
+        <p class="note">
+            <i class="fas fa-circle-info"></i>
+            <span>
+                This won't change your default <code>dotnet</code>. How <code>dotnet</code> resolves on your
+                <code>PATH</code> (Terminal vs Isolation mode) is a one-time global choice made by
+                <code>dotnetup init</code>, not a per-channel setting.
+            </span>
+        </p>
+    </div>
+}
+
+<style>
+    .add-channel-dialog {
+        display: flex;
+        flex-direction: column;
+        gap: 0.875rem;
+        padding: 1rem 1.25rem;
+    }
+
+    .add-channel-dialog .intro {
+        margin: 0;
+        font-size: 0.875rem;
+        color: var(--text-secondary);
+        line-height: 1.45;
+    }
+
+    .add-channel-dialog .selection-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+        border: 1px solid var(--border-color);
+        border-radius: 0.875rem;
+        background: var(--card-bg);
+        overflow: hidden;
+    }
+
+    .channel-item {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.875rem;
+        padding: 0.75rem 1rem;
+        cursor: pointer;
+        transition: background 0.15s, box-shadow 0.15s;
+    }
+
+    .channel-item + .channel-item {
+        border-top: 1px solid var(--border-color);
+    }
+
+    .channel-item:hover {
+        background: var(--bg-tertiary);
+    }
+
+    .channel-item.selected {
+        background: var(--accent-bg, rgba(139, 92, 246, 0.08));
+        box-shadow: inset 0 0 0 1px var(--accent-primary);
+    }
+
+    .channel-content {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .channel-title {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.5rem;
+        font-weight: 600;
+        font-size: 0.9rem;
+        color: var(--text-primary);
+        margin-bottom: 0.2rem;
+    }
+
+    .channel-desc {
+        font-size: 0.8125rem;
+        color: var(--text-secondary);
+        line-height: 1.4;
+    }
+
+    .channel-input {
+        margin-top: 0.5rem;
+        width: 100%;
+        box-sizing: border-box;
+        padding: 0.5rem 0.7rem;
+        border: 1px solid var(--input-border, var(--border-color));
+        border-radius: 0.5rem;
+        background: var(--input-bg);
+        color: var(--text-primary);
+        font-size: 0.875rem;
+        outline: none;
+    }
+
+    .channel-input:focus {
+        border-color: var(--accent-primary, #7c3aed);
+    }
+
+    .selected-mark {
+        color: var(--accent-primary);
+        margin-top: 0.2rem;
+        flex-shrink: 0;
+    }
+
+    .add-channel-dialog .note {
+        margin: 0;
+        display: flex;
+        gap: 0.5rem;
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+        line-height: 1.45;
+        padding: 0.65rem 0.75rem;
+        background: var(--bg-tertiary);
+        border-radius: 0.625rem;
+    }
+
+    .add-channel-dialog .note i {
+        margin-top: 0.15rem;
+        opacity: 0.8;
+        flex-shrink: 0;
+    }
+
+    .add-channel-dialog code {
+        font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+        font-size: 0.78rem;
+        background: var(--card-bg);
+        border-radius: 0.3rem;
+        padding: 0.05rem 0.3rem;
+    }
+
+    /* badge base shape (global CSS supplies colors) */
+    .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        padding: 2px 0.55rem;
+        border-radius: 0.75rem;
+        font-size: 0.7rem;
+        font-weight: 500;
+        white-space: nowrap;
+    }
+</style>
+
+@code {
+    private const string CustomValue = "__custom__";
+
+    private string selectedChannel = "latest";
+    private string customChannel = string.Empty;
+    private HashSet<string> trackedChannels = new(StringComparer.OrdinalIgnoreCase);
+
+    private record ChannelOption(string Value, string Label, string Description);
+
+    private readonly List<ChannelOption> channelOptions = new()
+    {
+        new("latest", "Latest", "Newest stable .NET SDK. Tracks each new GA release as it ships."),
+        new("lts", "LTS · Long-Term Support", "Stays on the current Long-Term Support line and takes its patches."),
+        new("preview", "Preview", "Latest preview / RC build. Tracks newer previews until GA."),
+        new("10.0.1xx", "10.0 · feature band 1xx", "Latest SDK in the .NET 10.0 first feature band (10.0.1xx)."),
+        new("9.0.1xx", "9.0 · feature band 1xx", "Latest SDK in the .NET 9.0 first feature band (9.0.1xx)."),
+        new("8.0.1xx", "8.0 · feature band 1xx", "Latest SDK in the .NET 8.0 first feature band (8.0.1xx)."),
+        new("daily", "Daily build", "Latest nightly build from the VMR. Pinned — never auto-updates."),
+    };
+
+    protected override void OnInitialized()
+    {
+        var bridge = BridgeHolder.Current;
+        if (bridge == null)
+            return;
+
+        if (bridge.Parameters.TryGetValue("TrackedChannels", out var trackedValue) &&
+            trackedValue is IReadOnlyList<string> trackedList)
+        {
+            trackedChannels = new HashSet<string>(trackedList, StringComparer.OrdinalIgnoreCase);
+        }
+
+        bridge.SubmitRequested += OnSubmit;
+        bridge.CancelRequested += OnCancel;
+
+        // Pre-select "Latest" for convenience.
+        UpdateBridge();
+    }
+
+    private bool IsTracked(string value) => trackedChannels.Contains(value);
+
+    private void SelectChannel(string value)
+    {
+        selectedChannel = value;
+        UpdateBridge();
+    }
+
+    private string? EffectiveChannel =>
+        selectedChannel == CustomValue
+            ? (string.IsNullOrWhiteSpace(customChannel) ? null : customChannel.Trim())
+            : selectedChannel;
+
+    private void UpdateBridge()
+    {
+        var bridge = BridgeHolder.Current;
+        if (bridge == null)
+            return;
+
+        var channel = EffectiveChannel;
+        bridge.Result = channel;
+        bridge.SetValid(!string.IsNullOrWhiteSpace(channel));
+        StateHasChanged();
+    }
+
+    private Task OnSubmit()
+    {
+        var bridge = BridgeHolder.Current;
+        if (bridge != null)
+            bridge.Result = EffectiveChannel;
+        return Task.CompletedTask;
+    }
+
+    private void OnCancel()
+    {
+        var bridge = BridgeHolder.Current;
+        if (bridge != null)
+            bridge.Result = null;
+    }
+
+    public void Dispose()
+    {
+        var bridge = BridgeHolder.Current;
+        if (bridge != null)
+        {
+            bridge.SubmitRequested -= OnSubmit;
+            bridge.CancelRequested -= OnCancel;
+        }
+    }
+}

@@ -18,6 +18,8 @@ public class DotnetUpService : IDotnetUpService
     private readonly Lazy<HttpClient> _httpClient;
     private readonly string _rid;
     private readonly string _toolDirectory;
+    private DotnetUpdateResolver? _updateResolver;
+    private GlobalJsonResolver? _globalJsonResolver;
 
     public DotnetUpService(ILoggingService logger)
     {
@@ -153,17 +155,77 @@ public class DotnetUpService : IDotnetUpService
         }
     }
 
+    public async Task<IReadOnlyList<DotnetUpdatePreview>> GetUpdatePreviewAsync(
+        DotnetUpListResult list, CancellationToken cancellationToken = default)
+    {
+        var resolver = _updateResolver ??= new DotnetUpdateResolver();
+        return await resolver.GetUpdatePreviewAsync(list, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<GlobalJsonResolution> InspectProjectFolderAsync(
+        string folderPath, DotnetUpListResult list, CancellationToken cancellationToken = default)
+    {
+        var parsed = (_globalJsonResolver ??= new GlobalJsonResolver()).Resolve(folderPath);
+
+        // Nothing to resolve against the feed when there's no SDK version pinned.
+        if (parsed.Channel is not { Length: > 0 } channel)
+            return parsed;
+
+        var alreadyTracked = list.InstallSpecs.Any(s =>
+            s.Component == DotnetUpComponent.Sdk &&
+            ((parsed.GlobalJsonPath != null &&
+              string.Equals(s.GlobalJsonPath, parsed.GlobalJsonPath, StringComparison.OrdinalIgnoreCase)) ||
+             string.Equals(s.VersionOrChannel.Trim(), channel, StringComparison.OrdinalIgnoreCase)));
+
+        try
+        {
+            var resolver = _updateResolver ??= new DotnetUpdateResolver();
+            var (available, installed) = await resolver
+                .ResolveChannelAsync(DotnetUpComponent.Sdk, channel, list, cancellationToken)
+                .ConfigureAwait(false);
+
+            return parsed with
+            {
+                ResolvedVersion = available,
+                InstalledVersion = installed,
+                Satisfied = installed != null,
+                AlreadyTracked = alreadyTracked,
+                Status = available == null ? GlobalJsonStatus.Unresolved : GlobalJsonStatus.Resolved,
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning($"Failed to resolve global.json channel '{channel}': {ex.Message}");
+            return parsed with
+            {
+                AlreadyTracked = alreadyTracked,
+                Status = GlobalJsonStatus.Unresolved,
+            };
+        }
+    }
+
     public ProcessRequest CreateProcessRequest(
-        IReadOnlyList<string> arguments, string? title = null, string? description = null) =>
+        IReadOnlyList<string> arguments, string? title = null, string? description = null,
+        string? workingDirectory = null) =>
         new(
             Command: ExecutablePath,
             Arguments: arguments.ToArray(),
-            WorkingDirectory: null,
+            WorkingDirectory: workingDirectory,
             RequiresElevation: false,
             ElevationPrompt: null,
             Environment: null,
             Title: title,
             Description: description);
+
+    public ProcessRequest InstallForProjectRequest(string folderPath) =>
+        CreateProcessRequest(
+            // No channel + working directory = the folder → dotnetup resolves its global.json and
+            // records the spec with source = that global.json path. No --set-default-install: this
+            // installs the project's SDK without changing the user's default/terminal install.
+            DotnetUpArguments.SdkInstall(channel: null, setDefaultInstall: false),
+            title: "Install project SDK",
+            description: $"Installing the .NET SDK required by global.json in '{folderPath}'",
+            workingDirectory: folderPath);
 
     public ProcessRequest InstallSdkRequest(string? channel = null, bool terminalMode = true) =>
         CreateProcessRequest(

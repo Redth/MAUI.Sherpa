@@ -1943,8 +1943,36 @@ public interface IDotnetUpService
     /// </summary>
     Task<MauiSherpa.Workloads.Models.DotnetUpListResult?> GetListAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Resolves every tracked channel in <paramref name="list"/> against the official .NET release
+    /// metadata and returns a preview of which channels have a newer version available. Performs no
+    /// installs — this is a read-only "what would update change?" check.
+    /// </summary>
+    Task<IReadOnlyList<MauiSherpa.Workloads.Models.DotnetUpdatePreview>> GetUpdatePreviewAsync(
+        MauiSherpa.Workloads.Models.DotnetUpListResult list,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Resolves the <c>global.json</c> that applies to <paramref name="folderPath"/> (walking up to
+    /// the nearest one, like the <c>dotnet</c> host), derives the dotnetup channel, and reports
+    /// whether an installed SDK satisfies it and whether dotnetup already tracks it. Read-only.
+    /// </summary>
+    Task<MauiSherpa.Workloads.Models.GlobalJsonResolution> InspectProjectFolderAsync(
+        string folderPath,
+        MauiSherpa.Workloads.Models.DotnetUpListResult list,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Builds a <see cref="ProcessRequest"/> for arbitrary dotnetup arguments.</summary>
-    ProcessRequest CreateProcessRequest(IReadOnlyList<string> arguments, string? title = null, string? description = null);
+    ProcessRequest CreateProcessRequest(
+        IReadOnlyList<string> arguments, string? title = null, string? description = null,
+        string? workingDirectory = null);
+
+    /// <summary>
+    /// Builds a request that installs the SDK required by the <c>global.json</c> in
+    /// <paramref name="folderPath"/>, run with that folder as the working directory so dotnetup
+    /// resolves and tracks the project's requirement (without changing the default install).
+    /// </summary>
+    ProcessRequest InstallForProjectRequest(string folderPath);
 
     /// <summary>
     /// Builds a request to install (or update to) an SDK channel. When <paramref name="terminalMode"/>
