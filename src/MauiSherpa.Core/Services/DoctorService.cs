@@ -19,6 +19,8 @@ public class DoctorService : IDoctorService
     private readonly ILoggingService _loggingService;
     private readonly IOpenJdkSettingsService _jdkSettingsService;
     private readonly IAndroidSdkSettingsService? _androidSdkSettingsService;
+    private readonly IDotnetUpService? _dotnetUpService;
+    private readonly IDotnetWorkloadService? _dotnetWorkloadService;
     private readonly IDebugFlagService? _debugFlags;
     private readonly ILogger<DoctorService> _logger;
     private readonly ILoggerFactory _loggerFactory;
@@ -30,13 +32,23 @@ public class DoctorService : IDoctorService
     private WorkloadSetService? _workloadSetService;
     private SdkVersionService? _sdkVersionService;
     
-    public DoctorService(IAndroidSdkService androidSdkService, ILoggingService loggingService, IOpenJdkSettingsService jdkSettingsService, ILoggerFactory? loggerFactory = null, IDebugFlagService? debugFlags = null, IAndroidSdkSettingsService? androidSdkSettingsService = null)
+    public DoctorService(
+        IAndroidSdkService androidSdkService,
+        ILoggingService loggingService,
+        IOpenJdkSettingsService jdkSettingsService,
+        ILoggerFactory? loggerFactory = null,
+        IDebugFlagService? debugFlags = null,
+        IAndroidSdkSettingsService? androidSdkSettingsService = null,
+        IDotnetUpService? dotnetUpService = null,
+        IDotnetWorkloadService? dotnetWorkloadService = null)
     {
         _androidSdkService = androidSdkService;
         _loggingService = loggingService;
         _jdkSettingsService = jdkSettingsService;
         _debugFlags = debugFlags;
         _androidSdkSettingsService = androidSdkSettingsService;
+        _dotnetUpService = dotnetUpService;
+        _dotnetWorkloadService = dotnetWorkloadService;
         _loggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
         _logger = _loggerFactory.CreateLogger<DoctorService>();
     }
@@ -79,9 +91,20 @@ public class DoctorService : IDoctorService
         // Check for global.json
         var globalJson = globalJsonService.GetGlobalJson(effectiveDir);
         
+        bool dotnetUpInstalled = false;
+        string? dotnetUpVersion = null;
+        DotnetUpListResult? dotnetUpList = null;
+        if (_dotnetUpService is { IsInstalled: true })
+        {
+            dotnetUpInstalled = true;
+            var info = await TryGetDotnetUpInfoAsync();
+            dotnetUpVersion = info?.Version;
+            dotnetUpList = await TryGetDotnetUpListAsync();
+        }
+
         // Get SDK path - LocalSdkService already checks for .dotnet/, DOTNET_ROOT, etc.
-        // But we may want to look relative to workingDirectory first
         string? sdkPath = null;
+        var sdkArchitecture = RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant();
         
         // Check for local .dotnet in working directory
         var localDotnet = Path.Combine(effectiveDir, ".dotnet");
@@ -94,40 +117,70 @@ public class DoctorService : IDoctorService
             sdkPath = localSdkService.GetDotNetSdkPath();
         }
         
-        // Determine effective feature band
+        // Resolve against local and dotnetup-managed SDKs before choosing the exact root.
         string? featureBand = null;
         bool isPreviewSdk = false;
         string? activeSdkVersion = null;
         string? resolvedSdkVersion = null;
-        if (sdkPath != null)
+        var sdks = localSdkService.GetInstalledSdkVersions();
+        if (dotnetUpList != null)
+            sdks = MergeManagedSdks(sdks, dotnetUpList);
+        if (sdks.Count > 0)
         {
-            var sdks = localSdkService.GetInstalledSdkVersions();
-            if (sdks.Count > 0)
+            SdkVersion effectiveSdk;
+            if (globalJson?.SdkVersion != null)
             {
-                // If SDK is pinned, try to match that version's feature band
-                if (globalJson?.SdkVersion != null)
+                var pinned = sdks.FirstOrDefault(s => s.Version == globalJson.SdkVersion);
+                var resolved = ResolveRollForward(globalJson.SdkVersion, globalJson.RollForward, sdks);
+                resolvedSdkVersion = resolved?.Version;
+                effectiveSdk = resolved ?? pinned ?? sdks[0];
+            }
+            else
+            {
+                effectiveSdk = sdks[0];
+            }
+
+            featureBand = effectiveSdk.FeatureBand;
+            isPreviewSdk = effectiveSdk.IsPreview;
+            activeSdkVersion = effectiveSdk.Version;
+
+            var localRootContainsSdk = sdkPath != null &&
+                                       Directory.Exists(Path.Combine(sdkPath, "sdk", effectiveSdk.Version));
+            var matchingSpec = globalJson?.Path == null || dotnetUpList == null
+                ? null
+                : dotnetUpList.InstallSpecs.FirstOrDefault(spec =>
+                    spec.Component == DotnetUpComponent.Sdk &&
+                    string.Equals(spec.GlobalJsonPath, globalJson.Path, StringComparison.OrdinalIgnoreCase));
+            if (dotnetUpList != null && (matchingSpec != null || !localRootContainsSdk))
+            {
+                var managedInstallation = dotnetUpList.Installations
+                    .Where(installation =>
+                        installation.Component == DotnetUpComponent.Sdk &&
+                        installation.IsValid &&
+                        string.Equals(
+                            installation.Version,
+                            effectiveSdk.Version,
+                            StringComparison.OrdinalIgnoreCase))
+                    .OrderByDescending(installation =>
+                        matchingSpec != null &&
+                        string.Equals(
+                            installation.InstallRoot,
+                            matchingSpec.InstallRoot,
+                            StringComparison.OrdinalIgnoreCase) &&
+                        (string.IsNullOrWhiteSpace(matchingSpec.Architecture) ||
+                         string.Equals(
+                             installation.Architecture,
+                             matchingSpec.Architecture,
+                             StringComparison.OrdinalIgnoreCase)))
+                    .FirstOrDefault();
+                if (managedInstallation != null)
                 {
-                    var pinned = sdks.FirstOrDefault(s => s.Version == globalJson.SdkVersion);
-                    
-                    // Resolve the effective SDK based on rollForward policy
-                    var resolved = ResolveRollForward(globalJson.SdkVersion, globalJson.RollForward, sdks);
-                    resolvedSdkVersion = resolved?.Version;
-                    
-                    var effectiveSdk = resolved ?? pinned ?? sdks[0];
-                    featureBand = effectiveSdk.FeatureBand;
-                    isPreviewSdk = effectiveSdk.IsPreview;
-                    activeSdkVersion = effectiveSdk.Version;
-                }
-                else
-                {
-                    // Use the newest SDK's feature band
-                    featureBand = sdks[0].FeatureBand;
-                    isPreviewSdk = sdks[0].IsPreview;
-                    activeSdkVersion = sdks[0].Version;
+                    sdkPath = managedInstallation.InstallRoot;
+                    sdkArchitecture = managedInstallation.Architecture ?? sdkArchitecture;
                 }
             }
         }
-        
+
         return new DoctorContext(
             WorkingDirectory: effectiveDir,
             DotNetSdkPath: sdkPath,
@@ -138,14 +191,75 @@ public class DoctorService : IDoctorService
             IsPreviewSdk: isPreviewSdk,
             ActiveSdkVersion: activeSdkVersion,
             RollForwardPolicy: globalJson?.RollForward,
-            ResolvedSdkVersion: resolvedSdkVersion
+            ResolvedSdkVersion: resolvedSdkVersion,
+            DotnetUpInstalled: dotnetUpInstalled,
+            DotnetUpVersion: dotnetUpVersion,
+            DotnetUpManagedInstallRoot: dotnetUpList?.InstallRoots.FirstOrDefault(),
+            DotNetArchitecture: sdkArchitecture
         );
+    }
+
+    private async Task<MauiSherpa.Workloads.Models.DotnetUpToolInfo?> TryGetDotnetUpInfoAsync()
+    {
+        if (_dotnetUpService is null)
+            return null;
+        try
+        {
+            return await _dotnetUpService.GetToolInfoAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning($"Failed to query dotnetup --info: {ex.Message}");
+            return null;
+        }
+    }
+
+    private async Task<MauiSherpa.Workloads.Models.DotnetUpListResult?> TryGetDotnetUpListAsync()
+    {
+        if (_dotnetUpService is null)
+            return null;
+        try
+        {
+            return await _dotnetUpService.GetListAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning($"Failed to query dotnetup list: {ex.Message}");
+            return null;
+        }
     }
     
     /// <summary>
-    /// Resolves the effective SDK version based on the rollForward policy from global.json.
-    /// See: https://learn.microsoft.com/dotnet/core/tools/global-json#rollforward
+    /// Merges dotnetup-managed SDK versions into the locally discovered set, de-duplicating by
+    /// version string and re-sorting descending so the "latest installed" reflects dotnetup installs.
     /// </summary>
+    internal static IReadOnlyList<SdkVersion> MergeManagedSdks(
+        IReadOnlyList<SdkVersion> localSdks, MauiSherpa.Workloads.Models.DotnetUpListResult dotnetUpList)
+    {
+        var byVersion = new Dictionary<string, SdkVersion>(StringComparer.OrdinalIgnoreCase);
+        foreach (var sdk in localSdks)
+            byVersion[sdk.Version] = sdk;
+
+        foreach (var managed in DotnetUpParser.GetManagedSdkVersions(dotnetUpList))
+        {
+            if (byVersion.ContainsKey(managed))
+                continue;
+            if (SdkVersion.TryParse(managed, out var parsed) && parsed != null)
+                byVersion[managed] = parsed;
+        }
+
+        return byVersion.Values
+            .OrderByDescending(v => v.Major)
+            .ThenByDescending(v => v.Minor)
+            .ThenByDescending(v => v.Patch)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Resolves the effective SDK version based on the rollForward policy from global.json.</summary>
+    /// <remarks>
+    /// See: https://learn.microsoft.com/dotnet/core/tools/global-json#rollforward
+    /// </remarks>
     private static SdkVersion? ResolveRollForward(
         string pinnedVersion, string? rollForward, IReadOnlyList<SdkVersion> installedSdks)
     {
@@ -209,6 +323,17 @@ public class DoctorService : IDoctorService
         
         // Get installed SDKs
         var sdkVersions = localSdkService.GetInstalledSdkVersions();
+
+        // Merge in SDKs managed by dotnetup. dotnetup installs to a user-level root
+        // (e.g. ~/Library/Application Support/dotnet on macOS) that LocalSdkService does not
+        // scan, so without this the GUI Doctor would never "see" a dotnetup-applied update.
+        var dotnetUpList = await TryGetDotnetUpListAsync();
+        var dotnetUpInstalled = _dotnetUpService is { IsInstalled: true };
+        if (dotnetUpList != null)
+        {
+            sdkVersions = MergeManagedSdks(sdkVersions, dotnetUpList);
+        }
+
         var sdkInfos = sdkVersions.Select(s => new SdkVersionInfo(
             s.Version, s.FeatureBand, s.Major, s.Minor, s.IsPreview
         )).ToList();
@@ -265,6 +390,9 @@ public class DoctorService : IDoctorService
                 var isLatestForMajor = latestAvailableForMajor == null 
                     || latestSdk.Version == latestAvailableForMajor.Version;
                 
+                // dotnetup can fix an out-of-date preview by installing the recommended version.
+                var canFix = !isLatestForMajor && _dotnetUpService != null && latestAvailableForMajor != null;
+
                 // Add an informational status about being on a preview SDK
                 dependencies.Add(new DependencyStatus(
                     ".NET SDK",
@@ -276,7 +404,8 @@ public class DoctorService : IDoctorService
                     isLatestForMajor
                         ? $"Preview SDK ({latestSdk.Version})"
                         : $"Update available: {latestAvailableForMajor?.Version}",
-                    IsFixable: false
+                    IsFixable: canFix,
+                    FixAction: canFix ? $"dotnetup-update-sdk:{latestAvailableForMajor!.Version}" : null
                 ));
             }
             else
@@ -284,7 +413,10 @@ public class DoctorService : IDoctorService
                 var latestAvailable = availableSdkVersions?
                     .FirstOrDefault(s => !s.IsPreview);
                 var isLatest = latestAvailable == null || latestSdk.Version == latestAvailable.Version;
-                
+
+                // dotnetup can fix an out-of-date stable SDK by installing the latest.
+                var canFix = !isLatest && _dotnetUpService != null && latestAvailable != null;
+
                 dependencies.Add(new DependencyStatus(
                     ".NET SDK",
                     DependencyCategory.DotNetSdk,
@@ -295,7 +427,40 @@ public class DoctorService : IDoctorService
                     isLatest 
                         ? $"{sdkVersions.Count} SDK(s) installed, using {latestSdk.Version}"
                         : $"Update available: {latestAvailable?.Version}",
+                    IsFixable: canFix,
+                    FixAction: canFix ? $"dotnetup-update-sdk:{latestAvailable!.Version}" : null
+                ));
+            }
+        }
+
+        // dotnetup presence check — informational, with an install action when missing.
+        if (_dotnetUpService != null)
+        {
+            if (dotnetUpInstalled)
+            {
+                var version = context.DotnetUpVersion;
+                dependencies.Add(new DependencyStatus(
+                    "dotnetup",
+                    DependencyCategory.DotNetSdk,
+                    null, null,
+                    version,
+                    DependencyStatusType.Info,
+                    version != null
+                        ? $"Installed ({version}) — manages .NET SDKs & runtimes"
+                        : "Installed — manages .NET SDKs & runtimes",
                     IsFixable: false
+                ));
+            }
+            else
+            {
+                dependencies.Add(new DependencyStatus(
+                    "dotnetup",
+                    DependencyCategory.DotNetSdk,
+                    null, null, null,
+                    DependencyStatusType.Info,
+                    "Not installed — install to manage .NET SDKs & runtimes",
+                    IsFixable: true,
+                    FixAction: "install-dotnetup"
                 ));
             }
         }
@@ -309,43 +474,68 @@ public class DoctorService : IDoctorService
         {
             progress?.Report("Checking workload set...");
             _logger.LogInformation("Checking workload set for feature band: {FeatureBand}", context.EffectiveFeatureBand);
-            
-            var workloadSet = await localSdkService.GetInstalledWorkloadSetAsync(context.EffectiveFeatureBand);
-            workloadSetVersion = workloadSet?.Version;
-            _logger.LogInformation("Got workload set version: {Version}", workloadSetVersion ?? "NULL");
-            
-            // Get available workload set versions
-            // Auto-enable prerelease when active SDK is a preview
-            try
+
+            var workloadInventory = await TryGetWorkloadInventoryAsync(
+                context.EffectiveFeatureBand,
+                context.WorkingDirectory,
+                dotnetUpList,
+                context.DotNetSdkPath,
+                context.DotNetArchitecture,
+                context.ActiveSdkVersion);
+            if (workloadInventory != null)
             {
-                progress?.Report("Checking available workload updates...");
-                availableWorkloadSets = await GetAvailableWorkloadSetVersionsAsync(
-                    context.EffectiveFeatureBand, context.IsPreviewSdk);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning("Failed to get available workload sets: {Message}", ex.Message);
-            }
-            
-            // Check workload set status
-            if (workloadSetVersion == null)
-            {
-                var latestAvailable = availableWorkloadSets?.FirstOrDefault();
+                workloadSetVersion = workloadInventory.UpdateMode == DotnetWorkloadUpdateMode.WorkloadSet
+                    ? workloadInventory.ActiveWorkloadVersion
+                    : null;
+                availableWorkloadSets = workloadInventory.AvailableSetVersions
+                    .Select(version => version.Version)
+                    .ToList();
+
+                var latestAvailable = workloadInventory.LatestAvailableSetVersion;
+                var hasUpdate = workloadInventory.UpdateAvailable || workloadInventory.WorkloadUpdates.Count > 0;
+                var isLoose = workloadInventory.UpdateMode == DotnetWorkloadUpdateMode.Manifests;
+                var isUnknownMode = workloadInventory.UpdateMode == DotnetWorkloadUpdateMode.Unknown;
+                var isProjectPinned = workloadInventory.VersionSource == DotnetWorkloadVersionSource.GlobalJson;
+                var message = isProjectPinned && hasUpdate
+                    ? $"Project pins {workloadInventory.ActiveWorkloadVersion}; change the pin in .NET SDK Manager"
+                    : isUnknownMode
+                        ? "Workload update mode could not be determined"
+                    : isLoose
+                    ? "Using loose manifest mode"
+                    : hasUpdate
+                        ? $"Update available: {latestAvailable ?? "new workload manifests"}"
+                        : "Up to date";
                 dependencies.Add(new DependencyStatus(
                     "Workload Set",
                     DependencyCategory.Workload,
-                    null, latestAvailable, null,
-                    DependencyStatusType.Warning,
-                    "No workload set installed (loose manifest mode)",
-                    IsFixable: true,
-                    FixAction: "install-workloads"
-                ));
+                    null,
+                    latestAvailable,
+                    workloadSetVersion,
+                    hasUpdate || isLoose || isUnknownMode ? DependencyStatusType.Warning : DependencyStatusType.Ok,
+                    message,
+                    IsFixable: !isProjectPinned && latestAvailable != null && (hasUpdate || isLoose),
+                    FixAction: !isProjectPinned && latestAvailable != null && (hasUpdate || isLoose)
+                        ? (isLoose ? "install-workloads" : "update-workloads")
+                        : null));
             }
             else
             {
-                var isLatest = availableWorkloadSets?.Count > 0 && availableWorkloadSets[0] == workloadSetVersion;
+                var workloadSet = await localSdkService.GetInstalledWorkloadSetAsync(context.EffectiveFeatureBand);
+                workloadSetVersion = workloadSet?.Version;
+                try
+                {
+                    progress?.Report("Checking available workload updates...");
+                    availableWorkloadSets = await GetAvailableWorkloadSetVersionsAsync(
+                        context.EffectiveFeatureBand, context.IsPreviewSdk);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning("Failed to get available workload sets: {Message}", ex.Message);
+                }
+
                 var latestAvailable = availableWorkloadSets?.FirstOrDefault();
-                
+                var isLatest = workloadSetVersion != null &&
+                    string.Equals(latestAvailable, workloadSetVersion, StringComparison.OrdinalIgnoreCase);
                 dependencies.Add(new DependencyStatus(
                     "Workload Set",
                     DependencyCategory.Workload,
@@ -353,10 +543,13 @@ public class DoctorService : IDoctorService
                     latestAvailable,
                     workloadSetVersion,
                     isLatest ? DependencyStatusType.Ok : DependencyStatusType.Warning,
-                    isLatest ? "Up to date" : $"Update available: {latestAvailable}",
-                    IsFixable: !isLatest,
-                    FixAction: isLatest ? null : "update-workloads"
-                ));
+                    workloadSetVersion == null
+                        ? "No workload set installed (loose manifest mode)"
+                        : isLatest ? "Up to date" : $"Update available: {latestAvailable}",
+                    IsFixable: !isLatest && latestAvailable != null,
+                    FixAction: !isLatest && latestAvailable != null
+                        ? (workloadSetVersion == null ? "install-workloads" : "update-workloads")
+                        : null));
             }
             
             // Get installed manifests
@@ -954,6 +1147,107 @@ public class DoctorService : IDoctorService
         // Convert NuGet versions (e.g., 10.102.0) to workload versions (e.g., 10.0.102)
         return versions.Select(v => ConvertNuGetToWorkloadVersion(v.ToString())).ToList();
     }
+
+    public async Task<ProcessRequest?> GetWorkloadUpdateRequestAsync(
+        string featureBand,
+        string? workingDirectory,
+        string workloadSetVersion,
+        string? installRoot = null,
+        string? architecture = null,
+        string? sdkVersion = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(featureBand);
+        ArgumentException.ThrowIfNullOrWhiteSpace(workloadSetVersion);
+        var inventory = await TryGetWorkloadInventoryAsync(
+            featureBand,
+            workingDirectory,
+            await TryGetDotnetUpListAsync().ConfigureAwait(false),
+            installRoot,
+            architecture,
+            sdkVersion,
+            cancellationToken).ConfigureAwait(false);
+        return inventory == null
+            ? null
+            : _dotnetWorkloadService!.CreateUpdateSetRequest(inventory.Target, workloadSetVersion);
+    }
+
+    private async Task<DotnetWorkloadInventory?> TryGetWorkloadInventoryAsync(
+        string featureBand,
+        string? workingDirectory,
+        DotnetUpListResult? list,
+        string? preferredInstallRoot = null,
+        string? preferredArchitecture = null,
+        string? preferredSdkVersion = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (_dotnetWorkloadService == null || list == null ||
+            !SdkFeatureBand.TryParse(featureBand, out var parsedBand))
+            return null;
+
+        try
+        {
+            var targets = await _dotnetWorkloadService.GetTargetsAsync(list, cancellationToken)
+                .ConfigureAwait(false);
+            var candidates = targets
+                .Where(candidate => candidate.FeatureBand.Equals(parsedBand))
+                .ToList();
+
+            var matchingInstallation = string.IsNullOrWhiteSpace(preferredSdkVersion)
+                ? null
+                : list.Installations.FirstOrDefault(installation =>
+                    installation.Component == DotnetUpComponent.Sdk &&
+                    installation.IsValid &&
+                    string.Equals(
+                        installation.Version,
+                        preferredSdkVersion,
+                        StringComparison.OrdinalIgnoreCase) &&
+                    (string.IsNullOrWhiteSpace(preferredInstallRoot) ||
+                     string.Equals(
+                         installation.InstallRoot,
+                         preferredInstallRoot,
+                         StringComparison.OrdinalIgnoreCase)) &&
+                    (string.IsNullOrWhiteSpace(preferredArchitecture) ||
+                     string.Equals(
+                         installation.Architecture,
+                         preferredArchitecture,
+                         StringComparison.OrdinalIgnoreCase)));
+            preferredInstallRoot ??= matchingInstallation?.InstallRoot;
+            preferredArchitecture ??= matchingInstallation?.Architecture;
+
+            if (!string.IsNullOrWhiteSpace(preferredInstallRoot))
+                candidates = candidates
+                    .Where(candidate => string.Equals(
+                        candidate.InstallRoot,
+                        preferredInstallRoot,
+                        StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+            if (!string.IsNullOrWhiteSpace(preferredArchitecture))
+                candidates = candidates
+                    .Where(candidate => string.Equals(
+                        candidate.Architecture,
+                        preferredArchitecture,
+                        StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+            var target = candidates.Count == 1 ? candidates[0] : null;
+            if (target == null)
+                return null;
+            return await _dotnetWorkloadService.GetInventoryAsync(
+                target,
+                workingDirectory,
+                forceRefresh: true,
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                "Failed to query workload inventory for {FeatureBand}: {Message}",
+                featureBand,
+                ex.Message);
+            return null;
+        }
+    }
     
     /// <summary>
     /// Converts NuGet package version format to workload set version format.
@@ -1049,29 +1343,44 @@ public class DoctorService : IDoctorService
                 
                 return acquired;
             }
-            
-            if (dependency.FixAction == "install-workloads")
+
+            if (dependency.FixAction == "install-dotnetup")
             {
-                progress?.Report("Switching to workload set mode...");
-                var modeSwitch = await SwitchToWorkloadSetModeAsync(progress);
-                if (!modeSwitch)
+                if (_dotnetUpService == null)
                 {
-                    _logger.LogError("Failed to switch to workload set mode");
+                    progress?.Report("dotnetup service unavailable");
                     return false;
                 }
-                
-                if (string.IsNullOrEmpty(dependency.RecommendedVersion))
+                progress?.Report("Downloading and verifying dotnetup...");
+                return await _dotnetUpService.EnsureInstalledAsync(progress: progress);
+            }
+
+            if (dependency.FixAction.StartsWith("dotnetup-update-sdk"))
+            {
+                if (_dotnetUpService == null)
                 {
-                    _logger.LogWarning("No workload set version available to install");
-                    progress?.Report("No workload set version available");
+                    progress?.Report("dotnetup service unavailable");
                     return false;
                 }
-                
-                progress?.Report($"Installing workload set version {dependency.RecommendedVersion}...");
-                return await UpdateWorkloadsAsync(dependency.RecommendedVersion, progress);
+
+                if (!_dotnetUpService.IsInstalled)
+                {
+                    progress?.Report("Downloading and verifying dotnetup...");
+                    if (!await _dotnetUpService.EnsureInstalledAsync(progress: progress))
+                        return false;
+                }
+
+                string? channel = null;
+                var colon = dependency.FixAction.IndexOf(':');
+                if (colon >= 0 && colon < dependency.FixAction.Length - 1)
+                    channel = dependency.FixAction[(colon + 1)..];
+
+                progress?.Report($"Installing .NET SDK ({channel ?? "latest"}) via dotnetup...");
+                var request = _dotnetUpService.InstallSdkRequest(channel);
+                return await RunProcessRequestAsync(request, progress);
             }
             
-            if (dependency.FixAction == "update-workloads")
+            if (dependency.FixAction is "install-workloads" or "update-workloads")
             {
                 if (string.IsNullOrEmpty(dependency.RecommendedVersion))
                 {
@@ -1079,7 +1388,27 @@ public class DoctorService : IDoctorService
                     progress?.Report("No recommended workload version available");
                     return false;
                 }
-                
+
+                var context = await GetContextAsync().ConfigureAwait(false);
+                if (context.EffectiveFeatureBand != null)
+                {
+                    var request = await GetWorkloadUpdateRequestAsync(
+                        context.EffectiveFeatureBand,
+                        context.WorkingDirectory,
+                        dependency.RecommendedVersion,
+                        context.DotNetSdkPath,
+                        context.DotNetArchitecture,
+                        context.ActiveSdkVersion).ConfigureAwait(false);
+                    if (request != null)
+                    {
+                        progress?.Report($"Updating feature band {context.EffectiveFeatureBand} to workload set {dependency.RecommendedVersion}...");
+                        var success = await RunProcessRequestAsync(request, progress).ConfigureAwait(false);
+                        if (success && request.Environment?.GetValueOrDefault("DOTNET_ROOT") is { } root)
+                            _dotnetWorkloadService?.Invalidate(root);
+                        return success;
+                    }
+                }
+
                 progress?.Report($"Updating to workload set version {dependency.RecommendedVersion}...");
                 return await UpdateWorkloadsAsync(dependency.RecommendedVersion, progress);
             }
@@ -1243,6 +1572,60 @@ public class DoctorService : IDoctorService
         catch (Exception ex)
         {
             _logger.LogError($"Failed to switch workload mode: {ex.Message}", ex);
+            progress?.Report($"Error: {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Runs a <see cref="ProcessRequest"/> (used for dotnetup commands), streaming combined
+    /// stdout/stderr lines to <paramref name="progress"/>. Returns true on a zero exit code.
+    /// </summary>
+    private async Task<bool> RunProcessRequestAsync(ProcessRequest request, IProgress<string>? progress = null)
+    {
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = request.Command,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WorkingDirectory = request.WorkingDirectory ?? string.Empty
+            };
+            foreach (var arg in request.Arguments)
+                psi.ArgumentList.Add(arg);
+            if (request.Environment != null)
+            {
+                foreach (var kvp in request.Environment)
+                    psi.Environment[kvp.Key] = kvp.Value;
+            }
+
+            using var process = Process.Start(psi);
+            if (process == null)
+            {
+                progress?.Report("Failed to start process.");
+                return false;
+            }
+
+            process.OutputDataReceived += (_, e) => { if (e.Data != null) progress?.Report(e.Data); };
+            process.ErrorDataReceived += (_, e) => { if (e.Data != null) progress?.Report(e.Data); };
+            process.BeginOutputReadLine();
+            process.BeginErrorReadLine();
+
+            await process.WaitForExitAsync();
+
+            if (process.ExitCode != 0)
+            {
+                _logger.LogWarning($"Process exited with code {process.ExitCode}: {request.CommandLine}");
+                return false;
+            }
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Failed to run process: {ex.Message}", ex);
             progress?.Report($"Error: {ex.Message}");
             return false;
         }

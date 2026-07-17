@@ -1,0 +1,776 @@
+@page "/modal/project-dotnet-context"
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Pages.Forms
+@using MauiSherpa.Workloads.Models
+@using MauiSherpa.Workloads.Services
+@inject IDotnetUpService DotnetUp
+@inject IDotnetWorkloadService Workloads
+@inject IProcessModalService ProcessModal
+@inject IFormModalService FormModal
+@inject IAlertService AlertService
+@inject HybridFormBridgeHolder BridgeHolder
+@inject ModalParameterService ModalParams
+
+<div class="project-context-modal">
+    @if (isLoading)
+    {
+        <div class="state-panel">
+            <i class="fas fa-spinner fa-spin" aria-hidden="true"></i>
+            <div>
+                <strong>Inspecting project .NET context</strong>
+                <span class="mono">@FolderPath</span>
+            </div>
+        </div>
+    }
+    else if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="state-panel state-panel--error">
+            <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
+            <div>
+                <strong>Project inspection failed</strong>
+                <span>@errorMessage</span>
+            </div>
+            <button type="button" class="btn btn-secondary btn-sm" @onclick="ReloadAsync">
+                <i class="fas fa-rotate" aria-hidden="true"></i> Retry
+            </button>
+        </div>
+    }
+    else if (resolution is { } project)
+    {
+        <section class="context-card context-card--identity">
+            <div class="identity-row">
+                <i class="fas fa-folder-open" aria-hidden="true"></i>
+                <div>
+                    <span class="eyebrow">Project folder</span>
+                    <strong class="mono" title="@project.FolderPath">@project.FolderPath</strong>
+                </div>
+            </div>
+
+            @if (!string.IsNullOrWhiteSpace(project.GlobalJsonPath))
+            {
+                <div class="identity-row">
+                    <i class="fas fa-file-code" aria-hidden="true"></i>
+                    <div>
+                        <span class="eyebrow">Effective global.json</span>
+                        <strong class="mono" title="@project.GlobalJsonPath">@project.GlobalJsonPath</strong>
+                    </div>
+                </div>
+            }
+        </section>
+
+        @if (project.Status == GlobalJsonStatus.NoGlobalJson)
+        {
+            <div class="state-panel">
+                <i class="fas fa-circle-info" aria-hidden="true"></i>
+                <div>
+                    <strong>No global.json found</strong>
+                    <span>The project uses the machine's default SDK. Sherpa walked up from this folder just like the <code>dotnet</code> host.</span>
+                </div>
+            </div>
+        }
+        else if (project.Status == GlobalJsonStatus.NoSdkVersion)
+        {
+            <div class="state-panel">
+                <i class="fas fa-circle-info" aria-hidden="true"></i>
+                <div>
+                    <strong>No SDK version requested</strong>
+                    <span>This <code>global.json</code> does not define <code>sdk.version</code>, so it does not resolve to a project SDK.</span>
+                </div>
+            </div>
+        }
+        else
+        {
+            <section class="context-card">
+                <div class="section-heading">
+                    <div>
+                        <span class="eyebrow">SDK requirement</span>
+                        <h2>Project resolution</h2>
+                    </div>
+                    <div class="status-badges">
+                        <span class="badge @(!project.Satisfied || project.UpdateAvailable ? "badge-warning" : "badge-success")">
+                            @(project.UpdateAvailable ? "update available" : project.Satisfied ? "installed" : "not installed")
+                        </span>
+                        <span class="badge @(project.AlreadyTracked ? "badge-info" : "badge-secondary")">
+                            @(project.AlreadyTracked ? "tracked" : "not tracked")
+                        </span>
+                    </div>
+                </div>
+
+                <div class="facts-grid">
+                    <div>
+                        <span class="eyebrow">Requested SDK</span>
+                        <strong class="mono">@ValueOrDash(project.RequestedVersion)</strong>
+                    </div>
+                    <div>
+                        <span class="eyebrow">Roll-forward</span>
+                        <strong>@ValueOrDash(project.RollForward)</strong>
+                    </div>
+                    <div>
+                        <span class="eyebrow">Channel</span>
+                        <strong class="mono">@ValueOrDash(project.Channel)</strong>
+                    </div>
+                    <div>
+                        <span class="eyebrow">SDK policy</span>
+                        <strong>@(project.IsPinned ? "Pinned exact version" : "Rolling channel")</strong>
+                    </div>
+                    <div>
+                        <span class="eyebrow">Resolved SDK</span>
+                        <strong class="mono">@ValueOrDash(project.ResolvedVersion)</strong>
+                    </div>
+                    <div>
+                        <span class="eyebrow">Workload pin</span>
+                        <strong class="mono">@ValueOrDash(project.WorkloadVersion)</strong>
+                    </div>
+                </div>
+
+                @if (project.UsesLegacyWorkloadSetProperty)
+                {
+                    <p class="inline-note">
+                        <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
+                        This file uses the legacy workload-set shape. Sherpa writes the supported <code>sdk.workloadVersion</code> property.
+                    </p>
+                }
+
+                <div class="project-action-row">
+                    @if (!DotnetUp.IsInstalled)
+                    {
+                        <span class="action-hint">
+                            dotnetup is not installed. Close this dialog and install it from the .NET SDK page before changing project SDK tracking.
+                        </span>
+                    }
+                    else if (project.UpdateAvailable)
+                    {
+                        <span class="action-hint">
+                            Update this project from <span class="mono">@project.InstalledVersion</span>
+                            to <span class="mono">@project.ResolvedVersion</span>.
+                        </span>
+                        <button type="button"
+                                class="btn btn-primary btn-sm"
+                                disabled="@isBusy"
+                                @onclick="InstallOrTrackProjectAsync">
+                            <i class="fas fa-circle-arrow-up" aria-hidden="true"></i>
+                            Update project SDK
+                        </button>
+                    }
+                    else if (project.Satisfied && project.AlreadyTracked)
+                    {
+                        <span class="ready-message">
+                            <i class="fas fa-circle-check" aria-hidden="true"></i>
+                            Ready — this project's SDK is installed and tracked.
+                        </span>
+                    }
+                    else
+                    {
+                        <span class="action-hint">
+                            @(project.Satisfied
+                                ? "Track this global.json so dotnetup keeps a compatible SDK installed."
+                                : "Install the SDK resolved for this global.json and track the project.")
+                        </span>
+                        <button type="button"
+                                class="btn @(project.Satisfied ? "btn-secondary" : "btn-primary") btn-sm"
+                                disabled="@isBusy"
+                                @onclick="InstallOrTrackProjectAsync">
+                            <i class="fas @(project.Satisfied ? "fa-thumbtack" : "fa-download")" aria-hidden="true"></i>
+                            @(project.Satisfied ? "Track this project" : "Install SDK for this project")
+                        </button>
+                    }
+                </div>
+            </section>
+
+            @if (resolvedGroup is { } group)
+            {
+                <section class="resolved-section">
+                    <div class="section-heading">
+                        <div>
+                            <span class="eyebrow">Project-resolved installation</span>
+                            <h2>@group.DisplayName</h2>
+                        </div>
+                    </div>
+                    <InstalledDotnetVersionCard RuntimeLine="@group.DisplayName"
+                                                   Installations="@group.Installations"
+                                                   WorkloadInventories="@group.WorkloadInventories"
+                                                   Loading="@isBusy"
+                                                   Busy="@isBusy"
+                                                   InitiallyExpanded="true"
+                                                   AllowMachineChanges="false" />
+                </section>
+            }
+            else if (!project.Satisfied)
+            {
+                <div class="state-panel">
+                    <i class="fas fa-box-open" aria-hidden="true"></i>
+                    <div>
+                        <strong>No matching SDK installation</strong>
+                        <span>Install the project SDK to see its resolved version and workload context.</span>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="state-panel">
+                    <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
+                    <div>
+                        <strong>Installation target is ambiguous</strong>
+                        <span>The SDK exists in more than one root or architecture, so Sherpa cannot safely choose one project's component details.</span>
+                    </div>
+                </div>
+            }
+
+            @if (projectWorkloads is { } inventory)
+            {
+                <section class="context-card">
+                    <div class="section-heading">
+                        <div>
+                            <span class="eyebrow">Exact project target</span>
+                            <h2>Project workloads</h2>
+                        </div>
+                        <span class="badge @(inventory.VersionSource == DotnetWorkloadVersionSource.GlobalJson ? "badge-info" : "badge-secondary")">
+                            @(inventory.VersionSource == DotnetWorkloadVersionSource.GlobalJson ? "project pin" : "machine default")
+                        </span>
+                    </div>
+
+                    <div class="facts-grid facts-grid--workloads">
+                        <div>
+                            <span class="eyebrow">SDK feature band</span>
+                            <strong class="mono">@inventory.Target.FeatureBand</strong>
+                        </div>
+                        <div>
+                            <span class="eyebrow">Active workload set</span>
+                            <strong class="mono">@ValueOrDash(inventory.ActiveWorkloadVersion)</strong>
+                        </div>
+                        <div>
+                            <span class="eyebrow">Installed workloads</span>
+                            <strong>@inventory.EffectiveInstalledWorkloads.Count(workload => workload.IsUserVisible)</strong>
+                            <span class="fact-detail">
+                                @inventory.InstalledWorkloads.Count direct ·
+                                @inventory.EffectiveInstalledWorkloads.Count(workload => workload.IsUserVisible && !workload.IsExplicit) included
+                            </span>
+                        </div>
+                        <div>
+                            <span class="eyebrow">Architecture</span>
+                            <strong class="mono">@inventory.Target.Architecture</strong>
+                        </div>
+                    </div>
+
+                    <div class="workload-actions">
+                        <button type="button" class="btn btn-secondary btn-sm" disabled="@isBusy" @onclick="ChangeProjectWorkloadPinAsync">
+                            <i class="fas fa-thumbtack" aria-hidden="true"></i>
+                            @(string.IsNullOrWhiteSpace(project.WorkloadVersion) ? "Pin & restore" : "Change pin & restore")
+                        </button>
+                        @if (!string.IsNullOrWhiteSpace(project.WorkloadVersion))
+                        {
+                            <button type="button" class="btn btn-secondary btn-sm" disabled="@isBusy" @onclick="RemoveProjectWorkloadPinAsync">
+                                <i class="fas fa-link-slash" aria-hidden="true"></i> Use machine default
+                            </button>
+                        }
+                        <button type="button" class="btn btn-secondary btn-sm" disabled="@isBusy" @onclick="RestoreProjectWorkloadsAsync">
+                            <i class="fas fa-rotate" aria-hidden="true"></i> Restore workloads
+                        </button>
+                    </div>
+                </section>
+            }
+            else if (project.Satisfied)
+            {
+                <div class="state-panel">
+                    <i class="fas fa-puzzle-piece" aria-hidden="true"></i>
+                    <div>
+                        <strong>Workload target unavailable</strong>
+                        <span>No exact workload inventory matched the resolved SDK feature band, install root, and architecture.</span>
+                    </div>
+                </div>
+            }
+        }
+    }
+    else
+    {
+        <div class="state-panel state-panel--error">
+            <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
+            <div>
+                <strong>Missing project context</strong>
+                <span>Close this window and open the project context again.</span>
+            </div>
+        </div>
+    }
+</div>
+
+<style>
+    .project-context-modal {
+        height: 100%;
+        box-sizing: border-box;
+        overflow-y: auto;
+        padding: 1.1rem 1.25rem 1.5rem;
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+        color: var(--text-primary);
+    }
+
+    .context-card,
+    .resolved-section,
+    .state-panel {
+        border: 1px solid var(--border-color);
+        border-radius: 0.8rem;
+        background: var(--card-bg);
+    }
+
+    .context-card {
+        padding: 1rem;
+    }
+
+    .context-card--identity {
+        display: flex;
+        flex-direction: column;
+        gap: 0.8rem;
+    }
+
+    .identity-row,
+    .state-panel {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.75rem;
+    }
+
+    .identity-row > i,
+    .state-panel > i {
+        width: 1.1rem;
+        margin-top: 0.15rem;
+        color: var(--accent-primary);
+        text-align: center;
+    }
+
+    .identity-row > div,
+    .state-panel > div {
+        min-width: 0;
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 0.2rem;
+    }
+
+    .identity-row strong {
+        overflow-wrap: anywhere;
+        font-size: 0.82rem;
+    }
+
+    .state-panel {
+        align-items: center;
+        padding: 1rem;
+        color: var(--text-secondary);
+    }
+
+    .state-panel strong {
+        color: var(--text-primary);
+    }
+
+    .state-panel--error {
+        border-color: color-mix(in srgb, var(--accent-danger) 45%, var(--border-color));
+    }
+
+    .state-panel--error > i {
+        color: var(--accent-danger);
+    }
+
+    .section-heading,
+    .project-action-row,
+    .workload-actions {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+    }
+
+    .section-heading {
+        margin-bottom: 0.85rem;
+    }
+
+    .section-heading h2 {
+        margin: 0.1rem 0 0;
+        font-size: 1rem;
+    }
+
+    .eyebrow {
+        display: block;
+        color: var(--text-secondary);
+        font-size: 0.67rem;
+        font-weight: 700;
+        letter-spacing: 0.045em;
+        text-transform: uppercase;
+    }
+
+    .status-badges {
+        display: flex;
+        gap: 0.4rem;
+    }
+
+    .badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 2px 0.5rem;
+        border-radius: 999px;
+        font-size: 0.68rem;
+        font-weight: 600;
+        white-space: nowrap;
+    }
+
+    .facts-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 0.65rem;
+    }
+
+    .facts-grid > div {
+        min-width: 0;
+        padding: 0.65rem 0.75rem;
+        border-radius: 0.6rem;
+        background: var(--bg-tertiary);
+    }
+
+    .facts-grid strong {
+        display: block;
+        margin-top: 0.2rem;
+        overflow-wrap: anywhere;
+        font-size: 0.83rem;
+    }
+
+    .fact-detail {
+        display: block;
+        margin-top: 0.18rem;
+        color: var(--text-secondary);
+        font-size: 0.72rem;
+    }
+
+    .facts-grid--workloads {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .inline-note {
+        margin: 0.75rem 0 0;
+        padding: 0.65rem 0.75rem;
+        border-radius: 0.6rem;
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+        font-size: 0.78rem;
+    }
+
+    .inline-note i {
+        margin-right: 0.35rem;
+        color: var(--accent-warning);
+    }
+
+    .project-action-row,
+    .workload-actions {
+        margin-top: 0.9rem;
+    }
+
+    .ready-message {
+        color: var(--accent-success);
+        font-size: 0.82rem;
+        font-weight: 600;
+    }
+
+    .action-hint {
+        flex: 1;
+        color: var(--text-secondary);
+        font-size: 0.8rem;
+    }
+
+    .resolved-section {
+        padding: 1rem;
+    }
+
+    @@media (max-width: 800px) {
+        .facts-grid,
+        .facts-grid--workloads {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+    }
+
+    @@media (max-width: 540px) {
+        .facts-grid,
+        .facts-grid--workloads {
+            grid-template-columns: 1fr;
+        }
+
+        .project-context-modal {
+            padding-left: 0.85rem;
+            padding-right: 0.85rem;
+        }
+    }
+</style>
+
+@code {
+    private ProjectDotnetContextSession? session;
+    private GlobalJsonResolution? resolution;
+    private DotnetUpListResult? list;
+    private DotnetMajorMinorGroupSummary? resolvedGroup;
+    private DotnetWorkloadInventory? projectWorkloads;
+    private bool isLoading = true;
+    private bool isBusy;
+    private string? errorMessage;
+
+    private string FolderPath => session?.FolderPath ?? string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        session = ModalParams.Get<ProjectDotnetContextSession>("Session");
+        if (session == null)
+        {
+            errorMessage = "The project session was not provided.";
+            isLoading = false;
+            return;
+        }
+
+        await ReloadAsync();
+    }
+
+    private async Task ReloadAsync()
+    {
+        if (session == null)
+            return;
+
+        isLoading = true;
+        errorMessage = null;
+        resolvedGroup = null;
+        projectWorkloads = null;
+        StateHasChanged();
+
+        try
+        {
+            list = DotnetUp.IsInstalled
+                ? await DotnetUp.GetListAsync()
+                : null;
+            var safeList = list ?? new DotnetUpListResult();
+            var projectResolution = await DotnetUp.InspectProjectFolderAsync(FolderPath, safeList);
+            resolution = projectResolution;
+
+            IReadOnlyList<DotnetWorkloadInventory> inventories = [];
+            if (list != null)
+                inventories = await Workloads.GetInventoriesAsync(list, forceRefresh: true);
+            var displayInventories = inventories;
+
+            var summary = DotnetSdkPresentationBuilder.Build(
+                safeList,
+                inventories,
+                projectResolution: projectResolution);
+            var target = summary.ProjectWorkloads?.SelectedInventory?.Target;
+            if (target != null)
+            {
+                var projectInventory = await Workloads.GetInventoryAsync(
+                    target,
+                    FolderPath,
+                    forceRefresh: true);
+                projectWorkloads = projectInventory;
+
+                var projectInventories = inventories
+                    .Where(inventory => !string.Equals(
+                        inventory.Target.Key,
+                        target.Key,
+                        StringComparison.OrdinalIgnoreCase))
+                    .Append(projectInventory)
+                    .ToList();
+                displayInventories = projectInventories;
+
+                summary = DotnetSdkPresentationBuilder.Build(
+                    safeList,
+                    projectInventories,
+                    projectResolution: projectResolution);
+            }
+
+            resolvedGroup = DotnetSdkPresentationBuilder.BuildProjectInstalledGroup(
+                projectResolution,
+                safeList.Installations,
+                displayInventories);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task InstallOrTrackProjectAsync()
+    {
+        if (session == null || isBusy)
+            return;
+
+        isBusy = true;
+        try
+        {
+            var wasUpdate = resolution?.UpdateAvailable == true;
+            var wasAlreadyInstalled = resolution?.Satisfied == true;
+            var result = await ProcessModal.ShowProcessAsync(
+                DotnetUp.InstallForProjectRequest(FolderPath));
+            if (result?.Success == true)
+            {
+                session.HasChanges = true;
+                await AlertService.ShowToastAsync(
+                    wasUpdate
+                        ? "Project SDK updated"
+                        : wasAlreadyInstalled
+                            ? "Project SDK tracked"
+                            : "Project SDK installed and tracked");
+                await ReloadAsync();
+            }
+            else
+            {
+                await ShowProcessFailureAsync(result, "The project SDK install failed.");
+            }
+        }
+        finally
+        {
+            isBusy = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ChangeProjectWorkloadPinAsync()
+    {
+        if (session == null || projectWorkloads == null || isBusy)
+            return;
+
+        var version = await FormModal.ShowAsync<string?>(
+            new WorkloadSetPage(
+                BridgeHolder,
+                projectWorkloads,
+                resolution?.WorkloadVersion));
+        if (string.IsNullOrWhiteSpace(version))
+            return;
+
+        GlobalJsonWorkloadPinPreview preview;
+        try
+        {
+            preview = Workloads.PreviewProjectWorkloadPin(FolderPath, version);
+        }
+        catch (Exception ex)
+        {
+            await AlertService.ShowAlertAsync("Workload Pin Preview Failed", ex.Message);
+            return;
+        }
+
+        var confirmed = await AlertService.ShowConfirmAsync(
+            "Pin project workload set",
+            BuildJsoncConfirmation(preview, "Sherpa will preserve comments and unrelated settings, apply this JSONC change, then restore workloads from the project folder."),
+            "Pin & restore",
+            "Cancel");
+        if (!confirmed)
+            return;
+
+        isBusy = true;
+        try
+        {
+            await Workloads.ApplyProjectWorkloadPinAsync(preview);
+            session.HasChanges = true;
+            await ReloadAsync();
+            await RestoreProjectWorkloadsCoreAsync();
+        }
+        catch (Exception ex)
+        {
+            await AlertService.ShowAlertAsync("Workload Pin Failed", ex.Message);
+        }
+        finally
+        {
+            isBusy = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RemoveProjectWorkloadPinAsync()
+    {
+        if (session == null || projectWorkloads == null || isBusy)
+            return;
+
+        GlobalJsonWorkloadPinPreview preview;
+        try
+        {
+            preview = Workloads.PreviewProjectWorkloadPin(FolderPath, null);
+        }
+        catch (Exception ex)
+        {
+            await AlertService.ShowAlertAsync("Workload Pin Preview Failed", ex.Message);
+            return;
+        }
+
+        var confirmed = await AlertService.ShowConfirmAsync(
+            "Use machine workload set",
+            BuildJsoncConfirmation(preview, "Remove the project override and use the machine default workload set for this SDK feature band?"),
+            "Remove pin",
+            "Cancel");
+        if (!confirmed)
+            return;
+
+        isBusy = true;
+        try
+        {
+            await Workloads.ApplyProjectWorkloadPinAsync(preview);
+            session.HasChanges = true;
+            await AlertService.ShowToastAsync("Project workload pin removed");
+            await ReloadAsync();
+        }
+        catch (Exception ex)
+        {
+            await AlertService.ShowAlertAsync("Workload Pin Removal Failed", ex.Message);
+        }
+        finally
+        {
+            isBusy = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RestoreProjectWorkloadsAsync()
+    {
+        if (session == null || projectWorkloads == null || isBusy)
+            return;
+
+        isBusy = true;
+        try
+        {
+            await RestoreProjectWorkloadsCoreAsync();
+        }
+        finally
+        {
+            isBusy = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task<bool> RestoreProjectWorkloadsCoreAsync()
+    {
+        if (session == null || projectWorkloads == null)
+            return false;
+
+        var target = projectWorkloads.Target;
+        var result = await ProcessModal.ShowProcessAsync(
+            Workloads.CreateRestoreRequest(target, FolderPath));
+        if (result?.Success == true)
+        {
+            session.HasChanges = true;
+            Workloads.Invalidate(target.InstallRoot);
+            await AlertService.ShowToastAsync("Project workloads restored");
+            await ReloadAsync();
+            return true;
+        }
+
+        await ShowProcessFailureAsync(result, "The project workload restore failed.");
+        return false;
+    }
+
+    private async Task ShowProcessFailureAsync(ProcessResult? result, string message)
+    {
+        if (result != null && !result.WasCancelled && !result.WasKilled)
+            await AlertService.ShowAlertAsync("Operation Failed", $"{message} Check the output for details.");
+    }
+
+    private static string BuildJsoncConfirmation(
+        GlobalJsonWorkloadPinPreview preview,
+        string explanation) =>
+        $"{preview.Diff}\n\n{explanation}\n\nUpdated global.json preview:\n{preview.UpdatedContent}";
+
+    private static string ValueOrDash(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? "—" : value;
+}

@@ -211,6 +211,7 @@ class MacOSApp : Application
                 Title = "Tools",
                 Children = new List<MacOSSidebarItem>
                 {
+                    new() { Title = ".NET SDK Manager", SystemImage = "square.stack.3d.up.fill", Tag = "/dotnet-sdk" },
                     new() { Title = "Profiling", SystemImage = "chart.bar.xaxis", Tag = "/profiling" },
                     new() { Title = "App Inspector", SystemImage = "wand.and.stars", Tag = "/devflow" },
 #if DEBUG

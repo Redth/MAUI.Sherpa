@@ -145,7 +145,7 @@ public class LocalSdkService : ILocalSdkService
         var workloadSet = GetInstalledWorkloadSetCore(featureBand);
         if (workloadSet != null)
         {
-            foreach (var manifestId in workloadSet.Workloads.Keys)
+            foreach (var manifestId in workloadSet.ManifestEntries.Keys)
                 manifestIds.Add(manifestId);
         }
 
@@ -169,7 +169,7 @@ public class LocalSdkService : ILocalSdkService
         try
         {
             var json = await File.ReadAllTextAsync(manifestFile, cancellationToken);
-            return ParseManifest(json);
+            return WorkloadManifestService.ParseManifest(json);
         }
         catch
         {
@@ -483,7 +483,7 @@ public class LocalSdkService : ILocalSdkService
         if (workloadSet == null)
             return null;
 
-        var manifestEntry = workloadSet.Workloads
+        var manifestEntry = workloadSet.ManifestEntries
             .FirstOrDefault(entry => entry.Key.Equals(manifestId, StringComparison.OrdinalIgnoreCase));
 
         if (manifestEntry.Key == null || string.IsNullOrEmpty(manifestEntry.Value.ManifestFeatureBand))
@@ -626,7 +626,7 @@ public class LocalSdkService : ILocalSdkService
             {
                 Version = version,
                 FeatureBand = featureBand,
-                Workloads = entries
+                ManifestEntries = entries
             };
         }
         catch (Exception ex)
@@ -787,7 +787,7 @@ public class LocalSdkService : ILocalSdkService
                 workloadSetInfo = new
                 {
                     version = workloadSet.Version,
-                    workloads = workloadSet.Workloads.ToDictionary(
+                    manifestEntries = workloadSet.ManifestEntries.ToDictionary(
                         w => w.Key,
                         w => new
                         {

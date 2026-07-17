@@ -4,6 +4,7 @@ using MauiSherpa.Services;
 using MauiSherpa.Core.ViewModels;
 using MauiSherpa.Core.Interfaces;
 using MauiSherpa.Core.Services;
+using MauiSherpa.Workloads.Services;
 #if LINUXGTK
 // DevFlow GTK usings removed temporarily (package conflict with new Microsoft.Maui.Platforms.Linux.Gtk4)
 using Microsoft.Maui.Platforms.Linux.Gtk4.BlazorWebView;
@@ -158,6 +159,9 @@ public static class MauiProgram
         builder.Services.AddSingleton<MauiSherpa.Core.Interfaces.IAppInspectorClientFactory, MauiSherpa.Core.Services.AppInspectorClientFactory>();
         builder.Services.AddSingleton<IDebugFlagService, DebugFlagService>();
         builder.Services.AddSingleton<IDoctorService, DoctorService>();
+        builder.Services.AddSingleton<IDotnetUpService, DotnetUpService>();
+        builder.Services.AddSingleton<IGlobalJsonWorkloadPinEditor, GlobalJsonWorkloadPinEditor>();
+        builder.Services.AddSingleton<IDotnetWorkloadService, DotnetWorkloadService>();
         builder.Services.AddSingleton<IProfilingContextService, ProfilingContextService>();
         builder.Services.AddSingleton<ICopilotToolsService, CopilotToolsService>();
         builder.Services.AddSingleton<ICopilotService, CopilotService>();
@@ -247,6 +251,12 @@ public static class MauiProgram
         builder.Services.AddSingleton<XcodeManagementViewModel>();
         builder.Services.AddSingleton<CopilotViewModel>();
         builder.Services.AddSingleton<SettingsViewModel>();
+
+        // Shiny.Mediator 6.6.x serializes the persistent cache via Shiny.Json, which is strict
+        // (source-gen contexts only) and throws "No JsonTypeInfo registered" for any cached type.
+        // We don't ship [ShinyJsonInclude]/source-gen contexts, so register the reflection-based
+        // resolver to restore plain serialization for all cached request/response types.
+        Shiny.Json.AddResolver(new System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver());
 
         // Shiny Mediator with caching and offline support
         builder.AddShinyMediator(cfg =>

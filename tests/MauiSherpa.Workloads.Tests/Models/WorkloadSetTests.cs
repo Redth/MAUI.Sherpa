@@ -13,7 +13,7 @@ public class WorkloadSetTests
         {
             Version = "10.0.100",
             FeatureBand = "10.0.100",
-            Workloads = new Dictionary<string, WorkloadSetEntry>
+            ManifestEntries = new Dictionary<string, WorkloadSetEntry>
             {
                 ["microsoft.net.sdk.maui"] = new WorkloadSetEntry
                 {
@@ -27,7 +27,7 @@ public class WorkloadSetTests
         // Assert
         workloadSet.Version.Should().Be("10.0.100");
         workloadSet.FeatureBand.Should().Be("10.0.100");
-        workloadSet.Workloads.Should().ContainKey("microsoft.net.sdk.maui");
+        workloadSet.ManifestEntries.Should().ContainKey("microsoft.net.sdk.maui");
     }
 
     [Fact]

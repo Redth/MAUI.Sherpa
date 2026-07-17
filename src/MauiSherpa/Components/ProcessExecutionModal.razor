@@ -21,6 +21,13 @@
                     <p class="description">@Request.Description</p>
                 }
 
+                @if (!string.IsNullOrEmpty(Request?.ConfirmationDetails))
+                {
+                    <div class="confirmation-details">
+                        <pre>@Request.ConfirmationDetails</pre>
+                    </div>
+                }
+
                 <div class="command-preview">
                     <label>Command to execute:</label>
                     <div class="command-box">
@@ -32,7 +39,8 @@
                 {
                     <div class="elevation-warning">
                         <i class="fas fa-exclamation-triangle warning-icon"></i>
-                        <span>This command requires administrator privileges. You may be prompted for your password.</span>
+                        <span>@(Request.ElevationPrompt ??
+                            "This command requires administrator privileges. You may be prompted for your password.")</span>
                     </div>
                 }
 
@@ -108,8 +116,26 @@
 
     /* Confirmation View */
     .confirmation-view .description {
-        color: #4a5568;
+        color: var(--text-secondary);
         margin-bottom: 1rem;
+    }
+
+    .confirmation-details {
+        margin-bottom: 1rem;
+        padding: 0.8rem 0.95rem;
+        border: 1px solid var(--border-color);
+        border-radius: var(--card-radius, 1rem);
+        background: var(--bg-tertiary);
+    }
+
+    .confirmation-details pre {
+        margin: 0;
+        color: var(--text-primary);
+        font-family: "SF Mono", Menlo, Monaco, monospace;
+        font-size: 0.76rem;
+        line-height: 1.5;
+        white-space: pre-wrap;
+        word-break: break-word;
     }
 
     .command-preview {
@@ -367,15 +393,21 @@
             // Replay stdout
             if (!string.IsNullOrEmpty(Result.Output))
             {
-                foreach (var line in Result.Output.Split('\n', StringSplitOptions.None))
-                    await JS.InvokeVoidAsync("terminalInterop.write", "process-terminal", line);
+                if (Request?.UsePseudoTerminal == true)
+                    await JS.InvokeVoidAsync("terminalInterop.writeRaw", "process-terminal", Result.Output);
+                else
+                    foreach (var line in Result.Output.Split('\n', StringSplitOptions.None))
+                        await JS.InvokeVoidAsync("terminalInterop.write", "process-terminal", line);
             }
 
             // Replay stderr
             if (!string.IsNullOrEmpty(Result.Error))
             {
-                foreach (var line in Result.Error.Split('\n', StringSplitOptions.None))
-                    await JS.InvokeVoidAsync("terminalInterop.writeError", "process-terminal", line);
+                if (Request?.UsePseudoTerminal == true)
+                    await JS.InvokeVoidAsync("terminalInterop.writeRaw", "process-terminal", Result.Error);
+                else
+                    foreach (var line in Result.Error.Split('\n', StringSplitOptions.None))
+                        await JS.InvokeVoidAsync("terminalInterop.writeError", "process-terminal", line);
             }
 
             // Write final status line
@@ -419,7 +451,9 @@
         {
             if (_terminalInitialized)
             {
-                if (e.IsError)
+                if (e.IsRaw)
+                    await JS.InvokeVoidAsync("terminalInterop.writeRaw", "process-terminal", e.Data);
+                else if (e.IsError)
                     await JS.InvokeVoidAsync("terminalInterop.writeError", "process-terminal", e.Data);
                 else
                     await JS.InvokeVoidAsync("terminalInterop.write", "process-terminal", e.Data);
@@ -522,9 +556,13 @@
         {
             case ModalView.Confirmation:
                 bridge.SetTitle(Request?.Title ?? "Confirm Execution");
+                var executeLabel = Request?.ConfirmationButtonText ?? "Execute";
                 bridge.SetButtons(
                     new ProgressButton("cancel", "Cancel", ProgressButtonStyle.Secondary),
-                    new ProgressButton("execute", Request?.RequiresElevation == true ? "🔐 Execute" : "Execute", ProgressButtonStyle.Primary));
+                    new ProgressButton(
+                        "execute",
+                        Request?.RequiresElevation == true ? $"🔐 {executeLabel}" : executeLabel,
+                        ProgressButtonStyle.Primary));
                 break;
             case ModalView.Running:
                 bridge.SetTitle(Request?.Title ?? "Running Process");

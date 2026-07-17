@@ -159,6 +159,30 @@ public class DialogService : IDialogService
         });
 
         return await tcs.Task;
+#elif MACOSAPP
+        var tcs = new TaskCompletionSource<string?>();
+
+        await Dispatcher.DispatchAsync(() =>
+        {
+            var panel = new NSOpenPanel
+            {
+                Title = title,
+                CanChooseDirectories = true,
+                CanChooseFiles = false,
+                AllowsMultipleSelection = false,
+                CanCreateDirectories = true,
+                DirectoryUrl = NSUrl.FromFilename(
+                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)),
+            };
+
+            var result = panel.RunModal();
+            if (result == 1 && panel.Url?.Path is string path)
+                tcs.TrySetResult(path);
+            else
+                tcs.TrySetResult(null);
+        });
+
+        return await tcs.Task;
 #elif WINDOWS
         return await Dispatcher.DispatchAsync(async () =>
         {

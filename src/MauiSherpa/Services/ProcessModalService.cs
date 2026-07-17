@@ -9,6 +9,10 @@ namespace MauiSherpa.Services;
 /// </summary>
 public class ProcessModalService : IProcessModalService
 {
+    private const int MinimumModalWidth = 700;
+    private const int DefaultModalWidth = 1000;
+    private const int MaximumModalWidth = 1600;
+
     private readonly IProcessExecutionService _processService;
     private readonly ProgressBridgeHolder _bridgeHolder;
     private TaskCompletionSource<ProcessResult?>? _completionSource;
@@ -52,7 +56,13 @@ public class ProcessModalService : IProcessModalService
         INavigation? activeNav = nav;
         if (nav != null)
         {
-            var page = new HybridProgressPage(_bridgeHolder, "/modal/process", request.Title ?? "Process Execution", 700, 500);
+            var modalWidth = GetModalWidth(Application.Current?.Windows.FirstOrDefault());
+            var page = new HybridProgressPage(
+                _bridgeHolder,
+                "/modal/process",
+                request.Title ?? "Process Execution",
+                modalWidth,
+                500);
             await nav.PushModalAsync(page, animated: true);
         }
 
@@ -69,6 +79,18 @@ public class ProcessModalService : IProcessModalService
         OnModalClosed?.Invoke();
 
         return result;
+    }
+
+    private static int GetModalWidth(Window? parentWindow)
+    {
+        var parentWidth = parentWindow?.Width ?? 0;
+        if (!double.IsFinite(parentWidth) || parentWidth <= 0)
+            return DefaultModalWidth;
+
+        return (int)Math.Clamp(
+            Math.Round(parentWidth * 0.9),
+            MinimumModalWidth,
+            MaximumModalWidth);
     }
 
     /// <summary>

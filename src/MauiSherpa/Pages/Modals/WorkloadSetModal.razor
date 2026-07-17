@@ -1,0 +1,337 @@
+@page "/modal/workload-set"
+@using MauiSherpa.Pages.Forms
+@using MauiSherpa.Workloads.Models
+@inject HybridFormBridgeHolder BridgeHolder
+@implements IDisposable
+
+@if (inventory != null)
+{
+    <div class="set-dialog">
+        <div class="current-set">
+            <div>
+                <span class="label">Feature band</span>
+                <strong class="mono">@inventory.Target.FeatureBand</strong>
+            </div>
+            <div>
+                <span class="label">Current</span>
+                <strong class="mono">@inventory.ActiveWorkloadVersion</strong>
+            </div>
+            <div>
+                <span class="label">Mode</span>
+                <strong>@ModeLabel(inventory.UpdateMode)</strong>
+            </div>
+        </div>
+
+        <div class="set-toolbar">
+            <p>
+                @if (inventory.UpdateMode == DotnetWorkloadUpdateMode.Manifests)
+                {
+                    <span>Select a compatible workload set to replace loose manifest updates with coordinated workload-set updates.</span>
+                }
+                else
+                {
+                    <span>Select a compatible workload set. The next step previews every manifest change before running the SDK command.</span>
+                }
+            </p>
+            @if (inventory.AvailableSetVersions.Any(version => version.IsPrerelease))
+            {
+                <label class="preview-toggle">
+                    <input type="checkbox" @bind="showPreviews" />
+                    Include previews
+                </label>
+            }
+        </div>
+
+        @if (inventory.UpdateMode == DotnetWorkloadUpdateMode.Manifests)
+        {
+            <div class="mode-change-note">
+                <i class="fas fa-code-compare"></i>
+                <div>
+                    <strong>Switch to workload-set mode</strong>
+                    <span>Sherpa uses workload sets for coordinated manifest updates. Applying a version changes this feature band from loose manifests to workload-set mode.</span>
+                </div>
+            </div>
+        }
+
+        <div class="set-list">
+            @foreach (var version in VisibleVersions())
+            {
+                var isCurrent = string.Equals(
+                    version.Version,
+                    inventory.ActiveWorkloadVersion,
+                    StringComparison.OrdinalIgnoreCase) &&
+                    inventory.UpdateMode == DotnetWorkloadUpdateMode.WorkloadSet;
+                <label class="set-item @(selectedVersion == version.Version ? "selected" : "") @(isCurrent ? "current" : "")">
+                    <input type="radio"
+                           name="workload-set"
+                           value="@version.Version"
+                           checked="@(selectedVersion == version.Version)"
+                           @onchange="@(_ => Select(version.Version))" />
+                    <span class="mono set-version">@version.Version</span>
+                    @if (version == VisibleVersions().FirstOrDefault())
+                    {
+                        <span class="badge badge-success">latest</span>
+                    }
+                    @if (version.IsPrerelease)
+                    {
+                        <span class="badge badge-warning">preview</span>
+                    }
+                    @if (isCurrent)
+                    {
+                        <span class="badge badge-info">current</span>
+                    }
+                    @if (string.Equals(version.Version, inventory.Target.RepresentativeSdkVersion, StringComparison.OrdinalIgnoreCase))
+                    {
+                        <span class="badge badge-secondary">matches SDK</span>
+                    }
+                </label>
+            }
+        </div>
+
+        <p class="set-note">
+            <i class="fas fa-circle-info"></i>
+            Changing the set updates manifests together and updates packs for workloads already installed in this feature band.
+        </p>
+    </div>
+}
+
+<style>
+    .set-dialog {
+        display: flex;
+        flex-direction: column;
+        gap: 0.85rem;
+        padding: 1rem 1.25rem;
+    }
+
+    .current-set {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 0.75rem;
+        padding: 0.7rem 0.85rem;
+        border-radius: 0.625rem;
+        background: var(--bg-tertiary);
+    }
+
+    .current-set > div {
+        display: flex;
+        flex-direction: column;
+        gap: 0.2rem;
+        min-width: 0;
+    }
+
+    .label {
+        color: var(--text-secondary);
+        font-size: 0.68rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+    }
+
+    .current-set strong {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        color: var(--text-primary);
+        font-size: 0.83rem;
+    }
+
+    .set-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+    }
+
+    .set-toolbar p {
+        margin: 0;
+        color: var(--text-secondary);
+        font-size: 0.84rem;
+        line-height: 1.4;
+    }
+
+    .preview-toggle {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        color: var(--text-secondary);
+        font-size: 0.78rem;
+        white-space: nowrap;
+    }
+
+    .set-list {
+        max-height: 48vh;
+        overflow-y: auto;
+        border: 1px solid var(--border-color);
+        border-radius: 0.75rem;
+        background: var(--card-bg);
+    }
+
+    .mode-change-note {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.55rem;
+        padding: 0.65rem 0.75rem;
+        border: 1px solid color-mix(in srgb, var(--accent-purple) 35%, var(--border-color));
+        border-radius: 0.625rem;
+        background: color-mix(in srgb, var(--accent-purple) 12%, transparent);
+        color: var(--text-secondary);
+        font-size: 0.78rem;
+        line-height: 1.4;
+    }
+
+    .mode-change-note i {
+        margin-top: 0.15rem;
+        color: var(--accent-purple);
+    }
+
+    .mode-change-note div {
+        display: flex;
+        flex-direction: column;
+        gap: 0.1rem;
+    }
+
+    .mode-change-note strong {
+        color: var(--text-primary);
+    }
+
+    .set-item {
+        display: flex;
+        align-items: center;
+        gap: 0.55rem;
+        padding: 0.65rem 0.85rem;
+        cursor: pointer;
+    }
+
+    .set-item + .set-item {
+        border-top: 1px solid var(--border-color);
+    }
+
+    .set-item:hover,
+    .set-item.selected {
+        background: var(--bg-tertiary);
+    }
+
+    .set-version {
+        flex: 1;
+        color: var(--text-primary);
+        font-size: 0.84rem;
+        font-weight: 600;
+    }
+
+    .set-note {
+        display: flex;
+        gap: 0.45rem;
+        margin: 0;
+        padding: 0.65rem 0.75rem;
+        border-radius: 0.625rem;
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+        font-size: 0.78rem;
+        line-height: 1.4;
+    }
+
+    .badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 2px 0.5rem;
+        border-radius: 999px;
+        font-size: 0.68rem;
+        font-weight: 500;
+        white-space: nowrap;
+    }
+
+    @@media (max-width: 620px) {
+        .current-set {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+
+@code {
+    private DotnetWorkloadInventory? inventory;
+    private string? selectedVersion;
+    private bool showPreviews;
+
+    protected override void OnInitialized()
+    {
+        var bridge = BridgeHolder.Current;
+        if (bridge == null)
+            return;
+        inventory = bridge.Parameters.GetValueOrDefault("Inventory") as DotnetWorkloadInventory;
+        selectedVersion = bridge.Parameters.GetValueOrDefault("InitialVersion") as string;
+        if (string.IsNullOrWhiteSpace(selectedVersion) &&
+            inventory?.UpdateMode == DotnetWorkloadUpdateMode.WorkloadSet)
+        {
+            selectedVersion = inventory.ActiveWorkloadVersion;
+        }
+        showPreviews =
+            inventory?.Target.FeatureBand.IsPrerelease == true ||
+            inventory?.AvailableSetVersions.Any(version =>
+                version.IsPrerelease &&
+                string.Equals(version.Version, selectedVersion, StringComparison.OrdinalIgnoreCase)) == true;
+        if (!VisibleVersions().Any(version =>
+                string.Equals(version.Version, selectedVersion, StringComparison.OrdinalIgnoreCase)))
+            selectedVersion = null;
+        bridge.SubmitRequested += OnSubmit;
+        bridge.CancelRequested += OnCancel;
+        UpdateBridge();
+    }
+
+    private IReadOnlyList<DotnetWorkloadSetVersion> VisibleVersions() =>
+        inventory?.AvailableSetVersions
+            .Where(version => showPreviews || !version.IsPrerelease)
+            .ToList() ?? [];
+
+    private void Select(string version)
+    {
+        selectedVersion = version;
+        UpdateBridge();
+    }
+
+    private void UpdateBridge()
+    {
+        var bridge = BridgeHolder.Current;
+        if (bridge == null)
+            return;
+        bridge.Result = selectedVersion;
+        bridge.SetValid(
+            !string.IsNullOrWhiteSpace(selectedVersion) &&
+            !IsCurrentVersion(selectedVersion));
+        StateHasChanged();
+    }
+
+    private bool IsCurrentVersion(string? version) =>
+        inventory?.UpdateMode == DotnetWorkloadUpdateMode.WorkloadSet &&
+        string.Equals(
+            version,
+            inventory.ActiveWorkloadVersion,
+            StringComparison.OrdinalIgnoreCase);
+
+    private Task OnSubmit()
+    {
+        UpdateBridge();
+        return Task.CompletedTask;
+    }
+
+    private void OnCancel()
+    {
+        var bridge = BridgeHolder.Current;
+        if (bridge != null)
+            bridge.Result = null;
+    }
+
+    private static string ModeLabel(DotnetWorkloadUpdateMode mode) => mode switch
+    {
+        DotnetWorkloadUpdateMode.WorkloadSet => "Workload set",
+        DotnetWorkloadUpdateMode.Manifests => "Loose manifests",
+        _ => "Unknown"
+    };
+
+    public void Dispose()
+    {
+        var bridge = BridgeHolder.Current;
+        if (bridge == null)
+            return;
+        bridge.SubmitRequested -= OnSubmit;
+        bridge.CancelRequested -= OnCancel;
+    }
+}

@@ -1,0 +1,583 @@
+@page "/modal/manage-workloads"
+@using MauiSherpa.Pages.Forms
+@using MauiSherpa.Workloads.Models
+@using MauiSherpa.Workloads.Services
+@inject HybridFormBridgeHolder BridgeHolder
+@implements IDisposable
+
+@if (inventory != null)
+{
+    <div class="workload-dialog">
+        <div class="target-summary">
+            <div>
+                <strong>.NET @inventory.Target.RuntimeVersion</strong>
+                <span class="mono">@inventory.Target.FeatureBand</span>
+            </div>
+            <span class="target-set mono">@inventory.ActiveWorkloadVersion</span>
+        </div>
+
+        <p class="intro">
+            Uncheck directly installed workloads to remove them, or select available workloads to install. Workloads
+            included by an aggregate remain checked and are managed through that aggregate.
+        </p>
+
+        <div class="search-box">
+            <i class="fas fa-magnifying-glass"></i>
+            <input type="search" placeholder="Filter workloads" @bind="search" @bind:event="oninput" />
+        </div>
+
+        <div class="workload-groups">
+            <section class="workload-group remove-group">
+                <div class="group-heading">
+                    <div>
+                        <i class="fas fa-box-archive"></i>
+                        <div>
+                            <strong>Installed</strong>
+                            <span>Uncheck to uninstall</span>
+                        </div>
+                    </div>
+                    <span class="count-badge">@InstalledWorkloads().Count</span>
+                </div>
+                <div class="workload-list">
+                    @foreach (var workload in FilteredInstalledWorkloads())
+                    {
+                        <label class="workload-item remove @(!workload.CanUninstall ? "included" : "") @(selectedUninstall.Contains(workload.Id) ? "selected" : "")">
+                            <input type="checkbox"
+                                   aria-label="@InstalledAriaLabel(workload)"
+                                   checked="@(!selectedUninstall.Contains(workload.Id))"
+                                   disabled="@(!workload.CanUninstall)"
+                                   @onchange="@(_ => ToggleUninstall(workload))" />
+                            <div class="workload-main">
+                                <div class="workload-title">
+                                    <span class="mono">@workload.Id</span>
+                                    @if (workload.IsExplicit)
+                                    {
+                                        <span class="badge badge-success"><i class="fas fa-check"></i> installed</span>
+                                    }
+                                    @if (workload.IncludedBy.Count > 0)
+                                    {
+                                        <span class="badge badge-info">
+                                            @(workload.IsExplicit ? "also included by" : "included by") @ParentLabel(workload.IncludedBy)
+                                        </span>
+                                    }
+                                    @if (selectedUninstall.Contains(workload.Id))
+                                    {
+                                        <span class="badge badge-error">remove</span>
+                                    }
+                                </div>
+                                @if (!string.IsNullOrWhiteSpace(workload.Definition?.Description))
+                                {
+                                    <div class="workload-description">@workload.Definition.Description</div>
+                                }
+                            </div>
+                        </label>
+                    }
+                    @if (!FilteredInstalledWorkloads().Any())
+                    {
+                        <div class="empty">
+                            @(InstalledWorkloads().Count == 0
+                                ? "No workload IDs are currently installed."
+                                : "No installed workloads match this filter.")
+                        </div>
+                    }
+                </div>
+            </section>
+
+            <section class="workload-group install-group">
+                <div class="group-heading">
+                    <div>
+                        <i class="fas fa-circle-plus"></i>
+                        <div>
+                            <strong>Available</strong>
+                            <span>Select to install</span>
+                        </div>
+                    </div>
+                    <div class="available-controls">
+                        <label class="show-all-toggle">
+                            <input type="checkbox" @bind="showAll" />
+                            Show all
+                        </label>
+                        <span class="count-badge">@AvailableWorkloads().Count</span>
+                    </div>
+                </div>
+                <div class="workload-list">
+                    @foreach (var workload in FilteredAvailableWorkloads())
+                    {
+                        var includedBy = IncludedBySelectedInstall(workload.Id);
+                        var disabled = includedBy != null && !selectedInstall.Contains(workload.Id);
+                        <label class="workload-item install @(selectedInstall.Contains(workload.Id) ? "selected" : "") @(disabled ? "included" : "")">
+                            <input type="checkbox"
+                                   aria-label="Select @workload.Id for installation"
+                                   checked="@(selectedInstall.Contains(workload.Id) || includedBy != null)"
+                                   disabled="@disabled"
+                                   @onchange="@(_ => ToggleInstall(workload))" />
+                            <div class="workload-main">
+                                <div class="workload-title">
+                                    <span class="mono">@workload.Id</span>
+                                    @if (workload.TransitiveIncludes.Count > 0)
+                                    {
+                                        <span class="badge badge-info">includes @workload.TransitiveIncludes.Count</span>
+                                    }
+                                    @if (workload.Packs.Count > 0)
+                                    {
+                                        <span class="badge badge-secondary">@workload.Packs.Count packs</span>
+                                    }
+                                    @if (includedBy != null)
+                                    {
+                                        <span class="badge badge-success">included by @includedBy</span>
+                                    }
+                                </div>
+                                @if (!string.IsNullOrWhiteSpace(workload.Description))
+                                {
+                                    <div class="workload-description">@workload.Description</div>
+                                }
+                                @if (workload.TransitiveIncludes.Count > 0)
+                                {
+                                    <details>
+                                        <summary>Included workloads</summary>
+                                        <div class="include-chips">
+                                            @foreach (var included in workload.TransitiveIncludes)
+                                            {
+                                                <span class="include-chip mono">@included</span>
+                                            }
+                                        </div>
+                                    </details>
+                                }
+                            </div>
+                        </label>
+                    }
+                    @if (!FilteredAvailableWorkloads().Any())
+                    {
+                        <div class="empty">
+                            @(AvailableWorkloads().Count == 0 && !showAll
+                                ? "No recommended workloads are available. Turn on Show all to see every workload."
+                                : "No available workloads match this filter.")
+                        </div>
+                    }
+                </div>
+            </section>
+        </div>
+
+        <div class="selection-summary">
+            <i class="fas fa-code-compare"></i>
+            <span>@selectedInstall.Count to install · @selectedUninstall.Count to uninstall</span>
+        </div>
+    </div>
+}
+
+<style>
+    .workload-dialog {
+        display: flex;
+        flex-direction: column;
+        gap: 0.8rem;
+        height: 100%;
+        min-height: 0;
+        padding: 1rem 1.25rem;
+    }
+
+    .target-summary {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 0.65rem 0.8rem;
+        border-radius: 0.625rem;
+        background: var(--bg-tertiary);
+        color: var(--text-primary);
+        font-size: 0.85rem;
+    }
+
+    .target-summary > div {
+        display: flex;
+        align-items: center;
+        gap: 0.55rem;
+    }
+
+    .target-set {
+        color: var(--text-secondary);
+        font-size: 0.78rem;
+    }
+
+    .intro {
+        margin: 0;
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+        line-height: 1.45;
+    }
+
+    .search-box {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.5rem 0.7rem;
+        border: 1px solid var(--input-border, var(--border-color));
+        border-radius: 0.5rem;
+        background: var(--input-bg);
+        color: var(--text-secondary);
+    }
+
+    .search-box input {
+        flex: 1;
+        min-width: 0;
+        border: 0;
+        outline: 0;
+        background: transparent;
+        color: var(--text-primary);
+        font-size: 0.875rem;
+    }
+
+    .workload-groups {
+        display: grid;
+        grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+        gap: 0.9rem;
+        flex: 1;
+        min-height: 0;
+    }
+
+    .workload-group {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        min-height: 0;
+        border: 1px solid var(--border-color);
+        border-radius: 0.75rem;
+        overflow: hidden;
+        background: var(--bg-tertiary);
+    }
+
+    .group-heading {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        padding: 0.7rem 0.8rem;
+        border-bottom: 1px solid var(--border-color);
+        background: var(--card-bg);
+        color: var(--text-primary);
+        font-size: 0.82rem;
+    }
+
+    .group-heading > div:first-child {
+        display: flex;
+        align-items: center;
+        gap: 0.55rem;
+    }
+
+    .group-heading > div:first-child > i {
+        color: var(--text-secondary);
+    }
+
+    .group-heading > div:first-child > div {
+        display: flex;
+        flex-direction: column;
+        gap: 0.05rem;
+    }
+
+    .group-heading > div:first-child span {
+        color: var(--text-secondary);
+        font-size: 0.68rem;
+        font-weight: 400;
+    }
+
+    .available-controls,
+    .show-all-toggle {
+        display: flex;
+        align-items: center;
+    }
+
+    .available-controls {
+        gap: 0.55rem;
+    }
+
+    .show-all-toggle {
+        gap: 0.3rem;
+        color: var(--text-secondary);
+        font-size: 0.72rem;
+        white-space: nowrap;
+    }
+
+    .count-badge {
+        min-width: 1.65rem;
+        padding: 0.1rem 0.4rem;
+        border-radius: 999px;
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+        font-size: 0.7rem;
+        text-align: center;
+    }
+
+    .workload-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        flex: 1;
+        min-height: 0;
+        padding: 0.55rem;
+        overflow-y: auto;
+    }
+
+    .workload-item {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.75rem;
+        padding: 0.7rem 0.75rem;
+        border: 1px solid var(--border-color);
+        border-radius: 0.625rem;
+        background: var(--card-bg);
+        cursor: pointer;
+        transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .workload-item:hover {
+        border-color: var(--accent-primary);
+        box-shadow: var(--card-shadow);
+    }
+
+    .workload-item.install.selected {
+        border-color: var(--status-success-text);
+        background: var(--status-success-bg);
+    }
+
+    .workload-item.remove.selected {
+        border-color: var(--status-error-text);
+        background: var(--status-error-bg);
+    }
+
+    .workload-item.included {
+        cursor: default;
+        opacity: 0.72;
+    }
+
+    .workload-item.included:hover {
+        border-color: var(--border-color);
+        box-shadow: none;
+    }
+
+    .workload-item input {
+        margin-top: 0.2rem;
+        accent-color: var(--accent-primary);
+    }
+
+    .workload-item.remove input {
+        accent-color: var(--status-success-text);
+    }
+
+    .workload-main {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .workload-title {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 0.4rem;
+        color: var(--text-primary);
+        font-weight: 600;
+        font-size: 0.86rem;
+    }
+
+    .workload-description {
+        margin-top: 0.2rem;
+        color: var(--text-secondary);
+        font-size: 0.8rem;
+        line-height: 1.35;
+    }
+
+    details {
+        margin-top: 0.45rem;
+        color: var(--text-secondary);
+        font-size: 0.75rem;
+    }
+
+    summary {
+        cursor: pointer;
+    }
+
+    .include-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.3rem;
+        margin-top: 0.4rem;
+    }
+
+    .include-chip {
+        padding: 0.15rem 0.4rem;
+        border-radius: 999px;
+        background: var(--bg-secondary);
+        color: var(--text-secondary);
+        font-size: 0.7rem;
+    }
+
+    .selection-summary {
+        display: flex;
+        align-items: center;
+        gap: 0.45rem;
+        color: var(--text-secondary);
+        font-size: 0.8rem;
+    }
+
+    .empty {
+        padding: 1.25rem;
+        text-align: center;
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+    }
+
+    .badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 2px 0.5rem;
+        border-radius: 999px;
+        font-size: 0.68rem;
+        font-weight: 500;
+        white-space: nowrap;
+    }
+
+    .badge-error {
+        color: var(--status-error-text);
+        background: var(--status-error-bg);
+    }
+
+    @@media (max-width: 720px) {
+        .workload-groups {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+
+@code {
+    private DotnetWorkloadInventory? inventory;
+    private string search = string.Empty;
+    private bool showAll;
+    private readonly HashSet<string> selectedInstall = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> selectedUninstall = new(StringComparer.OrdinalIgnoreCase);
+
+    protected override void OnInitialized()
+    {
+        var bridge = BridgeHolder.Current;
+        if (bridge == null)
+            return;
+
+        inventory = bridge.Parameters.GetValueOrDefault("Inventory") as DotnetWorkloadInventory;
+        bridge.SubmitRequested += OnSubmit;
+        bridge.CancelRequested += OnCancel;
+        UpdateBridge();
+    }
+
+    private IReadOnlyList<DotnetWorkloadInstallationState> InstalledWorkloads()
+    {
+        if (inventory == null)
+            return [];
+
+        return inventory.EffectiveInstalledWorkloads
+            .Where(workload => workload.IsUserVisible)
+            .OrderBy(workload => workload.Id, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private IReadOnlyList<ResolvedWorkloadDefinition> AvailableWorkloads()
+    {
+        if (inventory == null)
+            return [];
+
+        var recommended = WorkloadRecommendationPolicy.GetRecommendedWorkloadIds(
+            OperatingSystem.IsLinux());
+        var recommendedSet = recommended.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var order = recommended
+            .Select((id, index) => (id, index))
+            .ToDictionary(item => item.id, item => item.index, StringComparer.OrdinalIgnoreCase);
+
+        return inventory.InstallableWorkloads
+            .Where(workload =>
+                (showAll || recommendedSet.Contains(workload.Id)))
+            .OrderBy(workload => order.GetValueOrDefault(workload.Id, int.MaxValue))
+            .ThenBy(workload => workload.Id, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private IEnumerable<DotnetWorkloadInstallationState> FilteredInstalledWorkloads() =>
+        InstalledWorkloads().Where(MatchesSearch);
+
+    private IEnumerable<ResolvedWorkloadDefinition> FilteredAvailableWorkloads() =>
+        AvailableWorkloads().Where(MatchesSearch);
+
+    private bool MatchesSearch(ResolvedWorkloadDefinition workload) =>
+        string.IsNullOrWhiteSpace(search) ||
+        workload.Id.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+        (workload.Description?.Contains(search, StringComparison.OrdinalIgnoreCase) ?? false);
+
+    private bool MatchesSearch(DotnetWorkloadInstallationState workload) =>
+        string.IsNullOrWhiteSpace(search) ||
+        workload.Id.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+        (workload.Definition?.Description?.Contains(search, StringComparison.OrdinalIgnoreCase) ?? false) ||
+        workload.IncludedBy.Any(parent => parent.Contains(search, StringComparison.OrdinalIgnoreCase));
+
+    private void ToggleInstall(ResolvedWorkloadDefinition workload)
+    {
+        if (!selectedInstall.Add(workload.Id))
+            selectedInstall.Remove(workload.Id);
+        else
+            foreach (var included in workload.TransitiveIncludes)
+                selectedInstall.Remove(included);
+        UpdateBridge();
+    }
+
+    private void ToggleUninstall(DotnetWorkloadInstallationState workload)
+    {
+        if (!workload.CanUninstall)
+            return;
+        if (!selectedUninstall.Add(workload.Id))
+            selectedUninstall.Remove(workload.Id);
+        UpdateBridge();
+    }
+
+    private string? IncludedBySelectedInstall(string id) =>
+        AvailableWorkloads()
+            .FirstOrDefault(workload =>
+                selectedInstall.Contains(workload.Id) &&
+                workload.TransitiveIncludes.Contains(id, StringComparer.OrdinalIgnoreCase))
+            ?.Id;
+
+    private static string ParentLabel(IReadOnlyList<string> parents) =>
+        string.Join(", ", parents);
+
+    private static string InstalledAriaLabel(DotnetWorkloadInstallationState workload) =>
+        workload.CanUninstall
+            ? $"Keep {workload.Id} installed"
+            : $"{workload.Id} is included by {ParentLabel(workload.IncludedBy)}";
+
+    private void UpdateBridge()
+    {
+        var bridge = BridgeHolder.Current;
+        if (bridge == null)
+            return;
+        bridge.Result = new WorkloadSelectionResult(
+            selectedInstall.OrderBy(id => id, StringComparer.OrdinalIgnoreCase).ToList(),
+            selectedUninstall.OrderBy(id => id, StringComparer.OrdinalIgnoreCase).ToList());
+        bridge.SetValid(selectedInstall.Count > 0 || selectedUninstall.Count > 0);
+        StateHasChanged();
+    }
+
+    private Task OnSubmit()
+    {
+        UpdateBridge();
+        return Task.CompletedTask;
+    }
+
+    private void OnCancel()
+    {
+        var bridge = BridgeHolder.Current;
+        if (bridge != null)
+            bridge.Result = null;
+    }
+
+    public void Dispose()
+    {
+        var bridge = BridgeHolder.Current;
+        if (bridge == null)
+            return;
+        bridge.SubmitRequested -= OnSubmit;
+        bridge.CancelRequested -= OnCancel;
+    }
+}

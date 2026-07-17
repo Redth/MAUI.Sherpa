@@ -3,7 +3,7 @@ using System.Text.Json.Serialization;
 namespace MauiSherpa.Workloads.Models;
 
 /// <summary>
-/// Represents a workload set that maps workload IDs to their manifest versions.
+/// Represents a workload set that maps manifest IDs to their manifest versions.
 /// This corresponds to the contents of a Microsoft.NET.Workloads.{feature-band} package.
 /// </summary>
 public record WorkloadSet
@@ -19,9 +19,17 @@ public record WorkloadSet
     public required string FeatureBand { get; init; }
 
     /// <summary>
-    /// The workload manifest entries mapping workload IDs to versions.
+    /// The workload manifest entries mapping manifest IDs to versions.
     /// </summary>
-    public IReadOnlyDictionary<string, WorkloadSetEntry> Workloads { get; init; } = new Dictionary<string, WorkloadSetEntry>();
+    public IReadOnlyDictionary<string, WorkloadSetEntry> ManifestEntries { get; init; } = new Dictionary<string, WorkloadSetEntry>();
+
+    /// <summary>Compatibility alias for older callers.</summary>
+    [Obsolete("Workload sets contain manifest entries. Use ManifestEntries.")]
+    public IReadOnlyDictionary<string, WorkloadSetEntry> Workloads
+    {
+        get => ManifestEntries;
+        init => ManifestEntries = value;
+    }
 }
 
 /// <summary>

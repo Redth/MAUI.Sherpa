@@ -29,7 +29,9 @@ public record SdkVersion
     /// The feature band (e.g., "9.0.100" for SDK "9.0.105").
     /// The feature band is the SDK version with the last two digits zeroed out.
     /// </summary>
-    public string FeatureBand => $"{Major}.{Minor}.{(Patch / 100) * 100}";
+    public SdkFeatureBand FeatureBandValue => new(Version);
+
+    public string FeatureBand => FeatureBandValue.ToString();
 
     /// <summary>
     /// The runtime version this SDK targets (e.g., "9.0" for SDK "9.0.100").
