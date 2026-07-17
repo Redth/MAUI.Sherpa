@@ -1777,7 +1777,8 @@ public record DoctorContext(
     string? ResolvedSdkVersion = null,
     bool DotnetUpInstalled = false,
     string? DotnetUpVersion = null,
-    string? DotnetUpManagedInstallRoot = null
+    string? DotnetUpManagedInstallRoot = null,
+    string? DotNetArchitecture = null
 );
 
 /// <summary>
@@ -1898,12 +1899,84 @@ public interface IDoctorService
     Task<bool> UpdateWorkloadsAsync(string workloadSetVersion, IProgress<string>? progress = null);
 
     /// <summary>
+    /// Builds a workload-set update request for the same install root, architecture, and SDK
+    /// feature band used by Doctor's workload status.
+    /// </summary>
+    Task<ProcessRequest?> GetWorkloadUpdateRequestAsync(
+        string featureBand,
+        string? workingDirectory,
+        string workloadSetVersion,
+        string? installRoot = null,
+        string? architecture = null,
+        string? sdkVersion = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Resolves the full path to the dotnet executable.
     /// GUI apps on macOS don't inherit the user's shell PATH, so bare "dotnet" won't resolve.
     /// </summary>
     string GetDotNetExecutablePath();
 }
 
+
+/// <summary>
+/// Reads and mutates workload state for dotnetup-managed SDK roots. Workload state is keyed by
+/// install root, architecture, and SDK feature band rather than by exact SDK patch.
+/// </summary>
+public interface IDotnetWorkloadService
+{
+    Task<IReadOnlyList<MauiSherpa.Workloads.Models.DotnetWorkloadTarget>> GetTargetsAsync(
+        MauiSherpa.Workloads.Models.DotnetUpListResult? list = null,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<MauiSherpa.Workloads.Models.DotnetWorkloadInventory>> GetInventoriesAsync(
+        MauiSherpa.Workloads.Models.DotnetUpListResult? list = null,
+        bool forceRefresh = false,
+        CancellationToken cancellationToken = default);
+
+    Task<MauiSherpa.Workloads.Models.DotnetWorkloadInventory> GetInventoryAsync(
+        MauiSherpa.Workloads.Models.DotnetWorkloadTarget target,
+        string? workingDirectory = null,
+        bool forceRefresh = false,
+        CancellationToken cancellationToken = default);
+
+    Task<MauiSherpa.Workloads.Models.DotnetWorkloadSetPreview> GetWorkloadSetPreviewAsync(
+        MauiSherpa.Workloads.Models.DotnetWorkloadTarget target,
+        string workloadSetVersion,
+        CancellationToken cancellationToken = default);
+
+    ProcessRequest CreateInstallRequest(
+        MauiSherpa.Workloads.Models.DotnetWorkloadTarget target,
+        IReadOnlyList<string> workloadIds,
+        string? workloadSetVersion = null);
+
+    ProcessRequest CreateUninstallRequest(
+        MauiSherpa.Workloads.Models.DotnetWorkloadTarget target,
+        IReadOnlyList<string> workloadIds);
+
+    ProcessRequest CreateUpdateSetRequest(
+        MauiSherpa.Workloads.Models.DotnetWorkloadTarget target,
+        string workloadSetVersion);
+
+    ProcessRequest CreateLatestSetUpdateRequest(
+        MauiSherpa.Workloads.Models.DotnetWorkloadTarget target);
+
+    ProcessRequest CreateRepairRequest(MauiSherpa.Workloads.Models.DotnetWorkloadTarget target);
+
+    ProcessRequest CreateRestoreRequest(
+        MauiSherpa.Workloads.Models.DotnetWorkloadTarget target,
+        string projectDirectory);
+
+    MauiSherpa.Workloads.Models.GlobalJsonWorkloadPinPreview PreviewProjectWorkloadPin(
+        string projectDirectory,
+        string? workloadSetVersion);
+
+    Task ApplyProjectWorkloadPinAsync(
+        MauiSherpa.Workloads.Models.GlobalJsonWorkloadPinPreview preview,
+        CancellationToken cancellationToken = default);
+
+    void Invalidate(string? installRoot = null);
+}
 
 /// <summary>
 /// Manages the <c>dotnetup</c> user-level .NET toolchain manager: downloading/bootstrapping
@@ -1938,6 +2011,14 @@ public interface IDotnetUpService
     Task<MauiSherpa.Workloads.Models.DotnetUpToolInfo?> GetToolInfoAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Compares the installed dotnetup binary with the latest published artifact by SHA-512,
+    /// without downloading the binary.
+    /// </summary>
+    Task<MauiSherpa.Workloads.Models.DotnetUpToolUpdateInfo?> GetToolUpdateInfoAsync(
+        MauiSherpa.Workloads.Models.DotnetUpToolInfo? installedInfo = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Reads <c>dotnetup list --format Json</c> and returns parsed installations/specs, or null
     /// when the tool is missing or the call fails.
     /// </summary>
@@ -1965,7 +2046,7 @@ public interface IDotnetUpService
     /// <summary>Builds a <see cref="ProcessRequest"/> for arbitrary dotnetup arguments.</summary>
     ProcessRequest CreateProcessRequest(
         IReadOnlyList<string> arguments, string? title = null, string? description = null,
-        string? workingDirectory = null);
+        string? workingDirectory = null, bool usePseudoTerminal = false);
 
     /// <summary>
     /// Builds a request that installs the SDK required by the <c>global.json</c> in
@@ -2028,7 +2109,10 @@ public record ProcessRequest(
     string? ElevationPrompt = null,
     Dictionary<string, string>? Environment = null,
     string? Title = null,
-    string? Description = null
+    string? Description = null,
+    bool UsePseudoTerminal = false,
+    string? ConfirmationDetails = null,
+    string? ConfirmationButtonText = null
 )
 {
     /// <summary>
@@ -2062,12 +2146,14 @@ public class ProcessOutputEventArgs : EventArgs
 {
     public string Data { get; }
     public bool IsError { get; }
+    public bool IsRaw { get; }
     public DateTime Timestamp { get; }
 
-    public ProcessOutputEventArgs(string data, bool isError = false)
+    public ProcessOutputEventArgs(string data, bool isError = false, bool isRaw = false)
     {
         Data = data;
         IsError = isError;
+        IsRaw = isRaw;
         Timestamp = DateTime.Now;
     }
 }

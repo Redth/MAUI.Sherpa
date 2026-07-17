@@ -112,6 +112,26 @@ public class GlobalJsonResolverTests
     }
 
     [Fact]
+    public void Resolve_ParsesOfficialWorkloadVersionWithJsonComments()
+    {
+        using var temp = new TempDir();
+        temp.WriteGlobalJson("""
+        {
+          // Project toolchain
+          "sdk": {
+            "version": "10.0.302",
+            "workloadVersion": "10.0.300.1",
+          },
+        }
+        """);
+
+        var result = new GlobalJsonResolver().Resolve(temp.Path);
+
+        result.WorkloadVersion.Should().Be("10.0.300.1");
+        result.UsesLegacyWorkloadSetProperty.Should().BeFalse();
+    }
+
+    [Fact]
     public void Resolve_WalksUpToNearestGlobalJson()
     {
         using var temp = new TempDir();

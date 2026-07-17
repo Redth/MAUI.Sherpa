@@ -1,0 +1,302 @@
+@page "/modal/dotnetup-details"
+@using MauiSherpa.Pages.Forms
+@using MauiSherpa.Workloads.Models
+@inject ModalParameterService ModalParams
+
+@if (session is null)
+{
+    <div class="dotnetup-details-state">
+        <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
+        <span>dotnetup details are unavailable.</span>
+    </div>
+}
+else
+{
+    <div class="dotnetup-details">
+        <div class="dotnetup-details-summary @(session.IsInstalled ? "installed" : "missing")">
+            <i class="fa-regular @(session.IsInstalled ? "fa-circle-check" : "fa-circle-xmark")"
+               aria-hidden="true"></i>
+            <div>
+                <strong>@StatusTitle</strong>
+                <span>@StatusDescription</span>
+            </div>
+        </div>
+
+        <dl class="dotnetup-details-facts">
+            <div class="dotnetup-details-fact">
+                <dt>Installed version</dt>
+                <dd class="mono">@ValueOrFallback(session.ToolInfo?.Version)</dd>
+            </div>
+            @if (UpdateAvailable)
+            {
+                <div class="dotnetup-details-fact">
+                    <dt>Available version</dt>
+                    <dd class="mono update-version">@session.ToolUpdateInfo!.AvailableVersion</dd>
+                </div>
+            }
+            <div class="dotnetup-details-fact">
+                <dt>RID</dt>
+                <dd class="mono">@ValueOrFallback(session.ToolInfo?.Rid)</dd>
+            </div>
+            <div class="dotnetup-details-fact">
+                <dt>Architecture</dt>
+                <dd>@ValueOrFallback(session.ToolInfo?.Architecture)</dd>
+            </div>
+            @if (!string.IsNullOrWhiteSpace(session.ExecutablePath))
+            {
+                <div class="dotnetup-details-fact full-width">
+                    <dt>Binary path</dt>
+                    <dd class="mono path-value" title="@session.ExecutablePath">@session.ExecutablePath</dd>
+                </div>
+            }
+            @if (!string.IsNullOrWhiteSpace(session.ToolDirectory))
+            {
+                <div class="dotnetup-details-fact full-width">
+                    <dt>Tool directory</dt>
+                    <dd class="mono path-value" title="@session.ToolDirectory">@session.ToolDirectory</dd>
+                </div>
+            }
+        </dl>
+
+        @if (ManagedRoots.Count > 0)
+        {
+            <section class="dotnetup-details-roots">
+                <h2>Managed roots</h2>
+                <div class="dotnetup-details-root-list">
+                    @foreach (var root in ManagedRoots)
+                    {
+                        <code title="@root">@root</code>
+                    }
+                </div>
+            </section>
+        }
+
+        <div class="dotnetup-details-actions">
+            @if (!session.IsInstalled)
+            {
+                <button type="button"
+                        class="btn btn-primary"
+                        @onclick="() => SelectAction(DotnetUpDetailsAction.Install)">
+                    <i class="fas fa-download" aria-hidden="true"></i>
+                    <span>Install dotnetup</span>
+                </button>
+            }
+            else
+            {
+                @if (UpdateAvailable)
+                {
+                    <button type="button"
+                            class="btn btn-primary"
+                            @onclick="() => SelectAction(DotnetUpDetailsAction.Update)">
+                        <i class="fas fa-arrow-up" aria-hidden="true"></i>
+                        <span>Update</span>
+                    </button>
+                }
+                <button type="button"
+                        class="btn btn-secondary"
+                        @onclick="() => SelectAction(DotnetUpDetailsAction.Reinstall)">
+                    <i class="fas fa-rotate" aria-hidden="true"></i>
+                    <span>Reinstall</span>
+                </button>
+            }
+        </div>
+    </div>
+}
+
+<style>
+    .dotnetup-details {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+        padding: 1.1rem 1.25rem;
+        color: var(--text-primary);
+    }
+
+    .dotnetup-details-summary,
+    .dotnetup-details-state {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.7rem;
+    }
+
+    .dotnetup-details-summary {
+        padding: 0.75rem 0.85rem;
+        border: 1px solid var(--border-color);
+        border-radius: var(--card-radius);
+        background: var(--card-bg);
+    }
+
+    .dotnetup-details-summary > i {
+        margin-top: 0.08rem;
+        font-size: 1.05rem;
+    }
+
+    .dotnetup-details-summary.installed > i {
+        color: color-mix(in srgb, var(--status-success-text) 72%, var(--text-secondary));
+    }
+
+    .dotnetup-details-summary.missing > i,
+    .dotnetup-details-state {
+        color: var(--status-warning-text);
+    }
+
+    .dotnetup-details-summary > div {
+        display: flex;
+        flex-direction: column;
+        gap: 0.2rem;
+    }
+
+    .dotnetup-details-summary strong {
+        font-size: 0.94rem;
+    }
+
+    .dotnetup-details-summary span {
+        color: var(--text-secondary);
+        font-size: 0.82rem;
+        line-height: 1.4;
+    }
+
+    .dotnetup-details-facts {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0;
+        margin: 0;
+        border-top: 1px solid var(--border-color);
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .dotnetup-details-fact {
+        min-width: 0;
+        padding: 0.65rem 0.75rem;
+        background: color-mix(in srgb, var(--bg-tertiary) 35%, var(--card-bg));
+    }
+
+    .dotnetup-details-fact:nth-child(even) {
+        border-left: 1px solid var(--border-color);
+    }
+
+    .dotnetup-details-fact:nth-child(n + 3),
+    .dotnetup-details-fact.full-width {
+        border-top: 1px solid var(--border-color);
+    }
+
+    .dotnetup-details-fact.full-width {
+        grid-column: 1 / -1;
+        border-left: 0;
+    }
+
+    .dotnetup-details-fact dt {
+        margin-bottom: 0.22rem;
+        color: var(--text-secondary);
+        font-size: 0.68rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+    }
+
+    .dotnetup-details-fact dd {
+        margin: 0;
+        font-size: 0.82rem;
+    }
+
+    .update-version {
+        color: var(--status-info-text);
+        font-weight: 600;
+    }
+
+    .path-value {
+        overflow-wrap: anywhere;
+        color: var(--text-secondary);
+    }
+
+    .dotnetup-details-roots h2 {
+        margin: 0 0 0.45rem;
+        font-size: 0.82rem;
+        font-weight: 600;
+    }
+
+    .dotnetup-details-root-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+    }
+
+    .dotnetup-details-root-list code {
+        padding: 0.4rem 0.55rem;
+        border: 1px solid var(--border-color);
+        border-radius: 0.35rem;
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+        overflow-wrap: anywhere;
+        user-select: text;
+    }
+
+    .dotnetup-details-actions {
+        display: flex;
+        justify-content: flex-end;
+        flex-wrap: wrap;
+        gap: 0.55rem;
+        padding-top: 0.15rem;
+    }
+
+    .dotnetup-details-state {
+        padding: 1.25rem;
+    }
+
+    @@media (max-width: 600px) {
+        .dotnetup-details-facts {
+            grid-template-columns: 1fr;
+        }
+
+        .dotnetup-details-fact:nth-child(even) {
+            border-left: 0;
+        }
+
+        .dotnetup-details-fact + .dotnetup-details-fact {
+            border-top: 1px solid var(--border-color);
+        }
+    }
+</style>
+
+@code {
+    private DotnetUpDetailsSession? session;
+
+    private bool UpdateAvailable =>
+        session?.IsInstalled == true &&
+        session.ToolUpdateInfo?.UpdateAvailable == true;
+
+    private string StatusTitle => session?.IsInstalled == true
+        ? UpdateAvailable ? "Update available" : "Ready"
+        : "Not installed";
+
+    private string StatusDescription
+    {
+        get
+        {
+            if (session?.IsInstalled != true)
+                return "Install dotnetup to manage .NET SDKs and runtimes from Sherpa.";
+
+            if (UpdateAvailable)
+                return $"Version {session.ToolUpdateInfo!.AvailableVersion} is available. You currently have {session.ToolInfo?.Version ?? session.ToolUpdateInfo.InstalledVersion}.";
+
+            return "dotnetup is available for SDK, runtime, and tracked-channel operations.";
+        }
+    }
+
+    private IReadOnlyList<string> ManagedRoots =>
+        session?.ManagedRoots
+            .Where(root => !string.IsNullOrWhiteSpace(root))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray() ?? [];
+
+    protected override void OnInitialized()
+    {
+        session = ModalParams.Get<DotnetUpDetailsSession>("Session");
+    }
+
+    private void SelectAction(DotnetUpDetailsAction action) =>
+        session?.RequestAction(action);
+
+    private static string ValueOrFallback(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? "Unknown" : value;
+}

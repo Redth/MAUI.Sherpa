@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using MauiSherpa.Workloads.Models;
 
 namespace MauiSherpa.Workloads.Services;
 
@@ -42,7 +43,7 @@ public sealed class DotnetUpDownloader
             Directory.CreateDirectory(dir);
 
         progress?.Report($"Downloading checksum from {checksumUrl}…");
-        var expectedHash = await DownloadChecksumAsync(checksumUrl, cancellationToken).ConfigureAwait(false);
+        var expectedHash = (await DownloadChecksumAsync(checksumUrl, cancellationToken).ConfigureAwait(false)).Checksum;
 
         progress?.Report($"Downloading dotnetup ({rid}) from {binaryUrl}…");
         var tempPath = destinationPath + ".download";
@@ -88,10 +89,52 @@ public sealed class DotnetUpDownloader
         }
     }
 
-    private async Task<string> DownloadChecksumAsync(string checksumUrl, CancellationToken ct)
+    public async Task<DotnetUpPublishedArtifact> GetPublishedArtifactAsync(
+        string rid,
+        string? quality = null,
+        CancellationToken cancellationToken = default)
     {
-        var raw = await _httpClient.GetStringAsync(checksumUrl, ct).ConfigureAwait(false);
-        return NormalizeChecksum(raw);
+        if (!DotnetUpRuntimeIdentifier.IsSupportedRid(rid))
+            throw new PlatformNotSupportedException($"dotnetup does not publish a binary for RID '{rid}'.");
+
+        var checksumUrl = DotnetUpRuntimeIdentifier.GetChecksumUrl(rid, quality);
+        var (checksum, effectiveUri) = await DownloadChecksumAsync(
+            checksumUrl, cancellationToken).ConfigureAwait(false);
+        var version = ExtractPublishedVersion(effectiveUri)
+            ?? throw new InvalidOperationException(
+                $"The published dotnetup version could not be determined from '{effectiveUri}'.");
+
+        return new DotnetUpPublishedArtifact
+        {
+            Version = version,
+            Sha512 = checksum
+        };
+    }
+
+    public static string? ExtractPublishedVersion(Uri? artifactUri)
+    {
+        if (artifactUri is null)
+            return null;
+
+        var segments = artifactUri.AbsolutePath.Split(
+            '/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (segments.Length < 3 ||
+            !segments[^1].StartsWith("dotnetup-", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        return Uri.UnescapeDataString(segments[^2]);
+    }
+
+    private async Task<(string Checksum, Uri? EffectiveUri)> DownloadChecksumAsync(
+        string checksumUrl,
+        CancellationToken ct)
+    {
+        using var response = await _httpClient.GetAsync(checksumUrl, ct).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+        var raw = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+        return (NormalizeChecksum(raw), response.RequestMessage?.RequestUri);
     }
 
     /// <summary>

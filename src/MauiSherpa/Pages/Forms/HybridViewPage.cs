@@ -48,6 +48,8 @@ public abstract class HybridViewPage : ContentPage
 
     public Task WaitForCloseAsync() => _tcs.Task;
 
+    protected void CompleteClose() => _tcs.TrySetResult();
+
     private void BuildPage()
     {
         var titleLabel = new Label
@@ -149,7 +151,7 @@ public abstract class HybridViewPage : ContentPage
 
     private void OnCloseClicked(object? sender, EventArgs e)
     {
-        _tcs.TrySetResult();
+        CompleteClose();
     }
 
     private void OnBlazorReady(double contentHeight)

@@ -47,9 +47,29 @@ public class DotnetUpdateResolver : IDotnetUpdateResolver
         DotnetUpListResult list,
         CancellationToken cancellationToken = default)
     {
+        var normalizedChannel = channel.Trim();
+        if (ExactVersion.IsMatch(normalizedChannel))
+        {
+            var installedExact = list.Installations
+                .Where(installation =>
+                    installation.Component == component &&
+                    VersionsEqual(installation.Version, normalizedChannel))
+                .Select(installation => installation.Version)
+                .FirstOrDefault();
+            return (normalizedChannel, installedExact);
+        }
+
         var ctx = await ResolveContext.CreateAsync();
         var (available, installed, _) = await ResolveCoreAsync(ctx, component, channel, list);
         return (available, installed);
+    }
+
+    public static bool IsUpdateAvailable(string? available, string? installed)
+    {
+        if (string.IsNullOrWhiteSpace(available))
+            return false;
+
+        return IsNewer(available, installed);
     }
 
     private static async Task<(string? Available, string? Installed, bool IsPinned)> ResolveCoreAsync(
@@ -66,7 +86,7 @@ public class DotnetUpdateResolver : IDotnetUpdateResolver
                 .Where(i => i.Component == component && VersionsEqual(i.Version, channel))
                 .Select(i => i.Version)
                 .FirstOrDefault();
-            return (channel, installedExact ?? channel, true);
+            return (channel, installedExact, true);
         }
 
         // Resolve the target product (major.minor) and optional feature band.

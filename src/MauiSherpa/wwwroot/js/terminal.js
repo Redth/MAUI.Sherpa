@@ -99,6 +99,20 @@ window.terminalInterop = {
     },
 
     /**
+     * Write a raw terminal chunk, preserving ANSI cursor movement and carriage returns.
+     */
+    writeRaw: function (containerId, text) {
+        const t = this.terminals[containerId];
+        if (!t) return;
+
+        t.terminal.write(text);
+
+        if (t.autoScroll) {
+            t.terminal.scrollToBottom();
+        }
+    },
+
+    /**
      * Write error text (in red) to the terminal
      */
     writeError: function (containerId, text) {

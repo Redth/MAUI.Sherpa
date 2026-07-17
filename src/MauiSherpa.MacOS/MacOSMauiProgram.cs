@@ -4,6 +4,7 @@ using MauiSherpa.Services;
 using MauiSherpa.Core.ViewModels;
 using MauiSherpa.Core.Interfaces;
 using MauiSherpa.Core.Services;
+using MauiSherpa.Workloads.Services;
 using Microsoft.Maui.Platforms.MacOS.Hosting;
 using Microsoft.Maui.Platforms.MacOS.Handlers;
 using Microsoft.Maui.Platforms.MacOS.Essentials;
@@ -144,6 +145,8 @@ public static class MacOSMauiProgram
         builder.Services.AddSingleton<IDebugFlagService, DebugFlagService>();
         builder.Services.AddSingleton<IDoctorService, DoctorService>();
         builder.Services.AddSingleton<IDotnetUpService, DotnetUpService>();
+        builder.Services.AddSingleton<IGlobalJsonWorkloadPinEditor, GlobalJsonWorkloadPinEditor>();
+        builder.Services.AddSingleton<IDotnetWorkloadService, DotnetWorkloadService>();
         builder.Services.AddSingleton<IProfilingContextService, ProfilingContextService>();
         builder.Services.AddSingleton<ICopilotToolsService, CopilotToolsService>();
         builder.Services.AddSingleton<ICopilotService, CopilotService>();

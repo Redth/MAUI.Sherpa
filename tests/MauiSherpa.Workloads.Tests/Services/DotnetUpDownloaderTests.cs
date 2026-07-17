@@ -100,15 +100,43 @@ public class DotnetUpDownloaderTests
         await act.Should().ThrowAsync<PlatformNotSupportedException>();
     }
 
+    [Theory]
+    [InlineData(
+        "https://ci.dot.net/public/dotnetup/0.1.4-preview.6.26358.1/dotnetup-osx-arm64.sha512",
+        "0.1.4-preview.6.26358.1")]
+    [InlineData("https://example.test/file", null)]
+    public void ExtractPublishedVersion_UsesParentPathSegment(string url, string? expected)
+    {
+        DotnetUpDownloader.ExtractPublishedVersion(new Uri(url)).Should().Be(expected);
+    }
+
+    [Fact]
+    public async Task GetPublishedArtifactAsync_ReturnsVersionAndChecksum()
+    {
+        var checksum = new string('a', 128);
+        var effectiveUri = new Uri(
+            "https://ci.dot.net/public/dotnetup/0.1.4-preview.6.26358.1/dotnetup-osx-arm64.sha512");
+        var handler = new FakeHandler(Array.Empty<byte>(), checksum, effectiveUri);
+        using var client = new HttpClient(handler);
+        var downloader = new DotnetUpDownloader(client);
+
+        var artifact = await downloader.GetPublishedArtifactAsync("osx-arm64");
+
+        artifact.Version.Should().Be("0.1.4-preview.6.26358.1");
+        artifact.Sha512.Should().Be(checksum);
+    }
+
     private sealed class FakeHandler : HttpMessageHandler
     {
         private readonly byte[] _binary;
         private readonly string _checksumBody;
+        private readonly Uri? _effectiveChecksumUri;
 
-        public FakeHandler(byte[] binary, string checksumBody)
+        public FakeHandler(byte[] binary, string checksumBody, Uri? effectiveChecksumUri = null)
         {
             _binary = binary;
             _checksumBody = checksumBody;
+            _effectiveChecksumUri = effectiveChecksumUri;
         }
 
         protected override Task<HttpResponseMessage> SendAsync(
@@ -122,6 +150,8 @@ public class DotnetUpDownloaderTests
                 {
                     Content = new StringContent(_checksumBody)
                 };
+                if (_effectiveChecksumUri is not null)
+                    response.RequestMessage = new HttpRequestMessage(HttpMethod.Get, _effectiveChecksumUri);
             }
             else
             {

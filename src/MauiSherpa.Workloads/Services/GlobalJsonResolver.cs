@@ -27,11 +27,17 @@ public class GlobalJsonResolver : IGlobalJsonResolver
 
         string? version = null;
         string? rollForward = null;
+        string? workloadVersion = null;
         bool? allowPrerelease = null;
+        var usesLegacyWorkloadSetProperty = false;
 
         try
         {
-            using var doc = JsonDocument.Parse(File.ReadAllText(globalJsonPath));
+            using var doc = JsonDocument.Parse(File.ReadAllText(globalJsonPath), new JsonDocumentOptions
+            {
+                CommentHandling = JsonCommentHandling.Skip,
+                AllowTrailingCommas = true
+            });
             if (doc.RootElement.ValueKind == JsonValueKind.Object &&
                 doc.RootElement.TryGetProperty("sdk", out var sdk) &&
                 sdk.ValueKind == JsonValueKind.Object)
@@ -43,6 +49,18 @@ public class GlobalJsonResolver : IGlobalJsonResolver
                 if (sdk.TryGetProperty("allowPrerelease", out var ap) &&
                     (ap.ValueKind == JsonValueKind.True || ap.ValueKind == JsonValueKind.False))
                     allowPrerelease = ap.GetBoolean();
+                if (sdk.TryGetProperty("workloadVersion", out var workload) &&
+                    workload.ValueKind == JsonValueKind.String)
+                    workloadVersion = workload.GetString();
+            }
+            if (workloadVersion == null &&
+                doc.RootElement.TryGetProperty("workloadSet", out var legacy) &&
+                legacy.ValueKind == JsonValueKind.Object &&
+                legacy.TryGetProperty("version", out var legacyVersion) &&
+                legacyVersion.ValueKind == JsonValueKind.String)
+            {
+                workloadVersion = legacyVersion.GetString();
+                usesLegacyWorkloadSetProperty = workloadVersion != null;
             }
         }
         catch
@@ -58,6 +76,8 @@ public class GlobalJsonResolver : IGlobalJsonResolver
                 GlobalJsonPath = globalJsonPath,
                 RollForward = rollForward,
                 AllowPrerelease = allowPrerelease,
+                WorkloadVersion = workloadVersion,
+                UsesLegacyWorkloadSetProperty = usesLegacyWorkloadSetProperty,
                 Status = GlobalJsonStatus.NoSdkVersion,
             };
         }
@@ -71,6 +91,8 @@ public class GlobalJsonResolver : IGlobalJsonResolver
             RequestedVersion = version,
             RollForward = string.IsNullOrWhiteSpace(rollForward) ? "latestPatch" : rollForward,
             AllowPrerelease = allowPrerelease,
+            WorkloadVersion = workloadVersion,
+            UsesLegacyWorkloadSetProperty = usesLegacyWorkloadSetProperty,
             Channel = channel,
             IsPinned = pinned,
             // Status is provisional; the caller upgrades it to Resolved/Unresolved after enrichment.

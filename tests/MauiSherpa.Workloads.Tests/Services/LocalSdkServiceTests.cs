@@ -139,10 +139,10 @@ public class LocalSdkServiceTests
         foreach (var sdk in sdks)
         {
             var workloadSet = await _service.GetInstalledWorkloadSetAsync(sdk.FeatureBand);
-            if (workloadSet == null || workloadSet.Workloads.Count == 0)
+            if (workloadSet == null || workloadSet.ManifestEntries.Count == 0)
                 continue;
 
-            var remappedEntry = workloadSet.Workloads
+            var remappedEntry = workloadSet.ManifestEntries
                 .FirstOrDefault(w => !string.IsNullOrEmpty(w.Value.ManifestFeatureBand)
                     && !string.Equals(w.Value.ManifestFeatureBand, sdk.FeatureBand, StringComparison.OrdinalIgnoreCase));
 
@@ -163,10 +163,10 @@ public class LocalSdkServiceTests
         foreach (var sdk in sdks)
         {
             var workloadSet = await _service.GetInstalledWorkloadSetAsync(sdk.FeatureBand);
-            if (workloadSet == null || workloadSet.Workloads.Count == 0)
+            if (workloadSet == null || workloadSet.ManifestEntries.Count == 0)
                 continue;
 
-            var remappedEntry = workloadSet.Workloads
+            var remappedEntry = workloadSet.ManifestEntries
                 .FirstOrDefault(w => !string.IsNullOrEmpty(w.Value.ManifestFeatureBand)
                     && !string.Equals(w.Value.ManifestFeatureBand, sdk.FeatureBand, StringComparison.OrdinalIgnoreCase));
 
@@ -189,10 +189,10 @@ public class LocalSdkServiceTests
         foreach (var sdk in sdks)
         {
             var workloadSet = await _service.GetInstalledWorkloadSetAsync(sdk.FeatureBand);
-            if (workloadSet == null || workloadSet.Workloads.Count == 0)
+            if (workloadSet == null || workloadSet.ManifestEntries.Count == 0)
                 continue;
 
-            var remappedEntries = workloadSet.Workloads
+            var remappedEntries = workloadSet.ManifestEntries
                 .Where(w => !string.IsNullOrEmpty(w.Value.ManifestFeatureBand)
                     && !string.Equals(w.Value.ManifestFeatureBand, sdk.FeatureBand, StringComparison.OrdinalIgnoreCase))
                 .OrderByDescending(w => w.Key.Contains("android", StringComparison.OrdinalIgnoreCase))

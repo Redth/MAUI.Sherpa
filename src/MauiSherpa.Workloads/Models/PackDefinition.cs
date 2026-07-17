@@ -45,30 +45,35 @@ internal class PackDefinitionJson
     public string? Kind { get; set; }
 
     [JsonPropertyName("alias-to")]
-    public PackAliasJson? AliasTo { get; set; }
+    public System.Text.Json.JsonElement AliasTo { get; set; }
 
-    public PackDefinition ToModel(string id) => new()
+    public PackDefinition ToModel(string id)
     {
-        Id = id,
-        Version = Version ?? "",
-        Kind = Kind ?? "Sdk",
-        AliasTo = AliasTo?.Id,
-        AliasToByPlatform = AliasTo?.Platforms
-    };
-}
+        string? directAlias = null;
+        Dictionary<string, string>? platformAliases = null;
 
-/// <summary>
-/// JSON structure for pack alias.
-/// </summary>
-internal class PackAliasJson
-{
-    [JsonPropertyName("id")]
-    public string? Id { get; set; }
+        if (AliasTo.ValueKind == System.Text.Json.JsonValueKind.String)
+        {
+            directAlias = AliasTo.GetString();
+        }
+        else if (AliasTo.ValueKind == System.Text.Json.JsonValueKind.Object)
+        {
+            platformAliases = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var property in AliasTo.EnumerateObject())
+            {
+                var value = property.Value.GetString();
+                if (!string.IsNullOrWhiteSpace(value))
+                    platformAliases[property.Name] = value;
+            }
+        }
 
-    [JsonExtensionData]
-    public Dictionary<string, object>? ExtensionData { get; set; }
-
-    public Dictionary<string, string>? Platforms =>
-        ExtensionData?.Where(kvp => kvp.Key != "id")
-            .ToDictionary(kvp => kvp.Key, kvp => kvp.Value?.ToString() ?? "");
+        return new PackDefinition
+        {
+            Id = id,
+            Version = Version ?? "",
+            Kind = Kind ?? "Sdk",
+            AliasTo = directAlias,
+            AliasToByPlatform = platformAliases
+        };
+    }
 }

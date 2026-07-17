@@ -4,6 +4,7 @@ using MauiSherpa.Services;
 using MauiSherpa.Core.ViewModels;
 using MauiSherpa.Core.Interfaces;
 using MauiSherpa.Core.Services;
+using MauiSherpa.Workloads.Services;
 #if LINUXGTK
 // DevFlow GTK usings removed temporarily (package conflict with new Microsoft.Maui.Platforms.Linux.Gtk4)
 using Microsoft.Maui.Platforms.Linux.Gtk4.BlazorWebView;
@@ -159,6 +160,8 @@ public static class MauiProgram
         builder.Services.AddSingleton<IDebugFlagService, DebugFlagService>();
         builder.Services.AddSingleton<IDoctorService, DoctorService>();
         builder.Services.AddSingleton<IDotnetUpService, DotnetUpService>();
+        builder.Services.AddSingleton<IGlobalJsonWorkloadPinEditor, GlobalJsonWorkloadPinEditor>();
+        builder.Services.AddSingleton<IDotnetWorkloadService, DotnetWorkloadService>();
         builder.Services.AddSingleton<IProfilingContextService, ProfilingContextService>();
         builder.Services.AddSingleton<ICopilotToolsService, CopilotToolsService>();
         builder.Services.AddSingleton<ICopilotService, CopilotService>();

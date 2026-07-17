@@ -107,6 +107,28 @@ public record DotnetUpToolInfo
 }
 
 /// <summary>
+/// Metadata for the latest dotnetup artifact published through aka.ms.
+/// </summary>
+public record DotnetUpPublishedArtifact
+{
+    public required string Version { get; init; }
+
+    public required string Sha512 { get; init; }
+}
+
+/// <summary>
+/// Read-only comparison of the installed dotnetup binary with the latest published artifact.
+/// </summary>
+public record DotnetUpToolUpdateInfo
+{
+    public required string InstalledVersion { get; init; }
+
+    public required string AvailableVersion { get; init; }
+
+    public required bool UpdateAvailable { get; init; }
+}
+
+/// <summary>
 /// Preview of whether a tracked channel has a newer version available, computed by resolving the
 /// channel against the official .NET release metadata — <b>without</b> running any install/update.
 /// </summary>
@@ -171,6 +193,11 @@ public record GlobalJsonResolution
     /// <summary>The <c>sdk.allowPrerelease</c> value, if specified.</summary>
     public bool? AllowPrerelease { get; init; }
 
+    /// <summary>The official <c>sdk.workloadVersion</c> value, or a legacy value when present.</summary>
+    public string? WorkloadVersion { get; init; }
+
+    public bool UsesLegacyWorkloadSetProperty { get; init; }
+
     /// <summary>The dotnetup channel derived from version + rollForward (e.g. "10.0.1xx", "latest", "10.0.100").</summary>
     public string? Channel { get; init; }
 
@@ -183,8 +210,17 @@ public record GlobalJsonResolution
     /// <summary>The newest installed SDK that satisfies the channel, or null when none is installed.</summary>
     public string? InstalledVersion { get; init; }
 
+    /// <summary>The install root containing <see cref="InstalledVersion"/>, when resolved.</summary>
+    public string? InstalledSdkInstallRoot { get; init; }
+
+    /// <summary>The architecture of the resolved installed SDK, when reported by dotnetup.</summary>
+    public string? InstalledSdkArchitecture { get; init; }
+
     /// <summary>True when an installed SDK satisfies this project's requirement.</summary>
     public bool Satisfied { get; init; }
+
+    /// <summary>True when the project's rolling channel resolves to a newer SDK than the installed match.</summary>
+    public bool UpdateAvailable { get; init; }
 
     /// <summary>True when dotnetup already tracks a spec sourced from this <c>global.json</c> (or matching channel).</summary>
     public bool AlreadyTracked { get; init; }

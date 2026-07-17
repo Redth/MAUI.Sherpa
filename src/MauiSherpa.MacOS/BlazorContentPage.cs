@@ -985,6 +985,7 @@ public class BlazorContentPage : ContentPage
                 ("delete-folder", "Delete Folder", "trash"),
                 ("up-folder", "Up Folder", "arrow.up"),
                 ("import", "Import", "square.and.arrow.down"),
+                ("open-project", "Open Project Folder", "folder"),
                 ("install-missing", "Install Missing", "arrow.down.circle"),
                 ("save", "Save", "checkmark"),
                 ("reset", "Reset to Defaults", "trash"),

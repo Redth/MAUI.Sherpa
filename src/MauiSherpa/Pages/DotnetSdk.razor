@@ -4,9 +4,11 @@
 @using MauiSherpa.Services
 @using MauiSherpa.Pages.Forms
 @using MauiSherpa.Pages.Modals
+@using MauiSherpa.Components
 @using MauiSherpa.Workloads.Models
-@using System.Text.RegularExpressions
+@using MauiSherpa.Workloads.Services
 @inject IDotnetUpService DotnetUp
+@inject IDotnetWorkloadService Workloads
 @inject IProcessModalService ProcessModal
 @inject IOperationModalService OperationModal
 @inject IAlertService AlertService
@@ -15,398 +17,71 @@
 @inject IToolbarService ToolbarService
 @inject IFormModalService FormModal
 @inject HybridFormBridgeHolder BridgeHolder
+@inject ModalParameterService ModalParams
 @implements IDisposable
 
-<h1><i class="fas fa-layer-group"></i> .NET SDK Manager</h1>
+<div class="dotnet-sdk-page-header">
+    <div class="dotnet-sdk-page-heading">
+        <h1><i class="fas fa-layer-group"></i> .NET SDK Manager</h1>
+        <p>Track SDK and runtime channels to keep compatible versions installed and up to date. Sherpa uses dotnetup to install, update, and manage these components.</p>
+    </div>
+    <div class="dotnet-sdk-page-actions">
+        @if (!PlatformInfo.HasNativeToolbar)
+        {
+            <button class="btn btn-primary" @onclick="Refresh" disabled="@isLoading">
+                @if (isLoading)
+                {
+                    <i class="fas fa-spinner fa-spin"></i> <span>Loading...</span>
+                }
+                else
+                {
+                    <i class="fas fa-sync-alt"></i> <span>Refresh</span>
+                }
+            </button>
+            <button class="btn btn-secondary" @onclick="PickProjectFolder" disabled="@isLoading">
+                <i class="fas fa-folder-open"></i> <span>Open project folder</span>
+            </button>
+        }
 
-@if (!PlatformInfo.HasNativeToolbar)
-{
-<div class="toolbar">
-    <button class="btn btn-primary" @onclick="Refresh" disabled="@isLoading">
-        @if (isLoading)
-        {
-            <i class="fas fa-spinner fa-spin"></i> <span>Loading...</span>
-        }
-        else
-        {
-            <i class="fas fa-sync-alt"></i> <span>Refresh</span>
-        }
-    </button>
-    @if (DotnetUp.IsInstalled)
-    {
-        <button class="btn btn-secondary" @onclick="OpenAddDialog" disabled="@isLoading">
-            <i class="fas fa-plus"></i> <span>Add Channel</span>
+        <button type="button"
+                class="dotnetup-indicator @DotnetUpIndicatorClass"
+                @onclick="OpenDotnetUpDetails"
+                disabled="@isLoading"
+                title="@DotnetUpIndicatorTitle"
+                aria-label="@DotnetUpIndicatorTitle">
+            <span>dotnetup</span>
+            <i class="@DotnetUpIndicatorIcon" aria-hidden="true"></i>
+            @if (toolUpdateInfo?.UpdateAvailable == true)
+            {
+                <span class="dotnetup-indicator-update" aria-hidden="true">
+                    <i class="fas fa-arrow-up"></i>
+                </span>
+            }
         </button>
-        @if (list != null && list.InstallSpecs.Count > 0)
-        {
-            <button class="btn btn-secondary" @onclick="CheckForUpdates" disabled="@(isLoading || checkingUpdates)">
-                <i class="fas fa-magnifying-glass"></i> <span>Check for updates</span>
-            </button>
-            <button class="btn btn-success" @onclick="RunUpdateAll" disabled="@isLoading">
-                <i class="fas fa-arrow-up-from-bracket"></i> <span>Update All</span>
-            </button>
-        }
-    }
+    </div>
 </div>
-}
 
 @if (!string.IsNullOrEmpty(errorMessage))
 {
     <div class="error-bar">@errorMessage</div>
 }
 
-<!-- dotnetup status -->
-<div class="dnup-status @(DotnetUp.IsInstalled ? "ok" : "missing")">
-    <div class="dnup-status-icon">
-        <i class="fas @(DotnetUp.IsInstalled ? "fa-circle-check" : "fa-circle-exclamation")"></i>
-    </div>
-    <div class="dnup-status-body">
-        @if (DotnetUp.IsInstalled)
-        {
-            <span class="dnup-status-title">dotnetup</span>
-            @if (toolInfo != null)
-            {
-                <span class="dnup-status-ver mono">v@(toolInfo.Version)</span>
-                @if (!string.IsNullOrEmpty(toolInfo.Rid))
-                {
-                    <span class="dot">·</span><span class="mono dnup-status-rid">@toolInfo.Rid</span>
-                }
-            }
-        }
-        else
-        {
-            <span class="dnup-status-title">dotnetup is not installed</span>
-            <span class="dnup-status-sub">Install the .NET toolchain manager to install &amp; update SDKs and runtimes from here.</span>
-        }
-    </div>
-    <div class="dnup-status-actions">
-        @if (DotnetUp.IsInstalled)
-        {
-            <button class="btn btn-ghost btn-sm" @onclick="ReinstallDotnetUp" disabled="@isLoading" title="Download and overwrite dotnetup with the latest published build">
-                <i class="fas fa-rotate"></i> <span>Reinstall</span>
-            </button>
-        }
-        else
-        {
-            <button class="btn btn-success" @onclick="InstallDotnetUp" disabled="@isLoading">
-                <i class="fas fa-download"></i> <span>Install dotnetup</span>
-            </button>
-        }
-    </div>
-</div>
-
-@if (DotnetUp.IsInstalled && managedRoots.Count > 0)
-{
-    <div class="managed-root-line">
-        <i class="fas fa-folder-tree"></i>
-        <span>Managed install root@(managedRoots.Count > 1 ? "s" : ""):</span>
-        @foreach (var root in managedRoots)
-        {
-            <span class="mono root-chip">@root</span>
-        }
-    </div>
-}
-
 @if (DotnetUp.IsInstalled)
 {
-    <!-- ===== Project context (global.json) ===== -->
     <section class="page-section">
-        <div class="section-head">
-            <div class="section-head-main">
-                <h2><i class="fas fa-folder-open"></i> Project context</h2>
-                <p class="section-desc">
-                    Point Sherpa at a project folder to see which .NET SDK its <code>global.json</code> requires
-                    (Sherpa walks up to the nearest one, just like the <code>dotnet</code> CLI) and whether an
-                    installed SDK satisfies it — then install &amp; track it for that project.
-                </p>
-            </div>
-            <div class="section-actions">
-                <button class="btn btn-primary btn-sm" @onclick="PickProjectFolder" disabled="@(isLoading || inspectingFolder)">
-                    <i class="fas fa-folder-open"></i> <span>@(projectResolution == null ? "Open folder…" : "Choose another…")</span>
-                </button>
-                @if (projectResolution != null || !string.IsNullOrWhiteSpace(selectedFolder))
-                {
-                    <button class="btn btn-secondary btn-sm" @onclick="ClearProject" disabled="@(isLoading || inspectingFolder)" title="Stop inspecting this folder">
-                        <i class="fas fa-xmark"></i> <span>Close</span>
-                    </button>
-                }
-            </div>
-        </div>
-
-        @if (inspectingFolder)
-        {
-            <div class="panel"><span class="empty-state"><i class="fas fa-spinner fa-spin"></i> Inspecting @selectedFolder…</span></div>
-        }
-        else if (projectResolution is { } r)
-        {
-            <div class="panel project-panel">
-                <div class="project-folder">
-                    <i class="fas fa-folder"></i>
-                    <span class="mono" title="@r.FolderPath">@r.FolderPath</span>
-                </div>
-
-                @if (r.Status == GlobalJsonStatus.NoGlobalJson)
-                {
-                    <p class="info-note">
-                        <i class="fas fa-circle-info"></i>
-                        No <code>global.json</code> found walking up from this folder — it'll use your default SDK
-                        (the <strong>latest</strong> tracked channel).
-                    </p>
-                }
-                else if (r.Status == GlobalJsonStatus.NoSdkVersion)
-                {
-                    <p class="info-note">
-                        <i class="fas fa-circle-info"></i>
-                        Found <span class="mono">@r.GlobalJsonPath</span>, but it doesn't pin an
-                        <code>sdk.version</code> — any installed SDK can build this project.
-                    </p>
-                }
-                else
-                {
-                    <div class="project-gj">
-                        <i class="fas fa-file-code"></i>
-                        <span class="mono" title="@r.GlobalJsonPath">@r.GlobalJsonPath</span>
-                    </div>
-
-                    <div class="project-req">
-                        <div class="req-cell">
-                            <span class="req-label">Requested</span>
-                            <span class="mono req-value">@r.RequestedVersion</span>
-                        </div>
-                        <div class="req-cell">
-                            <span class="req-label">Roll-forward</span>
-                            <span class="req-value">
-                                @r.RollForward
-                                @if (r.IsPinned)
-                                {
-                                    <span class="badge badge-secondary" title="Pinned to an exact version — never auto-updates">pinned</span>
-                                }
-                                else
-                                {
-                                    <span class="badge badge-info" title="Rolling channel — dotnetup keeps it updated">rolling</span>
-                                }
-                            </span>
-                        </div>
-                        <div class="req-cell">
-                            <span class="req-label">Channel</span>
-                            <span class="mono req-value">@r.Channel</span>
-                        </div>
-                    </div>
-
-                    <div class="preview-row @(r.Satisfied ? "" : "row-update")">
-                        <span class="badge badge-info">SDK</span>
-                        <span class="track-channel mono">@r.Channel</span>
-                        <span class="spacer"></span>
-                        @if (r.Satisfied)
-                        {
-                            <span class="prev-ver mono new">@r.InstalledVersion</span>
-                            <span class="badge badge-success">installed</span>
-                        }
-                        else if (r.ResolvedVersion != null)
-                        {
-                            <span class="prev-ver mono">@r.ResolvedVersion</span>
-                            <span class="badge badge-warning">not installed</span>
-                        }
-                        else
-                        {
-                            <span class="badge badge-warning" title="Couldn't resolve this channel against the release feed">unknown</span>
-                        }
-                        @if (r.AlreadyTracked)
-                        {
-                            <span class="badge badge-secondary" title="dotnetup already tracks this project's global.json">tracked</span>
-                        }
-                    </div>
-
-                    <div class="project-actions">
-                        @if (r.Satisfied && r.AlreadyTracked)
-                        {
-                            <span class="project-ready"><i class="fas fa-circle-check"></i> Ready — this project's SDK is installed and tracked.</span>
-                        }
-                        else if (r.Satisfied)
-                        {
-                            <span class="project-hint">An installed SDK satisfies this project, but dotnetup isn't tracking its <code>global.json</code> yet.</span>
-                            <button class="btn btn-secondary btn-sm" @onclick="RunInstallForProject" disabled="@isLoading" title="Record this project's global.json so dotnetup keeps the right SDK installed">
-                                <i class="fas fa-thumbtack"></i> <span>Track this project</span>
-                            </button>
-                        }
-                        else
-                        {
-                            <span class="project-hint">No installed SDK satisfies this project yet.</span>
-                            <button class="btn btn-primary btn-sm" @onclick="RunInstallForProject" disabled="@isLoading" title="Install the SDK required by this folder's global.json and track it">
-                                <i class="fas fa-download"></i> <span>Install SDK for this project</span>
-                            </button>
-                        }
-                    </div>
-                }
-            </div>
-        }
+        <TrackedDotnetChannelsCard
+            ListResult="@list"
+            UpdatePreviews="@updatePreviews"
+            Busy="@isLoading"
+            CheckingUpdates="@checkingUpdates"
+            UpdatesUnresolved="@updatesUnresolved"
+            AddRequested="@OpenAddDialog"
+            UpdateSdksRequested="@RunUpdateSdks"
+            UpdateRuntimesRequested="@RunUpdateRuntimes"
+            UpdateAllRequested="@RunUpdateAll"
+            UntrackRequested="@RunUntrack" />
     </section>
 
-    <!-- ===== Tracked channels (manage) ===== -->
-    <section class="page-section">
-        <div class="section-head">
-            <div class="section-head-main">
-                <h2><i class="fas fa-list-check"></i> Tracked channels @if (list != null) { <span class="count">@list.InstallSpecs.Count</span> }</h2>
-                <p class="section-desc">
-                    dotnetup keeps every tracked channel installed and automatically up to date. You can track as many as you like —
-                    for example <strong>Latest</strong> alongside an older feature band like <strong>9.0.1xx</strong>. Updating re-resolves
-                    each channel to its newest matching version.
-                </p>
-            </div>
-            <div class="section-actions">
-                <button class="btn btn-primary btn-sm" @onclick="OpenAddDialog" disabled="@isLoading" title="Track another SDK channel">
-                    <i class="fas fa-plus"></i> <span>Add channel</span>
-                </button>
-            </div>
-        </div>
-
-        @if (updatePreviews != null)
-        {
-            var avail = updatePreviews.Where(p => p.UpdateAvailable).ToList();
-            var anySdk = avail.Any(p => p.Component == DotnetUpComponent.Sdk);
-            var anyRuntime = avail.Any(p => p.Component is DotnetUpComponent.Runtime or DotnetUpComponent.AspNetCore or DotnetUpComponent.WindowsDesktop);
-            <div class="panel preview-panel">
-                <div class="preview-head">
-                    @if (avail.Count > 0)
-                    {
-                        <span class="preview-summary has-updates">
-                            <i class="fas fa-circle-arrow-up"></i>
-                            @avail.Count update@(avail.Count == 1 ? "" : "s") available
-                        </span>
-                    }
-                    else
-                    {
-                        <span class="preview-summary up-to-date">
-                            <i class="fas fa-circle-check"></i> Everything is up to date
-                        </span>
-                    }
-                    <span class="spacer"></span>
-                    @if (updatesUnresolved)
-                    {
-                        <span class="preview-note" title="Couldn't reach the .NET release feed for some channels">
-                            <i class="fas fa-triangle-exclamation"></i> Some channels couldn't be checked
-                        </span>
-                    }
-                    <button class="preview-close" @onclick="DismissPreview" title="Dismiss"><i class="fas fa-xmark"></i></button>
-                </div>
-
-                <div class="preview-rows">
-                    @foreach (var p in updatePreviews)
-                    {
-                        <div class="preview-row @(p.UpdateAvailable ? "row-update" : "")">
-                            <span class="badge @ComponentBadgeClass(p.Component)">@ComponentShort(p.Component)</span>
-                            <span class="track-channel mono">@p.Channel</span>
-                            <span class="spacer"></span>
-                            @if (p.IsPinned)
-                            {
-                                <span class="prev-ver mono">@(p.InstalledVersion ?? p.Channel)</span>
-                                <span class="badge badge-secondary" title="Pinned to an exact version — channels don't apply">pinned</span>
-                            }
-                            else if (p.UpdateAvailable)
-                            {
-                                <span class="prev-ver mono old">@(p.InstalledVersion ?? "—")</span>
-                                <i class="fas fa-arrow-right prev-arrow"></i>
-                                <span class="prev-ver mono new">@p.AvailableVersion</span>
-                                <span class="badge badge-info">update</span>
-                            }
-                            else if (p.AvailableVersion == null)
-                            {
-                                <span class="prev-ver mono">@(p.InstalledVersion ?? "—")</span>
-                                <span class="badge badge-warning" title="Couldn't resolve this channel against the release feed">unknown</span>
-                            }
-                            else
-                            {
-                                <span class="prev-ver mono">@p.AvailableVersion</span>
-                                <span class="badge badge-success">up to date</span>
-                            }
-                        </div>
-                    }
-                </div>
-
-                @if (avail.Count > 0)
-                {
-                    <div class="preview-actions">
-                        <span class="preview-actions-label">Apply:</span>
-                        @if (anySdk && anyRuntime)
-                        {
-                            <button class="btn btn-secondary btn-sm" @onclick="RunUpdateSdks" disabled="@isLoading" title="Update tracked SDK channels only">
-                                <i class="fas fa-arrow-up"></i> <span>Update SDKs</span>
-                            </button>
-                            <button class="btn btn-secondary btn-sm" @onclick="RunUpdateRuntimes" disabled="@isLoading" title="Update tracked Runtime &amp; ASP.NET Core channels only">
-                                <i class="fas fa-arrow-up"></i> <span>Update runtimes</span>
-                            </button>
-                        }
-                        else if (anySdk)
-                        {
-                            <button class="btn btn-secondary btn-sm" @onclick="RunUpdateSdks" disabled="@isLoading" title="Update tracked SDK channels">
-                                <i class="fas fa-arrow-up"></i> <span>Update SDKs</span>
-                            </button>
-                        }
-                        else if (anyRuntime)
-                        {
-                            <button class="btn btn-secondary btn-sm" @onclick="RunUpdateRuntimes" disabled="@isLoading" title="Update tracked Runtime &amp; ASP.NET Core channels">
-                                <i class="fas fa-arrow-up"></i> <span>Update runtimes</span>
-                            </button>
-                        }
-                        <button class="btn btn-primary btn-sm" @onclick="RunUpdateAll" disabled="@isLoading" title="Update everything dotnetup tracks">
-                            <i class="fas fa-arrows-rotate"></i> <span>Update all</span>
-                        </button>
-                    </div>
-                }
-            </div>
-        }
-
-        @if (list != null && list.InstallSpecs.Count > 0)
-        {
-            @foreach (var grp in TrackedGroups())
-            {
-                <div class="comp-group">
-                    <div class="comp-group-head">
-                        <i class="@grp.Icon"></i>
-                        <span>@grp.Key</span>
-                        <span class="comp-group-count">@grp.Items.Count</span>
-                    </div>
-                    @foreach (var spec in grp.Items)
-                    {
-                        var src = SourceInfo(spec.Source);
-                        <div class="track-item">
-                            <span class="track-channel mono">@spec.VersionOrChannel</span>
-                            <span class="track-human">@ChannelHuman(spec.VersionOrChannel)</span>
-                            <span class="spacer"></span>
-                            @if (!string.IsNullOrEmpty(spec.GlobalJsonPath))
-                            {
-                                <span class="badge badge-warning" title="@spec.GlobalJsonPath">global.json</span>
-                            }
-                            <span class="badge @src.Cls" title="@src.Desc">@src.Text</span>
-                            @if (spec.Source == DotnetUpInstallSource.Explicit)
-                            {
-                                <button class="btn btn-danger btn-sm" @onclick="@(() => RunUntrack(spec))" disabled="@isLoading" title="Stop tracking and uninstall this channel">
-                                    <i class="fas fa-trash"></i>
-                                </button>
-                            }
-                        </div>
-                    }
-                </div>
-            }
-
-            <div class="legend">
-                <span class="legend-item"><span class="badge badge-info">explicit</span> You added this channel yourself.</span>
-                <span class="legend-item"><span class="badge badge-warning">global.json</span> Required by a project's global.json.</span>
-            </div>
-        }
-        else if (list != null)
-        {
-            <div class="empty-state">
-                <i class="fas fa-inbox"></i>
-                <p>No channels tracked yet. Use <strong>Add channel</strong> and dotnetup will install it and keep it updated.</p>
-                <button class="btn btn-primary btn-sm" @onclick="OpenAddDialog" disabled="@isLoading">
-                    <i class="fas fa-plus"></i> <span>Add channel</span>
-                </button>
-            </div>
-        }
-    </section>
-
-    <!-- ===== Installed components ===== -->
     <section class="page-section">
         <div class="section-head">
             <div class="section-head-main">
@@ -417,16 +92,6 @@
                     <p class="info-note"><i class="fas fa-lightbulb"></i> Each .NET SDK bundles its own runtime, so a standalone <strong>Runtime</strong> entry only appears when you track a runtime channel separately.</p>
                 }
             </div>
-            @if (list != null && list.Installations.Count > 0)
-            {
-                <div class="group-toggle">
-                    <span class="group-toggle-label">Group by</span>
-                    <div class="seg-group">
-                        <button class="seg @(groupMode == GroupMode.ByVersion ? "active" : "")" @onclick="@(() => groupMode = GroupMode.ByVersion)">Version</button>
-                        <button class="seg @(groupMode == GroupMode.ByType ? "active" : "")" @onclick="@(() => groupMode = GroupMode.ByType)">Type</button>
-                    </div>
-                </div>
-            }
         </div>
 
         @if (list == null)
@@ -442,40 +107,23 @@
         }
         else
         {
-            @foreach (var grp in ComponentGroups())
-            {
-                <div class="comp-group">
-                    <div class="comp-group-head">
-                        @if (!string.IsNullOrEmpty(grp.Icon)) { <i class="@grp.Icon"></i> }
-                        <span>@grp.Key</span>
-                        <span class="comp-group-count">@grp.Items.Count</span>
-                    </div>
-                    @foreach (var item in grp.Items)
-                    {
-                        <div class="comp-item">
-                            <span class="badge @ComponentBadgeClass(item.Component)">@ComponentShort(item.Component)</span>
-                            <span class="comp-version mono">@item.Version</span>
-                            @if (groupMode == GroupMode.ByVersion)
-                            {
-                                <span class="comp-name">@ComponentDisplay(item.Component)</span>
-                            }
-                            @if (!string.IsNullOrEmpty(item.Architecture))
-                            {
-                                <span class="comp-arch">@item.Architecture</span>
-                            }
-                            @if (!item.IsValid)
-                            {
-                                <span class="badge badge-warning">invalid</span>
-                            }
-                            <span class="spacer"></span>
-                            <button class="btn btn-danger btn-sm" @onclick="@(() => RunUninstall(item))" disabled="@isLoading"
-                                    title="Uninstall this component">
-                                <i class="fas fa-trash"></i>
-                            </button>
-                        </div>
-                    }
-                </div>
-            }
+            <div class="installed-version-list">
+                @foreach (var group in DotnetSdkPresentationBuilder.Build(list, workloadInventories, updatePreviews).InstalledGroups)
+                {
+                    <InstalledDotnetVersionCard
+                        @key="group.MajorMinor"
+                        RuntimeLine="@group.DisplayName"
+                        Installations="@group.Installations"
+                        WorkloadInventories="@group.WorkloadInventories"
+                        Loading="@(loadingWorkloads && group.WorkloadInventories.Count == 0)"
+                        Busy="@(isLoading || workloadBusy)"
+                        InitiallyExpanded="false"
+                        UninstallRequested="@RunUninstall"
+                        ManageRequested="@OpenManageWorkloads"
+                        ChangeSetRequested="@OpenChangeWorkloadSet"
+                        RepairRequested="@RepairWorkloads" />
+                }
+            </div>
         }
     </section>
 }
@@ -484,21 +132,17 @@
     private bool isLoading;
     private string? errorMessage;
     private DotnetUpToolInfo? toolInfo;
+    private DotnetUpToolUpdateInfo? toolUpdateInfo;
+    private bool checkingToolUpdate;
     private DotnetUpListResult? list;
     private List<string> managedRoots = new();
+    private IReadOnlyList<DotnetWorkloadInventory> workloadInventories = [];
+    private bool loadingWorkloads;
+    private bool workloadBusy;
 
     private IReadOnlyList<DotnetUpdatePreview>? updatePreviews;
     private bool checkingUpdates;
     private bool updatesUnresolved;
-
-    private string? selectedFolder;
-    private GlobalJsonResolution? projectResolution;
-    private bool inspectingFolder;
-
-    private enum GroupMode { ByVersion, ByType }
-    private GroupMode groupMode = GroupMode.ByVersion;
-
-    private record CompGroup(string Key, string Icon, IReadOnlyList<DotnetUpInstallation> Items);
 
     private async Task OpenAddDialog()
     {
@@ -519,70 +163,6 @@
         await RunProcessAndRefresh(request, $"Installed .NET SDK ({channel})", "The .NET SDK install failed.");
     }
 
-    private IEnumerable<CompGroup> ComponentGroups() =>
-        groupMode == GroupMode.ByVersion ? GroupedByVersion() : GroupedByType();
-
-    private IEnumerable<CompGroup> GroupedByVersion()
-    {
-        if (list == null) yield break;
-        var groups = list.Installations
-            .GroupBy(i => MajorMinor(i.Version))
-            .OrderByDescending(g => Version.TryParse(g.Key, out var v) ? v : new Version(0, 0));
-        foreach (var g in groups)
-        {
-            var items = g
-                .OrderBy(i => ComponentSortOrder(i.Component))
-                .ThenByDescending(i => i.Version, StringComparer.OrdinalIgnoreCase)
-                .ToList();
-            yield return new CompGroup($".NET {g.Key}", "fas fa-cube", items);
-        }
-    }
-
-    private IEnumerable<CompGroup> GroupedByType()
-    {
-        if (list == null) yield break;
-        var groups = list.Installations
-            .GroupBy(i => i.Component)
-            .OrderBy(g => ComponentSortOrder(g.Key));
-        foreach (var g in groups)
-        {
-            var items = g.OrderByDescending(i => i.Version, StringComparer.OrdinalIgnoreCase).ToList();
-            yield return new CompGroup(ComponentDisplay(g.Key), ComponentIcon(g.Key), items);
-        }
-    }
-
-    private record TrackGroup(string Key, string Icon, List<DotnetUpInstallSpec> Items);
-
-    private IEnumerable<TrackGroup> TrackedGroups()
-    {
-        if (list == null) yield break;
-        var groups = list.InstallSpecs
-            .GroupBy(s => s.Component)
-            .OrderBy(g => ComponentSortOrder(g.Key));
-        foreach (var g in groups)
-        {
-            var items = g
-                .OrderByDescending(s => s.VersionOrChannel, StringComparer.OrdinalIgnoreCase)
-                .ToList();
-            yield return new TrackGroup(ComponentDisplay(g.Key), ComponentIcon(g.Key), items);
-        }
-    }
-
-    private static string MajorMinor(string version)
-    {
-        var parts = version.Split('.');
-        return parts.Length >= 2 && int.TryParse(parts[0], out _) ? $"{parts[0]}.{parts[1]}" : version;
-    }
-
-    private static int ComponentSortOrder(DotnetUpComponent c) => c switch
-    {
-        DotnetUpComponent.Sdk => 0,
-        DotnetUpComponent.Runtime => 1,
-        DotnetUpComponent.AspNetCore => 2,
-        DotnetUpComponent.WindowsDesktop => 3,
-        _ => 4
-    };
-
     private static string ComponentDisplay(DotnetUpComponent c) => c switch
     {
         DotnetUpComponent.Sdk => ".NET SDK",
@@ -592,63 +172,6 @@
         _ => "Component"
     };
 
-    private static string ComponentShort(DotnetUpComponent c) => c switch
-    {
-        DotnetUpComponent.Sdk => "SDK",
-        DotnetUpComponent.Runtime => "Runtime",
-        DotnetUpComponent.AspNetCore => "ASP.NET",
-        DotnetUpComponent.WindowsDesktop => "Desktop",
-        _ => "Other"
-    };
-
-    private static string ComponentIcon(DotnetUpComponent c) => c switch
-    {
-        DotnetUpComponent.Sdk => "fas fa-toolbox",
-        DotnetUpComponent.Runtime => "fas fa-gears",
-        DotnetUpComponent.AspNetCore => "fas fa-globe",
-        DotnetUpComponent.WindowsDesktop => "fas fa-desktop",
-        _ => "fas fa-cube"
-    };
-
-    private static string ChannelHuman(string channel)
-    {
-        var v = channel.Trim().ToLowerInvariant();
-        return v switch
-        {
-            "latest" => "Latest stable",
-            "lts" => "Long-Term Support",
-            "preview" => "Latest preview",
-            "daily" => "Daily build",
-            _ => FormatVersionChannel(channel.Trim())
-        };
-    }
-
-    private static string FormatVersionChannel(string ch)
-    {
-        if (Regex.IsMatch(ch, @"^\d+\.\d+$"))
-            return $".NET {ch} · latest patch";
-        if (Regex.IsMatch(ch, @"^\d+\.\d+\.\dxx$"))
-        {
-            var band = ch.Split('.').Last();
-            var mm = ch.Substring(0, ch.LastIndexOf('.'));
-            return $".NET {mm} · feature band {band}";
-        }
-        if (Regex.IsMatch(ch, @"^\d+\.\d+\.\d+"))
-            return $"Pinned to {ch}";
-        return ch;
-    }
-
-    private record SourceBadge(string Text, string Cls, string Desc);
-
-    private static SourceBadge SourceInfo(DotnetUpInstallSource s) => s switch
-    {
-        DotnetUpInstallSource.Explicit => new("explicit", "badge-info", "You added this channel directly with Install."),
-        DotnetUpInstallSource.GlobalJson => new("global.json", "badge-warning", "Required by a project's global.json."),
-        DotnetUpInstallSource.All => new("all", "badge-secondary", "Applies to all components."),
-        _ => new("unknown", "badge-secondary", "Source unknown.")
-    };
-
-
     protected override async Task OnInitializedAsync()
     {
         ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
@@ -657,24 +180,9 @@
 
     private void UpdateToolbar()
     {
-        if (DotnetUp.IsInstalled)
-        {
-            var items = new List<ToolbarAction>
-            {
-                new("refresh", "Refresh", "arrow.clockwise"),
-                new("add-channel", "Add Channel", "plus"),
-            };
-            if (list != null && list.InstallSpecs.Count > 0)
-            {
-                items.Add(new ToolbarAction("check-updates", "Check for Updates", "magnifyingglass", IsPrimary: false));
-                items.Add(new ToolbarAction("update-all", "Update All", "square.and.arrow.up", IsPrimary: false));
-            }
-            ToolbarService.SetItems(items.ToArray());
-        }
-        else
-        {
-            ToolbarService.SetItems(new ToolbarAction("refresh", "Refresh", "arrow.clockwise"));
-        }
+        ToolbarService.SetItems(
+            new ToolbarAction("refresh", "Refresh", "arrow.clockwise"),
+            new ToolbarAction("open-project", "Open Project Folder", "folder"));
     }
 
     private void OnToolbarItemClicked(string actionId)
@@ -686,14 +194,8 @@
                 case "refresh":
                     await Refresh();
                     break;
-                case "add-channel":
-                    await OpenAddDialog();
-                    break;
-                case "check-updates":
-                    await CheckForUpdates();
-                    break;
-                case "update-all":
-                    await RunUpdateAll();
+                case "open-project":
+                    await PickProjectFolder();
                     break;
             }
             StateHasChanged();
@@ -706,6 +208,9 @@
         errorMessage = null;
         updatePreviews = null;
         updatesUnresolved = false;
+        toolUpdateInfo = null;
+        checkingToolUpdate = DotnetUp.IsInstalled;
+        workloadInventories = [];
         StateHasChanged();
         try
         {
@@ -714,10 +219,12 @@
                 toolInfo = await DotnetUp.GetToolInfoAsync();
                 list = await DotnetUp.GetListAsync();
                 managedRoots = list?.InstallRoots.ToList() ?? new();
+                toolUpdateInfo = await DotnetUp.GetToolUpdateInfoAsync(toolInfo);
             }
             else
             {
                 toolInfo = null;
+                toolUpdateInfo = null;
                 list = null;
                 managedRoots = new();
             }
@@ -728,19 +235,25 @@
         }
         finally
         {
+            checkingToolUpdate = false;
             isLoading = false;
             UpdateToolbar();
             StateHasChanged();
         }
+
+        if (list?.InstallSpecs.Count > 0)
+            await LoadUpdatePreviewAsync(showErrors: false);
+        if (list != null)
+            await LoadWorkloadInventoriesAsync(forceRefresh: true);
     }
 
-    private async Task<bool> EnsureInstalled(bool force = false)
+    private async Task<bool> EnsureInstalled(bool force = false, bool isUpdate = false)
     {
         if (DotnetUp.IsInstalled && !force)
             return true;
 
         var result = await OperationModal.RunAsync(
-            force ? "Reinstall dotnetup" : "Install dotnetup",
+            isUpdate ? "Update dotnetup" : force ? "Reinstall dotnetup" : "Install dotnetup",
             "Downloading and verifying the dotnetup .NET toolchain manager",
             async ctx =>
             {
@@ -768,22 +281,94 @@
         }
     }
 
-    private async Task ReinstallDotnetUp()
+    private Task UpdateDotnetUp() => ReplaceDotnetUp(isUpdate: true);
+
+    private Task ReinstallDotnetUp() => ReplaceDotnetUp(isUpdate: false);
+
+    private async Task ReplaceDotnetUp(bool isUpdate)
     {
+        var action = isUpdate ? "Update" : "Reinstall";
+        var detail = isUpdate
+            ? $"Update dotnetup from v{toolUpdateInfo!.InstalledVersion} to v{toolUpdateInfo.AvailableVersion}?"
+            : "Download and overwrite the dotnetup binary with the latest published build?";
         var confirm = await AlertService.ShowConfirmAsync(
-            "Reinstall dotnetup",
-            "Download and overwrite the dotnetup binary with the latest published build?",
-            "Reinstall", "Cancel");
+            $"{action} dotnetup",
+            detail,
+            action, "Cancel");
         if (!confirm) return;
 
-        if (await EnsureInstalled(force: true))
+        if (await EnsureInstalled(force: true, isUpdate: isUpdate))
         {
-            await AlertService.ShowToastAsync("dotnetup reinstalled");
+            await AlertService.ShowToastAsync(isUpdate ? "dotnetup updated" : "dotnetup reinstalled");
             await Refresh();
         }
     }
 
-    private async Task CheckForUpdates()
+    private async Task OpenDotnetUpDetails()
+    {
+        var page = new DotnetUpDetailsPage(
+            ModalParams,
+            DotnetUp.IsInstalled,
+            toolInfo,
+            toolUpdateInfo,
+            managedRoots,
+            DotnetUp.ExecutablePath,
+            DotnetUp.ToolDirectory);
+
+        await FormModal.ShowViewAsync(page, page.WaitForCloseAsync);
+
+        switch (page.SelectedAction)
+        {
+            case DotnetUpDetailsAction.Install:
+                await InstallDotnetUp();
+                break;
+            case DotnetUpDetailsAction.Update:
+                await UpdateDotnetUp();
+                break;
+            case DotnetUpDetailsAction.Reinstall:
+                await ReinstallDotnetUp();
+                break;
+        }
+    }
+
+    private Task CheckForUpdates() => LoadUpdatePreviewAsync(showErrors: true);
+
+    private string DotnetUpIndicatorClass
+    {
+        get
+        {
+            if (isLoading || checkingToolUpdate)
+                return "checking";
+            if (!DotnetUp.IsInstalled)
+                return "missing";
+            if (toolUpdateInfo?.UpdateAvailable == true)
+                return "update-available";
+            return "installed";
+        }
+    }
+
+    private string DotnetUpIndicatorIcon =>
+        isLoading || checkingToolUpdate
+            ? "fas fa-spinner fa-spin"
+            : DotnetUp.IsInstalled
+                ? "fa-regular fa-circle-check"
+                : "fa-regular fa-circle-xmark";
+
+    private string DotnetUpIndicatorTitle
+    {
+        get
+        {
+            if (isLoading || checkingToolUpdate)
+                return "dotnetup: checking status";
+            if (!DotnetUp.IsInstalled)
+                return "dotnetup is not installed. Open details.";
+            if (toolUpdateInfo?.UpdateAvailable == true)
+                return "A dotnetup update is available. Open details.";
+            return "dotnetup is ready. Open details.";
+        }
+    }
+
+    private async Task LoadUpdatePreviewAsync(bool showErrors)
     {
         if (list == null) return;
         checkingUpdates = true;
@@ -797,8 +382,10 @@
         }
         catch (Exception ex)
         {
-            errorMessage = $"Couldn't check for updates: {ex.Message}";
+            if (showErrors)
+                errorMessage = $"Couldn't check for updates: {ex.Message}";
             updatePreviews = null;
+            updatesUnresolved = true;
         }
         finally
         {
@@ -807,68 +394,177 @@
         }
     }
 
-    private void DismissPreview()
-    {
-        updatePreviews = null;
-        updatesUnresolved = false;
-    }
-
     private async Task PickProjectFolder()
     {
         var folder = await Dialog.PickFolderAsync("Choose a project folder");
         if (string.IsNullOrWhiteSpace(folder)) return;
-        selectedFolder = folder;
-        await InspectSelectedFolder();
-    }
-
-    private void ClearProject()
-    {
-        projectResolution = null;
-        selectedFolder = null;
-        StateHasChanged();
-    }
-
-    private async Task InspectSelectedFolder()
-    {
-        if (string.IsNullOrWhiteSpace(selectedFolder) || list == null) return;
-        inspectingFolder = true;
-        errorMessage = null;
-        StateHasChanged();
-        try
-        {
-            projectResolution = await DotnetUp.InspectProjectFolderAsync(selectedFolder, list);
-        }
-        catch (Exception ex)
-        {
-            errorMessage = $"Couldn't inspect the folder: {ex.Message}";
-            projectResolution = null;
-        }
-        finally
-        {
-            inspectingFolder = false;
-            StateHasChanged();
-        }
-    }
-
-    private async Task RunInstallForProject()
-    {
-        if (!await EnsureInstalled() || string.IsNullOrWhiteSpace(selectedFolder)) return;
-        var request = DotnetUp.InstallForProjectRequest(selectedFolder);
-        var result = await ProcessModal.ShowProcessAsync(request);
-        if (result?.Success == true)
-        {
-            await AlertService.ShowToastAsync("Project SDK installed");
+        var page = new ProjectDotnetContextPage(ModalParams, folder);
+        await FormModal.ShowViewAsync(page, page.WaitForCloseAsync);
+        if (page.HasChanges)
             await Refresh();
-            await InspectSelectedFolder();
-        }
-        else if (result != null && !result.WasCancelled && !result.WasKilled)
-        {
-            await AlertService.ShowAlertAsync("Operation Failed", "The project SDK install failed. Check the output for details.");
-        }
     }
 
+    private async Task LoadWorkloadInventoriesAsync(bool forceRefresh)
+        {
+            if (list == null)
+                return;
+            loadingWorkloads = true;
+            StateHasChanged();
+            try
+            {
+                workloadInventories = await Workloads.GetInventoriesAsync(list, forceRefresh);
+            }
+            catch (Exception ex)
+            {
+                errorMessage = $"Couldn't read .NET workload state: {ex.Message}";
+                workloadInventories = [];
+            }
+            finally
+            {
+                loadingWorkloads = false;
+                StateHasChanged();
+            }
+        }
+
+    private async Task OpenManageWorkloads(DotnetWorkloadInventory inventory)
+        {
+            var selection = await FormModal.ShowAsync<WorkloadSelectionResult?>(
+                new WorkloadSelectionPage(BridgeHolder, inventory));
+            if (selection == null ||
+                (selection.InstallIds.Count == 0 && selection.UninstallIds.Count == 0))
+                return;
+
+            if (selection.UninstallIds.Count > 0)
+            {
+                var uninstall = Workloads.CreateUninstallRequest(
+                    inventory.Target,
+                    selection.UninstallIds);
+                if (!await RunWorkloadProcess(
+                        uninstall,
+                        inventory.Target,
+                        "Selected workloads uninstalled",
+                        "The workload uninstall failed."))
+                    return;
+            }
+
+            if (selection.InstallIds.Count > 0)
+            {
+                var install = Workloads.CreateInstallRequest(
+                    inventory.Target,
+                    selection.InstallIds);
+                await RunWorkloadProcess(
+                    install,
+                    inventory.Target,
+                    "Selected workloads installed",
+                    "The workload install failed.");
+            }
+        }
+
+    private Task OpenChangeWorkloadSet(DotnetWorkloadInventory inventory) =>
+        OpenWorkloadSetPicker(inventory);
+
+    private async Task OpenWorkloadSetPicker(
+        DotnetWorkloadInventory inventory,
+        string? initialVersion = null)
+        {
+            var version = await FormModal.ShowAsync<string?>(
+                new WorkloadSetPage(BridgeHolder, inventory, initialVersion));
+            if (string.IsNullOrWhiteSpace(version))
+                return;
+            await ApplyWorkloadSet(inventory, version);
+        }
+
+        private async Task ApplyWorkloadSet(
+            DotnetWorkloadInventory inventory,
+            string version)
+        {
+            workloadBusy = true;
+            StateHasChanged();
+            try
+            {
+                var preview = await Workloads.GetWorkloadSetPreviewAsync(inventory.Target, version);
+                var request = Workloads.CreateUpdateSetRequest(inventory.Target, version);
+                request = request with
+                {
+                    ConfirmationDetails = BuildWorkloadSetConfirmationDetails(preview, inventory.UpdateMode)
+                };
+
+                await RunWorkloadProcess(
+                    request,
+                    inventory.Target,
+                    $"Workload set changed to {version}",
+                    "The workload-set update failed.");
+            }
+            catch (Exception ex)
+            {
+                await AlertService.ShowAlertAsync("Workload Preview Failed", ex.Message);
+            }
+            finally
+            {
+                workloadBusy = false;
+                StateHasChanged();
+            }
+        }
+
+    private async Task RepairWorkloads(DotnetWorkloadInventory inventory)
+        {
+            var request = Workloads.CreateRepairRequest(inventory.Target) with
+            {
+                ConfirmationDetails =
+                    $"SDK feature band: {inventory.Target.FeatureBand}\n" +
+                    $"Recorded workload IDs: {inventory.InstalledWorkloads.Count}\n" +
+                    "The .NET SDK will reinstall packs referenced by these workloads."
+            };
+            await RunWorkloadProcess(
+                request,
+                inventory.Target,
+                "Workloads repaired",
+                "The workload repair failed.");
+        }
+
+    private async Task<bool> RunWorkloadProcess(
+        ProcessRequest request,
+        DotnetWorkloadTarget target,
+        string successToast,
+        string failureMessage)
+        {
+            workloadBusy = true;
+            StateHasChanged();
+            try
+            {
+                var result = await ProcessModal.ShowProcessAsync(request);
+                if (result?.Success == true)
+                {
+                    Workloads.Invalidate(target.InstallRoot);
+                    await AlertService.ShowToastAsync(successToast);
+                    await LoadWorkloadInventoriesAsync(forceRefresh: true);
+                    return true;
+                }
+                else if (result != null && !result.WasCancelled && !result.WasKilled)
+                {
+                    await AlertService.ShowAlertAsync("Operation Failed", $"{failureMessage} Check the output for details.");
+                }
+                return false;
+            }
+            finally
+            {
+                workloadBusy = false;
+                StateHasChanged();
+            }
+        }
     private async Task RunUpdateAll()
     {
+        if (checkingUpdates) return;
+        if (updatePreviews == null)
+        {
+            await CheckForUpdates();
+            return;
+        }
+        if (!updatePreviews.Any(p => p.UpdateAvailable))
+        {
+            await AlertService.ShowToastAsync("Everything is already up to date");
+            return;
+        }
         if (!await EnsureInstalled()) return;
         await RunProcessAndRefresh(DotnetUp.UpdateAllRequest(), "All components updated", "The update failed.");
     }
@@ -888,32 +584,61 @@
     private async Task RunUninstall(DotnetUpInstallation item)
     {
         var label = $"{item.ComponentRaw} {item.Version}";
-        var confirm = await AlertService.ShowConfirmAsync(
-            "Uninstall component",
-            $"Remove {label} from {item.InstallRoot}?",
-            "Uninstall", "Cancel");
-        if (!confirm) return;
-
         ProcessRequest request = item.Component == DotnetUpComponent.Sdk
             ? DotnetUp.UninstallSdkRequest(item.Version)
             : DotnetUp.UninstallRuntimeRequest($"{RuntimeToken(item)}@{item.Version}");
+        request = request with
+        {
+            Description = $"Remove {label} from {item.InstallRoot}.",
+            ConfirmationButtonText = "Uninstall"
+        };
 
         await RunProcessAndRefresh(request, $"Uninstalled {label}", "The uninstall failed.");
     }
 
     private async Task RunUntrack(DotnetUpInstallSpec spec)
     {
-        var confirm = await AlertService.ShowConfirmAsync(
-            "Stop tracking channel",
-            $"Stop tracking {spec.VersionOrChannel} ({ComponentDisplay(spec.Component)}) and uninstall the version it resolved to?",
-            "Untrack", "Cancel");
-        if (!confirm) return;
-
         ProcessRequest request = spec.Component == DotnetUpComponent.Sdk
             ? DotnetUp.UninstallSdkRequest(spec.VersionOrChannel, spec.Source)
             : DotnetUp.UninstallRuntimeRequest($"{RuntimeTokenForComponent(spec.Component)}@{spec.VersionOrChannel}");
+        request = request with
+        {
+            Description =
+                $"Stop tracking {spec.VersionOrChannel} ({ComponentDisplay(spec.Component)}) and uninstall the version it resolved to.",
+            ConfirmationButtonText = "Untrack"
+        };
 
         await RunProcessAndRefresh(request, $"Stopped tracking {spec.VersionOrChannel}", "The untrack failed.");
+    }
+
+    private static string BuildWorkloadSetConfirmationDetails(
+        DotnetWorkloadSetPreview preview,
+        DotnetWorkloadUpdateMode currentMode)
+    {
+        var lines = new List<string>
+        {
+            $"SDK feature band: {preview.Target.FeatureBand}",
+            $"Current workload set: {preview.CurrentVersion ?? "not installed"}",
+            $"New workload set: {preview.TargetVersion}",
+            $"Installed workload IDs affected: {preview.InstalledWorkloadIds.Count}",
+            $"Manifest changes: {preview.ManifestChanges.Count}"
+        };
+
+        if (currentMode == DotnetWorkloadUpdateMode.Manifests)
+            lines.Insert(1, "Update mode: Loose manifests -> Workload set");
+
+        if (preview.ManifestChanges.Count > 0)
+        {
+            lines.Add("");
+            lines.Add("Manifest changes");
+            lines.AddRange(preview.ManifestChanges.Take(8).Select(
+                change =>
+                    $"{change.ManifestId}: {change.CurrentVersion ?? "not installed"} -> {change.TargetVersion ?? "removed"}"));
+            if (preview.ManifestChanges.Count > 8)
+                lines.Add($"+ {preview.ManifestChanges.Count - 8} more");
+        }
+
+        return string.Join(Environment.NewLine, lines);
     }
 
     private static string RuntimeTokenForComponent(DotnetUpComponent c) => c switch
@@ -944,15 +669,6 @@
         _ => "runtime"
     };
 
-    private static string ComponentBadgeClass(DotnetUpComponent component) => component switch
-    {
-        DotnetUpComponent.Sdk => "badge-success",
-        DotnetUpComponent.Runtime => "badge-info",
-        DotnetUpComponent.AspNetCore => "badge-info",
-        DotnetUpComponent.WindowsDesktop => "badge-info",
-        _ => "badge-secondary"
-    };
-
     public void Dispose()
     {
         ToolbarService.ToolbarItemClicked -= OnToolbarItemClicked;
@@ -960,130 +676,96 @@
 }
 
 <style>
-    /* ===== badge base shape (global CSS only supplies colors) ===== */
-    .badge {
-        display: inline-flex;
-        align-items: center;
-        padding: 2px 0.625rem;
-        border-radius: 0.75rem;
-        font-size: 0.75rem;
-        font-weight: 500;
-        white-space: nowrap;
-    }
-
-    /* ===== dotnetup status (flat) ===== */
-    .dnup-status {
+    .dotnet-sdk-page-header {
         display: flex;
         align-items: center;
-        gap: 0.6rem;
-        padding: 0.55rem 0.8rem;
-        border-radius: var(--card-radius);
-        background: var(--card-bg);
-        border-left: 3px solid var(--border-color);
-        margin-top: 1.25rem;
-        margin-bottom: 0.6rem;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 0.75rem 1rem;
+        margin-bottom: 1.25rem;
     }
 
-    .dnup-status.ok {
-        border-left-color: var(--status-success-text, #16a34a);
+    .dotnet-sdk-page-header h1 {
+        margin: 0;
     }
 
-    .dnup-status.missing {
-        border-left-color: var(--status-warning-text, #d97706);
-    }
-
-    .dnup-status-icon {
-        font-size: 1.05rem;
-        flex-shrink: 0;
-        display: flex;
-    }
-
-    .dnup-status.ok .dnup-status-icon {
-        color: var(--status-success-text, #16a34a);
-    }
-
-    .dnup-status.missing .dnup-status-icon {
-        color: var(--status-warning-text, #d97706);
-    }
-
-    .dnup-status-body {
-        flex: 1;
+    .dotnet-sdk-page-heading {
         min-width: 0;
         display: flex;
-        align-items: baseline;
+        flex: 1;
+        flex-direction: column;
+        gap: 0.3rem;
+    }
+
+    .dotnet-sdk-page-heading p {
+        max-width: 52rem;
+        margin: 0;
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+        line-height: 1.4;
+    }
+
+    .dotnet-sdk-page-actions {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
         flex-wrap: wrap;
+        gap: 0.55rem;
+    }
+
+    .dotnetup-indicator {
+        display: inline-flex;
+        align-items: center;
         gap: 0.4rem;
-    }
-
-    .dnup-status-title {
-        font-weight: 600;
-        color: var(--text-primary);
-        font-size: 0.9rem;
-    }
-
-    .dnup-status-ver,
-    .dnup-status-rid {
-        color: var(--text-secondary);
-        font-size: 0.8rem;
-    }
-
-    .dnup-status-sub {
-        color: var(--text-secondary);
-        font-size: 0.82rem;
-        font-weight: 400;
-    }
-
-    .dnup-status-actions {
-        flex-shrink: 0;
-    }
-
-    .btn-ghost {
+        min-height: 2rem;
+        padding: 0.3rem 0.5rem;
+        border: 0;
+        border-radius: 0.4rem;
         background: transparent;
-        border: 1px solid transparent;
         color: var(--text-secondary);
+        font: inherit;
+        font-size: 0.78rem;
+        font-weight: 500;
+        cursor: pointer;
+        transition: background-color 0.15s ease, color 0.15s ease;
     }
 
-    .btn-ghost:hover {
+    .dotnetup-indicator:hover:not(:disabled) {
         background: var(--bg-tertiary);
         color: var(--text-primary);
     }
 
-    .status-meta {
-        color: var(--text-secondary);
-        font-size: 0.82rem;
-        display: flex;
-        flex-wrap: wrap;
-        align-items: center;
-        gap: 0.35rem;
+    .dotnetup-indicator:focus-visible {
+        outline: 2px solid var(--accent-primary);
+        outline-offset: 2px;
     }
 
-    .status-meta .dot,
-    .dnup-status-body .dot {
-        opacity: 0.5;
-    }
-
-    .managed-root-line {
-        display: flex;
-        flex-wrap: wrap;
-        align-items: center;
-        gap: 0.4rem;
-        color: var(--text-secondary);
-        font-size: 0.8rem;
-        margin-bottom: 1.5rem;
-        padding-left: 0.15rem;
-    }
-
-    .managed-root-line i {
+    .dotnetup-indicator:disabled {
+        cursor: default;
         opacity: 0.7;
     }
 
-    .root-chip {
-        background: var(--bg-tertiary);
-        border-radius: 0.375rem;
-        padding: 0.1rem 0.4rem;
+    .dotnetup-indicator.installed > i,
+    .dotnetup-indicator.update-available > i {
+        color: color-mix(in srgb, var(--status-success-text) 72%, var(--text-secondary));
     }
 
-    /* ===== flat sections ===== */
+    .dotnetup-indicator.missing > i {
+        color: color-mix(in srgb, var(--status-warning-text) 72%, var(--text-secondary));
+    }
+
+    .dotnetup-indicator-update {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 1rem;
+        height: 1rem;
+        border-radius: 999px;
+        background: var(--status-info-bg);
+        color: var(--status-info-text);
+        font-size: 0.58rem;
+    }
+
     .page-section {
         margin-bottom: 1.75rem;
     }
@@ -1105,365 +787,60 @@
     }
 
     .section-head h2 {
-        font-size: 1.05rem;
-        font-weight: 600;
-        margin: 0;
-        color: var(--text-primary);
         display: flex;
         align-items: center;
         gap: 0.5rem;
+        margin: 0;
+        color: var(--text-primary);
+        font-size: 1.05rem;
+        font-weight: 600;
     }
 
-    .section-head h2 i {
+    .section-head h2 i,
+    .info-note i {
         color: var(--text-secondary);
     }
 
     .section-desc {
         margin: 0.25rem 0 0;
-        font-size: 0.85rem;
         color: var(--text-secondary);
+        font-size: 0.85rem;
         line-height: 1.4;
     }
 
     .count {
-        font-size: 0.72rem;
-        font-weight: 600;
+        padding: 0.05rem 0.5rem;
+        border-radius: 999px;
         background: var(--bg-tertiary);
         color: var(--text-secondary);
-        border-radius: 999px;
-        padding: 0.05rem 0.5rem;
-    }
-
-    /* grey item-card panels */
-    .panel {
-        background: var(--card-bg);
-        border-radius: var(--card-radius);
-        padding: 1rem 1.1rem;
-        margin-bottom: 0.75rem;
-    }
-
-    /* ===== add-channel ===== */
-    .section-actions {
-        display: flex;
-        gap: 0.5rem;
-        flex-wrap: wrap;
-        flex-shrink: 0;
-    }
-
-    /* ===== group toggle ===== */
-    .group-toggle {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        flex-shrink: 0;
-    }
-
-    .group-toggle-label {
-        font-size: 0.78rem;
-        color: var(--text-secondary);
-    }
-
-    .seg-group {
-        display: inline-flex;
-        border: 1px solid var(--border-color);
-        border-radius: 0.5rem;
-        overflow: hidden;
-    }
-
-    .seg {
-        background: var(--card-bg);
-        border: none;
-        color: var(--text-secondary);
-        font-size: 0.8rem;
-        padding: 0.3rem 0.7rem;
-        cursor: pointer;
-    }
-
-    .seg + .seg {
-        border-left: 1px solid var(--border-color);
-    }
-
-    .seg.active {
-        background: var(--accent-primary, #4299e1);
-        color: #fff;
+        font-size: 0.72rem;
+        font-weight: 600;
     }
 
     .info-note {
-        font-size: 0.8rem;
-        color: var(--text-secondary);
         margin: 0.4rem 0 0;
+        color: var(--text-secondary);
+        font-size: 0.8rem;
         line-height: 1.4;
     }
 
     .info-note i {
         margin-right: 0.4rem;
-        color: var(--text-secondary);
     }
 
-    /* ===== component groups ===== */
-    .comp-group {
-        margin-bottom: 1rem;
-    }
-
-    .comp-group-head {
-        display: flex;
-        align-items: center;
-        gap: 0.45rem;
-        font-size: 0.85rem;
-        font-weight: 600;
-        color: var(--text-primary);
-        margin-bottom: 0.4rem;
-    }
-
-    .comp-group-head i {
-        color: var(--text-secondary);
-    }
-
-    .comp-group-count {
-        font-size: 0.7rem;
-        font-weight: 600;
-        color: var(--text-secondary);
-        background: var(--bg-tertiary);
-        border-radius: 999px;
-        padding: 0.02rem 0.45rem;
-    }
-
-    .comp-item,
-    .track-item {
-        display: flex;
-        align-items: center;
-        gap: 0.6rem;
-        padding: 0.55rem 0.85rem;
-        border-radius: var(--card-radius);
-        background: var(--card-bg);
-        margin-bottom: 0.4rem;
-    }
-
-    .comp-version,
-    .track-channel {
-        font-weight: 600;
-        color: var(--text-primary);
-    }
-
-    .comp-name,
-    .comp-arch,
-    .track-human {
-        font-size: 0.8rem;
-        color: var(--text-secondary);
-    }
-
-    /* ===== tracked channels ===== */
-    .legend {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.25rem 1.25rem;
-        margin-top: 0.6rem;
-        font-size: 0.78rem;
-        color: var(--text-secondary);
-    }
-
-    .legend-item {
-        display: flex;
-        align-items: center;
-        gap: 0.4rem;
-    }
-
-    .spacer {
-        flex: 1;
-    }
-
-    /* ===== update preview ===== */
-    .preview-panel {
-        border: 1px solid var(--border-color);
-    }
-
-    .preview-head {
-        display: flex;
-        align-items: center;
-        gap: 0.6rem;
-        margin-bottom: 0.75rem;
-    }
-
-    .preview-summary {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.45rem;
-        font-weight: 600;
-        font-size: 0.9rem;
-    }
-
-    .preview-summary.has-updates {
-        color: var(--status-info-text, #2563eb);
-    }
-
-    .preview-summary.up-to-date {
-        color: var(--status-success-text, #16a34a);
-    }
-
-    .preview-note {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.35rem;
-        font-size: 0.78rem;
-        color: var(--status-warning-text, #d97706);
-    }
-
-    .preview-close {
-        background: none;
-        border: none;
-        color: var(--text-secondary);
-        cursor: pointer;
-        padding: 0.15rem 0.35rem;
-        border-radius: 6px;
-        font-size: 0.9rem;
-    }
-
-    .preview-close:hover {
-        background: var(--bg-tertiary);
-        color: var(--text-primary);
-    }
-
-    .preview-rows {
-        display: flex;
-        flex-direction: column;
-        gap: 0.4rem;
-    }
-
-    .preview-row {
-        display: flex;
-        align-items: center;
-        gap: 0.6rem;
-        padding: 0.5rem 0.75rem;
-        border-radius: var(--card-radius);
-        background: var(--bg-tertiary);
-    }
-
-    .prev-ver {
-        font-weight: 600;
-        color: var(--text-primary);
-        font-size: 0.85rem;
-    }
-
-    .prev-ver.old {
-        color: var(--text-secondary);
-        font-weight: 500;
-    }
-
-    .prev-ver.new {
-        color: var(--status-success-text, #16a34a);
-    }
-
-    .prev-arrow {
-        color: var(--text-secondary);
-        font-size: 0.75rem;
-    }
-
-    .preview-actions {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        flex-wrap: wrap;
-        margin-top: 0.85rem;
-        padding-top: 0.85rem;
-        border-top: 1px solid var(--border-color);
-    }
-
-    .preview-actions-label {
-        font-size: 0.82rem;
-        font-weight: 600;
-        color: var(--text-secondary);
-        margin-right: 0.15rem;
-    }
-
-    /* ===== project context (global.json) ===== */
-    .project-panel {
-        display: flex;
-        flex-direction: column;
+    .installed-version-list {
+        display: grid;
         gap: 0.75rem;
     }
 
-    .project-folder,
-    .project-gj {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        font-size: 0.85rem;
-        color: var(--text-secondary);
-        min-width: 0;
-    }
+    @@media (max-width: 700px) {
+        .dotnet-sdk-page-header,
+        .dotnet-sdk-page-actions {
+            align-items: flex-start;
+        }
 
-    .project-folder i,
-    .project-gj i {
-        flex-shrink: 0;
-        color: var(--text-secondary);
-    }
-
-    .project-folder .mono,
-    .project-gj .mono {
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        color: var(--text-primary);
-    }
-
-    .project-req {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 1.25rem;
-        padding: 0.65rem 0.85rem;
-        background: var(--bg-tertiary);
-        border-radius: var(--card-radius);
-    }
-
-    .req-cell {
-        display: flex;
-        flex-direction: column;
-        gap: 0.2rem;
-    }
-
-    .req-label {
-        font-size: 0.72rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-        color: var(--text-secondary);
-    }
-
-    .req-value {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.4rem;
-        font-size: 0.88rem;
-        font-weight: 600;
-        color: var(--text-primary);
-    }
-
-    .preview-row.row-update {
-        background: var(--bg-tertiary);
-    }
-
-    .project-actions {
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
-        flex-wrap: wrap;
-        padding-top: 0.75rem;
-        border-top: 1px solid var(--border-color);
-    }
-
-    .project-hint {
-        font-size: 0.85rem;
-        color: var(--text-secondary);
-        flex: 1 1 auto;
-        min-width: 12rem;
-    }
-
-    .project-ready {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.45rem;
-        font-size: 0.88rem;
-        font-weight: 600;
-        color: var(--status-success-text, #16a34a);
+        .dotnet-sdk-page-actions {
+            justify-content: flex-start;
+        }
     }
 </style>

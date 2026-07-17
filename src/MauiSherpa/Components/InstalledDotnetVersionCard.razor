@@ -1,0 +1,495 @@
+@using MauiSherpa.Workloads.Models
+
+<div class="installed-dotnet-version-card">
+    <button class="installed-dotnet-version-card__toggle"
+            type="button"
+            @onclick="ToggleExpanded"
+            aria-expanded="@expanded"
+            aria-controls="@bodyId">
+        <div class="installed-dotnet-version-card__summary">
+            <div class="installed-dotnet-version-card__title-row">
+                <span class="installed-dotnet-version-card__title">@DisplayRuntimeLine</span>
+
+                @if (!string.IsNullOrWhiteSpace(NewestSdkVersion))
+                {
+                    <span class="installed-dotnet-version-card__summary-chip installed-dotnet-version-card__summary-chip--sdk"
+                          title="Newest installed SDK patch">
+                        <i class="fas fa-toolbox" aria-hidden="true"></i>
+                        <span class="mono">SDK @NewestSdkVersion</span>
+                    </span>
+                }
+                else
+                {
+                    <span class="installed-dotnet-version-card__summary-chip installed-dotnet-version-card__summary-chip--muted">
+                        <i class="fas fa-gears" aria-hidden="true"></i>
+                        <span>runtime only</span>
+                    </span>
+                }
+
+                @if (InvalidCount > 0)
+                {
+                    <span class="badge badge-warning installed-dotnet-version-card__invalid-badge"
+                          title="@InvalidCount invalid installation@(InvalidCount == 1 ? string.Empty : "s")">
+                        <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
+                        <span>@InvalidCount invalid</span>
+                    </span>
+                }
+            </div>
+
+            <div class="installed-dotnet-version-card__meta-row">
+                @if (Loading)
+                {
+                    <span class="installed-dotnet-version-card__loading">
+                        <i class="fas fa-spinner fa-spin" aria-hidden="true"></i>
+                        <span>Refreshing…</span>
+                    </span>
+                }
+
+                <span class="installed-dotnet-version-card__count-pill">
+                    <strong>@SdkCount</strong>
+                    <span>SDK@(SdkCount == 1 ? string.Empty : "s")</span>
+                </span>
+                <span class="installed-dotnet-version-card__count-pill">
+                    <strong>@RuntimeCount</strong>
+                    <span>runtime@(RuntimeCount == 1 ? string.Empty : "s")</span>
+                </span>
+                <span class="installed-dotnet-version-card__count-pill">
+                    <strong>@WorkloadBandCount</strong>
+                    <span>workload band@(WorkloadBandCount == 1 ? string.Empty : "s")</span>
+                </span>
+            </div>
+        </div>
+
+        <span class="installed-dotnet-version-card__chevron" aria-hidden="true">
+            <i class="fas fa-chevron-right @(expanded ? "installed-dotnet-version-card__chevron-icon--expanded" : string.Empty)"></i>
+        </span>
+    </button>
+
+    @if (expanded)
+    {
+        <div id="@bodyId" class="installed-dotnet-version-card__body">
+            @if (Loading && Installations.Count == 0)
+            {
+                <div class="installed-dotnet-version-card__state">
+                    <i class="fas fa-spinner fa-spin" aria-hidden="true"></i>
+                    <span>Loading installed components…</span>
+                </div>
+            }
+            else if (Installations.Count == 0)
+            {
+                <div class="installed-dotnet-version-card__state">
+                    <i class="fas fa-box-open" aria-hidden="true"></i>
+                    <span>No installed components for this runtime line.</span>
+                </div>
+            }
+            else
+            {
+                @foreach (var installation in OrderedInstallations)
+                {
+                    <div class="installed-dotnet-version-card__item" @key="ItemKey(installation)">
+                        <div class="installed-dotnet-version-card__item-main">
+                            <div class="installed-dotnet-version-card__item-line">
+                                <span class="badge @ComponentBadgeClass(installation.Component)">@ComponentShort(installation.Component)</span>
+                                <span class="installed-dotnet-version-card__item-version mono">@installation.Version</span>
+                                <span class="installed-dotnet-version-card__item-name">@ComponentDisplay(installation.Component)</span>
+                            </div>
+
+                            @if (!string.IsNullOrWhiteSpace(installation.Architecture) || !installation.IsValid)
+                            {
+                                <div class="installed-dotnet-version-card__item-subline">
+                                    @if (!string.IsNullOrWhiteSpace(installation.Architecture))
+                                    {
+                                        <span>@installation.Architecture</span>
+                                    }
+
+                                    @if (!installation.IsValid)
+                                    {
+                                        <span class="badge badge-warning">
+                                            <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
+                                            <span>invalid</span>
+                                        </span>
+                                    }
+                                </div>
+                            }
+                        </div>
+
+                        @if (AllowMachineChanges)
+                        {
+                            <div class="installed-dotnet-version-card__item-actions">
+                                <button class="btn btn-danger btn-sm installed-dotnet-version-card__action"
+                                        type="button"
+                                        @onclick="() => UninstallRequested.InvokeAsync(installation)"
+                                        disabled="@Busy"
+                                        title="Uninstall this component"
+                                        aria-label="Uninstall @installation.Version @ComponentDisplay(installation.Component)">
+                                    <i class="fas fa-trash" aria-hidden="true"></i>
+                                </button>
+                            </div>
+                        }
+                    </div>
+                }
+            }
+
+            @if (HasSdk && AllowMachineChanges)
+            {
+                <div class="installed-dotnet-version-card__workloads">
+                    <DotnetWorkloadCard Inventories="@WorkloadInventories"
+                                        Loading="@Loading"
+                                        Busy="@Busy"
+                                        Inline="true"
+                                        ManageRequested="@ManageRequested"
+                                        ChangeSetRequested="@ChangeSetRequested"
+                                        RepairRequested="@RepairRequested" />
+                </div>
+            }
+        </div>
+    }
+</div>
+
+<style>
+    .installed-dotnet-version-card {
+        border: 1px solid var(--border-color);
+        border-radius: var(--card-radius);
+        background: var(--card-bg);
+        overflow: hidden;
+    }
+
+    .installed-dotnet-version-card .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+        padding: 2px 0.5rem;
+        border-radius: 999px;
+        font-size: 0.68rem;
+        font-weight: 600;
+        white-space: nowrap;
+    }
+
+    .installed-dotnet-version-card__toggle {
+        width: 100%;
+        border: 0;
+        background: transparent;
+        color: inherit;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 0.9rem 1rem;
+        font: inherit;
+        text-align: left;
+        cursor: pointer;
+    }
+
+    .installed-dotnet-version-card__toggle:hover {
+        background: var(--bg-tertiary);
+    }
+
+    .installed-dotnet-version-card__toggle:focus-visible {
+        outline: 2px solid var(--accent-primary);
+        outline-offset: -2px;
+    }
+
+    .installed-dotnet-version-card__summary {
+        min-width: 0;
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 0.45rem;
+    }
+
+    .installed-dotnet-version-card__title-row,
+    .installed-dotnet-version-card__meta-row {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        min-width: 0;
+    }
+
+    .installed-dotnet-version-card__title {
+        color: var(--text-primary);
+        font-size: 0.96rem;
+        font-weight: 700;
+    }
+
+    .installed-dotnet-version-card__summary-chip,
+    .installed-dotnet-version-card__count-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        padding: 0.2rem 0.55rem;
+        border-radius: 999px;
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+        font-size: 0.72rem;
+        white-space: nowrap;
+    }
+
+    .installed-dotnet-version-card__summary-chip--sdk {
+        color: var(--text-primary);
+    }
+
+    .installed-dotnet-version-card__summary-chip--muted {
+        opacity: 0.85;
+    }
+
+    .installed-dotnet-version-card__count-pill strong {
+        color: var(--text-primary);
+        font-size: 0.78rem;
+    }
+
+    .installed-dotnet-version-card__invalid-badge {
+        margin-left: auto;
+    }
+
+    .installed-dotnet-version-card__loading {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        color: var(--text-secondary);
+        font-size: 0.76rem;
+    }
+
+    .installed-dotnet-version-card__chevron {
+        flex-shrink: 0;
+        color: var(--text-secondary);
+        font-size: 0.76rem;
+    }
+
+    .installed-dotnet-version-card__chevron-icon--expanded {
+        transform: rotate(90deg);
+    }
+
+    .installed-dotnet-version-card__chevron i {
+        transition: transform 0.15s ease;
+    }
+
+    .installed-dotnet-version-card__body {
+        padding: 0;
+        border-top: 1px solid var(--border-color);
+    }
+
+    .installed-dotnet-version-card__state {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.45rem;
+        padding: 1rem 0;
+        color: var(--text-secondary);
+        font-size: 0.8rem;
+    }
+
+    .installed-dotnet-version-card__item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        padding: 0.65rem 1rem;
+        background: color-mix(in srgb, var(--bg-tertiary) 35%, var(--card-bg));
+    }
+
+    .installed-dotnet-version-card__item + .installed-dotnet-version-card__item {
+        border-top: 1px solid var(--border-color);
+    }
+
+    .installed-dotnet-version-card__item-main {
+        min-width: 0;
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+    }
+
+    .installed-dotnet-version-card__item-line,
+    .installed-dotnet-version-card__item-subline,
+    .installed-dotnet-version-card__item-actions {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 0.45rem;
+    }
+
+    .installed-dotnet-version-card__item-version {
+        color: var(--text-primary);
+        font-weight: 700;
+    }
+
+    .installed-dotnet-version-card__item-name,
+    .installed-dotnet-version-card__item-subline {
+        color: var(--text-secondary);
+        font-size: 0.8rem;
+    }
+
+    .installed-dotnet-version-card__item-actions {
+        flex-shrink: 0;
+        justify-content: flex-end;
+    }
+
+    .installed-dotnet-version-card__action {
+        min-width: 2.25rem;
+        justify-content: center;
+        padding-left: 0;
+        padding-right: 0;
+    }
+
+    .installed-dotnet-version-card__workloads {
+        margin-top: 0;
+    }
+
+    @@media (max-width: 900px) {
+        .installed-dotnet-version-card__toggle {
+            align-items: flex-start;
+        }
+
+        .installed-dotnet-version-card__invalid-badge {
+            margin-left: 0;
+        }
+    }
+
+    @@media (max-width: 700px) {
+        .installed-dotnet-version-card__toggle {
+            padding-left: 0.85rem;
+            padding-right: 0.85rem;
+        }
+
+        .installed-dotnet-version-card__item {
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        .installed-dotnet-version-card__item-actions {
+            justify-content: flex-start;
+        }
+    }
+</style>
+
+@code {
+    [Parameter] public string? RuntimeLine { get; set; }
+    [Parameter] public IReadOnlyList<DotnetUpInstallation> Installations { get; set; } = [];
+    [Parameter] public IReadOnlyList<DotnetWorkloadInventory> WorkloadInventories { get; set; } = [];
+    [Parameter] public bool Loading { get; set; }
+    [Parameter] public bool Busy { get; set; }
+    [Parameter] public bool InitiallyExpanded { get; set; }
+    [Parameter] public bool AllowMachineChanges { get; set; } = true;
+    [Parameter] public EventCallback<DotnetUpInstallation> UninstallRequested { get; set; }
+    [Parameter] public EventCallback<DotnetWorkloadInventory> ManageRequested { get; set; }
+    [Parameter] public EventCallback<DotnetWorkloadInventory> ChangeSetRequested { get; set; }
+    [Parameter] public EventCallback<DotnetWorkloadInventory> RepairRequested { get; set; }
+
+    private readonly string bodyId = $"installed-dotnet-version-card-{Guid.NewGuid():N}";
+    private bool expanded;
+    private bool capturedInitialExpansion;
+
+    private IEnumerable<DotnetUpInstallation> OrderedInstallations => Installations
+        .OrderBy(installation => ComponentSortOrder(installation.Component))
+        .ThenByDescending(installation => VersionSortKey(installation.Version))
+        .ThenByDescending(installation => installation.Version, StringComparer.OrdinalIgnoreCase);
+
+    private string DisplayRuntimeLine => string.IsNullOrWhiteSpace(RuntimeLine)
+        ? DeriveRuntimeLine()
+        : RuntimeLine!;
+
+    private int SdkCount => Installations.Count(installation => installation.Component == DotnetUpComponent.Sdk);
+
+    private int RuntimeCount => Installations.Count(installation => installation.Component != DotnetUpComponent.Sdk);
+
+    private int WorkloadBandCount => WorkloadInventories
+        .Select(inventory => inventory.Target.FeatureBand.ToString())
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .Count();
+
+    private int InvalidCount => Installations.Count(installation => !installation.IsValid);
+
+    private bool HasSdk => Installations.Any(installation => installation.Component == DotnetUpComponent.Sdk);
+
+    private string? NewestSdkVersion => Installations
+        .Where(installation => installation.Component == DotnetUpComponent.Sdk)
+        .OrderByDescending(installation => VersionSortKey(installation.Version))
+        .Select(installation => installation.Version)
+        .FirstOrDefault();
+
+    protected override void OnParametersSet()
+    {
+        if (capturedInitialExpansion)
+        {
+            return;
+        }
+
+        expanded = InitiallyExpanded;
+        capturedInitialExpansion = true;
+    }
+
+    private void ToggleExpanded() => expanded = !expanded;
+
+    private string DeriveRuntimeLine()
+    {
+        var seedVersion = NewestSdkVersion ?? Installations.FirstOrDefault()?.Version;
+        if (string.IsNullOrWhiteSpace(seedVersion))
+        {
+            return ".NET";
+        }
+
+        var parts = seedVersion.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        return parts.Length >= 2 && int.TryParse(parts[0], out _) && int.TryParse(parts[1], out _)
+            ? $".NET {parts[0]}.{parts[1]}"
+            : seedVersion;
+    }
+
+    private static string ItemKey(DotnetUpInstallation installation) =>
+        $"{installation.Component}|{installation.Version}|{installation.Architecture}|{installation.InstallRoot}";
+
+    private static string ComponentDisplay(DotnetUpComponent component) => component switch
+    {
+        DotnetUpComponent.Sdk => ".NET SDK",
+        DotnetUpComponent.Runtime => ".NET Runtime",
+        DotnetUpComponent.AspNetCore => "ASP.NET Core Runtime",
+        DotnetUpComponent.WindowsDesktop => "Windows Desktop Runtime",
+        _ => "Component"
+    };
+
+    private static string ComponentShort(DotnetUpComponent component) => component switch
+    {
+        DotnetUpComponent.Sdk => "SDK",
+        DotnetUpComponent.Runtime => "Runtime",
+        DotnetUpComponent.AspNetCore => "ASP.NET",
+        DotnetUpComponent.WindowsDesktop => "Desktop",
+        _ => "Other"
+    };
+
+    private static string ComponentBadgeClass(DotnetUpComponent component) => component switch
+    {
+        DotnetUpComponent.Sdk => "badge-success",
+        DotnetUpComponent.Runtime => "badge-info",
+        DotnetUpComponent.AspNetCore => "badge-info",
+        DotnetUpComponent.WindowsDesktop => "badge-info",
+        _ => "badge-secondary"
+    };
+
+    private static int ComponentSortOrder(DotnetUpComponent component) => component switch
+    {
+        DotnetUpComponent.Sdk => 0,
+        DotnetUpComponent.Runtime => 1,
+        DotnetUpComponent.AspNetCore => 2,
+        DotnetUpComponent.WindowsDesktop => 3,
+        _ => 4
+    };
+
+    private static (int ReleaseRank, int Major, int Minor, int Patch, int Revision, string Raw) VersionSortKey(string version)
+    {
+        var raw = version ?? string.Empty;
+        var releaseRank = raw.Contains('-', StringComparison.Ordinal) ? 0 : 1;
+        var numericPortion = raw.Split('-', 2, StringSplitOptions.TrimEntries)[0];
+        var segments = numericPortion.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        return (
+            releaseRank,
+            ParseSegment(segments, 0),
+            ParseSegment(segments, 1),
+            ParseSegment(segments, 2),
+            ParseSegment(segments, 3),
+            raw);
+    }
+
+    private static int ParseSegment(IReadOnlyList<string> segments, int index) =>
+        index < segments.Count && int.TryParse(segments[index], out var value) ? value : -1;
+}

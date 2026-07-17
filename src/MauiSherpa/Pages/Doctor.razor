@@ -1024,7 +1024,7 @@ else
 
     private async Task RunWorkloadFix(DependencyStatus dep)
     {
-        var targetVersion = report?.AvailableWorkloadSetVersions?.FirstOrDefault();
+        var targetVersion = dep.RecommendedVersion;
         if (string.IsNullOrEmpty(targetVersion))
         {
             await AlertService.ShowAlertAsync("No Workload Versions", "No workload set versions are available to install.");
@@ -1038,16 +1038,23 @@ else
     {
         if (version == report?.InstalledWorkloadSetVersion) return;
 
-        // Build the workload update command using full path (GUI apps may not have dotnet on PATH)
-        var dotnetPath = DoctorService.GetDotNetExecutablePath();
-        var request = new ProcessRequest(
-            Command: dotnetPath,
+        var featureBand = report?.Context.EffectiveFeatureBand;
+        var request = featureBand == null
+            ? null
+            : await DoctorService.GetWorkloadUpdateRequestAsync(
+                featureBand,
+                report!.Context.WorkingDirectory,
+                version,
+                report.Context.DotNetSdkPath,
+                report.Context.DotNetArchitecture,
+                report.Context.ActiveSdkVersion);
+        request ??= new ProcessRequest(
+            Command: DoctorService.GetDotNetExecutablePath(),
             Arguments: new[] { "workload", "update", "--version", version },
             RequiresElevation: true,
             ElevationPrompt: "Install .NET Workloads",
             Title: "Update Workloads",
-            Description: $"Update .NET workloads to version {version}"
-        );
+            Description: $"Update .NET workloads to version {version}");
 
         var result = await ProcessModal.ShowProcessAsync(request);
         

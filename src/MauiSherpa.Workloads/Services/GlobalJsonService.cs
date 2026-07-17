@@ -56,6 +56,7 @@ public class GlobalJsonService : IGlobalJsonService
             // Parse sdk section
             string? sdkVersion = null;
             string? rollForward = null;
+            string? workloadsUpdateMode = null;
             if (root.TryGetProperty("sdk", out var sdkElement))
             {
                 if (sdkElement.TryGetProperty("version", out var versionElement))
@@ -66,15 +67,26 @@ public class GlobalJsonService : IGlobalJsonService
                 {
                     rollForward = rollForwardElement.GetString();
                 }
+                if (sdkElement.TryGetProperty("workloads-update-mode", out var updateModeElement))
+                {
+                    workloadsUpdateMode = updateModeElement.GetString();
+                }
             }
 
-            // Parse workloadSet section (.NET 9+)
+            // The supported workload-set pin is sdk.workloadVersion.
             string? workloadSetVersion = null;
-            if (root.TryGetProperty("workloadSet", out var workloadSetElement))
+            var usesLegacyWorkloadSetProperty = false;
+            if (root.TryGetProperty("sdk", out sdkElement) &&
+                sdkElement.TryGetProperty("workloadVersion", out var workloadVersionElement))
+            {
+                workloadSetVersion = workloadVersionElement.GetString();
+            }
+            else if (root.TryGetProperty("workloadSet", out var workloadSetElement))
             {
                 if (workloadSetElement.TryGetProperty("version", out var wsVersionElement))
                 {
                     workloadSetVersion = wsVersionElement.GetString();
+                    usesLegacyWorkloadSetProperty = workloadSetVersion != null;
                 }
             }
 
@@ -99,7 +111,9 @@ public class GlobalJsonService : IGlobalJsonService
                 SdkVersion: sdkVersion,
                 RollForward: rollForward,
                 WorkloadSetVersion: workloadSetVersion,
-                MsBuildSdks: msbuildSdks
+                MsBuildSdks: msbuildSdks,
+                UsesLegacyWorkloadSetProperty: usesLegacyWorkloadSetProperty,
+                WorkloadsUpdateMode: workloadsUpdateMode
             );
         }
         catch (JsonException)

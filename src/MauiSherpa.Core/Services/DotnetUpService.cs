@@ -131,6 +131,41 @@ public class DotnetUpService : IDotnetUpService
         }
     }
 
+    public async Task<DotnetUpToolUpdateInfo?> GetToolUpdateInfoAsync(
+        DotnetUpToolInfo? installedInfo = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (!IsInstalled || string.IsNullOrEmpty(_rid))
+            return null;
+
+        try
+        {
+            installedInfo ??= await GetToolInfoAsync(cancellationToken).ConfigureAwait(false);
+            if (installedInfo is null)
+                return null;
+
+            var downloader = new DotnetUpDownloader(_httpClient.Value);
+            var published = await downloader.GetPublishedArtifactAsync(
+                _rid, cancellationToken: cancellationToken).ConfigureAwait(false);
+
+            await using var executable = File.OpenRead(ExecutablePath);
+            var installedHash = await DotnetUpDownloader.ComputeSha512Async(
+                executable, cancellationToken).ConfigureAwait(false);
+
+            return new DotnetUpToolUpdateInfo
+            {
+                InstalledVersion = installedInfo.Version,
+                AvailableVersion = published.Version,
+                UpdateAvailable = !DotnetUpDownloader.HashesEqual(installedHash, published.Sha512)
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning($"Could not check for dotnetup updates: {ex.Message}");
+            return null;
+        }
+    }
+
     public async Task<DotnetUpListResult?> GetListAsync(CancellationToken cancellationToken = default)
     {
         if (!IsInstalled)
@@ -171,11 +206,25 @@ public class DotnetUpService : IDotnetUpService
         if (parsed.Channel is not { Length: > 0 } channel)
             return parsed;
 
-        var alreadyTracked = list.InstallSpecs.Any(s =>
+        var matchingGlobalJsonSpecs = parsed.GlobalJsonPath == null
+            ? []
+            : list.InstallSpecs.Where(s =>
+                s.Component == DotnetUpComponent.Sdk &&
+                string.Equals(
+                    s.GlobalJsonPath,
+                    parsed.GlobalJsonPath,
+                    StringComparison.OrdinalIgnoreCase))
+                .ToList();
+        var matchingChannelSpecs = list.InstallSpecs.Where(s =>
             s.Component == DotnetUpComponent.Sdk &&
-            ((parsed.GlobalJsonPath != null &&
-              string.Equals(s.GlobalJsonPath, parsed.GlobalJsonPath, StringComparison.OrdinalIgnoreCase)) ||
-             string.Equals(s.VersionOrChannel.Trim(), channel, StringComparison.OrdinalIgnoreCase)));
+            string.Equals(
+                s.VersionOrChannel.Trim(),
+                channel,
+                StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        var matchingSpec = SelectUnambiguousInstallSpec(matchingGlobalJsonSpecs) ??
+            SelectUnambiguousInstallSpec(matchingChannelSpecs);
+        var alreadyTracked = matchingGlobalJsonSpecs.Count > 0 || matchingChannelSpecs.Count > 0;
 
         try
         {
@@ -183,12 +232,19 @@ public class DotnetUpService : IDotnetUpService
             var (available, installed) = await resolver
                 .ResolveChannelAsync(DotnetUpComponent.Sdk, channel, list, cancellationToken)
                 .ConfigureAwait(false);
+            var installedSdk = installed == null
+                ? null
+                : SelectInstalledSdkTarget(list.Installations, installed, matchingSpec);
 
             return parsed with
             {
                 ResolvedVersion = available,
                 InstalledVersion = installed,
+                InstalledSdkInstallRoot = installedSdk?.InstallRoot,
+                InstalledSdkArchitecture = installedSdk?.Architecture,
                 Satisfied = installed != null,
+                UpdateAvailable = !parsed.IsPinned &&
+                    DotnetUpdateResolver.IsUpdateAvailable(available, installed),
                 AlreadyTracked = alreadyTracked,
                 Status = available == null ? GlobalJsonStatus.Unresolved : GlobalJsonStatus.Resolved,
             };
@@ -204,9 +260,56 @@ public class DotnetUpService : IDotnetUpService
         }
     }
 
+    private static DotnetUpInstallSpec? SelectUnambiguousInstallSpec(
+        IReadOnlyList<DotnetUpInstallSpec> specs)
+    {
+        var targets = specs
+            .GroupBy(
+                spec => $"{spec.InstallRoot}|{spec.Architecture}",
+                StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .ToList();
+        return targets.Count == 1 ? targets[0] : null;
+    }
+
+    internal static DotnetUpInstallation? SelectInstalledSdkTarget(
+        IReadOnlyList<DotnetUpInstallation> installations,
+        string version,
+        DotnetUpInstallSpec? matchingSpec)
+    {
+        var candidates = installations
+            .Where(installation =>
+                installation.Component == DotnetUpComponent.Sdk &&
+                installation.IsValid &&
+                string.Equals(installation.Version, version, StringComparison.OrdinalIgnoreCase))
+            .GroupBy(
+                installation => $"{installation.InstallRoot}|{installation.Architecture}",
+                StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .ToList();
+
+        if (matchingSpec != null)
+        {
+            candidates = candidates
+                .Where(installation =>
+                    string.Equals(
+                        installation.InstallRoot,
+                        matchingSpec.InstallRoot,
+                        StringComparison.OrdinalIgnoreCase) &&
+                    (string.IsNullOrWhiteSpace(matchingSpec.Architecture) ||
+                     string.Equals(
+                         installation.Architecture,
+                         matchingSpec.Architecture,
+                         StringComparison.OrdinalIgnoreCase)))
+                .ToList();
+        }
+
+        return candidates.Count == 1 ? candidates[0] : null;
+    }
+
     public ProcessRequest CreateProcessRequest(
         IReadOnlyList<string> arguments, string? title = null, string? description = null,
-        string? workingDirectory = null) =>
+        string? workingDirectory = null, bool usePseudoTerminal = false) =>
         new(
             Command: ExecutablePath,
             Arguments: arguments.ToArray(),
@@ -215,31 +318,44 @@ public class DotnetUpService : IDotnetUpService
             ElevationPrompt: null,
             Environment: null,
             Title: title,
-            Description: description);
+            Description: description,
+            UsePseudoTerminal: usePseudoTerminal);
+
+    private static bool SupportsTerminalProgress =>
+        OperatingSystem.IsMacOS() || OperatingSystem.IsMacCatalyst();
 
     public ProcessRequest InstallForProjectRequest(string folderPath) =>
         CreateProcessRequest(
             // No channel + working directory = the folder → dotnetup resolves its global.json and
             // records the spec with source = that global.json path. No --set-default-install: this
             // installs the project's SDK without changing the user's default/terminal install.
-            DotnetUpArguments.SdkInstall(channel: null, setDefaultInstall: false),
+            DotnetUpArguments.SdkInstall(
+                channel: null,
+                setDefaultInstall: false,
+                noProgress: !SupportsTerminalProgress),
             title: "Install project SDK",
             description: $"Installing the .NET SDK required by global.json in '{folderPath}'",
-            workingDirectory: folderPath);
+            workingDirectory: folderPath,
+            usePseudoTerminal: SupportsTerminalProgress);
 
     public ProcessRequest InstallSdkRequest(string? channel = null, bool terminalMode = true) =>
         CreateProcessRequest(
-            DotnetUpArguments.SdkInstall(channel, setDefaultInstall: terminalMode),
+            DotnetUpArguments.SdkInstall(
+                channel,
+                setDefaultInstall: terminalMode,
+                noProgress: !SupportsTerminalProgress),
             title: "Install .NET SDK",
             description: channel is null
                 ? "Installing the latest .NET SDK via dotnetup"
-                : $"Installing .NET SDK channel '{channel}' via dotnetup");
+                : $"Installing .NET SDK channel '{channel}' via dotnetup",
+            usePseudoTerminal: SupportsTerminalProgress);
 
     public ProcessRequest UpdateSdksRequest() =>
         CreateProcessRequest(
-            DotnetUpArguments.SdkUpdate(),
+            DotnetUpArguments.SdkUpdate(noProgress: !SupportsTerminalProgress),
             title: "Update .NET SDKs",
-            description: "Updating tracked .NET SDKs via dotnetup");
+            description: "Updating tracked .NET SDKs via dotnetup",
+            usePseudoTerminal: SupportsTerminalProgress);
 
     public ProcessRequest UninstallSdkRequest(string channel, DotnetUpInstallSource? source = null) =>
         CreateProcessRequest(
@@ -249,17 +365,19 @@ public class DotnetUpService : IDotnetUpService
 
     public ProcessRequest InstallRuntimeRequest(string? spec = null) =>
         CreateProcessRequest(
-            DotnetUpArguments.RuntimeInstall(spec),
+            DotnetUpArguments.RuntimeInstall(spec, noProgress: !SupportsTerminalProgress),
             title: "Install .NET Runtime",
             description: spec is null
                 ? "Installing the latest .NET runtime via dotnetup"
-                : $"Installing .NET runtime '{spec}' via dotnetup");
+                : $"Installing .NET runtime '{spec}' via dotnetup",
+            usePseudoTerminal: SupportsTerminalProgress);
 
     public ProcessRequest UpdateRuntimesRequest() =>
         CreateProcessRequest(
-            DotnetUpArguments.RuntimeUpdate(),
+            DotnetUpArguments.RuntimeUpdate(noProgress: !SupportsTerminalProgress),
             title: "Update .NET Runtimes",
-            description: "Updating tracked .NET runtimes via dotnetup");
+            description: "Updating tracked .NET runtimes via dotnetup",
+            usePseudoTerminal: SupportsTerminalProgress);
 
     public ProcessRequest UninstallRuntimeRequest(string spec) =>
         CreateProcessRequest(
@@ -269,9 +387,10 @@ public class DotnetUpService : IDotnetUpService
 
     public ProcessRequest UpdateAllRequest() =>
         CreateProcessRequest(
-            DotnetUpArguments.UpdateAll(),
+            DotnetUpArguments.UpdateAll(noProgress: !SupportsTerminalProgress),
             title: "Update .NET tools",
-            description: "Updating all tracked .NET SDKs and runtimes via dotnetup");
+            description: "Updating all tracked .NET SDKs and runtimes via dotnetup",
+            usePseudoTerminal: SupportsTerminalProgress);
 
     private async Task<(int ExitCode, string Output, string Error)> RunAsync(
         IReadOnlyList<string> arguments, CancellationToken cancellationToken)

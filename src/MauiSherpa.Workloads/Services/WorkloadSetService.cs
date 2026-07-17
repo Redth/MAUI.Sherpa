@@ -119,7 +119,7 @@ public class WorkloadSetService : IWorkloadSetService
         {
             Version = version,
             FeatureBand = featureBand,
-            Workloads = entries
+            ManifestEntries = entries
         };
     }
 }
