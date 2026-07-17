@@ -31,20 +31,23 @@ public static class WorkloadGraphResolver
         IReadOnlyDictionary<string, PackDefinition> packs,
         string runtimeIdentifier)
     {
+        var resolvedWorkload = ResolveRedirect(workload, workloads);
         var includes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var packIds = new HashSet<string>(workload.Packs, StringComparer.OrdinalIgnoreCase);
+        if (!string.Equals(workload.Id, resolvedWorkload.Id, StringComparison.OrdinalIgnoreCase))
+            includes.Add(resolvedWorkload.Id);
+        var packIds = new HashSet<string>(resolvedWorkload.Packs, StringComparer.OrdinalIgnoreCase);
         var visiting = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        ResolveIncludes(workload.Id, workloads, includes, packIds, visiting);
+        ResolveIncludes(resolvedWorkload.Id, workloads, includes, packIds, visiting);
         includes.Remove(workload.Id);
 
         return new ResolvedWorkloadDefinition
         {
             Id = workload.Id,
-            Description = workload.Description,
-            IsAbstract = workload.IsAbstract,
-            Kind = workload.Kind,
-            Platforms = workload.Platforms,
-            DirectExtends = workload.Extends,
+            Description = workload.Description ?? resolvedWorkload.Description,
+            IsAbstract = resolvedWorkload.IsAbstract,
+            Kind = resolvedWorkload.Kind,
+            Platforms = resolvedWorkload.Platforms,
+            DirectExtends = resolvedWorkload.Extends,
             TransitiveIncludes = includes.OrderBy(id => id, StringComparer.OrdinalIgnoreCase).ToList(),
             Packs = packIds
                 .Select(id => packs.TryGetValue(id, out var pack)
@@ -65,7 +68,10 @@ public static class WorkloadGraphResolver
     {
         if (!workloads.TryGetValue(id, out var workload))
             return;
-        if (!visiting.Add(id))
+        workload = ResolveRedirect(workload, workloads);
+        if (!string.Equals(id, workload.Id, StringComparison.OrdinalIgnoreCase))
+            includes.Add(workload.Id);
+        if (!visiting.Add(workload.Id))
             throw new InvalidDataException($"Workload manifest contains an extends cycle at '{id}'.");
 
         foreach (var pack in workload.Packs)
@@ -76,7 +82,27 @@ public static class WorkloadGraphResolver
             ResolveIncludes(extended, workloads, includes, packIds, visiting);
         }
 
-        visiting.Remove(id);
+        visiting.Remove(workload.Id);
+    }
+
+    private static WorkloadDefinition ResolveRedirect(
+        WorkloadDefinition workload,
+        IReadOnlyDictionary<string, WorkloadDefinition> workloads)
+    {
+        var visiting = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        while (!string.IsNullOrWhiteSpace(workload.RedirectTo))
+        {
+            if (!visiting.Add(workload.Id))
+                throw new InvalidDataException($"Workload manifest contains a redirect cycle at '{workload.Id}'.");
+            if (!workloads.TryGetValue(workload.RedirectTo, out var target))
+            {
+                throw new InvalidDataException(
+                    $"Workload '{workload.Id}' redirects to missing workload '{workload.RedirectTo}'.");
+            }
+            workload = target;
+        }
+
+        return workload;
     }
 
     private static ResolvedPackDefinition ResolvePack(PackDefinition pack, string runtimeIdentifier)

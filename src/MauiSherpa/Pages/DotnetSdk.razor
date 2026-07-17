@@ -434,6 +434,20 @@
                 (selection.InstallIds.Count == 0 && selection.UninstallIds.Count == 0))
                 return;
 
+            var explicitIds = inventory.InstalledWorkloads
+                .Select(workload => workload.Id)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var effectiveIds = inventory.EffectiveInstalledWorkloadIds
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            if (selection.UninstallIds.Any(id => !explicitIds.Contains(id)) ||
+                selection.InstallIds.Any(effectiveIds.Contains))
+            {
+                await AlertService.ShowAlertAsync(
+                    "Workload Selection Changed",
+                    "Only directly installed workload IDs can be removed, and included workloads cannot be installed again. Refresh and retry the selection.");
+                return;
+            }
+
             if (selection.UninstallIds.Count > 0)
             {
                 var uninstall = Workloads.CreateUninstallRequest(

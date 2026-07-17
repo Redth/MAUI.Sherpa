@@ -81,6 +81,8 @@
             {
                 @foreach (var inventory in Inventories)
                 {
+                    var effectiveWorkloads = VisibleInstalledWorkloads(inventory);
+                    var includedCount = effectiveWorkloads.Count(workload => !workload.IsExplicit);
                     <div class="workload-row">
                         <div class="workload-target">
                             <div class="workload-target-line">
@@ -112,19 +114,29 @@
                                 }
                             </div>
                             <div class="workload-chips">
-                                @if (inventory.InstalledWorkloads.Count == 0)
+                                @if (effectiveWorkloads.Count == 0)
                                 {
                                     <span class="no-workloads">No workload IDs installed</span>
                                 }
                                 else
                                 {
-                                    @foreach (var workload in inventory.InstalledWorkloads.Take(5))
+                                    <span class="workload-count">
+                                        @inventory.InstalledWorkloads.Count direct
+                                        @if (includedCount > 0)
+                                        {
+                                            <text> · @includedCount included</text>
+                                        }
+                                    </span>
+                                    @foreach (var workload in effectiveWorkloads.Take(5))
                                     {
-                                        <span class="workload-chip mono">@workload.Id</span>
+                                        <span class="workload-chip mono @(!workload.IsExplicit ? "workload-chip--included" : "")"
+                                              title="@WorkloadStateTitle(workload)">
+                                            @workload.Id
+                                        </span>
                                     }
-                                    @if (inventory.InstalledWorkloads.Count > 5)
+                                    @if (effectiveWorkloads.Count > 5)
                                     {
-                                        <span class="workload-chip">+@(inventory.InstalledWorkloads.Count - 5)</span>
+                                        <span class="workload-chip">+@(effectiveWorkloads.Count - 5)</span>
                                     }
                                 }
                             </div>
@@ -139,7 +151,7 @@
                             </button>
                             <button class="btn btn-secondary btn-sm"
                                     @onclick="@(() => ManageRequested.InvokeAsync(inventory))"
-                                    disabled="@(Busy || (inventory.InstalledWorkloads.Count == 0 && !inventory.AvailableWorkloads.Any(workload => !workload.IsAbstract && workload.RedirectTarget == null)))">
+                                    disabled="@(Busy || (effectiveWorkloads.Count == 0 && inventory.InstallableWorkloads.Count == 0))">
                                 <i class="fas fa-list-check"></i> <span>Workloads</span>
                             </button>
                             <button class="btn btn-secondary btn-sm segmented-action"
@@ -353,6 +365,16 @@
         font-size: 0.68rem;
     }
 
+    .workload-chip--included {
+        color: var(--status-info-text);
+        background: var(--status-info-bg);
+    }
+
+    .workload-count {
+        color: var(--text-secondary);
+        font-size: 0.68rem;
+    }
+
     .no-workloads {
         color: var(--text-secondary);
         font-size: 0.74rem;
@@ -454,6 +476,21 @@
                 inventory.ActiveWorkloadVersion ?? "unknown"))
             .Distinct()
             .ToList();
+
+    private static IReadOnlyList<DotnetWorkloadInstallationState> VisibleInstalledWorkloads(
+        DotnetWorkloadInventory inventory) =>
+        inventory.EffectiveInstalledWorkloads
+            .Where(workload => workload.IsUserVisible)
+            .OrderByDescending(workload => workload.IsExplicit)
+            .ThenBy(workload => workload.Id, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    private static string WorkloadStateTitle(DotnetWorkloadInstallationState workload) =>
+        workload.IsExplicit
+            ? workload.IncludedBy.Count == 0
+                ? "Directly installed"
+                : $"Directly installed; also included by {string.Join(", ", workload.IncludedBy)}"
+            : $"Included by {string.Join(", ", workload.IncludedBy)}";
 
     private static string ModeLabel(DotnetWorkloadUpdateMode mode) => mode switch
     {

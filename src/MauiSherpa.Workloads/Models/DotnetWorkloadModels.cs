@@ -36,6 +36,33 @@ public record DotnetInstalledWorkload
     public string? InstallationSource { get; init; }
 }
 
+public enum DotnetWorkloadInstallKind
+{
+    Explicit,
+    Included
+}
+
+public record DotnetWorkloadInstallationState
+{
+    public required string Id { get; init; }
+    public required DotnetWorkloadInstallKind Kind { get; init; }
+    public DotnetInstalledWorkload? InstallationRecord { get; init; }
+    public ResolvedWorkloadDefinition? Definition { get; init; }
+    public IReadOnlyList<string> IncludedBy { get; init; } = [];
+
+    public bool IsExplicit => Kind == DotnetWorkloadInstallKind.Explicit;
+    public bool CanUninstall => IsExplicit && InstallationRecord != null;
+    public bool IsUserVisible =>
+        IsExplicit ||
+        (Definition?.IsUserInstallable ?? false);
+}
+
+public record DotnetWorkloadInstallationResolution
+{
+    public IReadOnlyList<DotnetWorkloadInstallationState> States { get; init; } = [];
+    public IReadOnlyList<string> Diagnostics { get; init; } = [];
+}
+
 public record DotnetWorkloadUpdate
 {
     public required string WorkloadId { get; init; }
@@ -83,6 +110,11 @@ public record ResolvedWorkloadDefinition
     public IReadOnlyList<string> TransitiveIncludes { get; init; } = [];
     public IReadOnlyList<ResolvedPackDefinition> Packs { get; init; } = [];
     public string? RedirectTarget { get; init; }
+
+    public bool IsUserInstallable =>
+        !IsAbstract &&
+        RedirectTarget == null &&
+        Packs.Count > 0;
 }
 
 public record DotnetWorkloadCapabilities
@@ -99,12 +131,38 @@ public record DotnetWorkloadInventory
     public DotnetWorkloadVersionSource VersionSource { get; init; }
     public string? ActiveWorkloadVersion { get; init; }
     public IReadOnlyList<DotnetInstalledWorkload> InstalledWorkloads { get; init; } = [];
+    public IReadOnlyList<DotnetWorkloadInstallationState> EffectiveInstalledWorkloads { get; init; } = [];
     public IReadOnlyList<ResolvedWorkloadDefinition> AvailableWorkloads { get; init; } = [];
     public IReadOnlyList<DotnetManifestVersion> ManifestVersions { get; init; } = [];
     public IReadOnlyList<DotnetWorkloadSetVersion> AvailableSetVersions { get; init; } = [];
     public IReadOnlyList<DotnetWorkloadUpdate> WorkloadUpdates { get; init; } = [];
     public DotnetWorkloadCapabilities Capabilities { get; init; } = new();
     public IReadOnlyList<string> Diagnostics { get; init; } = [];
+
+    public IReadOnlyList<DotnetWorkloadInstallationState> IncludedWorkloads =>
+        EffectiveInstalledWorkloads
+            .Where(workload => workload.Kind == DotnetWorkloadInstallKind.Included)
+            .ToList();
+
+    public IReadOnlyList<string> EffectiveInstalledWorkloadIds =>
+        EffectiveInstalledWorkloads
+            .Select(workload => workload.Id)
+            .ToList();
+
+    public IReadOnlyList<ResolvedWorkloadDefinition> InstallableWorkloads
+    {
+        get
+        {
+            var installedIds = EffectiveInstalledWorkloads
+                .Select(workload => workload.Id)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            return AvailableWorkloads
+                .Where(workload =>
+                    workload.IsUserInstallable &&
+                    !installedIds.Contains(workload.Id))
+                .ToList();
+        }
+    }
 
     public string? LatestAvailableSetVersion => AvailableSetVersions
         .FirstOrDefault(version => Target.FeatureBand.IsPrerelease || !version.IsPrerelease)

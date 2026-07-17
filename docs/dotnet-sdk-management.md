@@ -82,9 +82,15 @@ SDK patches in the same feature band share workload state. For example, `10.0.30
 `10.0.302` both use the `10.0.300` workload state, while `10.0.200` remains separate.
 Prerelease SDK bands preserve their prerelease identity.
 
+The SDK records only workload IDs that were installed directly. Aggregate workloads install packs
+through their transitive `extends` graph without writing child installation records. For example,
+installing `maui` records `maui` while effectively installing `android`, `ios`, and `maccatalyst`.
+Sherpa mirrors the SDK's `InstalledAndExtendedWorkloads` semantics by retaining the direct records
+for commands and resolving a separate effective installed set for presentation.
+
 Each `.NET X.Y` section shows a Workloads card with one row per feature-band target. A row
-reports workload-set or loose-manifest mode, the active set/hash, recorded workload IDs,
-available updates, and diagnostics.
+reports workload-set or loose-manifest mode, the active set/hash, direct and included workload
+counts, available updates, and diagnostics.
 
 ### Supported operations
 
@@ -95,9 +101,12 @@ available updates, and diagnostics.
 - Repair installed workload packs: `<root>/dotnet workload repair`
 - Restore a project's workloads: `<root>/dotnet workload restore`
 
-Workload and set selection uses native hybrid dialogs. The **Workloads** dialog shows installed
-IDs selectable for removal and available IDs selectable for installation, then returns both groups
-through one **Review & apply changes** action. Its default available list is curated to the common
+Workload and set selection uses native hybrid dialogs. The **Workloads** dialog shows directly
+installed IDs as checked and removable. Transitively included workloads are also shown under
+Installed, but remain checked and disabled with an **Included by `<aggregate>`** label. Only direct
+records are sent to `dotnet workload uninstall`, and the full effective installed set is excluded
+from Available. Available IDs can be selected for installation, then both mutation groups return
+through one **Review & apply changes** action. The default available list is curated to the common
 top-level workloads, with **Show all** exposing the complete compatible list. Linux recommends
 `maui-android`, `android`, and `wasm-tools`; macOS and Windows recommend `maui`, the platform
 workloads, `android`, and `wasm-tools`.
@@ -118,8 +127,12 @@ rollback, install records, and garbage collection.
 
 Workload IDs can recursively `extend` other workload IDs. The selection dialog calls these
 relationships **Includes** and removes redundant child selections when an aggregate workload is
-selected. A workload redirect is displayed separately. Pack `alias-to` entries resolve a logical
-pack to a RID-specific package; they are pack aliases, not workload aliases.
+selected. The same transitive closure classifies child workloads as effectively installed when an
+aggregate has a direct SDK record. Explicit state wins if a child also has its own record, and all
+including roots are retained for display. Redirects resolve through their replacement graph while
+redirect-only and abstract definitions remain hidden from install choices. Pack `alias-to` entries
+resolve a logical pack to a RID-specific package; pack folders are never used to infer workload
+ownership.
 
 ### Project workload-set pins
 
@@ -167,6 +180,9 @@ participate in resolution.
     inventory, graph, preview, and project-pin models.
   - `Services/DotnetWorkloadParser.cs` and `Services/WorkloadGraphResolver.cs` — structured/table
     CLI parsing plus aggregate workload, redirect, and RID pack resolution.
+  - `Services/WorkloadInstallationStateResolver.cs` — overlays direct SDK installation records on
+    the active transitive workload graph to classify explicit, included, and available IDs without
+    inferring state from shared pack folders.
   - `Services/GlobalJsonWorkloadPinEditor.cs` — JSONC-preserving atomic
     `sdk.workloadVersion` edits.
 - **`MauiSherpa.Core`** — `IDotnetUpService` (`Interfaces.cs`) + `DotnetUpService`: resolves the

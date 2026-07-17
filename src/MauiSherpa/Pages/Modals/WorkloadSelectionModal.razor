@@ -17,8 +17,8 @@
         </div>
 
         <p class="intro">
-            Uncheck installed workloads to remove them, or select available workloads to install. Aggregate workloads
-            show what they include, and Sherpa removes redundant child selections.
+            Uncheck directly installed workloads to remove them, or select available workloads to install. Workloads
+            included by an aggregate remain checked and are managed through that aggregate.
         </p>
 
         <div class="search-box">
@@ -41,23 +41,33 @@
                 <div class="workload-list">
                     @foreach (var workload in FilteredInstalledWorkloads())
                     {
-                        <label class="workload-item remove @(selectedUninstall.Contains(workload.Id) ? "selected" : "")">
+                        <label class="workload-item remove @(!workload.CanUninstall ? "included" : "") @(selectedUninstall.Contains(workload.Id) ? "selected" : "")">
                             <input type="checkbox"
-                                   aria-label="Keep @workload.Id installed"
+                                   aria-label="@InstalledAriaLabel(workload)"
                                    checked="@(!selectedUninstall.Contains(workload.Id))"
-                                   @onchange="@(_ => ToggleUninstall(workload.Id))" />
+                                   disabled="@(!workload.CanUninstall)"
+                                   @onchange="@(_ => ToggleUninstall(workload))" />
                             <div class="workload-main">
                                 <div class="workload-title">
                                     <span class="mono">@workload.Id</span>
-                                    <span class="badge badge-success"><i class="fas fa-check"></i> installed</span>
+                                    @if (workload.IsExplicit)
+                                    {
+                                        <span class="badge badge-success"><i class="fas fa-check"></i> installed</span>
+                                    }
+                                    @if (workload.IncludedBy.Count > 0)
+                                    {
+                                        <span class="badge badge-info">
+                                            @(workload.IsExplicit ? "also included by" : "included by") @ParentLabel(workload.IncludedBy)
+                                        </span>
+                                    }
                                     @if (selectedUninstall.Contains(workload.Id))
                                     {
                                         <span class="badge badge-error">remove</span>
                                     }
                                 </div>
-                                @if (!string.IsNullOrWhiteSpace(workload.Description))
+                                @if (!string.IsNullOrWhiteSpace(workload.Definition?.Description))
                                 {
-                                    <div class="workload-description">@workload.Description</div>
+                                    <div class="workload-description">@workload.Definition.Description</div>
                                 }
                             </div>
                         </label>
@@ -338,6 +348,11 @@
         opacity: 0.72;
     }
 
+    .workload-item.included:hover {
+        border-color: var(--border-color);
+        box-shadow: none;
+    }
+
     .workload-item input {
         margin-top: 0.2rem;
         accent-color: var(--accent-primary);
@@ -450,17 +465,13 @@
         UpdateBridge();
     }
 
-    private IReadOnlyList<ResolvedWorkloadDefinition> InstalledWorkloads()
+    private IReadOnlyList<DotnetWorkloadInstallationState> InstalledWorkloads()
     {
         if (inventory == null)
             return [];
 
-        var definitions = inventory.AvailableWorkloads.ToDictionary(
-            workload => workload.Id,
-            StringComparer.OrdinalIgnoreCase);
-        return inventory.InstalledWorkloads
-            .Select(installed => definitions.GetValueOrDefault(installed.Id) ??
-                new ResolvedWorkloadDefinition { Id = installed.Id })
+        return inventory.EffectiveInstalledWorkloads
+            .Where(workload => workload.IsUserVisible)
             .OrderBy(workload => workload.Id, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
@@ -470,9 +481,6 @@
         if (inventory == null)
             return [];
 
-        var installed = inventory.InstalledWorkloads
-            .Select(workload => workload.Id)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
         var recommended = WorkloadRecommendationPolicy.GetRecommendedWorkloadIds(
             OperatingSystem.IsLinux());
         var recommendedSet = recommended.ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -480,18 +488,15 @@
             .Select((id, index) => (id, index))
             .ToDictionary(item => item.id, item => item.index, StringComparer.OrdinalIgnoreCase);
 
-        return inventory.AvailableWorkloads
+        return inventory.InstallableWorkloads
             .Where(workload =>
-                !workload.IsAbstract &&
-                workload.RedirectTarget == null &&
-                !installed.Contains(workload.Id) &&
                 (showAll || recommendedSet.Contains(workload.Id)))
             .OrderBy(workload => order.GetValueOrDefault(workload.Id, int.MaxValue))
             .ThenBy(workload => workload.Id, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
 
-    private IEnumerable<ResolvedWorkloadDefinition> FilteredInstalledWorkloads() =>
+    private IEnumerable<DotnetWorkloadInstallationState> FilteredInstalledWorkloads() =>
         InstalledWorkloads().Where(MatchesSearch);
 
     private IEnumerable<ResolvedWorkloadDefinition> FilteredAvailableWorkloads() =>
@@ -501,6 +506,12 @@
         string.IsNullOrWhiteSpace(search) ||
         workload.Id.Contains(search, StringComparison.OrdinalIgnoreCase) ||
         (workload.Description?.Contains(search, StringComparison.OrdinalIgnoreCase) ?? false);
+
+    private bool MatchesSearch(DotnetWorkloadInstallationState workload) =>
+        string.IsNullOrWhiteSpace(search) ||
+        workload.Id.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+        (workload.Definition?.Description?.Contains(search, StringComparison.OrdinalIgnoreCase) ?? false) ||
+        workload.IncludedBy.Any(parent => parent.Contains(search, StringComparison.OrdinalIgnoreCase));
 
     private void ToggleInstall(ResolvedWorkloadDefinition workload)
     {
@@ -512,10 +523,12 @@
         UpdateBridge();
     }
 
-    private void ToggleUninstall(string id)
+    private void ToggleUninstall(DotnetWorkloadInstallationState workload)
     {
-        if (!selectedUninstall.Add(id))
-            selectedUninstall.Remove(id);
+        if (!workload.CanUninstall)
+            return;
+        if (!selectedUninstall.Add(workload.Id))
+            selectedUninstall.Remove(workload.Id);
         UpdateBridge();
     }
 
@@ -525,6 +538,14 @@
                 selectedInstall.Contains(workload.Id) &&
                 workload.TransitiveIncludes.Contains(id, StringComparer.OrdinalIgnoreCase))
             ?.Id;
+
+    private static string ParentLabel(IReadOnlyList<string> parents) =>
+        string.Join(", ", parents);
+
+    private static string InstalledAriaLabel(DotnetWorkloadInstallationState workload) =>
+        workload.CanUninstall
+            ? $"Keep {workload.Id} installed"
+            : $"{workload.Id} is included by {ParentLabel(workload.IncludedBy)}";
 
     private void UpdateBridge()
     {

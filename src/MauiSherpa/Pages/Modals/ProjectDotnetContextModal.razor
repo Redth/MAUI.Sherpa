@@ -239,8 +239,12 @@
                             <strong class="mono">@ValueOrDash(inventory.ActiveWorkloadVersion)</strong>
                         </div>
                         <div>
-                            <span class="eyebrow">Installed workload IDs</span>
-                            <strong>@inventory.InstalledWorkloads.Count</strong>
+                            <span class="eyebrow">Installed workloads</span>
+                            <strong>@inventory.EffectiveInstalledWorkloads.Count(workload => workload.IsUserVisible)</strong>
+                            <span class="fact-detail">
+                                @inventory.InstalledWorkloads.Count direct ·
+                                @inventory.EffectiveInstalledWorkloads.Count(workload => workload.IsUserVisible && !workload.IsExplicit) included
+                            </span>
                         </div>
                         <div>
                             <span class="eyebrow">Architecture</span>
@@ -427,6 +431,13 @@
         margin-top: 0.2rem;
         overflow-wrap: anywhere;
         font-size: 0.83rem;
+    }
+
+    .fact-detail {
+        display: block;
+        margin-top: 0.18rem;
+        color: var(--text-secondary);
+        font-size: 0.72rem;
     }
 
     .facts-grid--workloads {

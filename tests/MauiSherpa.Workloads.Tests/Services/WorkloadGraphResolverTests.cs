@@ -55,4 +55,66 @@ public class WorkloadGraphResolverTests
 
         action.Should().Throw<InvalidDataException>().WithMessage("*cycle*");
     }
+
+    [Fact]
+    public void RedirectsUseTheReplacementWorkloadGraph()
+    {
+        var manifest = new WorkloadManifest
+        {
+            Version = "1",
+            Workloads = new Dictionary<string, WorkloadDefinition>
+            {
+                ["legacy"] = new() { Id = "legacy", RedirectTo = "current" },
+                ["current"] = new() { Id = "current", Extends = ["base"], Packs = ["Current.Sdk"] },
+                ["base"] = new() { Id = "base", Packs = ["Base.Sdk"] }
+            },
+            Packs = new Dictionary<string, PackDefinition>
+            {
+                ["Current.Sdk"] = new() { Id = "Current.Sdk", Version = "1", Kind = "sdk" },
+                ["Base.Sdk"] = new() { Id = "Base.Sdk", Version = "1", Kind = "sdk" }
+            }
+        };
+
+        var result = WorkloadGraphResolver.Resolve([manifest], "any");
+        var legacy = result.Single(workload => workload.Id == "legacy");
+
+        legacy.RedirectTarget.Should().Be("current");
+        legacy.TransitiveIncludes.Should().BeEquivalentTo("current", "base");
+        legacy.Packs.Select(pack => pack.Id).Should().BeEquivalentTo("Current.Sdk", "Base.Sdk");
+    }
+
+    [Fact]
+    public void RejectsRedirectCycles()
+    {
+        var manifest = new WorkloadManifest
+        {
+            Version = "1",
+            Workloads = new Dictionary<string, WorkloadDefinition>
+            {
+                ["a"] = new() { Id = "a", RedirectTo = "b" },
+                ["b"] = new() { Id = "b", RedirectTo = "a" }
+            }
+        };
+
+        var action = () => WorkloadGraphResolver.Resolve([manifest], "any");
+
+        action.Should().Throw<InvalidDataException>().WithMessage("*redirect cycle*");
+    }
+
+    [Fact]
+    public void RejectsMissingRedirectTargets()
+    {
+        var manifest = new WorkloadManifest
+        {
+            Version = "1",
+            Workloads = new Dictionary<string, WorkloadDefinition>
+            {
+                ["legacy"] = new() { Id = "legacy", RedirectTo = "missing" }
+            }
+        };
+
+        var action = () => WorkloadGraphResolver.Resolve([manifest], "any");
+
+        action.Should().Throw<InvalidDataException>().WithMessage("*missing workload*");
+    }
 }

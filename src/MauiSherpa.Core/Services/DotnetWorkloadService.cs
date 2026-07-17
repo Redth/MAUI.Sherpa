@@ -421,6 +421,11 @@ public sealed class DotnetWorkloadService : IDotnetWorkloadService
             availableWorkloads = [];
         }
 
+        var installationState = WorkloadInstallationStateResolver.Resolve(
+            workloadList.Installed,
+            availableWorkloads);
+        diagnostics.AddRange(installationState.Diagnostics);
+
         return new DotnetWorkloadInventory
         {
             Target = target,
@@ -428,6 +433,7 @@ public sealed class DotnetWorkloadService : IDotnetWorkloadService
             VersionSource = versionSource,
             ActiveWorkloadVersion = workloadVersion,
             InstalledWorkloads = workloadList.Installed,
+            EffectiveInstalledWorkloads = installationState.States,
             AvailableWorkloads = availableWorkloads,
             ManifestVersions = manifestVersions,
             AvailableSetVersions = availableSets,
