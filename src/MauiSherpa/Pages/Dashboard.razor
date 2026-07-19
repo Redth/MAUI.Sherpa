@@ -3,23 +3,68 @@
 @using MauiSherpa.Core.Interfaces
 @using MauiSherpa.Core.Services
 @using MauiSherpa.Services
-@using Markdig
 @implements IDisposable
 @inject DashboardViewModel ViewModel
-@inject ICopilotContextService CopilotContext
 @inject IToolbarService ToolbarService
 @inject IPlatformService PlatformInfo
-@inject ILauncher AppLauncher
 @inject IDeviceMonitorService DeviceMonitor
-@inject IUpdateService UpdateService
-@inject NavigationManager Navigation
+@inject IDoctorService DoctorService
+@inject ILoggingService Logger
 @inject DeviceInspectorService DeviceInspector
 @inject SimInspectorService SimInspector
 
-<h1><i class="fas fa-home"></i> @ViewModel.Title</h1>
-<p class="welcome">@ViewModel.WelcomeMessage</p>
+<div class="dashboard-header">
+    <div>
+        <h1><i class="fas fa-home"></i> @ViewModel.Title</h1>
+        <p class="welcome">@ViewModel.WelcomeMessage</p>
+    </div>
+    <button class="release-notes-trigger" @onclick="() => showReleaseNotes = true">
+        <i class="fas fa-mountain"></i>
+        <span>Release Notes</span>
+    </button>
+</div>
 
+<div class="environment-section">
+    <div class="section-heading">
+        <h2><i class="fas fa-gauge-high"></i> Development Environment</h2>
+        <div class="section-actions">
+            <button class="icon-action" @onclick="RunDoctorAsync" disabled="@isDoctorLoading" title="Refresh environment">
+                <i class="fas fa-rotate @(isDoctorLoading ? "fa-spin" : null)"></i>
+            </button>
+            <a class="text-action" href="doctor">View Doctor</a>
+        </div>
+    </div>
 
+    <div class="environment-grid" aria-busy="@isDoctorLoading">
+        @EnvironmentCard("fab fa-microsoft", ".NET", GetDotNetVersion(), GetDotNetDetail(), GetCategoryStatus(DependencyCategory.DotNetSdk))
+        @if (PlatformInfo.IsMacCatalyst || PlatformInfo.IsMacOS)
+        {
+            @EnvironmentCard("fab fa-apple", "Xcode", GetDependencyVersion(DependencyCategory.Xcode, "Xcode"), GetDependencyMessage(DependencyCategory.Xcode, "Xcode"), GetCategoryStatus(DependencyCategory.Xcode))
+        }
+        @EnvironmentCard("fab fa-java", "JDK", GetDependencyVersion(DependencyCategory.Jdk, "JDK"), GetDependencyMessage(DependencyCategory.Jdk, "JDK"), GetCategoryStatus(DependencyCategory.Jdk))
+        @EnvironmentCard("fab fa-android", "Android SDK", GetAndroidVersion(), GetAndroidDetail(), GetCategoryStatus(DependencyCategory.AndroidSdk))
+    </div>
+
+    @if (!string.IsNullOrEmpty(doctorError))
+    {
+        <div class="environment-error" role="status">
+            <i class="fas fa-circle-exclamation"></i>
+            <span>Environment check failed. @doctorError</span>
+            <button class="text-action" @onclick="RunDoctorAsync">Retry</button>
+        </div>
+    }
+    else if (doctorReport is not null && (doctorReport.HasErrors || doctorReport.HasWarnings))
+    {
+        <div class="attention-summary">
+            <i class="fas fa-triangle-exclamation"></i>
+            <div class="attention-content">
+                <strong>@GetHealthSummary()</strong>
+                <span>@string.Join(" · ", GetAttentionItems().Select(item => item.Name))</span>
+            </div>
+            <a class="text-action" href="doctor">Review issues</a>
+        </div>
+    }
+</div>
 
 @* Connected Devices & Simulators *@
 <div class="devices-section">
@@ -109,48 +154,7 @@
     </div>
 </div>
 
-@* Release Notes *@
-<div class="release-notes-section">
-    <h2><i class="fas fa-mountain"></i> Release Notes</h2>
-    @if (releases == null || releases.Count == 0)
-    {
-        <p class="text-muted">Loading release notes...</p>
-    }
-    else
-    {
-        @foreach (var release in releases.Take(5))
-        {
-            <div class="release-card">
-                <div class="release-header" @onclick="() => ToggleRelease(release.TagName)">
-                    <div class="release-info">
-                        <span class="release-tag">@release.TagName</span>
-                        @if (!string.IsNullOrEmpty(release.Name) && release.Name != release.TagName)
-                        {
-                            <span class="release-name">@release.Name</span>
-                        }
-                        @if (release.IsPrerelease)
-                        {
-                            <span class="release-prerelease">pre-release</span>
-                        }
-                        <span class="release-date">@release.PublishedAt.ToString("MMM d, yyyy")</span>
-                    </div>
-                    <div class="release-header-right">
-                        <button class="release-open-btn" @onclick="() => OpenRelease(release.HtmlUrl)" @onclick:stopPropagation="true" title="Open on GitHub">
-                            <i class="fas fa-external-link-alt"></i>
-                        </button>
-                        <i class="fas @(expandedReleases.Contains(release.TagName) ? "fa-chevron-up" : "fa-chevron-down") release-toggle"></i>
-                    </div>
-                </div>
-                @if (expandedReleases.Contains(release.TagName))
-                {
-                    <div class="release-body">
-                        @((MarkupString)ConvertMarkdownToHtml(release.Body))
-                    </div>
-                }
-            </div>
-        }
-    }
-</div>
+<ReleaseNotesDialog IsOpen="showReleaseNotes" OnClose="() => showReleaseNotes = false" />
 
 <style>
     h1 {
@@ -161,11 +165,124 @@
 
     h1 i { color: var(--text-muted); }
 
+    .dashboard-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 1rem;
+    }
+
     p.welcome {
         margin-bottom: 1.5rem;
         font-size: 1rem;
         color: var(--text-muted);
     }
+
+    .release-notes-trigger {
+        flex-shrink: 0;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        padding: 0.55rem 0.75rem;
+        border: 1px solid var(--border-color);
+        border-radius: 0.45rem;
+        background: var(--card-bg);
+        color: var(--text-secondary);
+        cursor: pointer;
+        font: inherit;
+        font-size: 0.8rem;
+        font-weight: 600;
+    }
+
+    .release-notes-trigger:hover { color: var(--text-primary); background: var(--bg-hover); }
+
+    .environment-section { margin-bottom: 2rem; }
+
+    .section-heading {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        margin-bottom: 0.75rem;
+    }
+
+    .section-heading h2 {
+        margin: 0;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        color: var(--text-primary);
+        font-size: 1.125rem;
+        font-weight: 600;
+    }
+
+    .section-heading h2 i { color: var(--text-muted); font-size: 0.9rem; }
+    .section-actions { display: flex; align-items: center; gap: 0.5rem; }
+
+    .icon-action, .text-action {
+        border: none;
+        background: transparent;
+        color: var(--accent-primary);
+        cursor: pointer;
+        font: inherit;
+        text-decoration: none;
+    }
+
+    .icon-action {
+        width: 30px;
+        height: 30px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 0.5rem;
+    }
+
+    .icon-action:hover, .text-action:hover { background: var(--bg-hover); }
+    .icon-action:disabled { cursor: default; opacity: 0.55; }
+    .text-action { padding: 0.35rem 0.5rem; border-radius: 0.4rem; font-size: 0.8rem; font-weight: 600; }
+
+    .environment-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+        gap: 0.625rem;
+    }
+
+    .environment-card {
+        min-width: 0;
+        min-height: 112px;
+        padding: 1rem;
+        background: var(--card-bg);
+        border-left: 3px solid var(--border-color);
+        border-radius: 0.5rem;
+    }
+
+    .environment-card.status-ok { border-left-color: var(--accent-success); }
+    .environment-card.status-warning { border-left-color: var(--accent-warning); }
+    .environment-card.status-error { border-left-color: var(--accent-danger); }
+    .environment-card.status-loading { border-left-color: var(--text-muted); }
+
+    .environment-card-header { display: flex; align-items: center; gap: 0.5rem; color: var(--text-muted); font-size: 0.75rem; font-weight: 600; }
+    .environment-card-value { margin-top: 0.55rem; color: var(--text-primary); font-size: 1.1rem; font-weight: 650; }
+    .environment-card-detail { margin-top: 0.25rem; color: var(--text-muted); font-size: 0.72rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .attention-summary, .environment-error {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-top: 0.625rem;
+        padding: 0.625rem 0.75rem;
+        border-radius: 0.5rem;
+        color: var(--text-secondary);
+        background: var(--bg-tertiary);
+        font-size: 0.8rem;
+    }
+
+    .attention-content, .environment-error > span { flex: 1; min-width: 0; }
+    .attention-content { display: flex; flex-direction: column; gap: 0.15rem; }
+    .attention-content strong { color: var(--text-primary); font-size: 0.8rem; }
+    .attention-content span { overflow: hidden; color: var(--text-muted); text-overflow: ellipsis; white-space: nowrap; }
+    .attention-summary > i { color: var(--accent-warning); }
+    .environment-error > i { color: var(--accent-danger); }
 
     .quick-actions {
         display: flex;
@@ -347,285 +464,131 @@
         font-size: 1rem;
         opacity: 0.5;
     }
-
-    /* Release Notes */
-    .release-notes-section h2 {
-        font-size: 1.125rem;
-        font-weight: 600;
-        color: var(--text-primary);
-        margin-bottom: 0.75rem;
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-    }
-
-    .release-notes-section h2 i {
-        color: var(--text-muted);
-        font-size: 0.9rem;
-    }
-
-    .release-card {
-        background: var(--card-bg);
-        border-radius: 0.75rem;
-        margin-bottom: 0.5rem;
-        overflow: hidden;
-    }
-
-    .release-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 0.75rem 1rem;
-        cursor: pointer;
-        transition: background 0.15s;
-    }
-
-    .release-header:hover {
-        background: var(--bg-hover);
-    }
-
-    .release-info {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        flex-wrap: wrap;
-    }
-
-    .release-tag {
-        font-weight: 600;
-        color: var(--text-primary);
-        font-size: 0.875rem;
-    }
-
-    .release-name {
-        color: var(--text-secondary);
-        font-size: 0.8rem;
-    }
-
-    .release-prerelease {
-        font-size: 0.65rem;
-        padding: 0.0625rem 0.3rem;
-        border-radius: 0.25rem;
-        background: rgba(237, 137, 54, 0.12);
-        color: var(--accent-warning);
-        font-weight: 600;
-        text-transform: uppercase;
-    }
-
-    .release-date {
-        font-size: 0.75rem;
-        color: var(--text-muted);
-    }
-
-    .release-header-right {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-    }
-
-    .release-open-btn {
-        background: none;
-        border: none;
-        color: var(--text-muted);
-        cursor: pointer;
-        padding: 0.25rem 0.375rem;
-        border-radius: 0.25rem;
-        font-size: 0.7rem;
-        transition: all 0.15s;
-    }
-
-    .release-open-btn:hover {
-        color: var(--accent-primary);
-        background: var(--bg-hover);
-    }
-
-    .release-toggle {
-        font-size: 0.7rem;
-        color: var(--text-muted);
-    }
-
-    .release-body {
-        padding: 0.75rem 1rem 1rem;
-        font-size: 0.8125rem;
-        line-height: 1.6;
-        color: var(--text-secondary);
-        border-top: 1px solid var(--border-color);
-    }
-
-    .release-body h1, .release-body h2, .release-body h3 {
-        color: var(--text-primary);
-        margin-top: 0.75rem;
-        margin-bottom: 0.375rem;
-    }
-
-    .release-body h1:first-child,
-    .release-body h2:first-child,
-    .release-body h3:first-child {
-        margin-top: 0;
-    }
-
-    .release-body h3 { font-size: 0.9rem; }
-    .release-body h2 { font-size: 0.95rem; }
-    .release-body h1 { font-size: 1rem; }
-
-    .release-body ul, .release-body ol {
-        padding-left: 1.25rem;
-        margin: 0.375rem 0;
-    }
-
-    .release-body li {
-        margin-bottom: 0.1875rem;
-    }
-
-    .release-body code {
-        background: var(--bg-tertiary);
-        padding: 0.0625rem 0.3rem;
-        border-radius: 0.1875rem;
-        font-size: 0.775rem;
-    }
-
-    .release-body a {
-        color: var(--accent-primary);
-        text-decoration: none;
-    }
-
-    .release-body a:hover {
-        text-decoration: underline;
-    }
-
-    .release-body pre {
-        background: var(--bg-tertiary);
-        padding: 0.625rem;
-        border-radius: 0.25rem;
-        overflow-x: auto;
-        margin: 0.5rem 0;
-    }
-
-    .release-body hr {
-        border: none;
-        border-top: 1px solid var(--border-color);
-        margin: 0.75rem 0;
-    }
-
-    .release-body p {
-        margin: 0.375rem 0;
-    }
-
-    .text-muted {
-        color: var(--text-muted);
-    }
 </style>
 
 @code {
-    private IReadOnlyList<GitHubRelease>? releases;
-    private HashSet<string> expandedReleases = new();
-
-    private static readonly string CacheFilePath = Path.Combine(
-        AppDataPath.GetAppDataDirectory(), "releases-cache.json");
+    private DoctorReport? doctorReport;
+    private bool isDoctorLoading;
+    private string doctorError = "";
+    private bool isDisposed;
+    private bool showReleaseNotes;
 
     protected override void OnInitialized()
     {
         ToolbarService.SetItems();
-        ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
-
-        // Subscribe to device monitor changes
         DeviceMonitor.Changed += OnDevicesChanged;
-
-        LoadCachedReleases();
-
-        if (releases?.Count > 0)
-            expandedReleases.Add(releases[0].TagName);
     }
 
-    protected override async Task OnInitializedAsync()
+    protected override Task OnInitializedAsync()
     {
-        await RefreshReleasesAsync();
+        _ = RunDoctorAsync();
+        return Task.CompletedTask;
     }
+
+    private async Task RunDoctorAsync()
+    {
+        if (isDoctorLoading)
+            return;
+
+        isDoctorLoading = true;
+        doctorError = "";
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            var report = await Task.Run(() => DoctorService.RunDoctorAsync());
+            if (!isDisposed)
+                doctorReport = report;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError("Dashboard environment check failed", ex);
+            if (!isDisposed)
+                doctorError = ex.Message;
+        }
+        finally
+        {
+            if (!isDisposed)
+            {
+                isDoctorLoading = false;
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+    }
+
+    private RenderFragment EnvironmentCard(string icon, string label, string value, string detail, DependencyStatusType? status) => @<div class="environment-card @GetStatusClass(status)" title="@detail">
+            <div class="environment-card-header"><i class="@icon"></i><span>@label</span></div>
+            <div class="environment-card-value">@value</div>
+            <div class="environment-card-detail">@detail</div>
+        </div>;
+
+    private DependencyStatus? GetDependency(DependencyCategory category, string name) =>
+        doctorReport?.Dependencies.FirstOrDefault(dependency => dependency.Category == category && dependency.Name == name);
+
+    private string GetDependencyVersion(DependencyCategory category, string name) =>
+        isDoctorLoading && doctorReport is null ? "Checking..." : GetDependency(category, name)?.InstalledVersion ?? "Not found";
+
+    private string GetDependencyMessage(DependencyCategory category, string name) =>
+        GetDependency(category, name)?.Message ?? (doctorReport is null ? "Inspecting environment" : "Not installed");
+
+    private string GetDotNetVersion() => doctorReport?.Context.ResolvedSdkVersion
+        ?? doctorReport?.Context.ActiveSdkVersion
+        ?? GetDependency(DependencyCategory.DotNetSdk, ".NET SDK")?.InstalledVersion
+        ?? (isDoctorLoading ? "Checking..." : "Not found");
+
+    private string GetDotNetDetail() => doctorReport?.InstalledWorkloadSetVersion is { Length: > 0 } workload
+        ? $"Workload set {workload}"
+        : GetDependencyMessage(DependencyCategory.DotNetSdk, ".NET SDK");
+
+    private string GetAndroidVersion() => GetDependency(DependencyCategory.AndroidSdk, "Android Platform")?.InstalledVersion
+        ?? (isDoctorLoading ? "Checking..." : "No platform");
+
+    private string GetAndroidDetail()
+    {
+        var buildTools = GetDependency(DependencyCategory.AndroidSdk, "Build Tools")?.InstalledVersion;
+        var sdkPath = GetDependency(DependencyCategory.AndroidSdk, "Android SDK")?.InstalledVersion;
+        if (buildTools is not null && sdkPath is not null)
+            return $"Build Tools {buildTools} · {sdkPath}";
+        return sdkPath ?? GetDependencyMessage(DependencyCategory.AndroidSdk, "Android SDK");
+    }
+
+    private DependencyStatusType? GetCategoryStatus(DependencyCategory category)
+    {
+        var statuses = doctorReport?.Dependencies.Where(dependency => dependency.Category == category).Select(dependency => dependency.Status).ToList();
+        if (statuses is null || statuses.Count == 0)
+            return null;
+        if (statuses.Contains(DependencyStatusType.Error)) return DependencyStatusType.Error;
+        if (statuses.Contains(DependencyStatusType.Warning)) return DependencyStatusType.Warning;
+        return DependencyStatusType.Ok;
+    }
+
+    private string GetStatusClass(DependencyStatusType? status) => status switch
+    {
+        DependencyStatusType.Error => "status-error",
+        DependencyStatusType.Warning => "status-warning",
+        DependencyStatusType.Ok or DependencyStatusType.Info => "status-ok",
+        _ => "status-loading"
+    };
+
+    private string GetHealthSummary() => doctorReport is null
+        ? "Environment status unavailable"
+        : $"{doctorReport.ErrorCount} errors and {doctorReport.WarningCount} warnings need attention";
+
+    private IReadOnlyList<DependencyStatus> GetAttentionItems() => doctorReport?.Dependencies
+        .Where(dependency => dependency.Status is DependencyStatusType.Error or DependencyStatusType.Warning)
+        .OrderBy(dependency => dependency.Status == DependencyStatusType.Error ? 0 : 1)
+        .Take(3)
+        .ToList() ?? [];
 
     private void OnDevicesChanged(ConnectedDevicesSnapshot _)
     {
         InvokeAsync(StateHasChanged);
     }
 
-    private void OnToolbarItemClicked(string actionId)
-    {
-    }
-
-    private void LoadCachedReleases()
-    {
-        try
-        {
-            if (File.Exists(CacheFilePath))
-            {
-                var json = File.ReadAllText(CacheFilePath);
-                releases = System.Text.Json.JsonSerializer.Deserialize<List<GitHubRelease>>(json);
-            }
-        }
-        catch { }
-    }
-
-    private async Task RefreshReleasesAsync()
-    {
-        try
-        {
-            var freshReleases = await UpdateService.GetAllReleasesAsync();
-            if (freshReleases?.Count > 0)
-            {
-                releases = freshReleases
-                    .Where(r => !r.IsDraft)
-                    .OrderByDescending(r => r.PublishedAt)
-                    .ToList();
-
-                if (expandedReleases.Count == 0 && releases.Count > 0)
-                    expandedReleases.Add(releases[0].TagName);
-
-                try
-                {
-                    var json = System.Text.Json.JsonSerializer.Serialize(releases);
-                    await File.WriteAllTextAsync(CacheFilePath, json);
-                }
-                catch { }
-
-                await InvokeAsync(StateHasChanged);
-            }
-        }
-        catch { }
-    }
-
-    private async Task OpenRelease(string url)
-    {
-        if (!string.IsNullOrEmpty(url))
-            await AppLauncher.OpenAsync(new Uri(url));
-    }
-
-    private void ToggleRelease(string tagName)
-    {
-        if (!expandedReleases.Remove(tagName))
-            expandedReleases.Add(tagName);
-    }
-
-    private string ConvertMarkdownToHtml(string? markdown)
-    {
-        if (string.IsNullOrWhiteSpace(markdown))
-            return "<p>No release notes available.</p>";
-
-        var pipeline = new MarkdownPipelineBuilder()
-            .UseAdvancedExtensions()
-            .DisableHtml()
-            .Build();
-
-        return Markdig.Markdown.ToHtml(markdown, pipeline);
-    }
-
     public void Dispose()
     {
-        ToolbarService.ToolbarItemClicked -= OnToolbarItemClicked;
+        isDisposed = true;
         DeviceMonitor.Changed -= OnDevicesChanged;
-    }
-
-    private void OpenCopilot()
-    {
-        CopilotContext.OpenOverlay();
     }
 
     private static string FriendlyPlatform(string platform) => platform switch
