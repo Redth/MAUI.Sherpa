@@ -7,6 +7,7 @@ MauiSherpa is a .NET 10 MAUI Blazor Hybrid desktop application for managing deve
 - Android Keystores (creation, signatures, PEPK export, cloud sync)
 - Apple Developer Tools (certificates, profiles, devices, bundle IDs)
 - .NET MAUI Doctor (dependency checking and workload management)
+- .NET SDK management via `dotnetup` (install/update SDKs & runtimes — see `docs/dotnet-sdk-management.md`)
 - GitHub Copilot integration
 
 **Platforms:** Mac Catalyst, Windows
@@ -138,6 +139,7 @@ builder.Services.AddSingleton<MyViewModel>();
 | `IAppleConnectService` | App Store Connect API |
 | `IAppleIdentityService` | Apple credential management |
 | `IDoctorService` | MAUI dependency checking |
+| `IDotnetUpService` | Bootstraps & drives `dotnetup` to install/update .NET SDKs & runtimes |
 | `ICloudSecretsService` | Cloud secret storage (uses `byte[]` for values) |
 | `ISecureStorageService` | Local secure storage (Keychain on macOS) |
 

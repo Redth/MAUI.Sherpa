@@ -1,0 +1,501 @@
+@using MauiSherpa.Workloads.Models
+
+<div class="workload-card @(Inline ? "workload-card--inline" : null)">
+    @if (Inline)
+    {
+        <div class="workload-inline-head">
+            <div class="workload-title">
+                <i class="fas fa-puzzle-piece" aria-hidden="true"></i>
+                <strong>Workloads</strong>
+                @if (Loading)
+                {
+                    <span class="workload-summary"><i class="fas fa-spinner fa-spin" aria-hidden="true"></i> Reading state...</span>
+                }
+                else if (Inventories.Count == 0)
+                {
+                    <span class="workload-summary">No feature-band state</span>
+                }
+                else
+                {
+                    @foreach (var summary in VersionSummaries())
+                    {
+                        <span class="workload-version-summary"
+                              title="SDK feature band @summary.FeatureBand, workload version @summary.Version">
+                            <span class="summary-segment summary-sdk mono">@summary.FeatureBand</span>
+                            <span class="summary-segment summary-workload mono @(summary.Version == "unknown" ? "unknown" : "")">
+                                @summary.Version
+                            </span>
+                        </span>
+                    }
+                }
+            </div>
+        </div>
+    }
+    else
+    {
+        <button class="workload-card-head"
+                type="button"
+                @onclick="ToggleExpanded"
+                aria-expanded="@expanded">
+            <div class="workload-title">
+                <i class="fas fa-puzzle-piece" aria-hidden="true"></i>
+                <strong>Workloads</strong>
+                @if (Loading)
+                {
+                    <span class="workload-summary"><i class="fas fa-spinner fa-spin"></i> Reading state...</span>
+                }
+                else if (Inventories.Count == 0)
+                {
+                    <span class="workload-summary">No feature-band state</span>
+                }
+                else
+                {
+                    @foreach (var summary in VersionSummaries())
+                    {
+                        <span class="workload-version-summary"
+                              title="SDK feature band @summary.FeatureBand, workload version @summary.Version">
+                            <span class="summary-segment summary-sdk mono">@summary.FeatureBand</span>
+                            <span class="summary-segment summary-workload mono @(summary.Version == "unknown" ? "unknown" : "")">
+                                @summary.Version
+                            </span>
+                        </span>
+                    }
+                }
+            </div>
+            <i class="fas fa-chevron-right workload-chevron @(expanded ? "expanded" : "")" aria-hidden="true"></i>
+        </button>
+    }
+
+    @if (Inline || expanded)
+    {
+        <div class="workload-card-body">
+            @if (Loading)
+            {
+                <div class="workload-loading"><i class="fas fa-spinner fa-spin"></i> Reading workload state...</div>
+            }
+            else if (Inventories.Count == 0)
+            {
+                <div class="workload-loading">No SDK feature-band targets were found.</div>
+            }
+            else
+            {
+                @foreach (var inventory in Inventories)
+                {
+                    var effectiveWorkloads = VisibleInstalledWorkloads(inventory);
+                    var includedCount = effectiveWorkloads.Count(workload => !workload.IsExplicit);
+                    <div class="workload-row">
+                        <div class="workload-target">
+                            <div class="workload-target-line">
+                                <span class="mono feature-band">@inventory.Target.FeatureBand</span>
+                                <span class="badge @(inventory.UpdateMode == DotnetWorkloadUpdateMode.WorkloadSet ? "badge-workload-set" : "badge-warning")">
+                                    @ModeLabel(inventory.UpdateMode)
+                                </span>
+                                @if (inventory.UpdateAvailable)
+                                {
+                                    <span class="badge badge-info">set update</span>
+                                }
+                                @if (inventory.WorkloadUpdates.Count > 0)
+                                {
+                                    <span class="badge badge-info">@inventory.WorkloadUpdates.Count workload update@(inventory.WorkloadUpdates.Count == 1 ? "" : "s")</span>
+                                }
+                                @if (inventory.Diagnostics.Count > 0)
+                                {
+                                    <i class="fas fa-circle-exclamation diagnostic" title="@string.Join(Environment.NewLine, inventory.Diagnostics)"></i>
+                                }
+                            </div>
+                            <div class="workload-meta">
+                                <span>SDK <span class="mono">@inventory.Target.RepresentativeSdkVersion</span></span>
+                                <span class="dot">·</span>
+                                <span class="mono">@inventory.ActiveWorkloadVersion</span>
+                                @if (!string.IsNullOrWhiteSpace(inventory.Target.Architecture))
+                                {
+                                    <span class="dot">·</span>
+                                    <span>@inventory.Target.Architecture</span>
+                                }
+                            </div>
+                            <div class="workload-chips">
+                                @if (effectiveWorkloads.Count == 0)
+                                {
+                                    <span class="no-workloads">No workload IDs installed</span>
+                                }
+                                else
+                                {
+                                    <span class="workload-count">
+                                        @inventory.InstalledWorkloads.Count direct
+                                        @if (includedCount > 0)
+                                        {
+                                            <text> · @includedCount included</text>
+                                        }
+                                    </span>
+                                    @foreach (var workload in effectiveWorkloads.Take(5))
+                                    {
+                                        <span class="workload-chip mono @(!workload.IsExplicit ? "workload-chip--included" : "")"
+                                              title="@WorkloadStateTitle(workload)">
+                                            @workload.Id
+                                        </span>
+                                    }
+                                    @if (effectiveWorkloads.Count > 5)
+                                    {
+                                        <span class="workload-chip">+@(effectiveWorkloads.Count - 5)</span>
+                                    }
+                                }
+                            </div>
+                        </div>
+
+                        <div class="workload-actions">
+                            <button class="btn btn-ghost btn-sm icon-button"
+                                    @onclick="@(() => RepairRequested.InvokeAsync(inventory))"
+                                    disabled="@(Busy || inventory.InstalledWorkloads.Count == 0)"
+                                    title="@(inventory.InstalledWorkloads.Count == 0 ? "No installed workloads to repair" : "Repair installed workloads")">
+                                <i class="fas fa-screwdriver-wrench"></i>
+                            </button>
+                            <button class="btn btn-secondary btn-sm"
+                                    @onclick="@(() => ManageRequested.InvokeAsync(inventory))"
+                                    disabled="@(Busy || (effectiveWorkloads.Count == 0 && inventory.InstallableWorkloads.Count == 0))">
+                                <i class="fas fa-list-check"></i> <span>Workloads</span>
+                            </button>
+                            <button class="btn btn-secondary btn-sm segmented-action"
+                                    @onclick="@(() => ChangeSetRequested.InvokeAsync(inventory))"
+                                    disabled="@(Busy || inventory.AvailableSetVersions.Count == 0)">
+                                <span class="segmented-action-main">
+                                    <i class="fas fa-layer-group"></i>
+                                    <span>Sets</span>
+                                </span>
+                                @if (inventory.UpdateAvailable)
+                                {
+                                    <span class="segmented-action-update"
+                                          title="A workload set update is available"
+                                          aria-label="Update available">
+                                        <i class="fas fa-arrow-up"></i>
+                                    </span>
+                                }
+                            </button>
+                        </div>
+                    </div>
+                }
+            }
+        </div>
+    }
+</div>
+
+<style>
+    .workload-card {
+        margin-top: 0.45rem;
+        margin-bottom: 0.4rem;
+        border-radius: var(--card-radius);
+        background: var(--card-bg);
+        overflow: hidden;
+    }
+
+    .workload-card--inline {
+        margin: 0;
+        border-top: 1px solid var(--border-color);
+        border-radius: 0;
+        background: transparent;
+        overflow: visible;
+    }
+
+    .workload-inline-head {
+        padding: 0.55rem 1rem;
+        border-bottom: 1px solid var(--border-color);
+        background: var(--card-bg);
+    }
+
+    .workload-card-head {
+        width: 100%;
+        border: 0;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 0.55rem 0.85rem;
+        background: transparent;
+        color: var(--text-secondary);
+        font-size: 0.75rem;
+        font-family: inherit;
+        text-align: left;
+        cursor: pointer;
+    }
+
+    .workload-card-head:hover {
+        background: var(--bg-tertiary);
+    }
+
+    .workload-title {
+        display: flex;
+        flex: 1;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 0.45rem;
+        color: var(--text-primary);
+        font-size: 0.83rem;
+        min-width: 0;
+    }
+
+    .workload-card-head i {
+        color: var(--text-secondary);
+    }
+
+    .workload-chevron {
+        width: 0.7rem;
+        flex-shrink: 0;
+        font-size: 0.68rem;
+        transition: transform 0.15s ease;
+    }
+
+    .workload-chevron.expanded {
+        transform: rotate(90deg);
+    }
+
+    .workload-summary,
+    .workload-version-summary {
+        color: var(--text-secondary);
+        font-size: 0.7rem;
+        font-weight: 400;
+    }
+
+    .workload-version-summary {
+        display: inline-flex;
+        align-items: center;
+        gap: 0;
+        padding: 0;
+        border: 1px solid var(--border-color);
+        border-radius: 999px;
+        overflow: hidden;
+    }
+
+    .summary-segment {
+        padding: 0.14rem 0.46rem;
+        white-space: nowrap;
+    }
+
+    .summary-sdk {
+        color: var(--status-success-text);
+        background: var(--bg-tertiary);
+        font-weight: 600;
+    }
+
+    .summary-workload {
+        color: var(--text-inverse);
+        background: color-mix(in srgb, var(--accent-purple) 80%, var(--text-primary));
+        border-left: 1px solid var(--border-color);
+        font-weight: 600;
+    }
+
+    .summary-workload.unknown {
+        color: var(--status-warning-text);
+        background: var(--status-warning-bg);
+    }
+
+    .badge-workload-set {
+        color: var(--accent-purple);
+        background: color-mix(in srgb, var(--accent-purple) 12%, var(--card-bg));
+        border: 1px solid color-mix(in srgb, var(--accent-purple) 35%, var(--border-color));
+    }
+
+    .workload-card-body {
+        border-top: 1px solid var(--border-color);
+    }
+
+    .workload-card--inline .workload-card-body {
+        border-top: 0;
+    }
+
+    .workload-card--inline .workload-row {
+        padding: 0.65rem 1rem;
+        background: color-mix(in srgb, var(--bg-tertiary) 35%, var(--card-bg));
+    }
+
+    .workload-card--inline .workload-row + .workload-row {
+        border-top: 1px solid var(--border-color);
+    }
+
+    .workload-row {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        padding: 0.7rem 0.85rem;
+    }
+
+    .workload-row + .workload-row {
+        border-top: 1px solid var(--border-color);
+    }
+
+    .workload-target {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .workload-target-line,
+    .workload-meta,
+    .workload-chips,
+    .workload-actions {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 0.4rem;
+    }
+
+    .feature-band {
+        color: var(--text-primary);
+        font-size: 0.84rem;
+        font-weight: 600;
+    }
+
+    .workload-meta {
+        margin-top: 0.22rem;
+        color: var(--text-secondary);
+        font-size: 0.72rem;
+    }
+
+    .dot {
+        opacity: 0.55;
+    }
+
+    .workload-chips {
+        margin-top: 0.4rem;
+        gap: 0.3rem;
+    }
+
+    .workload-chip {
+        padding: 0.12rem 0.42rem;
+        border-radius: 999px;
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+        font-size: 0.68rem;
+    }
+
+    .workload-chip--included {
+        color: var(--status-info-text);
+        background: var(--status-info-bg);
+    }
+
+    .workload-count {
+        color: var(--text-secondary);
+        font-size: 0.68rem;
+    }
+
+    .no-workloads {
+        color: var(--text-secondary);
+        font-size: 0.74rem;
+        font-style: italic;
+    }
+
+    .workload-actions {
+        justify-content: flex-end;
+        flex-shrink: 0;
+    }
+
+    .segmented-action {
+        gap: 0;
+        padding: 0;
+        overflow: hidden;
+    }
+
+    .segmented-action-main,
+    .segmented-action-update {
+        display: inline-flex;
+        align-items: center;
+        align-self: stretch;
+    }
+
+    .segmented-action-main {
+        gap: 0.35rem;
+        padding: 0.32rem 0.58rem;
+    }
+
+    .segmented-action-update {
+        justify-content: center;
+        padding: 0.32rem 0.48rem;
+        border-left: 1px solid var(--border-color);
+        background: var(--status-info-bg);
+        color: var(--status-info-text);
+    }
+
+    .workload-loading {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.45rem;
+        padding: 1rem;
+        color: var(--text-secondary);
+        font-size: 0.8rem;
+    }
+
+    .diagnostic {
+        color: var(--status-warning-text);
+        cursor: help;
+    }
+
+    .icon-button {
+        width: 2rem;
+        justify-content: center;
+        padding-left: 0;
+        padding-right: 0;
+    }
+
+    .badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 2px 0.5rem;
+        border-radius: 999px;
+        font-size: 0.68rem;
+        font-weight: 500;
+        white-space: nowrap;
+    }
+
+    @@media (max-width: 850px) {
+        .workload-row {
+            align-items: flex-start;
+            flex-direction: column;
+        }
+
+        .workload-actions {
+            justify-content: flex-start;
+        }
+    }
+</style>
+
+@code {
+    [Parameter] public IReadOnlyList<DotnetWorkloadInventory> Inventories { get; set; } = [];
+    [Parameter] public bool Loading { get; set; }
+    [Parameter] public bool Busy { get; set; }
+    [Parameter] public bool Inline { get; set; }
+    [Parameter] public EventCallback<DotnetWorkloadInventory> ManageRequested { get; set; }
+    [Parameter] public EventCallback<DotnetWorkloadInventory> ChangeSetRequested { get; set; }
+    [Parameter] public EventCallback<DotnetWorkloadInventory> RepairRequested { get; set; }
+
+    private bool expanded;
+
+    private void ToggleExpanded() => expanded = !expanded;
+
+    private IReadOnlyList<(string FeatureBand, string Version)> VersionSummaries() =>
+        Inventories
+            .Select(inventory => (
+                inventory.Target.FeatureBand.ToString(),
+                inventory.ActiveWorkloadVersion ?? "unknown"))
+            .Distinct()
+            .ToList();
+
+    private static IReadOnlyList<DotnetWorkloadInstallationState> VisibleInstalledWorkloads(
+        DotnetWorkloadInventory inventory) =>
+        inventory.EffectiveInstalledWorkloads
+            .Where(workload => workload.IsUserVisible)
+            .OrderByDescending(workload => workload.IsExplicit)
+            .ThenBy(workload => workload.Id, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    private static string WorkloadStateTitle(DotnetWorkloadInstallationState workload) =>
+        workload.IsExplicit
+            ? workload.IncludedBy.Count == 0
+                ? "Directly installed"
+                : $"Directly installed; also included by {string.Join(", ", workload.IncludedBy)}"
+            : $"Included by {string.Join(", ", workload.IncludedBy)}";
+
+    private static string ModeLabel(DotnetWorkloadUpdateMode mode) => mode switch
+    {
+        DotnetWorkloadUpdateMode.WorkloadSet => "workload set",
+        DotnetWorkloadUpdateMode.Manifests => "loose manifests",
+        _ => "unknown mode"
+    };
+}

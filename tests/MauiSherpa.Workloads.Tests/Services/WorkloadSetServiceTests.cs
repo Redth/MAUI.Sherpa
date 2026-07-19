@@ -70,9 +70,9 @@ public class WorkloadSetServiceTests
         result.Should().NotBeNull();
         result!.Version.Should().Be("10.0.100");
         result.FeatureBand.Should().Be(featureBand);
-        result.Workloads.Should().ContainKey("microsoft.net.sdk.maui");
-        result.Workloads["microsoft.net.sdk.maui"].ManifestVersion.Should().Be("10.0.100");
-        result.Workloads["microsoft.net.sdk.maui"].ManifestFeatureBand.Should().Be("10.0.100");
+        result.ManifestEntries.Should().ContainKey("microsoft.net.sdk.maui");
+        result.ManifestEntries["microsoft.net.sdk.maui"].ManifestVersion.Should().Be("10.0.100");
+        result.ManifestEntries["microsoft.net.sdk.maui"].ManifestFeatureBand.Should().Be("10.0.100");
     }
 
     [Fact]

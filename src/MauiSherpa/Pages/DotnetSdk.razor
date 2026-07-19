@@ -1,0 +1,860 @@
+@page "/dotnet-sdk"
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Core.Services
+@using MauiSherpa.Services
+@using MauiSherpa.Pages.Forms
+@using MauiSherpa.Pages.Modals
+@using MauiSherpa.Components
+@using MauiSherpa.Workloads.Models
+@using MauiSherpa.Workloads.Services
+@inject IDotnetUpService DotnetUp
+@inject IDotnetWorkloadService Workloads
+@inject IProcessModalService ProcessModal
+@inject IOperationModalService OperationModal
+@inject IAlertService AlertService
+@inject IDialogService Dialog
+@inject IPlatformService PlatformInfo
+@inject IToolbarService ToolbarService
+@inject IFormModalService FormModal
+@inject HybridFormBridgeHolder BridgeHolder
+@inject ModalParameterService ModalParams
+@implements IDisposable
+
+<div class="dotnet-sdk-page-header">
+    <div class="dotnet-sdk-page-heading">
+        <h1><i class="fas fa-layer-group"></i> .NET SDK Manager</h1>
+        <p>Track SDK and runtime channels to keep compatible versions installed and up to date. Sherpa uses dotnetup to install, update, and manage these components.</p>
+    </div>
+    <div class="dotnet-sdk-page-actions">
+        @if (!PlatformInfo.HasNativeToolbar)
+        {
+            <button class="btn btn-primary" @onclick="Refresh" disabled="@isLoading">
+                @if (isLoading)
+                {
+                    <i class="fas fa-spinner fa-spin"></i> <span>Loading...</span>
+                }
+                else
+                {
+                    <i class="fas fa-sync-alt"></i> <span>Refresh</span>
+                }
+            </button>
+            <button class="btn btn-secondary" @onclick="PickProjectFolder" disabled="@isLoading">
+                <i class="fas fa-folder-open"></i> <span>Open project folder</span>
+            </button>
+        }
+
+        <button type="button"
+                class="dotnetup-indicator @DotnetUpIndicatorClass"
+                @onclick="OpenDotnetUpDetails"
+                disabled="@isLoading"
+                title="@DotnetUpIndicatorTitle"
+                aria-label="@DotnetUpIndicatorTitle">
+            <span>dotnetup</span>
+            <i class="@DotnetUpIndicatorIcon" aria-hidden="true"></i>
+            @if (toolUpdateInfo?.UpdateAvailable == true)
+            {
+                <span class="dotnetup-indicator-update" aria-hidden="true">
+                    <i class="fas fa-arrow-up"></i>
+                </span>
+            }
+        </button>
+    </div>
+</div>
+
+@if (!string.IsNullOrEmpty(errorMessage))
+{
+    <div class="error-bar">@errorMessage</div>
+}
+
+@if (DotnetUp.IsInstalled)
+{
+    <section class="page-section">
+        <TrackedDotnetChannelsCard
+            ListResult="@list"
+            UpdatePreviews="@updatePreviews"
+            Busy="@isLoading"
+            CheckingUpdates="@checkingUpdates"
+            UpdatesUnresolved="@updatesUnresolved"
+            AddRequested="@OpenAddDialog"
+            UpdateSdksRequested="@RunUpdateSdks"
+            UpdateRuntimesRequested="@RunUpdateRuntimes"
+            UpdateAllRequested="@RunUpdateAll"
+            UntrackRequested="@RunUntrack" />
+    </section>
+
+    <section class="page-section">
+        <div class="section-head">
+            <div class="section-head-main">
+                <h2><i class="fas fa-cubes"></i> Installed components @if (list != null) { <span class="count">@list.Installations.Count</span> }</h2>
+                <p class="section-desc">.NET SDKs, runtimes, and ASP.NET Core runtimes dotnetup has installed on this machine.</p>
+                @if (list != null && list.Installations.Count > 0)
+                {
+                    <p class="info-note"><i class="fas fa-lightbulb"></i> Each .NET SDK bundles its own runtime, so a standalone <strong>Runtime</strong> entry only appears when you track a runtime channel separately.</p>
+                }
+            </div>
+        </div>
+
+        @if (list == null)
+        {
+            <div class="empty-state"><i class="fas fa-spinner fa-spin"></i> Loading…</div>
+        }
+        else if (list.Installations.Count == 0)
+        {
+            <div class="empty-state">
+                <i class="fas fa-box-open"></i>
+                <p>No dotnetup-managed .NET components yet. Add a channel above to install your first SDK.</p>
+            </div>
+        }
+        else
+        {
+            <div class="installed-version-list">
+                @foreach (var group in DotnetSdkPresentationBuilder.Build(list, workloadInventories, updatePreviews).InstalledGroups)
+                {
+                    <InstalledDotnetVersionCard
+                        @key="group.MajorMinor"
+                        RuntimeLine="@group.DisplayName"
+                        Installations="@group.Installations"
+                        WorkloadInventories="@group.WorkloadInventories"
+                        Loading="@(loadingWorkloads && group.WorkloadInventories.Count == 0)"
+                        Busy="@(isLoading || workloadBusy)"
+                        InitiallyExpanded="false"
+                        UninstallRequested="@RunUninstall"
+                        ManageRequested="@OpenManageWorkloads"
+                        ChangeSetRequested="@OpenChangeWorkloadSet"
+                        RepairRequested="@RepairWorkloads" />
+                }
+            </div>
+        }
+    </section>
+}
+
+@code {
+    private bool isLoading;
+    private string? errorMessage;
+    private DotnetUpToolInfo? toolInfo;
+    private DotnetUpToolUpdateInfo? toolUpdateInfo;
+    private bool checkingToolUpdate;
+    private DotnetUpListResult? list;
+    private List<string> managedRoots = new();
+    private IReadOnlyList<DotnetWorkloadInventory> workloadInventories = [];
+    private bool loadingWorkloads;
+    private bool workloadBusy;
+
+    private IReadOnlyList<DotnetUpdatePreview>? updatePreviews;
+    private bool checkingUpdates;
+    private bool updatesUnresolved;
+
+    private async Task OpenAddDialog()
+    {
+        if (!await EnsureInstalled()) return;
+
+        var tracked = list?.InstallSpecs
+            .Where(s => s.Component == DotnetUpComponent.Sdk)
+            .Select(s => s.VersionOrChannel)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList() ?? new List<string>();
+
+        var channel = await FormModal.ShowAsync<string?>(new AddChannelPage(BridgeHolder, tracked));
+        if (string.IsNullOrWhiteSpace(channel)) return;
+
+        // Tracked-channel installs never change the global default ("Terminal mode" is a one-time
+        // global choice made by `dotnetup init`, not a per-channel setting), so terminalMode: false.
+        var request = DotnetUp.InstallSdkRequest(channel, terminalMode: false);
+        await RunProcessAndRefresh(request, $"Installed .NET SDK ({channel})", "The .NET SDK install failed.");
+    }
+
+    private static string ComponentDisplay(DotnetUpComponent c) => c switch
+    {
+        DotnetUpComponent.Sdk => ".NET SDK",
+        DotnetUpComponent.Runtime => ".NET Runtime",
+        DotnetUpComponent.AspNetCore => "ASP.NET Core Runtime",
+        DotnetUpComponent.WindowsDesktop => "Windows Desktop Runtime",
+        _ => "Component"
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
+        await Refresh();
+    }
+
+    private void UpdateToolbar()
+    {
+        ToolbarService.SetItems(
+            new ToolbarAction("refresh", "Refresh", "arrow.clockwise"),
+            new ToolbarAction("open-project", "Open Project Folder", "folder"));
+    }
+
+    private void OnToolbarItemClicked(string actionId)
+    {
+        InvokeAsync(async () =>
+        {
+            switch (actionId)
+            {
+                case "refresh":
+                    await Refresh();
+                    break;
+                case "open-project":
+                    await PickProjectFolder();
+                    break;
+            }
+            StateHasChanged();
+        });
+    }
+
+    private async Task Refresh()
+    {
+        isLoading = true;
+        errorMessage = null;
+        updatePreviews = null;
+        updatesUnresolved = false;
+        toolUpdateInfo = null;
+        checkingToolUpdate = DotnetUp.IsInstalled;
+        workloadInventories = [];
+        StateHasChanged();
+        try
+        {
+            if (DotnetUp.IsInstalled)
+            {
+                toolInfo = await DotnetUp.GetToolInfoAsync();
+                list = await DotnetUp.GetListAsync();
+                managedRoots = list?.InstallRoots.ToList() ?? new();
+                toolUpdateInfo = await DotnetUp.GetToolUpdateInfoAsync(toolInfo);
+            }
+            else
+            {
+                toolInfo = null;
+                toolUpdateInfo = null;
+                list = null;
+                managedRoots = new();
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to query dotnetup: {ex.Message}";
+        }
+        finally
+        {
+            checkingToolUpdate = false;
+            isLoading = false;
+            UpdateToolbar();
+            StateHasChanged();
+        }
+
+        if (list?.InstallSpecs.Count > 0)
+            await LoadUpdatePreviewAsync(showErrors: false);
+        if (list != null)
+            await LoadWorkloadInventoriesAsync(forceRefresh: true);
+    }
+
+    private async Task<bool> EnsureInstalled(bool force = false, bool isUpdate = false)
+    {
+        if (DotnetUp.IsInstalled && !force)
+            return true;
+
+        var result = await OperationModal.RunAsync(
+            isUpdate ? "Update dotnetup" : force ? "Reinstall dotnetup" : "Install dotnetup",
+            "Downloading and verifying the dotnetup .NET toolchain manager",
+            async ctx =>
+            {
+                var progress = new Progress<string>(msg =>
+                {
+                    ctx.SetStatus(msg);
+                    ctx.LogInfo(msg);
+                });
+                var ok = await DotnetUp.EnsureInstalledAsync(force: force, progress: progress);
+                if (ok) ctx.LogSuccess("dotnetup installed");
+                else ctx.LogError("Failed to install dotnetup");
+                return ok;
+            },
+            canCancel: true);
+
+        return result.Success;
+    }
+
+    private async Task InstallDotnetUp()
+    {
+        if (await EnsureInstalled())
+        {
+            await AlertService.ShowToastAsync("dotnetup installed");
+            await Refresh();
+        }
+    }
+
+    private Task UpdateDotnetUp() => ReplaceDotnetUp(isUpdate: true);
+
+    private Task ReinstallDotnetUp() => ReplaceDotnetUp(isUpdate: false);
+
+    private async Task ReplaceDotnetUp(bool isUpdate)
+    {
+        var action = isUpdate ? "Update" : "Reinstall";
+        var detail = isUpdate
+            ? $"Update dotnetup from v{toolUpdateInfo!.InstalledVersion} to v{toolUpdateInfo.AvailableVersion}?"
+            : "Download and overwrite the dotnetup binary with the latest published build?";
+        var confirm = await AlertService.ShowConfirmAsync(
+            $"{action} dotnetup",
+            detail,
+            action, "Cancel");
+        if (!confirm) return;
+
+        if (await EnsureInstalled(force: true, isUpdate: isUpdate))
+        {
+            await AlertService.ShowToastAsync(isUpdate ? "dotnetup updated" : "dotnetup reinstalled");
+            await Refresh();
+        }
+    }
+
+    private async Task OpenDotnetUpDetails()
+    {
+        var page = new DotnetUpDetailsPage(
+            ModalParams,
+            DotnetUp.IsInstalled,
+            toolInfo,
+            toolUpdateInfo,
+            managedRoots,
+            DotnetUp.ExecutablePath,
+            DotnetUp.ToolDirectory);
+
+        await FormModal.ShowViewAsync(page, page.WaitForCloseAsync);
+
+        switch (page.SelectedAction)
+        {
+            case DotnetUpDetailsAction.Install:
+                await InstallDotnetUp();
+                break;
+            case DotnetUpDetailsAction.Update:
+                await UpdateDotnetUp();
+                break;
+            case DotnetUpDetailsAction.Reinstall:
+                await ReinstallDotnetUp();
+                break;
+        }
+    }
+
+    private Task CheckForUpdates() => LoadUpdatePreviewAsync(showErrors: true);
+
+    private string DotnetUpIndicatorClass
+    {
+        get
+        {
+            if (isLoading || checkingToolUpdate)
+                return "checking";
+            if (!DotnetUp.IsInstalled)
+                return "missing";
+            if (toolUpdateInfo?.UpdateAvailable == true)
+                return "update-available";
+            return "installed";
+        }
+    }
+
+    private string DotnetUpIndicatorIcon =>
+        isLoading || checkingToolUpdate
+            ? "fas fa-spinner fa-spin"
+            : DotnetUp.IsInstalled
+                ? "fa-regular fa-circle-check"
+                : "fa-regular fa-circle-xmark";
+
+    private string DotnetUpIndicatorTitle
+    {
+        get
+        {
+            if (isLoading || checkingToolUpdate)
+                return "dotnetup: checking status";
+            if (!DotnetUp.IsInstalled)
+                return "dotnetup is not installed. Open details.";
+            if (toolUpdateInfo?.UpdateAvailable == true)
+                return "A dotnetup update is available. Open details.";
+            return "dotnetup is ready. Open details.";
+        }
+    }
+
+    private async Task LoadUpdatePreviewAsync(bool showErrors)
+    {
+        if (list == null) return;
+        checkingUpdates = true;
+        errorMessage = null;
+        StateHasChanged();
+        try
+        {
+            var previews = await DotnetUp.GetUpdatePreviewAsync(list);
+            updatePreviews = previews;
+            updatesUnresolved = previews.Any(p => !p.IsPinned && p.AvailableVersion == null);
+        }
+        catch (Exception ex)
+        {
+            if (showErrors)
+                errorMessage = $"Couldn't check for updates: {ex.Message}";
+            updatePreviews = null;
+            updatesUnresolved = true;
+        }
+        finally
+        {
+            checkingUpdates = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task PickProjectFolder()
+    {
+        var folder = await Dialog.PickFolderAsync("Choose a project folder");
+        if (string.IsNullOrWhiteSpace(folder)) return;
+        var page = new ProjectDotnetContextPage(ModalParams, folder);
+        await FormModal.ShowViewAsync(page, page.WaitForCloseAsync);
+        if (page.HasChanges)
+            await Refresh();
+    }
+
+    private async Task LoadWorkloadInventoriesAsync(bool forceRefresh)
+        {
+            if (list == null)
+                return;
+            loadingWorkloads = true;
+            StateHasChanged();
+            try
+            {
+                workloadInventories = await Workloads.GetInventoriesAsync(list, forceRefresh);
+            }
+            catch (Exception ex)
+            {
+                errorMessage = $"Couldn't read .NET workload state: {ex.Message}";
+                workloadInventories = [];
+            }
+            finally
+            {
+                loadingWorkloads = false;
+                StateHasChanged();
+            }
+        }
+
+    private async Task OpenManageWorkloads(DotnetWorkloadInventory inventory)
+        {
+            var selection = await FormModal.ShowAsync<WorkloadSelectionResult?>(
+                new WorkloadSelectionPage(BridgeHolder, inventory));
+            if (selection == null ||
+                (selection.InstallIds.Count == 0 && selection.UninstallIds.Count == 0))
+                return;
+
+            var explicitIds = inventory.InstalledWorkloads
+                .Select(workload => workload.Id)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var effectiveIds = inventory.EffectiveInstalledWorkloadIds
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            if (selection.UninstallIds.Any(id => !explicitIds.Contains(id)) ||
+                selection.InstallIds.Any(effectiveIds.Contains))
+            {
+                await AlertService.ShowAlertAsync(
+                    "Workload Selection Changed",
+                    "Only directly installed workload IDs can be removed, and included workloads cannot be installed again. Refresh and retry the selection.");
+                return;
+            }
+
+            if (selection.UninstallIds.Count > 0)
+            {
+                var uninstall = Workloads.CreateUninstallRequest(
+                    inventory.Target,
+                    selection.UninstallIds);
+                if (!await RunWorkloadProcess(
+                        uninstall,
+                        inventory.Target,
+                        "Selected workloads uninstalled",
+                        "The workload uninstall failed."))
+                    return;
+            }
+
+            if (selection.InstallIds.Count > 0)
+            {
+                var install = Workloads.CreateInstallRequest(
+                    inventory.Target,
+                    selection.InstallIds);
+                await RunWorkloadProcess(
+                    install,
+                    inventory.Target,
+                    "Selected workloads installed",
+                    "The workload install failed.");
+            }
+        }
+
+    private Task OpenChangeWorkloadSet(DotnetWorkloadInventory inventory) =>
+        OpenWorkloadSetPicker(inventory);
+
+    private async Task OpenWorkloadSetPicker(
+        DotnetWorkloadInventory inventory,
+        string? initialVersion = null)
+        {
+            var version = await FormModal.ShowAsync<string?>(
+                new WorkloadSetPage(BridgeHolder, inventory, initialVersion));
+            if (string.IsNullOrWhiteSpace(version))
+                return;
+            await ApplyWorkloadSet(inventory, version);
+        }
+
+        private async Task ApplyWorkloadSet(
+            DotnetWorkloadInventory inventory,
+            string version)
+        {
+            workloadBusy = true;
+            StateHasChanged();
+            try
+            {
+                var preview = await Workloads.GetWorkloadSetPreviewAsync(inventory.Target, version);
+                var request = Workloads.CreateUpdateSetRequest(inventory.Target, version);
+                request = request with
+                {
+                    ConfirmationDetails = BuildWorkloadSetConfirmationDetails(preview, inventory.UpdateMode)
+                };
+
+                await RunWorkloadProcess(
+                    request,
+                    inventory.Target,
+                    $"Workload set changed to {version}",
+                    "The workload-set update failed.");
+            }
+            catch (Exception ex)
+            {
+                await AlertService.ShowAlertAsync("Workload Preview Failed", ex.Message);
+            }
+            finally
+            {
+                workloadBusy = false;
+                StateHasChanged();
+            }
+        }
+
+    private async Task RepairWorkloads(DotnetWorkloadInventory inventory)
+        {
+            var request = Workloads.CreateRepairRequest(inventory.Target) with
+            {
+                ConfirmationDetails =
+                    $"SDK feature band: {inventory.Target.FeatureBand}\n" +
+                    $"Recorded workload IDs: {inventory.InstalledWorkloads.Count}\n" +
+                    "The .NET SDK will reinstall packs referenced by these workloads."
+            };
+            await RunWorkloadProcess(
+                request,
+                inventory.Target,
+                "Workloads repaired",
+                "The workload repair failed.");
+        }
+
+    private async Task<bool> RunWorkloadProcess(
+        ProcessRequest request,
+        DotnetWorkloadTarget target,
+        string successToast,
+        string failureMessage)
+        {
+            workloadBusy = true;
+            StateHasChanged();
+            try
+            {
+                var result = await ProcessModal.ShowProcessAsync(request);
+                if (result?.Success == true)
+                {
+                    Workloads.Invalidate(target.InstallRoot);
+                    await AlertService.ShowToastAsync(successToast);
+                    await LoadWorkloadInventoriesAsync(forceRefresh: true);
+                    return true;
+                }
+                else if (result != null && !result.WasCancelled && !result.WasKilled)
+                {
+                    await AlertService.ShowAlertAsync("Operation Failed", $"{failureMessage} Check the output for details.");
+                }
+                return false;
+            }
+            finally
+            {
+                workloadBusy = false;
+                StateHasChanged();
+            }
+        }
+    private async Task RunUpdateAll()
+    {
+        if (checkingUpdates) return;
+        if (updatePreviews == null)
+        {
+            await CheckForUpdates();
+            return;
+        }
+        if (!updatePreviews.Any(p => p.UpdateAvailable))
+        {
+            await AlertService.ShowToastAsync("Everything is already up to date");
+            return;
+        }
+        if (!await EnsureInstalled()) return;
+        await RunProcessAndRefresh(DotnetUp.UpdateAllRequest(), "All components updated", "The update failed.");
+    }
+
+    private async Task RunUpdateSdks()
+    {
+        if (!await EnsureInstalled()) return;
+        await RunProcessAndRefresh(DotnetUp.UpdateSdksRequest(), "SDKs updated", "The SDK update failed.");
+    }
+
+    private async Task RunUpdateRuntimes()
+    {
+        if (!await EnsureInstalled()) return;
+        await RunProcessAndRefresh(DotnetUp.UpdateRuntimesRequest(), "Runtimes updated", "The runtime update failed.");
+    }
+
+    private async Task RunUninstall(DotnetUpInstallation item)
+    {
+        var label = $"{item.ComponentRaw} {item.Version}";
+        ProcessRequest request = item.Component == DotnetUpComponent.Sdk
+            ? DotnetUp.UninstallSdkRequest(item.Version)
+            : DotnetUp.UninstallRuntimeRequest($"{RuntimeToken(item)}@{item.Version}");
+        request = request with
+        {
+            Description = $"Remove {label} from {item.InstallRoot}.",
+            ConfirmationButtonText = "Uninstall"
+        };
+
+        await RunProcessAndRefresh(request, $"Uninstalled {label}", "The uninstall failed.");
+    }
+
+    private async Task RunUntrack(DotnetUpInstallSpec spec)
+    {
+        ProcessRequest request = spec.Component == DotnetUpComponent.Sdk
+            ? DotnetUp.UninstallSdkRequest(spec.VersionOrChannel, spec.Source)
+            : DotnetUp.UninstallRuntimeRequest($"{RuntimeTokenForComponent(spec.Component)}@{spec.VersionOrChannel}");
+        request = request with
+        {
+            Description =
+                $"Stop tracking {spec.VersionOrChannel} ({ComponentDisplay(spec.Component)}) and uninstall the version it resolved to.",
+            ConfirmationButtonText = "Untrack"
+        };
+
+        await RunProcessAndRefresh(request, $"Stopped tracking {spec.VersionOrChannel}", "The untrack failed.");
+    }
+
+    private static string BuildWorkloadSetConfirmationDetails(
+        DotnetWorkloadSetPreview preview,
+        DotnetWorkloadUpdateMode currentMode)
+    {
+        var lines = new List<string>
+        {
+            $"SDK feature band: {preview.Target.FeatureBand}",
+            $"Current workload set: {preview.CurrentVersion ?? "not installed"}",
+            $"New workload set: {preview.TargetVersion}",
+            $"Installed workload IDs affected: {preview.InstalledWorkloadIds.Count}",
+            $"Manifest changes: {preview.ManifestChanges.Count}"
+        };
+
+        if (currentMode == DotnetWorkloadUpdateMode.Manifests)
+            lines.Insert(1, "Update mode: Loose manifests -> Workload set");
+
+        if (preview.ManifestChanges.Count > 0)
+        {
+            lines.Add("");
+            lines.Add("Manifest changes");
+            lines.AddRange(preview.ManifestChanges.Take(8).Select(
+                change =>
+                    $"{change.ManifestId}: {change.CurrentVersion ?? "not installed"} -> {change.TargetVersion ?? "removed"}"));
+            if (preview.ManifestChanges.Count > 8)
+                lines.Add($"+ {preview.ManifestChanges.Count - 8} more");
+        }
+
+        return string.Join(Environment.NewLine, lines);
+    }
+
+    private static string RuntimeTokenForComponent(DotnetUpComponent c) => c switch
+    {
+        DotnetUpComponent.AspNetCore => "aspnetcore",
+        DotnetUpComponent.WindowsDesktop => "windowsdesktop",
+        _ => "runtime"
+    };
+
+    private async Task RunProcessAndRefresh(ProcessRequest request, string successToast, string failureMessage)
+    {
+        var result = await ProcessModal.ShowProcessAsync(request);
+        if (result?.Success == true)
+        {
+            await AlertService.ShowToastAsync(successToast);
+            await Refresh();
+        }
+        else if (result != null && !result.WasCancelled && !result.WasKilled)
+        {
+            await AlertService.ShowAlertAsync("Operation Failed", $"{failureMessage} Check the output for details.");
+        }
+    }
+
+    private static string RuntimeToken(DotnetUpInstallation item) => item.Component switch
+    {
+        DotnetUpComponent.AspNetCore => "aspnetcore",
+        DotnetUpComponent.WindowsDesktop => "windowsdesktop",
+        _ => "runtime"
+    };
+
+    public void Dispose()
+    {
+        ToolbarService.ToolbarItemClicked -= OnToolbarItemClicked;
+    }
+}
+
+<style>
+    .dotnet-sdk-page-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 0.75rem 1rem;
+        margin-bottom: 1.25rem;
+    }
+
+    .dotnet-sdk-page-header h1 {
+        margin: 0;
+    }
+
+    .dotnet-sdk-page-heading {
+        min-width: 0;
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        gap: 0.3rem;
+    }
+
+    .dotnet-sdk-page-heading p {
+        max-width: 52rem;
+        margin: 0;
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+        line-height: 1.4;
+    }
+
+    .dotnet-sdk-page-actions {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        flex-wrap: wrap;
+        gap: 0.55rem;
+    }
+
+    .dotnetup-indicator {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        min-height: 2rem;
+        padding: 0.3rem 0.5rem;
+        border: 0;
+        border-radius: 0.4rem;
+        background: transparent;
+        color: var(--text-secondary);
+        font: inherit;
+        font-size: 0.78rem;
+        font-weight: 500;
+        cursor: pointer;
+        transition: background-color 0.15s ease, color 0.15s ease;
+    }
+
+    .dotnetup-indicator:hover:not(:disabled) {
+        background: var(--bg-tertiary);
+        color: var(--text-primary);
+    }
+
+    .dotnetup-indicator:focus-visible {
+        outline: 2px solid var(--accent-primary);
+        outline-offset: 2px;
+    }
+
+    .dotnetup-indicator:disabled {
+        cursor: default;
+        opacity: 0.7;
+    }
+
+    .dotnetup-indicator.installed > i,
+    .dotnetup-indicator.update-available > i {
+        color: color-mix(in srgb, var(--status-success-text) 72%, var(--text-secondary));
+    }
+
+    .dotnetup-indicator.missing > i {
+        color: color-mix(in srgb, var(--status-warning-text) 72%, var(--text-secondary));
+    }
+
+    .dotnetup-indicator-update {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 1rem;
+        height: 1rem;
+        border-radius: 999px;
+        background: var(--status-info-bg);
+        color: var(--status-info-text);
+        font-size: 0.58rem;
+    }
+
+    .page-section {
+        margin-bottom: 1.75rem;
+    }
+
+    .page-section + .page-section {
+        margin-top: 1rem;
+    }
+
+    .section-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 1rem;
+        margin-bottom: 0.75rem;
+    }
+
+    .section-head-main {
+        min-width: 0;
+    }
+
+    .section-head h2 {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin: 0;
+        color: var(--text-primary);
+        font-size: 1.05rem;
+        font-weight: 600;
+    }
+
+    .section-head h2 i,
+    .info-note i {
+        color: var(--text-secondary);
+    }
+
+    .section-desc {
+        margin: 0.25rem 0 0;
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+        line-height: 1.4;
+    }
+
+    .count {
+        padding: 0.05rem 0.5rem;
+        border-radius: 999px;
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+        font-size: 0.72rem;
+        font-weight: 600;
+    }
+
+    .info-note {
+        margin: 0.4rem 0 0;
+        color: var(--text-secondary);
+        font-size: 0.8rem;
+        line-height: 1.4;
+    }
+
+    .info-note i {
+        margin-right: 0.4rem;
+    }
+
+    .installed-version-list {
+        display: grid;
+        gap: 0.75rem;
+    }
+
+    @@media (max-width: 700px) {
+        .dotnet-sdk-page-header,
+        .dotnet-sdk-page-actions {
+            align-items: flex-start;
+        }
+
+        .dotnet-sdk-page-actions {
+            justify-content: flex-start;
+        }
+    }
+</style>

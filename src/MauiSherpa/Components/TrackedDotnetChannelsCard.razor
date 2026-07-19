@@ -1,0 +1,895 @@
+@using MauiSherpa.Workloads.Models
+@using System.Text.RegularExpressions
+
+<div class="tdc-card">
+    <div class="tdc-header">
+        <button class="tdc-toggle"
+                type="button"
+                id="@headerId"
+                aria-controls="@bodyId"
+                aria-expanded="@expanded"
+                aria-label="@ToggleAriaLabel"
+                @onclick="ToggleExpanded">
+            <div class="tdc-toggle-copy">
+                <div class="tdc-title-line">
+                    <span class="tdc-title">
+                        <i class="fas fa-list-check" aria-hidden="true"></i>
+                        <span>@Title</span>
+                    </span>
+                    <span class="tdc-count">@EffectiveInstallSpecs.Count</span>
+                </div>
+
+                <div class="tdc-meta-line">
+                    @if (HeaderSdkChips.Count > 0)
+                    {
+                        <div class="tdc-sdk-chips" aria-label="Tracked SDK channels">
+                            @foreach (var spec in HeaderSdkChips)
+                            {
+                                <span class="tdc-sdk-chip mono" title="@ChannelHuman(spec.VersionOrChannel)">@spec.VersionOrChannel</span>
+                            }
+                        </div>
+                    }
+
+                    <span class="tdc-status @HeaderStatus.CssClass">
+                        <i class="@HeaderStatus.IconClass" aria-hidden="true"></i>
+                        <span>@HeaderStatus.Text</span>
+                    </span>
+
+                    @if (!string.IsNullOrWhiteSpace(HeaderStatus.Note))
+                    {
+                        <span class="tdc-status-note" title="@HeaderStatus.Note">
+                            <i class="fas fa-circle-info" aria-hidden="true"></i>
+                            <span>@HeaderStatus.Note</span>
+                        </span>
+                    }
+                </div>
+            </div>
+
+            <i class="fas fa-chevron-right tdc-chevron @(expanded ? "expanded" : null)" aria-hidden="true"></i>
+        </button>
+
+        <button class="btn btn-primary btn-sm tdc-add-button"
+                type="button"
+                @onclick="InvokeAddRequested"
+                disabled="@(Busy || !AddRequested.HasDelegate)"
+                title="Track another SDK channel">
+            <i class="fas fa-plus"></i>
+            <span>Add channel</span>
+        </button>
+    </div>
+
+    @if (expanded)
+    {
+        <div class="tdc-body" id="@bodyId" role="region" aria-labelledby="@headerId">
+            @if (CheckingUpdates && UpdatePreviews is null)
+            {
+                <div class="tdc-update-checking">
+                    <i class="fas fa-spinner fa-spin"></i>
+                    <span>Checking installed versions against the current .NET channel releases...</span>
+                </div>
+            }
+
+            @if (!string.IsNullOrWhiteSpace(ErrorMessage))
+            {
+                <div class="tdc-state tdc-state-error">
+                    <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
+                    <div>
+                        <strong>Unable to load tracked channels</strong>
+                        <p>@ErrorMessage</p>
+                    </div>
+                </div>
+            }
+
+            @if (AvailablePreviews.Count > 0 || UpdatesUnresolved)
+            {
+                <div class="tdc-update-toolbar">
+                    <div class="tdc-preview-head">
+                        @if (AvailablePreviews.Count > 0)
+                        {
+                            <span class="tdc-preview-summary has-updates">
+                                <i class="fas fa-circle-arrow-up" aria-hidden="true"></i>
+                                @AvailablePreviews.Count update@(AvailablePreviews.Count == 1 ? string.Empty : "s") available
+                            </span>
+                        }
+
+                        @if (UpdatesUnresolved)
+                        {
+                            <span class="tdc-preview-note" title="Couldn't reach the .NET release feed for some channels">
+                                <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
+                                <span>Some channels couldn't be checked</span>
+                            </span>
+                        }
+                    </div>
+
+                    @if (AvailablePreviews.Count > 0)
+                    {
+                        <div class="tdc-preview-actions">
+                            @if (HasSdkUpdates && HasRuntimeUpdates)
+                            {
+                                <button class="btn btn-secondary btn-sm"
+                                        type="button"
+                                        @onclick="InvokeUpdateSdksRequested"
+                                        disabled="@(Busy || !UpdateSdksRequested.HasDelegate)"
+                                        title="Update tracked SDK channels only">
+                                    <i class="fas fa-arrow-up"></i>
+                                    <span>Update SDKs</span>
+                                </button>
+                                <button class="btn btn-secondary btn-sm"
+                                        type="button"
+                                        @onclick="InvokeUpdateRuntimesRequested"
+                                        disabled="@(Busy || !UpdateRuntimesRequested.HasDelegate)"
+                                        title="Update tracked Runtime &amp; ASP.NET Core channels only">
+                                    <i class="fas fa-arrow-up"></i>
+                                    <span>Update runtimes</span>
+                                </button>
+                            }
+                            else if (HasSdkUpdates)
+                            {
+                                <button class="btn btn-secondary btn-sm"
+                                        type="button"
+                                        @onclick="InvokeUpdateSdksRequested"
+                                        disabled="@(Busy || !UpdateSdksRequested.HasDelegate)"
+                                        title="Update tracked SDK channels">
+                                    <i class="fas fa-arrow-up"></i>
+                                    <span>Update SDKs</span>
+                                </button>
+                            }
+                            else if (HasRuntimeUpdates)
+                            {
+                                <button class="btn btn-secondary btn-sm"
+                                        type="button"
+                                        @onclick="InvokeUpdateRuntimesRequested"
+                                        disabled="@(Busy || !UpdateRuntimesRequested.HasDelegate)"
+                                        title="Update tracked Runtime &amp; ASP.NET Core channels">
+                                    <i class="fas fa-arrow-up"></i>
+                                    <span>Update runtimes</span>
+                                </button>
+                            }
+
+                            <button class="btn btn-primary btn-sm"
+                                    type="button"
+                                    @onclick="InvokeUpdateAllRequested"
+                                    disabled="@(Busy || !UpdateAllRequested.HasDelegate)"
+                                    title="Update everything dotnetup tracks">
+                                <i class="fas fa-arrows-rotate"></i>
+                                <span>Update all</span>
+                            </button>
+                        </div>
+                    }
+                </div>
+            }
+
+            @if (EffectiveInstallSpecs.Count > 0)
+            {
+                @foreach (var group in TrackedGroups())
+                {
+                    <div class="tdc-comp-group">
+                        <div class="tdc-comp-group-head">
+                            <i class="@group.Icon" aria-hidden="true"></i>
+                            <span>@group.Key</span>
+                            <span class="tdc-comp-group-count">@group.Items.Count</span>
+                        </div>
+
+                        <div class="tdc-track-list">
+                        @foreach (var spec in group.Items)
+                        {
+                            var preview = PreviewFor(spec);
+                            <div class="tdc-track-item">
+                                <div class="tdc-track-details">
+                                    <div class="tdc-track-line">
+                                        <span class="tdc-track-channel mono">@spec.VersionOrChannel</span>
+                                        <span class="tdc-track-human">@ChannelHuman(spec.VersionOrChannel)</span>
+                                    </div>
+                                </div>
+
+                                <div class="tdc-track-controls">
+                                    @if (preview != null)
+                                    {
+                                        <div class="tdc-track-resolution">
+                                            @if (preview.IsPinned)
+                                            {
+                                                <span class="tdc-prev-ver mono">@(preview.InstalledVersion ?? preview.Channel)</span>
+                                                <span class="tdc-badge badge-secondary" title="Pinned to an exact version">pinned</span>
+                                            }
+                                            else if (preview.UpdateAvailable)
+                                            {
+                                                <span class="tdc-prev-ver mono old">@(preview.InstalledVersion ?? "—")</span>
+                                                <i class="fas fa-arrow-right tdc-prev-arrow" aria-hidden="true"></i>
+                                                <span class="tdc-prev-ver mono new">@preview.AvailableVersion</span>
+                                                <span class="tdc-badge badge-info">update</span>
+                                            }
+                                            else if (preview.AvailableVersion is null)
+                                            {
+                                                <span class="tdc-prev-ver mono">@(preview.InstalledVersion ?? "—")</span>
+                                                <span class="tdc-badge badge-warning" title="Couldn't resolve this channel against the release feed">unknown</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="tdc-prev-ver mono">@preview.AvailableVersion</span>
+                                                <span class="tdc-inline-result is-success">
+                                                    <i class="fas fa-circle-check" aria-hidden="true"></i>
+                                                    <span>up to date</span>
+                                                </span>
+                                            }
+                                        </div>
+                                    }
+
+                                    @if (spec.Source == DotnetUpInstallSource.Explicit)
+                                    {
+                                        <button class="btn btn-danger btn-sm"
+                                                type="button"
+                                                @onclick="() => InvokeUntrackRequested(spec)"
+                                                disabled="@(Busy || !UntrackRequested.HasDelegate)"
+                                                title="Stop tracking and uninstall this channel">
+                                            <i class="fas fa-trash"></i>
+                                            <span>Untrack</span>
+                                        </button>
+                                    }
+                                </div>
+                            </div>
+                        }
+                        </div>
+                    </div>
+                }
+
+            }
+            else if (string.IsNullOrWhiteSpace(ErrorMessage))
+            {
+                <div class="tdc-state tdc-state-empty">
+                    <i class="fas fa-inbox" aria-hidden="true"></i>
+                    <div>
+                        <strong>No channels tracked yet</strong>
+                        <p>Use <strong>Add channel</strong> and dotnetup will install it and keep it updated.</p>
+                    </div>
+                    <button class="btn btn-primary btn-sm"
+                            type="button"
+                            @onclick="InvokeAddRequested"
+                            disabled="@(Busy || !AddRequested.HasDelegate)">
+                        <i class="fas fa-plus"></i>
+                        <span>Add channel</span>
+                    </button>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+<style>
+    .tdc-card {
+        border: 1px solid var(--border-color);
+        border-radius: var(--card-radius);
+        background: var(--card-bg);
+        overflow: hidden;
+    }
+
+    .tdc-header {
+        position: relative;
+        padding: 0.9rem 1rem;
+    }
+
+    .tdc-toggle {
+        width: 100%;
+        min-width: 0;
+        display: flex;
+        align-items: center;
+        gap: 0.9rem;
+        padding: 0 10.75rem 0 0;
+        border: 0;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+        text-align: left;
+        cursor: pointer;
+    }
+
+    .tdc-toggle:hover {
+        color: inherit;
+    }
+
+    .tdc-toggle:focus-visible,
+    .tdc-add-button:focus-visible,
+    .tdc-body button:focus-visible {
+        outline: 2px solid var(--accent-primary);
+        outline-offset: 2px;
+    }
+
+    .tdc-toggle-copy {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 0.55rem;
+    }
+
+    .tdc-title-line,
+    .tdc-meta-line,
+    .tdc-preview-head,
+    .tdc-preview-actions,
+    .tdc-track-line,
+    .tdc-state {
+        display: flex;
+        align-items: center;
+        gap: 0.55rem;
+        flex-wrap: wrap;
+    }
+
+    .tdc-title-line {
+        gap: 0.65rem;
+    }
+
+    .tdc-title {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        min-width: 0;
+        font-size: 1rem;
+        font-weight: 600;
+        color: var(--text-primary);
+    }
+
+    .tdc-title i,
+    .tdc-comp-group-head i {
+        color: var(--text-secondary);
+    }
+
+    .tdc-count,
+    .tdc-comp-group-count {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 1.4rem;
+        padding: 0.05rem 0.5rem;
+        border-radius: 999px;
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+        font-size: 0.72rem;
+        font-weight: 600;
+    }
+
+    .tdc-meta-line {
+        justify-content: space-between;
+        row-gap: 0.5rem;
+    }
+
+    .tdc-sdk-chips {
+        display: flex;
+        align-items: center;
+        gap: 0.45rem;
+        flex-wrap: wrap;
+        min-width: 0;
+    }
+
+    .tdc-sdk-chip {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.2rem 0.55rem;
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--accent-primary) 10%, var(--card-bg));
+        border: 1px solid color-mix(in srgb, var(--accent-primary) 25%, var(--border-color));
+        color: var(--text-primary);
+        font-size: 0.76rem;
+        font-weight: 600;
+        white-space: nowrap;
+    }
+
+    .tdc-status,
+    .tdc-status-note {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        font-size: 0.8rem;
+    }
+
+    .tdc-status {
+        font-weight: 600;
+        white-space: nowrap;
+    }
+
+    .tdc-status-note {
+        min-width: 0;
+    }
+
+    .tdc-status.is-checking,
+    .tdc-status.is-neutral {
+        color: var(--text-secondary);
+    }
+
+    .tdc-status.is-info {
+        color: var(--status-info-text);
+    }
+
+    .tdc-status.is-success {
+        color: var(--status-success-text);
+    }
+
+    .tdc-status.is-warning,
+    .tdc-status-note {
+        color: var(--status-warning-text);
+    }
+
+    .tdc-status.is-error {
+        color: var(--status-error-text);
+    }
+
+    .tdc-chevron {
+        position: absolute;
+        right: 1.05rem;
+        top: 50%;
+        transform: translateY(-50%);
+        color: var(--text-secondary);
+        font-size: 0.8rem;
+        transition: transform 0.15s ease;
+    }
+
+    .tdc-chevron.expanded {
+        transform: translateY(-50%) rotate(90deg);
+    }
+
+    .tdc-add-button {
+        position: absolute;
+        right: 3rem;
+        bottom: 0.9rem;
+        z-index: 1;
+    }
+
+    .tdc-body {
+        border-top: 1px solid var(--border-color);
+        padding: 0;
+    }
+
+    .tdc-update-checking {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.65rem 1rem;
+        border-bottom: 1px solid var(--border-color);
+        background: color-mix(in srgb, var(--bg-tertiary) 35%, var(--card-bg));
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+    }
+
+    .tdc-update-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        margin: 0;
+        padding: 0.55rem 1rem;
+        border-bottom: 1px solid var(--border-color);
+        background: var(--card-bg);
+    }
+
+    .tdc-preview-head {
+        gap: 0.75rem;
+    }
+
+    .tdc-preview-summary {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        font-weight: 600;
+        font-size: 0.9rem;
+    }
+
+    .tdc-preview-summary.has-updates {
+        color: var(--status-info-text);
+    }
+
+    .tdc-preview-note {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        font-size: 0.78rem;
+        color: var(--status-warning-text);
+    }
+
+    .tdc-track-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+    }
+
+    .tdc-track-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        padding: 0.65rem 1rem;
+        background: color-mix(in srgb, var(--bg-tertiary) 35%, var(--card-bg));
+    }
+
+    .tdc-track-item + .tdc-track-item {
+        border-top: 1px solid var(--border-color);
+    }
+
+    .tdc-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        padding: 2px 0.625rem;
+        border-radius: 0.75rem;
+        font-size: 0.75rem;
+        font-weight: 500;
+        white-space: nowrap;
+    }
+
+    .tdc-track-channel,
+    .tdc-prev-ver {
+        font-weight: 600;
+        color: var(--text-primary);
+        font-size: 0.85rem;
+    }
+
+    .tdc-prev-ver.old,
+    .tdc-track-human {
+        color: var(--text-secondary);
+        font-weight: 500;
+    }
+
+    .tdc-prev-ver.new {
+        color: var(--status-success-text);
+    }
+
+    .tdc-inline-result {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        font-size: 0.75rem;
+        font-weight: 600;
+        white-space: nowrap;
+    }
+
+    .tdc-inline-result.is-success {
+        color: var(--status-success-text);
+    }
+
+    .tdc-track-human {
+        font-size: 0.8rem;
+    }
+
+    .tdc-prev-arrow {
+        color: var(--text-secondary);
+        font-size: 0.75rem;
+    }
+
+    .tdc-track-details {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+    }
+
+    .tdc-track-controls,
+    .tdc-track-resolution {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    .tdc-track-controls {
+        flex-shrink: 0;
+        gap: 0.75rem;
+    }
+
+    .tdc-preview-actions {
+        gap: 0.5rem;
+    }
+
+    .tdc-comp-group {
+        margin: 0;
+    }
+
+    .tdc-comp-group-head {
+        display: flex;
+        align-items: center;
+        gap: 0.45rem;
+        padding: 0.55rem 1rem;
+        border-bottom: 1px solid var(--border-color);
+        background: var(--card-bg);
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: var(--text-primary);
+    }
+
+    .tdc-comp-group + .tdc-comp-group .tdc-comp-group-head {
+        border-top: 1px solid var(--border-color);
+    }
+
+    .tdc-state {
+        justify-content: space-between;
+        margin: 0;
+        padding: 0.9rem 1rem;
+        border-bottom: 1px solid var(--border-color);
+        background: color-mix(in srgb, var(--bg-tertiary) 35%, var(--card-bg));
+    }
+
+    .tdc-state:last-child {
+        border-bottom: 0;
+    }
+
+    .tdc-state > i {
+        font-size: 1rem;
+        flex-shrink: 0;
+        color: inherit;
+    }
+
+    .tdc-state > div {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .tdc-state strong {
+        display: block;
+        color: var(--text-primary);
+        font-size: 0.92rem;
+    }
+
+    .tdc-state p {
+        margin: 0.2rem 0 0;
+        color: var(--text-secondary);
+        font-size: 0.82rem;
+        line-height: 1.45;
+    }
+
+    .tdc-state-error {
+        color: var(--status-error-text);
+    }
+
+    .tdc-state-empty {
+        color: var(--text-secondary);
+    }
+
+    @@media (max-width: 820px) {
+        .tdc-header,
+        .tdc-toggle,
+        .tdc-track-item,
+        .tdc-state {
+            align-items: flex-start;
+        }
+
+        .tdc-header {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+
+        .tdc-toggle {
+            padding-right: 2rem;
+        }
+
+        .tdc-add-button {
+            position: static;
+            align-self: flex-start;
+        }
+
+        .tdc-chevron {
+            top: 1.35rem;
+            transform: none;
+        }
+
+        .tdc-chevron.expanded {
+            transform: rotate(90deg);
+        }
+
+        .tdc-meta-line,
+        .tdc-preview-head,
+        .tdc-preview-actions {
+            justify-content: flex-start;
+        }
+
+        .tdc-track-item,
+        .tdc-state {
+            flex-direction: column;
+        }
+
+        .tdc-update-toolbar,
+        .tdc-track-controls,
+        .tdc-track-resolution {
+            align-items: flex-start;
+            justify-content: flex-start;
+        }
+
+        .tdc-update-toolbar,
+        .tdc-track-controls {
+            flex-direction: column;
+        }
+    }
+</style>
+
+@code {
+    [Parameter] public string Title { get; set; } = "Tracked SDK channels";
+    [Parameter] public bool InitiallyExpanded { get; set; }
+    [Parameter] public DotnetUpListResult? ListResult { get; set; }
+    [Parameter] public IReadOnlyList<DotnetUpInstallSpec>? InstallSpecs { get; set; }
+    [Parameter] public IReadOnlyList<DotnetUpdatePreview>? UpdatePreviews { get; set; }
+    [Parameter] public bool Busy { get; set; }
+    [Parameter] public bool CheckingUpdates { get; set; }
+    [Parameter] public bool UpdatesUnresolved { get; set; }
+    [Parameter] public string? ErrorMessage { get; set; }
+    [Parameter] public EventCallback AddRequested { get; set; }
+    [Parameter] public EventCallback UpdateSdksRequested { get; set; }
+    [Parameter] public EventCallback UpdateRuntimesRequested { get; set; }
+    [Parameter] public EventCallback UpdateAllRequested { get; set; }
+    [Parameter] public EventCallback<DotnetUpInstallSpec> UntrackRequested { get; set; }
+
+    private readonly string headerId = $"tdc-head-{Guid.NewGuid():N}";
+    private readonly string bodyId = $"tdc-body-{Guid.NewGuid():N}";
+    private bool expanded;
+    private bool expansionInitialized;
+
+    private IReadOnlyList<DotnetUpInstallSpec> EffectiveInstallSpecs =>
+        InstallSpecs ?? ListResult?.InstallSpecs ?? Array.Empty<DotnetUpInstallSpec>();
+
+    private IReadOnlyList<DotnetUpdatePreview> EffectivePreviews =>
+        UpdatePreviews ?? Array.Empty<DotnetUpdatePreview>();
+
+    private IReadOnlyList<DotnetUpdatePreview> AvailablePreviews =>
+        EffectivePreviews.Where(preview => preview.UpdateAvailable).ToList();
+
+    private IReadOnlyList<DotnetUpInstallSpec> HeaderSdkChips =>
+        EffectiveInstallSpecs
+            .Where(spec => spec.Component == DotnetUpComponent.Sdk)
+            .GroupBy(spec => spec.VersionOrChannel, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .OrderBy(spec => ChipSortKey(spec.VersionOrChannel), StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    private bool HasSdkUpdates => AvailablePreviews.Any(preview => preview.Component == DotnetUpComponent.Sdk);
+
+    private bool HasRuntimeUpdates => AvailablePreviews.Any(preview => preview.Component is DotnetUpComponent.Runtime or DotnetUpComponent.AspNetCore or DotnetUpComponent.WindowsDesktop);
+
+    private HeaderStatusInfo HeaderStatus => BuildHeaderStatus();
+
+    private string ToggleAriaLabel => expanded ? $"Collapse {Title}" : $"Expand {Title}";
+
+    protected override void OnParametersSet()
+    {
+        if (!expansionInitialized)
+        {
+            expanded = InitiallyExpanded;
+            expansionInitialized = true;
+        }
+    }
+
+    private void ToggleExpanded() => expanded = !expanded;
+
+    private Task InvokeAddRequested() => AddRequested.InvokeAsync();
+
+    private Task InvokeUpdateSdksRequested() => UpdateSdksRequested.InvokeAsync();
+
+    private Task InvokeUpdateRuntimesRequested() => UpdateRuntimesRequested.InvokeAsync();
+
+    private Task InvokeUpdateAllRequested() => UpdateAllRequested.InvokeAsync();
+
+    private Task InvokeUntrackRequested(DotnetUpInstallSpec spec) => UntrackRequested.InvokeAsync(spec);
+
+    private DotnetUpdatePreview? PreviewFor(DotnetUpInstallSpec spec) =>
+        EffectivePreviews.FirstOrDefault(preview =>
+            preview.Component == spec.Component &&
+            string.Equals(
+                preview.Channel,
+                spec.VersionOrChannel,
+                StringComparison.OrdinalIgnoreCase));
+
+    private IEnumerable<TrackGroup> TrackedGroups()
+    {
+        var groups = EffectiveInstallSpecs
+            .GroupBy(spec => spec.Component)
+            .OrderBy(group => ComponentSortOrder(group.Key));
+
+        foreach (var group in groups)
+        {
+            yield return new TrackGroup(
+                ComponentDisplay(group.Key),
+                ComponentIcon(group.Key),
+                group.OrderByDescending(spec => spec.VersionOrChannel, StringComparer.OrdinalIgnoreCase).ToList());
+        }
+    }
+
+    private HeaderStatusInfo BuildHeaderStatus()
+    {
+        if (CheckingUpdates && UpdatePreviews is null)
+            return new("Checking updates…", "fas fa-spinner fa-spin", "is-checking");
+
+        if (!string.IsNullOrWhiteSpace(ErrorMessage))
+            return new("Unable to load tracked channels", "fas fa-circle-exclamation", "is-error");
+
+        if (EffectiveInstallSpecs.Count == 0)
+            return new("No tracked channels", "fas fa-inbox", "is-neutral");
+
+        if (UpdatesUnresolved)
+        {
+            var note = AvailablePreviews.Count > 0
+                ? $"{AvailablePreviews.Count} update{(AvailablePreviews.Count == 1 ? string.Empty : "s")} found"
+                : "Some channels couldn't be checked";
+            return new("Partially unresolved", "fas fa-triangle-exclamation", "is-warning", note);
+        }
+
+        if (AvailablePreviews.Count > 0)
+            return new($"{AvailablePreviews.Count} update{(AvailablePreviews.Count == 1 ? string.Empty : "s")} available", "fas fa-circle-arrow-up", "is-info");
+
+        if (UpdatePreviews != null)
+            return new("Up to date", "fas fa-circle-check", "is-success");
+
+        return new($"{EffectiveInstallSpecs.Count} tracked", "fas fa-list-check", "is-neutral");
+    }
+
+    private static int ComponentSortOrder(DotnetUpComponent component) => component switch
+    {
+        DotnetUpComponent.Sdk => 0,
+        DotnetUpComponent.Runtime => 1,
+        DotnetUpComponent.AspNetCore => 2,
+        DotnetUpComponent.WindowsDesktop => 3,
+        _ => 4
+    };
+
+    private static string ComponentDisplay(DotnetUpComponent component) => component switch
+    {
+        DotnetUpComponent.Sdk => ".NET SDK",
+        DotnetUpComponent.Runtime => ".NET Runtime",
+        DotnetUpComponent.AspNetCore => "ASP.NET Core Runtime",
+        DotnetUpComponent.WindowsDesktop => "Windows Desktop Runtime",
+        _ => "Component"
+    };
+
+    private static string ComponentIcon(DotnetUpComponent component) => component switch
+    {
+        DotnetUpComponent.Sdk => "fas fa-toolbox",
+        DotnetUpComponent.Runtime => "fas fa-gears",
+        DotnetUpComponent.AspNetCore => "fas fa-globe",
+        DotnetUpComponent.WindowsDesktop => "fas fa-desktop",
+        _ => "fas fa-cube"
+    };
+
+    private static string ChannelHuman(string channel)
+    {
+        var value = channel.Trim().ToLowerInvariant();
+        return value switch
+        {
+            "latest" => "Latest stable",
+            "lts" => "Long-Term Support",
+            "preview" => "Latest preview",
+            "daily" => "Daily build",
+            _ => FormatVersionChannel(channel.Trim())
+        };
+    }
+
+    private static string FormatVersionChannel(string channel)
+    {
+        if (Regex.IsMatch(channel, @"^\d+\.\d+$"))
+            return $".NET {channel} · latest patch";
+
+        if (Regex.IsMatch(channel, @"^\d+\.\d+\.\dxx$"))
+        {
+            var band = channel.Split('.').Last();
+            var majorMinor = channel[..channel.LastIndexOf('.')];
+            return $".NET {majorMinor} · feature band {band}";
+        }
+
+        if (Regex.IsMatch(channel, @"^\d+\.\d+\.\d+"))
+            return $"Pinned to {channel}";
+
+        return channel;
+    }
+
+    private static string ChipSortKey(string channel)
+    {
+        var trimmed = channel.Trim();
+        return trimmed.ToLowerInvariant() switch
+        {
+            "latest" => "0000-latest",
+            "lts" => "0001-lts",
+            "preview" => "0002-preview",
+            "daily" => "0003-daily",
+            _ => $"9999-{trimmed}"
+        };
+    }
+
+    private sealed record TrackGroup(string Key, string Icon, IReadOnlyList<DotnetUpInstallSpec> Items);
+
+    private sealed record HeaderStatusInfo(string Text, string IconClass, string CssClass, string? Note = null);
+}

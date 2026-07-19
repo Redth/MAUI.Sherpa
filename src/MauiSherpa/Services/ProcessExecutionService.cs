@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 using MauiSherpa.Core.Interfaces;
+using MauiSherpa.Core.Services;
 
 namespace MauiSherpa.Services;
 
@@ -66,6 +67,20 @@ public class ProcessExecutionService : IProcessExecutionService
             if (request.RequiresElevation && (_platform.IsMacCatalyst || _platform.IsMacOS))
             {
                 return await ExecuteElevatedMacAsync(request, _linkedCts.Token);
+            }
+            if (request.RequiresElevation && _platform.IsWindows)
+            {
+                return await ExecuteElevatedWindowsAsync(request, _linkedCts.Token);
+            }
+            if (request.RequiresElevation)
+            {
+                throw new PlatformNotSupportedException(
+                    "Administrator process execution is not supported on this platform.");
+            }
+
+            if (request.UsePseudoTerminal && (_platform.IsMacCatalyst || _platform.IsMacOS))
+            {
+                return await ExecutePseudoTerminalMacAsync(request, _linkedCts.Token);
             }
             
             return await ExecuteNormalAsync(request, _linkedCts.Token);
@@ -148,6 +163,70 @@ public class ProcessExecutionService : IProcessExecutionService
 
         return CreateResult();
     }
+
+    private async Task<ProcessResult> ExecutePseudoTerminalMacAsync(
+        ProcessRequest request,
+        CancellationToken cancellationToken)
+    {
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = "/usr/bin/script",
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            RedirectStandardInput = true,
+            CreateNoWindow = true,
+            WorkingDirectory = request.WorkingDirectory ?? Environment.CurrentDirectory
+        };
+        startInfo.ArgumentList.Add("-q");
+        startInfo.ArgumentList.Add("/dev/null");
+        startInfo.ArgumentList.Add(request.Command);
+        foreach (var arg in request.Arguments)
+            startInfo.ArgumentList.Add(arg);
+
+        startInfo.Environment["TERM"] = "xterm-256color";
+        if (request.Environment != null)
+        {
+            foreach (var kvp in request.Environment)
+                startInfo.Environment[kvp.Key] = kvp.Value;
+        }
+
+        _currentProcess = new Process { StartInfo = startInfo };
+        _currentProcess.Start();
+
+        var stdoutTask = ReadRawOutputAsync(
+            _currentProcess.StandardOutput, isError: false, cancellationToken);
+        var stderrTask = ReadRawOutputAsync(
+            _currentProcess.StandardError, isError: true, cancellationToken);
+
+        try
+        {
+            await _currentProcess.WaitForExitAsync(cancellationToken);
+            await Task.WhenAll(stdoutTask, stderrTask);
+        }
+        catch (OperationCanceledException)
+        {
+            // Cancellation state and process termination are managed by CancelAsync/KillAsync.
+        }
+
+        return CreateResult();
+    }
+
+    private async Task ReadRawOutputAsync(
+        TextReader reader,
+        bool isError,
+        CancellationToken cancellationToken)
+    {
+        var buffer = new char[4096];
+        while (true)
+        {
+            var read = await reader.ReadAsync(buffer.AsMemory(), cancellationToken);
+            if (read == 0)
+                break;
+
+            OnOutput(new string(buffer, 0, read), isError, isRaw: true);
+        }
+    }
     
     private async Task<ProcessResult> ExecuteElevatedMacAsync(ProcessRequest request, CancellationToken cancellationToken)
     {
@@ -159,19 +238,7 @@ public class ProcessExecutionService : IProcessExecutionService
         
         try
         {
-            // Build the command with proper escaping
-            var cmdArgs = string.Join(" ", request.Arguments.Select(EscapeForShell));
-            var fullCommand = $"{request.Command} {cmdArgs}";
-            
-            // Create script that runs command and streams to output file
-            // Using unbuffered output with script command for real-time streaming
-            var scriptContent = $@"#!/bin/bash
-exec > >(tee -a ""{_tempOutputFile}"") 2>&1
-{fullCommand}
-EXIT_CODE=$?
-echo ""__EXIT_CODE__:$EXIT_CODE"" >> ""{_tempOutputFile}""
-exit $EXIT_CODE
-";
+            var scriptContent = MacElevatedProcessScriptBuilder.Build(request, _tempOutputFile);
             await File.WriteAllTextAsync(tempScript, scriptContent, cancellationToken);
             
             // Make script executable
@@ -189,13 +256,16 @@ exit $EXIT_CODE
             
             // Start tailing the output file
             _tailCts = new CancellationTokenSource();
-            var tailTask = TailOutputFileAsync(_tempOutputFile, _tailCts.Token);
+            var tailTask = TailOutputFileAsync(
+                _tempOutputFile,
+                request.UsePseudoTerminal,
+                _tailCts.Token);
             
             // Build osascript command
             var escapedScript = tempScript.Replace("\\", "\\\\").Replace("\"", "\\\"");
             var osascriptCmd = $"do shell script \"\\\"{escapedScript}\\\"\" with administrator privileges";
             
-            _logger.LogInformation($"Running elevated: {fullCommand}");
+            _logger.LogInformation($"Running elevated: {request.CommandLine}");
             OnOutput("🔐 Requesting administrator privileges...", isError: false);
             
             var startInfo = new ProcessStartInfo
@@ -250,6 +320,7 @@ exit $EXIT_CODE
                         exitCode = parsedCode;
                     }
                 }
+
             }
             
             // Determine final state
@@ -278,8 +349,97 @@ exit $EXIT_CODE
             try { if (File.Exists(tempScript)) File.Delete(tempScript); } catch { }
         }
     }
+
+    private async Task<ProcessResult> ExecuteElevatedWindowsAsync(
+        ProcessRequest request,
+        CancellationToken cancellationToken)
+    {
+        _tempOutputFile = Path.Combine(
+            Path.GetTempPath(),
+            $"mauisherpa_output_{Guid.NewGuid():N}.log");
+        var tempScript = Path.Combine(
+            Path.GetTempPath(),
+            $"mauisherpa_cmd_{Guid.NewGuid():N}.ps1");
+
+        try
+        {
+            await File.WriteAllTextAsync(
+                tempScript,
+                WindowsElevatedProcessScriptBuilder.Build(request, _tempOutputFile),
+                cancellationToken);
+            await File.WriteAllTextAsync(_tempOutputFile, string.Empty, cancellationToken);
+
+            _tailCts = new CancellationTokenSource();
+            var tailTask = TailOutputFileAsync(
+                _tempOutputFile,
+                request.UsePseudoTerminal,
+                _tailCts.Token);
+
+            _logger.LogInformation($"Running elevated: {request.CommandLine}");
+            OnOutput("Requesting administrator privileges...", isError: false);
+
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = "powershell.exe",
+                Arguments = $"-NoProfile -ExecutionPolicy Bypass -File \"{tempScript}\"",
+                UseShellExecute = true,
+                Verb = "runas",
+                WorkingDirectory = request.WorkingDirectory ?? Environment.CurrentDirectory
+            };
+
+            _currentProcess = new Process { StartInfo = startInfo };
+            _currentProcess.Start();
+
+            try
+            {
+                await _currentProcess.WaitForExitAsync(cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                // Cancellation state and process termination are managed by CancelAsync/KillAsync.
+            }
+
+            _tailCts.Cancel();
+            try { await tailTask; } catch (OperationCanceledException) { }
+
+            var exitCode = _currentProcess.HasExited ? _currentProcess.ExitCode : -1;
+            if (File.Exists(_tempOutputFile))
+            {
+                var content = await File.ReadAllTextAsync(_tempOutputFile, cancellationToken);
+                var exitMarker = "__EXIT_CODE__:";
+                var markerIndex = content.LastIndexOf(exitMarker, StringComparison.Ordinal);
+                if (markerIndex >= 0)
+                {
+                    var exitCodeText = content[(markerIndex + exitMarker.Length)..]
+                        .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
+                        .FirstOrDefault();
+                    if (int.TryParse(exitCodeText, out var parsedCode))
+                        exitCode = parsedCode;
+                }
+            }
+
+            var finalState = CurrentState;
+            if (finalState == ProcessState.Running)
+                finalState = exitCode == 0 ? ProcessState.Completed : ProcessState.Failed;
+            CurrentState = finalState;
+
+            return new ProcessResult(
+                exitCode,
+                _outputBuilder.ToString(),
+                _errorBuilder.ToString(),
+                DateTime.Now - _startTime,
+                finalState);
+        }
+        finally
+        {
+            try { if (File.Exists(tempScript)) File.Delete(tempScript); } catch { }
+        }
+    }
     
-    private async Task TailOutputFileAsync(string filePath, CancellationToken cancellationToken)
+    private async Task TailOutputFileAsync(
+        string filePath,
+        bool rawOutput,
+        CancellationToken cancellationToken)
     {
         long lastPosition = 0;
         var lastContent = "";
@@ -300,13 +460,22 @@ exit $EXIT_CODE
                         
                         if (!string.IsNullOrEmpty(newContent))
                         {
-                            // Split by lines and output each (skip exit code marker)
-                            var lines = newContent.Split('\n');
-                            foreach (var line in lines)
+                            if (rawOutput)
                             {
-                                if (!string.IsNullOrEmpty(line) && !line.StartsWith("__EXIT_CODE__:"))
+                                var markerIndex = newContent.IndexOf("__EXIT_CODE__:", StringComparison.Ordinal);
+                                var visibleContent = markerIndex >= 0
+                                    ? newContent[..markerIndex].TrimEnd('\r', '\n')
+                                    : newContent;
+                                if (!string.IsNullOrEmpty(visibleContent))
+                                    OnOutput(visibleContent, isError: false, isRaw: true);
+                            }
+                            else
+                            {
+                                var lines = newContent.Split('\n');
+                                foreach (var line in lines)
                                 {
-                                    OnOutput(line.TrimEnd('\r'), isError: false);
+                                    if (!string.IsNullOrEmpty(line) && !line.StartsWith("__EXIT_CODE__:", StringComparison.Ordinal))
+                                        OnOutput(line.TrimEnd('\r'), isError: false);
                                 }
                             }
                         }
@@ -359,19 +528,6 @@ exit $EXIT_CODE
             try { if (File.Exists(_tempOutputFile)) File.Delete(_tempOutputFile); } catch { }
             _tempOutputFile = null;
         }
-    }
-
-    private string EscapeForShell(string arg)
-    {
-        if (string.IsNullOrEmpty(arg)) return "''";
-        if (!arg.Contains(' ') && !arg.Contains('\'') && !arg.Contains('"'))
-            return arg;
-        return $"'{arg.Replace("'", "'\\''")}'";
-    }
-
-    private string EscapeForAppleScript(string command)
-    {
-        return command.Replace("\\", "\\\\").Replace("\"", "\\\"");
     }
 
     public void Cancel()
@@ -448,14 +604,24 @@ exit $EXIT_CODE
         return _outputBuilder.ToString();
     }
 
-    private void OnOutput(string data, bool isError)
+    private void OnOutput(string data, bool isError, bool isRaw = false)
     {
         if (isError)
-            _errorBuilder.AppendLine(data);
+        {
+            if (isRaw)
+                _errorBuilder.Append(data);
+            else
+                _errorBuilder.AppendLine(data);
+        }
         else
-            _outputBuilder.AppendLine(data);
+        {
+            if (isRaw)
+                _outputBuilder.Append(data);
+            else
+                _outputBuilder.AppendLine(data);
+        }
 
-        OutputReceived?.Invoke(this, new ProcessOutputEventArgs(data, isError));
+        OutputReceived?.Invoke(this, new ProcessOutputEventArgs(data, isError, isRaw));
     }
 
     // P/Invoke for sending signals on Unix

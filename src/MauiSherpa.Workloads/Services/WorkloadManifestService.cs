@@ -179,7 +179,7 @@ public class WorkloadManifestService : IWorkloadManifestService
     private static string GetManifestPackageId(string manifestId, string sdkBand) =>
         $"{manifestId}.Manifest-{sdkBand}";
 
-    private static WorkloadManifest? ParseManifest(string json)
+    public static WorkloadManifest? ParseManifest(string json)
     {
         var manifestJson = JsonSerializer.Deserialize<WorkloadManifestJson>(json, JsonOptions);
         if (manifestJson == null)

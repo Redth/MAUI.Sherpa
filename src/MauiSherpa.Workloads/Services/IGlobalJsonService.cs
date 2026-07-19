@@ -10,10 +10,14 @@ public record GlobalJsonInfo(
     string? SdkVersion,
     /// <summary>Roll-forward policy (sdk.rollForward).</summary>
     string? RollForward,
-    /// <summary>Pinned workload set version (workloadSet.version).</summary>
+    /// <summary>Pinned workload set version (sdk.workloadVersion).</summary>
     string? WorkloadSetVersion,
     /// <summary>MSBuild SDK versions (msbuild-sdks).</summary>
-    IReadOnlyDictionary<string, string>? MsBuildSdks
+    IReadOnlyDictionary<string, string>? MsBuildSdks,
+    /// <summary>True when the obsolete workloadSet.version shape supplied the value.</summary>
+    bool UsesLegacyWorkloadSetProperty = false,
+    /// <summary>Optional sdk.workloads-update-mode override.</summary>
+    string? WorkloadsUpdateMode = null
 );
 
 /// <summary>
@@ -46,7 +50,7 @@ public interface IGlobalJsonService
     /// Checks if a workload set version is pinned in global.json.
     /// </summary>
     /// <param name="startDirectory">Directory to start searching from. Defaults to current directory.</param>
-    /// <returns>True if workloadSet.version is specified in global.json.</returns>
+    /// <returns>True if sdk.workloadVersion is specified in global.json.</returns>
     bool IsWorkloadSetPinned(string? startDirectory = null);
 
     /// <summary>
