@@ -82,6 +82,34 @@ public class DotnetSdkPresentationBuilderTests
     }
 
     [Fact]
+    public void FindTrackedSdkSpec_MapsInstalledVersionToItsFeatureBandChannel()
+    {
+        var installation = Installation(DotnetUpComponent.Sdk, "9.0.301");
+        var specs = new[]
+        {
+            Spec(DotnetUpComponent.Sdk, "9.0.1xx"),
+            Spec(DotnetUpComponent.Sdk, "9.0.3xx")
+        };
+
+        var result = DotnetSdkPresentationBuilder.FindTrackedSdkSpec(installation, specs);
+
+        result.Should().BeSameAs(specs[1]);
+    }
+
+    [Fact]
+    public void FindTrackedSdkSpec_ReturnsNullWhenMultipleSpecsMatch()
+    {
+        var installation = Installation(DotnetUpComponent.Sdk, "9.0.301");
+        var specs = new[]
+        {
+            Spec(DotnetUpComponent.Sdk, "9"),
+            Spec(DotnetUpComponent.Sdk, "9.0")
+        };
+
+        DotnetSdkPresentationBuilder.FindTrackedSdkSpec(installation, specs).Should().BeNull();
+    }
+
+    [Fact]
     public void Build_ComputesAggregateUpdateStateIncludingUnresolvedChannels()
     {
         var summary = DotnetSdkPresentationBuilder.Build(
