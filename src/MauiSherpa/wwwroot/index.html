@@ -72,31 +72,71 @@
             bottom: 0;
             left: 0;
             right: 0;
-            padding: 1rem;
+            padding: 0.75rem 1rem;
             background: #f44336;
             color: white;
-            text-align: center;
+            z-index: 10000;
+        }
+
+        #blazor-error-ui .error-actions {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+        }
+
+        #blazor-error-ui button,
+        #blazor-error-ui a {
+            color: white;
+            font: inherit;
+        }
+
+        #blazor-error-ui button {
+            padding: 0;
+            border: 0;
+            background: transparent;
+            cursor: pointer;
+            text-decoration: underline;
+        }
+
+        #blazor-error-ui .error-details {
+            max-height: 12rem;
+            margin: 0.75rem auto 0;
+            padding: 0.75rem;
+            overflow: auto;
+            background: rgba(0, 0, 0, 0.2);
+            color: white;
+            font: 0.75rem/1.4 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            text-align: left;
+            white-space: pre-wrap;
+            user-select: text;
         }
 
         #blazor-error-ui .dismiss {
             cursor: pointer;
-            margin-left: 1rem;
         }
     </style>
 </head>
 <body>
     <div id="app"></div>
 
-    <div id="blazor-error-ui" data-nosnippet>
-        An unhandled error has occurred.
-        <a href="." class="reload" style="color: white;">Reload</a>
-        <span class="dismiss"><i class="fas fa-times"></i></span>
+    <div id="blazor-error-ui" data-nosnippet role="alert" aria-live="assertive">
+        <div class="error-actions">
+            <span>An unhandled error has occurred.</span>
+            <button type="button" data-error-action="details" aria-expanded="false">Show details</button>
+            <a data-error-action="report" rel="noreferrer">Report issue</a>
+            <a href="." class="reload">Reload</a>
+            <button type="button" class="dismiss" data-error-action="dismiss" aria-label="Dismiss error"><i class="fas fa-times"></i></button>
+        </div>
+        <pre class="error-details" hidden></pre>
     </div>
 
     <script src="_framework/blazor.webview.js" autostart="false"></script>
     <script src="js/terminal.js"></script>
     <script src="js/modalInterop.js"></script>
     <script src="js/logScrollInterop.js"></script>
+    <script src="js/errorInterop.js"></script>
     <script>
         window.highlightCode = function(elementId) {
             var el = document.getElementById(elementId);

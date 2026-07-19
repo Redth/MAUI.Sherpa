@@ -8,6 +8,7 @@
 @inject BlazorToastService ToastService
 @inject ILoggingService Logger
 @inject IToolbarService ToolbarService
+@inject ILocalVaultAccessService LocalVaultAccess
 @implements IDisposable
 
 <h1><i class="fas fa-paper-plane"></i> Push Testing</h1>
@@ -33,7 +34,24 @@
 
             @if (authMode == "identity")
             {
-                <div class="form-group">
+                @if (RequiresLocalVaultAccess)
+                {
+                    <div class="vault-access-card">
+                        <div class="vault-access-content">
+                            <i class="fas fa-key"></i>
+                            <div>
+                                <strong>Unlock Local Vault to use a stored identity</strong>
+                                <p>Unlock the vault, or select the .p8 filesystem option above.</p>
+                            </div>
+                        </div>
+                        <button class="btn btn-primary" @onclick="UnlockLocalVaultAsync" disabled="@isUnlockingLocalVault">
+                            <i class="fas @(isUnlockingLocalVault ? "fa-spinner fa-spin" : "fa-unlock")"></i> Unlock Local Vault
+                        </button>
+                    </div>
+                }
+                else
+                {
+                    <div class="form-group">
                     <label>Apple Identity</label>
                     @if (identities.Count == 0)
                     {
@@ -49,7 +67,8 @@
                             }
                         </select>
                     }
-                </div>
+                    </div>
+                }
                 <div class="form-group">
                     <label>Team ID</label>
                     <input type="text" @bind="teamId" @bind:after="MarkDirty" placeholder="e.g. ABC1234DEF" />
@@ -222,6 +241,12 @@
         border-radius: var(--card-radius, 1rem);
         overflow: hidden;
     }
+
+    .vault-access-card { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: 1rem; background: var(--bg-tertiary); border-radius: 0.5rem; }
+    .vault-access-content { display: flex; align-items: flex-start; gap: 0.875rem; color: var(--text-secondary); }
+    .vault-access-content i { color: var(--accent-primary); margin-top: 0.125rem; }
+    .vault-access-content strong { display: block; color: var(--text-primary); margin-bottom: 0.25rem; }
+    .vault-access-content p { margin: 0; color: var(--text-muted); font-size: 0.875rem; }
 
     .section-title {
         font-weight: 600;
@@ -438,6 +463,8 @@
 </style>
 
 @code {
+    bool isUnlockingLocalVault;
+    bool RequiresLocalVaultAccess => LocalVaultAccess.GetState().RequiresUserAction;
     PushProjectBar? projectBar;
     List<AppleIdentity> identities = new();
     PushProject? activeProject;
@@ -491,7 +518,9 @@
     protected override async Task OnInitializedAsync()
     {
         ToolbarService.ClearItems();
-        identities = (await IdentityService.GetIdentitiesAsync()).ToList();
+        LocalVaultAccess.StateChanged += OnLocalVaultStateChanged;
+        if (!RequiresLocalVaultAccess)
+            identities = (await IdentityService.GetIdentitiesAsync()).ToList();
 
         // Migrate legacy settings if needed
         var migrated = await ProjectService.MigrateFromLegacyAsync();
@@ -502,6 +531,30 @@
         {
             var selected = migrated ?? projects[0];
             LoadFromProject(selected);
+        }
+    }
+
+    void OnLocalVaultStateChanged() => InvokeAsync(StateHasChanged);
+
+    async Task UnlockLocalVaultAsync()
+    {
+        isUnlockingLocalVault = true;
+        try
+        {
+            var state = await LocalVaultAccess.RequestAccessAsync();
+            if (state.RequiresUserAction)
+            {
+                ToastService.ShowError("Local Vault access was not granted.");
+                return;
+            }
+
+            identities = (await IdentityService.GetIdentitiesAsync()).ToList();
+            ToastService.ShowSuccess("Local Vault unlocked.");
+        }
+        finally
+        {
+            isUnlockingLocalVault = false;
+            await InvokeAsync(StateHasChanged);
         }
     }
 
@@ -736,5 +789,6 @@
 
     public void Dispose()
     {
+        LocalVaultAccess.StateChanged -= OnLocalVaultStateChanged;
     }
 }

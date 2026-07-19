@@ -16,6 +16,7 @@
 @inject ILogger<Doctor> Logger
 @inject IToolbarService ToolbarService
 @inject IPlatformService PlatformInfo
+@inject ILauncher AppLauncher
 @implements IDisposable
 
 <h1><i class="fas fa-stethoscope"></i> Environment Doctor</h1>
@@ -228,7 +229,7 @@
                                 }
                                 else
                                 {
-                                    <a href="@GetSdkDownloadUrl(sdk.Version)" target="_blank" class="download-link" title="Download SDK">
+                                    <a href="@GetSdkDownloadUrl(sdk.Version)" target="_blank" class="download-link" title="Download SDK" @onclick="() => OpenUrl(GetSdkDownloadUrl(sdk.Version))" @onclick:preventDefault>
                                         <i class="fas fa-download"></i> Download
                                     </a>
                                 }
@@ -1198,6 +1199,11 @@ else
         }
         // Fallback to main download page
         return "https://dotnet.microsoft.com/download/dotnet";
+    }
+
+    private async Task OpenUrl(string url)
+    {
+        await AppLauncher.OpenAsync(new Uri(url));
     }
 
     private async Task CopyToClipboard(string text)
