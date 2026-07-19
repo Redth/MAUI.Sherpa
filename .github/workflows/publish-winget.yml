@@ -36,7 +36,7 @@ jobs:
         run: |
           $tag = "${{ inputs.tag }}"
           if ($tag -notmatch '^v(?<version>\d+\.\d+\.\d+(?:\.\d+)?)$') {
-            throw "Release tags must look like v1.2.3 or v1.2.3.4. Got '$tag'."
+            throw "Release tags must look like v1.2.3, with an optional fourth revision component such as v1.2.3.4. Got '$tag'."
           }
 
           "RELEASE_TAG=$tag" >> $env:GITHUB_ENV
@@ -87,7 +87,6 @@ jobs:
             foreach ($replacement in $replacements.GetEnumerator()) {
               $content = $content.Replace($replacement.Key, $replacement.Value)
             }
-            $outputPath = Join-Path $manifestDir $template.Value
             $outputPath = Join-Path $manifestDir $template.Value
             Set-Content -Path $outputPath -Value $content -Encoding UTF8NoBOM -NoNewline
             Write-Host "Generated $outputPath"
