@@ -1,14 +1,23 @@
-name: WinGet Submission
+name: Publish WinGet Manifest
 
-# Manually-gated submission of a published Windows release to the winget community
-# repository (microsoft/winget-pkgs). Run this after the GitHub release contains the
-# self-contained Windows ZIP assets produced by the Build & Release workflow.
+# Submits a published Windows release to the winget community repository
+# (microsoft/winget-pkgs). Called automatically by the Build & Release workflow
+# after a stable release is created, or run manually for an existing release.
 #
 # Requires a repository secret named WINGET_CREATE_GITHUB_TOKEN: a classic PAT from an
 # account that can fork microsoft/winget-pkgs, with the public_repo scope.
 # See https://aka.ms/winget-create-token.
 
 on:
+  workflow_call:
+    inputs:
+      tag:
+        description: 'Release tag to submit'
+        required: true
+        type: string
+    secrets:
+      WINGET_CREATE_GITHUB_TOKEN:
+        required: true
   workflow_dispatch:
     inputs:
       tag:
@@ -49,7 +58,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path packages | Out-Null
           gh release download $env:RELEASE_TAG `
-            --repo ${{ github.repository }} `
+            --repo Redth/MAUI.Sherpa `
             --pattern "MAUI-Sherpa.win-x64.zip" `
             --pattern "MAUI-Sherpa.win-arm64.zip" `
             --dir packages
@@ -71,7 +80,6 @@ jobs:
           $replacements = @{
             "__VERSION__" = $env:PACKAGE_VERSION
             "__RELEASE_TAG__" = $env:RELEASE_TAG
-            "__REPOSITORY__" = "${{ github.repository }}"
             "__X64_SHA256__" = (Get-FileHash "packages/MAUI-Sherpa.win-x64.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
             "__ARM64_SHA256__" = (Get-FileHash "packages/MAUI-Sherpa.win-arm64.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
           }

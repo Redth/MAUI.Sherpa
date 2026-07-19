@@ -999,6 +999,15 @@ jobs:
           draft: false
           prerelease: ${{ contains(github.ref, '-') }}
 
+  publish-winget:
+    name: Publish WinGet Manifest
+    needs: [create-release]
+    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-')
+    uses: ./.github/workflows/publish-winget.yml
+    with:
+      tag: ${{ github.ref_name }}
+    secrets: inherit
+
   update-homebrew:
     name: Update Homebrew Tap
     runs-on: macos-latest
