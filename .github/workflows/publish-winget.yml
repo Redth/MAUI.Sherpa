@@ -85,11 +85,11 @@ jobs:
           }
 
           $validateOutput = winget validate --manifest $manifestDir 2>&1 | Out-String
+          $validateExitCode = $LASTEXITCODE
           Write-Host $validateOutput
-          if ($validateOutput -notmatch 'Manifest validation succeeded') {
-            throw "winget validate failed:`n$validateOutput"
+          if ($validateExitCode -ne 0) {
+            throw "winget validate failed with exit code ${validateExitCode}:`n$validateOutput"
           }
-          $global:LASTEXITCODE = 0
 
       - name: Submit to winget-pkgs
         shell: pwsh
@@ -100,5 +100,12 @@ jobs:
             throw "The WINGET_CREATE_GITHUB_TOKEN repository secret is not set. Add a classic PAT with public_repo scope that can fork microsoft/winget-pkgs. See https://aka.ms/winget-create-token."
           }
 
-          curl.exe -JLO https://aka.ms/wingetcreate/latest
+          curl.exe -fL -o wingetcreate.exe https://aka.ms/wingetcreate/latest
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path .\wingetcreate.exe)) {
+            throw "Failed to download wingetcreate.exe."
+          }
+
           .\wingetcreate.exe submit --token $env:WINGET_CREATE_GITHUB_TOKEN manifests
+          if ($LASTEXITCODE -ne 0) {
+            throw "wingetcreate submit failed with exit code $LASTEXITCODE."
+          }
