@@ -36,7 +36,7 @@ jobs:
         run: |
           $tag = "${{ inputs.tag }}"
           if ($tag -notmatch '^v(?<version>\d+\.\d+\.\d+(?:\.\d+)?)$') {
-            throw "Release tags must use v[major].[minor].[patch] with an optional [.revision] component, for example v1.2.3 or v1.2.3.4. Got '$tag'."
+            throw "Release tags must use v[major].[minor].[patch] with an optional [.revision] component, for example v1.2.3 or v1.2.3.4. Got $tag."
           }
 
           "RELEASE_TAG=$tag" >> $env:GITHUB_ENV
@@ -129,7 +129,9 @@ jobs:
             throw "wingetcreate.exe was installed but was not found on PATH."
           }
 
-          & $wingetCreatePath submit --token $env:WINGET_CREATE_GITHUB_TOKEN manifests
+          # wingetcreate reads WINGET_CREATE_GITHUB_TOKEN, which avoids exposing the
+          # token as a command-line argument in process listings.
+          & $wingetCreatePath submit manifests
           if ($LASTEXITCODE -ne 0) {
             throw "wingetcreate submit failed with exit code $LASTEXITCODE."
           }
