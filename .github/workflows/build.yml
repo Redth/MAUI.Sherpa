@@ -489,7 +489,11 @@ jobs:
             $x64Dir = Get-ChildItem -Path "src/MauiSherpa/bin/Release" -Filter "publish" -Recurse -Directory |
               Where-Object { $_.FullName -like "*win-x64*" } | Select-Object -First 1 -ExpandProperty FullName
           }
-          Compress-Archive -Path "$x64Dir/*" -DestinationPath ./artifacts/MAUI-Sherpa.win-x64.zip
+          $x64Files = @(Get-ChildItem -Path $x64Dir -File -Recurse)
+          if ($x64Files.Count -ne 1 -or $x64Files[0].Name -ne "MauiSherpa.exe") {
+            throw "Expected a single self-contained MauiSherpa.exe for win-x64, but found: $($x64Files.FullName -join ', ')"
+          }
+          Compress-Archive -Path $x64Files[0].FullName -DestinationPath ./artifacts/MAUI-Sherpa.win-x64.zip
           Write-Host "Created: MAUI-Sherpa.win-x64.zip"
           Get-Item ./artifacts/MAUI-Sherpa.win-x64.zip | Format-List Name, Length
 
@@ -498,7 +502,11 @@ jobs:
             $arm64Dir = Get-ChildItem -Path "src/MauiSherpa/bin/Release" -Filter "publish" -Recurse -Directory |
               Where-Object { $_.FullName -like "*win-arm64*" } | Select-Object -First 1 -ExpandProperty FullName
           }
-          Compress-Archive -Path "$arm64Dir/*" -DestinationPath ./artifacts/MAUI-Sherpa.win-arm64.zip
+          $arm64Files = @(Get-ChildItem -Path $arm64Dir -File -Recurse)
+          if ($arm64Files.Count -ne 1 -or $arm64Files[0].Name -ne "MauiSherpa.exe") {
+            throw "Expected a single self-contained MauiSherpa.exe for win-arm64, but found: $($arm64Files.FullName -join ', ')"
+          }
+          Compress-Archive -Path $arm64Files[0].FullName -DestinationPath ./artifacts/MAUI-Sherpa.win-arm64.zip
           Write-Host "Created: MAUI-Sherpa.win-arm64.zip"
           Get-Item ./artifacts/MAUI-Sherpa.win-arm64.zip | Format-List Name, Length
 
