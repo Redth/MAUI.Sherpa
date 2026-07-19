@@ -50,6 +50,13 @@ jobs:
             --pattern "MAUI-Sherpa.win-x64.zip" `
             --pattern "MAUI-Sherpa.win-arm64.zip" `
             --dir packages
+
+          if (-not (Test-Path "packages/MAUI-Sherpa.win-x64.zip")) {
+            throw "Missing win-x64 asset for release $env:RELEASE_TAG."
+          }
+          if (-not (Test-Path "packages/MAUI-Sherpa.win-arm64.zip")) {
+            throw "Missing win-arm64 asset for release $env:RELEASE_TAG."
+          }
           Get-ChildItem packages | Format-Table Name, Length
 
       - name: Generate winget manifest
@@ -57,6 +64,7 @@ jobs:
         run: |
           $manifestDir = "manifests"
           New-Item -ItemType Directory -Force -Path $manifestDir | Out-Null
+          $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 
           $replacements = @{
             "__VERSION__" = $env:PACKAGE_VERSION
@@ -79,7 +87,8 @@ jobs:
             }
 
             $outputPath = Join-Path $manifestDir $template.Value
-            Set-Content -Path $outputPath -Value $content -Encoding UTF8
+            $outputFullPath = Join-Path (Resolve-Path $manifestDir).Path $template.Value
+            [System.IO.File]::WriteAllText($outputFullPath, $content, $utf8NoBom)
             Write-Host "Generated $outputPath"
             Write-Host $content
           }
@@ -88,7 +97,7 @@ jobs:
           $validateExitCode = $LASTEXITCODE
           Write-Host $validateOutput
           if ($validateExitCode -ne 0) {
-            throw "winget validate failed with exit code ${validateExitCode}:`n$validateOutput"
+            throw "winget validate failed with exit code ${validateExitCode}. See output above."
           }
 
       - name: Submit to winget-pkgs
@@ -100,12 +109,14 @@ jobs:
             throw "The WINGET_CREATE_GITHUB_TOKEN repository secret is not set. Add a classic PAT with public_repo scope that can fork microsoft/winget-pkgs. See https://aka.ms/winget-create-token."
           }
 
+          # WingetCreate documents https://aka.ms/wingetcreate/latest as the official
+          # installer endpoint; this workflow trusts Microsoft's redirect service.
           curl.exe -fL -o wingetcreate.exe https://aka.ms/wingetcreate/latest
           if ($LASTEXITCODE -ne 0 -or -not (Test-Path .\wingetcreate.exe)) {
             throw "Failed to download wingetcreate.exe."
           }
 
-          .\wingetcreate.exe submit --token $env:WINGET_CREATE_GITHUB_TOKEN manifests
+          .\wingetcreate.exe submit manifests
           if ($LASTEXITCODE -ne 0) {
             throw "wingetcreate submit failed with exit code $LASTEXITCODE."
           }
