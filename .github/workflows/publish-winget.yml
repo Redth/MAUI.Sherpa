@@ -110,17 +110,19 @@ jobs:
           WINGET_CREATE_GITHUB_TOKEN: ${{ secrets.WINGET_CREATE_GITHUB_TOKEN }}
         run: |
           if ([string]::IsNullOrWhiteSpace($env:WINGET_CREATE_GITHUB_TOKEN)) {
-            throw "WinGet Submission workflow: The WINGET_CREATE_GITHUB_TOKEN repository secret is not set. Add a classic PAT with public_repo scope that can fork microsoft/winget-pkgs. See https://aka.ms/winget-create-token."
+            throw "The WINGET_CREATE_GITHUB_TOKEN repository secret is not set. Add a classic PAT with public_repo scope that can fork microsoft/winget-pkgs. See https://aka.ms/winget-create-token."
           }
 
           curl.exe -fL -o wingetcreate.exe "https://github.com/microsoft/winget-create/releases/download/$env:WINGETCREATE_VERSION/wingetcreate.exe"
           if ($LASTEXITCODE -ne 0 -or -not (Test-Path .\wingetcreate.exe)) {
-            throw "WinGet Submission workflow: Failed to download wingetcreate.exe $env:WINGETCREATE_VERSION."
+            throw "Failed to download wingetcreate.exe $env:WINGETCREATE_VERSION."
           }
 
+          # WingetCreate releases do not include a detached signature artifact, so pin
+          # the release URL and verify the downloaded executable against a known hash.
           $actualHash = (Get-FileHash .\wingetcreate.exe -Algorithm SHA256).Hash.ToLowerInvariant()
           if ($actualHash -ne $env:WINGETCREATE_SHA256) {
-            throw "WinGet Submission workflow: wingetcreate.exe SHA256 mismatch. Expected $env:WINGETCREATE_SHA256 but got $actualHash."
+            throw "wingetcreate.exe SHA256 mismatch. Expected $env:WINGETCREATE_SHA256 but got $actualHash."
           }
 
           .\wingetcreate.exe submit manifests
