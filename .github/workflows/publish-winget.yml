@@ -36,7 +36,7 @@ jobs:
         run: |
           $tag = "${{ inputs.tag }}"
           if ($tag -notmatch '^v(?<version>\d+\.\d+\.\d+(?:\.\d+)?)$') {
-            throw "Release tags must look like v1.2.3, with an optional fourth revision component such as v1.2.3.4. Got '$tag'."
+            throw "Release tags must use v[major].[minor].[patch] with an optional [.revision] component, for example v1.2.3 or v1.2.3.4. Got '$tag'."
           }
 
           "RELEASE_TAG=$tag" >> $env:GITHUB_ENV
@@ -114,6 +114,8 @@ jobs:
             throw "Failed to install wingetcreate $env:WINGETCREATE_VERSION."
           }
 
+          # WinGet may not refresh PATH for the current process after installation,
+          # so fall back to the per-user package directory used on GitHub-hosted runners.
           $wingetCreateCommand = Get-Command wingetcreate.exe -ErrorAction SilentlyContinue
           $wingetCreatePath = if ($null -ne $wingetCreateCommand) { $wingetCreateCommand.Source } else { $null }
           if ($null -eq $wingetCreatePath) {
