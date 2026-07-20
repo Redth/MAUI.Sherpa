@@ -309,7 +309,8 @@ public class DotnetUpService : IDotnetUpService
 
     public ProcessRequest CreateProcessRequest(
         IReadOnlyList<string> arguments, string? title = null, string? description = null,
-        string? workingDirectory = null, bool usePseudoTerminal = false) =>
+        string? workingDirectory = null, bool usePseudoTerminal = false,
+        bool acceptsStandardInput = false) =>
         new(
             Command: ExecutablePath,
             Arguments: arguments.ToArray(),
@@ -319,7 +320,8 @@ public class DotnetUpService : IDotnetUpService
             Environment: null,
             Title: title,
             Description: description,
-            UsePseudoTerminal: usePseudoTerminal);
+            UsePseudoTerminal: usePseudoTerminal,
+            AcceptsStandardInput: acceptsStandardInput);
 
     private static bool SupportsTerminalProgress =>
         OperatingSystem.IsMacOS() || OperatingSystem.IsMacCatalyst();
@@ -348,7 +350,8 @@ public class DotnetUpService : IDotnetUpService
             description: channel is null
                 ? "Installing the latest .NET SDK via dotnetup"
                 : $"Installing .NET SDK channel '{channel}' via dotnetup",
-            usePseudoTerminal: SupportsTerminalProgress);
+            usePseudoTerminal: SupportsTerminalProgress,
+            acceptsStandardInput: SupportsTerminalProgress);
 
     public ProcessRequest UpdateSdksRequest() =>
         CreateProcessRequest(

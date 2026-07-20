@@ -162,6 +162,8 @@ participate in resolution.
 - **Terminal Mode** is `--set-default-install` on install (writes the shell profile). Sherpa's
   one-step path is `sdk install <channel> --set-default-install`. On Apple platforms, Sherpa
   hosts dotnetup in a pseudo-terminal and streams its live ANSI progress into the terminal panel.
+  When an SDK install opens dotnetup's recommended-settings wizard there, the process dialog accepts
+  raw terminal input so arrow keys, Enter, and other control sequences reach dotnetup unchanged.
   Redirected platforms keep using `--no-progress` and receive phase-by-phase output.
 - Always resolve the managed install root from `list --format Json` `installRoot` rather than
   hardcoding a path — it differs per OS.
