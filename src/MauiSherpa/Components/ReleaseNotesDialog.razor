@@ -1,0 +1,323 @@
+@using Markdig
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Core.Services
+@inject IUpdateService UpdateService
+@inject ILauncher AppLauncher
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+@if (IsOpen)
+{
+    <div class="release-overlay" @onclick="CloseAsync">
+        <div class="release-dialog" id="release-notes-dialog" role="dialog" aria-modal="true" aria-labelledby="release-notes-title" @onclick:stopPropagation="true">
+            <header class="release-dialog-header">
+                <div>
+                    <h2 id="release-notes-title"><i class="fas fa-mountain"></i> Release Notes</h2>
+                    <p>What's new in MAUI Sherpa</p>
+                </div>
+                <button class="release-close" @onclick="CloseAsync" title="Close release notes" aria-label="Close release notes">
+                    <i class="fas fa-xmark"></i>
+                </button>
+            </header>
+
+            <div class="release-dialog-body">
+                @if (isLoading && releases.Count == 0)
+                {
+                    <div class="release-state"><i class="fas fa-circle-notch fa-spin"></i> Loading release notes...</div>
+                }
+                else if (!string.IsNullOrEmpty(errorMessage) && releases.Count == 0)
+                {
+                    <div class="release-state release-error">
+                        <i class="fas fa-circle-exclamation"></i>
+                        <span>@errorMessage</span>
+                        <button class="btn btn-secondary" @onclick="LoadReleasesAsync">Retry</button>
+                    </div>
+                }
+                else if (releases.Count == 0)
+                {
+                    <div class="release-state">No release notes are available.</div>
+                }
+                else
+                {
+                    @foreach (var release in releases.Take(5))
+                    {
+                        <article class="release-card">
+                            <div class="release-header">
+                                <button class="release-summary" @onclick="() => ToggleRelease(release.TagName)" aria-expanded="@expandedReleases.Contains(release.TagName)">
+                                    <span class="release-info">
+                                    <span class="release-tag">@release.TagName</span>
+                                    @if (!string.IsNullOrEmpty(release.Name) && release.Name != release.TagName)
+                                    {
+                                        <span class="release-name">@release.Name</span>
+                                    }
+                                    @if (release.IsPrerelease)
+                                    {
+                                        <span class="release-prerelease">Pre-release</span>
+                                    }
+                                    <span class="release-date">@release.PublishedAt.ToString("MMM d, yyyy")</span>
+                                    </span>
+                                    <i class="fas @(expandedReleases.Contains(release.TagName) ? "fa-chevron-up" : "fa-chevron-down")"></i>
+                                </button>
+                                <button class="release-open" @onclick="() => OpenReleaseAsync(release.HtmlUrl)" title="Open on GitHub" aria-label="Open @release.TagName on GitHub">
+                                    <i class="fas fa-arrow-up-right-from-square"></i>
+                                </button>
+                            </div>
+                            @if (expandedReleases.Contains(release.TagName))
+                            {
+                                <div class="release-body">@((MarkupString)ConvertMarkdownToHtml(release.Body))</div>
+                            }
+                        </article>
+                    }
+                }
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .release-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 1000;
+        display: grid;
+        place-items: center;
+        padding: 1.5rem;
+        background: var(--modal-overlay);
+    }
+
+    .release-dialog {
+        width: min(720px, 100%);
+        max-height: min(760px, calc(100vh - 3rem));
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 0.5rem;
+        box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25);
+    }
+
+    .release-dialog-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 1rem 1.25rem;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .release-dialog-header h2 { margin: 0; color: var(--text-primary); font-size: 1.1rem; }
+    .release-dialog-header h2 i { margin-right: 0.45rem; color: var(--text-muted); }
+    .release-dialog-header p { margin: 0.2rem 0 0; color: var(--text-muted); font-size: 0.78rem; }
+
+    .release-close {
+        width: 32px;
+        height: 32px;
+        border: none;
+        border-radius: 0.4rem;
+        background: transparent;
+        color: var(--text-muted);
+        cursor: pointer;
+    }
+
+    .release-close:hover { color: var(--text-primary); background: var(--bg-hover); }
+    .release-dialog-body { min-height: 180px; padding: 0.75rem; overflow-y: auto; }
+
+    .release-state {
+        min-height: 160px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.6rem;
+        color: var(--text-muted);
+        font-size: 0.85rem;
+    }
+
+    .release-error { color: var(--accent-danger); }
+    .release-card { margin-bottom: 0.5rem; overflow: hidden; background: var(--bg-tertiary); border-radius: 0.4rem; }
+
+    .release-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.5rem;
+        padding-right: 0.65rem;
+    }
+
+    .release-summary {
+        min-width: 0;
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 0.75rem 0.9rem;
+        border: none;
+        background: transparent;
+        color: inherit;
+        cursor: pointer;
+        text-align: left;
+    }
+
+    .release-header:hover { background: var(--bg-hover); }
+    .release-info { min-width: 0; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+    .release-tag { color: var(--text-primary); font-size: 0.85rem; font-weight: 650; }
+    .release-name { color: var(--text-secondary); font-size: 0.78rem; }
+    .release-date { color: var(--text-muted); font-size: 0.72rem; }
+    .release-prerelease { padding: 0.1rem 0.3rem; border-radius: 0.25rem; background: rgba(237, 137, 54, 0.12); color: var(--accent-warning); font-size: 0.62rem; font-weight: 650; text-transform: uppercase; }
+    .release-summary > i { flex-shrink: 0; color: var(--text-muted); font-size: 0.7rem; }
+    .release-open { width: 30px; height: 30px; flex-shrink: 0; border: none; border-radius: 0.25rem; background: transparent; color: var(--text-muted); cursor: pointer; }
+    .release-open:hover { color: var(--accent-primary); background: var(--card-bg); }
+
+    .release-body {
+        padding: 0.8rem 1rem 1rem;
+        border-top: 1px solid var(--border-color);
+        color: var(--text-secondary);
+        font-size: 0.8rem;
+        line-height: 1.55;
+    }
+
+    .release-body h1, .release-body h2, .release-body h3 { margin: 0.75rem 0 0.35rem; color: var(--text-primary); font-size: 0.95rem; }
+    .release-body h1:first-child, .release-body h2:first-child, .release-body h3:first-child { margin-top: 0; }
+    .release-body p { margin: 0.35rem 0; }
+    .release-body ul, .release-body ol { margin: 0.35rem 0; padding-left: 1.25rem; }
+    .release-body code, .release-body pre { background: var(--card-bg); }
+    .release-body code { padding: 0.08rem 0.3rem; border-radius: 0.2rem; }
+    .release-body pre { padding: 0.65rem; overflow-x: auto; border-radius: 0.3rem; }
+    .release-body a { color: var(--accent-primary); }
+
+    @@media (max-width: 600px) {
+        .release-overlay { padding: 0.75rem; }
+        .release-dialog { max-height: calc(100vh - 1.5rem); }
+        .release-name { width: 100%; }
+    }
+</style>
+
+@code {
+    private static readonly string CacheFilePath = Path.Combine(AppDataPath.GetAppDataDirectory(), "releases-cache.json");
+    private readonly HashSet<string> expandedReleases = [];
+    private IReadOnlyList<GitHubRelease> releases = [];
+    private DotNetObjectReference<ReleaseNotesDialog>? dotNetReference;
+    private bool hasLoaded;
+    private bool isLoading;
+    private bool initializeFocus;
+    private bool wasOpen;
+    private string errorMessage = "";
+
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!IsOpen)
+        {
+            wasOpen = false;
+            return;
+        }
+
+        if (wasOpen)
+            return;
+
+        wasOpen = true;
+
+        if (!hasLoaded)
+            await LoadReleasesAsync();
+
+        dotNetReference ??= DotNetObjectReference.Create(this);
+        initializeFocus = true;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!initializeFocus || !IsOpen)
+            return;
+
+        initializeFocus = false;
+        await JS.InvokeVoidAsync("modalInterop.initialize", "release-notes-dialog", dotNetReference);
+    }
+
+    private async Task LoadReleasesAsync()
+    {
+        isLoading = true;
+        errorMessage = "";
+        LoadCachedReleases();
+
+        try
+        {
+            var freshReleases = await UpdateService.GetAllReleasesAsync();
+            releases = freshReleases
+                .Where(release => !release.IsDraft)
+                .OrderByDescending(release => release.PublishedAt)
+                .ToList();
+
+            if (expandedReleases.Count == 0 && releases.Count > 0)
+                expandedReleases.Add(releases[0].TagName);
+
+            try
+            {
+                var json = System.Text.Json.JsonSerializer.Serialize(releases);
+                await File.WriteAllTextAsync(CacheFilePath, json);
+            }
+            catch { }
+
+            hasLoaded = true;
+        }
+        catch
+        {
+            errorMessage = "Unable to refresh release notes.";
+            hasLoaded = releases.Count > 0;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void LoadCachedReleases()
+    {
+        if (releases.Count > 0 || !File.Exists(CacheFilePath))
+            return;
+
+        try
+        {
+            releases = System.Text.Json.JsonSerializer.Deserialize<List<GitHubRelease>>(File.ReadAllText(CacheFilePath)) ?? [];
+            if (releases.Count > 0)
+                expandedReleases.Add(releases[0].TagName);
+        }
+        catch { }
+    }
+
+    private void ToggleRelease(string tagName)
+    {
+        if (!expandedReleases.Remove(tagName))
+            expandedReleases.Add(tagName);
+    }
+
+    private async Task OpenReleaseAsync(string url)
+    {
+        if (!string.IsNullOrEmpty(url))
+            await AppLauncher.OpenAsync(new Uri(url));
+    }
+
+    private static string ConvertMarkdownToHtml(string? markdown)
+    {
+        if (string.IsNullOrWhiteSpace(markdown))
+            return "<p>No release notes available.</p>";
+
+        var pipeline = new MarkdownPipelineBuilder().UseAdvancedExtensions().DisableHtml().Build();
+        return Markdig.Markdown.ToHtml(markdown, pipeline);
+    }
+
+    [JSInvokable("OnEscapePressed")]
+    public async Task CloseAsync()
+    {
+        await JS.InvokeVoidAsync("modalInterop.dispose", "release-notes-dialog");
+        await OnClose.InvokeAsync();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await JS.InvokeVoidAsync("modalInterop.dispose", "release-notes-dialog"); } catch { }
+        dotNetReference?.Dispose();
+    }
+}
