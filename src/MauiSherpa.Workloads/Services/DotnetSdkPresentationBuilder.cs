@@ -57,6 +57,37 @@ public static partial class DotnetSdkPresentationBuilder
             .ToList();
     }
 
+    /// <summary>
+    /// Finds the single tracked SDK spec that owns an installed SDK. dotnetup uninstalls specs,
+    /// rather than concrete SDK versions, so the UI must use this result for SDK removal.
+    /// </summary>
+    public static DotnetUpInstallSpec? FindTrackedSdkSpec(
+        DotnetUpInstallation installation,
+        IReadOnlyList<DotnetUpInstallSpec>? installSpecs)
+    {
+        ArgumentNullException.ThrowIfNull(installation);
+
+        if (installation.Component != DotnetUpComponent.Sdk || installSpecs == null)
+            return null;
+
+        var matches = installSpecs
+            .Where(spec => spec.Component == DotnetUpComponent.Sdk)
+            .Where(spec => string.Equals(
+                spec.InstallRoot,
+                installation.InstallRoot,
+                StringComparison.OrdinalIgnoreCase))
+            .Where(spec => string.IsNullOrWhiteSpace(spec.Architecture) ||
+                           string.Equals(
+                               spec.Architecture,
+                               installation.Architecture,
+                               StringComparison.OrdinalIgnoreCase))
+            .Where(spec => SdkSpecMatchesVersion(spec.VersionOrChannel, installation.Version))
+            .Take(2)
+            .ToList();
+
+        return matches.Count == 1 ? matches[0] : null;
+    }
+
     public static DotnetMajorMinorGroupSummary? BuildProjectInstalledGroup(
         GlobalJsonResolution? projectResolution,
         IReadOnlyList<DotnetUpInstallation>? installations,
@@ -317,6 +348,35 @@ public static partial class DotnetSdkPresentationBuilder
             ? leftVersion == rightVersion
             : string.Equals(left, right, StringComparison.OrdinalIgnoreCase);
 
+    private static bool SdkSpecMatchesVersion(string versionOrChannel, string installedVersion)
+    {
+        var spec = versionOrChannel.Trim();
+        if (VersionsEqual(spec, installedVersion))
+            return true;
+
+        if (!NuGetVersion.TryParse(installedVersion, out var installed))
+            return false;
+
+        if (SdkFeatureBandPattern().Match(spec) is { Success: true } featureBand &&
+            int.TryParse(featureBand.Groups[1].Value, out var featureMajor) &&
+            int.TryParse(featureBand.Groups[2].Value, out var featureMinor) &&
+            int.TryParse(featureBand.Groups[3].Value, out var featureBandHundreds))
+        {
+            return installed.Major == featureMajor &&
+                   installed.Minor == featureMinor &&
+                   installed.Patch / 100 == featureBandHundreds;
+        }
+
+        if (MajorMinorPattern().Match(spec) is { Success: true } majorMinor &&
+            int.TryParse(majorMinor.Groups[1].Value, out var major) &&
+            int.TryParse(majorMinor.Groups[2].Value, out var minor))
+        {
+            return installed.Major == major && installed.Minor == minor;
+        }
+
+        return int.TryParse(spec, out var majorOnly) && installed.Major == majorOnly;
+    }
+
     private sealed class MajorMinorSortComparer : IComparer<(int Major, int Minor)>
     {
         public static MajorMinorSortComparer Instance { get; } = new();
@@ -366,4 +426,10 @@ public static partial class DotnetSdkPresentationBuilder
 
     [GeneratedRegex(@"^\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$", RegexOptions.Compiled)]
     private static partial Regex ExactVersionPattern();
+
+    [GeneratedRegex(@"^(\d+)\.(\d+)\.(\d+)xx$", RegexOptions.Compiled | RegexOptions.IgnoreCase)]
+    private static partial Regex SdkFeatureBandPattern();
+
+    [GeneratedRegex(@"^(\d+)\.(\d+)$", RegexOptions.Compiled)]
+    private static partial Regex MajorMinorPattern();
 }

@@ -598,9 +598,26 @@
     private async Task RunUninstall(DotnetUpInstallation item)
     {
         var label = $"{item.ComponentRaw} {item.Version}";
-        ProcessRequest request = item.Component == DotnetUpComponent.Sdk
-            ? DotnetUp.UninstallSdkRequest(item.Version)
-            : DotnetUp.UninstallRuntimeRequest($"{RuntimeToken(item)}@{item.Version}");
+        ProcessRequest request;
+        if (item.Component == DotnetUpComponent.Sdk)
+        {
+            var spec = DotnetSdkPresentationBuilder.FindTrackedSdkSpec(item, list?.InstallSpecs);
+            if (spec == null)
+            {
+                await AlertService.ShowAlertAsync(
+                    "SDK uninstall unavailable",
+                    $"Sherpa couldn't identify the tracked channel that installed SDK {item.Version}. " +
+                    "Use the Untrack action in Tracked channels to remove it safely.");
+                return;
+            }
+
+            request = DotnetUp.UninstallSdkRequest(spec.VersionOrChannel, spec.Source);
+        }
+        else
+        {
+            request = DotnetUp.UninstallRuntimeRequest($"{RuntimeToken(item)}@{item.Version}");
+        }
+
         request = request with
         {
             Description = $"Remove {label} from {item.InstallRoot}.",
