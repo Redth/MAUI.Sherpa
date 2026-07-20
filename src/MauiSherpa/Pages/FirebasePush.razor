@@ -11,6 +11,7 @@
 @inject IFileSystemService FileSystem
 @inject BlazorToastService ToastService
 @inject IToolbarService ToolbarService
+@inject ILocalVaultAccessService LocalVaultAccess
 @implements IDisposable
 
 <h1><i class="fas fa-paper-plane"></i> Firebase Push Testing</h1>
@@ -569,20 +570,32 @@
 
     private async Task SyncCredentialsFromIdentity()
     {
-        var identity = GoogleIdentityState.SelectedIdentity;
-        if (identity != null && !string.IsNullOrEmpty(identity.ServiceAccountJson))
+        if (LocalVaultAccess.GetState().RequiresUserAction)
         {
-            await PushService.SaveServiceAccountAsync(identity.ServiceAccountJson);
-            hasCredentials = true;
-            projectId = identity.ProjectId;
+            hasCredentials = false;
+            projectId = null;
+            return;
         }
-        else
+
+        try
         {
-            hasCredentials = await PushService.HasCredentialsAsync();
-            if (hasCredentials)
-                projectId = await PushService.GetProjectIdAsync();
+            var identity = GoogleIdentityState.SelectedIdentity;
+            if (identity != null && !string.IsNullOrEmpty(identity.ServiceAccountJson))
+            {
+                await PushService.SaveServiceAccountAsync(identity.ServiceAccountJson);
+                hasCredentials = true;
+                projectId = identity.ProjectId;
+            }
             else
-                projectId = null;
+            {
+                hasCredentials = await PushService.HasCredentialsAsync();
+                projectId = hasCredentials ? await PushService.GetProjectIdAsync() : null;
+            }
+        }
+        catch (LocalVaultUnavailableException)
+        {
+            hasCredentials = false;
+            projectId = null;
         }
     }
 

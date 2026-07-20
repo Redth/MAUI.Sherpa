@@ -153,7 +153,7 @@
                         {
                             <button class="btn btn-sm btn-update-available" @onclick="ShowUpdateDialog">
                                 <i class="fas fa-arrow-circle-up"></i>
-                                @(updateResult.LatestRelease.TagName) available
+                                Upgrade to @(updateResult.LatestRelease.TagName)
                             </button>
                         }
                     </div>
@@ -287,7 +287,7 @@
     <h2><i class="fab fa-apple"></i> Apple Identities</h2>
     <p class="section-description">
         Configure App Store Connect API credentials for managing Apple Developer resources.
-        <a href="https://appstoreconnect.apple.com/access/integrations/api" target="_blank">Get API keys</a>
+        <a href="https://appstoreconnect.apple.com/access/integrations/api" target="_blank" @onclick='() => OpenUrl("https://appstoreconnect.apple.com/access/integrations/api")' @onclick:preventDefault>Get API keys</a>
     </p>
     
     @if (appleIdentities.Count == 0)
@@ -357,7 +357,7 @@
     <h2><i class="fab fa-google"></i> Google Identities</h2>
     <p class="section-description">
         Configure Google Cloud / Firebase service account credentials for push notifications and project management.
-        <a href="https://console.firebase.google.com/project/_/settings/serviceaccounts/adminsdk" target="_blank">Get service account JSON</a>
+        <a href="https://console.firebase.google.com/project/_/settings/serviceaccounts/adminsdk" target="_blank" @onclick='() => OpenUrl("https://console.firebase.google.com/project/_/settings/serviceaccounts/adminsdk")' @onclick:preventDefault>Get service account JSON</a>
     </p>
     
     @if (googleIdentities.Count == 0)
@@ -458,7 +458,7 @@
                             <span class="provider-name">@provider.Name</span>
                             @if (!string.IsNullOrEmpty(providerUrl))
                             {
-                                <a href="@providerUrl" target="_blank" class="provider-link" title="Open in browser">
+                                <a href="@providerUrl" target="_blank" class="provider-link" title="Open in browser" @onclick="() => OpenUrl(providerUrl)" @onclick:preventDefault>
                                     <i class="fas fa-external-link-alt"></i>
                                 </a>
                             }
@@ -1498,7 +1498,7 @@
         await LoadGeneralPreferences();
         
         appVersion = TruncateVersion(UpdateService.GetCurrentVersion());
-        updateResult = UpdateService.CachedResult;
+        updateResult = await UpdateService.CheckForUpdateAsync();
     }
 
     private static string TruncateVersion(string version)
@@ -1625,6 +1625,8 @@
             if (CloudSecretsService is CloudSecretsService svc)
                 await svc.InitializeAsync();
             await LoadCloudProviders();
+            await LoadAppleIdentities();
+            await LoadGoogleIdentities();
         }
         finally
         {
@@ -1635,23 +1637,41 @@
 
     private async Task LoadAppleIdentities()
     {
-        appleIdentities = (await AppleIdentityService.GetIdentitiesAsync()).ToList();
+        try
+        {
+            appleIdentities = (await AppleIdentityService.GetIdentitiesAsync()).ToList();
+        }
+        catch (LocalVaultUnavailableException)
+        {
+            appleIdentities = new();
+        }
     }
 
     private async Task LoadGoogleIdentities()
     {
-        googleIdentities = (await GoogleIdentityService.GetIdentitiesAsync()).ToList();
+        try
+        {
+            googleIdentities = (await GoogleIdentityService.GetIdentitiesAsync()).ToList();
+        }
+        catch (LocalVaultUnavailableException)
+        {
+            googleIdentities = new();
+        }
     }
     
     private async Task LoadCloudProviders()
     {
-        // Initialize service if needed
-        if (CloudSecretsService is CloudSecretsService svc)
+        try
         {
-            await svc.InitializeAsync();
-        }
+            if (CloudSecretsService is CloudSecretsService svc)
+                await svc.InitializeAsync();
 
-        cloudProviders = (await CloudSecretsService.GetProvidersAsync()).ToList();
+            cloudProviders = (await CloudSecretsService.GetProvidersAsync()).ToList();
+        }
+        catch (LocalVaultUnavailableException)
+        {
+            cloudProviders = new();
+        }
     }
 
     private async Task LoadSecretsPublishers()

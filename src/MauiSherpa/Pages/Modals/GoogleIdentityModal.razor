@@ -4,6 +4,7 @@
 @inject MauiSherpa.Pages.Forms.ModalParameterService ModalParams
 @inject IDialogService DialogService
 @inject IFileSystemService FileSystem
+@inject ILauncher AppLauncher
 
 <div class="dialog-content">
     <div class="dialog-header">
@@ -18,7 +19,7 @@
         <div class="form-group">
             <label>Service Account JSON</label>
             <div class="help-text" style="margin-bottom: 0.5rem;">
-                Download from <a href="https://console.firebase.google.com/project/_/settings/serviceaccounts/adminsdk" target="_blank">Firebase Console → Project Settings → Service Accounts</a> → Generate New Private Key
+                Download from <a href="https://console.firebase.google.com/project/_/settings/serviceaccounts/adminsdk" target="_blank" @onclick='() => OpenUrl("https://console.firebase.google.com/project/_/settings/serviceaccounts/adminsdk")' @onclick:preventDefault>Firebase Console → Project Settings → Service Accounts</a> → Generate New Private Key
             </div>
             <div class="p8-input-toggle">
                 <button class="toggle-btn @(saJsonInputMode == "file" ? "active" : "")" @onclick="@(() => saJsonInputMode = "file")">
@@ -103,6 +104,11 @@
     }
 
     private void Cancel() => ModalParams.Cancel();
+
+    private async Task OpenUrl(string url)
+    {
+        await AppLauncher.OpenAsync(new Uri(url));
+    }
 
     private void Save()
     {

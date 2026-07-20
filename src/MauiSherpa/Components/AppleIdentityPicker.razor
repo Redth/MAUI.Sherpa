@@ -4,9 +4,25 @@
 @inject IAppleIdentityStateService IdentityState
 @inject IPlatformService PlatformInfo
 @inject NavigationManager Navigation
+@inject ILocalVaultAccessService LocalVaultAccess
 @implements IDisposable
 
-@if (PlatformInfo.HasNativeToolbar)
+@if (RequiresLocalVaultAccess)
+{
+    <div class="vault-access-card">
+        <div class="vault-access-content">
+            <i class="fas fa-key"></i>
+            <div>
+                <strong>Unlock Local Vault to use Apple services</strong>
+                <p>Apple credentials are stored in the Local Vault. Grant access to continue using App Store Connect.</p>
+            </div>
+        </div>
+        <button class="btn btn-primary" @onclick="UnlockLocalVaultAsync" disabled="@isUnlocking">
+            <i class="fas @(isUnlocking ? "fa-spinner fa-spin" : "fa-unlock")"></i> Unlock Local Vault
+        </button>
+    </div>
+}
+else if (PlatformInfo.HasNativeToolbar)
 {
     @* Identity picker is in the native toolbar (macOS/Linux/Windows) *@
 }
@@ -124,15 +140,76 @@ else
         align-items: center;
         gap: 0.5rem;
     }
+
+    .vault-access-card {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 1rem;
+        padding: 1rem;
+        margin: 1rem 0;
+        background: var(--card-bg);
+        border-radius: var(--card-radius);
+    }
+
+    .vault-access-content {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.875rem;
+        color: var(--text-secondary);
+    }
+
+    .vault-access-content i {
+        color: var(--accent-primary);
+        margin-top: 0.125rem;
+    }
+
+    .vault-access-content strong {
+        display: block;
+        color: var(--text-primary);
+        margin-bottom: 0.25rem;
+    }
+
+    .vault-access-content p {
+        margin: 0;
+        color: var(--text-muted);
+        font-size: 0.875rem;
+    }
 </style>
 
 @code {
     private List<AppleIdentity> identities = new();
     private string selectedIdentityId = "";
+    private bool isUnlocking;
+
+    private bool RequiresLocalVaultAccess => LocalVaultAccess.GetState().RequiresUserAction;
 
     protected override async Task OnInitializedAsync()
     {
-        identities = (await IdentityService.GetIdentitiesAsync()).ToList();
+        LocalVaultAccess.StateChanged += HandleLocalVaultStateChanged;
+        IdentityState.OnSelectionChanged += HandleExternalSelectionChange;
+        if (RequiresLocalVaultAccess)
+        {
+            IdentityState.SetSelectedIdentity(null);
+            return;
+        }
+
+        await LoadIdentitiesAsync();
+    }
+
+    private async Task LoadIdentitiesAsync()
+    {
+        try
+        {
+            identities = (await IdentityService.GetIdentitiesAsync()).ToList();
+        }
+        catch (LocalVaultUnavailableException)
+        {
+            identities = new();
+            selectedIdentityId = "";
+            IdentityState.SetSelectedIdentity(null);
+            return;
+        }
         
         // Restore selection or select first
         if (IdentityState.SelectedIdentity != null)
@@ -160,7 +237,38 @@ else
             IdentityState.SetSelectedIdentity(identities[0]);
         }
 
-        IdentityState.OnSelectionChanged += HandleExternalSelectionChange;
+    }
+
+    private void HandleLocalVaultStateChanged()
+    {
+        InvokeAsync(async () =>
+        {
+            if (RequiresLocalVaultAccess)
+            {
+                IdentityState.SetSelectedIdentity(null);
+            }
+            else
+            {
+                await LoadIdentitiesAsync();
+            }
+            StateHasChanged();
+        });
+    }
+
+    private async Task UnlockLocalVaultAsync()
+    {
+        isUnlocking = true;
+        try
+        {
+            var state = await LocalVaultAccess.RequestAccessAsync();
+            if (!state.RequiresUserAction)
+                await LoadIdentitiesAsync();
+        }
+        finally
+        {
+            isUnlocking = false;
+            await InvokeAsync(StateHasChanged);
+        }
     }
 
     private void OnSelectionChanged()
@@ -186,5 +294,6 @@ else
     public void Dispose()
     {
         IdentityState.OnSelectionChanged -= HandleExternalSelectionChange;
+        LocalVaultAccess.StateChanged -= HandleLocalVaultStateChanged;
     }
 }

@@ -23,6 +23,13 @@ public class MainPage : ContentPage
             Selector = "#app",
             ComponentType = typeof(Components.App)
         });
+        _blazorWebView.UrlLoading += (_, e) =>
+        {
+            if (e.Url.Scheme is "http" or "https" &&
+                e.Url.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase) &&
+                e.Url.AbsolutePath.StartsWith("/Redth/MAUI.Sherpa/issues/new", StringComparison.OrdinalIgnoreCase))
+                e.UrlLoadingStrategy = Microsoft.AspNetCore.Components.WebView.UrlLoadingStrategy.OpenExternally;
+        };
 
 #if WINDOWS
         // Set WebView2 user data folder to a writable location so the app works

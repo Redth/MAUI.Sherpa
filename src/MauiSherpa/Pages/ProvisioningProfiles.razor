@@ -16,13 +16,14 @@
 @inject IEncryptedSettingsService SettingsService
 @inject IToolbarService ToolbarService
 @inject IPlatformService PlatformInfo
+@inject ILocalVaultAccessService LocalVaultAccess
 @implements IDisposable
 
 <h1><i class="fas fa-id-card"></i> Provisioning Profiles</h1>
 
 <AppleIdentityPicker />
 
-@if (IdentityState.SelectedIdentity != null)
+@if (IdentityState.SelectedIdentity != null && !LocalVaultAccess.GetState().RequiresUserAction)
 {
     @if (!PlatformInfo.HasNativeToolbar)
     {
@@ -584,6 +585,9 @@
 
     private async Task RefreshData(bool forceRefresh = false)
     {
+        if (IdentityState.SelectedIdentity == null || LocalVaultAccess.GetState().RequiresUserAction)
+            return;
+
         if (IdentityState.SelectedIdentity == null) return;
 
         isLoading = true;

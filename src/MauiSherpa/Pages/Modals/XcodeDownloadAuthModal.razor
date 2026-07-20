@@ -26,7 +26,8 @@
             </div>
         </div>
 
-        <div class="wizard-body">
+        <form class="wizard-body" @onsubmit="OnFormSubmitted" @onsubmit:preventDefault>
+            <button type="submit" tabindex="-1" hidden></button>
             @if (currentStep == AuthStep.Credentials)
             {
                 <div class="step-content">
@@ -107,7 +108,7 @@
                     <span>@authError</span>
                 </div>
             }
-        </div>
+        </form>
     </div>
 }
 
@@ -149,6 +150,13 @@
     };
 
     private void OnFieldChanged() => UpdateWizardState();
+
+    private async Task OnFormSubmitted()
+    {
+        var bridge = BridgeHolder.Current;
+        if (bridge != null && CanSubmitCurrentStep && !isAuthenticating)
+            await bridge.RequestSubmitAsync();
+    }
 
     private async Task OnPhoneSelectionChanged()
     {

@@ -16,12 +16,13 @@
 @inject IPlatformService PlatformInfo
 @inject IFormModalService FormModalService
 @inject MauiSherpa.Pages.Forms.ModalParameterService ModalParams
+@inject ILocalVaultAccessService LocalVaultAccess
 
 <h1><i class="fas fa-fingerprint"></i> Bundle IDs</h1>
 
 <AppleIdentityPicker />
 
-@if (IdentityState.SelectedIdentity != null)
+@if (IdentityState.SelectedIdentity != null && !RequiresLocalVaultAccess)
 {
     @if (!PlatformInfo.HasNativeToolbar)
     {
@@ -349,6 +350,7 @@
     private Dictionary<string, List<AppleBundleIdCapability>> capabilitiesCache = new();
 
     private bool HasActiveFilters => !string.IsNullOrEmpty(searchQuery) || !string.IsNullOrEmpty(filterPlatform);
+    private bool RequiresLocalVaultAccess => LocalVaultAccess.GetState().RequiresUserAction;
 
     private IEnumerable<AppleBundleId> FilteredBundleIds => bundleIds
         .Where(b => string.IsNullOrEmpty(searchQuery) || 
@@ -387,6 +389,12 @@
     {
         InvokeAsync(async () =>
         {
+            if (RequiresLocalVaultAccess)
+            {
+                StateHasChanged();
+                return;
+            }
+
             await RefreshData(forceRefresh: false); // Use cache when identity changes (different identity = different cache key)
             StateHasChanged();
         });
@@ -437,6 +445,9 @@
 
     private async Task RefreshData(bool forceRefresh = false)
     {
+        if (IdentityState.SelectedIdentity == null || RequiresLocalVaultAccess)
+            return;
+
         // Set loading states
         isRefreshing = true;
         if (!forceRefresh && bundleIds.Count > 0)
@@ -482,6 +493,9 @@
 
     private async Task ShowCreateDialog()
     {
+        if (RequiresLocalVaultAccess)
+            return;
+
         var page = new MauiSherpa.Pages.Forms.CreateBundleIdPage(AppleService);
         var result = await FormModalService.ShowAsync<AppleBundleId>(page);
         if (result != null)
