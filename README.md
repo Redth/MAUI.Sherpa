@@ -244,7 +244,7 @@ This becomes available once the generated manifest is accepted into the upstream
 #### Windows (Manual)
 1. Download `MAUI-Sherpa.win-x64.zip` or `MAUI-Sherpa.win-arm64.zip`
 2. Extract to your preferred location
-3. Run `MauiSherpa.exe`
+3. Run the self-contained `MauiSherpa.exe` (no separate .NET or Windows App SDK installation required)
 
 #### Linux
 Download AppImage, .deb, or Flatpak from the releases page for your architecture (x64 or arm64).
