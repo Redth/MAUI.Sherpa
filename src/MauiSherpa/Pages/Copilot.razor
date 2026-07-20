@@ -191,6 +191,15 @@ else
         <div class="chat-layout">
         <!-- Chat Messages -->
         <div class="chat-container">
+            <div class="model-selector">
+                <label for="copilot-model"><i class="fas fa-robot"></i> Model</label>
+                <select id="copilot-model" value="@selectedModel" @onchange="SelectModelAsync" disabled="@isBusy">
+                    @foreach (var model in availableModels)
+                    {
+                        <option value="@model.Id">@model.Name</option>
+                    }
+                </select>
+            </div>
             <div class="chat-messages" @ref="chatMessagesRef" @onscroll="OnChatScroll">
                 @* Show suggestions as first item - collapsible *@
                 <div class="suggestions-bubble @(suggestionsCollapsed ? "collapsed" : "")">
@@ -804,6 +813,34 @@ else
         display: flex;
         flex-direction: column;
         gap: 1.25rem;
+    }
+
+    .model-selector {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.5rem 0.75rem;
+        border-bottom: 1px solid var(--border-color);
+        color: var(--text-secondary);
+        font-size: 0.8rem;
+    }
+
+    .model-selector label {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+        font-weight: 600;
+    }
+
+    .model-selector select {
+        min-width: 10rem;
+        max-width: 16rem;
+        padding: 0.25rem 0.5rem;
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+        background: var(--bg-tertiary);
+        color: var(--text-primary);
+        font: inherit;
     }
 
     .suggestions-section {
@@ -2180,6 +2217,8 @@ else
     private CopilotAvailability? availability;
     private bool isConnecting = false;
     private bool isBusy = false;
+    private string selectedModel = "auto";
+    private List<CopilotModelOption> availableModels = [new("auto", "Auto")];
     private bool suggestionsCollapsed = false;
     private string userInput = "";
     private string currentResponse = "";
@@ -2448,7 +2487,8 @@ else
         try
         {
             await CopilotService.ConnectAsync();
-            await CopilotService.StartSessionAsync(systemPrompt: _systemPrompt);
+            await CopilotService.StartSessionAsync(selectedModel, _systemPrompt);
+            await LoadModelsAsync();
             availability = availability is null
                 ? new CopilotAvailability(true, true, null, null, null)
                 : availability with { IsInstalled = true, IsAuthenticated = true, ErrorMessage = null };
@@ -2534,11 +2574,12 @@ else
             if (!CopilotService.IsConnected)
             {
                 await CopilotService.ConnectAsync();
+                await LoadModelsAsync();
             }
 
             if (CopilotService.CurrentSessionId == null)
             {
-                await CopilotService.StartSessionAsync(systemPrompt: _systemPrompt);
+                await CopilotService.StartSessionAsync(selectedModel, _systemPrompt);
             }
 
             await CopilotService.SendMessageAsync(message);
@@ -2550,6 +2591,44 @@ else
             ContextService.NotifyBusyStateChanged(false);
             StateHasChanged();
             await ScrollToBottomIfNeeded();
+        }
+    }
+
+    private async Task LoadModelsAsync()
+    {
+        try
+        {
+            var models = await CopilotService.ListModelsAsync();
+            availableModels = [
+                new CopilotModelOption("auto", "Auto"),
+                .. models.Where(model => !string.Equals(model.Id, "auto", StringComparison.OrdinalIgnoreCase))
+            ];
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning($"Unable to load Copilot models: {ex.Message}");
+        }
+    }
+
+    private async Task SelectModelAsync(ChangeEventArgs args)
+    {
+        var model = args.Value?.ToString();
+        if (string.IsNullOrWhiteSpace(model) || string.Equals(model, selectedModel, StringComparison.Ordinal))
+            return;
+
+        var previousModel = selectedModel;
+        selectedModel = model;
+
+        try
+        {
+            await CopilotService.SetModelAsync(selectedModel);
+            currentUsageInfo = null;
+        }
+        catch (Exception ex)
+        {
+            selectedModel = previousModel;
+            _logger.LogError($"Unable to change Copilot model: {ex.Message}", ex);
+            await AlertService.ShowAlertAsync("Model Change Failed", ex.Message);
         }
     }
 

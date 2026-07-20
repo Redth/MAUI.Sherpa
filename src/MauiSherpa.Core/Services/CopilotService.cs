@@ -598,7 +598,8 @@ public class CopilotService : ICopilotService, IAsyncDisposable
 
         try
         {
-            _logger.LogInformation($"Starting Copilot session with model: {model ?? "default"}");
+            var selectedModel = string.IsNullOrWhiteSpace(model) ? "auto" : model;
+            _logger.LogInformation($"Starting Copilot session with model: {selectedModel}");
             
             // Get tools from tools service
             var tools = _toolsService.GetTools();
@@ -609,7 +610,7 @@ public class CopilotService : ICopilotService, IAsyncDisposable
             
             var config = new SessionConfig
             {
-                Model = model ?? "claude-opus-4.5", // Use Claude Opus 4.5 as default
+                Model = selectedModel,
                 Streaming = true,
                 Tools = tools.Cast<AIFunctionDeclaration>().ToList(),
                 OnPermissionRequest = HandleSdkPermissionRequest,
@@ -656,6 +657,30 @@ public class CopilotService : ICopilotService, IAsyncDisposable
             _logger.LogError($"Failed to start session: {ex.Message}", ex);
             throw;
         }
+    }
+
+    public async Task<IReadOnlyList<CopilotModelOption>> ListModelsAsync()
+    {
+        if (_client == null)
+        {
+            throw new InvalidOperationException("Not connected to Copilot. Call ConnectAsync first.");
+        }
+
+        var models = await _client.ListModelsAsync();
+        return models
+            .Select(model => new CopilotModelOption(model.Id, model.Name ?? model.Id))
+            .ToList();
+    }
+
+    public async Task SetModelAsync(string model)
+    {
+        if (_session == null)
+        {
+            throw new InvalidOperationException("No active Copilot session. Call StartSessionAsync first.");
+        }
+
+        await _session.SetModelAsync(model);
+        _logger.LogInformation($"Copilot session model changed to: {model}");
     }
     
 #pragma warning disable GHCP001

@@ -2510,6 +2510,8 @@ public interface IMultiOperationModalService
     event Action? OnModalClosed;
 }
 
+public sealed record CopilotModelOption(string Id, string Name);
+
 /// <summary>
 /// Service for interacting with GitHub Copilot
 /// </summary>
@@ -2550,6 +2552,16 @@ public interface ICopilotService
     /// </summary>
     /// <param name="model">Optional model to use</param>
     Task StartSessionAsync(string? model = null, string? systemPrompt = null);
+
+    /// <summary>
+    /// Get the models available to the authenticated user.
+    /// </summary>
+    Task<IReadOnlyList<CopilotModelOption>> ListModelsAsync();
+
+    /// <summary>
+    /// Change the model for the active chat session.
+    /// </summary>
+    Task SetModelAsync(string model);
     
     /// <summary>
     /// End the current chat session
