@@ -360,6 +360,8 @@
     private bool CanCancel => ProcessService.CurrentState == ProcessState.Running;
     private bool CanKill => ProcessService.CurrentState == ProcessState.Running || 
                            ProcessService.CurrentState == ProcessState.Cancelled;
+    private bool CanAcceptInput =>
+        Request is { AcceptsStandardInput: true, RequiresElevation: false };
 
     protected override void OnInitialized()
     {
@@ -387,7 +389,11 @@
         if (_needsCompletedTerminal && Result != null)
         {
             _needsCompletedTerminal = false;
-            await JS.InvokeVoidAsync("terminalInterop.initialize", "process-terminal", new { });
+            await JS.InvokeVoidAsync(
+                "terminalInterop.initialize",
+                "process-terminal",
+                new { disableStdin = true, cursorBlink = false },
+                null);
             _terminalInitialized = true;
 
             // Replay stdout
@@ -429,6 +435,15 @@
             HandleCancelBeforeExecution();
         else if (CurrentView == ModalView.Completed)
             HandleClose();
+    }
+
+    [JSInvokable]
+    public async Task OnProcessInput(string data)
+    {
+        if (!CanAcceptInput || string.IsNullOrEmpty(data))
+            return;
+
+        await ProcessService.SendInputAsync(data);
     }
 
     private void HandleShowRequested(ProcessRequest request)
@@ -483,7 +498,15 @@
         if (Request == null) return;
 
         // Initialize terminal
-        await JS.InvokeVoidAsync("terminalInterop.initialize", "process-terminal", new { });
+        await JS.InvokeVoidAsync(
+            "terminalInterop.initialize",
+            "process-terminal",
+            new
+            {
+                disableStdin = !CanAcceptInput,
+                cursorBlink = CanAcceptInput
+            },
+            CanAcceptInput ? _dotNetRef : null);
         _terminalInitialized = true;
 
         // Start elapsed timer
@@ -512,6 +535,12 @@
             _elapsedTimer?.Stop();
             _elapsedTimer?.Dispose();
             _elapsedTimer = null;
+        }
+
+        if (_terminalInitialized)
+        {
+            await JS.InvokeVoidAsync("terminalInterop.dispose", "process-terminal");
+            _terminalInitialized = false;
         }
 
         // Transition to completed view — terminal will be re-initialized in OnAfterRenderAsync

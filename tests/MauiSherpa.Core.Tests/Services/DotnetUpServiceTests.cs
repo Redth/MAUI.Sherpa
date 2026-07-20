@@ -1,11 +1,43 @@
 using FluentAssertions;
+using MauiSherpa.Core.Interfaces;
 using MauiSherpa.Core.Services;
 using MauiSherpa.Workloads.Models;
+using Moq;
 
 namespace MauiSherpa.Core.Tests.Services;
 
 public class DotnetUpServiceTests
 {
+    [Fact]
+    public void InstallSdkRequestWithoutChannelAcceptsStandardInputWhenPseudoTerminalIsAvailable()
+    {
+        var service = new DotnetUpService(Mock.Of<ILoggingService>());
+
+        var request = service.InstallSdkRequest();
+
+        request.AcceptsStandardInput.Should().Be(OperatingSystem.IsMacOS());
+    }
+
+    [Fact]
+    public void TrackedChannelInstallAcceptsStandardInputWhenPseudoTerminalIsAvailable()
+    {
+        var service = new DotnetUpService(Mock.Of<ILoggingService>());
+
+        var request = service.InstallSdkRequest("10.0.3xx", terminalMode: false);
+
+        request.AcceptsStandardInput.Should().Be(OperatingSystem.IsMacOS());
+    }
+
+    [Fact]
+    public void CreateProcessRequestDefaultsToOutputOnly()
+    {
+        var service = new DotnetUpService(Mock.Of<ILoggingService>());
+
+        var request = service.CreateProcessRequest(["--info"]);
+
+        request.AcceptsStandardInput.Should().BeFalse();
+    }
+
     [Fact]
     public void SelectInstalledSdkTargetRejectsAmbiguousRoots()
     {
