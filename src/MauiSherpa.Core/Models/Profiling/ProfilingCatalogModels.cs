@@ -6,7 +6,8 @@ public enum ProfilingTargetPlatform
     iOS,
     MacCatalyst,
     MacOS,
-    Windows
+    Windows,
+    Unknown
 }
 
 public enum ProfilingTargetKind
@@ -14,7 +15,8 @@ public enum ProfilingTargetKind
     PhysicalDevice,
     Emulator,
     Simulator,
-    Desktop
+    Desktop,
+    Unknown
 }
 
 public enum ProfilingCaptureKind
@@ -26,7 +28,8 @@ public enum ProfilingCaptureKind
     Rendering,
     Energy,
     SystemTrace,
-    Logs
+    Logs,
+    Interaction
 }
 
 public enum ProfilingScenarioKind
@@ -41,6 +44,7 @@ public enum ProfilingScenarioKind
 public enum ProfilingArtifactKind
 {
     Trace,
+    Mibc,
     Metrics,
     Screenshot,
     Logs,

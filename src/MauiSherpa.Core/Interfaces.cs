@@ -357,27 +357,27 @@ public interface IProfilingCatalogService
         ProfilingPlatformCapabilities capabilities);
 }
 
-public interface IProfilingCapabilityProvider
+public interface IMauiCliToolService
 {
-    ProfilingTargetPlatform Platform { get; }
-    Task<ProfilingPlatformCapabilities?> GetCapabilitiesAsync(CancellationToken ct = default);
+    Task<MauiCliToolStatus> GetStatusAsync(CancellationToken ct = default);
+    Task<MauiCliToolUpdateInfo> GetUpdateInfoAsync(MauiCliToolStatus status, CancellationToken ct = default);
+    Task<ProcessResult> InstallAsync(string? version = null, CancellationToken ct = default);
+    Task<ProcessResult> UpdateAsync(string? version = null, CancellationToken ct = default);
+    Task<IReadOnlyList<MauiCliDevice>> GetDevicesAsync(CancellationToken ct = default);
 }
 
-public interface IProfilingPrerequisitesService
+public interface IMauiProfilingCliService : IDisposable
 {
-    Task<ProfilingPrerequisiteReport> GetPrerequisitesAsync(
-        ProfilingTargetPlatform platform,
-        IReadOnlyList<ProfilingCaptureKind>? captureKinds = null,
-        string? workingDirectory = null,
-        CancellationToken ct = default);
-}
+    MauiProfileRunState State { get; }
+    event EventHandler<MauiProfileStateChangedEventArgs>? StateChanged;
+    event EventHandler<MauiCliMessageEventArgs>? MessageReceived;
 
-public interface IProfilingCaptureOrchestrationService
-{
-    Task<ProfilingCapturePlan> PlanCaptureAsync(
-        ProfilingSessionDefinition definition,
-        ProfilingCapturePlanOptions? options = null,
+    Task<MauiProfileExecutionResult> RunAsync(
+        MauiProfileRequest request,
         CancellationToken ct = default);
+    Task BeginRecordingAsync(CancellationToken ct = default);
+    Task StopRecordingAsync(CancellationToken ct = default);
+    void Cancel();
 }
 
 public interface IProfilingArtifactLibraryService
@@ -401,67 +401,6 @@ public interface IProfilingArtifactAnalysisService
     Task<IReadOnlyList<ProfilingArtifactAnalysis>> AnalyzeArtifactsAsync(
         ProfilingArtifactLibraryQuery? query = null,
         CancellationToken ct = default);
-}
-
-/// <summary>
-/// Executes a profiling capture plan as a coordinated multi-process pipeline.
-/// Handles dependency ordering, parallel execution, long-running processes,
-/// graceful stop, and artifact collection.
-/// </summary>
-public interface IProfilingSessionRunner : IDisposable
-{
-    /// <summary>Current pipeline state</summary>
-    ProfilingPipelineState State { get; }
-
-    /// <summary>Status of each step in the pipeline</summary>
-    IReadOnlyList<ProfilingStepStatus> Steps { get; }
-
-    /// <summary>Fired when pipeline state changes</summary>
-    event EventHandler<ProfilingPipelineStateChangedEventArgs>? PipelineStateChanged;
-
-    /// <summary>Fired when a step's state changes</summary>
-    event EventHandler<ProfilingStepStateChangedEventArgs>? StepStateChanged;
-
-    /// <summary>Fired when a step produces output</summary>
-    event EventHandler<ProfilingStepOutputEventArgs>? StepOutputReceived;
-
-    /// <summary>
-    /// Execute the full pipeline. Returns when all steps complete (or fail/cancel).
-    /// </summary>
-    Task<ProfilingPipelineResult> RunAsync(ProfilingCapturePlan plan, CancellationToken ct = default);
-
-    /// <summary>
-    /// Gracefully stop capture — sends SIGINT to ManualStop steps, waits for processes
-    /// to flush output files and exit before returning.
-    /// </summary>
-    Task StopCaptureAsync();
-
-    /// <summary>
-    /// Abort everything immediately — kills all running processes.
-    /// </summary>
-    void Cancel();
-
-    /// <summary>
-    /// Collect a GC dump on demand while the pipeline is running.
-    /// Returns the path to the .gcdump file, or null if collection failed.
-    /// </summary>
-    Task<string?> CollectGcDumpAsync(CancellationToken ct = default);
-
-    /// <summary>
-    /// Whether a trace capture is currently active.
-    /// </summary>
-    bool IsTraceActive { get; }
-
-    /// <summary>
-    /// Start an on-demand trace capture. Returns the step ID or null if it cannot start.
-    /// The trace runs until StopTraceAsync() is called.
-    /// </summary>
-    string? StartTraceAsync();
-
-    /// <summary>
-    /// Stop the currently running on-demand trace.
-    /// </summary>
-    Task StopTraceAsync();
 }
 
 /// <summary>
@@ -507,6 +446,19 @@ public interface IProfilingSessionStorageService
 
     /// <summary>Delete a session and its folder.</summary>
     Task DeleteSessionAsync(string sessionId, CancellationToken ct = default);
+
+    /// <summary>Create and persist a completed session from a MAUI CLI profile result.</summary>
+    Task<ProfilingSessionManifest> SaveMauiProfileSessionAsync(
+        string sessionId,
+        MauiProfileRequest request,
+        MauiProfileResult result,
+        string? cliVersion = null,
+        CancellationToken ct = default);
+
+    /// <summary>Import a standalone supported profiling artifact as a managed session.</summary>
+    Task<ProfilingSessionManifest> ImportArtifactAsync(
+        string artifactPath,
+        CancellationToken ct = default);
 
     /// <summary>
     /// Get the directory path for a session. Creates the directory if it doesn't exist.
@@ -2202,6 +2154,14 @@ public interface IProcessExecutionService
     /// Executes a process and returns the result when complete
     /// </summary>
     Task<ProcessResult> ExecuteAsync(ProcessRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Writes input to the running process without changing its state.
+    /// </summary>
+    Task WriteInputAsync(
+        string input,
+        bool appendNewLine = true,
+        CancellationToken cancellationToken = default);
     
     /// <summary>
     /// Sends a graceful cancellation signal (SIGINT/Ctrl+C)

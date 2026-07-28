@@ -13,8 +13,10 @@ public class ProcessExecutionService : IProcessExecutionService
     private Process? _currentProcess;
     private readonly StringBuilder _outputBuilder = new();
     private readonly StringBuilder _errorBuilder = new();
+    private readonly object _outputLock = new();
     private ProcessState _currentState = ProcessState.Pending;
     private readonly object _stateLock = new();
+    private readonly SemaphoreSlim _inputLock = new(1, 1);
     private CancellationTokenSource? _linkedCts;
     private DateTime _startTime;
     private string? _tempOutputFile;
@@ -51,8 +53,11 @@ public class ProcessExecutionService : IProcessExecutionService
 
     public async Task<ProcessResult> ExecuteAsync(ProcessRequest request, CancellationToken cancellationToken = default)
     {
-        _outputBuilder.Clear();
-        _errorBuilder.Clear();
+        lock (_outputLock)
+        {
+            _outputBuilder.Clear();
+            _errorBuilder.Clear();
+        }
         CurrentState = ProcessState.Running;
         _startTime = DateTime.Now;
 
@@ -91,7 +96,7 @@ public class ProcessExecutionService : IProcessExecutionService
             CurrentState = ProcessState.Failed;
             var duration = DateTime.Now - _startTime;
             OnOutput($"\n❌ Error: {ex.Message}", isError: true);
-            return new ProcessResult(-1, _outputBuilder.ToString(), ex.Message, duration, ProcessState.Failed);
+            return new ProcessResult(-1, GetOutputSnapshot().Output, ex.Message, duration, ProcessState.Failed);
         }
         finally
         {
@@ -335,10 +340,11 @@ public class ProcessExecutionService : IProcessExecutionService
             }
             CurrentState = finalState;
             
+            var output = GetOutputSnapshot();
             return new ProcessResult(
                 exitCode,
-                _outputBuilder.ToString(),
-                _errorBuilder.ToString(),
+                output.Output,
+                output.Error,
                 DateTime.Now - _startTime,
                 finalState
             );
@@ -423,10 +429,11 @@ public class ProcessExecutionService : IProcessExecutionService
                 finalState = exitCode == 0 ? ProcessState.Completed : ProcessState.Failed;
             CurrentState = finalState;
 
+            var output = GetOutputSnapshot();
             return new ProcessResult(
                 exitCode,
-                _outputBuilder.ToString(),
-                _errorBuilder.ToString(),
+                output.Output,
+                output.Error,
                 DateTime.Now - _startTime,
                 finalState);
         }
@@ -512,13 +519,46 @@ public class ProcessExecutionService : IProcessExecutionService
         }
         CurrentState = finalState;
 
+        var output = GetOutputSnapshot();
         return new ProcessResult(
             exitCode,
-            _outputBuilder.ToString(),
-            _errorBuilder.ToString(),
+            output.Output,
+            output.Error,
             duration,
             finalState
         );
+    }
+
+    public async Task WriteInputAsync(
+        string input,
+        bool appendNewLine = true,
+        CancellationToken cancellationToken = default)
+    {
+        await _inputLock.WaitAsync(cancellationToken);
+        try
+        {
+            var process = _currentProcess;
+            if (process is null || process.HasExited)
+                throw new InvalidOperationException("No process is currently accepting input.");
+
+            if (!process.StartInfo.RedirectStandardInput)
+                throw new InvalidOperationException("The current process does not redirect standard input.");
+
+            if (appendNewLine)
+                await process.StandardInput.WriteLineAsync(input.AsMemory(), cancellationToken);
+            else
+                await process.StandardInput.WriteAsync(input.AsMemory(), cancellationToken);
+
+            await process.StandardInput.FlushAsync(cancellationToken);
+        }
+        catch (ObjectDisposedException ex)
+        {
+            throw new InvalidOperationException("The process stopped before input could be sent.", ex);
+        }
+        finally
+        {
+            _inputLock.Release();
+        }
     }
     
     private void CleanupTempFiles()
@@ -532,7 +572,9 @@ public class ProcessExecutionService : IProcessExecutionService
 
     public void Cancel()
     {
-        if (_currentProcess == null || _currentProcess.HasExited) return;
+        var process = _currentProcess;
+        if (process == null || process.HasExited) return;
+        var linkedCts = _linkedCts;
 
         _logger.LogInformation("Sending cancel signal to process");
         OnOutput("\n⚠️ Cancellation requested...", isError: false);
@@ -543,15 +585,14 @@ public class ProcessExecutionService : IProcessExecutionService
             if (_platform.IsMacCatalyst || _platform.IsMacOS)
             {
                 // Send SIGINT on Unix — let the process flush and exit on its own.
-                // WaitForExitAsync (called by the pipeline runner) will complete naturally
-                // once the process finishes writing output and exits.
-                SendSignal(_currentProcess.Id, 2); // SIGINT
+                // The active execution waits for the process to flush output and exit.
+                SendSignal(process.Id, 2); // SIGINT
             }
             else
             {
                 // On Windows, try to send Ctrl+C
-                _currentProcess.StandardInput.WriteLine("\x03");
-                _currentProcess.StandardInput.Close();
+                process.StandardInput.WriteLine("\x03");
+                process.StandardInput.Close();
             }
 
             // Start a safety timeout: if the process hasn't exited after 30s,
@@ -559,18 +600,40 @@ public class ProcessExecutionService : IProcessExecutionService
             _ = Task.Run(async () =>
             {
                 await Task.Delay(30_000);
-                if (_currentProcess is { HasExited: false })
+                try
                 {
-                    OnOutput("Process did not exit within 30s after SIGINT — forcing cancellation.", isError: true);
-                    _linkedCts?.Cancel();
+                    if (!process.HasExited)
+                    {
+                        OnOutput("Process did not exit within 30s after SIGINT — forcing cancellation.", isError: true);
+                        ForceTerminateCancelledProcess(process, linkedCts);
+                    }
                 }
+                catch (ObjectDisposedException) { }
             });
         }
         catch (Exception ex)
         {
             _logger.LogWarning($"Failed to send cancel signal: {ex.Message}");
-            // If we can't signal, force cancel so we don't hang
-            _linkedCts?.Cancel();
+            ForceTerminateCancelledProcess(process, linkedCts);
+        }
+    }
+
+    private void ForceTerminateCancelledProcess(
+        Process process,
+        CancellationTokenSource? linkedCts)
+    {
+        try
+        {
+            if (!process.HasExited)
+                process.Kill(entireProcessTree: true);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning($"Failed to terminate cancelled process: {ex.Message}");
+        }
+        finally
+        {
+            linkedCts?.Cancel();
         }
     }
 
@@ -601,27 +664,36 @@ public class ProcessExecutionService : IProcessExecutionService
 
     public string GetFullOutput()
     {
-        return _outputBuilder.ToString();
+        return GetOutputSnapshot().Output;
     }
 
     private void OnOutput(string data, bool isError, bool isRaw = false)
     {
-        if (isError)
+        lock (_outputLock)
         {
-            if (isRaw)
-                _errorBuilder.Append(data);
+            if (isError)
+            {
+                if (isRaw)
+                    _errorBuilder.Append(data);
+                else
+                    _errorBuilder.AppendLine(data);
+            }
             else
-                _errorBuilder.AppendLine(data);
-        }
-        else
-        {
-            if (isRaw)
-                _outputBuilder.Append(data);
-            else
-                _outputBuilder.AppendLine(data);
+            {
+                if (isRaw)
+                    _outputBuilder.Append(data);
+                else
+                    _outputBuilder.AppendLine(data);
+            }
         }
 
         OutputReceived?.Invoke(this, new ProcessOutputEventArgs(data, isError, isRaw));
+    }
+
+    private (string Output, string Error) GetOutputSnapshot()
+    {
+        lock (_outputLock)
+            return (_outputBuilder.ToString(), _errorBuilder.ToString());
     }
 
     // P/Invoke for sending signals on Unix

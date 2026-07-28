@@ -2,6 +2,13 @@ using System.Text.Json.Serialization;
 
 namespace MauiSherpa.Core.Models.Profiling;
 
+// Retained for deserializing sessions captured by Sherpa's legacy pipeline.
+public enum ProfilingCaptureLaunchMode
+{
+    Launch,
+    Attach
+}
+
 /// <summary>
 /// Status of a profiling session.
 /// </summary>
@@ -19,6 +26,11 @@ public enum ProfilingSessionStatus
 /// </summary>
 public record ProfilingSessionManifest
 {
+    /// <summary>
+    /// Manifest schema. Legacy manifests without this property deserialize as version 1.
+    /// </summary>
+    public int SchemaVersion { get; init; } = 1;
+
     public required string Id { get; init; }
     public required string Name { get; init; }
     public ProfilingSessionStatus Status { get; set; } = ProfilingSessionStatus.InProgress;
@@ -39,6 +51,9 @@ public record ProfilingSessionManifest
 
     /// <summary>Pipeline execution summary (populated after capture).</summary>
     public ProfilingSessionPipelineSummary? Pipeline { get; set; }
+
+    /// <summary>MAUI CLI metadata for schema version 2 sessions.</summary>
+    public MauiProfileSessionDetails? MauiProfile { get; init; }
 
     /// <summary>Artifact files produced by this session.</summary>
     public List<ProfilingSessionArtifact> Artifacts { get; set; } = new();
@@ -112,4 +127,16 @@ public record ProfilingSessionArtifact
     public required ProfilingArtifactKind Kind { get; init; }
     public long? SizeBytes { get; init; }
     public string? DisplayName { get; init; }
+}
+
+public record MauiProfileSessionDetails
+{
+    public required MauiProfileMode Mode { get; init; }
+    public required MauiProfileOutputFormat Format { get; init; }
+    public string? CliVersion { get; init; }
+    public string? Framework { get; init; }
+    public string? RawTraceFileName { get; init; }
+    public bool UsedStoppingEvent { get; init; }
+    public DateTimeOffset? StartedAtUtc { get; init; }
+    public DateTimeOffset? CompletedAtUtc { get; init; }
 }

@@ -10,37 +10,16 @@ public class ProfilingCatalogService : IProfilingCatalogService
         {
             [ProfilingScenarioKind.Launch] = new(
                 ProfilingScenarioKind.Launch,
-                "Launch & startup",
-                "Capture cold or warm start behavior with startup, CPU, and memory signals.",
-                [ProfilingCaptureKind.Startup, ProfilingCaptureKind.Cpu, ProfilingCaptureKind.Memory],
+                "Startup",
+                "Capture from process start until the first MAUI UI is ready.",
+                [ProfilingCaptureKind.Startup],
                 TimeSpan.FromMinutes(2)),
             [ProfilingScenarioKind.Interaction] = new(
                 ProfilingScenarioKind.Interaction,
-                "Interaction trace",
-                "Focus on a bounded interaction such as tapping through a flow or completing a task.",
-                [ProfilingCaptureKind.Cpu, ProfilingCaptureKind.Rendering, ProfilingCaptureKind.Memory],
+                "Interaction",
+                "Launch the app, navigate to a starting point, then explicitly begin and stop recording.",
+                [ProfilingCaptureKind.Interaction],
                 TimeSpan.FromMinutes(5),
-                SupportsContinuousCapture: true),
-            [ProfilingScenarioKind.Scrolling] = new(
-                ProfilingScenarioKind.Scrolling,
-                "Scrolling & rendering",
-                "Measure rendering smoothness and CPU pressure during scrolling-heavy experiences.",
-                [ProfilingCaptureKind.Rendering, ProfilingCaptureKind.Cpu, ProfilingCaptureKind.Memory],
-                TimeSpan.FromMinutes(3),
-                SupportsContinuousCapture: true),
-            [ProfilingScenarioKind.BackgroundWork] = new(
-                ProfilingScenarioKind.BackgroundWork,
-                "Background work",
-                "Profile sync, notifications, or other longer-running work that happens away from the main UI.",
-                [ProfilingCaptureKind.Cpu, ProfilingCaptureKind.Network, ProfilingCaptureKind.Energy],
-                TimeSpan.FromMinutes(10),
-                SupportsContinuousCapture: true),
-            [ProfilingScenarioKind.MemoryInvestigation] = new(
-                ProfilingScenarioKind.MemoryInvestigation,
-                "Memory investigation",
-                "Use memory-oriented captures to investigate leaks, spikes, and long-lived allocations.",
-                [ProfilingCaptureKind.Memory, ProfilingCaptureKind.Cpu, ProfilingCaptureKind.Logs],
-                TimeSpan.FromMinutes(15),
                 SupportsContinuousCapture: true)
         };
 
@@ -51,96 +30,48 @@ public class ProfilingCatalogService : IProfilingCatalogService
                 ProfilingTargetPlatform.Android,
                 "Android",
                 [ProfilingTargetKind.PhysicalDevice, ProfilingTargetKind.Emulator],
-                [ProfilingCaptureKind.Startup, ProfilingCaptureKind.Cpu, ProfilingCaptureKind.Memory, ProfilingCaptureKind.Network, ProfilingCaptureKind.Rendering, ProfilingCaptureKind.Energy, ProfilingCaptureKind.SystemTrace, ProfilingCaptureKind.Logs],
-                [ProfilingArtifactKind.Trace, ProfilingArtifactKind.Metrics, ProfilingArtifactKind.Screenshot, ProfilingArtifactKind.Logs, ProfilingArtifactKind.Export, ProfilingArtifactKind.Report],
+                [ProfilingCaptureKind.Startup, ProfilingCaptureKind.Interaction],
+                [ProfilingArtifactKind.Trace, ProfilingArtifactKind.Mibc, ProfilingArtifactKind.Export],
                 BuiltInScenarios.Keys.ToArray(),
                 SupportsLaunchProfiling: true,
-                SupportsAttachToProcess: true,
-                SupportsLiveMetrics: true,
+                SupportsAttachToProcess: false,
+                SupportsLiveMetrics: false,
                 SupportsSymbolication: false,
-                Notes: "Initial Android abstractions assume adb-backed devices and emulators."),
+                Notes: "Capture uses the global maui CLI with a connected Android device or running emulator."),
             [ProfilingTargetPlatform.iOS] = new(
                 ProfilingTargetPlatform.iOS,
-                "iOS",
-                [ProfilingTargetKind.PhysicalDevice, ProfilingTargetKind.Simulator],
-                [ProfilingCaptureKind.Startup, ProfilingCaptureKind.Cpu, ProfilingCaptureKind.Memory, ProfilingCaptureKind.Network, ProfilingCaptureKind.Rendering, ProfilingCaptureKind.Energy, ProfilingCaptureKind.SystemTrace, ProfilingCaptureKind.Logs],
-                [ProfilingArtifactKind.Trace, ProfilingArtifactKind.Metrics, ProfilingArtifactKind.Screenshot, ProfilingArtifactKind.Logs, ProfilingArtifactKind.Export, ProfilingArtifactKind.Report],
+                "iOS Simulator",
+                [ProfilingTargetKind.Simulator],
+                [ProfilingCaptureKind.Startup, ProfilingCaptureKind.Interaction],
+                [ProfilingArtifactKind.Trace, ProfilingArtifactKind.Mibc, ProfilingArtifactKind.Export],
                 BuiltInScenarios.Keys.ToArray(),
                 SupportsLaunchProfiling: true,
-                SupportsAttachToProcess: true,
-                SupportsLiveMetrics: true,
+                SupportsAttachToProcess: false,
+                SupportsLiveMetrics: false,
                 SupportsSymbolication: true,
-                Notes: "Initial iOS abstractions cover both physical devices and simulators."),
-            [ProfilingTargetPlatform.MacCatalyst] = new(
-                ProfilingTargetPlatform.MacCatalyst,
-                "Mac Catalyst",
-                [ProfilingTargetKind.Desktop],
-                [ProfilingCaptureKind.Startup, ProfilingCaptureKind.Cpu, ProfilingCaptureKind.Memory, ProfilingCaptureKind.Network, ProfilingCaptureKind.Rendering, ProfilingCaptureKind.Energy, ProfilingCaptureKind.SystemTrace, ProfilingCaptureKind.Logs],
-                [ProfilingArtifactKind.Trace, ProfilingArtifactKind.Metrics, ProfilingArtifactKind.Logs, ProfilingArtifactKind.Export, ProfilingArtifactKind.Report],
-                BuiltInScenarios.Keys.ToArray(),
-                SupportsLaunchProfiling: true,
-                SupportsAttachToProcess: true,
-                SupportsLiveMetrics: true,
-                SupportsSymbolication: true,
-                Notes: "Mac Catalyst is treated as a desktop target with Apple tooling semantics."),
-            [ProfilingTargetPlatform.MacOS] = new(
-                ProfilingTargetPlatform.MacOS,
-                "macOS",
-                [ProfilingTargetKind.Desktop],
-                [ProfilingCaptureKind.Startup, ProfilingCaptureKind.Cpu, ProfilingCaptureKind.Memory, ProfilingCaptureKind.Network, ProfilingCaptureKind.Rendering, ProfilingCaptureKind.Energy, ProfilingCaptureKind.SystemTrace, ProfilingCaptureKind.Logs],
-                [ProfilingArtifactKind.Trace, ProfilingArtifactKind.Metrics, ProfilingArtifactKind.Logs, ProfilingArtifactKind.Export, ProfilingArtifactKind.Report],
-                BuiltInScenarios.Keys.ToArray(),
-                SupportsLaunchProfiling: true,
-                SupportsAttachToProcess: true,
-                SupportsLiveMetrics: true,
-                SupportsSymbolication: true,
-                Notes: "macOS profiling is modeled as a desktop target that can evolve beyond MAUI-specific flows."),
-            [ProfilingTargetPlatform.Windows] = new(
-                ProfilingTargetPlatform.Windows,
-                "Windows",
-                [ProfilingTargetKind.Desktop],
-                [ProfilingCaptureKind.Startup, ProfilingCaptureKind.Cpu, ProfilingCaptureKind.Memory, ProfilingCaptureKind.Network, ProfilingCaptureKind.Rendering, ProfilingCaptureKind.Energy, ProfilingCaptureKind.SystemTrace, ProfilingCaptureKind.Logs],
-                [ProfilingArtifactKind.Trace, ProfilingArtifactKind.Metrics, ProfilingArtifactKind.Logs, ProfilingArtifactKind.Export, ProfilingArtifactKind.Report],
-                BuiltInScenarios.Keys.ToArray(),
-                SupportsLaunchProfiling: true,
-                SupportsAttachToProcess: true,
-                SupportsLiveMetrics: true,
-                SupportsSymbolication: false,
-                Notes: "Windows support is modeled for desktop processes and future tooling adapters.")
+                Notes: "Capture uses the global maui CLI with a booted iOS simulator.")
         };
 
-    private readonly IReadOnlyDictionary<ProfilingTargetPlatform, IProfilingCapabilityProvider> _capabilityProviders;
-
-    public ProfilingCatalogService(IEnumerable<IProfilingCapabilityProvider> capabilityProviders)
+    public Task<ProfilingCatalog> GetCatalogAsync(CancellationToken ct = default)
     {
-        _capabilityProviders = capabilityProviders
-            .GroupBy(provider => provider.Platform)
-            .ToDictionary(group => group.Key, group => group.Last());
+        ct.ThrowIfCancellationRequested();
+        return Task.FromResult(new ProfilingCatalog(
+            BuiltInCapabilities.Values.ToArray(),
+            BuiltInScenarios.Values.ToArray()));
     }
 
-    public async Task<ProfilingCatalog> GetCatalogAsync(CancellationToken ct = default)
+    public Task<ProfilingPlatformCapabilities> GetCapabilitiesAsync(
+        ProfilingTargetPlatform platform,
+        CancellationToken ct = default)
     {
-        var platforms = new List<ProfilingPlatformCapabilities>();
-
-        foreach (var platform in Enum.GetValues<ProfilingTargetPlatform>())
-            platforms.Add(await GetCapabilitiesAsync(platform, ct));
-
-        return new ProfilingCatalog(platforms, BuiltInScenarios.Values.ToArray());
-    }
-
-    public async Task<ProfilingPlatformCapabilities> GetCapabilitiesAsync(ProfilingTargetPlatform platform, CancellationToken ct = default)
-    {
+        ct.ThrowIfCancellationRequested();
         if (!BuiltInCapabilities.TryGetValue(platform, out var builtInCapabilities))
-            throw new ArgumentOutOfRangeException(nameof(platform), platform, "Unsupported profiling platform.");
+            throw new ArgumentOutOfRangeException(
+                nameof(platform),
+                platform,
+                "MAUI CLI profiling currently supports Android devices/emulators and iOS simulators.");
 
-        if (_capabilityProviders.TryGetValue(platform, out var provider))
-        {
-            var providerCapabilities = await provider.GetCapabilitiesAsync(ct);
-            if (providerCapabilities is not null)
-                return providerCapabilities;
-        }
-
-        return builtInCapabilities;
+        return Task.FromResult(builtInCapabilities);
     }
 
     public ProfilingSessionDefinition CreateSessionDefinition(

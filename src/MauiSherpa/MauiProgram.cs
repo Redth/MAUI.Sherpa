@@ -122,6 +122,8 @@ public static class MauiProgram
 
         // Process execution services
         builder.Services.AddTransient<IProcessExecutionService, ProcessExecutionService>();
+        builder.Services.AddTransient<IMauiCliToolService, MauiCliToolService>();
+        builder.Services.AddTransient<IMauiProfilingCliService, MauiProfilingCliService>();
         builder.Services.AddSingleton<ProcessModalService>();
         builder.Services.AddSingleton<IProcessModalService>(sp => sp.GetRequiredService<ProcessModalService>());
         builder.Services.AddSingleton<OperationModalService>();
@@ -142,11 +144,8 @@ public static class MauiProgram
         builder.Services.AddSingleton<IDeviceShellService, DeviceShellService>();
         builder.Services.AddSingleton<IScreenCaptureService, ScreenCaptureService>();
         builder.Services.AddSingleton<IProfilingCatalogService, ProfilingCatalogService>();
-        builder.Services.AddSingleton<IProfilingPrerequisitesService, ProfilingPrerequisitesService>();
-        builder.Services.AddSingleton<IProfilingCaptureOrchestrationService, ProfilingCaptureOrchestrationService>();
         builder.Services.AddSingleton<IProfilingArtifactLibraryService, ProfilingArtifactLibraryService>();
         builder.Services.AddSingleton<IProfilingArtifactAnalysisService, ProfilingArtifactAnalysisService>();
-        builder.Services.AddTransient<IProfilingSessionRunner, ProfilingSessionRunnerService>();
         builder.Services.AddSingleton<IGcDumpReportService, GcDumpReportService>();
         builder.Services.AddSingleton<IProfilingArtifactConverterService, ProfilingArtifactConverterService>();
         builder.Services.AddSingleton<IProfilingSessionStorageService, ProfilingSessionStorageService>();
@@ -297,8 +296,6 @@ public static class MauiProgram
         builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.GetConnectedDevicesHandler>();
         builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Profiling.GetProfilingCatalogHandler>();
         builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Profiling.GetProfilingCapabilitiesHandler>();
-        builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Profiling.GetProfilingPrerequisitesHandler>();
-        builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Profiling.PlanProfilingCaptureHandler>();
         builder.Services.AddSingletonAsImplementedInterfaces<MauiSherpa.Core.Handlers.Profiling.AnalyzeProfilingArtifactHandler>();
 
 #if DEBUG

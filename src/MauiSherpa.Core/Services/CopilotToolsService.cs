@@ -159,9 +159,9 @@ public class CopilotToolsService : ICopilotToolsService
 
         // Profiling Tools
         AddTool(AIFunctionFactory.Create(ListProfilingTargetsAsync, "list_profiling_targets",
-            "List currently available local profiling targets discovered via MAUI DevFlow."), isReadOnly: true);
+            "List running MAUI apps available for DevFlow live profiling. This is separate from maui profile capture."), isReadOnly: true);
         AddTool(AIFunctionFactory.Create(GetProfilingCatalogAsync, "get_profiling_catalog",
-            "Get the supported profiling scenarios and platform capabilities available in Maui Sherpa. Optionally filter to a single platform."), isReadOnly: true);
+            "Get MAUI CLI-backed capture modes, formats, and supported Android or iOS simulator targets. Optionally filter to one platform."), isReadOnly: true);
         AddTool(AIFunctionFactory.Create(ListProfilingArtifactsAsync, "list_profiling_artifacts",
             "List profiling artifacts stored in Sherpa's artifact library. Optionally filter by session or artifact kind."), isReadOnly: true);
         AddTool(AIFunctionFactory.Create(GetProfilingSnapshotAsync, "get_profiling_snapshot",
@@ -1558,30 +1558,44 @@ public class CopilotToolsService : ICopilotToolsService
         return JsonSerializer.Serialize(targets, new JsonSerializerOptions { WriteIndented = true });
     }
 
-    [Description("Get supported profiling scenarios and platform capabilities")]
+    [Description("Get MAUI CLI-backed profile capture capabilities")]
     private async Task<string> GetProfilingCatalogAsync(
-        [Description("Optional platform name to filter to: Android, iOS, MacCatalyst, MacOS, or Windows")] string? platform = null)
+        [Description("Optional platform name to filter to: Android or iOS")] string? platform = null)
     {
         _logger.LogDebug($"Tool: get_profiling_catalog called with platform '{platform ?? "<all>"}'");
 
         var catalog = await _profilingCatalogService.GetCatalogAsync();
-        if (string.IsNullOrWhiteSpace(platform))
+        var platformCapabilities = catalog.Platforms.AsEnumerable();
+        if (!string.IsNullOrWhiteSpace(platform))
         {
-            return JsonSerializer.Serialize(catalog, new JsonSerializerOptions { WriteIndented = true });
+            platformCapabilities = platformCapabilities.Where(capabilities =>
+                capabilities.Platform.ToString().Equals(platform, StringComparison.OrdinalIgnoreCase));
+
+            if (!platformCapabilities.Any())
+                return $"Unknown or unsupported platform '{platform}'. Valid values: Android, iOS.";
         }
 
-        if (!Enum.TryParse<ProfilingTargetPlatform>(platform, ignoreCase: true, out var parsedPlatform))
-        {
-            return $"Unknown platform '{platform}'. Valid values: {string.Join(", ", Enum.GetNames<ProfilingTargetPlatform>())}.";
-        }
-
-        var capabilities = await _profilingCatalogService.GetCapabilitiesAsync(parsedPlatform);
         var result = new
         {
-            Platform = capabilities,
-            Scenarios = catalog.Scenarios
-                .Where(scenario => capabilities.SupportedScenarios.Contains(scenario.Kind))
-                .ToArray()
+            CaptureEngine = "maui profile",
+            ToolPackage = "Microsoft.Maui.Cli",
+            Formats = new[] { "nettrace", "speedscope", "mibc" },
+            Platforms = platformCapabilities.Select(capabilities => new
+            {
+                Name = capabilities.Platform.ToString(),
+                capabilities.DisplayName,
+                TargetKinds = capabilities.SupportedTargetKinds.Select(kind => kind.ToString()).ToArray(),
+                Modes = catalog.Scenarios
+                    .Where(scenario => capabilities.SupportedScenarios.Contains(scenario.Kind))
+                    .Select(scenario => new
+                    {
+                        Name = scenario.DisplayName,
+                        scenario.Description
+                    })
+                    .ToArray(),
+                capabilities.SupportsSymbolication,
+                capabilities.Notes
+            }).ToArray()
         };
 
         return JsonSerializer.Serialize(result, new JsonSerializerOptions { WriteIndented = true });

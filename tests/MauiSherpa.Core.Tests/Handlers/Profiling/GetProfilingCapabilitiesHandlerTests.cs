@@ -25,27 +25,27 @@ public class GetProfilingCapabilitiesHandlerTests
     public async Task Handle_ReturnsCapabilitiesForRequestedPlatform()
     {
         var expectedCapabilities = new ProfilingPlatformCapabilities(
-            ProfilingTargetPlatform.MacCatalyst,
-            "Mac Catalyst",
-            [ProfilingTargetKind.Desktop],
-            [ProfilingCaptureKind.Cpu, ProfilingCaptureKind.Memory],
-            [ProfilingArtifactKind.Trace],
+            ProfilingTargetPlatform.iOS,
+            "iOS Simulator",
+            [ProfilingTargetKind.Simulator],
+            [ProfilingCaptureKind.Startup, ProfilingCaptureKind.Interaction],
+            [ProfilingArtifactKind.Trace, ProfilingArtifactKind.Mibc],
             [ProfilingScenarioKind.Launch, ProfilingScenarioKind.Interaction],
             SupportsLaunchProfiling: true,
-            SupportsAttachToProcess: true,
-            SupportsLiveMetrics: true,
+            SupportsAttachToProcess: false,
+            SupportsLiveMetrics: false,
             SupportsSymbolication: true);
 
-        _profilingCatalogService.Setup(x => x.GetCapabilitiesAsync(ProfilingTargetPlatform.MacCatalyst, It.IsAny<CancellationToken>()))
+        _profilingCatalogService.Setup(x => x.GetCapabilitiesAsync(ProfilingTargetPlatform.iOS, It.IsAny<CancellationToken>()))
             .ReturnsAsync(expectedCapabilities);
 
         var result = await _handler.Handle(
-            new GetProfilingCapabilitiesRequest(ProfilingTargetPlatform.MacCatalyst),
+            new GetProfilingCapabilitiesRequest(ProfilingTargetPlatform.iOS),
             _context.Object,
             CancellationToken.None);
 
         result.Should().Be(expectedCapabilities);
-        _profilingCatalogService.Verify(x => x.GetCapabilitiesAsync(ProfilingTargetPlatform.MacCatalyst, It.IsAny<CancellationToken>()), Times.Once);
+        _profilingCatalogService.Verify(x => x.GetCapabilitiesAsync(ProfilingTargetPlatform.iOS, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
