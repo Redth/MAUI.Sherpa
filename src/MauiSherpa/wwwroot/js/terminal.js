@@ -5,7 +5,7 @@ window.terminalInterop = {
     /**
      * Initialize a terminal in the specified container
      */
-    initialize: function (containerId, options) {
+    initialize: function (containerId, options, dotnetRef) {
         const container = document.getElementById(containerId);
         if (!container) {
             console.error('Terminal container not found:', containerId);
@@ -53,11 +53,24 @@ window.terminalInterop = {
         fitAddon.fit();
 
         // Store reference
-        this.terminals[containerId] = {
+        const state = {
             terminal: terminal,
             fitAddon: fitAddon,
-            autoScroll: true
+            autoScroll: true,
+            inputSubscription: null,
+            resizeObserver: null,
+            inputQueue: Promise.resolve()
         };
+        this.terminals[containerId] = state;
+
+        if (dotnetRef) {
+            state.inputSubscription = terminal.onData(data => {
+                state.inputQueue = state.inputQueue
+                    .then(() => dotnetRef.invokeMethodAsync('OnProcessInput', data))
+                    .catch(error => console.error('Failed to forward terminal input:', error));
+            });
+            terminal.focus();
+        }
 
         // Handle resize
         const resizeObserver = new ResizeObserver(() => {
@@ -68,6 +81,7 @@ window.terminalInterop = {
             }
         });
         resizeObserver.observe(container);
+        state.resizeObserver = resizeObserver;
 
         // Track user scroll to disable auto-scroll
         terminal.element.addEventListener('wheel', () => {
@@ -469,6 +483,8 @@ window.terminalInterop = {
         const t = this.terminals[containerId];
         if (!t) return;
 
+        t.inputSubscription?.dispose();
+        t.resizeObserver?.disconnect();
         t.terminal.dispose();
         delete this.terminals[containerId];
     }
