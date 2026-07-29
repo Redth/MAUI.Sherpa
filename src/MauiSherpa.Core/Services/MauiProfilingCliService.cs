@@ -79,7 +79,9 @@ public sealed class MauiProfilingCliService : IMauiProfilingCliService
                 WorkingDirectory: Path.GetDirectoryName(request.ProjectPath),
                 Title: request.Mode == MauiProfileMode.Startup
                     ? "Profiling app startup"
-                    : "Profiling app interaction"),
+                    : "Profiling app interaction",
+                // Interaction captures drive the CLI's start/stop prompts over stdin.
+                AcceptsStandardInput: request.Mode == MauiProfileMode.Interaction),
             ct);
 
         if (request.Mode == MauiProfileMode.Interaction)
@@ -225,7 +227,7 @@ public sealed class MauiProfilingCliService : IMauiProfilingCliService
             throw new InvalidOperationException("The interaction profile is not waiting to begin recording.");
         }
 
-        await _process.WriteInputAsync(string.Empty, appendNewLine: true, ct);
+        await SendEnterAsync(ct);
         SetState(MauiProfileRunState.Recording);
     }
 
@@ -239,7 +241,16 @@ public sealed class MauiProfilingCliService : IMauiProfilingCliService
         }
 
         SetState(MauiProfileRunState.Finalizing);
-        await _process.WriteInputAsync(string.Empty, appendNewLine: true, ct);
+        await SendEnterAsync(ct);
+    }
+
+    /// <summary>
+    /// The MAUI CLI advances its interactive prompts on a bare newline.
+    /// </summary>
+    private async Task SendEnterAsync(CancellationToken ct)
+    {
+        if (!await _process.SendInputAsync(Environment.NewLine, ct))
+            throw new InvalidOperationException("The MAUI CLI is no longer accepting input.");
     }
 
     public void Cancel()

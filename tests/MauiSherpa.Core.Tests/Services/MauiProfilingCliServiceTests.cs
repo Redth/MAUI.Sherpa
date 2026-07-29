@@ -27,7 +27,8 @@ public class MauiProfilingCliServiceTests
 
         await service.StopRecordingAsync();
         service.State.Should().Be(MauiProfileRunState.Finalizing);
-        process.Inputs.Should().Equal(string.Empty, string.Empty);
+        process.Inputs.Should().Equal(Environment.NewLine, Environment.NewLine);
+        process.Request!.AcceptsStandardInput.Should().BeTrue();
 
         process.Emit(ProfileResultJson);
         process.Complete(new ProcessResult(
@@ -306,13 +307,12 @@ public class MauiProfilingCliServiceTests
             return _completion.Task;
         }
 
-        public Task WriteInputAsync(
-            string input,
-            bool appendNewLine = true,
+        public Task<bool> SendInputAsync(
+            string data,
             CancellationToken cancellationToken = default)
         {
-            Inputs.Add(input);
-            return Task.CompletedTask;
+            Inputs.Add(data);
+            return Task.FromResult(true);
         }
 
         public void Emit(string output) =>

@@ -253,10 +253,9 @@ public class MauiCliToolServiceTests
             return Task.FromResult(result);
         }
 
-        public Task WriteInputAsync(
-            string input,
-            bool appendNewLine = true,
-            CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task<bool> SendInputAsync(
+            string data,
+            CancellationToken cancellationToken = default) => Task.FromResult(true);
 
         public void Cancel()
         {

@@ -16,11 +16,12 @@ public class ProcessExecutionService : IProcessExecutionService
     private readonly object _outputLock = new();
     private ProcessState _currentState = ProcessState.Pending;
     private readonly object _stateLock = new();
-    private readonly SemaphoreSlim _inputLock = new(1, 1);
     private CancellationTokenSource? _linkedCts;
     private DateTime _startTime;
     private string? _tempOutputFile;
     private CancellationTokenSource? _tailCts;
+    private readonly SemaphoreSlim _inputWriteLock = new(1, 1);
+    private bool _acceptsStandardInput;
 
     public ProcessState CurrentState
     {
@@ -53,10 +54,21 @@ public class ProcessExecutionService : IProcessExecutionService
 
     public async Task<ProcessResult> ExecuteAsync(ProcessRequest request, CancellationToken cancellationToken = default)
     {
+        if (request.AcceptsStandardInput && request.RequiresElevation)
+        {
+            throw new ArgumentException(
+                "Interactive standard input is not supported for elevated processes.",
+                nameof(request));
+        }
+
         lock (_outputLock)
         {
             _outputBuilder.Clear();
             _errorBuilder.Clear();
+        }
+        lock (_stateLock)
+        {
+            _acceptsStandardInput = request.AcceptsStandardInput;
         }
         CurrentState = ProcessState.Running;
         _startTime = DateTime.Now;
@@ -103,8 +115,20 @@ public class ProcessExecutionService : IProcessExecutionService
             CleanupTempFiles();
             _linkedCts?.Dispose();
             _linkedCts = null;
-            _currentProcess?.Dispose();
-            _currentProcess = null;
+            await _inputWriteLock.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+            try
+            {
+                lock (_stateLock)
+                {
+                    _acceptsStandardInput = false;
+                    _currentProcess?.Dispose();
+                    _currentProcess = null;
+                }
+            }
+            finally
+            {
+                _inputWriteLock.Release();
+            }
             _tailCts?.Cancel();
             _tailCts?.Dispose();
             _tailCts = null;
@@ -529,38 +553,6 @@ public class ProcessExecutionService : IProcessExecutionService
         );
     }
 
-    public async Task WriteInputAsync(
-        string input,
-        bool appendNewLine = true,
-        CancellationToken cancellationToken = default)
-    {
-        await _inputLock.WaitAsync(cancellationToken);
-        try
-        {
-            var process = _currentProcess;
-            if (process is null || process.HasExited)
-                throw new InvalidOperationException("No process is currently accepting input.");
-
-            if (!process.StartInfo.RedirectStandardInput)
-                throw new InvalidOperationException("The current process does not redirect standard input.");
-
-            if (appendNewLine)
-                await process.StandardInput.WriteLineAsync(input.AsMemory(), cancellationToken);
-            else
-                await process.StandardInput.WriteAsync(input.AsMemory(), cancellationToken);
-
-            await process.StandardInput.FlushAsync(cancellationToken);
-        }
-        catch (ObjectDisposedException ex)
-        {
-            throw new InvalidOperationException("The process stopped before input could be sent.", ex);
-        }
-        finally
-        {
-            _inputLock.Release();
-        }
-    }
-    
     private void CleanupTempFiles()
     {
         if (_tempOutputFile != null)
@@ -590,9 +582,21 @@ public class ProcessExecutionService : IProcessExecutionService
             }
             else
             {
-                // On Windows, try to send Ctrl+C
-                process.StandardInput.WriteLine("\x03");
-                process.StandardInput.Close();
+                // Serialize cancellation with interactive writes so stdin cannot be closed mid-write.
+                _inputWriteLock.Wait();
+                try
+                {
+                    if (!process.HasExited)
+                    {
+                        // On Windows, try to send Ctrl+C
+                        process.StandardInput.WriteLine("\x03");
+                        process.StandardInput.Close();
+                    }
+                }
+                finally
+                {
+                    _inputWriteLock.Release();
+                }
             }
 
             // Start a safety timeout: if the process hasn't exited after 30s,
@@ -665,6 +669,71 @@ public class ProcessExecutionService : IProcessExecutionService
     public string GetFullOutput()
     {
         return GetOutputSnapshot().Output;
+    }
+
+    public async Task<bool> SendInputAsync(
+        string data,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrEmpty(data))
+            return true;
+
+        Process? process;
+        lock (_stateLock)
+        {
+            if (!_acceptsStandardInput ||
+                _currentState != ProcessState.Running ||
+                _currentProcess == null)
+            {
+                return false;
+            }
+
+            process = _currentProcess;
+        }
+
+        await _inputWriteLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            lock (_stateLock)
+            {
+                if (!_acceptsStandardInput ||
+                    _currentState != ProcessState.Running ||
+                    !ReferenceEquals(process, _currentProcess))
+                {
+                    return false;
+                }
+            }
+
+            if (process.HasExited || !process.StartInfo.RedirectStandardInput)
+                return false;
+
+            try
+            {
+                await process.StandardInput
+                    .WriteAsync(data.AsMemory(), cancellationToken)
+                    .ConfigureAwait(false);
+                await process.StandardInput
+                    .FlushAsync(cancellationToken)
+                    .ConfigureAwait(false);
+                return true;
+            }
+            catch (IOException)
+            {
+                return false;
+            }
+            catch (ObjectDisposedException)
+            {
+                return false;
+            }
+            catch (InvalidOperationException)
+            {
+                return false;
+            }
+        }
+        finally
+        {
+            _inputWriteLock.Release();
+        }
     }
 
     private void OnOutput(string data, bool isError, bool isRaw = false)

@@ -1998,7 +1998,8 @@ public interface IDotnetUpService
     /// <summary>Builds a <see cref="ProcessRequest"/> for arbitrary dotnetup arguments.</summary>
     ProcessRequest CreateProcessRequest(
         IReadOnlyList<string> arguments, string? title = null, string? description = null,
-        string? workingDirectory = null, bool usePseudoTerminal = false);
+        string? workingDirectory = null, bool usePseudoTerminal = false,
+        bool acceptsStandardInput = false);
 
     /// <summary>
     /// Builds a request that installs the SDK required by the <c>global.json</c> in
@@ -2064,7 +2065,8 @@ public record ProcessRequest(
     string? Description = null,
     bool UsePseudoTerminal = false,
     string? ConfirmationDetails = null,
-    string? ConfirmationButtonText = null
+    string? ConfirmationButtonText = null,
+    bool AcceptsStandardInput = false
 )
 {
     /// <summary>
@@ -2156,12 +2158,10 @@ public interface IProcessExecutionService
     Task<ProcessResult> ExecuteAsync(ProcessRequest request, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Writes input to the running process without changing its state.
+    /// Sends raw input to an active process that opted into standard input.
+    /// Returns false when the process is no longer able to accept input.
     /// </summary>
-    Task WriteInputAsync(
-        string input,
-        bool appendNewLine = true,
-        CancellationToken cancellationToken = default);
+    Task<bool> SendInputAsync(string data, CancellationToken cancellationToken = default);
     
     /// <summary>
     /// Sends a graceful cancellation signal (SIGINT/Ctrl+C)
