@@ -10,7 +10,7 @@ MauiSherpa is a .NET 10 MAUI Blazor Hybrid desktop application for managing deve
 - .NET SDK management via `dotnetup` (install/update SDKs & runtimes — see `docs/dotnet-sdk-management.md`)
 - GitHub Copilot integration
 
-**Platforms:** Mac Catalyst, Windows
+**Platforms:** macOS (AppKit), Windows, Linux (GTK)
 **Bundle Identifier:** `codes.redth.mauisherpa`
 
 ## Project Structure
@@ -24,12 +24,14 @@ MAUI.Sherpa/
 │   │   ├── Services/             # Service implementations
 │   │   ├── ViewModels/           # MVVM ViewModels
 │   │   └── Interfaces.cs         # All interface definitions
-│   ├── MauiSherpa/               # MAUI app with Blazor UI
+│   ├── MauiSherpa/               # Shared MAUI app with Blazor UI (Windows head)
 │   │   ├── Components/           # Reusable Blazor components
 │   │   ├── Pages/                # Blazor page components
 │   │   ├── Services/             # Platform-specific service implementations
-│   │   ├── Platforms/            # Platform-specific code (MacCatalyst, Windows)
+│   │   ├── Platforms/            # Platform-specific code (Windows)
 │   │   └── wwwroot/              # Static assets (CSS, JS, index.html)
+│   ├── MauiSherpa.MacOS/         # macOS AppKit app head (net10.0-macos)
+│   ├── MauiSherpa.LinuxGtk/      # Linux GTK app head
 │   └── MauiSherpa.Workloads/     # .NET SDK workload querying library
 │       ├── Models/               # Workload data models
 │       ├── Services/             # Workload services
@@ -43,8 +45,8 @@ MAUI.Sherpa/
 ## Build Commands
 
 ```bash
-# Build for Mac Catalyst
-dotnet build src/MauiSherpa -f net10.0-maccatalyst
+# Build for macOS (AppKit head)
+dotnet build src/MauiSherpa.MacOS -f net10.0-macos
 
 # Build for Windows (on Windows only)
 dotnet build src/MauiSherpa -f net10.0-windows10.0.19041.0
@@ -55,23 +57,26 @@ dotnet build MauiSherpa.sln
 # Run all tests
 dotnet test MauiSherpa.sln
 
-# Publish Mac Catalyst app
-dotnet publish src/MauiSherpa -f net10.0-maccatalyst -c Release
+# Publish macOS app
+dotnet publish src/MauiSherpa.MacOS -f net10.0-macos -c Release
 
 # Publish Windows app
 dotnet publish src/MauiSherpa -f net10.0-windows10.0.19041.0 -c Release
 ```
+
+`src/MauiSherpa` is the shared UI project and the Windows head. It only builds on Windows — on
+macOS and Linux its `Build`/`Rebuild`/`Publish` targets are no-ops so solution builds still work.
 
 ### Launching the App
 
 **IMPORTANT:** `dotnet run` does NOT work for .NET MAUI apps (until .NET 11). Use one of:
 ```bash
 # Option 1: Build with -t:Run target (keeps process alive until app exits)
-dotnet build src/MauiSherpa -f net10.0-maccatalyst -t:Run
+dotnet build src/MauiSherpa.MacOS -f net10.0-macos -t:Run
 
 # Option 2: Build then manually open the .app bundle
-dotnet build src/MauiSherpa -f net10.0-maccatalyst
-open "src/MauiSherpa/bin/Debug/net10.0-maccatalyst/maccatalyst-arm64/MAUI Sherpa.app"
+dotnet build src/MauiSherpa.MacOS -f net10.0-macos
+open "src/MauiSherpa.MacOS/bin/Debug/net10.0-macos/osx-arm64/MAUI Sherpa.app"
 ```
 
 **Always launch from `bin/` path**, NOT `artifacts/`. The `artifacts/` copy may be stale and missing DLLs.
@@ -169,7 +174,7 @@ All modals use `modalInterop.js` (`wwwroot/js/modalInterop.js`) for focus trappi
 - Escape closes the modal
 - Auto-focuses `.btn-primary:not([disabled])` on open
 
-**CRITICAL:** In Blazor WebView (Mac Catalyst), browser default Tab navigation does NOT work. All Tab keypresses must be intercepted with `preventDefault()` and explicit `.focus()` calls via JS interop.
+**CRITICAL:** In Blazor WebView (macOS), browser default Tab navigation does NOT work. All Tab keypresses must be intercepted with `preventDefault()` and explicit `.focus()` calls via JS interop.
 
 ### Text Selection Prevention
 Global `user-select: none` is applied on `*` to prevent accidental text selection in the hybrid app. Selectively re-enabled on: `input`, `textarea`, `select`, `code`, `pre`, `.mono`, `.terminal-output`, `.log-entry`, `.error-message`, `.chat-message`, and `.text-selectable`.
@@ -205,7 +210,7 @@ When making or reviewing UI changes, always verify:
 
 ## Platform-Specific Notes
 
-### Mac Catalyst
+### macOS
 
 **App data path:** Use `AppDataPath.GetAppDataDirectory()` which returns `~/Library/Application Support/MauiSherpa/`. Do NOT use `SpecialFolder.ApplicationData` (resolves to `~/Documents/.config/` which is TCC-protected).
 
@@ -213,9 +218,7 @@ When making or reviewing UI changes, always verify:
 
 **File save dialogs:** `PickSaveFileAsync` (native `NSSavePanel`) creates an empty file at the chosen path. Tools like `keytool` that refuse to overwrite existing files need the empty file deleted first.
 
-**Mac Catalyst delegate:** Use `DidPickDocumentAtUrls` (plural), NOT `DidPickDocument` (singular). The singular form doesn't fire on modern Mac Catalyst.
-
-**Hardened runtime:** MSBuild `EnableHardenedRuntime=true` does NOT work for .NET MAUI Mac Catalyst. Must re-sign with `codesign --force --options runtime --timestamp` after publish.
+**Duplicate native libraries:** The app heads reference both `MauiSherpa.AppInspector` and `MauiSherpa.Core`, and AppInspector also references Core, so `GitHub.Copilot.SDK` stages `libcopilot_runtime.dylib` several times over. The Apple SDK's `InstallNameTool` task runs its items in parallel against a shared `.tmp` path and crashes on duplicates, so `build/DedupeNativeReferences.targets` collapses each destination to one entry. Import it from any new Apple app head.
 
 **Logging:** Logs saved to `~/Library/Application Support/MauiSherpa/logs/maui-sherpa-{yyyy-MM-dd}.log`.
 
