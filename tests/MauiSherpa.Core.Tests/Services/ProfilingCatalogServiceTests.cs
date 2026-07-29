@@ -1,8 +1,6 @@
 using FluentAssertions;
-using MauiSherpa.Core.Interfaces;
 using MauiSherpa.Core.Models.Profiling;
 using MauiSherpa.Core.Services;
-using Moq;
 
 namespace MauiSherpa.Core.Tests.Services;
 
@@ -11,49 +9,40 @@ public class ProfilingCatalogServiceTests
     [Fact]
     public async Task GetCatalogAsync_ReturnsBuiltInPlatformsAndScenarios()
     {
-        var service = new ProfilingCatalogService([]);
+        var service = new ProfilingCatalogService();
 
         var result = await service.GetCatalogAsync();
 
-        result.Platforms.Should().HaveCount(5);
-        result.Scenarios.Should().Contain(x => x.Kind == ProfilingScenarioKind.Launch);
+        result.Platforms.Should().HaveCount(2);
+        result.Scenarios.Should().HaveCount(2);
+        result.Scenarios.Should().Contain(x =>
+            x.DisplayName == "Startup" &&
+            x.DefaultCaptureKinds.SequenceEqual(new[] { ProfilingCaptureKind.Startup }));
+        result.Scenarios.Should().Contain(x =>
+            x.DisplayName == "Interaction" &&
+            x.DefaultCaptureKinds.SequenceEqual(new[] { ProfilingCaptureKind.Interaction }));
         result.Platforms.Should().Contain(x =>
             x.Platform == ProfilingTargetPlatform.Android &&
             x.SupportedTargetKinds.Contains(ProfilingTargetKind.Emulator));
+        result.Platforms.Should().Contain(x =>
+            x.Platform == ProfilingTargetPlatform.iOS &&
+            x.SupportedTargetKinds.SequenceEqual(new[] { ProfilingTargetKind.Simulator }));
     }
 
     [Fact]
-    public async Task GetCapabilitiesAsync_UsesRegisteredProviderOverride()
+    public async Task GetCapabilitiesAsync_RejectsUnsupportedDesktopPlatforms()
     {
-        var customCapabilities = new ProfilingPlatformCapabilities(
-            ProfilingTargetPlatform.Android,
-            "Android (custom)",
-            [ProfilingTargetKind.PhysicalDevice],
-            [ProfilingCaptureKind.Cpu],
-            [ProfilingArtifactKind.Trace],
-            [ProfilingScenarioKind.Launch],
-            SupportsLaunchProfiling: true,
-            SupportsAttachToProcess: false,
-            SupportsLiveMetrics: false,
-            SupportsSymbolication: false,
-            Notes: "Custom override");
+        var service = new ProfilingCatalogService();
+        var act = () => service.GetCapabilitiesAsync(ProfilingTargetPlatform.MacCatalyst);
 
-        var provider = new Mock<IProfilingCapabilityProvider>();
-        provider.SetupGet(x => x.Platform).Returns(ProfilingTargetPlatform.Android);
-        provider.Setup(x => x.GetCapabilitiesAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(customCapabilities);
-
-        var service = new ProfilingCatalogService([provider.Object]);
-
-        var result = await service.GetCapabilitiesAsync(ProfilingTargetPlatform.Android);
-
-        result.Should().Be(customCapabilities);
+        await act.Should().ThrowAsync<ArgumentOutOfRangeException>()
+            .WithMessage("*Android devices/emulators and iOS simulators*");
     }
 
     [Fact]
     public void CreateSessionDefinition_UsesScenarioDefaultsWhenCaptureKindsNotProvided()
     {
-        var service = new ProfilingCatalogService([]);
+        var service = new ProfilingCatalogService();
         var target = new ProfilingTarget(
             ProfilingTargetPlatform.Android,
             ProfilingTargetKind.Emulator,
@@ -62,9 +51,8 @@ public class ProfilingCatalogServiceTests
 
         var result = service.CreateSessionDefinition(target, ProfilingScenarioKind.Launch);
 
-        result.Name.Should().Be("Pixel 8 - Launch & startup");
-        result.CaptureKinds.Should().BeEquivalentTo(
-            [ProfilingCaptureKind.Startup, ProfilingCaptureKind.Cpu, ProfilingCaptureKind.Memory]);
+        result.Name.Should().Be("Pixel 8 - Startup");
+        result.CaptureKinds.Should().BeEquivalentTo([ProfilingCaptureKind.Startup]);
         result.Duration.Should().Be(TimeSpan.FromMinutes(2));
         result.Tags.Should().NotBeNull().And.BeEmpty();
     }
@@ -72,14 +60,14 @@ public class ProfilingCatalogServiceTests
     [Fact]
     public async Task ValidateSessionDefinition_ReturnsErrorsForUnsupportedValues()
     {
-        var service = new ProfilingCatalogService([]);
-        var capabilities = await service.GetCapabilitiesAsync(ProfilingTargetPlatform.Windows);
+        var service = new ProfilingCatalogService();
+        var capabilities = await service.GetCapabilitiesAsync(ProfilingTargetPlatform.Android);
         var definition = new ProfilingSessionDefinition(
             "session-1",
             "",
             new ProfilingTarget(
-                ProfilingTargetPlatform.Android,
-                ProfilingTargetKind.Emulator,
+                ProfilingTargetPlatform.iOS,
+                ProfilingTargetKind.Simulator,
                 "",
                 "Android emulator"),
             ProfilingScenarioKind.Launch,

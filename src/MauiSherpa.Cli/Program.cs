@@ -17,5 +17,4 @@ var root = new RootCommand("MAUI Sherpa CLI — manage Android SDK, iOS simulato
     CliOptions.Agent,
 };
 
-var config = new CommandLineConfiguration(root);
-return await config.InvokeAsync(args);
+return await root.Parse(args).InvokeAsync();

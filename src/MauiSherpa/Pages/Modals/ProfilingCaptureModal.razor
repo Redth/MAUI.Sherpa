@@ -1,0 +1,2097 @@
+@page "/modal/profiling-capture"
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Core.Models.Profiling
+@using MauiSherpa.Core.Services
+@using MauiSherpa.Pages.Forms
+@inject HybridFormBridgeHolder BridgeHolder
+@inject IMauiCliToolService MauiCli
+@inject IMauiProfilingCliService Profiler
+@inject IProfilingSessionStorageService SessionStorage
+@inject IProfilingArtifactConverterService ArtifactConverter
+@inject IDialogService DialogService
+@inject INavigationService Navigation
+@inject MauiSherpa.Services.ProfilingViewerService ViewerService
+@implements IDisposable
+
+@{
+    var bridge = BridgeHolder.Current;
+}
+
+@if (bridge is not null)
+{
+    <div class="capture-shell">
+        @if (isInitializing)
+        {
+            <div class="loading-state" role="status" aria-live="polite">
+                <div class="spinner" aria-hidden="true"></div>
+                <div>
+                    <strong>Checking MAUI profiling tools</strong>
+                    <p>Finding the MAUI CLI and running targets...</p>
+                </div>
+            </div>
+        }
+        else if (viewState == CaptureViewState.Configure)
+        {
+            <div class="configure-view">
+                @RenderToolStatus()
+
+                @if (toolStatus?.IsAvailable == true)
+                {
+                    <section class="form-section" aria-labelledby="project-heading">
+                        <div class="section-heading">
+                            <span class="section-number">1</span>
+                            <div>
+                                <h2 id="project-heading">Project</h2>
+                                <p>Select the .NET MAUI project to build and launch.</p>
+                            </div>
+                        </div>
+
+                        <div class="project-picker">
+                            <div class="path-field">
+                                <i class="fas fa-file-code" aria-hidden="true"></i>
+                                <span class="mono @(string.IsNullOrWhiteSpace(projectPath) ? "placeholder" : "")">
+                                    @(string.IsNullOrWhiteSpace(projectPath) ? "Choose a .csproj" : projectPath)
+                                </span>
+                            </div>
+                            <button type="button" class="btn btn-secondary control-button" @onclick="BrowseProjectAsync">
+                                <i class="fas fa-folder-open" aria-hidden="true"></i>
+                                Browse
+                            </button>
+                        </div>
+
+                        @if (recentProjectPaths.Count > 0)
+                        {
+                            <label class="field-label" for="recent-project">Recent project</label>
+                            <select id="recent-project" class="form-control mono" value="@projectPath" @onchange="SelectRecentProject">
+                                <option value="">Choose from recent sessions...</option>
+                                @foreach (var recentPath in recentProjectPaths)
+                                {
+                                    <option value="@recentPath">@recentPath</option>
+                                }
+                            </select>
+                        }
+                    </section>
+
+                    <section class="form-section" aria-labelledby="capture-heading">
+                        <div class="section-heading">
+                            <span class="section-number">2</span>
+                            <div>
+                                <h2 id="capture-heading">Capture</h2>
+                                <p>Choose when recording should happen.</p>
+                            </div>
+                        </div>
+
+                        <div class="choice-grid two-column" role="radiogroup" aria-label="Capture mode">
+                            <button type="button"
+                                    class="choice-card @(selectedMode == MauiProfileMode.Startup ? "selected" : "")"
+                                    role="radio"
+                                    aria-checked="@(selectedMode == MauiProfileMode.Startup ? "true" : "false")"
+                                    @onclick="@(() => SelectMode(MauiProfileMode.Startup))">
+                                <span class="choice-icon"><i class="fas fa-rocket" aria-hidden="true"></i></span>
+                                <span class="choice-copy">
+                                    <strong>Startup</strong>
+                                    <small>Record from launch until the first MAUI UI is ready.</small>
+                                </span>
+                                <i class="fas fa-circle-check selection-check" aria-hidden="true"></i>
+                            </button>
+                            <button type="button"
+                                    class="choice-card @(selectedMode == MauiProfileMode.Interaction ? "selected" : "")"
+                                    role="radio"
+                                    aria-checked="@(selectedMode == MauiProfileMode.Interaction ? "true" : "false")"
+                                    @onclick="@(() => SelectMode(MauiProfileMode.Interaction))">
+                                <span class="choice-icon"><i class="fas fa-hand-pointer" aria-hidden="true"></i></span>
+                                <span class="choice-copy">
+                                    <strong>Interaction</strong>
+                                    <small>Launch first, then begin and stop recording when ready.</small>
+                                </span>
+                                <i class="fas fa-circle-check selection-check" aria-hidden="true"></i>
+                            </button>
+                        </div>
+                    </section>
+
+                    <section class="form-section" aria-labelledby="target-heading">
+                        <div class="section-heading with-action">
+                            <div class="heading-copy">
+                                <span class="section-number">3</span>
+                                <div>
+                                    <h2 id="target-heading">Running target</h2>
+                                    <p>Android devices and emulators, or booted iOS simulators.</p>
+                                </div>
+                            </div>
+                            <button type="button"
+                                    class="btn btn-secondary icon-text-button"
+                                    disabled="@isRefreshingDevices"
+                                    @onclick="RefreshDevicesAsync">
+                                <i class="fas @(isRefreshingDevices ? "fa-spinner fa-spin" : "fa-arrows-rotate")" aria-hidden="true"></i>
+                                Refresh
+                            </button>
+                        </div>
+
+                        @if (!string.IsNullOrWhiteSpace(deviceError))
+                        {
+                            <div class="inline-message error" role="alert">
+                                <i class="fas fa-circle-exclamation" aria-hidden="true"></i>
+                                <span>@deviceError</span>
+                            </div>
+                        }
+                        else if (devices.Count == 0)
+                        {
+                            <div class="target-empty">
+                                <i class="fas fa-mobile-screen" aria-hidden="true"></i>
+                                <div>
+                                    <strong>No running targets found</strong>
+                                    <p>Start an Android target or boot an iOS simulator, then refresh.</p>
+                                </div>
+                                <div class="recovery-actions">
+                                    <button type="button" class="btn btn-secondary" @onclick="@(() => OpenTargetManagerAsync("/emulators"))">
+                                        <i class="fab fa-android" aria-hidden="true"></i>
+                                        Android emulators
+                                    </button>
+                                    <button type="button" class="btn btn-secondary" @onclick="@(() => OpenTargetManagerAsync("/apple-simulators"))">
+                                        <i class="fab fa-apple" aria-hidden="true"></i>
+                                        Apple simulators
+                                    </button>
+                                </div>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="target-list" role="radiogroup" aria-label="Running target">
+                                @foreach (var device in devices)
+                                {
+                                    var selected = selectedDeviceId == device.Identifier;
+                                    <button type="button"
+                                            class="target-card @(selected ? "selected" : "")"
+                                            role="radio"
+                                            aria-checked="@(selected ? "true" : "false")"
+                                            @onclick="@(() => SelectDevice(device))">
+                                        <span class="target-platform">
+                                            <i class="fab @(IsAndroid(device) ? "fa-android" : "fa-apple")" aria-hidden="true"></i>
+                                        </span>
+                                        <span class="target-copy">
+                                            <strong>@device.Name</strong>
+                                            <small>@GetDeviceDescription(device)</small>
+                                        </span>
+                                        <i class="fas fa-circle-check selection-check" aria-hidden="true"></i>
+                                    </button>
+                                }
+                            </div>
+                        }
+                    </section>
+
+                    <section class="form-section" aria-labelledby="output-heading">
+                        <div class="section-heading">
+                            <span class="section-number">4</span>
+                            <div>
+                                <h2 id="output-heading">Output</h2>
+                                <p>Speedscope opens directly in Sherpa and keeps the raw trace.</p>
+                            </div>
+                        </div>
+
+                        <div class="format-grid" role="radiogroup" aria-label="Profile output format">
+                            @foreach (var format in OutputFormats)
+                            {
+                                var selected = selectedFormat == format;
+                                <button type="button"
+                                        class="format-card @(selected ? "selected" : "")"
+                                        role="radio"
+                                        aria-checked="@(selected ? "true" : "false")"
+                                        @onclick="@(() => SelectFormat(format))">
+                                    <i class="fas @GetFormatIcon(format)" aria-hidden="true"></i>
+                                    <span>
+                                        <strong>@GetFormatName(format)</strong>
+                                        <small>@GetFormatDescription(format)</small>
+                                    </span>
+                                    <i class="fas fa-circle-check selection-check" aria-hidden="true"></i>
+                                </button>
+                            }
+                        </div>
+
+                        @if (selectedFormat == MauiProfileOutputFormat.Mibc)
+                        {
+                            <div class="inline-message warning">
+                                <i class="fas fa-clock" aria-hidden="true"></i>
+                                <span>The first MIBC capture may take several minutes while the CLI prepares <span class="mono">dotnet-pgo</span>.</span>
+                            </div>
+                        }
+                    </section>
+
+                    <details class="advanced-section">
+                        <summary>
+                            <span><i class="fas fa-sliders" aria-hidden="true"></i> Advanced options</span>
+                            <i class="fas fa-chevron-down chevron" aria-hidden="true"></i>
+                        </summary>
+                        <div class="advanced-content">
+                            <div class="advanced-grid">
+                                <div class="field-group">
+                                    <label class="field-label" for="configuration">Configuration</label>
+                                    <select id="configuration" class="form-control" @bind="configuration" @bind:after="OnOptionsChanged">
+                                        <option value="Release">Release</option>
+                                        <option value="Debug">Debug</option>
+                                    </select>
+                                </div>
+
+                                @if (selectedMode == MauiProfileMode.Startup)
+                                {
+                                    <div class="field-group">
+                                        <label class="field-label" for="stop-condition">Stop startup capture</label>
+                                        <select id="stop-condition" class="form-control" @bind="useFixedDuration" @bind:after="OnOptionsChanged">
+                                            <option value="false">When first UI is ready</option>
+                                            <option value="true">After a fixed duration</option>
+                                        </select>
+                                    </div>
+
+                                    @if (useFixedDuration)
+                                    {
+                                        <div class="field-group">
+                                            <label class="field-label" for="duration-seconds">Duration in seconds</label>
+                                            <input id="duration-seconds"
+                                                   class="form-control"
+                                                   type="number"
+                                                   min="1"
+                                                   max="3600"
+                                                   @bind="durationSeconds"
+                                                   @bind:after="OnOptionsChanged" />
+                                        </div>
+                                    }
+                                }
+
+                                <div class="field-group span-two">
+                                    <label class="field-label" for="trace-profiles">Trace profiles</label>
+                                    <input id="trace-profiles"
+                                           class="form-control mono"
+                                           type="text"
+                                           @bind="traceProfile"
+                                           @bind:event="oninput"
+                                           @bind:after="OnOptionsChanged"
+                                           placeholder="Optional, e.g. dotnet-sampled-thread-time" />
+                                    <small class="field-help">Named profiles may be comma separated and are passed once to <span class="mono">--trace-profile</span>.</small>
+                                </div>
+
+                                <label class="checkbox-field span-two">
+                                    <input type="checkbox" @bind="noBuild" @bind:after="OnOptionsChanged" />
+                                    <span>
+                                        <strong>Skip build</strong>
+                                        <small>Use the existing app output. Choose this only when the project is already built for the selected target.</small>
+                                    </span>
+                                </label>
+                            </div>
+
+                            <div class="command-preview">
+                                <div class="command-heading">
+                                    <span>Command preview</span>
+                                    <button type="button" class="copy-button" disabled="@(!CanPreviewCommand)" @onclick="CopyCommandAsync" title="Copy command">
+                                        <i class="fas fa-copy" aria-hidden="true"></i>
+                                        Copy
+                                    </button>
+                                </div>
+                                <code>@CommandPreview</code>
+                            </div>
+                        </div>
+                    </details>
+                }
+            </div>
+        }
+        else if (viewState == CaptureViewState.Running)
+        {
+            <div class="running-view" aria-live="polite">
+                <div class="run-hero">
+                    <div class="run-indicator @(profileState == MauiProfileRunState.Recording ? "recording" : "")">
+                        @if (profileState == MauiProfileRunState.Recording)
+                        {
+                            <span class="record-dot"></span>
+                        }
+                        else
+                        {
+                            <div class="spinner" aria-hidden="true"></div>
+                        }
+                    </div>
+                    <div>
+                        <span class="eyebrow">@GetRunEyebrow()</span>
+                        <h2>@GetRunTitle()</h2>
+                        <p>@GetRunDescription()</p>
+                    </div>
+                </div>
+
+                @if (activeRequest is not null)
+                {
+                    <div class="run-summary">
+                        <div>
+                            <span>Project</span>
+                            <strong>@Path.GetFileNameWithoutExtension(activeRequest.ProjectPath)</strong>
+                        </div>
+                        <div>
+                            <span>Target</span>
+                            <strong>@activeRequest.DeviceName</strong>
+                        </div>
+                        <div>
+                            <span>Output</span>
+                            <strong>@GetFormatName(activeRequest.Format)</strong>
+                        </div>
+                    </div>
+                }
+
+                @if (profileState == MauiProfileRunState.AwaitingRecording)
+                {
+                    <div class="instruction-card">
+                        <span class="instruction-number">1</span>
+                        <div>
+                            <strong>Prepare the app</strong>
+                            <p>Navigate to the starting point for the interaction you want to measure, then choose <strong>Begin recording</strong>.</p>
+                        </div>
+                    </div>
+                }
+                else if (profileState == MauiProfileRunState.Recording)
+                {
+                    <div class="instruction-card recording-card">
+                        <span class="instruction-number"><i class="fas fa-circle" aria-hidden="true"></i></span>
+                        <div>
+                            <strong>Recording interaction</strong>
+                            <p>Perform the interaction now. Choose <strong>Stop recording</strong> when you are done.</p>
+                        </div>
+                    </div>
+                }
+
+                <details class="details-panel">
+                    <summary>CLI details</summary>
+                    <div class="details-content">
+                        <code class="command-block">@activeCommand</code>
+                        @if (statusMessages.Count > 0)
+                        {
+                            <div class="status-list">
+                                @foreach (var status in statusMessages.TakeLast(6))
+                                {
+                                    <div><span>@status.Status</span>@status.Message</div>
+                                }
+                            </div>
+                        }
+                    </div>
+                </details>
+            </div>
+        }
+        else if (viewState == CaptureViewState.Completed && savedSession is not null)
+        {
+            <div class="result-view">
+                <div class="result-icon success"><i class="fas fa-check" aria-hidden="true"></i></div>
+                <span class="eyebrow">Profile saved</span>
+                <h2>@savedSession.Name</h2>
+                <p>The capture is in your Sherpa profiling library.</p>
+
+                @if (executionResult?.Profile?.RecoveredFromDisk == true)
+                {
+                    <div class="inline-message warning result-note">
+                        <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
+                        <span>The MAUI CLI wrote this capture but crashed while reporting the result, so Sherpa recovered it from the output folder. The profile itself is complete.</span>
+                    </div>
+                }
+
+                <div class="result-summary">
+                    <div><span>Mode</span><strong>@GetModeName(savedSession.MauiProfile?.Mode)</strong></div>
+                    <div><span>Target</span><strong>@savedSession.Target.DisplayName</strong></div>
+                    <div><span>Framework</span><strong class="mono">@FormatFramework(savedSession)</strong></div>
+                    <div><span>Duration</span><strong>@FormatDuration(savedSession.Pipeline?.Duration)</strong></div>
+                </div>
+
+                <div class="result-artifacts">
+                    @foreach (var artifact in savedSession.Artifacts)
+                    {
+                        <div class="result-artifact">
+                            <i class="fas @GetArtifactIcon(artifact.FileName)" aria-hidden="true"></i>
+                            <span>
+                                <strong>@(artifact.DisplayName ?? artifact.FileName)</strong>
+                                <small>@artifact.FileName @FormatArtifactSize(artifact.SizeBytes)</small>
+                            </span>
+                        </div>
+                    }
+                </div>
+
+                @if (savedSession.MauiProfile?.Format != MauiProfileOutputFormat.Mibc)
+                {
+                    <button type="button" class="btn btn-secondary result-secondary" @onclick="RevealPrimaryArtifact">
+                        <i class="fas fa-folder-open" aria-hidden="true"></i>
+                        Reveal file
+                    </button>
+                }
+            </div>
+        }
+        else if (viewState == CaptureViewState.Failed)
+        {
+            <div class="result-view failure-view">
+                <div class="result-icon error"><i class="fas fa-exclamation" aria-hidden="true"></i></div>
+                <span class="eyebrow">Profile not captured</span>
+                <h2>@(cliError?.Message ?? failureMessage ?? "The MAUI CLI could not complete the profile.")</h2>
+
+                @if (cliError?.Remediation is { } remediation)
+                {
+                    <div class="remediation">
+                        <strong>How to recover</strong>
+                        @foreach (var step in remediation.ManualSteps)
+                        {
+                            <p><i class="fas fa-arrow-right" aria-hidden="true"></i> @step</p>
+                        }
+                        @if (!string.IsNullOrWhiteSpace(remediation.Command))
+                        {
+                            <code>@remediation.Command</code>
+                        }
+                    </div>
+                }
+
+                <details class="details-panel failure-details">
+                    <summary>Technical details</summary>
+                    <div class="details-content">
+                        @if (cliError is not null)
+                        {
+                            <div class="error-code"><span>@cliError.Code</span> @cliError.Category / @cliError.Severity</div>
+                            @if (!string.IsNullOrWhiteSpace(cliError.NativeError))
+                            {
+                                <pre>@cliError.NativeError</pre>
+                            }
+                        }
+                        @if (!string.IsNullOrWhiteSpace(activeCommand))
+                        {
+                            <code class="command-block">@activeCommand</code>
+                        }
+                    </div>
+                </details>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private static readonly MauiProfileOutputFormat[] OutputFormats =
+    [
+        MauiProfileOutputFormat.Speedscope,
+        MauiProfileOutputFormat.NetTrace,
+        MauiProfileOutputFormat.Mibc
+    ];
+
+    private CaptureViewState viewState = CaptureViewState.Configure;
+    private MauiCliToolStatus? toolStatus;
+    private List<MauiCliDevice> devices = [];
+    private List<string> recentProjectPaths = [];
+    private readonly List<MauiCliStatusMessage> statusMessages = [];
+    private MauiProfileMode selectedMode = MauiProfileMode.Startup;
+    private MauiProfileOutputFormat selectedFormat = MauiProfileOutputFormat.Speedscope;
+    private MauiProfileRunState profileState = MauiProfileRunState.Idle;
+    private string? projectPath;
+    private string? selectedDeviceId;
+    private string configuration = "Release";
+    private string traceProfile = "";
+    private bool useFixedDuration;
+    private int durationSeconds = 15;
+    private bool noBuild;
+    private bool isInitializing = true;
+    private bool isRefreshingDevices;
+    private bool isChangingTool;
+    private bool cancelRequested;
+    private string? deviceError;
+    private string? failureMessage;
+    private string? activeSessionId;
+    private string? activeCommand;
+    private MauiCliErrorMessage? cliError;
+    private MauiProfileRequest? activeRequest;
+    private MauiProfileExecutionResult? executionResult;
+    private ProfilingSessionManifest? savedSession;
+    private CancellationTokenSource? captureCts;
+    private Task? captureTask;
+
+    private MauiCliDevice? SelectedDevice =>
+        devices.FirstOrDefault(device => device.Identifier == selectedDeviceId);
+
+    private bool CanPreviewCommand =>
+        toolStatus?.IsAvailable == true &&
+        !string.IsNullOrWhiteSpace(projectPath) &&
+        SelectedDevice is not null;
+
+    private bool CanStart =>
+        CanPreviewCommand &&
+        File.Exists(projectPath) &&
+        durationSeconds > 0 &&
+        !string.IsNullOrWhiteSpace(configuration) &&
+        !isChangingTool &&
+        !isRefreshingDevices;
+
+    private string CommandPreview
+    {
+        get
+        {
+            if (!CanPreviewCommand)
+                return "Select a project and running target to preview the command.";
+
+            try
+            {
+                var request = CreateRequest(Path.Combine("<session>", "capture.nettrace"));
+                return MauiProfileCommandBuilder.FormatForDisplay(toolStatus!.ExecutablePath!, request);
+            }
+            catch (Exception ex)
+            {
+                return ex.Message;
+            }
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var currentBridge = BridgeHolder.Current;
+        if (currentBridge is null)
+            return;
+
+        currentBridge.SubmitRequested += OnPrimaryActionAsync;
+        currentBridge.CancelRequested += OnCancelRequested;
+        Profiler.StateChanged += OnProfileStateChanged;
+        Profiler.MessageReceived += OnProfileMessageReceived;
+        UpdateActionState();
+
+        try
+        {
+            var sessionsTask = SessionStorage.GetSessionsAsync();
+            var statusTask = MauiCli.GetStatusAsync();
+            await Task.WhenAll(sessionsTask, statusTask);
+
+            recentProjectPaths = sessionsTask.Result
+                .Where(session => session.Project is not null && File.Exists(session.Project.Path))
+                .Select(session => session.Project!.Path)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(6)
+                .ToList();
+            projectPath = recentProjectPaths.FirstOrDefault();
+            toolStatus = statusTask.Result;
+
+            if (toolStatus.IsAvailable)
+                await LoadDevicesAsync();
+        }
+        catch (Exception ex)
+        {
+            failureMessage = ex.Message;
+        }
+        finally
+        {
+            isInitializing = false;
+            UpdateActionState();
+        }
+    }
+
+    private RenderFragment RenderToolStatus() => __builder =>
+    {
+        if (toolStatus?.State == MauiCliToolState.Missing)
+        {
+            <div class="tool-card">
+                <span class="tool-icon"><i class="fas fa-terminal" aria-hidden="true"></i></span>
+                <div>
+                    <strong>Install the MAUI CLI</strong>
+                    <p>Sherpa uses the global <span class="mono">Microsoft.Maui.Cli</span> tool for zero-touch app profiling.</p>
+                </div>
+                <button type="button" class="btn btn-primary control-button" disabled="@isChangingTool" @onclick="InstallOrUpdateToolAsync">
+                    <i class="fas @(isChangingTool ? "fa-spinner fa-spin" : "fa-download")" aria-hidden="true"></i>
+                    Install
+                </button>
+            </div>
+        }
+        else if (toolStatus?.State == MauiCliToolState.UpdateRequired)
+        {
+            <div class="tool-card warning">
+                <span class="tool-icon"><i class="fas fa-arrow-up" aria-hidden="true"></i></span>
+                <div>
+                    <strong>Update the MAUI CLI</strong>
+                    <p>@toolStatus.Message</p>
+                </div>
+                <button type="button" class="btn btn-primary control-button" disabled="@isChangingTool" @onclick="InstallOrUpdateToolAsync">
+                    <i class="fas @(isChangingTool ? "fa-spinner fa-spin" : "fa-arrows-rotate")" aria-hidden="true"></i>
+                    Update
+                </button>
+            </div>
+        }
+        else if (toolStatus?.IsAvailable == true)
+        {
+            <div class="tool-ready">
+                <i class="fas fa-circle-check" aria-hidden="true"></i>
+                <span>MAUI CLI @(string.IsNullOrWhiteSpace(toolStatus.Version) ? "ready" : toolStatus.Version)</span>
+            </div>
+        }
+        else if (!string.IsNullOrWhiteSpace(failureMessage))
+        {
+            <div class="inline-message error" role="alert">
+                <i class="fas fa-circle-exclamation" aria-hidden="true"></i>
+                <span>@failureMessage</span>
+            </div>
+        }
+    };
+
+    private async Task InstallOrUpdateToolAsync()
+    {
+        if (toolStatus is null || isChangingTool)
+            return;
+
+        isChangingTool = true;
+        failureMessage = null;
+        UpdateActionState();
+
+        try
+        {
+            var result = toolStatus.State == MauiCliToolState.Missing
+                ? await MauiCli.InstallAsync()
+                : await MauiCli.UpdateAsync();
+            if (!result.Success)
+                throw new InvalidOperationException(string.IsNullOrWhiteSpace(result.Error) ? result.Output : result.Error);
+
+            toolStatus = await MauiCli.GetStatusAsync();
+            if (toolStatus.IsAvailable)
+                await LoadDevicesAsync();
+        }
+        catch (Exception ex)
+        {
+            failureMessage = ex.Message;
+        }
+        finally
+        {
+            isChangingTool = false;
+            UpdateActionState();
+        }
+    }
+
+    private async Task BrowseProjectAsync()
+    {
+        var selectedPath = await DialogService.PickOpenFileAsync("Select .NET MAUI project", [".csproj"]);
+        if (string.IsNullOrWhiteSpace(selectedPath))
+            return;
+
+        projectPath = selectedPath;
+        if (!recentProjectPaths.Contains(selectedPath, StringComparer.OrdinalIgnoreCase))
+            recentProjectPaths.Insert(0, selectedPath);
+        UpdateActionState();
+    }
+
+    private void SelectRecentProject(ChangeEventArgs args)
+    {
+        var value = args.Value?.ToString();
+        if (!string.IsNullOrWhiteSpace(value))
+            projectPath = value;
+        UpdateActionState();
+    }
+
+    private void SelectMode(MauiProfileMode mode)
+    {
+        selectedMode = mode;
+        if (mode == MauiProfileMode.Interaction)
+            useFixedDuration = false;
+        UpdateActionState();
+    }
+
+    private void SelectFormat(MauiProfileOutputFormat format)
+    {
+        selectedFormat = format;
+        UpdateActionState();
+    }
+
+    private void SelectDevice(MauiCliDevice device)
+    {
+        selectedDeviceId = device.Identifier;
+        UpdateActionState();
+    }
+
+    private void OnOptionsChanged() => UpdateActionState();
+
+    private async Task RefreshDevicesAsync()
+    {
+        if (isRefreshingDevices)
+            return;
+
+        await LoadDevicesAsync();
+    }
+
+    private async Task LoadDevicesAsync()
+    {
+        isRefreshingDevices = true;
+        deviceError = null;
+        UpdateActionState();
+        try
+        {
+            devices = (await MauiCli.GetDevicesAsync()).ToList();
+            if (devices.Count == 1)
+                selectedDeviceId = devices[0].Identifier;
+            else if (devices.All(device => device.Identifier != selectedDeviceId))
+                selectedDeviceId = null;
+        }
+        catch (Exception ex)
+        {
+            devices = [];
+            selectedDeviceId = null;
+            deviceError = ex.Message;
+        }
+        finally
+        {
+            isRefreshingDevices = false;
+            UpdateActionState();
+        }
+    }
+
+    private Task OnPrimaryActionAsync()
+    {
+        return viewState switch
+        {
+            CaptureViewState.Configure => StartCaptureAsync(),
+            CaptureViewState.Running when profileState == MauiProfileRunState.AwaitingRecording =>
+                BeginRecordingAsync(),
+            CaptureViewState.Running when profileState == MauiProfileRunState.Recording =>
+                StopRecordingAsync(),
+            CaptureViewState.Completed => OpenResultAndCloseAsync(),
+            CaptureViewState.Failed => ResetAfterFailureAsync(),
+            _ => Task.CompletedTask
+        };
+    }
+
+    private Task StartCaptureAsync()
+    {
+        if (!CanStart || projectPath is null || SelectedDevice is null)
+            return Task.CompletedTask;
+
+        var projectName = Path.GetFileNameWithoutExtension(projectPath);
+        activeSessionId = SessionStorage.GenerateSessionId(projectName);
+        var sessionDirectory = SessionStorage.GetSessionDirectoryPath(activeSessionId);
+        activeRequest = CreateRequest(Path.Combine(sessionDirectory, "capture.nettrace"));
+        activeCommand = MauiProfileCommandBuilder.FormatForDisplay(toolStatus!.ExecutablePath!, activeRequest);
+        profileState = MauiProfileRunState.Starting;
+        viewState = CaptureViewState.Running;
+        statusMessages.Clear();
+        failureMessage = null;
+        cliError = null;
+        cancelRequested = false;
+        captureCts = new CancellationTokenSource();
+        UpdateActionState();
+
+        captureTask = RunCaptureAsync(activeRequest, captureCts.Token);
+        return Task.CompletedTask;
+    }
+
+    private async Task RunCaptureAsync(MauiProfileRequest request, CancellationToken ct)
+    {
+        try
+        {
+            executionResult = await Profiler.RunAsync(request, ct);
+            cliError = executionResult.Error;
+
+            if (executionResult.WasCancelled || cancelRequested)
+            {
+                await CleanupPendingSessionAsync();
+                if (cancelRequested)
+                {
+                    CloseWithoutResult();
+                }
+                else
+                {
+                    failureMessage ??= "The profiling process ended before the trace could be finalized.";
+                    viewState = CaptureViewState.Failed;
+                }
+                return;
+            }
+
+            if (!executionResult.Success || executionResult.Profile is null)
+            {
+                await CleanupPendingSessionAsync();
+                failureMessage = executionResult.Error?.Message ??
+                    (string.IsNullOrWhiteSpace(executionResult.Process.Error)
+                        ? "The MAUI CLI did not produce a profile."
+                        : executionResult.Process.Error);
+                viewState = CaptureViewState.Failed;
+                return;
+            }
+
+            profileState = MauiProfileRunState.Finalizing;
+            UpdateActionState();
+            savedSession = await SessionStorage.SaveMauiProfileSessionAsync(
+                activeSessionId!,
+                request,
+                executionResult.Profile,
+                toolStatus?.Version,
+                ct);
+            BridgeHolder.Current!.Result = savedSession;
+            viewState = CaptureViewState.Completed;
+        }
+        catch (OperationCanceledException) when (cancelRequested || ct.IsCancellationRequested)
+        {
+            await CleanupPendingSessionAsync();
+            if (cancelRequested)
+            {
+                CloseWithoutResult();
+            }
+            else
+            {
+                failureMessage ??= "The profiling process was cancelled before the trace could be finalized.";
+                viewState = CaptureViewState.Failed;
+            }
+        }
+        catch (Exception ex)
+        {
+            await CleanupPendingSessionAsync();
+            failureMessage = ex.Message;
+            viewState = CaptureViewState.Failed;
+        }
+        finally
+        {
+            captureCts?.Dispose();
+            captureCts = null;
+            UpdateActionState();
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task BeginRecordingAsync()
+    {
+        try
+        {
+            await Profiler.BeginRecordingAsync();
+        }
+        catch (Exception ex)
+        {
+            failureMessage = ex.Message;
+            Profiler.Cancel();
+        }
+        UpdateActionState();
+    }
+
+    private async Task StopRecordingAsync()
+    {
+        try
+        {
+            await Profiler.StopRecordingAsync();
+        }
+        catch (Exception ex)
+        {
+            failureMessage = ex.Message;
+            Profiler.Cancel();
+        }
+        UpdateActionState();
+    }
+
+    private void OnCancelRequested()
+    {
+        if (viewState == CaptureViewState.Running)
+        {
+            cancelRequested = true;
+            captureCts?.Cancel();
+            Profiler.Cancel();
+            UpdateActionState();
+        }
+        else if (viewState == CaptureViewState.Completed)
+        {
+            BridgeHolder.Current?.RequestClose();
+        }
+    }
+
+    private void OnProfileStateChanged(object? sender, MauiProfileStateChangedEventArgs args)
+    {
+        _ = InvokeAsync(() =>
+        {
+            profileState = args.NewState;
+            UpdateActionState();
+            StateHasChanged();
+        });
+    }
+
+    private void OnProfileMessageReceived(object? sender, MauiCliMessageEventArgs args)
+    {
+        _ = InvokeAsync(() =>
+        {
+            switch (args.Message)
+            {
+                case MauiCliStatusMessage status:
+                    statusMessages.Add(status);
+                    break;
+                case MauiCliErrorMessage error:
+                    cliError = error;
+                    break;
+            }
+            StateHasChanged();
+        });
+    }
+
+    private MauiProfileRequest CreateRequest(string outputPath)
+    {
+        var device = SelectedDevice ?? throw new InvalidOperationException("Select a running target.");
+        var platform = IsAndroid(device) ? ProfilingTargetPlatform.Android : ProfilingTargetPlatform.iOS;
+        return new MauiProfileRequest
+        {
+            ProjectPath = projectPath ?? throw new InvalidOperationException("Select a project."),
+            Platform = platform,
+            DeviceId = device.Identifier,
+            DeviceName = device.Name,
+            IsEmulator = device.IsEmulator,
+            Mode = selectedMode,
+            Format = selectedFormat,
+            OutputPath = outputPath,
+            Configuration = configuration,
+            Duration = selectedMode == MauiProfileMode.Startup && useFixedDuration
+                ? TimeSpan.FromSeconds(durationSeconds)
+                : null,
+            TraceProfile = string.IsNullOrWhiteSpace(traceProfile) ? null : traceProfile.Trim(),
+            NoBuild = noBuild
+        };
+    }
+
+    private async Task CopyCommandAsync()
+    {
+        if (!CanPreviewCommand)
+            return;
+        await DialogService.CopyToClipboardAsync(CommandPreview);
+    }
+
+    private async Task OpenResultAndCloseAsync()
+    {
+        if (savedSession?.DirectoryPath is null)
+            return;
+
+        var primary = GetPrimaryArtifact(savedSession);
+        if (primary is null)
+            throw new InvalidOperationException("The saved profile does not contain a viewable artifact.");
+
+        var path = Path.Combine(savedSession.DirectoryPath, primary.FileName);
+        if (path.EndsWith(".speedscope.json", StringComparison.OrdinalIgnoreCase))
+        {
+            ViewerService.OpenSpeedscope(path);
+        }
+        else if (path.EndsWith(".nettrace", StringComparison.OrdinalIgnoreCase))
+        {
+            var converted = await ArtifactConverter.ConvertToSpeedscopeAsync(path);
+            if (string.IsNullOrWhiteSpace(converted) || !File.Exists(converted))
+                throw new InvalidOperationException("The trace could not be converted to Speedscope format.");
+            ViewerService.OpenSpeedscope(converted);
+        }
+        else
+        {
+            RevealPath(path);
+        }
+
+        BridgeHolder.Current?.RequestClose();
+    }
+
+    private void RevealPrimaryArtifact()
+    {
+        if (savedSession?.DirectoryPath is null)
+            return;
+        var primary = GetPrimaryArtifact(savedSession);
+        if (primary is not null)
+            RevealPath(Path.Combine(savedSession.DirectoryPath, primary.FileName));
+    }
+
+    private static ProfilingSessionArtifact? GetPrimaryArtifact(ProfilingSessionManifest session)
+    {
+        var format = session.MauiProfile?.Format;
+        return format switch
+        {
+            MauiProfileOutputFormat.Speedscope =>
+                session.Artifacts.FirstOrDefault(artifact =>
+                    artifact.FileName.EndsWith(".speedscope.json", StringComparison.OrdinalIgnoreCase)),
+            MauiProfileOutputFormat.Mibc =>
+                session.Artifacts.FirstOrDefault(artifact =>
+                    artifact.FileName.EndsWith(".mibc", StringComparison.OrdinalIgnoreCase)),
+            _ =>
+                session.Artifacts.FirstOrDefault(artifact =>
+                    artifact.FileName.EndsWith(".nettrace", StringComparison.OrdinalIgnoreCase))
+        } ?? session.Artifacts.FirstOrDefault();
+    }
+
+    private static void RevealPath(string path)
+    {
+        if (OperatingSystem.IsMacOS() || OperatingSystem.IsMacCatalyst())
+        {
+            var startInfo = new System.Diagnostics.ProcessStartInfo("open")
+            {
+                UseShellExecute = false
+            };
+            startInfo.ArgumentList.Add("-R");
+            startInfo.ArgumentList.Add(path);
+            System.Diagnostics.Process.Start(startInfo);
+            return;
+        }
+
+        var directory = Path.GetDirectoryName(path) ?? path;
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(directory)
+        {
+            UseShellExecute = true
+        });
+    }
+
+    private Task ResetAfterFailureAsync()
+    {
+        viewState = CaptureViewState.Configure;
+        profileState = MauiProfileRunState.Idle;
+        failureMessage = null;
+        cliError = null;
+        executionResult = null;
+        activeRequest = null;
+        activeSessionId = null;
+        activeCommand = null;
+        UpdateActionState();
+        return Task.CompletedTask;
+    }
+
+    private async Task CleanupPendingSessionAsync()
+    {
+        if (string.IsNullOrWhiteSpace(activeSessionId))
+            return;
+
+        try
+        {
+            await SessionStorage.DeleteSessionAsync(activeSessionId);
+        }
+        catch
+        {
+            // The original CLI failure remains the actionable error shown to the user.
+        }
+    }
+
+    private void CloseWithoutResult()
+    {
+        var currentBridge = BridgeHolder.Current;
+        if (currentBridge is null)
+            return;
+        currentBridge.Result = null;
+        currentBridge.RequestClose();
+    }
+
+    private async Task OpenTargetManagerAsync(string route)
+    {
+        CloseWithoutResult();
+        await Task.Yield();
+        await Navigation.NavigateToAsync(route);
+    }
+
+    private void UpdateActionState()
+    {
+        var currentBridge = BridgeHolder.Current;
+        if (currentBridge is null)
+            return;
+
+        currentBridge.PreventSubmitClose = true;
+        switch (viewState)
+        {
+            case CaptureViewState.Configure:
+                currentBridge.PreventClose = false;
+                currentBridge.SetActionState(
+                    enabled: CanStart,
+                    busy: isInitializing || isChangingTool || isRefreshingDevices,
+                    actionText: isChangingTool ? "Preparing CLI..." : "Start profile",
+                    secondaryActionText: "Cancel");
+                break;
+            case CaptureViewState.Running:
+                currentBridge.PreventClose = true;
+                if (cancelRequested)
+                {
+                    currentBridge.SetActionState(false, true, "Cancelling...", "Cancel profiling");
+                }
+                else if (profileState == MauiProfileRunState.AwaitingRecording)
+                {
+                    currentBridge.SetActionState(true, false, "Begin recording", "Cancel profiling");
+                }
+                else if (profileState == MauiProfileRunState.Recording)
+                {
+                    currentBridge.SetActionState(true, false, "Stop recording", "Cancel profiling");
+                }
+                else
+                {
+                    var actionText = profileState == MauiProfileRunState.Finalizing ||
+                                     profileState == MauiProfileRunState.Completed
+                        ? "Saving profile..."
+                        : "Launching app...";
+                    currentBridge.SetActionState(false, true, actionText, "Cancel profiling");
+                }
+                break;
+            case CaptureViewState.Completed:
+                currentBridge.PreventClose = true;
+                currentBridge.SetActionState(
+                    true,
+                    false,
+                    savedSession?.MauiProfile?.Format == MauiProfileOutputFormat.Mibc ? "Reveal file" : "View result",
+                    "Done");
+                break;
+            case CaptureViewState.Failed:
+                currentBridge.PreventClose = false;
+                currentBridge.SetActionState(true, false, "Try again", "Cancel");
+                break;
+        }
+
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private string GetRunEyebrow() => profileState switch
+    {
+        MauiProfileRunState.AwaitingRecording => "Interaction profile",
+        MauiProfileRunState.Recording => "Recording",
+        MauiProfileRunState.Finalizing or MauiProfileRunState.Completed => "Finalizing",
+        _ => "MAUI CLI"
+    };
+
+    private string GetRunTitle() => profileState switch
+    {
+        MauiProfileRunState.AwaitingRecording => "Wait for the app, then navigate",
+        MauiProfileRunState.Recording => "Capture the interaction",
+        MauiProfileRunState.Finalizing or MauiProfileRunState.Completed => "Saving your profile",
+        _ => activeRequest?.Mode == MauiProfileMode.Startup ? "Profiling app startup" : "Launching your app"
+    };
+
+    private string GetRunDescription() => profileState switch
+    {
+        MauiProfileRunState.AwaitingRecording => "The CLI is building and launching. Once the app is visible, navigate to your starting point.",
+        MauiProfileRunState.Recording => "Sherpa is collecting trace data until you stop recording.",
+        MauiProfileRunState.Finalizing or MauiProfileRunState.Completed => "The CLI is finalizing trace data and converted artifacts.",
+        _ => "Building and launching through the MAUI CLI. This can take a moment."
+    };
+
+    private static bool IsAndroid(MauiCliDevice device) =>
+        device.Platforms.Any(platform => platform.Equals("android", StringComparison.OrdinalIgnoreCase));
+
+    private static string GetDeviceDescription(MauiCliDevice device)
+    {
+        var platform = IsAndroid(device) ? "Android" : "iOS simulator";
+        var type = device.IsEmulator ? "Emulator" : "Device";
+        var version = !string.IsNullOrWhiteSpace(device.VersionName) ? $" {device.VersionName}" :
+            !string.IsNullOrWhiteSpace(device.Version) ? $" {device.Version}" : "";
+        return IsAndroid(device) ? $"{platform}{version} · {type}" : $"{platform}{version}";
+    }
+
+    private static string GetFormatName(MauiProfileOutputFormat format) => format switch
+    {
+        MauiProfileOutputFormat.NetTrace => "Nettrace",
+        MauiProfileOutputFormat.Speedscope => "Speedscope",
+        MauiProfileOutputFormat.Mibc => "MIBC",
+        _ => format.ToString()
+    };
+
+    private static string GetFormatDescription(MauiProfileOutputFormat format) => format switch
+    {
+        MauiProfileOutputFormat.NetTrace => "Raw diagnostic trace",
+        MauiProfileOutputFormat.Speedscope => "Interactive CPU profile",
+        MauiProfileOutputFormat.Mibc => "Runtime optimization data",
+        _ => ""
+    };
+
+    private static string GetFormatIcon(MauiProfileOutputFormat format) => format switch
+    {
+        MauiProfileOutputFormat.NetTrace => "fa-wave-square",
+        MauiProfileOutputFormat.Speedscope => "fa-fire",
+        MauiProfileOutputFormat.Mibc => "fa-gauge-high",
+        _ => "fa-file"
+    };
+
+    private static string GetArtifactIcon(string fileName)
+    {
+        if (fileName.EndsWith(".speedscope.json", StringComparison.OrdinalIgnoreCase))
+            return "fa-fire";
+        if (fileName.EndsWith(".nettrace", StringComparison.OrdinalIgnoreCase))
+            return "fa-wave-square";
+        if (fileName.EndsWith(".mibc", StringComparison.OrdinalIgnoreCase))
+            return "fa-gauge-high";
+        return "fa-file";
+    }
+
+    private static string GetModeName(MauiProfileMode? mode) => mode switch
+    {
+        MauiProfileMode.Startup => "Startup",
+        MauiProfileMode.Interaction => "Interaction",
+        _ => "Imported"
+    };
+
+    private static string FormatDuration(TimeSpan? duration)
+    {
+        if (duration is null)
+            return "—";
+        return duration.Value.TotalMinutes >= 1
+            ? $"{(int)duration.Value.TotalMinutes}m {duration.Value.Seconds}s"
+            : $"{Math.Max(0, (int)duration.Value.TotalSeconds)}s";
+    }
+
+    private static string FormatFramework(ProfilingSessionManifest session)
+    {
+        var framework = session.MauiProfile?.Framework;
+        if (string.IsNullOrWhiteSpace(framework))
+            framework = session.Project?.TargetFramework;
+        return string.IsNullOrWhiteSpace(framework) ? "—" : framework;
+    }
+
+    private static string FormatArtifactSize(long? sizeBytes)
+    {
+        if (sizeBytes is null)
+            return "";
+        if (sizeBytes >= 1024 * 1024)
+            return $"· {sizeBytes / (1024d * 1024d):F1} MB";
+        if (sizeBytes >= 1024)
+            return $"· {sizeBytes / 1024d:F1} KB";
+        return $"· {sizeBytes} B";
+    }
+
+    public void Dispose()
+    {
+        var currentBridge = BridgeHolder.Current;
+        if (currentBridge is not null)
+        {
+            currentBridge.SubmitRequested -= OnPrimaryActionAsync;
+            currentBridge.CancelRequested -= OnCancelRequested;
+        }
+        Profiler.StateChanged -= OnProfileStateChanged;
+        Profiler.MessageReceived -= OnProfileMessageReceived;
+        captureCts?.Cancel();
+        captureCts?.Dispose();
+    }
+
+    private enum CaptureViewState
+    {
+        Configure,
+        Running,
+        Completed,
+        Failed
+    }
+}
+
+<style>
+    .capture-shell {
+        height: 100%;
+        overflow-y: auto;
+        color: var(--text-primary);
+        background: var(--bg-primary);
+    }
+
+    .configure-view {
+        padding: 1rem 1.4rem 1.4rem;
+    }
+
+    .running-view,
+    .result-view {
+        padding: 1.25rem 1.5rem 1.6rem;
+    }
+
+    .loading-state {
+        min-height: 28rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 1rem;
+        color: var(--text-secondary);
+    }
+
+    .loading-state strong {
+        display: block;
+        color: var(--text-primary);
+        margin-bottom: 0.25rem;
+    }
+
+    .loading-state p,
+    .section-heading p,
+    .tool-card p,
+    .target-empty p,
+    .run-hero p,
+    .instruction-card p,
+    .result-view > p {
+        margin: 0;
+        color: var(--text-secondary);
+        line-height: 1.5;
+    }
+
+    .spinner {
+        width: 1.5rem;
+        height: 1.5rem;
+        border: 3px solid color-mix(in srgb, var(--accent-primary) 22%, transparent);
+        border-top-color: var(--accent-primary);
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+        flex-shrink: 0;
+    }
+
+    .tool-ready {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+        margin-bottom: 0.65rem;
+        color: var(--accent-success);
+        font-size: 0.74rem;
+        font-weight: 700;
+    }
+
+    .tool-card {
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        align-items: center;
+        gap: 0.7rem;
+        padding: 0.7rem;
+        margin-bottom: 0.7rem;
+        border: 1px solid var(--border-color);
+        border-radius: 0.7rem;
+        background: var(--card-bg);
+    }
+
+    .tool-card.warning {
+        border-color: color-mix(in srgb, var(--accent-warning) 45%, var(--border-color));
+    }
+
+    .tool-icon {
+        width: 2.1rem;
+        height: 2.1rem;
+        display: grid;
+        place-items: center;
+        border-radius: 0.55rem;
+        color: var(--accent-primary);
+        background: color-mix(in srgb, var(--accent-primary) 14%, transparent);
+        font-size: 0.9rem;
+    }
+
+    .form-section {
+        padding: 0.8rem 0;
+        border-top: 1px solid var(--border-color);
+    }
+
+    .form-section:first-of-type {
+        border-top: 0;
+        padding-top: 0.25rem;
+    }
+
+    .section-heading,
+    .heading-copy {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.55rem;
+    }
+
+    .section-heading {
+        margin-bottom: 0.6rem;
+    }
+
+    .section-heading.with-action {
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    .section-number {
+        width: 1.45rem;
+        height: 1.45rem;
+        display: grid;
+        place-items: center;
+        flex-shrink: 0;
+        border-radius: 50%;
+        background: color-mix(in srgb, var(--accent-primary) 15%, transparent);
+        color: var(--accent-primary);
+        font-size: 0.68rem;
+        font-weight: 800;
+    }
+
+    .section-heading h2 {
+        margin: 0 0 0.1rem;
+        font-size: 0.88rem;
+    }
+
+    .section-heading p {
+        font-size: 0.73rem;
+        line-height: 1.4;
+    }
+
+    .project-picker {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 0.45rem;
+        margin-left: 2rem;
+    }
+
+    .path-field {
+        min-height: 2.75rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0 0.65rem;
+        overflow: hidden;
+        border: 1px solid var(--border-color);
+        border-radius: 0.55rem;
+        background: var(--bg-secondary);
+    }
+
+    .path-field i {
+        color: var(--text-muted);
+    }
+
+    .path-field span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 0.74rem;
+    }
+
+    .path-field .placeholder {
+        color: var(--text-muted);
+        font-family: inherit;
+    }
+
+    .field-label {
+        display: block;
+        margin: 0.55rem 0 0.3rem 2rem;
+        color: var(--text-secondary);
+        font-size: 0.72rem;
+        font-weight: 700;
+    }
+
+    .form-control {
+        width: calc(100% - 2rem);
+        min-height: 2.75rem;
+        margin-left: 2rem;
+        padding: 0.45rem 0.6rem;
+        color: var(--text-primary);
+        border: 1px solid var(--border-color);
+        border-radius: 0.55rem;
+        background: var(--bg-secondary);
+    }
+
+    .choice-grid,
+    .format-grid,
+    .target-list {
+        display: grid;
+        gap: 0.5rem;
+        margin-left: 2rem;
+    }
+
+    .two-column {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .choice-card,
+    .format-card,
+    .target-card {
+        position: relative;
+        min-height: 3.5rem;
+        display: flex;
+        align-items: center;
+        gap: 0.55rem;
+        padding: 0.55rem 0.65rem;
+        color: var(--text-primary);
+        text-align: left;
+        border: 1px solid var(--border-color);
+        border-radius: 0.65rem;
+        background: var(--card-bg);
+        cursor: pointer;
+        transition: border-color 160ms ease, background-color 160ms ease;
+    }
+
+    .choice-card:hover,
+    .format-card:hover,
+    .target-card:hover {
+        border-color: color-mix(in srgb, var(--accent-primary) 55%, var(--border-color));
+        background: var(--bg-hover);
+    }
+
+    .choice-card.selected,
+    .format-card.selected,
+    .target-card.selected {
+        border-color: var(--accent-primary);
+        background: color-mix(in srgb, var(--accent-primary) 10%, var(--card-bg));
+    }
+
+    .choice-card:focus-visible,
+    .format-card:focus-visible,
+    .target-card:focus-visible,
+    button:focus-visible,
+    summary:focus-visible,
+    .form-control:focus-visible {
+        outline: 3px solid color-mix(in srgb, var(--accent-primary) 55%, transparent);
+        outline-offset: 2px;
+    }
+
+    .choice-icon,
+    .target-platform {
+        width: 2rem;
+        height: 2rem;
+        display: grid;
+        place-items: center;
+        flex-shrink: 0;
+        border-radius: 0.5rem;
+        color: var(--accent-primary);
+        background: color-mix(in srgb, var(--accent-primary) 13%, transparent);
+        font-size: 0.82rem;
+    }
+
+    .choice-copy,
+    .target-copy,
+    .format-card > span,
+    .result-artifact > span {
+        display: grid;
+        gap: 0.1rem;
+        min-width: 0;
+        flex: 1;
+    }
+
+    .choice-copy strong,
+    .target-copy strong,
+    .format-card strong {
+        font-size: 0.79rem;
+    }
+
+    .choice-copy small,
+    .target-copy small,
+    .format-card small {
+        color: var(--text-secondary);
+        font-size: 0.7rem;
+        line-height: 1.3;
+    }
+
+    .result-artifact small {
+        color: var(--text-secondary);
+        line-height: 1.35;
+    }
+
+    .selection-check {
+        display: none;
+        color: var(--accent-primary);
+        margin-left: auto;
+    }
+
+    .selected .selection-check {
+        display: block;
+    }
+
+    .target-list {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .target-card {
+        min-height: 3.25rem;
+    }
+
+    .target-empty {
+        margin-left: 2rem;
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 0.6rem;
+        padding: 0.7rem;
+        border: 1px dashed var(--border-color);
+        border-radius: 0.65rem;
+        background: var(--bg-secondary);
+    }
+
+    .target-empty > i {
+        margin-top: 0.15rem;
+        color: var(--text-muted);
+        font-size: 1rem;
+    }
+
+    .target-empty p {
+        font-size: 0.73rem;
+    }
+
+    .recovery-actions {
+        grid-column: 2;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem;
+        margin-top: 0.25rem;
+    }
+
+    .format-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .format-card {
+        min-height: 3.5rem;
+    }
+
+    .format-card > i:first-child {
+        width: 1.25rem;
+        color: var(--accent-primary);
+        text-align: center;
+        font-size: 0.85rem;
+    }
+
+    .inline-message {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.45rem;
+        margin: 0.55rem 0 0 2rem;
+        padding: 0.55rem 0.65rem;
+        border-radius: 0.55rem;
+        font-size: 0.73rem;
+        line-height: 1.4;
+    }
+
+    .inline-message.warning {
+        color: var(--text-primary);
+        background: color-mix(in srgb, var(--accent-warning) 13%, var(--bg-secondary));
+    }
+
+    .inline-message.warning > i {
+        color: var(--accent-warning);
+    }
+
+    .inline-message.error {
+        color: var(--text-primary);
+        background: color-mix(in srgb, var(--accent-danger) 12%, var(--bg-secondary));
+    }
+
+    .inline-message.error > i {
+        color: var(--accent-danger);
+    }
+
+    .result-note {
+        margin: 0.15rem 0 0.35rem;
+        text-align: left;
+    }
+
+    .advanced-section,
+    .details-panel {
+        margin-top: 0.5rem;
+        border: 1px solid var(--border-color);
+        border-radius: 0.65rem;
+        background: var(--bg-secondary);
+        overflow: hidden;
+    }
+
+    .advanced-section summary,
+    .details-panel summary {
+        min-height: 2.75rem;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 0.75rem;
+        font-size: 0.77rem;
+        font-weight: 700;
+        cursor: pointer;
+        list-style: none;
+    }
+
+    .advanced-section summary::-webkit-details-marker,
+    .details-panel summary::-webkit-details-marker {
+        display: none;
+    }
+
+    .advanced-section[open] .chevron {
+        transform: rotate(180deg);
+    }
+
+    .chevron {
+        transition: transform 160ms ease;
+    }
+
+    .advanced-content,
+    .details-content {
+        padding: 0.75rem;
+        border-top: 1px solid var(--border-color);
+    }
+
+    .advanced-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.65rem;
+    }
+
+    .advanced-grid .field-label,
+    .advanced-grid .form-control {
+        width: 100%;
+        margin-left: 0;
+    }
+
+    .advanced-grid .field-label {
+        margin-top: 0;
+    }
+
+    .span-two {
+        grid-column: 1 / -1;
+    }
+
+    .field-help {
+        display: block;
+        margin-top: 0.25rem;
+        color: var(--text-muted);
+        font-size: 0.68rem;
+    }
+
+    .checkbox-field {
+        min-height: 2.75rem;
+        display: flex;
+        align-items: flex-start;
+        gap: 0.5rem;
+        padding: 0.55rem 0.6rem;
+        border: 1px solid var(--border-color);
+        border-radius: 0.6rem;
+        cursor: pointer;
+    }
+
+    .checkbox-field input {
+        width: 1.05rem;
+        height: 1.05rem;
+        margin-top: 0.15rem;
+        accent-color: var(--accent-primary);
+    }
+
+    .checkbox-field span {
+        display: grid;
+        gap: 0.1rem;
+        font-size: 0.75rem;
+    }
+
+    .checkbox-field small {
+        color: var(--text-secondary);
+        font-size: 0.68rem;
+        line-height: 1.35;
+    }
+
+    .command-preview {
+        margin-top: 0.75rem;
+        border: 1px solid var(--border-color);
+        border-radius: 0.6rem;
+        overflow: hidden;
+    }
+
+    .command-heading {
+        min-height: 2.3rem;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 0.7rem;
+        color: var(--text-secondary);
+        border-bottom: 1px solid var(--border-color);
+        font-size: 0.72rem;
+        font-weight: 700;
+    }
+
+    .copy-button {
+        min-height: 2rem;
+        padding: 0 0.45rem;
+        color: var(--accent-primary);
+        border: 0;
+        background: transparent;
+        cursor: pointer;
+    }
+
+    .command-preview code,
+    .command-block {
+        display: block;
+        padding: 0.6rem;
+        color: var(--text-primary);
+        background: var(--bg-primary);
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        font-size: 0.68rem;
+        line-height: 1.45;
+        user-select: text;
+    }
+
+    .control-button,
+    .icon-text-button,
+    .recovery-actions .btn,
+    .result-secondary {
+        min-height: 2.75rem;
+    }
+
+    .running-view,
+    .result-view {
+        min-height: 34rem;
+    }
+
+    .run-hero {
+        display: flex;
+        align-items: center;
+        gap: 1.1rem;
+        padding: 1.25rem 0 1.5rem;
+    }
+
+    .run-indicator {
+        width: 4rem;
+        height: 4rem;
+        display: grid;
+        place-items: center;
+        flex-shrink: 0;
+        border-radius: 1rem;
+        background: color-mix(in srgb, var(--accent-primary) 12%, var(--card-bg));
+    }
+
+    .run-indicator.recording {
+        background: color-mix(in srgb, var(--accent-danger) 12%, var(--card-bg));
+    }
+
+    .record-dot {
+        width: 1.1rem;
+        height: 1.1rem;
+        border-radius: 50%;
+        background: var(--accent-danger);
+        box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent-danger) 35%, transparent);
+        animation: record-pulse 1.5s ease-out infinite;
+    }
+
+    .eyebrow {
+        display: block;
+        margin-bottom: 0.25rem;
+        color: var(--accent-primary);
+        font-size: 0.72rem;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+    }
+
+    .run-hero h2,
+    .result-view h2 {
+        margin: 0 0 0.35rem;
+        font-size: 1.35rem;
+        line-height: 1.25;
+    }
+
+    .run-summary,
+    .result-summary {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 1px;
+        margin: 0.5rem 0 1.1rem;
+        border: 1px solid var(--border-color);
+        border-radius: 0.75rem;
+        background: var(--border-color);
+        overflow: hidden;
+    }
+
+    .run-summary > div,
+    .result-summary > div {
+        display: grid;
+        gap: 0.25rem;
+        padding: 0.8rem;
+        background: var(--bg-secondary);
+    }
+
+    .run-summary span,
+    .result-summary span {
+        color: var(--text-muted);
+        font-size: 0.7rem;
+        font-weight: 700;
+        text-transform: uppercase;
+    }
+
+    .run-summary strong,
+    .result-summary strong {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 0.82rem;
+    }
+
+    .instruction-card {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.85rem;
+        padding: 1rem;
+        margin: 1rem 0;
+        border: 1px solid color-mix(in srgb, var(--accent-primary) 42%, var(--border-color));
+        border-radius: 0.75rem;
+        background: color-mix(in srgb, var(--accent-primary) 8%, var(--bg-secondary));
+    }
+
+    .recording-card {
+        border-color: color-mix(in srgb, var(--accent-danger) 42%, var(--border-color));
+        background: color-mix(in srgb, var(--accent-danger) 8%, var(--bg-secondary));
+    }
+
+    .instruction-number {
+        width: 1.65rem;
+        height: 1.65rem;
+        display: grid;
+        place-items: center;
+        flex-shrink: 0;
+        border-radius: 50%;
+        color: var(--text-inverse);
+        background: var(--accent-primary);
+        font-size: 0.75rem;
+        font-weight: 800;
+    }
+
+    .recording-card .instruction-number {
+        color: var(--accent-danger);
+        background: transparent;
+    }
+
+    .details-panel {
+        margin-top: 1.25rem;
+    }
+
+    .status-list {
+        display: grid;
+        gap: 0.45rem;
+        margin-top: 0.75rem;
+        font-size: 0.75rem;
+    }
+
+    .status-list div {
+        display: grid;
+        grid-template-columns: 7rem 1fr;
+        gap: 0.6rem;
+        color: var(--text-secondary);
+    }
+
+    .status-list span {
+        color: var(--text-primary);
+        font-weight: 700;
+    }
+
+    .result-view {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        padding-top: 3rem;
+    }
+
+    .result-icon {
+        width: 4rem;
+        height: 4rem;
+        display: grid;
+        place-items: center;
+        margin-bottom: 1rem;
+        border-radius: 50%;
+        font-size: 1.35rem;
+    }
+
+    .result-icon.success {
+        color: var(--accent-success);
+        background: color-mix(in srgb, var(--accent-success) 14%, var(--bg-secondary));
+    }
+
+    .result-icon.error {
+        color: var(--accent-danger);
+        background: color-mix(in srgb, var(--accent-danger) 14%, var(--bg-secondary));
+    }
+
+    .result-summary {
+        width: 100%;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        margin-top: 1.5rem;
+        text-align: left;
+    }
+
+    .result-artifacts {
+        width: 100%;
+        display: grid;
+        gap: 0.5rem;
+        margin-top: 0.2rem;
+    }
+
+    .result-artifact {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 0.75rem;
+        text-align: left;
+        border: 1px solid var(--border-color);
+        border-radius: 0.65rem;
+        background: var(--bg-secondary);
+    }
+
+    .result-artifact > i {
+        width: 1.8rem;
+        color: var(--accent-primary);
+        text-align: center;
+    }
+
+    .result-secondary {
+        margin-top: 1rem;
+    }
+
+    .failure-view h2 {
+        max-width: 36rem;
+        font-size: 1.1rem;
+    }
+
+    .remediation {
+        width: 100%;
+        margin-top: 1.2rem;
+        padding: 1rem;
+        text-align: left;
+        border-radius: 0.7rem;
+        background: color-mix(in srgb, var(--accent-warning) 10%, var(--bg-secondary));
+    }
+
+    .remediation p {
+        display: flex;
+        gap: 0.5rem;
+        margin: 0.55rem 0 0;
+        color: var(--text-secondary);
+        line-height: 1.45;
+    }
+
+    .remediation i {
+        margin-top: 0.25rem;
+        color: var(--accent-warning);
+    }
+
+    .remediation code {
+        display: block;
+        margin-top: 0.75rem;
+        padding: 0.65rem;
+        color: var(--text-primary);
+        background: var(--bg-primary);
+        overflow-wrap: anywhere;
+        user-select: text;
+    }
+
+    .failure-details {
+        width: 100%;
+        text-align: left;
+    }
+
+    .error-code {
+        margin-bottom: 0.6rem;
+        color: var(--text-secondary);
+        font-size: 0.75rem;
+    }
+
+    .error-code span {
+        margin-right: 0.4rem;
+        color: var(--accent-danger);
+        font-weight: 800;
+    }
+
+    .failure-details pre {
+        white-space: pre-wrap;
+        user-select: text;
+    }
+
+    button:disabled {
+        cursor: not-allowed;
+        opacity: 0.5;
+    }
+
+    @@keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+
+    @@keyframes record-pulse {
+        70% { box-shadow: 0 0 0 0.7rem transparent; }
+        100% { box-shadow: 0 0 0 0 transparent; }
+    }
+
+    @@media (max-width: 680px) {
+        .configure-view,
+        .running-view,
+        .result-view {
+            padding: 1rem;
+        }
+
+        .two-column,
+        .target-list,
+        .format-grid,
+        .advanced-grid,
+        .run-summary,
+        .result-summary {
+            grid-template-columns: 1fr;
+        }
+
+        .project-picker {
+            grid-template-columns: 1fr;
+        }
+
+        .section-heading.with-action {
+            align-items: flex-start;
+        }
+    }
+
+    @@media (prefers-reduced-motion: reduce) {
+        .spinner,
+        .record-dot {
+            animation: none;
+        }
+
+        .choice-card,
+        .format-card,
+        .target-card,
+        .chevron {
+            transition: none;
+        }
+    }
+</style>

@@ -11,84 +11,138 @@
 @inject IFormModalService FormModal
 @inject HybridFormBridgeHolder BridgeHolder
 @inject MauiSherpa.Services.ProfilingViewerService ViewerService
+@inject IMauiCliToolService MauiCli
+@inject ModalParameterService ModalParams
+@inject IOperationModalService OperationModal
 @implements IDisposable
 
 
 <div class="page-header">
     <div class="page-title-row">
         <h1><i class="fas fa-chart-line"></i> Profiling</h1>
+        <button type="button"
+                class="maui-cli-indicator @MauiCliIndicatorClass"
+                @onclick="OpenMauiCliDetailsAsync"
+                disabled="@isCheckingCli"
+                title="@MauiCliIndicatorTitle"
+                aria-label="@MauiCliIndicatorTitle">
+            <span>MAUI CLI</span>
+            <i class="@MauiCliIndicatorIcon" aria-hidden="true"></i>
+            @if (cliUpdateInfo?.UpdateAvailable == true)
+            {
+                <span class="maui-cli-indicator-update" aria-hidden="true">
+                    <i class="fas fa-arrow-up"></i>
+                </span>
+            }
+        </button>
     </div>
     <p class="page-subtitle">
-        Capture and analyze .NET profiling sessions — CPU traces, memory dumps, and more — across
-        Android, iOS, Mac Catalyst, macOS, and Windows.
+        Record startup or app interactions on running Android targets and iOS simulators with the MAUI CLI.
+        Imported traces and GC dumps remain available here.
     </p>
 </div>
 
 @if (isLoadingSessions)
+{
+    <div class="loading-state" role="status" aria-live="polite">
+        <i class="fas fa-spinner fa-spin" aria-hidden="true"></i>
+        <span>Loading profiles...</span>
+    </div>
+}
+else if (filteredSessions.Count == 0 && sessions.Count == 0)
+{
+    <div class="empty-state">
+        <span class="empty-icon"><i class="fas fa-chart-line" aria-hidden="true"></i></span>
+        <h2>Capture your first profile</h2>
+        <p>Choose a MAUI project and a running Android device, emulator, or booted iOS simulator. Sherpa handles the CLI command and saves every result.</p>
+        <button type="button" class="btn btn-primary empty-action" @onclick="StartCaptureAsync">
+            <i class="fas fa-circle-dot" aria-hidden="true"></i>
+            Capture profile
+        </button>
+        <small>New captures support Android and iOS simulator targets. Existing profiles from other platforms stay readable.</small>
+    </div>
+}
+else
+{
+    @if (filteredSessions.Count == 0 && !string.IsNullOrEmpty(sessionSearchText))
     {
-        <div class="loading-state">
-            <i class="fas fa-spinner fa-spin"></i>
-            <span>Loading sessions...</span>
-        </div>
-    }
-    else if (filteredSessions.Count == 0 && sessions.Count == 0)
-    {
-        <div class="empty-state">
-            <i class="fas fa-chart-line fa-3x"></i>
-            <h3>No profiling sessions yet</h3>
-            <p>Capture CPU traces, memory dumps, and more for your .NET MAUI apps.</p>
+        <div class="empty-state compact">
+            <span class="empty-icon"><i class="fas fa-search" aria-hidden="true"></i></span>
+            <h2>No matching profiles</h2>
+            <p>Try a project, device, platform, mode, or output format.</p>
         </div>
     }
     else
     {
-        @if (filteredSessions.Count == 0 && !string.IsNullOrEmpty(sessionSearchText))
-        {
-            <div class="empty-state">
-                <i class="fas fa-search fa-2x"></i>
-                <h3>No matching sessions</h3>
-                <p>Try a different search term.</p>
-            </div>
-        }
-        else
-        {
-            <div class="session-list">
-                @foreach (var session in filteredSessions)
-                {
-                    var isExpanded = expandedSessionId == session.Id;
-                    <div class="session-card @(isExpanded ? "expanded" : "")">
-                        <div class="session-card-header" @onclick="@(() => ToggleSessionExpand(session.Id))">
-                            <div class="session-card-icon">
-                                <i class="fas @GetPlatformIcon(session.Target.Platform)"></i>
-                            </div>
-                            <div class="session-card-info">
-                                <div class="session-card-title">@session.Name</div>
-                                <div class="session-card-meta">
-                                    <span><i class="fas fa-calendar"></i> @session.CreatedAt.LocalDateTime.ToString("MMM d, yyyy h:mm tt")</span>
-                                    <span><i class="fas @GetPlatformIcon(session.Target.Platform)"></i> @session.Target.DisplayName</span>
+        <div class="session-list">
+            @foreach (var session in filteredSessions)
+            {
+                var isExpanded = expandedSessionId == session.Id;
+                var primaryArtifact = GetPrimaryArtifact(session);
+                <article class="session-card @(isExpanded ? "expanded" : "")">
+                    <div class="session-card-header">
+                        <button type="button"
+                                class="session-card-main"
+                                aria-expanded="@(isExpanded ? "true" : "false")"
+                                @onclick="@(() => ToggleSessionExpand(session.Id))">
+                            <span class="session-card-icon">
+                                <i class="fas @GetPlatformIcon(session.Target.Platform)" aria-hidden="true"></i>
+                            </span>
+                            <span class="session-card-info">
+                                <span class="session-card-title">@session.Name</span>
+                                <span class="session-card-meta">
+                                    <span><i class="fas fa-calendar" aria-hidden="true"></i> @session.CreatedAt.LocalDateTime.ToString("MMM d, yyyy h:mm tt")</span>
+                                    <span><i class="fas @GetPlatformIcon(session.Target.Platform)" aria-hidden="true"></i> @session.Target.DisplayName</span>
+                                    @if (session.MauiProfile is not null)
+                                    {
+                                        <span><i class="fas fa-bullseye" aria-hidden="true"></i> @GetModeDisplayName(session)</span>
+                                    }
+                                    @if (!string.IsNullOrWhiteSpace(session.MauiProfile?.Framework ?? session.Project?.TargetFramework))
+                                    {
+                                        <span class="mono"><i class="fas fa-code" aria-hidden="true"></i> @(session.MauiProfile?.Framework ?? session.Project?.TargetFramework)</span>
+                                    }
                                     @if (session.Pipeline is not null)
                                     {
-                                        <span><i class="fas fa-clock"></i> @FormatElapsed(session.Pipeline.Duration)</span>
+                                        <span><i class="fas fa-clock" aria-hidden="true"></i> @FormatElapsed(session.Pipeline.Duration)</span>
                                     }
-                                    <span><i class="fas fa-file"></i> @session.Artifacts.Count artifact(s)</span>
-                                </div>
-                            </div>
-                            <div class="session-card-badges">
-                                @foreach (var kind in session.CaptureKinds)
+                                </span>
+                            </span>
+                            <span class="session-card-badges">
+                                @if (session.MauiProfile is not null)
                                 {
-                                    <span class="badge badge-kind">@kind</span>
+                                    <span class="badge badge-kind">@GetFormatDisplayName(session.MauiProfile.Format)</span>
+                                }
+                                else
+                                {
+                                    @foreach (var kind in session.CaptureKinds.Take(2))
+                                    {
+                                        <span class="badge badge-kind">@kind</span>
+                                    }
                                 }
                                 <span class="badge badge-status badge-@session.Status.ToString().ToLowerInvariant()">
                                     @session.Status
                                 </span>
-                            </div>
-                            <div class="session-card-expand">
-                                <i class="fas @(isExpanded ? "fa-chevron-up" : "fa-chevron-down")"></i>
-                            </div>
-                        </div>
+                            </span>
+                            <span class="session-card-expand">
+                                <i class="fas @(isExpanded ? "fa-chevron-up" : "fa-chevron-down")" aria-hidden="true"></i>
+                            </span>
+                        </button>
 
-                        @if (isExpanded)
+                        @if (primaryArtifact is not null)
                         {
-                            <div class="session-card-body">
+                            <button type="button"
+                                    class="btn btn-primary session-primary-action"
+                                    @onclick="@(() => OpenPrimaryArtifactAsync(session, primaryArtifact))">
+                                <i class="fas @GetPrimaryActionIcon(primaryArtifact)" aria-hidden="true"></i>
+                                @GetPrimaryActionText(primaryArtifact)
+                            </button>
+                        }
+                    </div>
+
+                    @if (isExpanded)
+                    {
+                        <div class="session-card-body">
+                            <div class="session-details">
                                 @if (session.Project is not null)
                                 {
                                     <div class="session-detail-row">
@@ -97,71 +151,76 @@
                                     </div>
                                 }
                                 <div class="session-detail-row">
-                                    <span class="detail-label">Platform</span>
-                                    <span class="detail-value">@session.Target.Platform — @session.Target.Kind</span>
+                                    <span class="detail-label">Target</span>
+                                    <span class="detail-value">@GetPlatformDisplayName(session.Target.Platform) · @session.Target.Kind</span>
                                 </div>
-                                @if (session.Pipeline is not null)
+                                @if (session.MauiProfile is not null)
                                 {
                                     <div class="session-detail-row">
-                                        <span class="detail-label">Pipeline</span>
-                                        <span class="detail-value">
-                                            @(session.Pipeline.Success ? "✓ Succeeded" : "✗ Failed") —
-                                            @session.Pipeline.Steps.Count step(s)
-                                        </span>
+                                        <span class="detail-label">Capture</span>
+                                        <span class="detail-value">@GetModeDisplayName(session) · @GetFormatDisplayName(session.MauiProfile.Format)</span>
                                     </div>
+                                    @if (!string.IsNullOrWhiteSpace(session.MauiProfile.CliVersion))
+                                    {
+                                        <div class="session-detail-row">
+                                            <span class="detail-label">MAUI CLI</span>
+                                            <span class="detail-value mono">@session.MauiProfile.CliVersion</span>
+                                        </div>
+                                    }
                                 }
+                            </div>
 
-                                @{
-                                    var profilingArtifacts = session.Artifacts.Where(a => !a.FileName.EndsWith(".log", StringComparison.OrdinalIgnoreCase)).ToList();
-                                    var logArtifacts = session.Artifacts.Where(a => a.FileName.EndsWith(".log", StringComparison.OrdinalIgnoreCase)).ToList();
-                                }
+                            @{
+                                var profilingArtifacts = session.Artifacts.Where(a => !a.FileName.EndsWith(".log", StringComparison.OrdinalIgnoreCase)).ToList();
+                                var logArtifacts = session.Artifacts.Where(a => a.FileName.EndsWith(".log", StringComparison.OrdinalIgnoreCase)).ToList();
+                            }
 
-                                @if (profilingArtifacts.Count > 0)
-                                {
-                                    <div class="plan-section-title">Artifacts</div>
+                            @if (profilingArtifacts.Count > 0)
+                            {
+                                <div class="plan-section-title">Artifacts</div>
+                                <div class="artifact-list">
+                                    @foreach (var artifact in profilingArtifacts)
+                                    {
+                                        @RenderArtifactCard(session, artifact)
+                                    }
+                                </div>
+                            }
+
+                            @if (logArtifacts.Count > 0)
+                            {
+                                <details class="log-files-section">
+                                    <summary class="plan-section-title log-files-toggle">
+                                        <i class="fas fa-chevron-right toggle-chevron" aria-hidden="true"></i>
+                                        <span>Capture logs</span>
+                                        <span class="log-count-badge">@logArtifacts.Count</span>
+                                    </summary>
                                     <div class="artifact-list">
-                                        @foreach (var artifact in profilingArtifacts)
+                                        @foreach (var artifact in logArtifacts)
                                         {
                                             @RenderArtifactCard(session, artifact)
                                         }
                                     </div>
-                                }
+                                </details>
+                            }
 
-                                @if (logArtifacts.Count > 0)
-                                {
-                                    <details class="log-files-section">
-                                        <summary class="plan-section-title log-files-toggle">
-                                            <i class="fas fa-chevron-right toggle-chevron"></i>
-                                            <span>Log Files</span>
-                                            <span class="log-count-badge">@logArtifacts.Count</span>
-                                        </summary>
-                                        <div class="artifact-list">
-                                            @foreach (var artifact in logArtifacts)
-                                            {
-                                                @RenderArtifactCard(session, artifact)
-                                            }
-                                        </div>
-                                    </details>
-                                }
-
-                                <div class="session-card-actions">
-                                    <button class="btn btn-secondary btn-sm" @onclick="@(() => ExportSessionAsync(session))" @onclick:stopPropagation="true">
-                                        <i class="fas fa-file-export"></i> Export
-                                    </button>
-                                    <button class="btn btn-secondary btn-sm" @onclick="@(() => RevealSessionFolder(session))" @onclick:stopPropagation="true">
-                                        <i class="fas fa-folder-open"></i> Open Folder
-                                    </button>
-                                    <button class="btn btn-danger btn-sm" @onclick="@(() => DeleteSessionAsync(session))" @onclick:stopPropagation="true">
-                                        <i class="fas fa-trash"></i> Delete
-                                    </button>
-                                </div>
+                            <div class="session-card-actions">
+                                <button type="button" class="btn btn-secondary btn-sm" @onclick="@(() => ExportSessionAsync(session))">
+                                    <i class="fas fa-file-export" aria-hidden="true"></i> Export
+                                </button>
+                                <button type="button" class="btn btn-secondary btn-sm" @onclick="@(() => RevealSessionFolderAsync(session))">
+                                    <i class="fas fa-folder-open" aria-hidden="true"></i> Reveal
+                                </button>
+                                <button type="button" class="btn btn-danger btn-sm destructive-action" @onclick="@(() => DeleteSessionAsync(session))">
+                                    <i class="fas fa-trash" aria-hidden="true"></i> Delete
+                                </button>
                             </div>
-                        }
-                    </div>
-                }
-            </div>
-        }
+                        </div>
+                    }
+                </article>
+            }
+        </div>
     }
+}
 
 @code {
     private List<ProfilingSessionManifest> sessions = new();
@@ -169,6 +228,9 @@
     private bool isLoadingSessions;
     private string sessionSearchText = "";
     private string? expandedSessionId;
+    private MauiCliToolStatus? cliStatus;
+    private MauiCliToolUpdateInfo? cliUpdateInfo;
+    private bool isCheckingCli;
 
     // Per-artifact error state (keyed by file path)
     private readonly Dictionary<string, string> artifactErrors = new();
@@ -179,14 +241,131 @@
         ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
         ToolbarService.SearchTextChanged += OnSearchTextChanged;
         await LoadSessionsAsync();
+        _ = RefreshMauiCliStatusAsync();
+    }
+
+    private async Task RefreshMauiCliStatusAsync()
+    {
+        isCheckingCli = true;
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            var status = await MauiCli.GetStatusAsync();
+            var update = await MauiCli.GetUpdateInfoAsync(status);
+            cliStatus = status;
+            cliUpdateInfo = update;
+        }
+        catch (Exception ex)
+        {
+            cliStatus = new MauiCliToolStatus(MauiCliToolState.Missing, Message: ex.Message);
+            cliUpdateInfo = null;
+        }
+        finally
+        {
+            isCheckingCli = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private string MauiCliIndicatorClass
+    {
+        get
+        {
+            if (isCheckingCli || cliStatus is null)
+                return "checking";
+            if (cliStatus.State == MauiCliToolState.Missing)
+                return "missing";
+            if (cliStatus.State == MauiCliToolState.UpdateRequired)
+                return "missing";
+            if (cliUpdateInfo?.UpdateAvailable == true)
+                return "update-available";
+            return "installed";
+        }
+    }
+
+    private string MauiCliIndicatorIcon =>
+        isCheckingCli || cliStatus is null
+            ? "fas fa-spinner fa-spin"
+            : cliStatus.IsAvailable
+                ? "fa-regular fa-circle-check"
+                : "fa-regular fa-circle-xmark";
+
+    private string MauiCliIndicatorTitle
+    {
+        get
+        {
+            if (isCheckingCli || cliStatus is null)
+                return "MAUI CLI: checking status";
+            if (cliStatus.State == MauiCliToolState.Missing)
+                return "The MAUI CLI is not installed. Open details.";
+            if (cliStatus.State == MauiCliToolState.UpdateRequired)
+                return "The MAUI CLI needs an update for profiling. Open details.";
+            if (cliUpdateInfo?.UpdateAvailable == true)
+                return $"MAUI CLI {cliUpdateInfo.LatestVersion} is available. Open details.";
+            return "The MAUI CLI is ready. Open details.";
+        }
+    }
+
+    private async Task OpenMauiCliDetailsAsync()
+    {
+        var status = cliStatus ?? new MauiCliToolStatus(MauiCliToolState.Missing);
+        var page = new MauiSherpa.Pages.Modals.MauiCliDetailsPage(ModalParams, status, cliUpdateInfo);
+        await FormModal.ShowViewAsync(page, page.WaitForCloseAsync);
+
+        switch (page.SelectedAction)
+        {
+            case MauiSherpa.Pages.Modals.MauiCliDetailsAction.Install:
+                await RunMauiCliToolOperationAsync(isUpdate: false);
+                break;
+            case MauiSherpa.Pages.Modals.MauiCliDetailsAction.Update:
+                await RunMauiCliToolOperationAsync(isUpdate: true);
+                break;
+            case MauiSherpa.Pages.Modals.MauiCliDetailsAction.Recheck:
+                await RefreshMauiCliStatusAsync();
+                break;
+        }
+    }
+
+    private async Task RunMauiCliToolOperationAsync(bool isUpdate)
+    {
+        var title = isUpdate ? "Update MAUI CLI" : "Install MAUI CLI";
+        var result = await OperationModal.RunAsync(
+            title,
+            "Running dotnet tool for Microsoft.Maui.Cli",
+            async ctx =>
+            {
+                ctx.SetStatus(isUpdate ? "Updating Microsoft.Maui.Cli..." : "Installing Microsoft.Maui.Cli...");
+                var process = isUpdate
+                    ? await MauiCli.UpdateAsync(cliUpdateInfo?.LatestVersion, ctx.CancellationToken)
+                    : await MauiCli.InstallAsync(cliUpdateInfo?.LatestVersion, ctx.CancellationToken);
+
+                if (!string.IsNullOrWhiteSpace(process.Output))
+                    ctx.LogInfo(process.Output.Trim());
+                if (!string.IsNullOrWhiteSpace(process.Error))
+                    ctx.LogError(process.Error.Trim());
+
+                if (process.Success)
+                    ctx.LogSuccess(isUpdate ? "MAUI CLI updated" : "MAUI CLI installed");
+
+                return process.Success;
+            },
+            canCancel: true);
+
+        if (result.Success)
+            await AlertService.ShowToastAsync(isUpdate ? "MAUI CLI updated" : "MAUI CLI installed");
+
+        await RefreshMauiCliStatusAsync();
     }
 
     private void OnToolbarItemClicked(string actionId)
     {
         if (actionId == "create")
-            _ = InvokeAsync(StartNewWizardAsync);
-        else if (actionId == "import")
-            _ = ImportSessionFromZipAsync();
+            _ = InvokeAsync(StartCaptureAsync);
+        else if (actionId == "import-artifact")
+            _ = ImportArtifactAsync();
+        else if (actionId == "import-session")
+            _ = ImportSessionArchiveAsync();
         else if (actionId == "refresh")
             _ = LoadSessionsAsync();
     }
@@ -198,9 +377,9 @@
         InvokeAsync(StateHasChanged);
     }
 
-    private async Task StartNewWizardAsync()
+    private async Task StartCaptureAsync()
     {
-        var page = new MauiSherpa.Pages.Modals.ProfilingCaptureWizardPage(BridgeHolder);
+        var page = new MauiSherpa.Pages.Modals.ProfilingCapturePage(BridgeHolder);
         var result = await FormModal.ShowAsync(page);
 
         if (result is not null)
@@ -215,11 +394,12 @@
     {
         ToolbarService.ClearItems();
         ToolbarService.SetItems(
-            new ToolbarAction("create", "New Session", "plus"),
-            new ToolbarAction("import", "Import", "square.and.arrow.down"),
+            new ToolbarAction("create", "Capture Profile", "record.circle"),
+            new ToolbarAction("import-artifact", "Import Artifact", "doc.badge.plus"),
+            new ToolbarAction("import-session", "Import Session", "archivebox"),
             new ToolbarAction("refresh", "Refresh", "arrow.clockwise")
         );
-        ToolbarService.SetSearch("Search sessions...");
+        ToolbarService.SetSearch("Search profiles...");
     }
 
     private async Task LoadSessionsAsync()
@@ -256,7 +436,10 @@
                     s.Name.Contains(sessionSearchText, StringComparison.OrdinalIgnoreCase) ||
                     s.Target.DisplayName.Contains(sessionSearchText, StringComparison.OrdinalIgnoreCase) ||
                     s.Target.Platform.ToString().Contains(sessionSearchText, StringComparison.OrdinalIgnoreCase) ||
-                    (s.Project?.Name?.Contains(sessionSearchText, StringComparison.OrdinalIgnoreCase) ?? false))
+                    (s.Project?.Name?.Contains(sessionSearchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                    (s.MauiProfile?.Mode.ToString().Contains(sessionSearchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                    (s.MauiProfile?.Format.ToString().Contains(sessionSearchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                    (s.MauiProfile?.Framework?.Contains(sessionSearchText, StringComparison.OrdinalIgnoreCase) ?? false))
                 .ToList();
         }
     }
@@ -310,7 +493,28 @@
         }
     }
 
-    private async Task ImportSessionFromZipAsync()
+    private async Task ImportArtifactAsync()
+    {
+        try
+        {
+            var filePath = await DialogService.PickOpenFileAsync(
+                "Import Profiling Artifact",
+                [".nettrace", ".json", ".mibc", ".gcdump"]);
+            if (string.IsNullOrEmpty(filePath))
+                return;
+
+            var imported = await SessionStorage.ImportArtifactAsync(filePath);
+            await LoadSessionsAsync();
+            expandedSessionId = imported.Id;
+            await AlertService.ShowToastAsync($"Imported \"{imported.Name}\"");
+        }
+        catch (Exception ex)
+        {
+            await AlertService.ShowToastAsync($"Artifact import failed: {ex.Message}");
+        }
+    }
+
+    private async Task ImportSessionArchiveAsync()
     {
         try
         {
@@ -335,11 +539,36 @@
         }
     }
 
-    private void RevealSessionFolder(ProfilingSessionManifest session)
+    private async Task RevealSessionFolderAsync(ProfilingSessionManifest session)
     {
-        if (session.DirectoryPath is null) return;
-        RevealInFinder(session.DirectoryPath);
+        if (session.DirectoryPath is null)
+            return;
+        await RevealInFinderAsync(session.DirectoryPath);
     }
+
+    private static string GetModeDisplayName(ProfilingSessionManifest session) =>
+        session.MauiProfile?.Mode switch
+        {
+            MauiProfileMode.Startup => "Startup",
+            MauiProfileMode.Interaction => "Interaction",
+            _ => session.CaptureKinds.FirstOrDefault().ToString()
+        };
+
+    private static string GetFormatDisplayName(MauiProfileOutputFormat format) => format switch
+    {
+        MauiProfileOutputFormat.NetTrace => "Nettrace",
+        MauiProfileOutputFormat.Speedscope => "Speedscope",
+        MauiProfileOutputFormat.Mibc => "MIBC",
+        _ => format.ToString()
+    };
+
+    private static string GetPlatformDisplayName(ProfilingTargetPlatform platform) => platform switch
+    {
+        ProfilingTargetPlatform.iOS => "iOS",
+        ProfilingTargetPlatform.MacOS => "macOS",
+        ProfilingTargetPlatform.MacCatalyst => "Mac Catalyst",
+        _ => platform.ToString()
+    };
 
     private static string GetPlatformIcon(ProfilingTargetPlatform platform) => platform switch
     {
@@ -352,19 +581,85 @@
     };
 
     private static string FormatElapsed(TimeSpan ts) =>
-        ts.TotalMinutes >= 1 ? $"{(int)ts.TotalMinutes}m {ts.Seconds}s" : $"{ts.Seconds}s";
+        ts.TotalMinutes >= 1
+            ? $"{(int)ts.TotalMinutes}m {ts.Seconds}s"
+            : $"{Math.Max(0, (int)ts.TotalSeconds)}s";
 
-    private static string? GetFileSize(string path)
+    private static ProfilingSessionArtifact? GetPrimaryArtifact(ProfilingSessionManifest session)
     {
-        try
+        if (session.MauiProfile?.Format == MauiProfileOutputFormat.Speedscope)
         {
-            if (!File.Exists(path)) return null;
-            var bytes = new FileInfo(path).Length;
-            if (bytes >= 1024 * 1024) return $"{bytes / (1024.0 * 1024.0):F1} MB";
-            if (bytes >= 1024) return $"{bytes / 1024.0:F1} KB";
-            return $"{bytes} B";
+            var speedscope = session.Artifacts.FirstOrDefault(a =>
+                a.FileName.EndsWith(".speedscope.json", StringComparison.OrdinalIgnoreCase));
+            if (speedscope is not null)
+                return speedscope;
         }
-        catch { return null; }
+
+        if (session.MauiProfile?.Format == MauiProfileOutputFormat.Mibc)
+        {
+            var mibc = session.Artifacts.FirstOrDefault(a =>
+                a.FileName.EndsWith(".mibc", StringComparison.OrdinalIgnoreCase));
+            if (mibc is not null)
+                return mibc;
+        }
+
+        return session.Artifacts.FirstOrDefault(a =>
+                   a.FileName.EndsWith(".speedscope.json", StringComparison.OrdinalIgnoreCase))
+               ?? session.Artifacts.FirstOrDefault(a =>
+                   a.FileName.EndsWith(".nettrace", StringComparison.OrdinalIgnoreCase))
+               ?? session.Artifacts.FirstOrDefault(a =>
+                   a.FileName.EndsWith(".gcdump", StringComparison.OrdinalIgnoreCase))
+               ?? session.Artifacts.FirstOrDefault(a =>
+                   a.FileName.EndsWith(".mibc", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string GetPrimaryActionText(ProfilingSessionArtifact artifact)
+    {
+        var extension = GetArtifactExtension(artifact.FileName);
+        return extension switch
+        {
+            ".speedscope.json" => "View profile",
+            ".nettrace" => "Convert and view",
+            ".gcdump" => "View heap",
+            ".mibc" => "Reveal file",
+            _ => "Open"
+        };
+    }
+
+    private static string GetPrimaryActionIcon(ProfilingSessionArtifact artifact)
+    {
+        var extension = GetArtifactExtension(artifact.FileName);
+        return extension switch
+        {
+            ".speedscope.json" => "fa-fire",
+            ".nettrace" => "fa-wand-magic-sparkles",
+            ".gcdump" => "fa-memory",
+            ".mibc" => "fa-folder-open",
+            _ => "fa-arrow-up-right-from-square"
+        };
+    }
+
+    private async Task OpenPrimaryArtifactAsync(
+        ProfilingSessionManifest session,
+        ProfilingSessionArtifact artifact)
+    {
+        if (session.DirectoryPath is null)
+            return;
+
+        var path = Path.Combine(session.DirectoryPath, artifact.FileName);
+        switch (GetArtifactExtension(artifact.FileName))
+        {
+            case ".speedscope.json":
+            case ".nettrace":
+                await ViewInSpeedscope(path);
+                break;
+            case ".gcdump":
+                ViewGcDump(path);
+                break;
+            case ".mibc":
+                await RevealInFinderAsync(path);
+                break;
+        }
     }
 
     private RenderFragment RenderArtifactCard(ProfilingSessionManifest session, ProfilingSessionArtifact artifact) => __builder =>
@@ -375,9 +670,7 @@
         var extension = GetArtifactExtension(artifact.FileName);
         var isSpeedscopeFile = extension is ".speedscope.json";
         var isNettraceFile = extension is ".nettrace";
-        // On macOS, .nettrace View is redundant (speedscope.json is alongside it).
-        // Only show View for .nettrace on Windows where PerfView can open it.
-        var isTraceFile = isSpeedscopeFile || (isNettraceFile && OperatingSystem.IsWindows());
+        var isTraceFile = isSpeedscopeFile || isNettraceFile;
         var isGcDump = extension is ".gcdump";
 
         <div class="artifact-row">
@@ -404,10 +697,10 @@
                         <i class="fas fa-memory"></i> View
                     </button>
                 }
-                <button class="btn-icon-sm" @onclick="@(() => RevealInFinder(filePath))" @onclick:stopPropagation="true" title="Reveal in Finder">
+                <button class="btn-icon-sm" @onclick="@(() => RevealInFinderAsync(filePath))" @onclick:stopPropagation="true" title="Reveal file" aria-label="Reveal @artifact.FileName">
                     <i class="fas fa-folder-open"></i>
                 </button>
-                <button class="btn-icon-sm" @onclick="@(() => CopyPathAsync(filePath))" @onclick:stopPropagation="true" title="Copy path">
+                <button class="btn-icon-sm" @onclick="@(() => CopyPathAsync(filePath))" @onclick:stopPropagation="true" title="Copy path" aria-label="Copy path for @artifact.FileName">
                     <i class="fas fa-copy"></i>
                 </button>
             </div>
@@ -438,6 +731,7 @@
     {
         ".nettrace" => "fa-wave-square",
         ".speedscope.json" => "fa-fire",
+        ".mibc" => "fa-gauge-high",
         ".gcdump" => "fa-memory",
         ".txt" or ".log" => "fa-file-lines",
         ".json" => "fa-code",
@@ -507,21 +801,30 @@
         ViewerService.OpenGcDump(path);
     }
 
-    private void RevealInFinder(string path)
+    private async Task RevealInFinderAsync(string path)
     {
         try
         {
-            var dir = Path.GetDirectoryName(path) ?? path;
             if (Platform.IsMacCatalyst || Platform.IsMacOS)
             {
-                System.Diagnostics.Process.Start("open", $"-R \"{path}\"");
+                var startInfo = new System.Diagnostics.ProcessStartInfo("open")
+                {
+                    UseShellExecute = false
+                };
+                startInfo.ArgumentList.Add("-R");
+                startInfo.ArgumentList.Add(path);
+                System.Diagnostics.Process.Start(startInfo);
             }
             else
             {
+                var dir = Directory.Exists(path) ? path : Path.GetDirectoryName(path) ?? path;
                 System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(dir) { UseShellExecute = true });
             }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            await AlertService.ShowToastAsync($"Unable to reveal file: {ex.Message}");
+        }
     }
 
     private async Task CopyPathAsync(string path)
@@ -546,8 +849,68 @@
         margin-bottom: 1.2rem;
     }
 
+    .page-title-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+    }
+
     .page-title-row h1 {
         margin: 0;
+    }
+
+    .maui-cli-indicator {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        min-height: 2rem;
+        padding: 0.3rem 0.5rem;
+        border: 0;
+        border-radius: 0.4rem;
+        background: transparent;
+        color: var(--text-secondary);
+        font: inherit;
+        font-size: 0.78rem;
+        font-weight: 500;
+        cursor: pointer;
+        transition: background-color 0.15s ease, color 0.15s ease;
+    }
+
+    .maui-cli-indicator:hover:not(:disabled) {
+        background: var(--bg-tertiary);
+        color: var(--text-primary);
+    }
+
+    .maui-cli-indicator:focus-visible {
+        outline: 2px solid var(--accent-primary);
+        outline-offset: 2px;
+    }
+
+    .maui-cli-indicator:disabled {
+        cursor: default;
+        opacity: 0.7;
+    }
+
+    .maui-cli-indicator.installed > i,
+    .maui-cli-indicator.update-available > i {
+        color: color-mix(in srgb, var(--status-success-text) 72%, var(--text-secondary));
+    }
+
+    .maui-cli-indicator.missing > i {
+        color: color-mix(in srgb, var(--status-warning-text) 72%, var(--text-secondary));
+    }
+
+    .maui-cli-indicator-update {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 1rem;
+        height: 1rem;
+        border-radius: 999px;
+        background: var(--status-info-bg);
+        color: var(--status-info-text);
+        font-size: 0.58rem;
     }
 
     .page-subtitle {
@@ -573,22 +936,47 @@
         text-align: center;
         padding: 60px 40px;
         color: var(--text-muted);
+        border: 1px dashed var(--border-color);
+        border-radius: 16px;
+        background: var(--card-bg);
     }
 
-    .empty-state i {
-        margin-bottom: 16px;
-        opacity: 0.4;
+    .empty-state.compact {
+        padding: 40px;
     }
 
-    .empty-state h3 {
+    .empty-icon {
+        width: 4rem;
+        height: 4rem;
+        display: grid;
+        place-items: center;
+        margin-bottom: 0.5rem;
+        border-radius: 1rem;
+        color: var(--accent-primary);
+        background: color-mix(in srgb, var(--accent-primary) 13%, transparent);
+        font-size: 1.5rem;
+    }
+
+    .empty-state h2 {
         color: var(--text-primary);
-        margin-bottom: 8px;
+        margin: 0;
+        font-size: 1.25rem;
     }
 
     .empty-state p {
         max-width: 28rem;
         margin: 0 auto 1.2rem;
         line-height: 1.5;
+    }
+
+    .empty-state small {
+        max-width: 36rem;
+        line-height: 1.45;
+    }
+
+    .empty-action {
+        min-height: 44px;
+        margin-bottom: 0.2rem;
     }
 
     .session-list {
@@ -605,7 +993,7 @@
     }
 
     .session-card.expanded {
-        border-color: var(--accent-primary, #0078d4);
+        border-color: var(--accent-primary);
     }
 
     .session-card-header {
@@ -613,8 +1001,29 @@
         align-items: center;
         gap: 0.75rem;
         padding: 0.75rem 1rem;
+    }
+
+    .session-card-main {
+        min-width: 0;
+        min-height: 44px;
+        flex: 1;
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 0;
+        color: var(--text-primary);
+        text-align: left;
+        border: 0;
+        background: transparent;
         cursor: pointer;
         user-select: none;
+    }
+
+    .session-card-main:focus-visible,
+    .session-primary-action:focus-visible,
+    .btn-icon-sm:focus-visible {
+        outline: 3px solid color-mix(in srgb, var(--accent-primary) 55%, transparent);
+        outline-offset: 3px;
     }
 
     .session-card-icon {
@@ -627,9 +1036,11 @@
     .session-card-info {
         flex: 1;
         min-width: 0;
+        display: block;
     }
 
     .session-card-title {
+        display: block;
         font-weight: 600;
         font-size: 0.9rem;
         white-space: nowrap;
@@ -667,23 +1078,29 @@
     }
 
     .badge-kind {
-        background: color-mix(in srgb, var(--accent-primary, #0078d4) 15%, transparent);
-        color: var(--accent-primary, #0078d4);
+        background: color-mix(in srgb, var(--accent-primary) 15%, transparent);
+        color: var(--accent-primary);
     }
 
     .badge-status {
         color: white;
     }
 
-    .badge-completed { background: #16a34a; }
-    .badge-failed { background: #dc2626; }
-    .badge-cancelled { background: #ca8a04; }
-    .badge-inprogress { background: #2563eb; }
+    .badge-completed { background: var(--accent-success); }
+    .badge-failed { background: var(--accent-danger); }
+    .badge-cancelled { background: var(--accent-warning); }
+    .badge-inprogress { background: var(--accent-primary); }
 
     .session-card-expand {
         color: var(--text-muted);
         font-size: 0.8rem;
         padding: 0 0.25rem;
+    }
+
+    .session-primary-action {
+        min-height: 40px;
+        flex-shrink: 0;
+        white-space: nowrap;
     }
 
     .session-card-body {
@@ -712,10 +1129,19 @@
 
     .session-card-actions {
         display: flex;
+        align-items: center;
         gap: 0.5rem;
         margin-top: 1rem;
         padding-top: 0.75rem;
         border-top: 1px solid var(--border-color);
+    }
+
+    .session-card-actions .btn {
+        min-height: 40px;
+    }
+
+    .destructive-action {
+        margin-left: auto;
     }
 
     .plan-section-title {
@@ -830,7 +1256,11 @@
         border: none;
         color: var(--text-tertiary);
         cursor: pointer;
-        padding: 0.25rem 0.35rem;
+        width: 36px;
+        height: 36px;
+        display: grid;
+        place-items: center;
+        padding: 0;
         border-radius: 6px;
         font-size: 0.75rem;
         transition: color 0.15s, background 0.15s;
@@ -859,9 +1289,9 @@
 
     .missing-artifact { opacity: 0.7; }
 
-    .text-success { color: #22c55e; }
-    .text-danger { color: #ef4444; }
-    .text-warning { color: #eab308; }
+    .text-success { color: var(--accent-success); }
+    .text-danger { color: var(--accent-danger); }
+    .text-warning { color: var(--accent-warning); }
     .text-muted { color: var(--text-secondary); }
 
     .artifact-error {
@@ -886,5 +1316,28 @@
         display: flex;
         flex-wrap: wrap;
         gap: 0.4rem;
+    }
+
+    @@media (max-width: 760px) {
+        .session-card-header {
+            align-items: stretch;
+            flex-direction: column;
+        }
+
+        .session-card-badges {
+            display: none;
+        }
+
+        .session-primary-action {
+            align-self: flex-end;
+        }
+    }
+
+    @@media (prefers-reduced-motion: reduce) {
+        .session-card,
+        .toggle-chevron,
+        .btn-icon-sm {
+            transition: none;
+        }
     }
 </style>

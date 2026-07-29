@@ -25,6 +25,9 @@ public class HybridFormBridge
     /// <summary>Fired by the Blazor component when wizard button state changes.</summary>
     public event Action? WizardStateChanged;
 
+    /// <summary>Fired by the Blazor component when the native form actions change.</summary>
+    public event Action? ActionStateChanged;
+
     /// <summary>Current form validity, set by the Blazor component.</summary>
     public bool IsValid { get; private set; }
 
@@ -41,6 +44,13 @@ public class HybridFormBridge
     public bool CanProceed { get; private set; }
     public bool IsSubmitting { get; private set; }
     public string? SubmitText { get; private set; }
+
+    // Dynamic form action state — used by long-running forms that remain open after submit.
+    public bool HasActionState { get; private set; }
+    public bool ActionEnabled { get; private set; }
+    public bool ActionBusy { get; private set; }
+    public string? ActionText { get; private set; }
+    public string? SecondaryActionText { get; private set; }
 
     /// <summary>When true, native Cancel does not close the modal (Blazor handles it).</summary>
     public bool PreventClose { get; set; }
@@ -65,6 +75,24 @@ public class HybridFormBridge
         IsSubmitting = isSubmitting;
         SubmitText = submitText;
         WizardStateChanged?.Invoke();
+    }
+
+    /// <summary>
+    /// Updates the native primary and secondary actions for a form that remains open
+    /// while a long-running operation changes state.
+    /// </summary>
+    public void SetActionState(
+        bool enabled,
+        bool busy = false,
+        string? actionText = null,
+        string? secondaryActionText = null)
+    {
+        HasActionState = true;
+        ActionEnabled = enabled;
+        ActionBusy = busy;
+        ActionText = actionText;
+        SecondaryActionText = secondaryActionText;
+        ActionStateChanged?.Invoke();
     }
 
     /// <summary>Fired by the MAUI page when a custom action button is clicked (e.g. "save", "reset").</summary>

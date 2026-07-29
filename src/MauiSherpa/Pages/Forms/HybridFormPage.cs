@@ -25,8 +25,10 @@ public abstract class HybridFormPage<TResult> : ContentPage, IFormPage<TResult>,
     private readonly HybridFormBridge _bridge = new();
     private readonly HybridFormBridgeHolder _bridgeHolder;
     private Button? _submitButton;
+    private Button? _cancelButton;
     private ActivityIndicator? _submittingIndicator;
     private bool _isSubmitting;
+    private bool _isClosed;
     private View? _webView;
 
     /// <summary>Page title shown in the native header.</summary>
@@ -34,6 +36,9 @@ public abstract class HybridFormPage<TResult> : ContentPage, IFormPage<TResult>,
 
     /// <summary>Submit button text (e.g. "Save", "Export", "Create").</summary>
     protected virtual string SubmitButtonText => "Save";
+
+    /// <summary>Height of the native footer actions.</summary>
+    protected virtual double ActionButtonHeight => 30;
 
     /// <summary>Blazor route for the form content (e.g. "/modal/edit-secret").</summary>
     protected abstract string BlazorRoute { get; }
@@ -82,9 +87,11 @@ public abstract class HybridFormPage<TResult> : ContentPage, IFormPage<TResult>,
         _bridge.ValidationChanged += () =>
             Dispatcher.Dispatch(() =>
             {
-                if (_submitButton != null)
+                if (_submitButton != null && !_bridge.HasActionState)
                     _submitButton.IsEnabled = _bridge.IsValid && !_isSubmitting;
             });
+        _bridge.ActionStateChanged += OnActionStateChanged;
+        _bridge.CloseRequested += OnCloseRequested;
 
         // Title
         var titleLabel = new Label
@@ -138,7 +145,7 @@ public abstract class HybridFormPage<TResult> : ContentPage, IFormPage<TResult>,
         footerSeparator.SetDynamicResource(BoxView.ColorProperty, FormTheme.Separator);
 
 
-        var cancelButton = new Button
+        _cancelButton = new Button
         {
             Text = "Cancel",
             FontSize = 13,
@@ -146,10 +153,10 @@ public abstract class HybridFormPage<TResult> : ContentPage, IFormPage<TResult>,
             BorderWidth = 0,
             CornerRadius = 5,
             Padding = new Thickness(14, 4),
-            HeightRequest = 30,
+            HeightRequest = ActionButtonHeight,
         };
-        cancelButton.SetDynamicResource(Button.TextColorProperty, FormTheme.AccentPrimary);
-        cancelButton.Clicked += OnCancelClicked;
+        _cancelButton.SetDynamicResource(Button.TextColorProperty, FormTheme.AccentPrimary);
+        _cancelButton.Clicked += OnCancelClicked;
 
         _submittingIndicator = new ActivityIndicator
         {
@@ -169,7 +176,7 @@ public abstract class HybridFormPage<TResult> : ContentPage, IFormPage<TResult>,
             TextColor = Colors.White,
             CornerRadius = 5,
             Padding = new Thickness(14, 4),
-            HeightRequest = 30,
+            HeightRequest = ActionButtonHeight,
             IsEnabled = false,
         };
         _submitButton.SetDynamicResource(Button.BackgroundColorProperty, FormTheme.AccentPrimary);
@@ -180,7 +187,7 @@ public abstract class HybridFormPage<TResult> : ContentPage, IFormPage<TResult>,
             Spacing = 12,
             HorizontalOptions = LayoutOptions.End,
             Margin = new Thickness(28, 12, 28, 24),
-            Children = { cancelButton, _submittingIndicator, _submitButton },
+            Children = { _cancelButton, _submittingIndicator, _submitButton },
         };
 
         var grid = new Grid
@@ -212,6 +219,7 @@ public abstract class HybridFormPage<TResult> : ContentPage, IFormPage<TResult>,
         grid.Children.Add(footerLayout);
 
         Content = grid;
+        ApplyActionState();
     }
 
     private async void OnSubmitClicked(object? sender, EventArgs e)
@@ -226,17 +234,30 @@ public abstract class HybridFormPage<TResult> : ContentPage, IFormPage<TResult>,
         try
         {
             await _bridge.RequestSubmitAsync();
+            if (_bridge.PreventSubmitClose)
+            {
+                _isSubmitting = false;
+                ApplyActionState();
+                return;
+            }
+
             var result = (TResult?)_bridge.Result;
-            _bridgeHolder.Pop();
-            _tcs.TrySetResult(result);
+            CloseWithResult(result);
         }
         catch (Exception ex)
         {
             _isSubmitting = false;
-            _submitButton.Text = SubmitButtonText;
-            _submitButton.IsEnabled = _bridge.IsValid;
-            _submittingIndicator.IsRunning = false;
-            _submittingIndicator.IsVisible = false;
+            if (_bridge.HasActionState)
+            {
+                ApplyActionState();
+            }
+            else
+            {
+                _submitButton.Text = SubmitButtonText;
+                _submitButton.IsEnabled = _bridge.IsValid;
+                _submittingIndicator.IsRunning = false;
+                _submittingIndicator.IsVisible = false;
+            }
 
             await DisplayAlert("Error", ex.Message, "OK");
         }
@@ -245,8 +266,63 @@ public abstract class HybridFormPage<TResult> : ContentPage, IFormPage<TResult>,
     private void OnCancelClicked(object? sender, EventArgs e)
     {
         _bridge.RequestCancel();
+        if (_bridge.PreventClose)
+        {
+            ApplyActionState();
+            return;
+        }
+
+        CloseWithResult(default);
+    }
+
+    private void OnActionStateChanged()
+    {
+        if (Dispatcher.IsDispatchRequired)
+            Dispatcher.Dispatch(ApplyActionState);
+        else
+            ApplyActionState();
+    }
+
+    private void ApplyActionState()
+    {
+        if (!_bridge.HasActionState)
+            return;
+
+        if (_submitButton != null)
+        {
+            _submitButton.Text = _bridge.ActionText ?? SubmitButtonText;
+            _submitButton.IsEnabled = _bridge.ActionEnabled && !_bridge.ActionBusy && !_isSubmitting;
+        }
+
+        if (_cancelButton != null)
+            _cancelButton.Text = _bridge.SecondaryActionText ?? "Cancel";
+
+        if (_submittingIndicator != null)
+        {
+            _submittingIndicator.IsRunning = _bridge.ActionBusy;
+            _submittingIndicator.IsVisible = _bridge.ActionBusy;
+        }
+    }
+
+    private void OnCloseRequested()
+    {
+        Dispatcher.Dispatch(() =>
+        {
+            var result = (TResult?)_bridge.Result;
+            CloseWithResult(result);
+        });
+    }
+
+    private void CloseWithResult(TResult? result)
+    {
+        if (_isClosed)
+            return;
+
+        _isClosed = true;
+        _bridge.ActionStateChanged -= OnActionStateChanged;
+        _bridge.CloseRequested -= OnCloseRequested;
         _bridgeHolder.Pop();
-        _tcs.TrySetResult(default);
+        _tcs.TrySetResult(result);
     }
 
     private void OnBlazorReady(double contentHeight)

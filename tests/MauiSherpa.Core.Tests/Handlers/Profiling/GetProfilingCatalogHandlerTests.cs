@@ -29,18 +29,18 @@ public class GetProfilingCatalogHandlerTests
                 ProfilingTargetPlatform.Android,
                 "Android",
                 [ProfilingTargetKind.PhysicalDevice, ProfilingTargetKind.Emulator],
-                [ProfilingCaptureKind.Cpu],
-                [ProfilingArtifactKind.Trace],
-                [ProfilingScenarioKind.Launch],
+                [ProfilingCaptureKind.Startup, ProfilingCaptureKind.Interaction],
+                [ProfilingArtifactKind.Trace, ProfilingArtifactKind.Mibc],
+                [ProfilingScenarioKind.Launch, ProfilingScenarioKind.Interaction],
                 SupportsLaunchProfiling: true,
-                SupportsAttachToProcess: true,
-                SupportsLiveMetrics: true,
+                SupportsAttachToProcess: false,
+                SupportsLiveMetrics: false,
                 SupportsSymbolication: false)],
             [new ProfilingScenarioDefinition(
                 ProfilingScenarioKind.Launch,
-                "Launch & startup",
+                "Startup",
                 "desc",
-                [ProfilingCaptureKind.Cpu],
+                [ProfilingCaptureKind.Startup],
                 TimeSpan.FromMinutes(1))]);
 
         _profilingCatalogService.Setup(x => x.GetCatalogAsync(It.IsAny<CancellationToken>()))
