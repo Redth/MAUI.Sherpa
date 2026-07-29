@@ -498,7 +498,17 @@ public class BlazorContentPage : ContentPage
             _searchItem.Placeholder = _toolbarService.SearchPlaceholder ?? "";
         }
 
-        // Update enabled state for action items via native API
+        // Update enabled state and labels for action items via native API.
+        // The shared superset assigns each item a default label, so adopt the
+        // label the current page registered — MAUI's toolbar handler does not
+        // propagate ToolbarItem.Text changes after the item is created.
+        var pageLabels = new Dictionary<string, string>();
+        foreach (var action in _toolbarService.CurrentItems)
+        {
+            if (!string.IsNullOrWhiteSpace(action.Label))
+                pageLabels[action.Id] = action.Label;
+        }
+
         var enabledSelector = new ObjCRuntime.Selector("setEnabled:");
         foreach (var nsItem in toolbar.Items)
         {
@@ -510,6 +520,13 @@ public class BlazorContentPage : ContentPage
                     var actionId = _actionItemMap.Keys.ElementAt(idx);
                     if (nsItem.RespondsToSelector(enabledSelector))
                         _objc_msgSend_bool(nsItem.Handle, enabledSelector.Handle, _toolbarService.IsItemEnabled(actionId));
+
+                    if (pageLabels.TryGetValue(actionId, out var label))
+                    {
+                        nsItem.Label = label;
+                        nsItem.PaletteLabel = label;
+                        nsItem.ToolTip = label;
+                    }
                 }
             }
         }
