@@ -39,11 +39,7 @@ public class SdkVersionService : ISdkVersionService
             }
         }
 
-        return sdkVersions
-            .OrderByDescending(v => v.Major)
-            .ThenByDescending(v => v.Minor)
-            .ThenByDescending(v => v.Patch)
-            .ToList();
+        return SdkVersion.SortDescending(sdkVersions);
     }
 
     /// <inheritdoc />
@@ -88,9 +84,7 @@ public class SdkVersionService : ISdkVersionService
             }
         }
 
-        return sdkVersions
-            .OrderByDescending(v => v.Patch)
-            .ToList();
+        return SdkVersion.SortDescending(sdkVersions);
     }
 
     /// <inheritdoc />

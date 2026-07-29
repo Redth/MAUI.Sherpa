@@ -122,4 +122,55 @@ public class SdkVersionTests
         success.Should().BeFalse();
         result.Should().BeNull();
     }
+
+    [Fact]
+    public void SortDescending_OrdersPreviewsByPrereleaseLabel()
+    {
+        // Every 11.0.100-preview.* shares major.minor.patch, so ordering must fall through to the
+        // prerelease labels rather than leaving the newest install to enumeration order.
+        var versions = new[]
+        {
+            SdkVersion.Parse("11.0.100-preview.5.26302.115"),
+            SdkVersion.Parse("11.0.100-preview.4.26230.115"),
+            SdkVersion.Parse("11.0.100-preview.6.26359.118"),
+        };
+
+        var sorted = SdkVersion.SortDescending(versions);
+
+        sorted.Select(v => v.Version).Should().Equal(
+            "11.0.100-preview.6.26359.118",
+            "11.0.100-preview.5.26302.115",
+            "11.0.100-preview.4.26230.115");
+    }
+
+    [Fact]
+    public void SortDescending_RanksStableAboveItsOwnPreviews()
+    {
+        var versions = new[]
+        {
+            SdkVersion.Parse("11.0.100-rc.1.25451.107"),
+            SdkVersion.Parse("11.0.100"),
+            SdkVersion.Parse("11.0.100-preview.6.26359.118"),
+            SdkVersion.Parse("10.0.302"),
+        };
+
+        var sorted = SdkVersion.SortDescending(versions);
+
+        sorted.Select(v => v.Version).Should().Equal(
+            "11.0.100",
+            "11.0.100-rc.1.25451.107",
+            "11.0.100-preview.6.26359.118",
+            "10.0.302");
+    }
+
+    [Fact]
+    public void CompareTo_UsesFullSemanticVersion()
+    {
+        var newer = SdkVersion.Parse("11.0.100-preview.6.26359.118");
+        var older = SdkVersion.Parse("11.0.100-preview.5.26302.115");
+
+        newer.CompareTo(older).Should().BePositive();
+        older.CompareTo(newer).Should().BeNegative();
+        newer.CompareTo(null).Should().BePositive();
+    }
 }

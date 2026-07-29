@@ -1730,7 +1730,8 @@ public record DoctorContext(
     bool DotnetUpInstalled = false,
     string? DotnetUpVersion = null,
     string? DotnetUpManagedInstallRoot = null,
-    string? DotNetArchitecture = null
+    string? DotNetArchitecture = null,
+    bool UsesDotnetUpManagedSdk = false
 );
 
 /// <summary>

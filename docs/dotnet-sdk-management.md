@@ -30,15 +30,47 @@ https://aka.ms/dotnet/dotnetup/{quality}/dotnetup-{rid}[.exe]   (+ ".sha512")
 - Installed into `~/.dotnetup` (matches the official installer, so an existing install is reused).
 
 ### Doctor integration
-- The `.NET SDK` "Update available" check is now **fixable**. Its `FixAction` is
-  `dotnetup-update-sdk:<version>`; applying it bootstraps `dotnetup` if missing, then runs
-  `sdk install <version> --set-default-install` (Terminal Mode).
+
+#### Which install root wins
+
+Doctor and the SDK Manager must agree on *one* .NET install root, otherwise they report different
+active SDKs, feature bands, and workload sets. `DotnetSdkSourceResolver`
+(`MauiSherpa.Workloads/Services`) is the single decision point. Precedence:
+
+1. A repo-local `.dotnet/sdk` next to the scanned project directory.
+2. The **dotnetup-managed root**, whenever dotnetup manages at least one valid SDK. When several
+   managed roots exist, it prefers the one matching the process architecture, then the one with the
+   newest SDK, then ordinal install-root order.
+3. The machine-discovered root (`/etc/dotnet/install_location*`, `DOTNET_ROOT`, `PATH`, defaults).
+
+When the managed root wins it is the **sole** source of truth: installed SDK list, active SDK,
+feature band, manifests, workload set, and the `dotnet` executable Doctor invokes all come from it,
+and system SDKs are ignored. `DoctorService` pins a `LocalSdkService` to that root
+(`GetSdkServiceForRoot`) so manifest and workload-set probing reads the same place.
+
+This matters because the GUI Doctor does not inherit shell `PATH`/`DOTNET_ROOT`, and on macOS the
+managed root defaults to `~/Library/Application Support/dotnet` — which the machine scan never finds.
+`DoctorContext.UsesDotnetUpManagedSdk` reports the outcome, and the Doctor page shows a `dotnetup`
+badge on the ".NET SDK Path" row.
+
+#### Prerelease-aware ordering
+
+`SdkVersion` implements `IComparable<SdkVersion>` over a full `NuGetVersion`, and every consumer
+sorts through `SdkVersion.SortDescending`. Without this, `11.0.100-preview.4`, `-preview.5`,
+`-preview.6` and stable `11.0.100` all compare equal on `Major`/`Minor`/`Patch` and directory or feed
+enumeration order silently picks the "active" SDK — which then produces a feature band that matches
+no dotnetup workload target and downgrades Doctor to a NuGet-only workload path.
+
+#### Checks and fixes
+
+- The `.NET SDK` "Update available" check is **fixable**. When the managed root is in use, Doctor
+  reuses dotnetup's own tracked-channel update preview — the same data the SDK Manager shows — and
+  emits `FixAction: dotnetup-update-sdk:<channel>` (e.g. `11.0.1xx`). Specific channels are preferred
+  over moving aliases (`latest`, `lts`, `sts`, `preview`), and pinned specs are skipped. Otherwise it
+  falls back to `dotnetup-update-sdk:<version>`. Applying the fix bootstraps `dotnetup` if missing,
+  then runs `sdk install <channel|version> --set-default-install` (Terminal Mode).
 - A **dotnetup presence** check (Info) shows the installed version, or offers an
   `install-dotnetup` fix when it is missing.
-- Doctor reconciles **dotnetup-managed SDKs** into the installed-SDK set
-  (`MergeManagedSdks`) so an applied update actually clears the warning. This matters because
-  the GUI Doctor does not read shell `PATH`, and on macOS the managed root defaults to
-  `~/Library/Application Support/dotnet` — which `LocalSdkService` does not otherwise scan.
 
 ### SDK Manager page (`/dotnet-sdk`)
 
@@ -185,6 +217,8 @@ participate in resolution.
   - `Services/WorkloadInstallationStateResolver.cs` — overlays direct SDK installation records on
     the active transitive workload graph to classify explicit, included, and available IDs without
     inferring state from shared pack folders.
+  - `Services/DotnetSdkSourceResolver.cs` — pure resolution of the authoritative install root and
+    SDK set from a local machine scan plus a `DotnetUpListResult`.
   - `Services/GlobalJsonWorkloadPinEditor.cs` — JSONC-preserving atomic
     `sdk.workloadVersion` edits.
 - **`MauiSherpa.Core`** — `IDotnetUpService` (`Interfaces.cs`) + `DotnetUpService`: resolves the
@@ -192,11 +226,16 @@ participate in resolution.
   builds `ProcessRequest`s for install/update/uninstall. `IDotnetWorkloadService` discovers
   feature-band targets, orchestrates inventory queries, builds workload process requests, and
   invalidates per-root caches after writes. Both app heads register these services.
-- **Doctor** consumes the same `IDotnetWorkloadService` target, availability result, environment,
-  command builder, and refresh path as the SDK Manager so the two surfaces cannot disagree.
+- **Doctor** resolves its install root through `DotnetSdkSourceResolver`, then consumes the same
+  `IDotnetWorkloadService` target, availability result, environment, command builder, update
+  previews, and refresh path as the SDK Manager. Because both surfaces start from the same root and
+  the same prerelease-aware ordering, they cannot disagree.
 
 ## Testing
 
 Pure helpers are covered by unit tests in `tests/MauiSherpa.Workloads.Tests` (RID/URL building,
-SHA-512 verify, `list`/`--info` parsing, argument building). Doctor reconciliation and the new
-dependency-status shapes are covered in `tests/MauiSherpa.Core.Tests/Services/DoctorDotnetUpTests.cs`.
+SHA-512 verify, `list`/`--info` parsing, argument building, install-root resolution in
+`Services/DotnetSdkSourceResolverTests.cs`, and prerelease ordering in
+`Models/SdkVersionTests.cs`). Doctor source-of-truth selection, channel-preview matching, and the
+dependency-status shapes are covered in
+`tests/MauiSherpa.Core.Tests/Services/DoctorDotnetUpTests.cs`.

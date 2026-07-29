@@ -27,6 +27,9 @@ public class DoctorService : IDoctorService
     
     // MauiSherpa.Workloads services - instantiated on demand
     private LocalSdkService? _localSdkService;
+    private LocalSdkService? _rootedSdkService;
+    private string? _rootedSdkServiceRoot;
+    private string? _authoritativeSdkRoot;
     private GlobalJsonService? _globalJsonService;
     private NuGetClient? _nugetClient;
     private WorkloadSetService? _workloadSetService;
@@ -54,6 +57,27 @@ public class DoctorService : IDoctorService
     }
     
     private LocalSdkService GetLocalSdkService() => _localSdkService ??= new LocalSdkService(_loggerFactory.CreateLogger<LocalSdkService>());
+
+    /// <summary>
+    /// Returns a <see cref="LocalSdkService"/> pinned to <paramref name="installRoot"/> so manifest,
+    /// workload-set, and dependency reads come from the same root Doctor decided is authoritative
+    /// (which is the dotnetup-managed root whenever the user has opted into dotnetup).
+    /// </summary>
+    private LocalSdkService GetSdkServiceForRoot(string? installRoot)
+    {
+        if (string.IsNullOrWhiteSpace(installRoot))
+            return GetLocalSdkService();
+
+        if (_rootedSdkService != null &&
+            string.Equals(_rootedSdkServiceRoot, installRoot, StringComparison.OrdinalIgnoreCase))
+            return _rootedSdkService;
+
+        _rootedSdkServiceRoot = installRoot;
+        _rootedSdkService = new LocalSdkService(
+            _loggerFactory.CreateLogger<LocalSdkService>(), installRoot);
+        return _rootedSdkService;
+    }
+
     private GlobalJsonService GetGlobalJsonService() => _globalJsonService ??= new GlobalJsonService();
     private NuGetClient GetNuGetClient() => _nugetClient ??= new NuGetClient();
     private WorkloadSetService GetWorkloadSetService() => _workloadSetService ??= new WorkloadSetService(GetNuGetClient());
@@ -61,17 +85,22 @@ public class DoctorService : IDoctorService
     /// <summary>
     /// Resolves the full path to the dotnet executable.
     /// GUI apps on macOS don't inherit the user's shell PATH, so bare "dotnet" won't resolve.
+    /// Prefers the root Doctor last resolved as authoritative (the dotnetup-managed root when the
+    /// user opted into dotnetup) so muxer-based commands run against the SDK Doctor reported on.
     /// </summary>
     private string ResolveDotNetExecutable()
     {
-        var sdkPath = GetLocalSdkService().GetDotNetSdkPath();
-        if (!string.IsNullOrEmpty(sdkPath))
+        var exeName = OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet";
+
+        foreach (var root in new[] { _authoritativeSdkRoot, GetLocalSdkService().GetDotNetSdkPath() })
         {
-            var exeName = OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet";
-            var fullPath = Path.Combine(sdkPath, exeName);
+            if (string.IsNullOrEmpty(root))
+                continue;
+            var fullPath = Path.Combine(root, exeName);
             if (File.Exists(fullPath))
                 return fullPath;
         }
+
         // Fallback to bare name (works if dotnet is on PATH)
         return "dotnet";
     }
@@ -83,7 +112,6 @@ public class DoctorService : IDoctorService
     public async Task<DoctorContext> GetContextAsync(string? workingDirectory = null)
     {
         var globalJsonService = GetGlobalJsonService();
-        var localSdkService = GetLocalSdkService();
         
         // Determine working directory
         var effectiveDir = workingDirectory ?? Environment.CurrentDirectory;
@@ -102,29 +130,19 @@ public class DoctorService : IDoctorService
             dotnetUpList = await TryGetDotnetUpListAsync();
         }
 
-        // Get SDK path - LocalSdkService already checks for .dotnet/, DOTNET_ROOT, etc.
-        string? sdkPath = null;
-        var sdkArchitecture = RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant();
-        
-        // Check for local .dotnet in working directory
-        var localDotnet = Path.Combine(effectiveDir, ".dotnet");
-        if (Directory.Exists(localDotnet) && Directory.Exists(Path.Combine(localDotnet, "sdk")))
-        {
-            sdkPath = localDotnet;
-        }
-        else
-        {
-            sdkPath = localSdkService.GetDotNetSdkPath();
-        }
-        
-        // Resolve against local and dotnetup-managed SDKs before choosing the exact root.
+        // Pick the authoritative install root before anything else — when the user opted into
+        // dotnetup, its managed root is what the shell actually resolves, so Doctor must not mix
+        // in machine-wide SDKs from /usr/local/share/dotnet (or Program Files).
+        var source = ResolveSdkSource(effectiveDir, dotnetUpList);
+        var sdkPath = source.InstallRoot;
+        var sdkArchitecture = source.Architecture
+            ?? RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant();
+        var sdks = source.Sdks;
+
         string? featureBand = null;
         bool isPreviewSdk = false;
         string? activeSdkVersion = null;
         string? resolvedSdkVersion = null;
-        var sdks = localSdkService.GetInstalledSdkVersions();
-        if (dotnetUpList != null)
-            sdks = MergeManagedSdks(sdks, dotnetUpList);
         if (sdks.Count > 0)
         {
             SdkVersion effectiveSdk;
@@ -143,42 +161,6 @@ public class DoctorService : IDoctorService
             featureBand = effectiveSdk.FeatureBand;
             isPreviewSdk = effectiveSdk.IsPreview;
             activeSdkVersion = effectiveSdk.Version;
-
-            var localRootContainsSdk = sdkPath != null &&
-                                       Directory.Exists(Path.Combine(sdkPath, "sdk", effectiveSdk.Version));
-            var matchingSpec = globalJson?.Path == null || dotnetUpList == null
-                ? null
-                : dotnetUpList.InstallSpecs.FirstOrDefault(spec =>
-                    spec.Component == DotnetUpComponent.Sdk &&
-                    string.Equals(spec.GlobalJsonPath, globalJson.Path, StringComparison.OrdinalIgnoreCase));
-            if (dotnetUpList != null && (matchingSpec != null || !localRootContainsSdk))
-            {
-                var managedInstallation = dotnetUpList.Installations
-                    .Where(installation =>
-                        installation.Component == DotnetUpComponent.Sdk &&
-                        installation.IsValid &&
-                        string.Equals(
-                            installation.Version,
-                            effectiveSdk.Version,
-                            StringComparison.OrdinalIgnoreCase))
-                    .OrderByDescending(installation =>
-                        matchingSpec != null &&
-                        string.Equals(
-                            installation.InstallRoot,
-                            matchingSpec.InstallRoot,
-                            StringComparison.OrdinalIgnoreCase) &&
-                        (string.IsNullOrWhiteSpace(matchingSpec.Architecture) ||
-                         string.Equals(
-                             installation.Architecture,
-                             matchingSpec.Architecture,
-                             StringComparison.OrdinalIgnoreCase)))
-                    .FirstOrDefault();
-                if (managedInstallation != null)
-                {
-                    sdkPath = managedInstallation.InstallRoot;
-                    sdkArchitecture = managedInstallation.Architecture ?? sdkArchitecture;
-                }
-            }
         }
 
         return new DoctorContext(
@@ -194,9 +176,42 @@ public class DoctorService : IDoctorService
             ResolvedSdkVersion: resolvedSdkVersion,
             DotnetUpInstalled: dotnetUpInstalled,
             DotnetUpVersion: dotnetUpVersion,
-            DotnetUpManagedInstallRoot: dotnetUpList?.InstallRoots.FirstOrDefault(),
-            DotNetArchitecture: sdkArchitecture
+            DotnetUpManagedInstallRoot: source.IsDotnetUpManaged
+                ? source.InstallRoot
+                : dotnetUpList?.InstallRoots.FirstOrDefault(),
+            DotNetArchitecture: sdkArchitecture,
+            UsesDotnetUpManagedSdk: source.IsDotnetUpManaged
         );
+    }
+
+    /// <summary>
+    /// Resolves which .NET install root Doctor should inspect, in priority order:
+    /// a repo-local <c>.dotnet</c> (an explicit per-project override), then the dotnetup-managed
+    /// root when the user opted into dotnetup, then the machine's discovered install.
+    /// </summary>
+    private DotnetSdkSource ResolveSdkSource(string effectiveDir, DotnetUpListResult? dotnetUpList)
+    {
+        var repoLocalRoot = Path.Combine(effectiveDir, ".dotnet");
+        if (Directory.Exists(Path.Combine(repoLocalRoot, "sdk")))
+        {
+            var repoLocalService = GetSdkServiceForRoot(repoLocalRoot);
+            _authoritativeSdkRoot = repoLocalRoot;
+            return new DotnetSdkSource
+            {
+                Sdks = repoLocalService.GetInstalledSdkVersions(),
+                InstallRoot = repoLocalRoot,
+                Architecture = RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant(),
+                IsDotnetUpManaged = false
+            };
+        }
+
+        var machineService = GetLocalSdkService();
+        var resolved = DotnetSdkSourceResolver.Resolve(
+            machineService.GetInstalledSdkVersions(),
+            machineService.GetDotNetSdkPath(),
+            dotnetUpList);
+        _authoritativeSdkRoot = resolved.InstallRoot;
+        return resolved;
     }
 
     private async Task<MauiSherpa.Workloads.Models.DotnetUpToolInfo?> TryGetDotnetUpInfoAsync()
@@ -229,30 +244,48 @@ public class DoctorService : IDoctorService
         }
     }
     
-    /// <summary>
-    /// Merges dotnetup-managed SDK versions into the locally discovered set, de-duplicating by
-    /// version string and re-sorting descending so the "latest installed" reflects dotnetup installs.
-    /// </summary>
-    internal static IReadOnlyList<SdkVersion> MergeManagedSdks(
-        IReadOnlyList<SdkVersion> localSdks, MauiSherpa.Workloads.Models.DotnetUpListResult dotnetUpList)
+    private async Task<IReadOnlyList<DotnetUpdatePreview>?> TryGetDotnetUpUpdatePreviewAsync(
+        DotnetUpListResult list)
     {
-        var byVersion = new Dictionary<string, SdkVersion>(StringComparer.OrdinalIgnoreCase);
-        foreach (var sdk in localSdks)
-            byVersion[sdk.Version] = sdk;
-
-        foreach (var managed in DotnetUpParser.GetManagedSdkVersions(dotnetUpList))
+        if (_dotnetUpService is null)
+            return null;
+        try
         {
-            if (byVersion.ContainsKey(managed))
-                continue;
-            if (SdkVersion.TryParse(managed, out var parsed) && parsed != null)
-                byVersion[managed] = parsed;
+            return await _dotnetUpService.GetUpdatePreviewAsync(list);
         }
+        catch (Exception ex)
+        {
+            _logger.LogWarning($"Failed to resolve dotnetup update preview: {ex.Message}");
+            return null;
+        }
+    }
 
-        return byVersion.Values
-            .OrderByDescending(v => v.Major)
-            .ThenByDescending(v => v.Minor)
-            .ThenByDescending(v => v.Patch)
-            .ToList();
+    private static readonly string[] AliasChannels = ["latest", "lts", "sts", "preview"];
+
+    /// <summary>
+    /// Finds the dotnetup tracked SDK channel that currently resolves to <paramref name="activeSdk"/>,
+    /// preferring a specific channel (e.g. <c>11.0.1xx</c>) over a moving alias (e.g. <c>preview</c>)
+    /// so the offered fix targets the narrowest channel that owns the SDK.
+    /// </summary>
+    internal static DotnetUpdatePreview? FindSdkChannelPreview(
+        IReadOnlyList<DotnetUpdatePreview>? previews, SdkVersion activeSdk)
+    {
+        if (previews == null || previews.Count == 0)
+            return null;
+
+        return previews
+            .Where(preview =>
+                preview.Component == DotnetUpComponent.Sdk &&
+                !preview.IsPinned &&
+                string.Equals(
+                    preview.InstalledVersion,
+                    activeSdk.Version,
+                    StringComparison.OrdinalIgnoreCase))
+            .OrderBy(preview => AliasChannels.Contains(
+                preview.Channel, StringComparer.OrdinalIgnoreCase) ? 1 : 0)
+            .ThenByDescending(preview => preview.UpdateAvailable)
+            .ThenBy(preview => preview.Channel, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault();
     }
 
     /// <summary>
@@ -318,20 +351,24 @@ public class DoctorService : IDoctorService
         
         progress?.Report("Checking .NET SDK installation...");
         
-        var localSdkService = GetLocalSdkService();
+        // Read everything from the root the context settled on. When dotnetup manages the active
+        // SDK that is the dotnetup root, so Doctor and the .NET SDK Manager inspect the same files.
+        var localSdkService = GetSdkServiceForRoot(context.DotNetSdkPath);
         var dependencies = new List<DependencyStatus>();
         
         // Get installed SDKs
         var sdkVersions = localSdkService.GetInstalledSdkVersions();
 
-        // Merge in SDKs managed by dotnetup. dotnetup installs to a user-level root
-        // (e.g. ~/Library/Application Support/dotnet on macOS) that LocalSdkService does not
-        // scan, so without this the GUI Doctor would never "see" a dotnetup-applied update.
         var dotnetUpList = await TryGetDotnetUpListAsync();
         var dotnetUpInstalled = _dotnetUpService is { IsInstalled: true };
-        if (dotnetUpList != null)
+
+        // When dotnetup owns the active SDK, reuse the same tracked-channel update preview the
+        // .NET SDK Manager renders so the two pages cannot report different versions.
+        IReadOnlyList<DotnetUpdatePreview>? updatePreviews = null;
+        if (context.UsesDotnetUpManagedSdk && dotnetUpList != null)
         {
-            sdkVersions = MergeManagedSdks(sdkVersions, dotnetUpList);
+            progress?.Report("Checking dotnetup tracked channels...");
+            updatePreviews = await TryGetDotnetUpUpdatePreviewAsync(dotnetUpList);
         }
 
         var sdkInfos = sdkVersions.Select(s => new SdkVersionInfo(
@@ -381,8 +418,33 @@ public class DoctorService : IDoctorService
         else
         {
             var latestSdk = sdkVersions[0];
-            
-            if (latestSdk.IsPreview)
+            var managedChannel = FindSdkChannelPreview(updatePreviews, latestSdk);
+
+            if (managedChannel != null)
+            {
+                // dotnetup owns this SDK — report exactly what its tracked channel resolves to.
+                var hasUpdate = managedChannel.UpdateAvailable;
+                var available = managedChannel.AvailableVersion;
+
+                dependencies.Add(new DependencyStatus(
+                    ".NET SDK",
+                    DependencyCategory.DotNetSdk,
+                    null,
+                    hasUpdate ? available : null,
+                    latestSdk.Version,
+                    hasUpdate
+                        ? DependencyStatusType.Warning
+                        : latestSdk.IsPreview ? DependencyStatusType.Info : DependencyStatusType.Ok,
+                    hasUpdate
+                        ? $"Update available: {available} (dotnetup channel {managedChannel.Channel})"
+                        : latestSdk.IsPreview
+                            ? $"Preview SDK ({latestSdk.Version}) — managed by dotnetup"
+                            : $"{sdkVersions.Count} SDK(s) managed by dotnetup, using {latestSdk.Version}",
+                    IsFixable: hasUpdate,
+                    FixAction: hasUpdate ? $"dotnetup-update-sdk:{managedChannel.Channel}" : null
+                ));
+            }
+            else if (latestSdk.IsPreview)
             {
                 // Active SDK is a preview — find the latest available for the SAME major version
                 var latestAvailableForMajor = availableSdkVersions?
@@ -603,7 +665,7 @@ public class DoctorService : IDoctorService
     {
         if (context.EffectiveFeatureBand == null) return;
         
-        var localSdkService = GetLocalSdkService();
+        var localSdkService = GetSdkServiceForRoot(context.DotNetSdkPath);
         // Collect all dependencies from installed manifests
         var manifestIds = localSdkService.GetInstalledWorkloadManifests(context.EffectiveFeatureBand);
         
