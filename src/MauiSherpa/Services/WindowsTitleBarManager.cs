@@ -404,37 +404,77 @@ public class WindowsTitleBarManager
         return btn;
     }
 
-    private Button CreateActionButton(ToolbarAction action)
+    private Border CreateActionButton(ToolbarAction action)
     {
         var fluentIcon = MapSfSymbolToFluentIcon(action.SfSymbol);
-        var glyph = GetEnumDescription(fluentIcon);
+        var isEnabled = _toolbarService.IsItemEnabled(action.Id);
 
-        var btn = new Button
+        var content = new HorizontalStackLayout
         {
-            Text = glyph,
-            FontFamily = "FluentIcons",
-            FontSize = 18,
-            HeightRequest = 32,
-            WidthRequest = 36,
-            MinimumWidthRequest = 36,
-            Padding = new Thickness(0),
-            BackgroundColor = BgControl,
-            TextColor = Colors.White,
-            BorderColor = BorderColor,
-            BorderWidth = 1,
-            CornerRadius = 6,
+            Spacing = 6,
             VerticalOptions = LayoutOptions.Center,
             HorizontalOptions = LayoutOptions.Center,
-            LineBreakMode = LineBreakMode.NoWrap,
         };
-        ApplyVerticalCentering(btn);
-        ToolTipProperties.SetText(btn, action.Label);
-        ApplyHoverEffect(btn, BgControl, BgControlHover, BorderColor, Accent);
+        if (fluentIcon is { } icon)
+        {
+            content.Children.Add(new Label
+            {
+                Text = GetEnumDescription(icon),
+                FontFamily = "FluentIcons",
+                FontSize = 16,
+                TextColor = Colors.White,
+                VerticalOptions = LayoutOptions.Center,
+                VerticalTextAlignment = TextAlignment.Center,
+            });
+        }
+        content.Children.Add(new Label
+        {
+            Text = action.Label,
+            FontSize = 12,
+            TextColor = Colors.White,
+            VerticalOptions = LayoutOptions.Center,
+            VerticalTextAlignment = TextAlignment.Center,
+            LineBreakMode = LineBreakMode.NoWrap,
+        });
 
-        btn.Clicked += (s, e) =>
+        var btn = new Border
+        {
+            Content = content,
+            HeightRequest = 32,
+            MinimumWidthRequest = 36,
+            Padding = new Thickness(10, 0),
+            BackgroundColor = BgControl,
+            Stroke = BorderColor,
+            StrokeThickness = 1,
+            StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 6 },
+            IsEnabled = isEnabled,
+            Opacity = isEnabled ? 1 : 0.5,
+            VerticalOptions = LayoutOptions.Center,
+            HorizontalOptions = LayoutOptions.Center,
+        };
+        ToolTipProperties.SetText(btn, action.Label);
+
+        var tapGesture = new TapGestureRecognizer();
+        tapGesture.Tapped += (s, e) =>
         {
             _toolbarService.InvokeToolbarItemClicked(action.Id);
         };
+        btn.GestureRecognizers.Add(tapGesture);
+
+        var pointerEnter = new PointerGestureRecognizer();
+        pointerEnter.PointerEntered += (s, e) =>
+        {
+            btn.BackgroundColor = BgControlHover;
+            btn.Stroke = Accent;
+        };
+        var pointerExit = new PointerGestureRecognizer();
+        pointerExit.PointerExited += (s, e) =>
+        {
+            btn.BackgroundColor = BgControl;
+            btn.Stroke = BorderColor;
+        };
+        btn.GestureRecognizers.Add(pointerEnter);
+        btn.GestureRecognizers.Add(pointerExit);
 
         return btn;
     }
@@ -668,13 +708,17 @@ public class WindowsTitleBarManager
         return border;
     }
 
-    private static FluentIcons MapSfSymbolToFluentIcon(string sfSymbol) => sfSymbol switch
+    private static FluentIcons? MapSfSymbolToFluentIcon(string sfSymbol) => sfSymbol switch
     {
         "arrow.clockwise" => FluentIcons.ArrowClockwise20,
         "plus" => FluentIcons.Add20,
         "plus.circle" => FluentIcons.AddCircle20,
+        "folder" => FluentIcons.FolderOpen20,
+        "folder.badge.plus" => FluentIcons.FolderAdd20,
+        "mountain.2" => FluentIcons.BookOpen20,
         "square.and.arrow.down" or "fa-download" => FluentIcons.ArrowDownload20,
         "square.and.arrow.up" => FluentIcons.ArrowUpload20,
+        "arrow.up" => FluentIcons.ArrowUp20,
         "trash" => FluentIcons.Delete20,
         "pencil" => FluentIcons.Edit20,
         "xmark" => FluentIcons.Dismiss20,
@@ -685,20 +729,11 @@ public class WindowsTitleBarManager
         "arrow.triangle.2.circlepath" or "fa-sync-alt" => FluentIcons.ArrowSync20,
         "fa-stethoscope" => FluentIcons.Stethoscope20,
         "wand.and.stars" => FluentIcons.Sparkle20,
-        _ => FluentIcons.Circle20,
+        "record.circle" => FluentIcons.Record20,
+        "doc.badge.plus" => FluentIcons.DocumentAdd20,
+        "archivebox" => FluentIcons.Archive20,
+        _ => null,
     };
-
-    private static FontImageSource GetFluentIcon(FluentIcons icon, Color color, double size)
-    {
-        var glyph = GetEnumDescription(icon);
-        return new FontImageSource
-        {
-            Glyph = glyph,
-            FontFamily = "FluentIcons",
-            Color = color,
-            Size = size,
-        };
-    }
 
     private static string GetEnumDescription(Enum value)
     {
@@ -738,7 +773,6 @@ public class WindowsTitleBarManager
             {
                 platformBtn.VerticalContentAlignment = Microsoft.UI.Xaml.VerticalAlignment.Center;
                 platformBtn.HorizontalContentAlignment = Microsoft.UI.Xaml.HorizontalAlignment.Center;
-                platformBtn.Padding = new Microsoft.UI.Xaml.Thickness(0);
             }
         };
 #endif
