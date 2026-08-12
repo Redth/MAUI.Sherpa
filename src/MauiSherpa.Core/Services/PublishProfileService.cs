@@ -159,20 +159,17 @@ public class PublishProfileService : IPublishProfileService
                 progress?.Report($"Fetching certificate for {apple.Label}...");
                 try
                 {
-                    var p12Key = _certSync.GetCertificateSecretKey(apple.CertificateSerialNumber);
-                    var p12Bytes = await _cloudService.GetSecretAsync(p12Key, ct);
+                    var (p12Bytes, certPassword) = await _certSync.GetCertificateSecretsAsync(apple.CertificateSerialNumber, autoUploadFromKeychain: true, ct);
                     if (p12Bytes is not null)
                     {
                         var defaultKey = $"{prefix}_CERTIFICATE_P12";
                         AddMappedSecrets(secrets, apple.KeyMappings, defaultKey, Convert.ToBase64String(p12Bytes));
                     }
 
-                    var pwdKey = _certSync.GetCertificatePasswordKey(apple.CertificateSerialNumber);
-                    var pwdBytes = await _cloudService.GetSecretAsync(pwdKey, ct);
-                    if (pwdBytes is not null)
+                    if (!string.IsNullOrEmpty(certPassword))
                     {
                         var defaultKey = $"{prefix}_CERTIFICATE_PASSWORD";
-                        AddMappedSecrets(secrets, apple.KeyMappings, defaultKey, Encoding.UTF8.GetString(pwdBytes));
+                        AddMappedSecrets(secrets, apple.KeyMappings, defaultKey, certPassword);
                     }
                 }
                 catch (Exception ex)
@@ -187,20 +184,17 @@ public class PublishProfileService : IPublishProfileService
                 progress?.Report($"Fetching installer certificate for {apple.Label}...");
                 try
                 {
-                    var p12Key = _certSync.GetCertificateSecretKey(apple.InstallerCertSerialNumber);
-                    var p12Bytes = await _cloudService.GetSecretAsync(p12Key, ct);
+                    var (p12Bytes, installerPassword) = await _certSync.GetCertificateSecretsAsync(apple.InstallerCertSerialNumber, autoUploadFromKeychain: true, ct);
                     if (p12Bytes is not null)
                     {
                         var defaultKey = $"{prefix}_INSTALLER_P12";
                         AddMappedSecrets(secrets, apple.KeyMappings, defaultKey, Convert.ToBase64String(p12Bytes));
                     }
 
-                    var pwdKey = _certSync.GetCertificatePasswordKey(apple.InstallerCertSerialNumber);
-                    var pwdBytes = await _cloudService.GetSecretAsync(pwdKey, ct);
-                    if (pwdBytes is not null)
+                    if (!string.IsNullOrEmpty(installerPassword))
                     {
                         var defaultKey = $"{prefix}_INSTALLER_PASSWORD";
-                        AddMappedSecrets(secrets, apple.KeyMappings, defaultKey, Encoding.UTF8.GetString(pwdBytes));
+                        AddMappedSecrets(secrets, apple.KeyMappings, defaultKey, installerPassword);
                     }
                 }
                 catch (Exception ex)

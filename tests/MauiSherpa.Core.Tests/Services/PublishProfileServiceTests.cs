@@ -117,6 +117,43 @@ public class PublishProfileServiceTests
     }
 
     [Fact]
+    public async Task ResolveSecretsAsync_WithCertificate_MapsResolvedP12AndPassword()
+    {
+        _certSync.Setup(x => x.GetCertificateSecretsAsync("ABC123", It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((new byte[] { 0x01, 0x02, 0x03 }, "cert-pwd"));
+
+        var profile = CreateProfile() with
+        {
+            AppleConfigs = new List<PublishProfileAppleConfig>
+            {
+                new(
+                    Label: "iOS App Store",
+                    IdentityId: null,
+                    Platform: ApplePlatformType.iOS,
+                    DistributionType: AppleDistributionType.AppStore,
+                    CertificateSerialNumber: "ABC123",
+                    InstallerCertSerialNumber: null,
+                    ProfileId: null,
+                    ProfileUuid: null,
+                    IncludeNotarization: false,
+                    NotarizationAppleIdSecretKey: null,
+                    NotarizationPasswordSecretKey: null,
+                    NotarizationTeamIdSecretKey: null,
+                    NotarizationAppleIdManualValue: null,
+                    NotarizationPasswordManualValue: null,
+                    NotarizationTeamIdManualValue: null,
+                    KeyMappings: new Dictionary<string, List<string>>())
+            }
+        };
+
+        var secrets = await _sut.ResolveSecretsAsync(profile);
+
+        secrets.Should().Contain("APPLE_IOS_APPSTORE_CERTIFICATE_P12", Convert.ToBase64String(new byte[] { 0x01, 0x02, 0x03 }));
+        secrets.Should().Contain("APPLE_IOS_APPSTORE_CERTIFICATE_PASSWORD", "cert-pwd");
+        _certSync.Verify(x => x.GetCertificateSecretsAsync("ABC123", It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
     public void DeserializeProfile_WhenIdentityPropertiesAreMissing_UsesEmptyLists()
     {
         var original = CreateProfile();

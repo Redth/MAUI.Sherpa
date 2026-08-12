@@ -160,6 +160,140 @@ public class CertificateSyncService : ICertificateSyncService
         }
     }
 
+    public async Task<(byte[]? P12, string? Password)> GetCertificateSecretsAsync(
+        string serialNumber,
+        bool autoUploadFromKeychain = true,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(serialNumber))
+            return (null, null);
+
+        // 1) Cloud lookup — exact key, then fuzzy serial match against stored CERT_ secrets.
+        if (_cloudSecretsService.ActiveProvider != null)
+        {
+            try
+            {
+                var p12Key = GetCertificateSecretKey(serialNumber);
+                var p12 = await _cloudSecretsService.GetSecretAsync(p12Key, cancellationToken);
+                if (p12 is { Length: > 0 })
+                {
+                    var pwd = await _cloudSecretsService.GetSecretAsync(GetCertificatePasswordKey(serialNumber), cancellationToken);
+                    _logger.LogInformation($"Resolved certificate {serialNumber} from cloud (exact key {p12Key})");
+                    return (p12, pwd is not null ? Encoding.UTF8.GetString(pwd) : null);
+                }
+
+                // Exact key missed — the secret may have been stored under a differently
+                // normalized serial. Scan CERT_*_P12 keys and fuzzy-match the serial.
+                var storedSerial = await FindStoredCertSerialAsync(serialNumber, cancellationToken);
+                if (storedSerial is not null)
+                {
+                    var fuzzyP12Key = $"{SecretPrefix}_{storedSerial}_P12";
+                    var fuzzyP12 = await _cloudSecretsService.GetSecretAsync(fuzzyP12Key, cancellationToken);
+                    if (fuzzyP12 is { Length: > 0 })
+                    {
+                        var fuzzyPwd = await _cloudSecretsService.GetSecretAsync($"{SecretPrefix}_{storedSerial}_PWD", cancellationToken);
+                        _logger.LogInformation($"Resolved certificate {serialNumber} from cloud via fuzzy serial match (key {fuzzyP12Key})");
+                        return (fuzzyP12, fuzzyPwd is not null ? Encoding.UTF8.GetString(fuzzyPwd) : null);
+                    }
+                }
+
+                _logger.LogWarning($"Certificate {serialNumber} not found in cloud storage (tried key {p12Key} and fuzzy serial match)");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($"Cloud lookup for certificate {serialNumber} failed: {ex.Message}");
+            }
+        }
+        else
+        {
+            _logger.LogWarning($"No active cloud secrets provider while resolving certificate {serialNumber}");
+        }
+
+        // 2) Local macOS keychain fallback — export the private key directly.
+        if (_localCertificateService.IsSupported)
+        {
+            try
+            {
+                var identities = await _localCertificateService.GetSigningIdentitiesAsync();
+                var identity = identities.FirstOrDefault(i => SerialsFuzzyEqual(i.SerialNumber, serialNumber));
+                if (identity is not null)
+                {
+                    var password = GenerateRandomPassword();
+                    var p12 = await _localCertificateService.ExportP12Async(identity.Identity, password);
+                    if (p12 is { Length: > 0 })
+                    {
+                        _logger.LogInformation($"Resolved certificate {serialNumber} from local keychain (identity '{identity.Identity}')");
+
+                        if (autoUploadFromKeychain && _cloudSecretsService.ActiveProvider != null)
+                        {
+                            try
+                            {
+                                var cert = new AppleCertificate(
+                                    Id: string.Empty,
+                                    Name: identity.CommonName,
+                                    CertificateType: string.Empty,
+                                    Platform: string.Empty,
+                                    ExpirationDate: identity.ExpirationDate ?? DateTime.MinValue,
+                                    SerialNumber: serialNumber);
+                                var metadata = new CertificateSecretMetadata(
+                                    CertificateId: string.Empty,
+                                    SerialNumber: serialNumber,
+                                    CommonName: identity.CommonName,
+                                    CertificateType: string.Empty,
+                                    ExpirationDate: identity.ExpirationDate ?? DateTime.MinValue,
+                                    CreatedByMachine: Environment.MachineName,
+                                    CreatedAt: DateTime.UtcNow);
+                                if (await UploadToCloudAsync(cert, p12, password, metadata, cancellationToken))
+                                    _logger.LogInformation($"Auto-uploaded certificate {serialNumber} to cloud storage for future runs");
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogWarning($"Auto-upload of certificate {serialNumber} to cloud failed: {ex.Message}");
+                            }
+                        }
+
+                        return (p12, password);
+                    }
+                }
+                else
+                {
+                    _logger.LogWarning($"No local keychain identity found for certificate serial {serialNumber}");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($"Local keychain fallback for certificate {serialNumber} failed: {ex.Message}");
+            }
+        }
+
+        _logger.LogWarning($"Certificate {serialNumber} could not be resolved from cloud storage or local keychain");
+        return (null, null);
+    }
+
+    /// <summary>
+    /// Finds the raw serial segment of a stored CERT_&lt;serial&gt;_P12 secret whose serial
+    /// fuzzy-matches the requested one (tolerant of leading-zero / non-alphanumeric differences).
+    /// </summary>
+    private async Task<string?> FindStoredCertSerialAsync(string serialNumber, CancellationToken cancellationToken)
+    {
+        var keys = await _cloudSecretsService.ListSecretsAsync($"{SecretPrefix}_", cancellationToken);
+        foreach (var key in keys)
+        {
+            if (!key.EndsWith("_P12", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            // Key format: CERT_<serial>_P12 — the serial may itself be empty but never contains '_'
+            // because SanitizeSerialNumber strips non-alphanumerics.
+            var parts = key.Split('_');
+            if (parts.Length < 3)
+                continue;
+            var rawSerial = string.Join('_', parts[1..^1]);
+            if (SerialsFuzzyEqual(rawSerial, serialNumber))
+                return rawSerial;
+        }
+        return null;
+    }
+
     public async Task<bool> DownloadAndInstallAsync(string certificateId, CancellationToken cancellationToken = default)
     {
         if (_cloudSecretsService.ActiveProvider == null)
@@ -374,6 +508,16 @@ public class CertificateSyncService : ICertificateSyncService
         // Strip leading zeros — local keychain may include them but API may not
         return sb.ToString().TrimStart('0');
     }
+
+    /// <summary>
+    /// Compares two certificate serial numbers tolerantly, ignoring case, non-alphanumeric
+    /// characters and leading zeros. Matches the normalization used to build cloud secret keys.
+    /// </summary>
+    private static bool SerialsFuzzyEqual(string? a, string? b)
+        => SanitizeSerialNumber(a ?? string.Empty).Equals(SanitizeSerialNumber(b ?? string.Empty), StringComparison.Ordinal);
+
+    private static string GenerateRandomPassword()
+        => Convert.ToBase64String(Guid.NewGuid().ToByteArray())[..16];
 
     private static string? TryExtractSerialFromMetadataKey(string key)
     {

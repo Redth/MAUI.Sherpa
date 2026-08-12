@@ -3388,6 +3388,21 @@ public interface ICertificateSyncService
     Task<bool> DownloadAndInstallAsync(string certificateId, CancellationToken cancellationToken = default);
     
     /// <summary>
+    /// Resolves a certificate's private key (P12) and password for publishing, using a
+    /// resilient lookup order: (1) exact cloud key, (2) fuzzy serial match against cloud
+    /// secrets, (3) export from the local macOS keychain (when supported). When the key is
+    /// found only in the local keychain and <paramref name="autoUploadFromKeychain"/> is true,
+    /// it is best-effort uploaded to cloud storage so subsequent runs (e.g. CI) succeed.
+    /// </summary>
+    /// <param name="serialNumber">The certificate serial number to resolve.</param>
+    /// <param name="autoUploadFromKeychain">Upload the exported key to cloud when resolved from the keychain.</param>
+    /// <returns>The P12 bytes and password, or (null, null) if the key could not be resolved.</returns>
+    Task<(byte[]? P12, string? Password)> GetCertificateSecretsAsync(
+        string serialNumber,
+        bool autoUploadFromKeychain = true,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Gets the cloud secret key for a certificate
     /// </summary>
     string GetCertificateSecretKey(string serialNumber);
