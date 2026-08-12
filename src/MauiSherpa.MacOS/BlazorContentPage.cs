@@ -36,6 +36,8 @@ public class BlazorContentPage : ContentPage
     private NSMenuToolbarItem? _nativeIdentityMenu;
     private NSMenuToolbarItem? _nativeFilterMenu;
     private NSMenuToolbarItem? _nativePublishMenu;
+    private NSToolbarItem? _nativeReleaseNotesItem;
+    private NSButton? _releaseNotesButton;
     private string _pendingRoute = "/";
     private string _currentRoute = "/";
 
@@ -382,7 +384,7 @@ public class BlazorContentPage : ContentPage
     List<NSObject> _nativeMenuTargets = new();
 
     // Superset signature for the initial build — includes all possible items
-    static readonly string SupersetSignature = "refresh,create,import,install-missing,save,reset,|S|F|I";
+    static readonly string SupersetSignature = "refresh,create,import,install-missing,save,reset,release-notes,|S|F|I";
 
     void OnToolbarChanged()
     {
@@ -527,9 +529,17 @@ public class BlazorContentPage : ContentPage
                         nsItem.PaletteLabel = label;
                         nsItem.ToolTip = label;
                     }
+
                 }
             }
         }
+
+        var releaseNotesItem = toolbar.Items.FirstOrDefault(item =>
+            ReferenceEquals(item, _nativeReleaseNotesItem) ||
+            string.Equals(item.Label, "Release Notes", StringComparison.Ordinal) ||
+            string.Equals(item.PaletteLabel, "Release Notes", StringComparison.Ordinal));
+        if (releaseNotesItem != null)
+            ConfigureReleaseNotesToolbarItem(releaseNotesItem);
 
         // 3. Rebuild filter submenus natively if filters are active
         if (hasFilter)
@@ -549,6 +559,37 @@ public class BlazorContentPage : ContentPage
         // 7. Re-hook native search field — upstream handler may have unsubscribed events
         if (hasSearch)
             Dispatcher.Dispatch(HookNativeSearchField);
+    }
+
+    void ConfigureReleaseNotesToolbarItem(NSToolbarItem toolbarItem)
+    {
+        if (!ReferenceEquals(_nativeReleaseNotesItem, toolbarItem))
+        {
+            var button = new NSButton
+            {
+                Title = "Release Notes",
+                Image = NSImage.GetSystemSymbol("mountain.2", null),
+                ImagePosition = NSCellImagePosition.ImageLeading,
+                BezelStyle = NSBezelStyle.TexturedRounded,
+            };
+            button.SetButtonType(NSButtonType.MomentaryPushIn);
+            button.Activated += (_, _) =>
+                _toolbarService.InvokeToolbarItemClicked("release-notes");
+            button.SizeToFit();
+
+            var fittingSize = button.FittingSize;
+            var buttonSize = new CGSize(Math.Max(132, fittingSize.Width + 16), 30);
+            button.Frame = new CGRect(CGPoint.Empty, buttonSize);
+
+            toolbarItem.View = button;
+            toolbarItem.MinSize = buttonSize;
+            toolbarItem.MaxSize = buttonSize;
+            _nativeReleaseNotesItem = toolbarItem;
+            _releaseNotesButton = button;
+        }
+
+        if (_releaseNotesButton != null)
+            _releaseNotesButton.Enabled = _toolbarService.IsItemEnabled("release-notes");
     }
 
     /// <summary>
@@ -967,6 +1008,8 @@ public class BlazorContentPage : ContentPage
             _actionItemMap.Clear();
             _nativeIdentityMenu = null;
             _nativeFilterMenu = null;
+            _nativeReleaseNotesItem = null;
+            _releaseNotesButton = null;
 
             // Copilot button in sidebar trailing area (convenience mode handles it)
             var copilotItem = CreateCopilotToolbarItem();
@@ -1007,11 +1050,13 @@ public class BlazorContentPage : ContentPage
                 ("save", "Save", "checkmark"),
                 ("reset", "Reset to Defaults", "trash"),
                 ("update-all", "Update Packages", "arrow.up.circle"),
+                ("release-notes", "Release Notes", "mountain.2"),
                 ("refresh", "Refresh", "arrow.clockwise"),
             };
 
             ToolbarItem? refreshItem = null;
             ToolbarItem? updateItem = null;
+            ToolbarItem? releaseNotesItem = null;
             var leadingItems = new List<ToolbarItem>();
             var allToolbarItems = new List<ToolbarItem> { copilotItem, doctorItem, settingsItem };
             foreach (var (id, label, icon) in supersetActions)
@@ -1036,6 +1081,8 @@ public class BlazorContentPage : ContentPage
                     refreshItem = item;
                 else if (actionId == "update-all")
                     updateItem = item;
+                else if (actionId == "release-notes")
+                    releaseNotesItem = item;
                 else
                     leadingItems.Add(item);
             }
@@ -1155,6 +1202,8 @@ public class BlazorContentPage : ContentPage
                 layout.Add(MacOSToolbarLayoutItem.Item(item));
             layout.Add(MacOSToolbarLayoutItem.FlexibleSpace);
             layout.Add(MacOSToolbarLayoutItem.Search(_searchItem));
+            if (releaseNotesItem != null)
+                layout.Add(MacOSToolbarLayoutItem.Item(releaseNotesItem));
             if (updateItem != null)
                 layout.Add(MacOSToolbarLayoutItem.Item(updateItem));
             if (refreshItem != null)

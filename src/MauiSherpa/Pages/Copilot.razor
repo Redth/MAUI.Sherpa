@@ -1,4 +1,5 @@
 @using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Core.Services
 @using Markdig
 @inject ICopilotService CopilotService
 @inject IAlertService AlertService
@@ -193,7 +194,7 @@ else
         <div class="chat-container">
             <div class="model-selector">
                 <label for="copilot-model"><i class="fas fa-robot"></i> Model</label>
-                <select id="copilot-model" value="@selectedModel" @onchange="SelectModelAsync" disabled="@isBusy">
+                <select id="copilot-model" value="@selectedModel" @onchange="SelectModelAsync" disabled="@(isBusy || isConnecting)">
                     @foreach (var model in availableModels)
                     {
                         <option value="@model.Id">@model.Name</option>
@@ -414,7 +415,7 @@ else
                 else if (CopilotService.IsConnected)
                 {
                     <div class="usage-info subtle">
-                        <span class="usage-item"><i class="fas fa-robot"></i> claude-opus-4-5-20250514</span>
+                        <span class="usage-item"><i class="fas fa-robot"></i> @SelectedModelDisplayName</span>
                         <span class="usage-item muted">Waiting for response...</span>
                     </div>
                 }
@@ -2219,6 +2220,10 @@ else
     private bool isBusy = false;
     private string selectedModel = "auto";
     private List<CopilotModelOption> availableModels = [new("auto", "Auto")];
+    private bool modelsLoaded = false;
+    private string SelectedModelDisplayName => availableModels
+        .FirstOrDefault(model => string.Equals(model.Id, selectedModel, StringComparison.OrdinalIgnoreCase))
+        ?.Name ?? selectedModel;
     private bool suggestionsCollapsed = false;
     private string userInput = "";
     private string currentResponse = "";
@@ -2419,7 +2424,7 @@ else
             isCheckingAvailability = false;
             
             // Auto-connect if Copilot is available and authenticated
-            if (availability.IsInstalled && availability.IsAuthenticated && CopilotService.CurrentSessionId == null)
+            if (availability.IsInstalled && availability.IsAuthenticated)
             {
                 try
                 {
@@ -2442,7 +2447,7 @@ else
             availability = await CopilotService.CheckAvailabilityAsync(forceRefresh);
             
             // Auto-connect if Copilot is available and authenticated
-            if (availability.IsInstalled && availability.IsAuthenticated && CopilotService.CurrentSessionId == null)
+            if (availability.IsInstalled && availability.IsAuthenticated)
             {
                 try
                 {
@@ -2478,7 +2483,7 @@ else
 
     private async Task Connect()
     {
-        if (isConnecting || CopilotService.IsConnected)
+        if (isConnecting)
             return;
 
         isConnecting = true;
@@ -2487,8 +2492,13 @@ else
         try
         {
             await CopilotService.ConnectAsync();
-            await CopilotService.StartSessionAsync(selectedModel, _systemPrompt);
             await LoadModelsAsync();
+
+            if (CopilotService.CurrentSessionId == null)
+            {
+                await CopilotService.StartSessionAsync(selectedModel, _systemPrompt);
+            }
+
             availability = availability is null
                 ? new CopilotAvailability(true, true, null, null, null)
                 : availability with { IsInstalled = true, IsAuthenticated = true, ErrorMessage = null };
@@ -2574,8 +2584,10 @@ else
             if (!CopilotService.IsConnected)
             {
                 await CopilotService.ConnectAsync();
-                await LoadModelsAsync();
             }
+
+            if (!modelsLoaded)
+                await LoadModelsAsync();
 
             if (CopilotService.CurrentSessionId == null)
             {
@@ -2601,11 +2613,31 @@ else
             var models = await CopilotService.ListModelsAsync();
             availableModels = [
                 new CopilotModelOption("auto", "Auto"),
-                .. models.Where(model => !string.Equals(model.Id, "auto", StringComparison.OrdinalIgnoreCase))
+                .. models
+                    .Where(model =>
+                        !string.IsNullOrWhiteSpace(model.Id) &&
+                        !string.Equals(model.Id, "auto", StringComparison.OrdinalIgnoreCase))
+                    .DistinctBy(model => model.Id, StringComparer.OrdinalIgnoreCase)
             ];
+
+            modelsLoaded = true;
+
+            var selectedModelIsAvailable = availableModels.Any(model =>
+                string.Equals(model.Id, selectedModel, StringComparison.OrdinalIgnoreCase));
+            if (!selectedModelIsAvailable ||
+                (CopilotService.CurrentSessionId == null &&
+                 string.Equals(selectedModel, CopilotModelSelector.AutomaticModelId, StringComparison.OrdinalIgnoreCase)))
+            {
+                selectedModel = CopilotModelSelector.SelectPreferred(availableModels);
+            }
+
+            _logger.LogInformation($"Loaded {availableModels.Count - 1} selectable Copilot models");
         }
         catch (Exception ex)
         {
+            modelsLoaded = false;
+            availableModels = [new CopilotModelOption("auto", "Auto")];
+            selectedModel = "auto";
             _logger.LogWarning($"Unable to load Copilot models: {ex.Message}");
         }
     }
