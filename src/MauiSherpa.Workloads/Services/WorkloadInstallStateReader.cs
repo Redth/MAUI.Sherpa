@@ -74,6 +74,65 @@ public static class WorkloadInstallStateReader
         return versions;
     }
 
+    public static string? ReadWorkloadVersion(DotnetWorkloadTarget target)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+
+        var path = GetPath(target);
+        if (!File.Exists(path))
+            return null;
+
+        using var document = ReadDocument(path);
+        if (!document.RootElement.TryGetProperty("workloadVersion", out var value) ||
+            value.ValueKind == JsonValueKind.Null)
+            return null;
+        if (value.ValueKind != JsonValueKind.String)
+            throw new FormatException(
+                $"The workload install-state value 'workloadVersion' in '{path}' is not a string.");
+
+        var version = value.GetString();
+        return string.IsNullOrWhiteSpace(version) ? null : version;
+    }
+
+    public static bool IsWorkloadSetInstalled(
+        DotnetWorkloadTarget target,
+        string workloadVersion)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        ArgumentException.ThrowIfNullOrWhiteSpace(workloadVersion);
+
+        var path = Path.Combine(
+            target.InstallRoot,
+            "sdk-manifests",
+            target.FeatureBand.ToString(),
+            "workloadsets",
+            workloadVersion);
+        return Directory.Exists(path) &&
+               Directory.EnumerateFiles(path, "*.workloadset.json").Any();
+    }
+
+    public static IReadOnlyList<DotnetInstalledWorkload> ReadInstalledWorkloads(
+        DotnetWorkloadTarget target)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+
+        var path = Path.Combine(
+            target.InstallRoot,
+            "metadata",
+            "workloads",
+            target.FeatureBand.ToString(),
+            "InstalledWorkloads");
+        if (!Directory.Exists(path))
+            return [];
+
+        return Directory.GetFiles(path)
+            .Select(Path.GetFileName)
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Select(id => new DotnetInstalledWorkload { Id = id! })
+            .OrderBy(workload => workload.Id, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
     private static string GetPath(DotnetWorkloadTarget target) =>
         Path.Combine(
             target.InstallRoot,

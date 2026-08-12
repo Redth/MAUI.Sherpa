@@ -299,10 +299,25 @@ public sealed class DotnetWorkloadService : IDotnetWorkloadService
             ["workload", "--version"],
             commandDirectory,
             cancellationToken).ConfigureAwait(false);
-        if (versionResult.ExitCode != 0)
+        var cliStateAvailable = versionResult.ExitCode == 0;
+        string workloadVersion;
+        if (cliStateAvailable)
+        {
+            workloadVersion = DotnetWorkloadParser.ParseWorkloadVersion(versionResult.Output);
+        }
+        else if (workingDirectory == null &&
+                 TryGetMissingRecordedWorkloadSet(target, out var recordedWorkloadVersion))
+        {
+            workloadVersion = recordedWorkloadVersion;
+            diagnostics.Add(
+                $"The recorded workload set {workloadVersion} is missing from this SDK installation. " +
+                "Run workload repair or update to restore it. Installed workload IDs were read directly from .NET metadata.");
+        }
+        else
+        {
             throw CreateCliException(target, "dotnet workload --version", versionResult);
+        }
 
-        var workloadVersion = DotnetWorkloadParser.ParseWorkloadVersion(versionResult.Output);
         var globalJson = workingDirectory == null
             ? null
             : new GlobalJsonService().GetGlobalJson(workingDirectory);
@@ -316,59 +331,82 @@ public sealed class DotnetWorkloadService : IDotnetWorkloadService
                     : DotnetWorkloadVersionSource.Unknown;
 
         DotnetWorkloadListResult workloadList;
-        var machineList = await RunCaptureAsync(
-            target,
-            ["workload", "list", "--machine-readable"],
-            commandDirectory,
-            cancellationToken).ConfigureAwait(false);
-        var machineReadable = machineList.ExitCode == 0;
-        if (machineReadable)
+        var machineReadable = false;
+        if (!cliStateAvailable)
         {
             try
             {
-                workloadList = DotnetWorkloadParser.ParseMachineReadableList(machineList.Output);
+                workloadList = new DotnetWorkloadListResult
+                {
+                    Installed = WorkloadInstallStateReader.ReadInstalledWorkloads(target)
+                };
             }
-            catch (FormatException ex)
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                diagnostics.Add($"Machine-readable workload list was not understood: {ex.Message}");
-                machineReadable = false;
+                diagnostics.Add($"The installed workload records could not be read: {ex.Message}");
+                workloadList = new DotnetWorkloadListResult();
+            }
+        }
+        else
+        {
+            var machineList = await RunCaptureAsync(
+                target,
+                ["workload", "list", "--machine-readable"],
+                commandDirectory,
+                cancellationToken).ConfigureAwait(false);
+            machineReadable = machineList.ExitCode == 0;
+            if (machineReadable)
+            {
+                try
+                {
+                    workloadList = DotnetWorkloadParser.ParseMachineReadableList(machineList.Output);
+                }
+                catch (FormatException ex)
+                {
+                    diagnostics.Add($"Machine-readable workload list was not understood: {ex.Message}");
+                    machineReadable = false;
+                    workloadList = await ReadPlainListAsync(target, commandDirectory, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+            }
+            else
+            {
+                diagnostics.Add("This SDK does not support the machine-readable workload list; using the table fallback.");
                 workloadList = await ReadPlainListAsync(target, commandDirectory, cancellationToken)
                     .ConfigureAwait(false);
             }
         }
-        else
-        {
-            diagnostics.Add("This SDK does not support the machine-readable workload list; using the table fallback.");
-            workloadList = await ReadPlainListAsync(target, commandDirectory, cancellationToken)
-                .ConfigureAwait(false);
-        }
 
         IReadOnlyList<DotnetWorkloadSetVersion> availableSets = [];
-        var versionsResult = await RunCaptureAsync(
-            target,
-            ["workload", "search", "version", "--take", "20", "--format", "json", "--include-previews"],
-            commandDirectory,
-            cancellationToken).ConfigureAwait(false);
-        var jsonVersionSearch = versionsResult.ExitCode == 0;
-        if (jsonVersionSearch)
+        var jsonVersionSearch = false;
+        if (cliStateAvailable)
         {
-            try
+            var versionsResult = await RunCaptureAsync(
+                target,
+                ["workload", "search", "version", "--take", "20", "--format", "json", "--include-previews"],
+                commandDirectory,
+                cancellationToken).ConfigureAwait(false);
+            jsonVersionSearch = versionsResult.ExitCode == 0;
+            if (jsonVersionSearch)
             {
-                availableSets = DotnetWorkloadParser.ParseAvailableSetVersions(versionsResult.Output);
+                try
+                {
+                    availableSets = DotnetWorkloadParser.ParseAvailableSetVersions(versionsResult.Output);
+                }
+                catch (FormatException ex)
+                {
+                    diagnostics.Add($"Available workload-set versions were not understood: {ex.Message}");
+                    jsonVersionSearch = false;
+                }
             }
-            catch (FormatException ex)
+            else
             {
-                diagnostics.Add($"Available workload-set versions were not understood: {ex.Message}");
-                jsonVersionSearch = false;
+                diagnostics.Add($"Available workload-set versions could not be queried: {FirstError(versionsResult)}");
             }
-        }
-        else
-        {
-            diagnostics.Add($"Available workload-set versions could not be queried: {FirstError(versionsResult)}");
         }
 
         IReadOnlyList<DotnetManifestVersion> manifestVersions = [];
-        if (updateMode == DotnetWorkloadUpdateMode.WorkloadSet)
+        if (updateMode == DotnetWorkloadUpdateMode.WorkloadSet && cliStateAvailable)
         {
             var manifestResult = await RunCaptureAsync(
                 target,
@@ -441,7 +479,7 @@ public sealed class DotnetWorkloadService : IDotnetWorkloadService
             Capabilities = new DotnetWorkloadCapabilities
             {
                 MachineReadableList = machineReadable,
-                WorkloadVersion = true,
+                WorkloadVersion = cliStateAvailable,
                 JsonVersionSearch = jsonVersionSearch
             },
             Diagnostics = diagnostics
@@ -561,6 +599,24 @@ public sealed class DotnetWorkloadService : IDotnetWorkloadService
             Description: description,
             UsePseudoTerminal: SupportsTerminalProgress,
             ConfirmationButtonText: confirmationButtonText);
+    }
+
+    private bool TryGetMissingRecordedWorkloadSet(
+        DotnetWorkloadTarget target,
+        out string workloadVersion)
+    {
+        try
+        {
+            workloadVersion = WorkloadInstallStateReader.ReadWorkloadVersion(target) ?? string.Empty;
+            return !string.IsNullOrWhiteSpace(workloadVersion) &&
+                   !WorkloadInstallStateReader.IsWorkloadSetInstalled(target, workloadVersion);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or FormatException)
+        {
+            _logger.LogDebug($"Could not inspect the recorded workload set for {target.FeatureBand}: {ex.Message}");
+            workloadVersion = string.Empty;
+            return false;
+        }
     }
 
     private static DotnetWorkloadUpdateMode ResolveUpdateMode(

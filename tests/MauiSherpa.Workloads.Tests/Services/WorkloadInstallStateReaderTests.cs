@@ -73,6 +73,55 @@ public class WorkloadInstallStateReaderTests : IDisposable
         ]);
     }
 
+    [Fact]
+    public void ReadWorkloadVersion_UsesRecordedVersion()
+    {
+        WriteState("""{"workloadVersion":"10.0.302"}""");
+
+        WorkloadInstallStateReader.ReadWorkloadVersion(CreateTarget())
+            .Should().Be("10.0.302");
+    }
+
+    [Fact]
+    public void IsWorkloadSetInstalled_RequiresWorkloadSetFile()
+    {
+        var target = CreateTarget();
+        var path = Path.Combine(
+            _root,
+            "sdk-manifests",
+            "10.0.300",
+            "workloadsets",
+            "10.0.302",
+            "microsoft.net.workloads.workloadset.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+
+        WorkloadInstallStateReader.IsWorkloadSetInstalled(target, "10.0.302")
+            .Should().BeFalse();
+
+        File.WriteAllText(path, "{}");
+
+        WorkloadInstallStateReader.IsWorkloadSetInstalled(target, "10.0.302")
+            .Should().BeTrue();
+    }
+
+    [Fact]
+    public void ReadInstalledWorkloads_UsesFeatureBandRecords()
+    {
+        var path = Path.Combine(
+            _root,
+            "metadata",
+            "workloads",
+            "10.0.300",
+            "InstalledWorkloads");
+        Directory.CreateDirectory(path);
+        File.WriteAllText(Path.Combine(path, "maui"), string.Empty);
+        File.WriteAllText(Path.Combine(path, "android"), string.Empty);
+
+        WorkloadInstallStateReader.ReadInstalledWorkloads(CreateTarget())
+            .Select(workload => workload.Id)
+            .Should().Equal("android", "maui");
+    }
+
     private void WriteState(string json)
     {
         var path = Path.Combine(

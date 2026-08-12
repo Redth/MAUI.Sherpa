@@ -131,6 +131,116 @@ public class DotnetWorkloadServiceTests
         inventory.UpdateAvailable.Should().BeTrue();
     }
 
+    [Fact]
+    public async Task MissingRecordedWorkloadSetFallsBackToInstallRecords()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        var root = CreateFailingDotnetRoot();
+        try
+        {
+            var target = TargetForRoot(root, "10.0.399");
+            WriteInstallState(root, """{"workloadVersion":"10.0.398"}""");
+            var records = Path.Combine(
+                root,
+                "metadata",
+                "workloads",
+                "10.0.300",
+                "InstalledWorkloads");
+            Directory.CreateDirectory(records);
+            File.WriteAllText(Path.Combine(records, "maui"), string.Empty);
+            File.WriteAllText(Path.Combine(records, "android"), string.Empty);
+
+            var inventory = await _service.GetInventoryAsync(target, forceRefresh: true);
+
+            inventory.ActiveWorkloadVersion.Should().Be("10.0.398");
+            inventory.InstalledWorkloads.Select(workload => workload.Id)
+                .Should().Equal("android", "maui");
+            inventory.Capabilities.WorkloadVersion.Should().BeFalse();
+            inventory.Diagnostics.Should().ContainSingle(message =>
+                message.Contains("recorded workload set 10.0.398 is missing"));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task CliFailureIsNotHiddenWhenRecordedWorkloadSetExists()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        var root = CreateFailingDotnetRoot();
+        try
+        {
+            var target = TargetForRoot(root, "10.0.399");
+            WriteInstallState(root, """{"workloadVersion":"10.0.398"}""");
+            var workloadSet = Path.Combine(
+                root,
+                "sdk-manifests",
+                "10.0.300",
+                "workloadsets",
+                "10.0.398",
+                "microsoft.net.workloads.workloadset.json");
+            Directory.CreateDirectory(Path.GetDirectoryName(workloadSet)!);
+            File.WriteAllText(workloadSet, "{}");
+
+            var action = () => _service.GetInventoryAsync(target, forceRefresh: true);
+
+            await action.Should().ThrowAsync<InvalidOperationException>()
+                .WithMessage("*simulated workload failure*");
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static string CreateFailingDotnetRoot()
+    {
+        if (OperatingSystem.IsWindows())
+            throw new PlatformNotSupportedException();
+
+        var root = Path.Combine(
+            Path.GetTempPath(),
+            $"maui-sherpa-workload-service-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        var dotnet = Path.Combine(root, "dotnet");
+        File.WriteAllText(dotnet, "#!/bin/sh\necho 'simulated workload failure' >&2\nexit 1\n");
+        File.SetUnixFileMode(
+            dotnet,
+            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        return root;
+    }
+
+    private static void WriteInstallState(string root, string json)
+    {
+        var path = Path.Combine(
+            root,
+            "metadata",
+            "workloads",
+            "Arm64",
+            "10.0.300",
+            "InstallState",
+            "default.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, json);
+    }
+
+    private static DotnetWorkloadTarget TargetForRoot(string root, string version) => new()
+    {
+        InstallRoot = root,
+        DotnetPath = Path.Combine(root, "dotnet"),
+        Architecture = "arm64",
+        FeatureBand = new SdkFeatureBand(version),
+        RepresentativeSdkVersion = version,
+        IsManagedByDotnetUp = true,
+        CanWrite = true
+    };
+
     private static DotnetUpInstallation Sdk(string version) => new()
     {
         Component = DotnetUpComponent.Sdk,
