@@ -77,11 +77,9 @@
 
   <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk.Razor" />
 
-  <!-- This head only builds on Windows (WinUI XAML compilation is Windows-only), so make it a
-       no-op elsewhere. That keeps `dotnet build MauiSherpa.sln` working on macOS and Linux, where
-       the desktop app is served by src/MauiSherpa.MacOS and src/MauiSherpa.LinuxGtk. -->
-  <Target Name="Build" Condition="!$([MSBuild]::IsOSPlatform('windows'))" />
-  <Target Name="Rebuild" Condition="!$([MSBuild]::IsOSPlatform('windows'))" />
-  <Target Name="Publish" Condition="!$([MSBuild]::IsOSPlatform('windows'))" />
+  <!-- Keep the Windows head as a no-op elsewhere without replacing the real SDK targets on
+       Windows. A conditional import prevents the no-op target declarations from being evaluated. -->
+  <Import Project="..\..\build\SkipWindowsHeadOnNonWindows.targets"
+          Condition="!$([MSBuild]::IsOSPlatform('windows'))" />
 
 </Project>
