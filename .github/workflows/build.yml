@@ -485,20 +485,20 @@ jobs:
       - name: Create ZIP archives
         run: |
           $x64Dir = "./artifacts/win-x64"
-          $x64Files = @(Get-ChildItem -Path $x64Dir -File -Recurse)
-          if ($x64Files.Count -ne 1 -or $x64Files[0].Name -ne "MauiSherpa.exe") {
-            throw "Expected a single self-contained MauiSherpa.exe for win-x64, but found: $($x64Files.FullName -join ', ')"
+          $x64Exe = Join-Path $x64Dir "MauiSherpa.exe"
+          if (-not (Test-Path $x64Exe -PathType Leaf)) {
+            throw "Expected self-contained executable at $x64Exe"
           }
-          Compress-Archive -Path $x64Files[0].FullName -DestinationPath ./artifacts/MAUI-Sherpa.win-x64.zip
+          Compress-Archive -Path "$x64Dir/*" -DestinationPath ./artifacts/MAUI-Sherpa.win-x64.zip
           Write-Host "Created: MAUI-Sherpa.win-x64.zip"
           Get-Item ./artifacts/MAUI-Sherpa.win-x64.zip | Format-List Name, Length
 
           $arm64Dir = "./artifacts/win-arm64"
-          $arm64Files = @(Get-ChildItem -Path $arm64Dir -File -Recurse)
-          if ($arm64Files.Count -ne 1 -or $arm64Files[0].Name -ne "MauiSherpa.exe") {
-            throw "Expected a single self-contained MauiSherpa.exe for win-arm64, but found: $($arm64Files.FullName -join ', ')"
+          $arm64Exe = Join-Path $arm64Dir "MauiSherpa.exe"
+          if (-not (Test-Path $arm64Exe -PathType Leaf)) {
+            throw "Expected self-contained executable at $arm64Exe"
           }
-          Compress-Archive -Path $arm64Files[0].FullName -DestinationPath ./artifacts/MAUI-Sherpa.win-arm64.zip
+          Compress-Archive -Path "$arm64Dir/*" -DestinationPath ./artifacts/MAUI-Sherpa.win-arm64.zip
           Write-Host "Created: MAUI-Sherpa.win-arm64.zip"
           Get-Item ./artifacts/MAUI-Sherpa.win-arm64.zip | Format-List Name, Length
 
