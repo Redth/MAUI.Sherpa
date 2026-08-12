@@ -5,7 +5,8 @@ namespace MauiSherpa.Core.Services;
 /// <summary>
 /// Default implementation of IToolbarService.
 /// Blazor pages call SetItems() on activation; the macOS host observes ToolbarChanged
-/// and rebuilds native toolbar items accordingly.
+/// and rebuilds native toolbar items accordingly. Search and filter state is scoped to
+/// the active page and is reset when a new item set is registered.
 /// </summary>
 public class ToolbarService : IToolbarService
 {
@@ -29,6 +30,10 @@ public class ToolbarService : IToolbarService
     public void SetItems(params ToolbarAction[] items)
     {
         _items = items;
+        _filters = [];
+        _searchPlaceholder = null;
+        _searchText = "";
+        _disabledItems.Clear();
         ToolbarChanged?.Invoke();
     }
 

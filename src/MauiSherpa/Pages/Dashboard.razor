@@ -3,9 +3,11 @@
 @using MauiSherpa.Core.Interfaces
 @using MauiSherpa.Core.Services
 @using MauiSherpa.Services
+@using MauiSherpa.Pages.Modals
 @implements IDisposable
 @inject DashboardViewModel ViewModel
 @inject IToolbarService ToolbarService
+@inject IFormModalService FormModalService
 @inject IPlatformService PlatformInfo
 @inject IDeviceMonitorService DeviceMonitor
 @inject IDoctorService DoctorService
@@ -18,10 +20,6 @@
         <h1><i class="fas fa-home"></i> @ViewModel.Title</h1>
         <p class="welcome">@ViewModel.WelcomeMessage</p>
     </div>
-    <button class="release-notes-trigger" @onclick="() => showReleaseNotes = true">
-        <i class="fas fa-mountain"></i>
-        <span>Release Notes</span>
-    </button>
 </div>
 
 <div class="environment-section">
@@ -154,8 +152,6 @@
     </div>
 </div>
 
-<ReleaseNotesDialog IsOpen="showReleaseNotes" OnClose="() => showReleaseNotes = false" />
-
 <style>
     h1 {
         margin-bottom: 0.375rem;
@@ -177,24 +173,6 @@
         font-size: 1rem;
         color: var(--text-muted);
     }
-
-    .release-notes-trigger {
-        flex-shrink: 0;
-        display: inline-flex;
-        align-items: center;
-        gap: 0.45rem;
-        padding: 0.55rem 0.75rem;
-        border: 1px solid var(--border-color);
-        border-radius: 0.45rem;
-        background: var(--card-bg);
-        color: var(--text-secondary);
-        cursor: pointer;
-        font: inherit;
-        font-size: 0.8rem;
-        font-weight: 600;
-    }
-
-    .release-notes-trigger:hover { color: var(--text-primary); background: var(--bg-hover); }
 
     .environment-section { margin-bottom: 2rem; }
 
@@ -252,8 +230,10 @@
         min-height: 112px;
         padding: 1rem;
         background: var(--card-bg);
-        border-left: 3px solid var(--border-color);
-        border-radius: 0.5rem;
+        border: 1px solid var(--border-color);
+        border-left: 4px solid var(--border-color);
+        border-radius: 0.875rem;
+        overflow: hidden;
     }
 
     .environment-card.status-ok { border-left-color: var(--accent-success); }
@@ -469,13 +449,15 @@
 @code {
     private DoctorReport? doctorReport;
     private bool isDoctorLoading;
+    private bool isReleaseNotesOpen;
     private string doctorError = "";
     private bool isDisposed;
-    private bool showReleaseNotes;
-
     protected override void OnInitialized()
     {
-        ToolbarService.SetItems();
+        ToolbarService.SetItems(
+            new ToolbarAction("release-notes", "Release Notes", "mountain.2")
+        );
+        ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
         DeviceMonitor.Changed += OnDevicesChanged;
     }
 
@@ -585,9 +567,33 @@
         InvokeAsync(StateHasChanged);
     }
 
+    private async void OnToolbarItemClicked(string actionId)
+    {
+        if (actionId != "release-notes")
+            return;
+
+        await InvokeAsync(async () =>
+        {
+            if (isReleaseNotesOpen)
+                return;
+
+            isReleaseNotesOpen = true;
+            try
+            {
+                var page = new ReleaseNotesPage();
+                await FormModalService.ShowViewAsync(page, page.WaitForCloseAsync);
+            }
+            finally
+            {
+                isReleaseNotesOpen = false;
+            }
+        });
+    }
+
     public void Dispose()
     {
         isDisposed = true;
+        ToolbarService.ToolbarItemClicked -= OnToolbarItemClicked;
         DeviceMonitor.Changed -= OnDevicesChanged;
     }
 

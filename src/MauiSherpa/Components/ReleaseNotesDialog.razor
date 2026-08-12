@@ -8,17 +8,26 @@
 
 @if (IsOpen)
 {
-    <div class="release-overlay" @onclick="CloseAsync">
-        <div class="release-dialog" id="release-notes-dialog" role="dialog" aria-modal="true" aria-labelledby="release-notes-title" @onclick:stopPropagation="true">
-            <header class="release-dialog-header">
-                <div>
-                    <h2 id="release-notes-title"><i class="fas fa-mountain"></i> Release Notes</h2>
-                    <p>What's new in MAUI Sherpa</p>
-                </div>
-                <button class="release-close" @onclick="CloseAsync" title="Close release notes" aria-label="Close release notes">
-                    <i class="fas fa-xmark"></i>
-                </button>
-            </header>
+    <div class="@(Embedded ? "release-native-host" : "release-overlay")" @onclick="HandleBackdropClickAsync">
+        <div class="@(Embedded ? "release-native-content" : "release-dialog")"
+             id="release-notes-dialog"
+             role="dialog"
+             aria-modal="true"
+             aria-label="@(Embedded ? "Release Notes" : null)"
+             aria-labelledby="@(!Embedded ? "release-notes-title" : null)"
+             @onclick:stopPropagation="true">
+            @if (!Embedded)
+            {
+                <header class="release-dialog-header">
+                    <div>
+                        <h2 id="release-notes-title"><i class="fas fa-mountain"></i> Release Notes</h2>
+                        <p>What's new in MAUI Sherpa</p>
+                    </div>
+                    <button class="release-close" @onclick="CloseAsync" title="Close release notes" aria-label="Close release notes">
+                        <i class="fas fa-xmark"></i>
+                    </button>
+                </header>
+            }
 
             <div class="release-dialog-body">
                 @if (isLoading && releases.Count == 0)
@@ -95,6 +104,25 @@
         border: 1px solid var(--border-color);
         border-radius: 0.5rem;
         box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25);
+    }
+
+    .release-native-host,
+    .release-native-content {
+        width: 100%;
+        height: 100%;
+        min-height: 0;
+    }
+
+    .release-native-content {
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        background: var(--card-bg);
+    }
+
+    .release-native-content .release-dialog-body {
+        flex: 1;
+        padding: 1rem 1.25rem;
     }
 
     .release-dialog-header {
@@ -205,6 +233,7 @@
     private string errorMessage = "";
 
     [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public bool Embedded { get; set; }
     [Parameter] public EventCallback OnClose { get; set; }
 
     protected override async Task OnParametersSetAsync()
@@ -223,8 +252,11 @@
         if (!hasLoaded)
             await LoadReleasesAsync();
 
-        dotNetReference ??= DotNetObjectReference.Create(this);
-        initializeFocus = true;
+        if (!Embedded)
+        {
+            dotNetReference ??= DotNetObjectReference.Create(this);
+            initializeFocus = true;
+        }
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -314,6 +346,8 @@
         await JS.InvokeVoidAsync("modalInterop.dispose", "release-notes-dialog");
         await OnClose.InvokeAsync();
     }
+
+    private Task HandleBackdropClickAsync() => Embedded ? Task.CompletedTask : CloseAsync();
 
     public async ValueTask DisposeAsync()
     {
