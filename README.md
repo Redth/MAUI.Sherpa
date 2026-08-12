@@ -284,10 +284,7 @@ dotnet restore
 # Build for macOS (AppKit)
 dotnet build src/MauiSherpa.MacOS -f net10.0-macos
 
-# Build for Mac Catalyst
-dotnet build src/MauiSherpa -f net10.0-maccatalyst
-
-# Build for Windows
+# Build for Windows (Windows only)
 dotnet build src/MauiSherpa -f net10.0-windows10.0.19041.0
 
 # Run tests
@@ -299,11 +296,11 @@ dotnet test
 ```
 MAUI.Sherpa/
 ├── src/
-│   ├── MauiSherpa/               # Main MAUI Blazor Hybrid app
+│   ├── MauiSherpa/               # Shared MAUI Blazor Hybrid UI + Windows app head
 │   │   ├── Components/           # Reusable Blazor components
 │   │   ├── Pages/                # Blazor page components
 │   │   ├── Services/             # Platform-specific services
-│   │   └── Platforms/            # Platform code (MacCatalyst, Windows)
+│   │   └── Platforms/            # Platform code (Windows)
 │   ├── MauiSherpa.MacOS/         # macOS AppKit app head
 │   ├── MauiSherpa.LinuxGtk/      # Linux GTK4 app head
 │   ├── MauiSherpa.Core/          # Business logic library

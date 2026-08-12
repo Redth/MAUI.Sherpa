@@ -1,0 +1,56 @@
+<Project>
+
+  <!--
+    App heads reference both MauiSherpa.AppInspector and MauiSherpa.Core, and AppInspector itself
+    references Core. GitHub.Copilot.SDK's transitive targets stage libcopilot_runtime.dylib for
+    every project that references it, so the head resolves the same native library several times
+    over: byte-identical content, identical RelativePath, but differing source paths and project
+    bookkeeping metadata.
+
+    The Apple SDK's InstallNameTool task processes items in parallel (Task.WaitAll) and derives its
+    scratch file from the destination, so entries sharing a ReidentifiedPath race on the same
+    "<name>.tmp" and the build dies with:
+
+      install_name_tool: cannot rename .../libcopilot_runtime.dylib.tmp to ....tmp.XXXXXX
+      The "InstallNameTool" task failed unexpectedly.
+
+    Collapse each destination down to a single native reference before the SDK computes what to
+    re-identify. Batched per RelativePath; MatchOnMetadata scopes the removal to that destination so
+    a source file legitimately published to more than one location is left alone.
+  -->
+  <Target Name="_RemoveDuplicateNativeReferences"
+          BeforeTargets="_ComputeDynamicLibrariesToReidentify"
+          Outputs="%(_FileNativeReference.RelativePath)"
+          Condition="'@(_FileNativeReference)' != ''">
+
+    <ItemGroup>
+      <_NativeReferencesForPath Include="@(_FileNativeReference)" />
+    </ItemGroup>
+
+    <PropertyGroup>
+      <_NativeReferencesForPathCount>@(_NativeReferencesForPath->Count())</_NativeReferencesForPathCount>
+      <_NativeReferenceToKeep />
+    </PropertyGroup>
+
+    <!-- Task batching leaves the last item's identity behind, which is all we need: any one of the
+         duplicates will do, we just have to pick the same one every time. -->
+    <PropertyGroup Condition="$(_NativeReferencesForPathCount) &gt; 1">
+      <_NativeReferenceToKeep>%(_NativeReferencesForPath.Identity)</_NativeReferenceToKeep>
+    </PropertyGroup>
+
+    <Message Importance="normal"
+             Condition="$(_NativeReferencesForPathCount) &gt; 1"
+             Text="Collapsing $(_NativeReferencesForPathCount) native references for '%(_FileNativeReference.RelativePath)' to '$(_NativeReferenceToKeep)'." />
+
+    <ItemGroup Condition="$(_NativeReferencesForPathCount) &gt; 1">
+      <_FileNativeReference Remove="@(_NativeReferencesForPath)" MatchOnMetadata="RelativePath" />
+      <_FileNativeReference Include="@(_NativeReferencesForPath)"
+                            Condition="'%(Identity)' == '$(_NativeReferenceToKeep)'" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <_NativeReferencesForPath Remove="@(_NativeReferencesForPath)" />
+    </ItemGroup>
+  </Target>
+
+</Project>

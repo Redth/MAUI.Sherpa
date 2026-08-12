@@ -14,7 +14,8 @@ namespace MauiSherpa.Workloads.Services;
 public class LocalSdkService : ILocalSdkService
 {
     private readonly ILogger<LocalSdkService> _logger;
-    
+    private readonly string? _installRootOverride;
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true,
@@ -25,13 +26,28 @@ public class LocalSdkService : ILocalSdkService
     public LocalSdkService() : this(NullLogger<LocalSdkService>.Instance) { }
     
     public LocalSdkService(ILogger<LocalSdkService> logger)
+        : this(logger, installRootOverride: null) { }
+
+    /// <param name="installRootOverride">
+    /// When set, every lookup is rooted at this .NET install directory instead of discovering one
+    /// from <c>DOTNET_ROOT</c>/registered install locations. Used to inspect a specific install root
+    /// (for example a dotnetup-managed one) rather than whatever the machine resolves by default.
+    /// </param>
+    public LocalSdkService(ILogger<LocalSdkService> logger, string? installRootOverride)
     {
         _logger = logger;
+        _installRootOverride = string.IsNullOrWhiteSpace(installRootOverride) ? null : installRootOverride;
     }
 
     /// <inheritdoc />
     public string? GetDotNetSdkPath()
     {
+        if (_installRootOverride != null)
+        {
+            _logger.LogDebug("Using explicit SDK install root: {Path}", _installRootOverride);
+            return Directory.Exists(_installRootOverride) ? _installRootOverride : null;
+        }
+
         _logger.LogDebug("Starting SDK path detection");
         
         // Try common installation paths
@@ -118,11 +134,7 @@ public class LocalSdkService : ILocalSdkService
             }
         }
 
-        return versions
-            .OrderByDescending(v => v.Major)
-            .ThenByDescending(v => v.Minor)
-            .ThenByDescending(v => v.Patch)
-            .ToList();
+        return SdkVersion.SortDescending(versions);
     }
 
     /// <inheritdoc />

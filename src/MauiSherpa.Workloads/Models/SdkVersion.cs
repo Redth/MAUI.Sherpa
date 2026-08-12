@@ -1,9 +1,11 @@
+using NuGet.Versioning;
+
 namespace MauiSherpa.Workloads.Models;
 
 /// <summary>
 /// Represents a .NET SDK version with its components parsed.
 /// </summary>
-public record SdkVersion
+public record SdkVersion : IComparable<SdkVersion>
 {
     /// <summary>
     /// The full version string (e.g., "9.0.100").
@@ -47,6 +49,27 @@ public record SdkVersion
     /// The preview label if applicable (e.g., "preview.1", "rc.1").
     /// </summary>
     public string? PreviewLabel { get; init; }
+
+    /// <summary>
+    /// The full semantic version, including prerelease labels. Used for ordering so that
+    /// <c>11.0.100-preview.6</c> correctly sorts above <c>11.0.100-preview.5</c>.
+    /// </summary>
+    public NuGetVersion SemanticVersion =>
+        NuGetVersion.TryParse(Version, out var parsed)
+            ? parsed
+            : new NuGetVersion(Major, Minor, Patch);
+
+    /// <summary>
+    /// Compares by full semantic version so prerelease labels participate in ordering.
+    /// </summary>
+    public int CompareTo(SdkVersion? other) =>
+        other is null ? 1 : SemanticVersion.CompareTo(other.SemanticVersion);
+
+    /// <summary>
+    /// Orders SDK versions newest-first, honouring prerelease labels.
+    /// </summary>
+    public static IReadOnlyList<SdkVersion> SortDescending(IEnumerable<SdkVersion> versions) =>
+        versions.OrderByDescending(v => v.SemanticVersion).ToList();
 
     /// <summary>
     /// Parses an SDK version string into an SdkVersion object.
