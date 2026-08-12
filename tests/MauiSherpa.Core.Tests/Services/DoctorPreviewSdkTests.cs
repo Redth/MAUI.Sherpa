@@ -1,5 +1,7 @@
 using FluentAssertions;
 using MauiSherpa.Core.Interfaces;
+using MauiSherpa.Core.Services;
+using MauiSherpa.Workloads.Models;
 using Xunit;
 
 namespace MauiSherpa.Core.Tests.Services;
@@ -263,5 +265,95 @@ public class DoctorPreviewSdkTests
         filtered.Should().Contain(s => s.Version == "10.0.102");
         filtered.Should().NotContain(s => s.Version == "10.0.200-preview.1",
             "previews for major 10 should be excluded since user only has stable 10.x");
+    }
+
+    // Regression tests for issue #206: a preview SDK on a higher feature band than the newest
+    // *published* release must not be told to "update" to that lower version (a downgrade).
+
+    [Fact]
+    public void FindNewerAvailableSdk_PreviewOnHigherBandThanPublished_ReturnsNull()
+    {
+        // Installed nightly preview on band 400 that isn't in the releases feed yet.
+        var installed = SdkVersion.Parse("10.0.400-preview.0.26322.102");
+
+        // Feed only knows the newest published stable (band 300) plus older builds.
+        var available = new List<SdkVersionInfo>
+        {
+            new("10.0.302", "10.0.300", 10, 0, false),
+            new("10.0.301", "10.0.300", 10, 0, false),
+            new("10.0.203", "10.0.200", 10, 0, false),
+        };
+
+        var result = DoctorService.FindNewerAvailableSdk(available, installed);
+
+        result.Should().BeNull("a lower published version must never be offered as an update");
+    }
+
+    [Fact]
+    public void FindNewerAvailableSdk_NewerPreviewForSameBand_ReturnsIt()
+    {
+        var installed = SdkVersion.Parse("11.0.100-preview.1");
+
+        var available = new List<SdkVersionInfo>
+        {
+            new("11.0.100-preview.2", "11.0.100", 11, 0, true),
+            new("11.0.100-preview.1", "11.0.100", 11, 0, true),
+            new("10.0.302", "10.0.300", 10, 0, false),
+        };
+
+        var result = DoctorService.FindNewerAvailableSdk(available, installed);
+
+        result.Should().NotBeNull();
+        result!.Version.Should().Be("11.0.100-preview.2");
+    }
+
+    [Fact]
+    public void FindNewerAvailableSdk_NewerStableForSameMajor_ReturnsIt()
+    {
+        var installed = SdkVersion.Parse("10.0.302");
+
+        var available = new List<SdkVersionInfo>
+        {
+            new("10.0.303", "10.0.300", 10, 0, false),
+            new("10.0.302", "10.0.300", 10, 0, false),
+        };
+
+        var result = DoctorService.FindNewerAvailableSdk(available, installed);
+
+        result.Should().NotBeNull();
+        result!.Version.Should().Be("10.0.303");
+    }
+
+    [Fact]
+    public void FindNewerAvailableSdk_AlreadyLatest_ReturnsNull()
+    {
+        var installed = SdkVersion.Parse("10.0.303");
+
+        var available = new List<SdkVersionInfo>
+        {
+            new("10.0.303", "10.0.300", 10, 0, false),
+            new("10.0.302", "10.0.300", 10, 0, false),
+        };
+
+        var result = DoctorService.FindNewerAvailableSdk(available, installed);
+
+        result.Should().BeNull();
+    }
+
+    [Fact]
+    public void FindNewerAvailableSdk_IgnoresOtherMajorVersions()
+    {
+        var installed = SdkVersion.Parse("10.0.400-preview.1");
+
+        // A newer major exists but must not be offered as an update for a major-10 SDK.
+        var available = new List<SdkVersionInfo>
+        {
+            new("11.0.100", "11.0.100", 11, 0, false),
+            new("10.0.302", "10.0.300", 10, 0, false),
+        };
+
+        var result = DoctorService.FindNewerAvailableSdk(available, installed);
+
+        result.Should().BeNull();
     }
 }

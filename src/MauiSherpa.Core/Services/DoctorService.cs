@@ -289,6 +289,34 @@ public class DoctorService : IDoctorService
     }
 
     /// <summary>
+    /// Finds the newest available SDK for the same major version that is strictly newer
+    /// (by semantic version) than <paramref name="installed"/>. Returns <c>null</c> when no
+    /// available version is newer.
+    /// </summary>
+    /// <remarks>
+    /// The releases feed may not yet list a preview the user has installed (e.g. a nightly
+    /// <c>10.0.400-preview</c> build). In that case the newest *published* release for the major
+    /// can be an older feature band (e.g. stable <c>10.0.302</c>). Comparing by string equality
+    /// would flag that lower version as an "update", suggesting a downgrade. Comparing by
+    /// <see cref="SdkVersion.SemanticVersion"/> (backed by NuGet version ordering) prevents that.
+    /// </remarks>
+    internal static SdkVersionInfo? FindNewerAvailableSdk(
+        IReadOnlyList<SdkVersionInfo>? available, SdkVersion installed)
+    {
+        if (available == null || available.Count == 0)
+            return null;
+
+        return available
+            .Where(s => s.Major == installed.Major)
+            .Select(s => (Info: s,
+                Parsed: SdkVersion.TryParse(s.Version, out var v) ? v : null))
+            .Where(x => x.Parsed != null && x.Parsed.CompareTo(installed) > 0)
+            .OrderByDescending(x => x.Parsed!.SemanticVersion)
+            .Select(x => x.Info)
+            .FirstOrDefault();
+    }
+
+    /// <summary>
     /// Resolves the effective SDK version based on the rollForward policy from global.json.</summary>
     /// <remarks>
     /// See: https://learn.microsoft.com/dotnet/core/tools/global-json#rollforward
@@ -446,51 +474,52 @@ public class DoctorService : IDoctorService
             }
             else if (latestSdk.IsPreview)
             {
-                // Active SDK is a preview — find the latest available for the SAME major version
-                var latestAvailableForMajor = availableSdkVersions?
-                    .FirstOrDefault(s => s.Major == latestSdk.Major);
-                var isLatestForMajor = latestAvailableForMajor == null 
-                    || latestSdk.Version == latestAvailableForMajor.Version;
-                
+                // Active SDK is a preview — only offer an update when an available version for
+                // the same major is *semantically newer* than the installed preview. A preview
+                // can sit on a higher feature band (e.g. 10.0.400-preview) than the newest
+                // published release (e.g. stable 10.0.302), so never suggest a downgrade.
+                var newerAvailable = FindNewerAvailableSdk(availableSdkVersions, latestSdk);
+                var isLatestForMajor = newerAvailable == null;
+
                 // dotnetup can fix an out-of-date preview by installing the recommended version.
-                var canFix = !isLatestForMajor && _dotnetUpService != null && latestAvailableForMajor != null;
+                var canFix = !isLatestForMajor && _dotnetUpService != null;
 
                 // Add an informational status about being on a preview SDK
                 dependencies.Add(new DependencyStatus(
                     ".NET SDK",
                     DependencyCategory.DotNetSdk,
                     null,
-                    isLatestForMajor ? null : latestAvailableForMajor?.Version,
+                    newerAvailable?.Version,
                     latestSdk.Version,
                     isLatestForMajor ? DependencyStatusType.Info : DependencyStatusType.Warning,
                     isLatestForMajor
                         ? $"Preview SDK ({latestSdk.Version})"
-                        : $"Update available: {latestAvailableForMajor?.Version}",
+                        : $"Update available: {newerAvailable?.Version}",
                     IsFixable: canFix,
-                    FixAction: canFix ? $"dotnetup-update-sdk:{latestAvailableForMajor!.Version}" : null
+                    FixAction: canFix ? $"dotnetup-update-sdk:{newerAvailable!.Version}" : null
                 ));
             }
             else
             {
-                var latestAvailable = availableSdkVersions?
-                    .FirstOrDefault(s => !s.IsPreview);
-                var isLatest = latestAvailable == null || latestSdk.Version == latestAvailable.Version;
+                var newerAvailable = FindNewerAvailableSdk(
+                    availableSdkVersions?.Where(s => !s.IsPreview).ToList(), latestSdk);
+                var isLatest = newerAvailable == null;
 
                 // dotnetup can fix an out-of-date stable SDK by installing the latest.
-                var canFix = !isLatest && _dotnetUpService != null && latestAvailable != null;
+                var canFix = !isLatest && _dotnetUpService != null;
 
                 dependencies.Add(new DependencyStatus(
                     ".NET SDK",
                     DependencyCategory.DotNetSdk,
                     null,
-                    latestAvailable?.Version,
+                    newerAvailable?.Version,
                     latestSdk.Version,
                     isLatest ? DependencyStatusType.Ok : DependencyStatusType.Warning,
                     isLatest 
                         ? $"{sdkVersions.Count} SDK(s) installed, using {latestSdk.Version}"
-                        : $"Update available: {latestAvailable?.Version}",
+                        : $"Update available: {newerAvailable?.Version}",
                     IsFixable: canFix,
-                    FixAction: canFix ? $"dotnetup-update-sdk:{latestAvailable!.Version}" : null
+                    FixAction: canFix ? $"dotnetup-update-sdk:{newerAvailable!.Version}" : null
                 ));
             }
         }
