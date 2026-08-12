@@ -465,7 +465,8 @@ jobs:
             --self-contained true `
             -p:AppVersion=${{ steps.version.outputs.app_version }} `
             -p:AppCommitSha=${{ steps.version.outputs.commit_sha }} `
-            -p:SentryDsn=${{ secrets.SENTRY_DSN }}
+            -p:SentryDsn=${{ secrets.SENTRY_DSN }} `
+            -o ./artifacts/win-x64
 
       - name: Publish Windows App (arm64)
         run: |
@@ -478,17 +479,12 @@ jobs:
             --self-contained true `
             -p:AppVersion=${{ steps.version.outputs.app_version }} `
             -p:AppCommitSha=${{ steps.version.outputs.commit_sha }} `
-            -p:SentryDsn=${{ secrets.SENTRY_DSN }}
+            -p:SentryDsn=${{ secrets.SENTRY_DSN }} `
+            -o ./artifacts/win-arm64
 
       - name: Create ZIP archives
         run: |
-          New-Item -ItemType Directory -Force -Path ./artifacts | Out-Null
-
-          $x64Dir = "src/MauiSherpa/bin/Release/net10.0-windows10.0.19041.0/win-x64/publish"
-          if (-not (Test-Path $x64Dir)) {
-            $x64Dir = Get-ChildItem -Path "src/MauiSherpa/bin/Release" -Filter "publish" -Recurse -Directory |
-              Where-Object { $_.FullName -like "*win-x64*" } | Select-Object -First 1 -ExpandProperty FullName
-          }
+          $x64Dir = "./artifacts/win-x64"
           $x64Files = @(Get-ChildItem -Path $x64Dir -File -Recurse)
           if ($x64Files.Count -ne 1 -or $x64Files[0].Name -ne "MauiSherpa.exe") {
             throw "Expected a single self-contained MauiSherpa.exe for win-x64, but found: $($x64Files.FullName -join ', ')"
@@ -497,11 +493,7 @@ jobs:
           Write-Host "Created: MAUI-Sherpa.win-x64.zip"
           Get-Item ./artifacts/MAUI-Sherpa.win-x64.zip | Format-List Name, Length
 
-          $arm64Dir = "src/MauiSherpa/bin/Release/net10.0-windows10.0.19041.0/win-arm64/publish"
-          if (-not (Test-Path $arm64Dir)) {
-            $arm64Dir = Get-ChildItem -Path "src/MauiSherpa/bin/Release" -Filter "publish" -Recurse -Directory |
-              Where-Object { $_.FullName -like "*win-arm64*" } | Select-Object -First 1 -ExpandProperty FullName
-          }
+          $arm64Dir = "./artifacts/win-arm64"
           $arm64Files = @(Get-ChildItem -Path $arm64Dir -File -Recurse)
           if ($arm64Files.Count -ne 1 -or $arm64Files[0].Name -ne "MauiSherpa.exe") {
             throw "Expected a single self-contained MauiSherpa.exe for win-arm64, but found: $($arm64Files.FullName -join ', ')"
@@ -752,8 +744,8 @@ jobs:
           NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
         run: |
           if [ -z "$NUGET_API_KEY" ]; then
-            echo "::error::NUGET_API_KEY secret is required to publish sherpa-inspector"
-            exit 1
+            echo "::warning::NUGET_API_KEY is not configured; skipping NuGet.org publication"
+            exit 0
           fi
           dotnet nuget push "./artifacts/nuget/*.nupkg" \
             --api-key "$NUGET_API_KEY" \
