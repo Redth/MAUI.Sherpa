@@ -153,6 +153,7 @@ public static class MauiProgram
         builder.Services.AddSingleton<IFirebasePushService, FirebasePushService>();
         builder.Services.AddSingleton<DeviceInspectorService>();
         builder.Services.AddSingleton<DevFlowInspectorService>();
+        builder.Services.AddSingleton<ProfilingViewerService>();
         // DevFlow v1 spec abstraction — unified client that works with both v1 and legacy agents
         builder.Services.AddHttpClient();
         builder.Services.AddSingleton<MauiSherpa.Core.Interfaces.IAppInspectorClientFactory, MauiSherpa.Core.Services.AppInspectorClientFactory>();
