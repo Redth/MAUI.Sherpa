@@ -118,4 +118,97 @@ public class CertificateSyncServiceTests
             "password",
             It.IsAny<CancellationToken>()), Times.Once);
     }
+
+    [Fact]
+    public async Task GetCertificateSecretsAsync_ExactCloudKey_ReturnsP12AndPassword()
+    {
+        var provider = new CloudSecretsProviderConfig("provider-1", "Provider", CloudSecretsProviderType.OnePassword, new());
+        _cloudSecretsService.Setup(x => x.ActiveProvider).Returns(provider);
+        _cloudSecretsService.Setup(x => x.GetSecretAsync("CERT_ABC123_P12", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new byte[] { 0x01, 0x02, 0x03 });
+        _cloudSecretsService.Setup(x => x.GetSecretAsync("CERT_ABC123_PWD", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Encoding.UTF8.GetBytes("password"));
+
+        var (p12, password) = await _sut.GetCertificateSecretsAsync("ABC123");
+
+        Assert.NotNull(p12);
+        Assert.Equal(new byte[] { 0x01, 0x02, 0x03 }, p12);
+        Assert.Equal("password", password);
+        _cloudSecretsService.Verify(x => x.ListSecretsAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task GetCertificateSecretsAsync_ExactKeyMisses_FuzzyMatchesStoredSerialWithLeadingZeros()
+    {
+        var provider = new CloudSecretsProviderConfig("provider-1", "Provider", CloudSecretsProviderType.OnePassword, new());
+        _cloudSecretsService.Setup(x => x.ActiveProvider).Returns(provider);
+        // Exact key for the requested serial does not exist...
+        _cloudSecretsService.Setup(x => x.GetSecretAsync("CERT_ABC123_P12", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((byte[]?)null);
+        // ...but a secret was stored under a differently-normalized serial (leading zeros).
+        _cloudSecretsService.Setup(x => x.ListSecretsAsync("CERT_", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { "CERT_00ABC123_META", "CERT_00ABC123_P12", "CERT_00ABC123_PWD" });
+        _cloudSecretsService.Setup(x => x.GetSecretAsync("CERT_00ABC123_P12", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new byte[] { 0x0A, 0x0B });
+        _cloudSecretsService.Setup(x => x.GetSecretAsync("CERT_00ABC123_PWD", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Encoding.UTF8.GetBytes("secret-pwd"));
+
+        var (p12, password) = await _sut.GetCertificateSecretsAsync("ABC123");
+
+        Assert.NotNull(p12);
+        Assert.Equal(new byte[] { 0x0A, 0x0B }, p12);
+        Assert.Equal("secret-pwd", password);
+    }
+
+    [Fact]
+    public async Task GetCertificateSecretsAsync_CloudMisses_FallsBackToLocalKeychainExport()
+    {
+        var provider = new CloudSecretsProviderConfig("provider-1", "Provider", CloudSecretsProviderType.OnePassword, new());
+        _cloudSecretsService.Setup(x => x.ActiveProvider).Returns(provider);
+        _cloudSecretsService.Setup(x => x.GetSecretAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((byte[]?)null);
+        _cloudSecretsService.Setup(x => x.ListSecretsAsync("CERT_", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<string>());
+
+        _localCertificateService.Setup(x => x.IsSupported).Returns(true);
+        _localCertificateService.Setup(x => x.GetSigningIdentitiesAsync())
+            .ReturnsAsync(new[]
+            {
+                new LocalSigningIdentity(
+                    Identity: "Apple Distribution: Test (TEAM)",
+                    CommonName: "Apple Distribution: Test",
+                    TeamId: "TEAM",
+                    SerialNumber: "00ABC123",
+                    ExpirationDate: DateTime.UtcNow.AddDays(30),
+                    IsValid: true)
+            });
+        _localCertificateService.Setup(x => x.ExportP12Async("Apple Distribution: Test (TEAM)", It.IsAny<string>()))
+            .ReturnsAsync(new byte[] { 0xAA, 0xBB, 0xCC });
+        _cloudSecretsService.Setup(x => x.StoreSecretAsync(It.IsAny<string>(), It.IsAny<byte[]>(), It.IsAny<Dictionary<string, string>?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var (p12, password) = await _sut.GetCertificateSecretsAsync("ABC123");
+
+        Assert.NotNull(p12);
+        Assert.Equal(new byte[] { 0xAA, 0xBB, 0xCC }, p12);
+        Assert.False(string.IsNullOrEmpty(password));
+        _localCertificateService.Verify(x => x.ExportP12Async("Apple Distribution: Test (TEAM)", It.IsAny<string>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task GetCertificateSecretsAsync_NotInCloudOrKeychain_ReturnsNulls()
+    {
+        var provider = new CloudSecretsProviderConfig("provider-1", "Provider", CloudSecretsProviderType.OnePassword, new());
+        _cloudSecretsService.Setup(x => x.ActiveProvider).Returns(provider);
+        _cloudSecretsService.Setup(x => x.GetSecretAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((byte[]?)null);
+        _cloudSecretsService.Setup(x => x.ListSecretsAsync("CERT_", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<string>());
+        _localCertificateService.Setup(x => x.IsSupported).Returns(false);
+
+        var (p12, password) = await _sut.GetCertificateSecretsAsync("ABC123");
+
+        Assert.Null(p12);
+        Assert.Null(password);
+    }
 }
