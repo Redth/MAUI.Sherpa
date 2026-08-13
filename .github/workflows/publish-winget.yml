@@ -4,8 +4,9 @@ name: Publish WinGet Manifest
 # (microsoft/winget-pkgs). Called automatically by the Build & Release workflow
 # after a stable release is created, or run manually for an existing release.
 #
-# Requires a repository secret named WINGET_CREATE_GITHUB_TOKEN: a classic PAT from an
-# account that can fork microsoft/winget-pkgs, with the public_repo scope.
+# Uses WINGET_CREATE_GITHUB_TOKEN when configured, otherwise falls back to the
+# HOMEBREW_TAP_TOKEN PAT. The selected token must belong to an account that can fork
+# microsoft/winget-pkgs and have the public_repo scope.
 # See https://aka.ms/winget-create-token.
 
 on:
@@ -17,7 +18,9 @@ on:
         type: string
     secrets:
       WINGET_CREATE_GITHUB_TOKEN:
-        required: true
+        required: false
+      HOMEBREW_TAP_TOKEN:
+        required: false
   workflow_dispatch:
     inputs:
       tag:
@@ -111,10 +114,10 @@ jobs:
       - name: Submit to winget-pkgs
         shell: pwsh
         env:
-          WINGET_CREATE_GITHUB_TOKEN: ${{ secrets.WINGET_CREATE_GITHUB_TOKEN }}
+          WINGET_CREATE_GITHUB_TOKEN: ${{ secrets.WINGET_CREATE_GITHUB_TOKEN || secrets.HOMEBREW_TAP_TOKEN }}
         run: |
           if ([string]::IsNullOrWhiteSpace($env:WINGET_CREATE_GITHUB_TOKEN)) {
-            throw "The repository secret WINGET_CREATE_GITHUB_TOKEN is not configured. Add a classic PAT with public_repo scope that can fork microsoft/winget-pkgs. See https://aka.ms/winget-create-token."
+            throw "Neither WINGET_CREATE_GITHUB_TOKEN nor HOMEBREW_TAP_TOKEN is configured. Add a PAT with public_repo scope that can fork microsoft/winget-pkgs. See https://aka.ms/winget-create-token."
           }
 
           winget install --id Microsoft.WingetCreate --version $env:WINGETCREATE_VERSION --exact --source winget --accept-package-agreements --accept-source-agreements --disable-interactivity
