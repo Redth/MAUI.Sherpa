@@ -300,6 +300,20 @@ jobs:
           echo "Universal binary created:"
           lipo -info "$DEST_APP/Contents/MacOS/$BINARY_NAME"
 
+      - name: Repair Copilot runtime install names
+        run: |
+          APP_PATH="./artifacts/macos/MAUI Sherpa.app"
+          BINARY_PATH="$APP_PATH/Contents/MacOS/MauiSherpa.MacOS"
+          COPILOT_RUNTIME_OLD="/Users/runner/work/copilot-agent-runtime/copilot-agent-runtime/target/aarch64-apple-darwin/release/deps/libruntime.dylib"
+          COPILOT_RUNTIME_NEW="@executable_path/../../Contents/MonoBundle/runtimes/osx-arm64/native/libcopilot_runtime.dylib"
+
+          if otool -arch arm64 -L "$BINARY_PATH" | grep -Fq "$COPILOT_RUNTIME_OLD"; then
+            echo "Rewriting stale arm64 Copilot runtime reference in $BINARY_PATH"
+            install_name_tool -change "$COPILOT_RUNTIME_OLD" "$COPILOT_RUNTIME_NEW" "$BINARY_PATH"
+          else
+            echo "No stale arm64 Copilot runtime reference found"
+          fi
+
       - name: Re-sign with Hardened Runtime
         if: env.APPLE_CERTIFICATE_P12 != ''
         env:
@@ -367,6 +381,24 @@ jobs:
                 exit 1
               fi
             fi
+          fi
+
+      - name: Verify Copilot runtime load paths
+        run: |
+          APP_PATH=$(find ./artifacts/macos -name "*.app" -type d | head -1)
+          BINARY_PATH="$APP_PATH/Contents/MacOS/MauiSherpa.MacOS"
+          ARM64_LOADS=$(otool -arch arm64 -L "$BINARY_PATH")
+
+          echo "$ARM64_LOADS"
+
+          if echo "$ARM64_LOADS" | grep -Fq "/Users/runner/"; then
+            echo "::error::Stale absolute load path leaked into the arm64 app binary"
+            exit 1
+          fi
+
+          if ! echo "$ARM64_LOADS" | grep -Fq "@executable_path/../../Contents/MonoBundle/runtimes/osx-arm64/native/libcopilot_runtime.dylib"; then
+            echo "::error::Expected bundled Copilot runtime load path is missing from the arm64 app binary"
+            exit 1
           fi
 
       - name: Create ZIP archive
