@@ -1,13 +1,13 @@
 name: Publish WinGet Manifest
 
-# Submits a published Windows release to the winget community repository
-# (microsoft/winget-pkgs). Called automatically by the Build & Release workflow
-# after a stable release is created, or run manually for an existing release.
+# Publishes a validated WinGet manifest branch to Redth/winget-pkgs and provides
+# a link for opening the pull request against microsoft/winget-pkgs. Called
+# automatically by the Build & Release workflow after a stable release is
+# created, or run manually for an existing release.
 #
-# Uses WINGET_CREATE_GITHUB_TOKEN when configured, otherwise falls back to the
-# HOMEBREW_TAP_TOKEN PAT. The selected token must belong to an account that can fork
-# microsoft/winget-pkgs and have the public_repo scope.
-# See https://aka.ms/winget-create-token.
+# A repository-scoped deploy key avoids the short-lived SAML authorization
+# required by Microsoft for personal access tokens. Opening the upstream pull
+# request remains a deliberate one-click browser action.
 
 on:
   workflow_call:
@@ -17,10 +17,8 @@ on:
         required: true
         type: string
     secrets:
-      WINGET_CREATE_GITHUB_TOKEN:
-        required: false
-      HOMEBREW_TAP_TOKEN:
-        required: false
+      WINGET_FORK_DEPLOY_KEY:
+        required: true
   workflow_dispatch:
     inputs:
       tag:
@@ -31,12 +29,9 @@ on:
 permissions:
   contents: read
 
-env:
-  WINGETCREATE_VERSION: 1.12.8.0
-
 jobs:
   submit:
-    name: Submit to winget-pkgs
+    name: Publish winget-pkgs branch
     runs-on: windows-latest
 
     steps:
@@ -118,38 +113,78 @@ jobs:
             $global:LASTEXITCODE = 0
           }
 
-      - name: Submit to winget-pkgs
+      - name: Upload generated manifests
+        uses: actions/upload-artifact@v4
+        with:
+          name: winget-manifests-${{ inputs.tag }}
+          path: manifests
+          if-no-files-found: error
+
+      - name: Publish manifest branch
+        id: publish
         shell: pwsh
         env:
-          WINGET_CREATE_GITHUB_TOKEN: ${{ secrets.WINGET_CREATE_GITHUB_TOKEN || secrets.HOMEBREW_TAP_TOKEN }}
+          WINGET_FORK_DEPLOY_KEY: ${{ secrets.WINGET_FORK_DEPLOY_KEY }}
         run: |
-          if ([string]::IsNullOrWhiteSpace($env:WINGET_CREATE_GITHUB_TOKEN)) {
-            throw "Neither WINGET_CREATE_GITHUB_TOKEN nor HOMEBREW_TAP_TOKEN is configured. Add a PAT with public_repo scope that can fork microsoft/winget-pkgs. See https://aka.ms/winget-create-token."
+          if ([string]::IsNullOrWhiteSpace($env:WINGET_FORK_DEPLOY_KEY)) {
+            throw "WINGET_FORK_DEPLOY_KEY is not configured."
           }
 
-          winget install --id Microsoft.WingetCreate --version $env:WINGETCREATE_VERSION --exact --source winget --accept-package-agreements --accept-source-agreements --disable-interactivity
-          if ($LASTEXITCODE -ne 0) {
-            throw "Failed to install wingetcreate $env:WINGETCREATE_VERSION."
-          }
+          $branch = "maui-sherpa-$env:PACKAGE_VERSION"
+          $checkoutPath = Join-Path $env:RUNNER_TEMP "winget-pkgs"
+          $keyPath = Join-Path $env:RUNNER_TEMP "winget-fork-deploy-key"
+          $manifestPath = "manifests/m/MAUI/Sherpa/$env:PACKAGE_VERSION"
 
-          # WinGet may not refresh PATH for the current process after installation,
-          # so fall back to the per-user package directory used on GitHub-hosted runners.
-          $wingetCreateCommand = Get-Command wingetcreate.exe -ErrorAction SilentlyContinue
-          $wingetCreatePath = if ($null -ne $wingetCreateCommand) { $wingetCreateCommand.Source } else { $null }
-          if ($null -eq $wingetCreatePath) {
-            $packageRoot = Join-Path $env:LOCALAPPDATA "Microsoft\WinGet\Packages"
-            if (Test-Path $packageRoot) {
-              $wingetCreatePath = Get-ChildItem -Path $packageRoot -Filter wingetcreate.exe -Recurse -ErrorAction SilentlyContinue |
-                Select-Object -First 1 -ExpandProperty FullName
+          $privateKey = $env:WINGET_FORK_DEPLOY_KEY.Replace("`r`n", "`n")
+          [System.IO.File]::WriteAllText($keyPath, $privateKey, [System.Text.UTF8Encoding]::new($false))
+          $env:GIT_SSH_COMMAND = "ssh -i `"$keyPath`" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+
+          try {
+            git clone --filter=blob:none --no-checkout --depth 1 https://github.com/microsoft/winget-pkgs.git $checkoutPath
+            if ($LASTEXITCODE -ne 0) {
+              throw "Failed to clone microsoft/winget-pkgs."
+            }
+
+            Push-Location $checkoutPath
+            try {
+              git sparse-checkout init --cone
+              git sparse-checkout set $manifestPath
+              git checkout master
+              git checkout -B $branch
+
+              New-Item -ItemType Directory -Force -Path $manifestPath | Out-Null
+              Copy-Item (Join-Path $env:GITHUB_WORKSPACE "manifests/*") -Destination $manifestPath -Force
+
+              git config user.name "github-actions[bot]"
+              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+              git add -- $manifestPath
+              git commit -m "New version: MAUI Sherpa $env:PACKAGE_VERSION"
+              if ($LASTEXITCODE -ne 0) {
+                throw "Failed to commit the generated WinGet manifests."
+              }
+
+              git remote add publisher git@github.com:Redth/winget-pkgs.git
+              git push --force publisher "HEAD:refs/heads/$branch"
+              if ($LASTEXITCODE -ne 0) {
+                throw "Failed to publish $branch to Redth/winget-pkgs."
+              }
+            }
+            finally {
+              Pop-Location
             }
           }
-          if ($null -eq $wingetCreatePath) {
-            throw "wingetcreate.exe was installed but was not found on PATH."
+          finally {
+            Remove-Item $keyPath -Force -ErrorAction SilentlyContinue
           }
 
-          # wingetcreate reads WINGET_CREATE_GITHUB_TOKEN, which avoids exposing the
-          # token as a command-line argument in process listings.
-          & $wingetCreatePath submit manifests
-          if ($LASTEXITCODE -ne 0) {
-            throw "wingetcreate submit failed with exit code $LASTEXITCODE."
-          }
+          $compareUrl = "https://github.com/microsoft/winget-pkgs/compare/master...Redth:winget-pkgs:${branch}?expand=1"
+          "compare_url=$compareUrl" >> $env:GITHUB_OUTPUT
+          Write-Host "::notice title=WinGet pull request ready::$compareUrl"
+
+          @"
+          ## WinGet pull request ready
+
+          The validated manifests were published to ``Redth/winget-pkgs:$branch``.
+
+          **[Open the pull request against microsoft/winget-pkgs]($compareUrl)**
+          "@ >> $env:GITHUB_STEP_SUMMARY
