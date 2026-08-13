@@ -107,8 +107,14 @@ jobs:
           $validateOutput = winget validate --manifest $manifestDir 2>&1 | Out-String
           $validateExitCode = $LASTEXITCODE
           Write-Host $validateOutput
-          if ($validateExitCode -ne 0) {
+          $validationWarningExitCode = -1978335192 # 0x8A150028
+          $warningOnly = $validateExitCode -eq $validationWarningExitCode -and
+            $validateOutput -match "Manifest validation succeeded with warnings\."
+          if ($validateExitCode -ne 0 -and -not $warningOnly) {
             throw "winget validate failed with exit code ${validateExitCode}. See output above."
+          }
+          if ($warningOnly) {
+            Write-Warning "winget validate completed with non-blocking manifest warnings."
           }
 
       - name: Submit to winget-pkgs
