@@ -162,6 +162,65 @@ public class UpdateServiceTests
         _mockLogger.Verify(x => x.LogError(It.IsAny<string>(), It.IsAny<Exception>()), Times.Once);
     }
 
+    [Fact]
+    public async Task DownloadUpdateAssetAsync_WhenRequestFails_RetriesAndDownloadsFile()
+    {
+        var service = CreateService();
+        var content = new byte[] { 1, 2, 3, 4 };
+        var asset = new GitHubReleaseAsset("MAUI-Sherpa.macos.zip", "https://example.test/update.zip", content.Length);
+        var destinationPath = Path.GetTempFileName();
+
+        _mockHttpMessageHandler
+            .Protected()
+            .SetupSequence<Task<HttpResponseMessage>>("SendAsync", ItExpr.IsAny<HttpRequestMessage>(), ItExpr.IsAny<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("Temporary DNS failure"))
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(content) });
+
+        try
+        {
+            await service.DownloadUpdateAssetAsync(asset, destinationPath, retryDelays: [TimeSpan.Zero]);
+
+            File.ReadAllBytes(destinationPath).Should().Equal(content);
+            _mockHttpMessageHandler.Protected().Verify(
+                "SendAsync",
+                Times.Exactly(2),
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>());
+        }
+        finally
+        {
+            File.Delete(destinationPath);
+        }
+    }
+
+    [Fact]
+    public async Task DownloadUpdateAssetAsync_WhenAllAttemptsFail_ThrowsHelpfulError()
+    {
+        var service = CreateService();
+        var asset = new GitHubReleaseAsset("MAUI-Sherpa.macos.zip", "https://example.test/update.zip", 4);
+        var destinationPath = Path.GetTempFileName();
+
+        _mockHttpMessageHandler
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>("SendAsync", ItExpr.IsAny<HttpRequestMessage>(), ItExpr.IsAny<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("Temporary DNS failure"));
+
+        try
+        {
+            var act = () => service.DownloadUpdateAssetAsync(
+                asset,
+                destinationPath,
+                retryDelays: [TimeSpan.Zero, TimeSpan.Zero]);
+
+            await act.Should().ThrowAsync<InvalidOperationException>()
+                .WithMessage("Unable to reach GitHub's download server after 3 attempts*");
+        }
+        finally
+        {
+            File.Delete(destinationPath);
+        }
+    }
+
     [Theory]
     [InlineData("v2.0.0", "1.0.0", true)]
     [InlineData("v1.0.0", "1.0.0", false)]

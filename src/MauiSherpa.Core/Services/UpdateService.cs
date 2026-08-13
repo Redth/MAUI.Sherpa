@@ -15,6 +15,9 @@ public class UpdateService : IUpdateService
     private UpdateCheckResult? _cachedResult;
     private string? _dismissedVersion;
     private static readonly TimeSpan CacheDuration = TimeSpan.FromHours(1);
+    private static readonly TimeSpan DownloadRequestTimeout = TimeSpan.FromSeconds(20);
+    private static readonly IReadOnlyList<TimeSpan> DownloadRetryDelays =
+        [TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(3)];
 
     public UpdateCheckResult? CachedResult => _cachedResult;
     public string? DismissedVersion => _dismissedVersion;
@@ -188,30 +191,7 @@ public class UpdateService : IUpdateService
 
         try
         {
-            // Download with progress
-            progress?.Report((0, "Downloading update..."));
-            using var response = await _httpClient.GetAsync(asset.DownloadUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-            response.EnsureSuccessStatusCode();
-
-            var totalBytes = response.Content.Headers.ContentLength ?? asset.Size;
-            long bytesRead = 0;
-
-            await using var contentStream = await response.Content.ReadAsStreamAsync(cancellationToken);
-            await using var fileStream = File.Create(zipPath);
-            var buffer = new byte[81920];
-            int read;
-            while ((read = await contentStream.ReadAsync(buffer, cancellationToken)) > 0)
-            {
-                await fileStream.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
-                bytesRead += read;
-                if (totalBytes > 0)
-                {
-                    var pct = (double)bytesRead / totalBytes * 100;
-                    progress?.Report((pct, $"Downloading... {bytesRead / 1024 / 1024}MB / {totalBytes / 1024 / 1024}MB"));
-                }
-            }
-
-            _logger.LogInformation($"Auto-update: download complete ({bytesRead} bytes)");
+            await DownloadUpdateAssetAsync(asset, zipPath, progress, cancellationToken);
 
             // Extract
             progress?.Report((100, "Extracting update..."));
@@ -300,6 +280,101 @@ public class UpdateService : IUpdateService
             _logger.LogError($"Auto-update failed: {ex.Message}", ex);
             try { Directory.Delete(updateDir, true); } catch { }
             throw;
+        }
+    }
+
+    internal async Task DownloadUpdateAssetAsync(
+        GitHubReleaseAsset asset,
+        string destinationPath,
+        IProgress<(double Percent, string Message)>? progress = null,
+        CancellationToken cancellationToken = default,
+        IReadOnlyList<TimeSpan>? retryDelays = null)
+    {
+        retryDelays ??= DownloadRetryDelays;
+        var maxAttempts = retryDelays.Count + 1;
+        Exception? lastException = null;
+
+        for (var attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            try
+            {
+                progress?.Report((0, attempt == 1
+                    ? "Downloading update..."
+                    : $"Retrying download ({attempt}/{maxAttempts})..."));
+
+                HttpResponseMessage response;
+                using (var requestCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+                {
+                    requestCts.CancelAfter(DownloadRequestTimeout);
+                    response = await _httpClient.GetAsync(
+                        asset.DownloadUrl,
+                        HttpCompletionOption.ResponseHeadersRead,
+                        requestCts.Token);
+                }
+
+                using (response)
+                {
+                    response.EnsureSuccessStatusCode();
+
+                    var totalBytes = response.Content.Headers.ContentLength ?? asset.Size;
+                    long bytesRead = 0;
+
+                    await using var contentStream = await response.Content.ReadAsStreamAsync(cancellationToken);
+                    await using var fileStream = File.Create(destinationPath);
+                    var buffer = new byte[81920];
+                    int read;
+                    while ((read = await contentStream.ReadAsync(buffer, cancellationToken)) > 0)
+                    {
+                        await fileStream.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
+                        bytesRead += read;
+                        if (totalBytes > 0)
+                        {
+                            var pct = (double)bytesRead / totalBytes * 100;
+                            progress?.Report((pct, $"Downloading... {bytesRead / 1024 / 1024}MB / {totalBytes / 1024 / 1024}MB"));
+                        }
+                    }
+
+                    if (asset.Size > 0 && bytesRead != asset.Size)
+                        throw new HttpRequestException($"Download was incomplete: received {bytesRead} of {asset.Size} bytes.");
+
+                    _logger.LogInformation($"Auto-update: download complete ({bytesRead} bytes)");
+                    return;
+                }
+            }
+            catch (Exception ex) when (IsRetryableDownloadFailure(ex, cancellationToken))
+            {
+                lastException = ex;
+                TryDeleteFile(destinationPath);
+
+                if (attempt == maxAttempts)
+                    break;
+
+                var delay = retryDelays[attempt - 1];
+                _logger.LogWarning(
+                    $"Auto-update download attempt {attempt}/{maxAttempts} failed: {ex.Message}. Retrying in {delay.TotalSeconds:0.#}s.");
+                await Task.Delay(delay, cancellationToken);
+            }
+        }
+
+        throw new InvalidOperationException(
+            $"Unable to reach GitHub's download server after {maxAttempts} attempts. Check your connection and try again.",
+            lastException);
+    }
+
+    private static bool IsRetryableDownloadFailure(Exception exception, CancellationToken cancellationToken) =>
+        exception is HttpRequestException
+        || exception is HttpIOException
+        || exception is OperationCanceledException && !cancellationToken.IsCancellationRequested;
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch
+        {
+            // The original download failure is more useful than a best-effort cleanup failure.
         }
     }
 }

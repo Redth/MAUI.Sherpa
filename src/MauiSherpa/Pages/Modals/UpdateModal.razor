@@ -56,6 +56,12 @@
                     <span class="error-text"><i class="fas fa-exclamation-triangle"></i> @updateError</span>
                 </div>
                 <button class="btn btn-secondary" @onclick="Cancel">Close</button>
+                <button class="btn btn-secondary" @onclick="OpenInBrowser">
+                    <i class="fas fa-external-link-alt"></i> Open Release Page
+                </button>
+                <button class="btn btn-primary" @onclick="AutoUpdate">
+                    <i class="fas fa-redo"></i> Retry
+                </button>
             }
             else
             {
@@ -63,7 +69,7 @@
                     <i class="fas fa-times"></i> Not Now
                 </button>
                 <button class="btn btn-secondary" @onclick="OpenInBrowser">
-                    <i class="fas fa-external-link-alt"></i> Download
+                    <i class="fas fa-external-link-alt"></i> Manual Download
                 </button>
                 @if (OperatingSystem.IsMacCatalyst() || OperatingSystem.IsMacOS())
                 {
@@ -97,11 +103,26 @@
 
     private async Task OpenInBrowser()
     {
-        if (updateResult?.LatestRelease?.HtmlUrl is { Length: > 0 } url)
+        if (updateResult?.LatestRelease?.HtmlUrl is not { Length: > 0 } url)
         {
-            try { await AppLauncher.OpenAsync(new Uri(url)); } catch { }
+            updateError = "The GitHub release page is unavailable.";
+            return;
         }
-        ModalParams.Complete(true);
+
+        try
+        {
+            if (!await AppLauncher.OpenAsync(new Uri(url)))
+            {
+                updateError = "Could not open the GitHub release page.";
+                return;
+            }
+
+            ModalParams.Complete(true);
+        }
+        catch (Exception ex)
+        {
+            updateError = $"Could not open the GitHub release page: {ex.Message}";
+        }
     }
 
     private async Task AutoUpdate()
