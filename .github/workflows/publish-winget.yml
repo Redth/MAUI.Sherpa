@@ -135,7 +135,7 @@ jobs:
           $keyPath = Join-Path $env:RUNNER_TEMP "winget-fork-deploy-key"
           $manifestPath = "manifests/m/MAUI/Sherpa/$env:PACKAGE_VERSION"
 
-          $privateKey = $env:WINGET_FORK_DEPLOY_KEY.Replace("`r`n", "`n")
+          $privateKey = $env:WINGET_FORK_DEPLOY_KEY.Replace("`r`n", "`n").TrimEnd([char[]]"`r`n") + "`n"
           [System.IO.File]::WriteAllText($keyPath, $privateKey, [System.Text.UTF8Encoding]::new($false))
           $env:GIT_SSH_COMMAND = "ssh -i `"$keyPath`" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
 
