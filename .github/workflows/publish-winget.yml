@@ -1,13 +1,13 @@
 name: Publish WinGet Manifest
 
 # Publishes a validated WinGet manifest branch to Redth/winget-pkgs and provides
-# a link for opening the pull request against microsoft/winget-pkgs. Called
+# a prefilled browser link for opening the upstream pull request. Called
 # automatically by the Build & Release workflow after a stable release is
 # created, or run manually for an existing release.
 #
 # A repository-scoped deploy key avoids the short-lived SAML authorization
-# required by Microsoft for personal access tokens. Opening the upstream pull
-# request remains a deliberate one-click browser action.
+# required by Microsoft for personal access tokens. The final pull request is
+# opened through the user's existing browser session, so no PAT is required.
 
 on:
   workflow_call:
@@ -49,7 +49,7 @@ jobs:
           "RELEASE_TAG=$tag" >> $env:GITHUB_ENV
           "PACKAGE_VERSION=$($Matches.version)" >> $env:GITHUB_ENV
 
-      - name: Download release ZIP packages
+      - name: Download release installers
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -57,15 +57,15 @@ jobs:
           New-Item -ItemType Directory -Force -Path packages | Out-Null
           gh release download $env:RELEASE_TAG `
             --repo Redth/MAUI.Sherpa `
-            --pattern "MAUI-Sherpa.win-x64.zip" `
-            --pattern "MAUI-Sherpa.win-arm64.zip" `
+            --pattern "MAUI-Sherpa.Setup.win-x64.exe" `
+            --pattern "MAUI-Sherpa.Setup.win-arm64.exe" `
             --dir packages
 
-          if (-not (Test-Path "packages/MAUI-Sherpa.win-x64.zip")) {
-            throw "Missing win-x64 asset for release $env:RELEASE_TAG."
+          if (-not (Test-Path "packages/MAUI-Sherpa.Setup.win-x64.exe")) {
+            throw "Missing win-x64 installer for release $env:RELEASE_TAG."
           }
-          if (-not (Test-Path "packages/MAUI-Sherpa.win-arm64.zip")) {
-            throw "Missing win-arm64 asset for release $env:RELEASE_TAG."
+          if (-not (Test-Path "packages/MAUI-Sherpa.Setup.win-arm64.exe")) {
+            throw "Missing win-arm64 installer for release $env:RELEASE_TAG."
           }
           Get-ChildItem packages | Format-Table Name, Length
 
@@ -78,8 +78,8 @@ jobs:
           $replacements = @{
             "__VERSION__" = $env:PACKAGE_VERSION
             "__RELEASE_TAG__" = $env:RELEASE_TAG
-            "__X64_SHA256__" = (Get-FileHash "packages/MAUI-Sherpa.win-x64.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
-            "__ARM64_SHA256__" = (Get-FileHash "packages/MAUI-Sherpa.win-arm64.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
+            "__X64_SHA256__" = (Get-FileHash "packages/MAUI-Sherpa.Setup.win-x64.exe" -Algorithm SHA256).Hash.ToLowerInvariant()
+            "__ARM64_SHA256__" = (Get-FileHash "packages/MAUI-Sherpa.Setup.win-arm64.exe" -Algorithm SHA256).Hash.ToLowerInvariant()
           }
 
           $templates = @{
@@ -177,14 +177,22 @@ jobs:
             Remove-Item $keyPath -Force -ErrorAction SilentlyContinue
           }
 
-          $compareUrl = "https://github.com/microsoft/winget-pkgs/compare/master...Redth:winget-pkgs:${branch}?expand=1"
-          "compare_url=$compareUrl" >> $env:GITHUB_OUTPUT
-          Write-Host "::notice title=WinGet pull request ready::$compareUrl"
+          $prTitle = "New version: Maui.Sherpa version $env:PACKAGE_VERSION"
+          $encodedTitle = [Uri]::EscapeDataString($prTitle)
+          $submissionUrl = "https://github.com/microsoft/winget-pkgs/compare/master...Redth:winget-pkgs:${branch}?quick_pull=1&title=$encodedTitle"
+          "submission_url=$submissionUrl" >> $env:GITHUB_OUTPUT
+          Write-Host "::notice title=Manual WinGet submission ready::$submissionUrl"
 
           @"
-          ## WinGet pull request ready
+          # WinGet submission ready
 
-          The validated manifests were published to ``Redth/winget-pkgs:$branch``.
+          ## [Open the prefilled WinGet pull request]($submissionUrl)
 
-          **[Open the pull request against microsoft/winget-pkgs]($compareUrl)**
+          The manifests are validated and already published to:
+
+          - **Branch:** ``Redth/winget-pkgs:$branch``
+          - **Manifest:** ``manifests/m/Maui/Sherpa/$env:PACKAGE_VERSION``
+
+          No GitHub token is needed. Open the link using your browser session, review
+          the generated checklist and manifest diff, then click **Create pull request**.
           "@ >> $env:GITHUB_STEP_SUMMARY

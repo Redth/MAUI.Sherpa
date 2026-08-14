@@ -583,18 +583,66 @@ jobs:
           Write-Host "Created: MAUI-Sherpa.win-arm64.zip"
           Get-Item ./artifacts/MAUI-Sherpa.win-arm64.zip | Format-List Name, Length
 
+      - name: Create Windows installers
+        shell: pwsh
+        run: |
+          function Find-InnoCompiler {
+           @(
+             "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+             "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
+             "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"
+           ) | Where-Object { Test-Path $_ -PathType Leaf } | Select-Object -First 1
+          }
+
+          $compiler = Find-InnoCompiler
+          if ([string]::IsNullOrWhiteSpace($compiler)) {
+           winget install --id JRSoftware.InnoSetup --exact --source winget --accept-package-agreements --accept-source-agreements --disable-interactivity
+           if ($LASTEXITCODE -ne 0) {
+             throw "Failed to install Inno Setup."
+           }
+           $compiler = Find-InnoCompiler
+          }
+          if ([string]::IsNullOrWhiteSpace($compiler)) {
+           throw "Inno Setup compiler was not found after installation."
+          }
+
+          $outputDir = (Resolve-Path "./artifacts").Path
+          $version = "${{ steps.version.outputs.app_version }}"
+          foreach ($arch in @("x64", "arm64")) {
+           $sourceDir = (Resolve-Path "./artifacts/win-$arch").Path
+           & $compiler `
+             "/DMyAppVersion=$version" `
+             "/DMyAppArch=$arch" `
+             "/DMySourceDir=$sourceDir" `
+             "/DMyOutputDir=$outputDir" `
+             "build/windows/MauiSherpa.iss"
+           if ($LASTEXITCODE -ne 0) {
+             throw "Failed to create the Windows $arch installer."
+           }
+
+           $installer = "./artifacts/MAUI-Sherpa.Setup.win-$arch.exe"
+           if (-not (Test-Path $installer -PathType Leaf)) {
+             throw "Expected installer at $installer."
+           }
+           Get-Item $installer | Format-List Name, Length
+          }
+
       - name: Upload Windows App (x64)
         uses: actions/upload-artifact@v4
         with:
           name: MAUI-Sherpa.win-x64
-          path: ./artifacts/MAUI-Sherpa.win-x64.zip
+          path: |
+           ./artifacts/MAUI-Sherpa.win-x64.zip
+           ./artifacts/MAUI-Sherpa.Setup.win-x64.exe
           retention-days: 30
 
       - name: Upload Windows App (arm64)
         uses: actions/upload-artifact@v4
         with:
           name: MAUI-Sherpa.win-arm64
-          path: ./artifacts/MAUI-Sherpa.win-arm64.zip
+          path: |
+            ./artifacts/MAUI-Sherpa.win-arm64.zip
+            ./artifacts/MAUI-Sherpa.Setup.win-arm64.exe
           retention-days: 30
 
       - name: Set commit status with artifact link
@@ -1070,6 +1118,8 @@ jobs:
             ./release/MAUI-Sherpa.macos.zip
             ./release/MAUI-Sherpa.win-x64.zip
             ./release/MAUI-Sherpa.win-arm64.zip
+            ./release/MAUI-Sherpa.Setup.win-x64.exe
+            ./release/MAUI-Sherpa.Setup.win-arm64.exe
             ./release/MAUI-Sherpa.linux-x64.tar.gz
             ./release/MAUI-Sherpa.linux-arm64.tar.gz
             ./release/*.deb
