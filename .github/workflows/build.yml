@@ -300,6 +300,87 @@ jobs:
           echo "Universal binary created:"
           lipo -info "$DEST_APP/Contents/MacOS/$BINARY_NAME"
 
+      - name: Repair Copilot runtime load command
+        run: |
+          set -euo pipefail
+          APP_PATH=$(find ./artifacts/macos -name "*.app" -type d | head -1)
+          BINARY_PATH="$APP_PATH/Contents/MacOS/MauiSherpa.MacOS"
+
+          # The arm64 slice ships two LC_LOAD_DYLIB entries for the Copilot runtime:
+          # the linker records the dylib's own install name, which is the absolute
+          # path it was built at on the copilot-agent-runtime CI runner, and the
+          # macOS packaging adds a second, correct entry pointing into the bundle.
+          # The absolute one does not exist on user machines, so dyld aborts at
+          # launch (issue #232).
+          STALE_PREFIX="/Users/runner/work/copilot-agent-runtime"
+          BUNDLED="@executable_path/../../Contents/MonoBundle/runtimes/osx-arm64/native/libcopilot_runtime.dylib"
+          # Equivalent spelling of the same file, relative to Contents/MacOS.
+          # Used when $BUNDLED is already linked, because rewriting the stale entry
+          # to that identical string produces a duplicate LC_LOAD_DYLIB, which dyld
+          # rejects just as hard as the missing library ("duplicate linked dylib").
+          # install_name_tool cannot delete a load command, so the stale slot has to
+          # be pointed at something valid rather than removed.
+          BUNDLED_ALT="@executable_path/../MonoBundle/runtimes/osx-arm64/native/libcopilot_runtime.dylib"
+
+          STALE=$(otool -arch arm64 -L "$BINARY_PATH" | awk '{print $1}' | grep -F "$STALE_PREFIX" || true)
+          if [ -n "$STALE" ]; then
+            if otool -arch arm64 -L "$BINARY_PATH" | awk '{print $1}' | grep -Fxq "$BUNDLED"; then
+              TARGET="$BUNDLED_ALT"
+            else
+              TARGET="$BUNDLED"
+            fi
+            echo "Rewriting stale load command:"
+            echo "  $STALE"
+            echo "    -> $TARGET"
+            install_name_tool -change "$STALE" "$TARGET" "$BINARY_PATH"
+          else
+            echo "No stale Copilot runtime load command found."
+          fi
+
+      - name: Verify Copilot runtime load commands
+        run: |
+          set -euo pipefail
+          APP_PATH=$(find ./artifacts/macos -name "*.app" -type d | head -1)
+          BINARY_PATH="$APP_PATH/Contents/MacOS/MauiSherpa.MacOS"
+          FAILED=0
+
+          # No build-machine paths may survive into a shipped artifact.
+          if otool -arch arm64 -L "$BINARY_PATH" | grep -F "/Users/runner/"; then
+            echo "::error::arm64 slice still links a build-machine path"
+            FAILED=1
+          fi
+
+          # dyld refuses to launch an image with two identical LC_LOAD_DYLIB paths.
+          DUPES=$(otool -arch arm64 -l "$BINARY_PATH" \
+            | awk '/LC_LOAD_DYLIB/,/time stamp/' | awk '/name /{print $2}' \
+            | sort | uniq -d || true)
+          if [ -n "$DUPES" ]; then
+            echo "::error::duplicate LC_LOAD_DYLIB entries in arm64 slice: $DUPES"
+            FAILED=1
+          fi
+
+          # Every non-system dependency must resolve inside the bundle.
+          otool -arch arm64 -L "$BINARY_PATH" | tail -n +2 | awk '{print $1}' \
+            | grep -v '^/usr/lib/' | grep -v '^/System/' | while read -r dep; do
+              case "$dep" in
+                @executable_path/*)
+                  resolved="$APP_PATH/Contents/MacOS/${dep#@executable_path/}"
+                  if [ ! -f "$resolved" ]; then
+                    echo "::error::unresolved bundled dependency: $dep"
+                    exit 1
+                  fi
+                  ;;
+                @rpath/*|@loader_path/*) ;;
+                *)
+                  echo "::error::absolute dependency outside the bundle: $dep"
+                  exit 1
+                  ;;
+              esac
+            done || FAILED=1
+
+          [ "$FAILED" -eq 0 ] || exit 1
+          echo "arm64 load commands verified."
+
       - name: Re-sign with Hardened Runtime
         if: env.APPLE_CERTIFICATE_P12 != ''
         env:
