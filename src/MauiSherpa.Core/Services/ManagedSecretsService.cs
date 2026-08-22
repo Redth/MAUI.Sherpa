@@ -10,6 +10,7 @@ public class ManagedSecretsService : IManagedSecretsService
 
     readonly ICloudSecretsService _cloudService;
     readonly ILoggingService _logger;
+    readonly ISecretsProviderRegistry? _providerRegistry;
     static readonly byte[] FolderPlaceholderValue = Encoding.UTF8.GetBytes("""{"kind":"maui-sherpa-folder"}""");
 
     static readonly JsonSerializerOptions JsonOptions = new()
@@ -18,67 +19,75 @@ public class ManagedSecretsService : IManagedSecretsService
         WriteIndented = false
     };
 
-    public ManagedSecretsService(ICloudSecretsService cloudService, ILoggingService logger)
+    public ManagedSecretsService(
+        ICloudSecretsService cloudService,
+        ILoggingService logger,
+        ISecretsProviderRegistry? providerRegistry = null)
     {
         _cloudService = cloudService;
         _logger = logger;
+        _providerRegistry = providerRegistry;
     }
 
     public async Task<IReadOnlyList<ManagedSecret>> ListAsync(CancellationToken cancellationToken = default)
     {
-        if (_cloudService.ActiveProvider is null)
-            return Array.Empty<ManagedSecret>();
-
-        // List metadata keys as the source of truth (value keys may be sanitized by provider)
-        var metaKeys = await _cloudService.ListSecretsAsync(IManagedSecretsService.MetadataPrefix, cancellationToken);
-        var secrets = new List<ManagedSecret>();
-
-        foreach (var fullMetaKey in metaKeys)
+        var secrets = new Dictionary<string, ManagedSecret>(StringComparer.Ordinal);
+        foreach (var provider in await GetReadProvidersAsync(cancellationToken))
         {
             try
             {
-                var metaBytes = await _cloudService.GetSecretAsync(fullMetaKey, cancellationToken);
-                if (metaBytes is null)
-                    continue;
+                // Metadata keys are the source of truth because providers may sanitize value keys.
+                var metaKeys = await provider.ListSecretsAsync(
+                    IManagedSecretsService.MetadataPrefix,
+                    cancellationToken);
+                foreach (var fullMetaKey in metaKeys)
+                {
+                    var metaBytes = await provider.GetSecretAsync(fullMetaKey, cancellationToken);
+                    if (metaBytes is null)
+                        continue;
 
-                var json = System.Text.Encoding.UTF8.GetString(metaBytes);
-                var meta = JsonSerializer.Deserialize<ManagedSecret>(json, JsonOptions);
-                if (meta is not null)
-                    secrets.Add(meta);
+                    var json = Encoding.UTF8.GetString(metaBytes);
+                    var meta = JsonSerializer.Deserialize<ManagedSecret>(json, JsonOptions);
+                    if (meta is not null)
+                        secrets.TryAdd(meta.Key, meta);
+                }
             }
             catch (Exception ex)
             {
-                _logger.LogWarning($"Failed to load metadata for '{fullMetaKey}': {ex.Message}");
+                _logger.LogWarning($"Failed to enumerate managed secrets from {provider.DisplayName}: {ex.Message}");
             }
         }
 
-        return secrets;
+        return secrets.Values
+            .OrderBy(secret => secret.Key, StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 
     public async Task<IReadOnlyList<ManagedSecretFolder>> ListFoldersAsync(CancellationToken cancellationToken = default)
     {
-        if (_cloudService.ActiveProvider is null)
-            return Array.Empty<ManagedSecretFolder>();
-
-        var folderKeys = await _cloudService.ListSecretsAsync(IManagedSecretsService.FolderPrefix, cancellationToken);
         var folders = new List<ManagedSecretFolder>();
-
-        foreach (var fullFolderKey in folderKeys)
+        foreach (var provider in await GetReadProvidersAsync(cancellationToken))
         {
             try
             {
-                var folderBytes = await _cloudService.GetSecretAsync(fullFolderKey, cancellationToken);
-                if (folderBytes is null)
-                    continue;
+                var folderKeys = await provider.ListSecretsAsync(
+                    IManagedSecretsService.FolderPrefix,
+                    cancellationToken);
+                foreach (var fullFolderKey in folderKeys)
+                {
+                    var folderBytes = await provider.GetSecretAsync(fullFolderKey, cancellationToken);
+                    if (folderBytes is null)
+                        continue;
 
-                var json = System.Text.Encoding.UTF8.GetString(folderBytes);
-                var folder = JsonSerializer.Deserialize<ManagedSecretFolder>(json, JsonOptions);
-                if (folder is not null)
-                    folders.Add(folder);
+                    var json = Encoding.UTF8.GetString(folderBytes);
+                    var folder = JsonSerializer.Deserialize<ManagedSecretFolder>(json, JsonOptions);
+                    if (folder is not null)
+                        folders.Add(folder);
+                }
             }
             catch (Exception ex)
             {
-                _logger.LogWarning($"Failed to load folder metadata for '{fullFolderKey}': {ex.Message}");
+                _logger.LogWarning($"Failed to enumerate managed secret folders from {provider.DisplayName}: {ex.Message}");
             }
         }
 
@@ -164,6 +173,8 @@ public class ManagedSecretsService : IManagedSecretsService
             })
             .ToList();
 
+        var stagedSecretKeys = new List<string>();
+        var stagedFolderPaths = new List<string>();
         foreach (var (_, moved, value) in secretMoves)
         {
             var stored = await _cloudService.StoreSecretAsync(
@@ -171,16 +182,37 @@ public class ManagedSecretsService : IManagedSecretsService
                 value,
                 cancellationToken: cancellationToken);
             if (!stored)
+            {
+                await RollbackFolderRenameStagingAsync(
+                    stagedSecretKeys,
+                    stagedFolderPaths,
+                    cancellationToken);
                 return false;
+            }
 
-            await SaveMetadataAsync(moved, cancellationToken);
+            stagedSecretKeys.Add(moved.Key);
+            if (!await SaveMetadataAsync(moved, cancellationToken))
+            {
+                await RollbackFolderRenameStagingAsync(
+                    stagedSecretKeys,
+                    stagedFolderPaths,
+                    cancellationToken);
+                return false;
+            }
         }
 
         foreach (var (_, moved) in folderMoves)
         {
             var stored = await StoreFolderAsync(moved, cancellationToken);
             if (!stored)
+            {
+                await RollbackFolderRenameStagingAsync(
+                    stagedSecretKeys,
+                    stagedFolderPaths,
+                    cancellationToken);
                 return false;
+            }
+            stagedFolderPaths.Add(moved.Path);
         }
 
         foreach (var (existing, _, _) in secretMoves)
@@ -194,6 +226,32 @@ public class ManagedSecretsService : IManagedSecretsService
 
         _logger.LogInformation($"Renamed managed secrets folder: {oldPath} -> {normalizedNewPath}");
         return true;
+    }
+
+    async Task RollbackFolderRenameStagingAsync(
+        IEnumerable<string> secretKeys,
+        IEnumerable<string> folderPaths,
+        CancellationToken cancellationToken)
+    {
+        foreach (var key in secretKeys.Reverse())
+        {
+            await _cloudService.DeleteSecretAsync(
+                IManagedSecretsService.SecretPrefix + key,
+                cancellationToken);
+            await _cloudService.DeleteSecretAsync(
+                IManagedSecretsService.MetadataPrefix + key,
+                cancellationToken);
+        }
+
+        foreach (var path in folderPaths.Reverse())
+        {
+            await _cloudService.DeleteSecretAsync(
+                GetFolderMetadataKey(path),
+                cancellationToken);
+            await _cloudService.DeleteSecretAsync(
+                GetFolderPlaceholderKey(path),
+                cancellationToken);
+        }
     }
 
     public async Task<bool> DeleteFolderAsync(string folderPath, CancellationToken cancellationToken = default)
@@ -224,19 +282,27 @@ public class ManagedSecretsService : IManagedSecretsService
 
     public async Task<ManagedSecret?> GetAsync(string key, CancellationToken cancellationToken = default)
     {
-        if (_cloudService.ActiveProvider is null)
-            return null;
-
         return await LoadMetadataAsync(key, cancellationToken);
     }
 
     public async Task<byte[]?> GetValueAsync(string key, CancellationToken cancellationToken = default)
     {
-        if (_cloudService.ActiveProvider is null)
-            return null;
-
         var fullKey = IManagedSecretsService.SecretPrefix + key;
-        return await _cloudService.GetSecretAsync(fullKey, cancellationToken);
+        foreach (var provider in await GetReadProvidersAsync(cancellationToken))
+        {
+            try
+            {
+                var value = await provider.GetSecretAsync(fullKey, cancellationToken);
+                if (value is not null)
+                    return value;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($"Failed to read managed secret '{key}' from {provider.DisplayName}: {ex.Message}");
+            }
+        }
+
+        return null;
     }
 
     public async Task<bool> CreateAsync(string key, byte[] value, ManagedSecretType type,
@@ -395,21 +461,25 @@ public class ManagedSecretsService : IManagedSecretsService
 
     async Task<ManagedSecret?> LoadMetadataAsync(string key, CancellationToken cancellationToken)
     {
-        try
+        foreach (var provider in await GetReadProvidersAsync(cancellationToken))
         {
-            var metaKey = IManagedSecretsService.MetadataPrefix + key;
-            var metaBytes = await _cloudService.GetSecretAsync(metaKey, cancellationToken);
-            if (metaBytes is null)
-                return null;
+            try
+            {
+                var metaKey = IManagedSecretsService.MetadataPrefix + key;
+                var metaBytes = await provider.GetSecretAsync(metaKey, cancellationToken);
+                if (metaBytes is null)
+                    continue;
 
-            var json = System.Text.Encoding.UTF8.GetString(metaBytes);
-            return JsonSerializer.Deserialize<ManagedSecret>(json, JsonOptions);
+                var json = Encoding.UTF8.GetString(metaBytes);
+                return JsonSerializer.Deserialize<ManagedSecret>(json, JsonOptions);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($"Failed to load metadata for secret '{key}' from {provider.DisplayName}: {ex.Message}");
+            }
         }
-        catch (Exception ex)
-        {
-            _logger.LogWarning($"Failed to load metadata for secret '{key}': {ex.Message}");
-            return null;
-        }
+
+        return null;
     }
 
     async Task<bool> SaveMetadataAsync(ManagedSecret meta, CancellationToken cancellationToken)
@@ -446,6 +516,32 @@ public class ManagedSecretsService : IManagedSecretsService
         }
 
         return true;
+    }
+
+    async Task<IReadOnlyList<ICloudSecretsProvider>> GetReadProvidersAsync(
+        CancellationToken cancellationToken)
+    {
+        if (_providerRegistry is null)
+        {
+            if (_cloudService.ActiveProvider is null)
+                return Array.Empty<ICloudSecretsProvider>();
+
+            return [new ActiveCloudProviderAdapter(_cloudService)];
+        }
+
+        var providers = new List<ICloudSecretsProvider>();
+        var configs = await _providerRegistry.GetProvidersAsync();
+        foreach (var config in configs
+            .OrderBy(provider => provider.ProviderType == CloudSecretsProviderType.Local ? 0 : 1)
+            .ThenBy(provider => provider.Name, StringComparer.OrdinalIgnoreCase))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var provider = await _providerRegistry.GetProviderAsync(config.Id);
+            if (provider is not null)
+                providers.Add(provider);
+        }
+
+        return providers;
     }
 
     static string GetFolderMetadataKey(string folderPath) =>
@@ -487,5 +583,55 @@ public class ManagedSecretsService : IManagedSecretsService
         return SecretPath.NormalizeFolderPath(string.IsNullOrEmpty(relativePath)
             ? newFolderPath
             : newFolderPath + "/" + relativePath);
+    }
+
+    private sealed class ActiveCloudProviderAdapter : ICloudSecretsProvider
+    {
+        private readonly ICloudSecretsService _cloudService;
+
+        public ActiveCloudProviderAdapter(ICloudSecretsService cloudService)
+        {
+            _cloudService = cloudService;
+        }
+
+        public CloudSecretsProviderType ProviderType =>
+            _cloudService.ActiveProvider?.ProviderType ?? CloudSecretsProviderType.None;
+
+        public string DisplayName => _cloudService.ActiveProvider?.Name ?? "Active provider";
+
+        public Task<bool> TestConnectionAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(_cloudService.ActiveProvider is not null);
+
+        public Task<bool> StoreSecretAsync(
+            string key,
+            byte[] value,
+            Dictionary<string, string>? metadata = null,
+            CancellationToken cancellationToken = default) =>
+            _cloudService.StoreSecretAsync(key, value, metadata, cancellationToken);
+
+        public Task<byte[]?> GetSecretAsync(string key, CancellationToken cancellationToken = default) =>
+            _cloudService.GetSecretAsync(key, cancellationToken);
+
+        public Task<Dictionary<string, string>?> GetSecretMetadataAsync(
+            string key,
+            CancellationToken cancellationToken = default) =>
+            _cloudService.GetSecretMetadataAsync(key, cancellationToken);
+
+        public Task<bool> SetSecretMetadataAsync(
+            string key,
+            Dictionary<string, string> metadata,
+            CancellationToken cancellationToken = default) =>
+            _cloudService.SetSecretMetadataAsync(key, metadata, cancellationToken);
+
+        public Task<bool> DeleteSecretAsync(string key, CancellationToken cancellationToken = default) =>
+            _cloudService.DeleteSecretAsync(key, cancellationToken);
+
+        public Task<bool> SecretExistsAsync(string key, CancellationToken cancellationToken = default) =>
+            _cloudService.SecretExistsAsync(key, cancellationToken);
+
+        public Task<IReadOnlyList<string>> ListSecretsAsync(
+            string? prefix = null,
+            CancellationToken cancellationToken = default) =>
+            _cloudService.ListSecretsAsync(prefix, cancellationToken);
     }
 }

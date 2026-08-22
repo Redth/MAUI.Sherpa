@@ -17,6 +17,7 @@
 @inject IToolbarService ToolbarService
 @inject IPlatformService PlatformInfo
 @inject ILocalVaultAccessService LocalVaultAccess
+@inject ISecretSyncCoordinator SecretSyncCoordinator
 @implements IDisposable
 
 <h1><i class="fas fa-id-card"></i> Provisioning Profiles</h1>
@@ -173,6 +174,9 @@
                         </div>
                     </div>
                     <div class="profile-actions">
+                        <MauiSherpa.Components.SecretProviderPickerHost
+                            @key="@($"profile-sync-{profile.Id}")"
+                            Item="@(new SecretItemRef(SecretItemKind.ProvisioningProfile, profile.Id, profile.Name))" />
                         <button class="btn btn-secondary btn-icon" @onclick="@(() => ShowEditDialog(profile))" disabled="@isLoading" title="Edit">
                             <i class="fas fa-edit"></i>
                         </button>
@@ -473,7 +477,14 @@
         var page = new MauiSherpa.Pages.Modals.CreateProfilePage(BridgeHolder);
         var result = await FormModalService.ShowAsync<AppleProfile>(page);
         if (result != null)
+        {
+            await SecretSyncCoordinator.SetDefaultProvidersAsync(
+                new SecretItemRef(
+                    SecretItemKind.ProvisioningProfile,
+                    result.Id,
+                    result.Name));
             await RefreshData(forceRefresh: true);
+        }
     }
 
     private async Task ShowEditDialog(AppleProfile profile)

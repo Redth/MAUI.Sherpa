@@ -1,5 +1,36 @@
 <Project>
 
+  <!-- Collapse duplicate package-native references before dependency rewriting so the app
+       executable and the copied dylib are computed from the same source item. -->
+  <Target Name="_CollapseDuplicateFileNativeReferences"
+          BeforeTargets="_ComputeDynamicLibrariesToReidentify"
+          Outputs="%(_FileNativeReference.RelativePath)"
+          Condition="'@(_FileNativeReference)' != ''">
+
+    <ItemGroup>
+      <_NativeReferencesForPath Include="@(_FileNativeReference)" />
+    </ItemGroup>
+
+    <PropertyGroup>
+      <_NativeReferencesForPathCount>@(_NativeReferencesForPath->Count())</_NativeReferencesForPathCount>
+      <_NativeReferenceToKeep />
+    </PropertyGroup>
+
+    <PropertyGroup Condition="$(_NativeReferencesForPathCount) &gt; 1">
+      <_NativeReferenceToKeep>%(_NativeReferencesForPath.Identity)</_NativeReferenceToKeep>
+    </PropertyGroup>
+
+    <ItemGroup Condition="$(_NativeReferencesForPathCount) &gt; 1">
+      <_FileNativeReference Remove="@(_NativeReferencesForPath)" MatchOnMetadata="RelativePath" />
+      <_FileNativeReference Include="@(_NativeReferencesForPath)"
+                            Condition="'%(Identity)' == '$(_NativeReferenceToKeep)'" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <_NativeReferencesForPath Remove="@(_NativeReferencesForPath)" />
+    </ItemGroup>
+  </Target>
+
   <!-- InstallNameTool processes these items in parallel and uses ReidentifiedPath for its scratch
        file. Duplicate destinations therefore race on the same file, even when their source
        identities or project metadata differ. Deduplicate the final SDK items by that destination. -->

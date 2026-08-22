@@ -13,6 +13,7 @@
 @inject IToolbarService ToolbarService
 @inject NavigationManager NavManager
 @inject ICopilotContextService CopilotContext
+@inject IBackgroundTaskService BackgroundTasks
 @implements IDisposable
 
 <div class="main-layout @ThemeClass @PlatformClass">
@@ -148,6 +149,11 @@
 <!-- Global Toast Notifications -->
 <MauiSherpa.Components.ToastContainer />
 
+<!-- Global background task manager -->
+<div class="global-background-task-center">
+    <MauiSherpa.Components.BackgroundTaskCenter />
+</div>
+
 @code {
     private string ThemeClass => ThemeService.IsDarkMode ? "theme-dark" : "theme-light";
     private string PlatformClass => PlatformInfo.IsMacOS ? "platform-macos" : PlatformInfo.IsWindows ? "platform-windows" : PlatformInfo.IsMacCatalyst ? "platform-mac" : "platform-linux";
@@ -180,6 +186,9 @@
             
             // Run settings migration in background
             _ = RunMigrationAsync();
+
+            // Resume secure background work after the UI has initialized.
+            _ = BackgroundTasks.InitializeAsync();
 
             // Start watching for ADB device changes
             _ = DeviceWatcher.StartAsync();
@@ -306,6 +315,18 @@
         height: 100vh;
         width: 100vw;
         --titlebar-height: 28px;
+    }
+
+    .global-background-task-center {
+        position: fixed;
+        right: 1rem;
+        bottom: 1rem;
+        z-index: 900;
+    }
+
+    .global-background-task-center .task-center-flyout {
+        inset-block-start: auto;
+        inset-block-end: calc(100% + 0.5rem);
     }
 
     .sidebar {
@@ -476,6 +497,7 @@
         flex: 1;
         padding: 30px;
         padding-top: calc(var(--titlebar-height) + 10px);
+        padding-bottom: 5rem;
         overflow-y: auto;
         background-color: var(--bg-primary);
         color: var(--text-primary);
@@ -587,6 +609,7 @@
 
     .platform-macos .content {
         padding: 15px;
+        padding-bottom: 5rem;
         /* Reserve a right-hand gutter so content never sits under the
            floating viewport scrollbar (WKWebView document-level scroll). */
         padding-right: 23px;

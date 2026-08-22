@@ -133,12 +133,12 @@ public class OnePasswordProvider : ICloudSecretsProvider
         catch (FormatException ex)
         {
             _logger.LogError($"1Password secret not base64 encoded: {key} - {ex.Message}");
-            return null;
+            throw;
         }
         catch (Exception ex)
         {
             _logger.LogError($"1Password get secret error: {ex.Message}", ex);
-            return null;
+            throw;
         }
     }
 
@@ -233,7 +233,7 @@ public class OnePasswordProvider : ICloudSecretsProvider
         catch (Exception ex)
         {
             _logger.LogError($"1Password secret exists check error: {ex.Message}", ex);
-            return false;
+            throw;
         }
     }
 
@@ -389,7 +389,15 @@ public class OnePasswordProvider : ICloudSecretsProvider
             new[] { "item", "get", ItemTitle, "--vault", Vault, "--format", "json" }, cancellationToken);
 
         if (exitCode != 0)
-            return null;
+        {
+            if (output.Contains("not found", StringComparison.OrdinalIgnoreCase) ||
+                output.Contains("isn't an item", StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            throw new InvalidOperationException($"Failed to read 1Password item: {output}");
+        }
 
         if (string.IsNullOrWhiteSpace(output))
             return null;

@@ -173,20 +173,23 @@ public class AzureDevOpsProvider : ICloudSecretsProvider
 
             var sanitizedKey = SanitizeKey(key);
 
-            if (!group.Variables.TryGetValue(sanitizedKey, out var variable) || variable.Value == null)
+            if (!group.Variables.TryGetValue(sanitizedKey, out var variable))
                 return null;
+            if (variable.Value == null)
+                throw new InvalidOperationException(
+                    $"Azure DevOps redacted secret '{key}' and cannot return its value.");
 
             return Convert.FromBase64String(variable.Value);
         }
         catch (FormatException ex)
         {
             _logger.LogError($"Azure DevOps secret not base64 encoded: {key} - {ex.Message}");
-            return null;
+            throw;
         }
         catch (Exception ex)
         {
             _logger.LogError($"Azure DevOps get secret error: {ex.Message}", ex);
-            return null;
+            throw;
         }
     }
 
@@ -314,7 +317,7 @@ public class AzureDevOpsProvider : ICloudSecretsProvider
         catch (Exception ex)
         {
             _logger.LogError($"Azure DevOps secret exists check error: {ex.Message}", ex);
-            return false;
+            throw;
         }
     }
 

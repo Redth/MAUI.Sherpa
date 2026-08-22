@@ -73,6 +73,8 @@ public class BlazorContentPage : ContentPage
         _identityState = serviceProvider.GetRequiredService<IAppleIdentityStateService>();
         _googleIdentityService = serviceProvider.GetRequiredService<IGoogleIdentityService>();
         _googleIdentityState = serviceProvider.GetRequiredService<IGoogleIdentityStateService>();
+        _identityState.OnSelectionChanged += OnIdentitySelectionChanged;
+        _googleIdentityState.OnSelectionChanged += OnIdentitySelectionChanged;
         _xcodeDownloadAuthService = serviceProvider.GetRequiredService<IAppleDownloadAuthService>();
         _alertService = serviceProvider.GetRequiredService<IAlertService>();
         _preferences = serviceProvider.GetRequiredService<IPreferences>();
@@ -884,20 +886,18 @@ public class BlazorContentPage : ContentPage
         if (identityNative?.Menu == null) return;
 
         var identities = _cachedGoogleIdentities;
-        var selectedId = _googleIdentityState.SelectedIdentity?.Id;
+        var selected = identities.FirstOrDefault(identity =>
+                identity.Id == _googleIdentityState.SelectedIdentity?.Id) ??
+            identities.FirstOrDefault(identity =>
+                identity.Id == _googleIdentityState.LastSelectedIdentityId) ??
+            identities[0];
+        var selectedId = selected.Id;
+        if (!EqualityComparer<GoogleIdentity?>.Default.Equals(_googleIdentityState.SelectedIdentity, selected))
+            _googleIdentityState.SetSelectedIdentity(selected);
 
-        if (selectedId == null && identities.Count > 0)
-        {
-            _googleIdentityState.SetSelectedIdentity(identities[0]);
-            selectedId = identities[0].Id;
-        }
+        UpdateNativeIdentityLabel(identityNative, selected.Name, "flame");
 
-        var selectedName = _googleIdentityState.SelectedIdentity?.Name ?? identities[0].Name;
-        identityNative.Image = NSImage.GetSystemSymbol("flame", null);
-        identityNative.Title = selectedName;
-        identityNative.Label = selectedName;
-
-        var newMenu = new NSMenu();
+        var newMenu = new NSMenu { Title = selected.Name };
         for (int i = 0; i < identities.Count; i++)
         {
             var identity = identities[i];
@@ -909,8 +909,8 @@ public class BlazorContentPage : ContentPage
                 var selected = identities.FirstOrDefault(x => x.Id == id);
                 if (selected != null)
                 {
+                    UpdateNativeIdentityLabel(identityNative, selected.Name, "flame");
                     _googleIdentityState.SetSelectedIdentity(selected);
-                    Dispatcher.Dispatch(() => UpdateToolbarVisibility());
                 }
             });
             menuItem.Target = target;
@@ -952,20 +952,18 @@ public class BlazorContentPage : ContentPage
         if (identityNative?.Menu == null) return;
 
         var identities = _cachedIdentities;
-        var selectedId = _identityState.SelectedIdentity?.Id;
+        var selected = identities.FirstOrDefault(identity =>
+                identity.Id == _identityState.SelectedIdentity?.Id) ??
+            identities.FirstOrDefault(identity =>
+                identity.Id == _identityState.LastSelectedIdentityId) ??
+            identities[0];
+        var selectedId = selected.Id;
+        if (!EqualityComparer<AppleIdentity?>.Default.Equals(_identityState.SelectedIdentity, selected))
+            _identityState.SetSelectedIdentity(selected);
 
-        if (selectedId == null && identities.Count > 0)
-        {
-            _identityState.SetSelectedIdentity(identities[0]);
-            selectedId = identities[0].Id;
-        }
+        UpdateNativeIdentityLabel(identityNative, selected.Name, "apple.logo");
 
-        var selectedName = _identityState.SelectedIdentity?.Name ?? identities[0].Name;
-        identityNative.Image = NSImage.GetSystemSymbol("apple.logo", null);
-        identityNative.Title = selectedName;
-        identityNative.Label = selectedName;
-
-        var newMenu = new NSMenu();
+        var newMenu = new NSMenu { Title = selected.Name };
         for (int i = 0; i < identities.Count; i++)
         {
             var identity = identities[i];
@@ -977,8 +975,8 @@ public class BlazorContentPage : ContentPage
                 var selected = identities.FirstOrDefault(x => x.Id == id);
                 if (selected != null)
                 {
+                    UpdateNativeIdentityLabel(identityNative, selected.Name, "apple.logo");
                     _identityState.SetSelectedIdentity(selected);
-                    Dispatcher.Dispatch(() => UpdateToolbarVisibility());
                 }
             });
             menuItem.Target = target;
@@ -1001,6 +999,36 @@ public class BlazorContentPage : ContentPage
         newMenu.AddItem(settingsItem);
 
         identityNative.Menu = newMenu;
+    }
+
+    void OnIdentitySelectionChanged()
+    {
+        if (!AppleRoutes.Contains(_currentRoute) && !GoogleRoutes.Contains(_currentRoute))
+            return;
+
+        Dispatcher.Dispatch(() =>
+        {
+            // AppKit does not refresh the rendered NSMenuToolbarItem title after
+            // changing Label/Title. Recreate the item with the selected identity.
+            _toolbarInitialized = false;
+            _toolbarVisibilityApplied = false;
+            _nativeIdentityMenu = null;
+            OnToolbarChanged();
+        });
+    }
+
+    static void UpdateNativeIdentityLabel(
+        NSMenuToolbarItem toolbarItem,
+        string selectedName,
+        string systemImageName)
+    {
+        toolbarItem.Image = NSImage.GetSystemSymbol(systemImageName, null);
+        toolbarItem.Title = selectedName;
+        toolbarItem.Label = selectedName;
+        toolbarItem.PaletteLabel = selectedName;
+        toolbarItem.ToolTip = selectedName;
+        if (toolbarItem.Menu is not null)
+            toolbarItem.Menu.Title = selectedName;
     }
 
     void FullRebuildToolbar()
@@ -1297,8 +1325,15 @@ public class BlazorContentPage : ContentPage
         }
 
         var identities = _cachedIdentities;
-        var selectedId = _identityState.SelectedIdentity?.Id;
-        var selectedName = _identityState.SelectedIdentity?.Name ?? identities[0].Name;
+        var selected = identities.FirstOrDefault(identity =>
+                identity.Id == _identityState.SelectedIdentity?.Id) ??
+            identities.FirstOrDefault(identity =>
+                identity.Id == _identityState.LastSelectedIdentityId) ??
+            identities[0];
+        var selectedId = selected.Id;
+        var selectedName = selected.Name;
+        if (!EqualityComparer<AppleIdentity?>.Default.Equals(_identityState.SelectedIdentity, selected))
+            _identityState.SetSelectedIdentity(selected);
 
         var menu = new MacOSMenuToolbarItem
         {

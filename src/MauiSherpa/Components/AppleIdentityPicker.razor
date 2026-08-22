@@ -211,10 +211,11 @@ else
             return;
         }
         
-        // Restore selection or select first
-        if (IdentityState.SelectedIdentity != null)
+        // Restore the in-memory selection, then the last persisted selection.
+        var preferredIdentityId = IdentityState.SelectedIdentity?.Id ?? IdentityState.LastSelectedIdentityId;
+        if (!string.IsNullOrWhiteSpace(preferredIdentityId))
         {
-            var selected = identities.FirstOrDefault(i => i.Id == IdentityState.SelectedIdentity.Id);
+            var selected = identities.FirstOrDefault(i => i.Id == preferredIdentityId);
             if (selected != null)
             {
                 selectedIdentityId = selected.Id;

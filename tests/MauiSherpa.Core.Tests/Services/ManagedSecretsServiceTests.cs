@@ -164,6 +164,52 @@ public class ManagedSecretsServiceTests
     }
 
     [Fact]
+    public async Task RenameFolderAsync_WhenNewMetadataFails_RollsBackWithoutDeletingOriginal()
+    {
+        SetupActiveProvider();
+        var created = DateTime.UtcNow.AddDays(-1);
+        var secret = new ManagedSecret(
+            "team/api-key",
+            ManagedSecretType.String,
+            "API Key",
+            null,
+            created,
+            created);
+        SetupSecretMetadataList(secret);
+        SetupSecretValue(secret.Key, "api-value");
+        SetupFolderList(new ManagedSecretFolder("/team", "team", created));
+        _cloudService.Setup(x => x.StoreSecretAsync(
+                It.IsAny<string>(),
+                It.IsAny<byte[]>(),
+                It.IsAny<Dictionary<string, string>?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        _cloudService.Setup(x => x.StoreSecretAsync(
+                "sherpa-secrets-meta/project/api-key",
+                It.IsAny<byte[]>(),
+                null,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+        _cloudService.Setup(x => x.DeleteSecretAsync(
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var result = await _sut.RenameFolderAsync("/team", "/project");
+
+        result.Should().BeFalse();
+        _cloudService.Verify(x => x.DeleteSecretAsync(
+            "sherpa-secrets/project/api-key",
+            It.IsAny<CancellationToken>()), Times.Once);
+        _cloudService.Verify(x => x.DeleteSecretAsync(
+            "sherpa-secrets/team/api-key",
+            It.IsAny<CancellationToken>()), Times.Never);
+        _cloudService.Verify(x => x.DeleteSecretAsync(
+            "sherpa-secrets-meta/team/api-key",
+            It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
     public async Task RenameFolderAsync_ExistingTargetSecret_ReturnsFalse()
     {
         SetupActiveProvider();

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 using MauiSherpa.Core.Interfaces;
 
@@ -7,7 +8,7 @@ namespace MauiSherpa.Core.Services;
 /// Service for managing cloud secrets storage providers and operations.
 /// Stores provider configurations in secure storage, with metadata in JSON.
 /// </summary>
-public class CloudSecretsService : ICloudSecretsService
+public class CloudSecretsService : ICloudSecretsService, ISecretsProviderRegistry
 {
     private readonly ISecureStorageService _secureStorage;
     private readonly IFileSystemService _fileSystem;
@@ -17,10 +18,16 @@ public class CloudSecretsService : ICloudSecretsService
     private readonly ILocalVaultAccessService? _localVaultAccess;
     private readonly ILocalVaultIntroductionService? _localVaultIntroduction;
     private readonly string _settingsPath;
+    private readonly object _metadataLock = new();
+    private readonly SemaphoreSlim _metadataLoadGate = new(1, 1);
+    private readonly SemaphoreSlim _metadataPersistGate = new(1, 1);
     
     private List<CloudSecretsProviderMetadata> _providerMetadata = new();
+    private volatile bool _metadataLoaded;
     private string? _activeProviderId;
     private ICloudSecretsProvider? _activeProviderInstance;
+    private readonly ConcurrentDictionary<string, ICloudSecretsProvider> _providerInstances =
+        new(StringComparer.Ordinal);
     
     // Internal record for storing non-sensitive data in JSON
     private record CloudSecretsProviderMetadata(
@@ -28,7 +35,8 @@ public class CloudSecretsService : ICloudSecretsService
         string Name,
         CloudSecretsProviderType ProviderType,
         // Only store non-secret setting keys here; secrets go in secure storage
-        List<string> NonSecretSettingKeys
+        List<string> NonSecretSettingKeys,
+        List<SecretItemKind>? DefaultItemKinds = null
     );
 
     private const string SecureKeyPrefix = "cloud_secrets_provider_";
@@ -62,6 +70,7 @@ public class CloudSecretsService : ICloudSecretsService
     public CloudSecretsProviderConfig? ActiveProvider { get; private set; }
 
     public event Action? OnActiveProviderChanged;
+    public event Action? ProvidersChanged;
 
     #region Provider Management
 
@@ -69,13 +78,17 @@ public class CloudSecretsService : ICloudSecretsService
     {
         await LoadMetadataAsync();
 
-        var metadata = _providerMetadata;
-        if (_providerMetadata.All(p => p.Id != DefaultLocalProviderId))
+        List<CloudSecretsProviderMetadata> metadata;
+        lock (_metadataLock)
+            metadata = _providerMetadata.ToList();
+
+        if (metadata.All(p => p.Id != DefaultLocalProviderId))
         {
             if (CanUseLocalVault())
             {
                 await EnsureDefaultLocalProviderMetadataAsync();
-                metadata = _providerMetadata;
+                lock (_metadataLock)
+                    metadata = _providerMetadata.ToList();
             }
             else
             {
@@ -83,14 +96,15 @@ public class CloudSecretsService : ICloudSecretsService
                 {
                     CreateDefaultLocalProviderMetadata()
                 };
-                withDefaultLocal.AddRange(_providerMetadata);
+                withDefaultLocal.AddRange(metadata);
                 metadata = withDefaultLocal;
             }
         }
         else if (CanUseLocalVault())
         {
             await EnsureDefaultLocalProviderMetadataAsync();
-            metadata = _providerMetadata;
+            lock (_metadataLock)
+                metadata = _providerMetadata.ToList();
         }
 
         var result = new List<CloudSecretsProviderConfig>();
@@ -131,14 +145,18 @@ public class CloudSecretsService : ICloudSecretsService
             provider.Id,
             provider.Name,
             provider.ProviderType,
-            nonSecretKeys
+            nonSecretKeys,
+            provider.EffectiveDefaultItemKinds.ToList()
         );
 
-        var existing = _providerMetadata.FindIndex(m => m.Id == provider.Id);
-        if (existing >= 0)
-            _providerMetadata[existing] = metadata;
-        else
-            _providerMetadata.Add(metadata);
+        lock (_metadataLock)
+        {
+            var existing = _providerMetadata.FindIndex(m => m.Id == provider.Id);
+            if (existing >= 0)
+                _providerMetadata[existing] = metadata;
+            else
+                _providerMetadata.Add(metadata);
+        }
 
         await PersistMetadataAsync();
         
@@ -149,6 +167,7 @@ public class CloudSecretsService : ICloudSecretsService
         await PersistNonSecretSettingsAsync(provider.Id, nonSecretSettings);
         
         _logger.LogInformation($"Saved cloud secrets provider: {provider.Name}");
+        _providerInstances.TryRemove(provider.Id, out _);
         
         // Update active provider if it's the one we just saved
         if (_activeProviderId == provider.Id)
@@ -157,6 +176,8 @@ public class CloudSecretsService : ICloudSecretsService
             _activeProviderInstance = null; // Force re-creation
             OnActiveProviderChanged?.Invoke();
         }
+
+        ProvidersChanged?.Invoke();
     }
 
     public async Task EnableDefaultLocalProviderAsync(bool setActiveProvider = true)
@@ -187,11 +208,14 @@ public class CloudSecretsService : ICloudSecretsService
         if (await _fileSystem.FileExistsAsync(nonSecretPath))
             await _fileSystem.DeleteFileAsync(nonSecretPath);
         if (CanUseLocalVault())
-            await _vaultStore.RemoveAsync(LocalVaultScopes.CloudProvider, ProviderSettingsVaultPath, GetProviderSettingsVaultKey(providerId));
+            await _vaultStore!.RemoveAsync(LocalVaultScopes.CloudProvider, ProviderSettingsVaultPath, GetProviderSettingsVaultKey(providerId));
 
-        var removed = _providerMetadata.RemoveAll(m => m.Id == providerId);
+        int removed;
+        lock (_metadataLock)
+            removed = _providerMetadata.RemoveAll(m => m.Id == providerId);
         if (removed > 0)
         {
+            _providerInstances.TryRemove(providerId, out _);
             await PersistMetadataAsync();
             _logger.LogInformation($"Deleted cloud secrets provider: {providerId}");
             
@@ -200,7 +224,30 @@ public class CloudSecretsService : ICloudSecretsService
             {
                 await SetActiveProviderAsync(null);
             }
+
+            ProvidersChanged?.Invoke();
         }
+    }
+
+    public async Task<CloudSecretsProviderConfig?> GetProviderConfigAsync(string providerId)
+    {
+        var providers = await GetProvidersAsync();
+        return providers.FirstOrDefault(provider =>
+            string.Equals(provider.Id, providerId, StringComparison.Ordinal));
+    }
+
+    public async Task<ICloudSecretsProvider?> GetProviderAsync(string providerId)
+    {
+        if (_providerInstances.TryGetValue(providerId, out var existing))
+            return existing;
+
+        var config = await GetProviderConfigAsync(providerId);
+        if (config is null)
+            return null;
+
+        return _providerInstances.GetOrAdd(
+            providerId,
+            _ => _providerFactory.CreateProvider(config));
     }
 
     public async Task<bool> TestProviderConnectionAsync(string providerId)
@@ -388,7 +435,7 @@ public class CloudSecretsService : ICloudSecretsService
         if (ActiveProvider == null)
             return null;
         
-        _activeProviderInstance = _providerFactory.CreateProvider(ActiveProvider);
+        _activeProviderInstance = await GetProviderAsync(ActiveProvider.Id);
         return _activeProviderInstance;
     }
 
@@ -423,7 +470,8 @@ public class CloudSecretsService : ICloudSecretsService
                 metadata.Id,
                 metadata.Name,
                 metadata.ProviderType,
-                settings
+                settings,
+                metadata.DefaultItemKinds ?? SecretItemKinds.All.ToList()
             );
         }
         catch (Exception ex)
@@ -435,43 +483,74 @@ public class CloudSecretsService : ICloudSecretsService
 
     private async Task LoadMetadataAsync()
     {
-        if (CanUseLocalVault())
-        {
-            try
-            {
-                var item = await _vaultStore.GetAsync(LocalVaultScopes.CloudProvider, "/", ProviderMetadataVaultKey);
-                if (item is not null)
-                {
-                    var json = System.Text.Encoding.UTF8.GetString(item.Value);
-                    _providerMetadata = JsonSerializer.Deserialize<List<CloudSecretsProviderMetadata>>(json) ?? new();
-                    return;
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning($"Failed to read cloud secrets metadata from local vault: {ex.Message}");
-            }
-        }
+        if (_metadataLoaded)
+            return;
 
+        await _metadataLoadGate.WaitAsync();
         try
         {
-            if (await _fileSystem.FileExistsAsync(_settingsPath))
+            if (_metadataLoaded)
+                return;
+
+            List<CloudSecretsProviderMetadata>? loaded = null;
+            Exception? vaultReadError = null;
+            if (CanUseLocalVault())
             {
-                var json = await _fileSystem.ReadFileAsync(_settingsPath);
-                if (!string.IsNullOrEmpty(json))
+                try
                 {
-                    _providerMetadata = JsonSerializer.Deserialize<List<CloudSecretsProviderMetadata>>(json) ?? new();
-                    if (CanUseLocalVault() && await TryPersistMetadataToVaultAsync(json))
-                        await _fileSystem.DeleteFileAsync(_settingsPath);
-                    return;
+                    var item = await _vaultStore!.GetAsync(
+                        LocalVaultScopes.CloudProvider,
+                        "/",
+                        ProviderMetadataVaultKey);
+                    if (item is not null)
+                    {
+                        var json = System.Text.Encoding.UTF8.GetString(item.Value);
+                        loaded = JsonSerializer.Deserialize<List<CloudSecretsProviderMetadata>>(json) ?? new();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    vaultReadError = ex;
+                    _logger.LogWarning($"Failed to read cloud secrets metadata from local vault: {ex.Message}");
                 }
             }
+
+            if (loaded is null)
+            {
+                try
+                {
+                    if (await _fileSystem.FileExistsAsync(_settingsPath))
+                    {
+                        var json = await _fileSystem.ReadFileAsync(_settingsPath);
+                        if (!string.IsNullOrEmpty(json))
+                        {
+                            loaded = JsonSerializer.Deserialize<List<CloudSecretsProviderMetadata>>(json) ?? new();
+                            if (CanUseLocalVault() && await TryPersistMetadataToVaultAsync(json))
+                                await _fileSystem.DeleteFileAsync(_settingsPath);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning($"Failed to load cloud secrets metadata: {ex.Message}");
+                }
+            }
+
+            if (loaded is null && vaultReadError is not null)
+            {
+                throw new LocalVaultUnavailableException(
+                    "Cloud provider metadata could not be read from Local Vault. Unlock or repair Local Vault before changing providers.",
+                    vaultReadError);
+            }
+
+            lock (_metadataLock)
+                _providerMetadata = loaded ?? new();
+            _metadataLoaded = true;
         }
-        catch (Exception ex)
+        finally
         {
-            _logger.LogWarning($"Failed to load cloud secrets metadata: {ex.Message}");
+            _metadataLoadGate.Release();
         }
-        _providerMetadata = new();
     }
 
     private async Task EnsureDefaultLocalProviderAsync()
@@ -482,11 +561,21 @@ public class CloudSecretsService : ICloudSecretsService
 
     private async Task EnsureDefaultLocalProviderMetadataAsync()
     {
-        if (_providerMetadata.Any(p => p.Id == DefaultLocalProviderId))
+        var added = false;
+        lock (_metadataLock)
+        {
+            if (_providerMetadata.All(p => p.Id != DefaultLocalProviderId))
+            {
+                _providerMetadata.Insert(0, CreateDefaultLocalProviderMetadata());
+                added = true;
+            }
+        }
+
+        if (!added)
             return;
 
-        _providerMetadata.Insert(0, CreateDefaultLocalProviderMetadata());
         await PersistMetadataAsync();
+        ProvidersChanged?.Invoke();
     }
 
     private static CloudSecretsProviderMetadata CreateDefaultLocalProviderMetadata() =>
@@ -494,33 +583,46 @@ public class CloudSecretsService : ICloudSecretsService
             DefaultLocalProviderId,
             "Local",
             CloudSecretsProviderType.Local,
-            new List<string>());
+            new List<string>(),
+            SecretItemKinds.All.ToList());
 
     private async Task PersistMetadataAsync()
     {
-        var json = JsonSerializer.Serialize(_providerMetadata, new JsonSerializerOptions
-        {
-            WriteIndented = true
-        });
-
-        if (CanUseLocalVault() && await TryPersistMetadataToVaultAsync(json))
-        {
-            if (await _fileSystem.FileExistsAsync(_settingsPath))
-                await _fileSystem.DeleteFileAsync(_settingsPath);
-            return;
-        }
-
+        await _metadataPersistGate.WaitAsync();
         try
         {
-            var directory = Path.GetDirectoryName(_settingsPath);
-            if (!string.IsNullOrEmpty(directory))
-                await _fileSystem.CreateDirectoryAsync(directory);
+            List<CloudSecretsProviderMetadata> snapshot;
+            lock (_metadataLock)
+                snapshot = _providerMetadata.ToList();
 
-            await _fileSystem.WriteFileAsync(_settingsPath, json);
+            var json = JsonSerializer.Serialize(snapshot, new JsonSerializerOptions
+            {
+                WriteIndented = true
+            });
+
+            if (CanUseLocalVault() && await TryPersistMetadataToVaultAsync(json))
+            {
+                if (await _fileSystem.FileExistsAsync(_settingsPath))
+                    await _fileSystem.DeleteFileAsync(_settingsPath);
+                return;
+            }
+
+            try
+            {
+                var directory = Path.GetDirectoryName(_settingsPath);
+                if (!string.IsNullOrEmpty(directory))
+                    await _fileSystem.CreateDirectoryAsync(directory);
+
+                await _fileSystem.WriteFileAsync(_settingsPath, json);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Failed to persist cloud secrets metadata: {ex.Message}", ex);
+            }
         }
-        catch (Exception ex)
+        finally
         {
-            _logger.LogError($"Failed to persist cloud secrets metadata: {ex.Message}", ex);
+            _metadataPersistGate.Release();
         }
     }
 
@@ -552,7 +654,7 @@ public class CloudSecretsService : ICloudSecretsService
         {
             try
             {
-                var item = await _vaultStore.GetAsync(
+                var item = await _vaultStore!.GetAsync(
                     LocalVaultScopes.CloudProvider,
                     ProviderSettingsVaultPath,
                     GetProviderSettingsVaultKey(providerId));
