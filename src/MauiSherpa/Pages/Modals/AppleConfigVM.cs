@@ -14,11 +14,13 @@ public class AppleConfigVM
     public AppleDistributionType? DistributionType { get; set; }
     public string? CertificateSerialNumber { get; set; }
     public string? CertificateName { get; set; }
+    public List<PublishProfileCertificateSelection> SigningCertificates { get; set; } = new();
     public string? InstallerCertSerialNumber { get; set; }
     public string? InstallerCertName { get; set; }
     public string? ProfileId { get; set; }
     public string? ProfileUuid { get; set; }
     public string? ProfileName { get; set; }
+    public List<PublishProfileProvisioningProfileSelection> ProvisioningProfiles { get; set; } = new();
     public bool IncludeNotarization { get; set; }
     public string? NotarizationAppleIdSecretKey { get; set; }
     public string? NotarizationPasswordSecretKey { get; set; }
@@ -108,7 +110,7 @@ public class AppleConfigVM
         };
         var prefix = $"APPLE_{platLabel}_{distLabel}";
 
-        if (!string.IsNullOrEmpty(CertificateSerialNumber))
+        if (SigningCertificates.Count > 0 || !string.IsNullOrEmpty(CertificateSerialNumber))
         {
             keys.Add($"{prefix}_CERTIFICATE_P12");
             keys.Add($"{prefix}_CERTIFICATE_PASSWORD");
@@ -118,8 +120,16 @@ public class AppleConfigVM
             keys.Add($"{prefix}_INSTALLER_P12");
             keys.Add($"{prefix}_INSTALLER_PASSWORD");
         }
-        if (!string.IsNullOrEmpty(ProfileId))
-            keys.Add($"{prefix}_PROFILE");
+        var profileCount = ProvisioningProfiles.Count > 0
+            ? ProvisioningProfiles.Count
+            : string.IsNullOrEmpty(ProfileId) ? 0 : 1;
+        for (var index = 0; index < profileCount; index++)
+        {
+            keys.Add(PublishProfileAppleConfig.GetProvisioningProfileSecretKey(
+                prefix,
+                index,
+                profileCount));
+        }
         if (IncludeNotarization)
         {
             keys.Add("APPLE_NOTARIZATION_APPLE_ID");

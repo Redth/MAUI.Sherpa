@@ -538,19 +538,18 @@ public class CopilotToolsService : ICopilotToolsService
 
     [Description("Create a new signing certificate")]
     private async Task<string> CreateCertificateAsync(
-        [Description("Certificate type: IOS_DEVELOPMENT, IOS_DISTRIBUTION, MAC_APP_DEVELOPMENT, MAC_APP_DISTRIBUTION, DEVELOPER_ID_APPLICATION")] string certificateType,
-        [Description("Optional common name for the certificate")] string? commonName = null)
+        [Description("Certificate type: DEVELOPMENT, DISTRIBUTION, IOS_DEVELOPMENT, IOS_DISTRIBUTION, MAC_APP_DEVELOPMENT, MAC_APP_DISTRIBUTION, MAC_INSTALLER_DISTRIBUTION, DEVELOPER_ID_APPLICATION, DEVELOPER_ID_KEXT, PASS_TYPE_ID, PASS_TYPE_ID_WITH_NFC")] string certificateType)
     {
         var error = CheckIdentitySelected();
         if (error != null) return error;
 
         try
         {
-            var result = await _appleService.CreateCertificateAsync(certificateType.ToUpperInvariant(), commonName);
+            var result = await _appleService.CreateCertificateAsync(certificateType.ToUpperInvariant());
             return JsonSerializer.Serialize(new
             {
                 Success = true,
-                Message = $"Created certificate. The PFX file has been saved. Certificate ID: {result.CertificateId}",
+                Message = $"Created certificate. Certificate ID: {result.CertificateId}",
                 CertificateId = result.CertificateId,
                 ExpirationDate = result.ExpirationDate.ToString("yyyy-MM-dd")
             }, new JsonSerializerOptions { WriteIndented = true });

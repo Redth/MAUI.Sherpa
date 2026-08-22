@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.Json;
 using MauiSherpa.Core.Interfaces;
@@ -238,28 +240,46 @@ public class PublishProfileService : IPublishProfileService
             // Build prefix using platform/distribution enums (must match AppleConfigVM.GetDefaultKeys)
             var prefix = GetAppleKeyPrefix(apple);
 
-            // Certificate P12
-            if (!string.IsNullOrEmpty(apple.CertificateSerialNumber))
+            // Signing certificates share one P12 output so CI only needs one import step.
+            var signingCertificates = apple.GetSigningCertificates();
+            if (signingCertificates.Count > 0)
             {
-                progress?.Report($"Fetching certificate for {apple.Label}...");
+                progress?.Report($"Fetching {signingCertificates.Count} certificate(s) for {apple.Label}...");
                 try
                 {
-                    var (p12Bytes, certPassword) = await _certSync.GetCertificateSecretsAsync(apple.CertificateSerialNumber, autoUploadFromKeychain: true, ct);
-                    if (p12Bytes is not null)
+                    var bundles = new List<(byte[] P12, string? Password)>();
+                    foreach (var selection in signingCertificates)
                     {
-                        var defaultKey = $"{prefix}_CERTIFICATE_P12";
-                        AddMappedSecrets(secrets, apple.KeyMappings, defaultKey, Convert.ToBase64String(p12Bytes));
+                        var (p12Bytes, certPassword) = await _certSync.GetCertificateSecretsAsync(
+                            selection.SerialNumber,
+                            autoUploadFromKeychain: true,
+                            ct);
+                        if (p12Bytes is null)
+                        {
+                            throw new InvalidOperationException(
+                                $"Certificate '{selection.Name}' has no available private key.");
+                        }
+                        bundles.Add((p12Bytes, certPassword));
                     }
 
-                    if (!string.IsNullOrEmpty(certPassword))
+                    var (combinedP12, combinedPassword) = CombineCertificateBundles(bundles);
+                    AddMappedSecrets(
+                        secrets,
+                        apple.KeyMappings,
+                        $"{prefix}_CERTIFICATE_P12",
+                        Convert.ToBase64String(combinedP12));
+                    if (!string.IsNullOrEmpty(combinedPassword))
                     {
-                        var defaultKey = $"{prefix}_CERTIFICATE_PASSWORD";
-                        AddMappedSecrets(secrets, apple.KeyMappings, defaultKey, certPassword);
+                        AddMappedSecrets(
+                            secrets,
+                            apple.KeyMappings,
+                            $"{prefix}_CERTIFICATE_PASSWORD",
+                            combinedPassword);
                     }
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning($"Failed to resolve certificate for {apple.Label}: {ex.Message}");
+                    _logger.LogWarning($"Failed to resolve certificates for {apple.Label}: {ex.Message}");
                 }
             }
 
@@ -288,19 +308,24 @@ public class PublishProfileService : IPublishProfileService
                 }
             }
 
-            // Provisioning Profile
-            if (!string.IsNullOrEmpty(apple.ProfileId))
+            // Provisioning profiles remain separate base64 values because mobileprovision files cannot be combined.
+            var provisioningProfiles = apple.GetProvisioningProfiles();
+            for (var index = 0; index < provisioningProfiles.Count; index++)
             {
-                progress?.Report($"Fetching provisioning profile for {apple.Label}...");
+                var selectedProfile = provisioningProfiles[index];
+                progress?.Report($"Fetching provisioning profile {index + 1} of {provisioningProfiles.Count} for {apple.Label}...");
                 try
                 {
-                    var profileBytes = await _appleConnect.DownloadProfileAsync(apple.ProfileId);
-                    var defaultKey = $"{prefix}_PROFILE";
+                    var profileBytes = await _appleConnect.DownloadProfileAsync(selectedProfile.Id);
+                    var defaultKey = PublishProfileAppleConfig.GetProvisioningProfileSecretKey(
+                        prefix,
+                        index,
+                        provisioningProfiles.Count);
                     AddMappedSecrets(secrets, apple.KeyMappings, defaultKey, Convert.ToBase64String(profileBytes));
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning($"Failed to resolve profile for {apple.Label}: {ex.Message}");
+                    _logger.LogWarning($"Failed to resolve profile '{selectedProfile.Name}' for {apple.Label}: {ex.Message}");
                 }
             }
 
@@ -491,6 +516,48 @@ public class PublishProfileService : IPublishProfileService
 
         progress?.Report($"Resolved {secrets.Count} secrets");
         return secrets;
+    }
+
+    internal static (byte[] P12, string Password) CombineCertificateBundles(
+        IReadOnlyList<(byte[] P12, string? Password)> bundles)
+    {
+        if (bundles.Count == 0)
+            throw new ArgumentException("At least one certificate bundle is required.", nameof(bundles));
+        if (bundles.Count == 1)
+            return (bundles[0].P12, bundles[0].Password ?? string.Empty);
+
+        var combined = new X509Certificate2Collection();
+        try
+        {
+            foreach (var bundle in bundles)
+            {
+                var imported = new X509Certificate2Collection();
+                imported.Import(
+                    bundle.P12,
+                    bundle.Password,
+                    X509KeyStorageFlags.Exportable);
+                foreach (var certificate in imported)
+                {
+                    if (combined.Cast<X509Certificate2>().Any(existing =>
+                        string.Equals(existing.Thumbprint, certificate.Thumbprint, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        certificate.Dispose();
+                        continue;
+                    }
+                    combined.Add(certificate);
+                }
+            }
+
+            var password = Convert.ToBase64String(RandomNumberGenerator.GetBytes(24));
+            var p12 = combined.Export(X509ContentType.Pfx, password)
+                ?? throw new InvalidOperationException("Failed to export the combined certificate bundle.");
+            return (p12, password);
+        }
+        finally
+        {
+            foreach (var certificate in combined)
+                certificate.Dispose();
+        }
     }
 
     static void AddMappedSecrets(
