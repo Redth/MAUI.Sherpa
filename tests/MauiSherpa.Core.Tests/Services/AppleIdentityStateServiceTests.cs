@@ -38,4 +38,40 @@ public class AppleIdentityStateServiceTests
 
         events.Should().Be(1);
     }
+
+    [Fact]
+    public void SetSelectedIdentity_PersistsLastNonNullSelection()
+    {
+        var store = new TestIdentitySelectionStore();
+        var sut = new AppleIdentityStateService(store);
+        var identity = new AppleIdentity("id1", "Team", "KEY1", "ISS1", null, "p8");
+
+        sut.SetSelectedIdentity(identity);
+        sut.SetSelectedIdentity(null);
+
+        sut.LastSelectedIdentityId.Should().Be("id1");
+        store.AppleIdentityId.Should().Be("id1");
+    }
+
+    [Fact]
+    public void Constructor_RestoresLastSelectionId()
+    {
+        var store = new TestIdentitySelectionStore { AppleIdentityId = "id2" };
+
+        var sut = new AppleIdentityStateService(store);
+
+        sut.LastSelectedIdentityId.Should().Be("id2");
+        sut.SelectedIdentity.Should().BeNull();
+    }
+
+    private sealed class TestIdentitySelectionStore : IIdentitySelectionStore
+    {
+        public string? AppleIdentityId { get; set; }
+        public string? GoogleIdentityId { get; set; }
+
+        public string? GetLastAppleIdentityId() => AppleIdentityId;
+        public void SetLastAppleIdentityId(string identityId) => AppleIdentityId = identityId;
+        public string? GetLastGoogleIdentityId() => GoogleIdentityId;
+        public void SetLastGoogleIdentityId(string identityId) => GoogleIdentityId = identityId;
+    }
 }

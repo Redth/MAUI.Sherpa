@@ -1,0 +1,280 @@
+@using MauiSherpa.Core.Interfaces
+
+<article class="task-item state-@Item.State.ToString().ToLowerInvariant()">
+    <div class="task-item-heading">
+        <span class="task-state-icon @GetStateClass()" title="@GetStateText()">
+            <i class="@GetStateIcon()" aria-hidden="true"></i>
+            <span class="background-task-visually-hidden">@GetStateText()</span>
+        </span>
+        <div class="task-title-block">
+            @if (CanNavigate)
+            {
+                <button type="button"
+                        class="task-title task-link"
+                        disabled="@IsBusy"
+                        title="Open related item"
+                        @onclick="NavigateAsync">
+                    <span>@Item.Request.Title</span>
+                    <i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i>
+                </button>
+            }
+            else
+            {
+                <strong class="task-title">@Item.Request.Title</strong>
+            }
+            @if (!string.IsNullOrWhiteSpace(Item.Request.Description))
+            {
+                <span class="task-description">@SanitizeText(Item.Request.Description, 240)</span>
+            }
+        </div>
+    </div>
+
+    @if (IsActive)
+    {
+        <div class="task-progress">
+            <div class="task-progress-copy">
+                <span>@GetStatusText()</span>
+                @if (Item.Progress.HasValue)
+                {
+                    <span>@Item.Progress%</span>
+                }
+            </div>
+            <div class="task-progress-track"
+                 role="progressbar"
+                 aria-label="@($"{Item.Request.Title} progress")"
+                 aria-valuemin="0"
+                 aria-valuemax="100"
+                 aria-valuenow="@Item.Progress">
+                @if (Item.Progress.HasValue)
+                {
+                    <span class="task-progress-value" style="@($"width: {Item.Progress.Value}%")"></span>
+                }
+                else
+                {
+                    <span class="task-progress-value indeterminate"></span>
+                }
+            </div>
+        </div>
+    }
+    else if (!string.IsNullOrWhiteSpace(Item.Status))
+    {
+        <div class="task-status">@SanitizeText(Item.Status, 180)</div>
+    }
+
+    @if (Item.Steps is { Count: > 0 } steps)
+    {
+        <ol class="task-steps" aria-label="@($"{Item.Request.Title} provider progress")">
+            @foreach (var step in steps)
+            {
+                <li class="task-step state-@step.State.ToString().ToLowerInvariant()"
+                    aria-label="@GetStepAccessibleText(step)">
+                    <span class="task-step-icon" aria-hidden="true">
+                        <i class="@GetStepIcon(step.State)"></i>
+                    </span>
+                    <span class="task-step-label">@SanitizeText(step.Label, 80)</span>
+                    <span class="task-step-status">
+                        @SanitizeText(step.Status, 120, GetStepStateText(step.State))
+                    </span>
+                    @if (!string.IsNullOrWhiteSpace(step.Error))
+                    {
+                        <span class="task-step-error">@SanitizeText(step.Error, 240)</span>
+                    }
+                </li>
+            }
+        </ol>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(Item.Error))
+    {
+        <div class="task-error">
+            <i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i>
+            <span>@SanitizeText(Item.Error, 500)</span>
+        </div>
+    }
+
+    @if (Item.Log.Count > 0)
+    {
+        <details class="task-log">
+            <summary>
+                <i class="fa-solid fa-terminal" aria-hidden="true"></i>
+                Activity log
+                <span>@Item.Log.Count</span>
+            </summary>
+            <ol>
+                @foreach (var entry in Item.Log.TakeLast(Math.Max(0, MaxLogEntries)))
+                {
+                    <li class="log-@entry.Level.ToString().ToLowerInvariant()">
+                        <time datetime="@entry.Timestamp.ToString("O")"
+                              title="@entry.Timestamp.ToLocalTime().ToString("F")">
+                            @entry.Timestamp.ToLocalTime().ToString("HH:mm:ss")
+                        </time>
+                        <span>@SanitizeText(entry.Message, 500)</span>
+                    </li>
+                }
+            </ol>
+        </details>
+    }
+
+    <footer class="task-footer">
+        <time datetime="@GetRelevantTime().ToString("O")"
+              title="@GetRelevantTime().ToLocalTime().ToString("F")">
+            @GetRelevantTime().ToLocalTime().ToString("g")
+        </time>
+        <div class="task-actions">
+            @if (CanRetry)
+            {
+                <button type="button"
+                        class="task-action"
+                        disabled="@IsBusy"
+                        @onclick="RetryAsync">
+                    <i class="fa-solid fa-rotate-right" aria-hidden="true"></i>
+                    Retry
+                </button>
+            }
+            @if (IsActive)
+            {
+                <button type="button"
+                        class="task-action task-action-danger"
+                        disabled="@IsBusy"
+                        @onclick="CancelAsync">
+                    <i class="fa-solid fa-ban" aria-hidden="true"></i>
+                    Cancel
+                </button>
+            }
+            @if (CanDismiss)
+            {
+                <button type="button"
+                        class="task-action"
+                        disabled="@IsBusy"
+                        @onclick="DismissAsync">
+                    <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+                    Dismiss
+                </button>
+            }
+        </div>
+    </footer>
+</article>
+
+@code {
+    [Parameter, EditorRequired]
+    public BackgroundTaskInfo Item { get; set; } = default!;
+
+    [Parameter]
+    public bool IsBusy { get; set; }
+
+    [Parameter]
+    public bool IsNavigable { get; set; }
+
+    [Parameter]
+    public int MaxLogEntries { get; set; } = 6;
+
+    [Parameter]
+    public EventCallback<BackgroundTaskInfo> NavigateRequested { get; set; }
+
+    [Parameter]
+    public EventCallback<string> RetryRequested { get; set; }
+
+    [Parameter]
+    public EventCallback<string> CancelRequested { get; set; }
+
+    [Parameter]
+    public EventCallback<string> DismissRequested { get; set; }
+
+    private bool IsActive =>
+        Item.State is BackgroundTaskState.Pending or BackgroundTaskState.Running;
+
+    private bool CanNavigate => IsNavigable && NavigateRequested.HasDelegate;
+
+    private bool CanRetry =>
+        RetryRequested.HasDelegate &&
+        Item.State is BackgroundTaskState.Failed or
+            BackgroundTaskState.Interrupted or
+            BackgroundTaskState.Cancelled;
+
+    private bool CanDismiss =>
+        DismissRequested.HasDelegate &&
+        Item.State is not BackgroundTaskState.Pending and not BackgroundTaskState.Running;
+
+    private Task NavigateAsync() => NavigateRequested.InvokeAsync(Item);
+    private Task RetryAsync() => RetryRequested.InvokeAsync(Item.Id);
+    private Task CancelAsync() => CancelRequested.InvokeAsync(Item.Id);
+    private Task DismissAsync() => DismissRequested.InvokeAsync(Item.Id);
+
+    private string GetStatusText() =>
+        SanitizeText(Item.Status, 180, Item.State == BackgroundTaskState.Pending ? "Waiting to start" : "In progress");
+
+    private string GetStateText() => Item.State switch
+    {
+        BackgroundTaskState.Pending => "Waiting",
+        BackgroundTaskState.Running => "Running",
+        BackgroundTaskState.Succeeded => "Completed",
+        BackgroundTaskState.Failed => "Failed",
+        BackgroundTaskState.Cancelled => "Cancelled",
+        BackgroundTaskState.Interrupted => "Interrupted",
+        _ => "Unknown"
+    };
+
+    private string GetStateClass() => Item.State switch
+    {
+        BackgroundTaskState.Succeeded => "success",
+        BackgroundTaskState.Failed or BackgroundTaskState.Interrupted => "error",
+        BackgroundTaskState.Cancelled => "warning",
+        BackgroundTaskState.Pending or BackgroundTaskState.Running => "active",
+        _ => ""
+    };
+
+    private string GetStateIcon() => Item.State switch
+    {
+        BackgroundTaskState.Pending => "fa-solid fa-clock",
+        BackgroundTaskState.Running => IsBusy
+            ? "fa-solid fa-spinner fa-spin"
+            : "fa-solid fa-arrows-rotate",
+        BackgroundTaskState.Succeeded => "fa-solid fa-circle-check",
+        BackgroundTaskState.Failed => "fa-solid fa-circle-exclamation",
+        BackgroundTaskState.Cancelled => "fa-solid fa-circle-minus",
+        BackgroundTaskState.Interrupted => "fa-solid fa-plug-circle-xmark",
+        _ => "fa-solid fa-circle"
+    };
+
+    private static string GetStepStateText(BackgroundTaskStepState state) => state switch
+    {
+        BackgroundTaskStepState.Pending => "Waiting",
+        BackgroundTaskStepState.Running => "In progress",
+        BackgroundTaskStepState.Succeeded => "Completed",
+        BackgroundTaskStepState.Failed => "Failed",
+        BackgroundTaskStepState.Cancelled => "Cancelled",
+        _ => "Unknown"
+    };
+
+    private static string GetStepIcon(BackgroundTaskStepState state) => state switch
+    {
+        BackgroundTaskStepState.Pending => "fa-regular fa-circle",
+        BackgroundTaskStepState.Running => "fa-solid fa-spinner fa-spin",
+        BackgroundTaskStepState.Succeeded => "fa-solid fa-circle-check",
+        BackgroundTaskStepState.Failed => "fa-solid fa-circle-exclamation",
+        BackgroundTaskStepState.Cancelled => "fa-solid fa-circle-minus",
+        _ => "fa-solid fa-circle"
+    };
+
+    private static string GetStepAccessibleText(BackgroundTaskStepInfo step)
+    {
+        var state = GetStepStateText(step.State);
+        var status = string.IsNullOrWhiteSpace(step.Status) ? state : step.Status;
+        return string.IsNullOrWhiteSpace(step.Error)
+            ? $"{step.Label}: {status}"
+            : $"{step.Label}: {status}. {step.Error}";
+    }
+
+    private DateTime GetRelevantTime() =>
+        Item.CompletedAtUtc ?? Item.StartedAtUtc ?? Item.CreatedAtUtc;
+
+    private static string SanitizeText(string? value, int maxLength, string fallback = "")
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return fallback;
+
+        var singleLine = value.ReplaceLineEndings(" ").Trim();
+        var sanitized = string.Concat(singleLine.Where(character => !char.IsControl(character)));
+        return sanitized.Length <= maxLength ? sanitized : $"{sanitized[..maxLength]}…";
+    }
+}

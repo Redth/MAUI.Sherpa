@@ -114,7 +114,7 @@ public class LocalSqlCipherSecretsProvider : ICloudSecretsProvider
         catch (Exception ex)
         {
             _logger.LogError($"Local secrets provider get error: {ex.Message}", ex);
-            return null;
+            throw;
         }
     }
 
@@ -209,7 +209,7 @@ public class LocalSqlCipherSecretsProvider : ICloudSecretsProvider
         catch (Exception ex)
         {
             _logger.LogError($"Local secrets provider exists check error: {ex.Message}", ex);
-            return false;
+            throw;
         }
     }
 

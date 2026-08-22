@@ -417,8 +417,12 @@
     <h2><i class="fas fa-vault"></i> Secrets Storage</h2>
     <p class="section-description">
         Store app secrets, signing certificates, and publish profiles securely.
-        The default Local provider keeps secrets on this machine; cloud providers can sync across machines and CI/CD pipelines.
+        Local Vault keeps encrypted copies on this machine; cloud providers can sync across machines and CI/CD pipelines.
     </p>
+    <div class="provider-defaults-notice" role="note">
+        <i class="fas fa-circle-info"></i>
+        <span><strong>Defaults apply only to new items.</strong> Changing them does not move, copy, or remove anything already stored.</span>
+    </div>
 
     @if (ShouldShowLocalVaultNotice)
     {
@@ -449,9 +453,8 @@
         <div class="connected-list">
             @foreach (var provider in cloudProviders)
             {
-                var isActive = CloudSecretsService.ActiveProvider?.Id == provider.Id;
                 var providerUrl = GetProviderUrl(provider);
-                <div class="connected-list-item @(isActive ? "active" : "")">
+                <div class="connected-list-item">
                     <div class="provider-header">
                         <div class="provider-info">
                             <i class="@GetProviderIcon(provider.ProviderType) provider-icon"></i>
@@ -462,18 +465,8 @@
                                     <i class="fas fa-external-link-alt"></i>
                                 </a>
                             }
-                            @if (isActive)
-                            {
-                                <span class="active-badge">Active</span>
-                            }
                         </div>
                         <div class="provider-actions">
-                            @if (!isActive)
-                            {
-                                <button class="btn btn-sm btn-primary" @onclick="@(() => SetActiveProvider(provider))" title="Set as Active">
-                                    <i class="fas fa-check"></i> Activate
-                                </button>
-                            }
                             <button class="btn btn-sm btn-secondary" @onclick="@(() => TestProvider(provider))" title="Test Connection">
                                 <i class="fas fa-plug"></i> Test
                             </button>
@@ -555,6 +548,22 @@
                             </div>
                         }
                     </div>
+                    <fieldset class="provider-defaults">
+                        <legend>Store new items here by default</legend>
+                        <div class="provider-default-options">
+                            @foreach (var itemKind in SecretItemKinds.All)
+                            {
+                                var optionId = $"provider-{provider.Id}-{itemKind}";
+                                <label class="provider-default-option" for="@optionId">
+                                    <input id="@optionId"
+                                           type="checkbox"
+                                           checked="@provider.StoresByDefault(itemKind)"
+                                           @onchange="eventArgs => SetProviderDefaultAsync(provider, itemKind, eventArgs)" />
+                                    <span>@GetItemKindLabel(itemKind)</span>
+                                </label>
+                            }
+                        </div>
+                    </fieldset>
                 </div>
             }
         </div>
@@ -1268,6 +1277,26 @@
         color: var(--text-muted);
         font-size: 0.875rem;
     }
+    .provider-defaults-notice {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.625rem;
+        padding: 0.75rem 0.875rem;
+        margin-bottom: 1rem;
+        color: var(--text-secondary);
+        background: var(--accent-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 0.625rem;
+        font-size: 0.8125rem;
+        line-height: 1.45;
+    }
+    .provider-defaults-notice i {
+        color: var(--accent-primary);
+        margin-top: 0.125rem;
+    }
+    .provider-defaults-notice strong {
+        color: var(--text-primary);
+    }
     .empty-providers {
         padding: 1.5rem;
         text-align: center;
@@ -1357,6 +1386,48 @@
         display: flex;
         flex-wrap: wrap;
         gap: 1rem 1.25rem;
+    }
+
+    .provider-defaults {
+        margin: 1rem 0 0;
+        padding: 0.875rem;
+        border: 1px solid var(--border-color);
+        border-radius: 0.625rem;
+    }
+
+    .provider-defaults legend {
+        padding: 0 0.375rem;
+        color: var(--text-secondary);
+        font-size: 0.75rem;
+        font-weight: 700;
+    }
+
+    .provider-default-options {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem 1rem;
+    }
+
+    .provider-default-option {
+        min-height: 2.75rem;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        color: var(--text-primary);
+        cursor: pointer;
+        font-size: 0.8125rem;
+    }
+
+    .provider-default-option input {
+        width: 1rem;
+        height: 1rem;
+        accent-color: var(--accent-primary);
+    }
+
+    .provider-default-option:focus-within {
+        outline: 2px solid var(--accent-primary);
+        outline-offset: 2px;
+        border-radius: 0.25rem;
     }
 
     /* Backup & Restore Styles */
@@ -1600,8 +1671,7 @@
 
     private bool ShouldShowLocalVaultNotice =>
         LocalVaultAccess.GetState().RequiresUserAction &&
-        (CloudSecretsService.ActiveProvider?.ProviderType == CloudSecretsProviderType.Local ||
-            cloudProviders.All(p => p.ProviderType == CloudSecretsProviderType.Local));
+        cloudProviders.Any(p => p.ProviderType == CloudSecretsProviderType.Local);
 
     private void OnLocalVaultStateChanged()
     {
@@ -2355,8 +2425,8 @@
     private async Task DeleteProvider(CloudSecretsProviderConfig provider)
     {
         var confirm = await AlertService.ShowConfirmAsync(
-            "Delete Provider",
-            $"Are you sure you want to delete '{provider.Name}'?");
+            "Disconnect Provider",
+            $"Disconnect '{provider.Name}' from MAUI Sherpa? Remote secrets will not be deleted, and existing items that reference this provider will show it as unavailable.");
         
         if (!confirm) return;
         
@@ -2366,7 +2436,7 @@
         cloudProviders.Remove(provider);
         StateHasChanged();
         
-        await AlertService.ShowToastAsync("Provider deleted");
+        await AlertService.ShowToastAsync("Provider disconnected");
         await LoadCloudProviders();
     }
     
@@ -2379,12 +2449,40 @@
             await AlertService.ShowAlertAsync("Connection Failed", "Could not connect to the secrets provider. Check your credentials and settings.");
     }
     
-    private async Task SetActiveProvider(CloudSecretsProviderConfig provider)
+    private async Task SetProviderDefaultAsync(
+        CloudSecretsProviderConfig provider,
+        SecretItemKind itemKind,
+        ChangeEventArgs eventArgs)
     {
-        await CloudSecretsService.SetActiveProviderAsync(provider.Id);
-        await AlertService.ShowToastAsync($"'{provider.Name}' is now the active provider");
+        var enabled = eventArgs.Value is bool value && value;
+        var defaults = provider.EffectiveDefaultItemKinds.ToHashSet();
+        if (enabled)
+            defaults.Add(itemKind);
+        else
+            defaults.Remove(itemKind);
+
+        var updated = provider with
+        {
+            DefaultItemKinds = defaults.OrderBy(kind => kind).ToList()
+        };
+        await CloudSecretsService.SaveProviderAsync(updated);
+
+        var index = cloudProviders.FindIndex(existing => existing.Id == provider.Id);
+        if (index >= 0)
+            cloudProviders[index] = updated;
+
         StateHasChanged();
     }
+
+    private static string GetItemKindLabel(SecretItemKind itemKind) => itemKind switch
+    {
+        SecretItemKind.ManagedSecret => "Secrets",
+        SecretItemKind.AndroidKeystore => "Keystores",
+        SecretItemKind.Certificate => "Certificates",
+        SecretItemKind.ProvisioningProfile => "Provisioning profiles",
+        SecretItemKind.PublishProfile => "Publish profiles",
+        _ => itemKind.ToString()
+    };
 
     // CI/CD Publisher Methods
     
@@ -2583,7 +2681,8 @@
                     provider.Id,
                     provider.Name,
                     provider.ProviderType,
-                    new Dictionary<string, string>(provider.Settings)));
+                    new Dictionary<string, string>(provider.Settings),
+                    provider.DefaultItemKinds ?? SecretItemKinds.All.ToList()));
             }
 
             if (!string.IsNullOrEmpty(settings.ActiveCloudProviderId) &&

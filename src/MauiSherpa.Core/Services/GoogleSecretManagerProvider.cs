@@ -170,12 +170,12 @@ public class GoogleSecretManagerProvider : ICloudSecretsProvider
         catch (Grpc.Core.RpcException ex)
         {
             _logger.LogError($"Google Secret Manager get secret failed: {ex.StatusCode} - {ex.Message}", ex);
-            return null;
+            throw;
         }
         catch (Exception ex)
         {
             _logger.LogError($"Google Secret Manager get secret error: {ex.Message}", ex);
-            return null;
+            throw;
         }
     }
 
@@ -267,7 +267,7 @@ public class GoogleSecretManagerProvider : ICloudSecretsProvider
         catch (Exception ex)
         {
             _logger.LogError($"Google Secret Manager secret exists check error: {ex.Message}", ex);
-            return false;
+            throw;
         }
     }
 

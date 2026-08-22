@@ -167,7 +167,7 @@ public class InfisicalProvider : ICloudSecretsProvider
         {
             var client = await GetClientAsync(cancellationToken);
             if (client == null)
-                return null;
+                throw new InvalidOperationException("Infisical client is unavailable.");
 
             var secretName = SanitizeSecretName(key);
             
@@ -194,12 +194,12 @@ public class InfisicalProvider : ICloudSecretsProvider
         catch (FormatException ex)
         {
             _logger.LogError($"Infisical secret not base64 encoded: {key} - {ex.Message}");
-            return null;
+            throw;
         }
         catch (Exception ex)
         {
             _logger.LogError($"Infisical get secret error: {ex.Message}", ex);
-            return null;
+            throw;
         }
     }
 
@@ -313,7 +313,7 @@ public class InfisicalProvider : ICloudSecretsProvider
         catch (Exception ex)
         {
             _logger.LogError($"Infisical secret exists check error: {ex.Message}", ex);
-            return false;
+            throw;
         }
     }
 
@@ -389,7 +389,7 @@ public class InfisicalProvider : ICloudSecretsProvider
         catch (Exception ex)
         {
             _logger.LogError($"Infisical list secrets error: {ex.Message}", ex);
-            return Array.Empty<string>();
+            throw;
         }
     }
 

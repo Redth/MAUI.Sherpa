@@ -281,11 +281,14 @@ public class LinuxToolbarManager
 
             var names = _cachedAppleIdentities.Select(i => i.Name).ToArray();
             var selectedIndex = 0;
-            if (_appleIdentityState.SelectedIdentity is { } selected)
+            var preferredId = _appleIdentityState.SelectedIdentity?.Id ??
+                _appleIdentityState.LastSelectedIdentityId;
+            if (!string.IsNullOrWhiteSpace(preferredId))
             {
-                var idx = _cachedAppleIdentities.ToList().FindIndex(i => i.Id == selected.Id);
+                var idx = _cachedAppleIdentities.ToList().FindIndex(i => i.Id == preferredId);
                 if (idx >= 0) selectedIndex = idx;
             }
+            _appleIdentityState.SetSelectedIdentity(_cachedAppleIdentities[selectedIndex]);
 
             var stringList = Gtk.StringList.New(names);
             _identityDropdown = Gtk.DropDown.New(stringList, null);
@@ -315,11 +318,14 @@ public class LinuxToolbarManager
 
             var names = _cachedGoogleIdentities.Select(i => i.Name).ToArray();
             var selectedIndex = 0;
-            if (_googleIdentityState.SelectedIdentity is { } selected)
+            var preferredId = _googleIdentityState.SelectedIdentity?.Id ??
+                _googleIdentityState.LastSelectedIdentityId;
+            if (!string.IsNullOrWhiteSpace(preferredId))
             {
-                var idx = _cachedGoogleIdentities.ToList().FindIndex(i => i.Id == selected.Id);
+                var idx = _cachedGoogleIdentities.ToList().FindIndex(i => i.Id == preferredId);
                 if (idx >= 0) selectedIndex = idx;
             }
+            _googleIdentityState.SetSelectedIdentity(_cachedGoogleIdentities[selectedIndex]);
 
             var stringList = Gtk.StringList.New(names);
             _identityDropdown = Gtk.DropDown.New(stringList, null);

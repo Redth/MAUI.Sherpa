@@ -18,6 +18,8 @@ public class PublishProfileService : IPublishProfileService
     readonly IAppleIdentityStateService _identityState;
     readonly IGoogleIdentityService _googleIdentity;
     readonly ILoggingService _logger;
+    readonly ISecretsProviderRegistry? _providerRegistry;
+    readonly ISecretSyncCoordinator? _syncCoordinator;
 
     static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -26,6 +28,9 @@ public class PublishProfileService : IPublishProfileService
     };
 
     List<PublishProfile>? _cache;
+    readonly object _cacheLock = new();
+    readonly SemaphoreSlim _cacheLoadGate = new(1, 1);
+    long _cacheGeneration;
 
     public event Action? OnProfilesChanged;
 
@@ -39,7 +44,9 @@ public class PublishProfileService : IPublishProfileService
         IAppleIdentityService appleIdentity,
         IAppleIdentityStateService identityState,
         IGoogleIdentityService googleIdentity,
-        ILoggingService logger)
+        ILoggingService logger,
+        ISecretsProviderRegistry? providerRegistry = null,
+        ISecretSyncCoordinator? syncCoordinator = null)
     {
         _cloudService = cloudService;
         _certSync = certSync;
@@ -51,39 +58,102 @@ public class PublishProfileService : IPublishProfileService
         _identityState = identityState;
         _googleIdentity = googleIdentity;
         _logger = logger;
+        _providerRegistry = providerRegistry;
+        _syncCoordinator = syncCoordinator;
+        if (_syncCoordinator is not null)
+            _syncCoordinator.ItemStateChanged += OnSyncItemStateChanged;
     }
 
     public async Task<IReadOnlyList<PublishProfile>> GetProfilesAsync()
     {
-        if (_cache is not null)
-            return _cache;
-
-        if (_cloudService.ActiveProvider is null)
-            return Array.Empty<PublishProfile>();
-
-        var keys = await _cloudService.ListSecretsAsync(CloudKeyPrefix);
-        var profiles = new List<PublishProfile>();
-
-        foreach (var key in keys)
+        lock (_cacheLock)
         {
-            try
-            {
-                var bytes = await _cloudService.GetSecretAsync(key);
-                if (bytes is null) continue;
-
-                var json = Encoding.UTF8.GetString(bytes);
-                var profile = JsonSerializer.Deserialize<PublishProfile>(json, JsonOptions);
-                if (profile is not null)
-                    profiles.Add(profile);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning($"Failed to load publish profile '{key}': {ex.Message}");
-            }
+            if (_cache is not null)
+                return _cache;
         }
 
-        _cache = profiles.OrderBy(p => p.Name).ToList();
-        return _cache;
+        await _cacheLoadGate.WaitAsync();
+        try
+        {
+            lock (_cacheLock)
+            {
+                if (_cache is not null)
+                    return _cache;
+            }
+
+            var generation = Interlocked.Read(ref _cacheGeneration);
+            var profiles = new Dictionary<string, PublishProfile>(StringComparer.Ordinal);
+            if (_providerRegistry is not null)
+            {
+                var providerConfigs = await _providerRegistry.GetProvidersAsync();
+                foreach (var config in providerConfigs
+                    .OrderBy(provider => provider.ProviderType == CloudSecretsProviderType.Local ? 0 : 1)
+                    .ThenBy(provider => provider.Name, StringComparer.OrdinalIgnoreCase))
+                {
+                    try
+                    {
+                        var provider = await _providerRegistry.GetProviderAsync(config.Id);
+                        if (provider is null)
+                            continue;
+
+                        var keys = await provider.ListSecretsAsync(CloudKeyPrefix);
+                        foreach (var key in keys)
+                        {
+                            var bytes = await provider.GetSecretAsync(key);
+                            if (bytes is null)
+                                continue;
+
+                            var profile = JsonSerializer.Deserialize<PublishProfile>(
+                                Encoding.UTF8.GetString(bytes),
+                                JsonOptions);
+                            if (profile is not null)
+                                profiles.TryAdd(profile.Id, profile);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning($"Failed to load publish profiles from '{config.Name}': {ex.Message}");
+                    }
+                }
+            }
+            else if (_cloudService.ActiveProvider is not null)
+            {
+                var keys = await _cloudService.ListSecretsAsync(CloudKeyPrefix);
+                foreach (var key in keys)
+                {
+                    try
+                    {
+                        var bytes = await _cloudService.GetSecretAsync(key);
+                        if (bytes is null)
+                            continue;
+
+                        var profile = JsonSerializer.Deserialize<PublishProfile>(
+                            Encoding.UTF8.GetString(bytes),
+                            JsonOptions);
+                        if (profile is not null)
+                            profiles.TryAdd(profile.Id, profile);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning($"Failed to load publish profile '{key}': {ex.Message}");
+                    }
+                }
+            }
+
+            var loaded = profiles.Values.OrderBy(p => p.Name).ToList();
+            lock (_cacheLock)
+            {
+                if (generation == Interlocked.Read(ref _cacheGeneration))
+                    _cache = loaded;
+                return _cache is not null
+                    ? _cache
+                    : Array.Empty<PublishProfile>();
+            }
+        }
+        finally
+        {
+            _cacheLoadGate.Release();
+        }
     }
 
     public async Task<PublishProfile?> GetProfileAsync(string id)
@@ -104,15 +174,17 @@ public class PublishProfileService : IPublishProfileService
         await _cloudService.StoreSecretAsync(key, bytes);
 
         // Update cache directly instead of invalidating — cloud list may lag
-        if (_cache is null)
-            _cache = new List<PublishProfile>();
-
-        var existing = _cache.FindIndex(p => p.Id == profile.Id);
-        if (existing >= 0)
-            _cache[existing] = profile;
-        else
-            _cache.Add(profile);
-        _cache = _cache.OrderBy(p => p.Name).ToList();
+        Interlocked.Increment(ref _cacheGeneration);
+        lock (_cacheLock)
+        {
+            _cache ??= [];
+            var existing = _cache.FindIndex(p => p.Id == profile.Id);
+            if (existing >= 0)
+                _cache[existing] = profile;
+            else
+                _cache.Add(profile);
+            _cache = _cache.OrderBy(p => p.Name).ToList();
+        }
 
         OnProfilesChanged?.Invoke();
     }
@@ -126,7 +198,20 @@ public class PublishProfileService : IPublishProfileService
         await _cloudService.DeleteSecretAsync(key);
 
         // Update cache directly instead of invalidating
-        _cache?.RemoveAll(p => p.Id == id);
+        Interlocked.Increment(ref _cacheGeneration);
+        lock (_cacheLock)
+            _cache?.RemoveAll(p => p.Id == id);
+        OnProfilesChanged?.Invoke();
+    }
+
+    void OnSyncItemStateChanged(SecretItemRef item)
+    {
+        if (item.Kind != SecretItemKind.PublishProfile)
+            return;
+
+        Interlocked.Increment(ref _cacheGeneration);
+        lock (_cacheLock)
+            _cache = null;
         OnProfilesChanged?.Invoke();
     }
 

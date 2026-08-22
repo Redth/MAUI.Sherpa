@@ -96,6 +96,7 @@ public static class MacOSMauiProgram
         // but MAUI's TryAddSingleton may have already captured the portable stubs.
         // Re-register with factories that resolve to the updated .Default values at runtime.
         builder.Services.AddSingleton<IPreferences>(_ => Preferences.Default);
+        builder.Services.AddSingleton<IIdentitySelectionStore, IdentitySelectionStore>();
         builder.Services.AddSingleton<ILauncher>(_ => Launcher.Default);
         builder.Services.AddSingleton<IClipboard>(_ => Clipboard.Default);
         builder.Services.AddSingleton<ISecureStorage>(_ => SecureStorage.Default);
@@ -118,6 +119,11 @@ public static class MacOSMauiProgram
         builder.Services.AddSingleton<IOperationModalService>(sp => sp.GetRequiredService<OperationModalService>());
         builder.Services.AddSingleton<MultiOperationModalService>();
         builder.Services.AddSingleton<IMultiOperationModalService>(sp => sp.GetRequiredService<MultiOperationModalService>());
+        builder.Services.AddSingleton<BackgroundTaskService>();
+        builder.Services.AddSingleton<IBackgroundTaskService>(sp => sp.GetRequiredService<BackgroundTaskService>());
+        builder.Services.AddSingleton<SecretSyncCoordinator>();
+        builder.Services.AddSingleton<ISecretSyncCoordinator>(sp => sp.GetRequiredService<SecretSyncCoordinator>());
+        builder.Services.AddSingleton<IBackgroundTaskHandler>(sp => sp.GetRequiredService<SecretSyncCoordinator>());
 
         // Core services
         builder.Services.AddSingleton<IAndroidSdkService, AndroidSdkService>();
@@ -196,9 +202,16 @@ public static class MacOSMauiProgram
 
         // Cloud Secrets Storage services
         builder.Services.AddSingleton<ICloudSecretsProviderFactory, CloudSecretsProviderFactory>();
-        builder.Services.AddSingleton<ICloudSecretsService, CloudSecretsService>();
+        builder.Services.AddSingleton<CloudSecretsService>();
+        builder.Services.AddSingleton<ICloudSecretsService>(sp => sp.GetRequiredService<CloudSecretsService>());
+        builder.Services.AddSingleton<ISecretsProviderRegistry>(sp => sp.GetRequiredService<CloudSecretsService>());
         builder.Services.AddSingleton<IManagedSecretsService, ManagedSecretsService>();
         builder.Services.AddSingleton<ICertificateSyncService, CertificateSyncService>();
+        builder.Services.AddSingleton<ISecretItemAdapter, ManagedSecretItemAdapter>();
+        builder.Services.AddSingleton<ISecretItemAdapter, AndroidKeystoreItemAdapter>();
+        builder.Services.AddSingleton<ISecretItemAdapter, CertificateItemAdapter>();
+        builder.Services.AddSingleton<ISecretItemAdapter, ProvisioningProfileItemAdapter>();
+        builder.Services.AddSingleton<ISecretItemAdapter, PublishProfileItemAdapter>();
 
         // CI/CD Secrets Publisher services
         builder.Services.AddSingleton<ISecretsPublisherFactory, SecretsPublisherFactory>();
@@ -241,6 +254,7 @@ public static class MacOSMauiProgram
         builder.AddShinyMediator(cfg =>
         {
             cfg.UseMaui();
+            cfg.UseBlazor();
             cfg.AddMauiPersistentCache();
             cfg.AddStandardAppSupportMiddleware();
         });

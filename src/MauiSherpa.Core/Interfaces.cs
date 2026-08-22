@@ -798,6 +798,7 @@ public interface IAppleIdentityService
 public interface IAppleIdentityStateService
 {
     AppleIdentity? SelectedIdentity { get; }
+    string? LastSelectedIdentityId { get; }
     event Action? OnSelectionChanged;
     void SetSelectedIdentity(AppleIdentity? identity);
 }
@@ -814,8 +815,17 @@ public interface IGoogleIdentityService
 public interface IGoogleIdentityStateService
 {
     GoogleIdentity? SelectedIdentity { get; }
+    string? LastSelectedIdentityId { get; }
     event Action? OnSelectionChanged;
     void SetSelectedIdentity(GoogleIdentity? identity);
+}
+
+public interface IIdentitySelectionStore
+{
+    string? GetLastAppleIdentityId();
+    void SetLastAppleIdentityId(string identityId);
+    string? GetLastGoogleIdentityId();
+    void SetLastGoogleIdentityId(string identityId);
 }
 
 public interface IAppleConnectService
@@ -2992,15 +3002,40 @@ public enum CloudSecretsProviderType
 }
 
 /// <summary>
+/// Logical item categories that can be stored in one or more secrets providers.
+/// </summary>
+public enum SecretItemKind
+{
+    ManagedSecret,
+    AndroidKeystore,
+    Certificate,
+    ProvisioningProfile,
+    PublishProfile
+}
+
+public static class SecretItemKinds
+{
+    public static IReadOnlyList<SecretItemKind> All { get; } =
+        Enum.GetValues<SecretItemKind>();
+}
+
+/// <summary>
 /// Configuration for a cloud secrets provider instance
 /// </summary>
 public record CloudSecretsProviderConfig(
     string Id,
     string Name,
     CloudSecretsProviderType ProviderType,
-    Dictionary<string, string> Settings
+    Dictionary<string, string> Settings,
+    List<SecretItemKind>? DefaultItemKinds = null
 )
 {
+    public IReadOnlyList<SecretItemKind> EffectiveDefaultItemKinds =>
+        DefaultItemKinds ?? SecretItemKinds.All;
+
+    public bool StoresByDefault(SecretItemKind itemKind) =>
+        EffectiveDefaultItemKinds.Contains(itemKind);
+
     /// <summary>
     /// Creates a new config with a generated ID
     /// </summary>
@@ -3008,7 +3043,7 @@ public record CloudSecretsProviderConfig(
         string name,
         CloudSecretsProviderType providerType,
         Dictionary<string, string> settings) =>
-        new(Guid.NewGuid().ToString("N"), name, providerType, settings);
+        new(Guid.NewGuid().ToString("N"), name, providerType, settings, SecretItemKinds.All.ToList());
 }
 
 /// <summary>
@@ -3159,6 +3194,215 @@ public interface ICloudSecretsProviderFactory
     /// Gets the display name for a provider type
     /// </summary>
     string GetProviderDisplayName(CloudSecretsProviderType providerType);
+}
+
+/// <summary>
+/// Registry for explicitly addressing every configured secrets provider.
+/// New multi-provider code should use this instead of changing the legacy active provider.
+/// </summary>
+public interface ISecretsProviderRegistry
+{
+    Task<IReadOnlyList<CloudSecretsProviderConfig>> GetProvidersAsync();
+    Task<CloudSecretsProviderConfig?> GetProviderConfigAsync(string providerId);
+    Task<ICloudSecretsProvider?> GetProviderAsync(string providerId);
+    Task SaveProviderAsync(CloudSecretsProviderConfig provider);
+    Task DeleteProviderAsync(string providerId);
+    Task<bool> TestProviderConnectionAsync(string providerId);
+    event Action? ProvidersChanged;
+}
+
+public record SecretItemRef(
+    SecretItemKind Kind,
+    string Id,
+    string DisplayName
+);
+
+public record SecretArtifact(
+    string Key,
+    byte[] Value,
+    Dictionary<string, string>? Metadata = null
+);
+
+public record SecretItemPayload(
+    SecretItemRef Item,
+    long Revision,
+    string ContentHash,
+    IReadOnlyList<SecretArtifact> Artifacts
+);
+
+public enum SecretPlacementStatus
+{
+    Loading,
+    NotStored,
+    Synced,
+    Pending,
+    Failed,
+    Unavailable,
+    Conflict
+}
+
+public record ProviderPlacementState(
+    string ProviderId,
+    bool Desired,
+    bool Observed,
+    SecretPlacementStatus Status,
+    long? Revision = null,
+    string? ContentHash = null,
+    string? Error = null
+);
+
+public record SecretSyncManifest(
+    int SchemaVersion,
+    SecretItemKind Kind,
+    string ItemId,
+    string DisplayName,
+    long Revision,
+    string ContentHash,
+    List<string> DesiredProviderIds,
+    DateTime UpdatedAtUtc
+)
+{
+    public const int CurrentSchemaVersion = 1;
+}
+
+public record ProviderSyncCatalogEntry(
+    SecretItemKind Kind,
+    string ItemId,
+    string DisplayName,
+    long Revision,
+    string ContentHash,
+    List<string> DesiredProviderIds,
+    DateTime UpdatedAtUtc
+);
+
+public record ProviderSyncCatalog(
+    int SchemaVersion,
+    Dictionary<string, ProviderSyncCatalogEntry> Entries,
+    DateTime UpdatedAtUtc
+)
+{
+    public const int CurrentSchemaVersion = 1;
+}
+
+public record SecretItemSyncState(
+    SecretItemRef Item,
+    IReadOnlyList<ProviderPlacementState> Providers,
+    bool HasConflict,
+    string? PendingTaskId = null
+);
+
+/// <summary>
+/// Maps one user-visible item type to the provider artifacts required to store it.
+/// </summary>
+public interface ISecretItemAdapter
+{
+    SecretItemKind Kind { get; }
+    bool IsProviderOwned { get; }
+    Task<IReadOnlyList<SecretItemRef>> ListLocalItemsAsync(CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<SecretItemRef>> ListProviderItemsAsync(string providerId, CancellationToken cancellationToken = default);
+    Task<IReadOnlySet<string>> ListProviderItemIdsAsync(string providerId, CancellationToken cancellationToken = default);
+    IReadOnlySet<string> ExtractProviderItemIds(IReadOnlyList<string> providerKeys);
+    Task<SecretItemPayload?> ReadLocalAsync(SecretItemRef item, CancellationToken cancellationToken = default);
+    Task<SecretItemPayload?> ReadProviderAsync(SecretItemRef item, string providerId, CancellationToken cancellationToken = default);
+    Task<bool> WriteProviderAsync(SecretItemPayload payload, string providerId, CancellationToken cancellationToken = default);
+    Task<bool> DeleteProviderAsync(SecretItemRef item, string providerId, CancellationToken cancellationToken = default);
+}
+
+public interface ISecretSyncCoordinator
+{
+    Task<IReadOnlyList<SecretItemSyncState>> ListItemsAsync(SecretItemKind kind, CancellationToken cancellationToken = default);
+    Task<SecretItemSyncState> GetStateAsync(SecretItemRef item, CancellationToken cancellationToken = default);
+    Task<SecretItemSyncState> GetStateProgressivelyAsync(SecretItemRef item, IProgress<ProviderPlacementState>? progress = null, CancellationToken cancellationToken = default);
+    Task<string?> SetDefaultProvidersAsync(SecretItemRef item, CancellationToken cancellationToken = default);
+    Task<string?> SetDesiredProvidersAsync(SecretItemRef item, IReadOnlyCollection<string> providerIds, CancellationToken cancellationToken = default);
+    Task<string?> UpdateDesiredProvidersAsync(SecretItemRef item, IReadOnlyDictionary<string, bool> changes, CancellationToken cancellationToken = default);
+    Task<string?> MoveAsync(SecretItemRef previousItem, SecretItemRef item, IReadOnlyCollection<string> providerIds, string sourceProviderId, CancellationToken cancellationToken = default);
+    Task<string?> ResolveConflictAsync(SecretItemRef item, string sourceProviderId, CancellationToken cancellationToken = default);
+    event Action<SecretItemRef>? ItemStateChanged;
+}
+
+public enum BackgroundTaskState
+{
+    Pending,
+    Running,
+    Succeeded,
+    Failed,
+    Cancelled,
+    Interrupted
+}
+
+public enum BackgroundTaskStepState
+{
+    Pending,
+    Running,
+    Succeeded,
+    Failed,
+    Cancelled
+}
+
+public record BackgroundTaskStepInfo(
+    string Id,
+    string Label,
+    BackgroundTaskStepState State,
+    string? Status = null,
+    string? Error = null
+);
+
+public record BackgroundTaskRequest(
+    string Type,
+    string Title,
+    string Description,
+    Dictionary<string, string> Parameters,
+    string? CoalesceKey = null,
+    string? ItemRoute = null
+);
+
+public record BackgroundTaskInfo(
+    string Id,
+    BackgroundTaskRequest Request,
+    BackgroundTaskState State,
+    int? Progress,
+    string? Status,
+    string? Error,
+    DateTime CreatedAtUtc,
+    DateTime? StartedAtUtc,
+    DateTime? CompletedAtUtc,
+    IReadOnlyList<OperationLogEntry> Log,
+    int Attempt,
+    IReadOnlyList<BackgroundTaskStepInfo>? Steps = null
+);
+
+public interface IBackgroundTaskContext
+{
+    CancellationToken CancellationToken { get; }
+    void SetStatus(string status);
+    void SetProgress(int? progress);
+    void SetSteps(IReadOnlyList<BackgroundTaskStepInfo> steps);
+    void UpdateStep(
+        string stepId,
+        BackgroundTaskStepState state,
+        string? status = null,
+        string? error = null);
+    void Log(string message, OperationLogLevel level = OperationLogLevel.Info);
+}
+
+public interface IBackgroundTaskHandler
+{
+    string Type { get; }
+    Task ExecuteAsync(BackgroundTaskRequest request, IBackgroundTaskContext context);
+}
+
+public interface IBackgroundTaskService
+{
+    bool IsPersistent { get; }
+    IReadOnlyList<BackgroundTaskInfo> Tasks { get; }
+    Task InitializeAsync(CancellationToken cancellationToken = default);
+    Task<string> EnqueueAsync(BackgroundTaskRequest request, CancellationToken cancellationToken = default);
+    Task RetryAsync(string taskId, CancellationToken cancellationToken = default);
+    Task CancelAsync(string taskId);
+    Task DismissAsync(string taskId, CancellationToken cancellationToken = default);
+    Task ClearCompletedAsync(CancellationToken cancellationToken = default);
+    event Action? TasksChanged;
 }
 
 /// <summary>
@@ -3810,7 +4054,8 @@ public record CloudProviderData(
     string Name,
     CloudSecretsProviderType ProviderType,
     Dictionary<string, string> Settings,
-    bool IsActive = false
+    bool IsActive = false,
+    List<SecretItemKind>? DefaultItemKinds = null
 );
 
 public record SecretsPublisherData(

@@ -13,14 +13,20 @@ public class LocalSecretsKeyStore : ILocalSecretsKeyStore, ILocalVaultAccessServ
     private const int KeySize = 32;
 
     private readonly ISecureStorage _secureStorage;
+    private readonly ILegacySecureStorageService _legacySecureStorage;
     private readonly IPreferences _preferences;
     private readonly ILoggingService _logger;
     private readonly SemaphoreSlim _keyLock = new(1, 1);
     private string? _cachedKey;
 
-    public LocalSecretsKeyStore(ISecureStorage secureStorage, IPreferences preferences, ILoggingService logger)
+    public LocalSecretsKeyStore(
+        ISecureStorage secureStorage,
+        ILegacySecureStorageService legacySecureStorage,
+        IPreferences preferences,
+        ILoggingService logger)
     {
         _secureStorage = secureStorage;
+        _legacySecureStorage = legacySecureStorage;
         _preferences = preferences;
         _logger = logger;
     }
@@ -82,7 +88,7 @@ public class LocalSecretsKeyStore : ILocalSecretsKeyStore, ILocalVaultAccessServ
             if (!forcePrompt && GetState().RequiresUserAction)
                 throw new LocalVaultUnavailableException(GetState().Message ?? "Local vault access requires user approval.");
 
-            var existing = await _secureStorage.GetAsync(KeyName);
+            var existing = await GetStoredKeyAsync(KeyName);
             if (!string.IsNullOrWhiteSpace(existing))
             {
                 _cachedKey = existing;
@@ -90,18 +96,18 @@ public class LocalSecretsKeyStore : ILocalSecretsKeyStore, ILocalVaultAccessServ
                 return existing;
             }
 
-            var legacy = await _secureStorage.GetAsync(LegacyKeyName);
+            var legacy = await GetStoredKeyAsync(LegacyKeyName);
             if (!string.IsNullOrWhiteSpace(legacy))
             {
-                await _secureStorage.SetAsync(KeyName, legacy);
-                _secureStorage.Remove(LegacyKeyName);
+                await StoreKeyAsync(KeyName, legacy);
+                await RemoveStoredKeyAsync(LegacyKeyName);
                 _cachedKey = legacy;
                 ClearAccessFailure();
                 return legacy;
             }
 
             var key = Convert.ToBase64String(RandomNumberGenerator.GetBytes(KeySize));
-            await _secureStorage.SetAsync(KeyName, key);
+            await StoreKeyAsync(KeyName, key);
             _cachedKey = key;
             ClearAccessFailure();
             return key;
@@ -121,6 +127,39 @@ public class LocalSecretsKeyStore : ILocalSecretsKeyStore, ILocalVaultAccessServ
         {
             _keyLock.Release();
         }
+    }
+
+    private async Task<string?> GetStoredKeyAsync(string key)
+    {
+#if DEBUG
+        var developmentValue = await _legacySecureStorage.GetAsync(key);
+        if (!string.IsNullOrWhiteSpace(developmentValue))
+            return developmentValue;
+
+        var keychainValue = await _secureStorage.GetAsync(key);
+        if (!string.IsNullOrWhiteSpace(keychainValue))
+            await _legacySecureStorage.SetAsync(key, keychainValue);
+
+        return keychainValue;
+#else
+        return await _secureStorage.GetAsync(key);
+#endif
+    }
+
+    private async Task StoreKeyAsync(string key, string value)
+    {
+        await _secureStorage.SetAsync(key, value);
+#if DEBUG
+        await _legacySecureStorage.SetAsync(key, value);
+#endif
+    }
+
+    private async Task RemoveStoredKeyAsync(string key)
+    {
+        _secureStorage.Remove(key);
+#if DEBUG
+        await _legacySecureStorage.RemoveAsync(key);
+#endif
     }
 
     private void RecordAccessFailure(string message, Exception exception)

@@ -85,7 +85,8 @@ public class SettingsMigrationService : ISettingsMigrationService
                 Name: p.Name,
                 ProviderType: p.ProviderType,
                 Settings: new Dictionary<string, string>(p.Settings),
-                IsActive: !string.IsNullOrEmpty(p.Name)
+                IsActive: !string.IsNullOrEmpty(p.Name),
+                DefaultItemKinds: p.EffectiveDefaultItemKinds.ToList()
             )).ToList();
 
             var activeProvider = _cloudSecrets.ActiveProvider;

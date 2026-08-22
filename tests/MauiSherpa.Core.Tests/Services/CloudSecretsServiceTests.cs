@@ -294,7 +294,7 @@ public class CloudSecretsServiceTests
     }
 
     [Fact]
-    public async Task SaveProviderAsync_WithUnavailableVaultStore_PersistsMetadataAndSettingsToJson()
+    public async Task SaveProviderAsync_WithUnreadableVault_DoesNotOverwriteProviderMetadata()
     {
         var fileSystem = new InMemoryFileSystem();
         var service = CreateService(fileSystem: fileSystem, vaultStore: new ThrowingLocalVaultStore());
@@ -310,12 +310,10 @@ public class CloudSecretsServiceTests
                 ["ClientSecret"] = "secret"
             });
 
-        await service.SaveProviderAsync(provider);
-        var providers = await service.GetProvidersAsync();
+        Func<Task> act = () => service.SaveProviderAsync(provider);
 
-        providers.Should().ContainSingle(p => p.Id == "remote");
-        fileSystem.Files.Should().ContainKey(Path.Combine(AppDataPath.GetAppDataDirectory(), "cloud-secrets-providers.json"));
-        fileSystem.Files.Should().ContainKey(Path.Combine(AppDataPath.GetAppDataDirectory(), "cloud-secrets-remote.json"));
+        await act.Should().ThrowAsync<LocalVaultUnavailableException>();
+        fileSystem.Files.Should().BeEmpty();
     }
 
     [Fact]
@@ -359,6 +357,58 @@ public class CloudSecretsServiceTests
         (await fileSystem.FileExistsAsync(providerSettingsPath)).Should().BeFalse();
         (await vaultStore.GetAsync(LocalVaultScopes.CloudProvider, "/", "providers")).Should().NotBeNull();
         (await vaultStore.GetAsync(LocalVaultScopes.CloudProvider, "/providers", "settings-remote")).Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task SaveProviderAsync_WithoutDefaultPolicy_EnablesEveryItemKind()
+    {
+        var service = CreateService();
+        await service.SaveProviderAsync(new CloudSecretsProviderConfig(
+            "remote",
+            "Remote",
+            CloudSecretsProviderType.AzureKeyVault,
+            new Dictionary<string, string>()));
+
+        var provider = await service.GetProviderConfigAsync("remote");
+
+        provider.Should().NotBeNull();
+        provider!.EffectiveDefaultItemKinds.Should().BeEquivalentTo(SecretItemKinds.All);
+    }
+
+    [Fact]
+    public async Task SaveProviderAsync_PersistsExplicitDefaultPolicy()
+    {
+        var service = CreateService();
+        await service.SaveProviderAsync(new CloudSecretsProviderConfig(
+            "remote",
+            "Remote",
+            CloudSecretsProviderType.AzureKeyVault,
+            new Dictionary<string, string>(),
+            [SecretItemKind.ManagedSecret, SecretItemKind.Certificate]));
+
+        var provider = await service.GetProviderConfigAsync("remote");
+
+        provider.Should().NotBeNull();
+        provider!.EffectiveDefaultItemKinds.Should().Equal(
+            SecretItemKind.ManagedSecret,
+            SecretItemKind.Certificate);
+    }
+
+    [Fact]
+    public async Task GetProviderAsync_ConcurrentCallsShareProviderInstance()
+    {
+        var service = CreateService();
+        await service.SaveProviderAsync(new CloudSecretsProviderConfig(
+            "remote",
+            "Remote",
+            CloudSecretsProviderType.AzureKeyVault,
+            new Dictionary<string, string>()));
+
+        var providers = await Task.WhenAll(
+            Enumerable.Range(0, 32).Select(_ => service.GetProviderAsync("remote")));
+
+        providers.Should().OnlyContain(provider => provider != null);
+        providers.Should().OnlyContain(provider => ReferenceEquals(provider, providers[0]));
     }
 
     private static CloudSecretsService CreateService(

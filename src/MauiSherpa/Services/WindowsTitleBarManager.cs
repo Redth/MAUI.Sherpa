@@ -522,7 +522,11 @@ public class WindowsTitleBarManager
                 if (_cachedAppleIdentities?.Count > 0)
                 {
                     if (_appleIdentityState.SelectedIdentity == null)
-                        _appleIdentityState.SetSelectedIdentity(_cachedAppleIdentities[0]);
+                    {
+                        var preferred = _cachedAppleIdentities.FirstOrDefault(identity =>
+                            identity.Id == _appleIdentityState.LastSelectedIdentityId);
+                        _appleIdentityState.SetSelectedIdentity(preferred ?? _cachedAppleIdentities[0]);
+                    }
                     OnToolbarChanged();
                 }
             });
@@ -531,7 +535,9 @@ public class WindowsTitleBarManager
 
         if (_cachedAppleIdentities.Count == 0) return null;
 
-        var selected = _appleIdentityState.SelectedIdentity;
+        var selected = _appleIdentityState.SelectedIdentity ??
+            _cachedAppleIdentities.FirstOrDefault(identity =>
+                identity.Id == _appleIdentityState.LastSelectedIdentityId);
         if (selected == null && _cachedAppleIdentities.Count > 0)
         {
             selected = _cachedAppleIdentities[0];
@@ -585,7 +591,11 @@ public class WindowsTitleBarManager
                 if (_cachedGoogleIdentities?.Count > 0)
                 {
                     if (_googleIdentityState.SelectedIdentity == null)
-                        _googleIdentityState.SetSelectedIdentity(_cachedGoogleIdentities[0]);
+                    {
+                        var preferred = _cachedGoogleIdentities.FirstOrDefault(identity =>
+                            identity.Id == _googleIdentityState.LastSelectedIdentityId);
+                        _googleIdentityState.SetSelectedIdentity(preferred ?? _cachedGoogleIdentities[0]);
+                    }
                     OnToolbarChanged();
                 }
             });
@@ -594,7 +604,9 @@ public class WindowsTitleBarManager
 
         if (_cachedGoogleIdentities.Count == 0) return null;
 
-        var selected = _googleIdentityState.SelectedIdentity;
+        var selected = _googleIdentityState.SelectedIdentity ??
+            _cachedGoogleIdentities.FirstOrDefault(identity =>
+                identity.Id == _googleIdentityState.LastSelectedIdentityId);
         if (selected == null && _cachedGoogleIdentities.Count > 0)
         {
             selected = _cachedGoogleIdentities[0];

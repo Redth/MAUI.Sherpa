@@ -292,7 +292,8 @@ public class BackupService : IBackupService
                     Name: provider.Name,
                     ProviderType: provider.ProviderType,
                     Settings: new Dictionary<string, string>(provider.Settings),
-                    IsActive: provider.Id == activeProviderId))
+                    IsActive: provider.Id == activeProviderId,
+                    DefaultItemKinds: provider.EffectiveDefaultItemKinds.ToList()))
                 .ToList(),
             ActiveCloudProviderId = activeProviderId
         };
