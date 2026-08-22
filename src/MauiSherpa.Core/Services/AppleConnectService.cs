@@ -430,18 +430,7 @@ public class AppleConnectService : IAppleConnectService
         {
             var client = await GetClientAsync();
             
-            // Parse certificate type
-            var certType = certificateType.ToUpperInvariant() switch
-            {
-                "DEVELOPMENT" or "IOS_DEVELOPMENT" => CertificateType.IOS_DEVELOPMENT,
-                "DISTRIBUTION" or "IOS_DISTRIBUTION" => CertificateType.IOS_DISTRIBUTION,
-                "MAC_APP_DEVELOPMENT" => CertificateType.MAC_APP_DEVELOPMENT,
-                "MAC_APP_DISTRIBUTION" => CertificateType.MAC_APP_DISTRIBUTION,
-                "MAC_INSTALLER_DISTRIBUTION" => CertificateType.MAC_INSTALLER_DISTRIBUTION,
-                "DEVELOPER_ID_APPLICATION" => CertificateType.DEVELOPER_ID_APPLICATION,
-                "DEVELOPER_ID_KEXT" => CertificateType.DEVELOPER_ID_KEXT,
-                _ => CertificateType.DEVELOPMENT
-            };
+            var certType = ParseCertificateType(certificateType);
             
             // Use machine name as default common name
             var cn = commonName ?? Environment.MachineName;
@@ -474,6 +463,21 @@ public class AppleConnectService : IAppleConnectService
             throw;
         }
     }
+
+    internal static CertificateType ParseCertificateType(string certificateType) =>
+        certificateType.ToUpperInvariant() switch
+        {
+            "DEVELOPMENT" => CertificateType.DEVELOPMENT,
+            "DISTRIBUTION" => CertificateType.DISTRIBUTION,
+            "IOS_DEVELOPMENT" => CertificateType.IOS_DEVELOPMENT,
+            "IOS_DISTRIBUTION" => CertificateType.IOS_DISTRIBUTION,
+            "MAC_APP_DEVELOPMENT" => CertificateType.MAC_APP_DEVELOPMENT,
+            "MAC_APP_DISTRIBUTION" => CertificateType.MAC_APP_DISTRIBUTION,
+            "MAC_INSTALLER_DISTRIBUTION" => CertificateType.MAC_INSTALLER_DISTRIBUTION,
+            "DEVELOPER_ID_APPLICATION" => CertificateType.DEVELOPER_ID_APPLICATION,
+            "DEVELOPER_ID_KEXT" => CertificateType.DEVELOPER_ID_KEXT,
+            _ => CertificateType.DEVELOPMENT
+        };
 
     public async Task RevokeCertificateAsync(string id)
     {

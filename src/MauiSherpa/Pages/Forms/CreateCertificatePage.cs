@@ -13,6 +13,8 @@ public class CreateCertificatePage : FormPage<AppleCertificateCreateResult>
 
     private static readonly string[] CertTypeLabels =
     {
+        "Apple Development",
+        "Apple Distribution",
         "iOS Development",
         "iOS Distribution",
         "Mac Development",
@@ -24,6 +26,8 @@ public class CreateCertificatePage : FormPage<AppleCertificateCreateResult>
 
     private static readonly string[] CertTypeValues =
     {
+        "DEVELOPMENT",
+        "DISTRIBUTION",
         "IOS_DEVELOPMENT",
         "IOS_DISTRIBUTION",
         "MAC_APP_DEVELOPMENT",

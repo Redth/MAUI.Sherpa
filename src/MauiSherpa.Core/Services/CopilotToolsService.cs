@@ -538,7 +538,7 @@ public class CopilotToolsService : ICopilotToolsService
 
     [Description("Create a new signing certificate")]
     private async Task<string> CreateCertificateAsync(
-        [Description("Certificate type: IOS_DEVELOPMENT, IOS_DISTRIBUTION, MAC_APP_DEVELOPMENT, MAC_APP_DISTRIBUTION, DEVELOPER_ID_APPLICATION")] string certificateType,
+        [Description("Certificate type: DEVELOPMENT, DISTRIBUTION, IOS_DEVELOPMENT, IOS_DISTRIBUTION, MAC_APP_DEVELOPMENT, MAC_APP_DISTRIBUTION, DEVELOPER_ID_APPLICATION")] string certificateType,
         [Description("Optional common name for the certificate")] string? commonName = null)
     {
         var error = CheckIdentitySelected();
