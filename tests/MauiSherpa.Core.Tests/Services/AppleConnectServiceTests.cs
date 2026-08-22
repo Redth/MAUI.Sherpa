@@ -6,20 +6,56 @@ namespace MauiSherpa.Core.Tests.Services;
 
 public class AppleConnectServiceTests
 {
-    [Theory]
-    [InlineData("DEVELOPMENT", CertificateType.DEVELOPMENT)]
-    [InlineData("DISTRIBUTION", CertificateType.DISTRIBUTION)]
-    [InlineData("IOS_DEVELOPMENT", CertificateType.IOS_DEVELOPMENT)]
-    [InlineData("IOS_DISTRIBUTION", CertificateType.IOS_DISTRIBUTION)]
-    [InlineData("MAC_APP_DEVELOPMENT", CertificateType.MAC_APP_DEVELOPMENT)]
-    [InlineData("MAC_APP_DISTRIBUTION", CertificateType.MAC_APP_DISTRIBUTION)]
-    [InlineData("MAC_INSTALLER_DISTRIBUTION", CertificateType.MAC_INSTALLER_DISTRIBUTION)]
-    [InlineData("DEVELOPER_ID_APPLICATION", CertificateType.DEVELOPER_ID_APPLICATION)]
-    [InlineData("DEVELOPER_ID_KEXT", CertificateType.DEVELOPER_ID_KEXT)]
-    public void ParseCertificateType_ReturnsMatchingAppStoreConnectType(
-        string value,
-        CertificateType expected)
+    [Fact]
+    public void ParseCertificateType_SupportsEveryKnownAppStoreConnectType()
     {
-        AppleConnectService.ParseCertificateType(value).Should().Be(expected);
+        var knownTypes = Enum.GetValues<CertificateType>()
+            .Where(type => type != CertificateType.Unknown);
+
+        foreach (var type in knownTypes)
+        {
+            AppleConnectService.ParseCertificateType(type.ToString()).Should().Be(type);
+        }
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("UNKNOWN")]
+    [InlineData("NOT_A_CERTIFICATE_TYPE")]
+    public void ParseCertificateType_RejectsUnsupportedValues(string value)
+    {
+        var action = () => AppleConnectService.ParseCertificateType(value);
+
+        action.Should().Throw<ArgumentException>();
+    }
+
+    [Theory]
+    [InlineData("Custom Key", "Identity Name", "fallback", "Custom Key")]
+    [InlineData(" ", "Identity Name", "fallback", "Identity Name")]
+    [InlineData(null, null, "fallback", "fallback")]
+    public void ResolveCertificateCommonName_UsesFirstAvailableName(
+        string? commonName,
+        string? identityName,
+        string fallbackName,
+        string expected)
+    {
+        AppleConnectService.ResolveCertificateCommonName(
+            commonName,
+            identityName,
+            fallbackName).Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("Team Signing Key", "Apple Development: Created via API", "Created via API", "Team Signing Key")]
+    [InlineData(null, "Apple Development: Created via API", "Created via API", "Apple Development: Created via API")]
+    [InlineData(null, null, "Created via API", "Created via API")]
+    public void ResolveCertificateDisplayName_PrefersLocalAlias(
+        string? alias,
+        string? name,
+        string? displayName,
+        string expected)
+    {
+        AppleConnectService.ResolveCertificateDisplayName(alias, name, displayName)
+            .Should().Be(expected);
     }
 }

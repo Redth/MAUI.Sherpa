@@ -783,7 +783,8 @@ public record AppleProfile(
     string State,
     DateTime ExpirationDate,
     string? BundleId,
-    string Uuid
+    string Uuid,
+    IReadOnlyList<string>? CertificateIds = null
 );
 
 public interface IAppleIdentityService
@@ -878,7 +879,10 @@ public record AppleCertificateCreateResult(
     string CertificateId,
     byte[] PfxData,
     DateTime ExpirationDate,
-    string? Passphrase = null
+    string? Passphrase = null,
+    string? SerialNumber = null,
+    string? CommonName = null,
+    string? CertificateType = null
 );
 
 // Apple Root/Intermediate Certificates (for macOS keychain management)
@@ -3867,6 +3871,17 @@ public record PublishProfilePublisher(
 /// Apple config within a publish profile. All items are optional —
 /// include any combination of certificate, profile, notarization.
 /// </summary>
+public record PublishProfileCertificateSelection(
+    string SerialNumber,
+    string Name
+);
+
+public record PublishProfileProvisioningProfileSelection(
+    string Id,
+    string Uuid,
+    string Name
+);
+
 public record PublishProfileAppleConfig(
     string Label,
     string? IdentityId,
@@ -3884,7 +3899,34 @@ public record PublishProfileAppleConfig(
     string? NotarizationPasswordManualValue,
     string? NotarizationTeamIdManualValue,
     Dictionary<string, List<string>> KeyMappings
-);
+)
+{
+    public List<PublishProfileCertificateSelection> SigningCertificates { get; init; } = new();
+    public List<PublishProfileProvisioningProfileSelection> ProvisioningProfiles { get; init; } = new();
+
+    public IReadOnlyList<PublishProfileCertificateSelection> GetSigningCertificates() =>
+        SigningCertificates.Count > 0
+            ? SigningCertificates
+            : string.IsNullOrWhiteSpace(CertificateSerialNumber)
+                ? Array.Empty<PublishProfileCertificateSelection>()
+                : new[] { new PublishProfileCertificateSelection(CertificateSerialNumber, CertificateSerialNumber) };
+
+    public IReadOnlyList<PublishProfileProvisioningProfileSelection> GetProvisioningProfiles() =>
+        ProvisioningProfiles.Count > 0
+            ? ProvisioningProfiles
+            : string.IsNullOrWhiteSpace(ProfileId)
+                ? Array.Empty<PublishProfileProvisioningProfileSelection>()
+                : new[]
+                {
+                    new PublishProfileProvisioningProfileSelection(
+                        ProfileId,
+                        ProfileUuid ?? string.Empty,
+                        ProfileId)
+                };
+
+    public static string GetProvisioningProfileSecretKey(string prefix, int index, int count) =>
+        count == 1 ? $"{prefix}_PROFILE" : $"{prefix}_PROFILE_{index + 1}";
+}
 
 /// <summary>
 /// Apple developer identity within a publish profile.

@@ -11,6 +11,8 @@ namespace MauiSherpa.Core.Services;
 /// </summary>
 public class AppleConnectService : IAppleConnectService
 {
+    private const string CertificateAliasKeyPrefix = "apple_certificate_alias_";
+
     private readonly IAppleIdentityStateService _identityState;
     private readonly IAppleIdentityService _identityService;
     private readonly ISecureStorageService _secureStorage;
@@ -384,8 +386,8 @@ public class AppleConnectService : IAppleConnectService
                 fieldsCertificates: new[] { "displayName", "name", "certificateType", "platform", "serialNumber", "certificateContent" },
                 cancellationToken: default);
 
-            var certs = response.Data
-                .Select(c =>
+            var certs = await Task.WhenAll(response.Data
+                .Select(async c =>
                 {
                     var expirationDate = DateTime.UtcNow.AddYears(1); // fallback
                     try
@@ -399,15 +401,18 @@ public class AppleConnectService : IAppleConnectService
                     }
                     catch { }
 
+                    var alias = await GetCertificateAliasAsync(c.Id);
                     return new AppleCertificate(
                         c.Id,
-                        c.Attributes?.DisplayName ?? c.Attributes?.Name ?? "",
+                        ResolveCertificateDisplayName(
+                            alias,
+                            c.Attributes?.Name,
+                            c.Attributes?.DisplayName),
                         c.Attributes?.CertificateTypeValue ?? c.Attributes?.CertificateType.ToString() ?? "DEVELOPMENT",
                         c.Attributes?.PlatformValue ?? c.Attributes?.Platform.ToString() ?? "",
                         expirationDate,
                         c.Attributes?.SerialNumber ?? "");
-                })
-                .ToList();
+                }));
             
             foreach (var cert in certs)
             {
@@ -432,13 +437,20 @@ public class AppleConnectService : IAppleConnectService
             
             var certType = ParseCertificateType(certificateType);
             
-            // Use machine name as default common name
-            var cn = commonName ?? Environment.MachineName;
+            var fallbackName = string.IsNullOrWhiteSpace(Environment.UserName)
+                ? Environment.MachineName
+                : Environment.UserName;
+            var cn = ResolveCertificateCommonName(
+                commonName,
+                _identityState.SelectedIdentity?.Name,
+                fallbackName);
             
             // Generate local RSA key pair and CSR so we retain the private key
             using var rsa = RSA.Create(2048);
+            var subjectBuilder = new X500DistinguishedNameBuilder();
+            subjectBuilder.AddCommonName(cn);
             var csrRequest = new CertificateRequest(
-                $"CN={cn}", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+                subjectBuilder.Build(), rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
             var csrPem = csrRequest.CreateSigningRequestPem();
 
             // Submit our CSR to Apple (private key stays local)
@@ -450,12 +462,30 @@ public class AppleConnectService : IAppleConnectService
             using var certWithKey = cert.CopyWithPrivateKey(rsa);
             
             var pfxData = certWithKey.Export(X509ContentType.Pfx, passphrase);
+            var serialNumber = string.IsNullOrWhiteSpace(response.Data.Attributes.SerialNumber)
+                ? cert.SerialNumber
+                : response.Data.Attributes.SerialNumber;
+            var responseCertificateType = string.IsNullOrWhiteSpace(response.Data.Attributes.CertificateTypeValue)
+                ? certType.ToString()
+                : response.Data.Attributes.CertificateTypeValue;
+
+            try
+            {
+                await _secureStorage.SetAsync(GetCertificateAliasKey(response.Data.Id), cn);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($"Certificate was created, but its local alias could not be saved: {ex.Message}");
+            }
             
             return new AppleCertificateCreateResult(
                 response.Data.Id,
                 pfxData,
                 cert.NotAfter,
-                passphrase);
+                passphrase,
+                serialNumber,
+                cn,
+                responseCertificateType);
         }
         catch (Exception ex)
         {
@@ -464,20 +494,62 @@ public class AppleConnectService : IAppleConnectService
         }
     }
 
-    internal static CertificateType ParseCertificateType(string certificateType) =>
-        certificateType.ToUpperInvariant() switch
+    internal static CertificateType ParseCertificateType(string certificateType)
+    {
+        if (Enum.TryParse<CertificateType>(
+                certificateType?.Trim(),
+                ignoreCase: true,
+                out var parsed) &&
+            parsed != CertificateType.Unknown)
         {
-            "DEVELOPMENT" => CertificateType.DEVELOPMENT,
-            "DISTRIBUTION" => CertificateType.DISTRIBUTION,
-            "IOS_DEVELOPMENT" => CertificateType.IOS_DEVELOPMENT,
-            "IOS_DISTRIBUTION" => CertificateType.IOS_DISTRIBUTION,
-            "MAC_APP_DEVELOPMENT" => CertificateType.MAC_APP_DEVELOPMENT,
-            "MAC_APP_DISTRIBUTION" => CertificateType.MAC_APP_DISTRIBUTION,
-            "MAC_INSTALLER_DISTRIBUTION" => CertificateType.MAC_INSTALLER_DISTRIBUTION,
-            "DEVELOPER_ID_APPLICATION" => CertificateType.DEVELOPER_ID_APPLICATION,
-            "DEVELOPER_ID_KEXT" => CertificateType.DEVELOPER_ID_KEXT,
-            _ => CertificateType.DEVELOPMENT
-        };
+            return parsed;
+        }
+
+        throw new ArgumentException(
+            $"Unsupported Apple certificate type '{certificateType}'.",
+            nameof(certificateType));
+    }
+
+    internal static string ResolveCertificateCommonName(
+        string? commonName,
+        string? selectedIdentityName,
+        string fallbackName)
+    {
+        var resolved = !string.IsNullOrWhiteSpace(commonName)
+            ? commonName
+            : !string.IsNullOrWhiteSpace(selectedIdentityName)
+                ? selectedIdentityName
+                : fallbackName;
+        return resolved.Trim();
+    }
+
+    internal static string ResolveCertificateDisplayName(
+        string? alias,
+        string? name,
+        string? displayName)
+    {
+        if (!string.IsNullOrWhiteSpace(alias))
+            return alias.Trim();
+        if (!string.IsNullOrWhiteSpace(name))
+            return name.Trim();
+        return displayName?.Trim() ?? string.Empty;
+    }
+
+    private async Task<string?> GetCertificateAliasAsync(string certificateId)
+    {
+        try
+        {
+            return await _secureStorage.GetAsync(GetCertificateAliasKey(certificateId));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning($"Could not load the local alias for certificate '{certificateId}': {ex.Message}");
+            return null;
+        }
+    }
+
+    private string GetCertificateAliasKey(string certificateId) =>
+        $"{CertificateAliasKeyPrefix}{_identityState.SelectedIdentity?.Id}_{certificateId}";
 
     public async Task RevokeCertificateAsync(string id)
     {
@@ -509,8 +581,8 @@ public class AppleConnectService : IAppleConnectService
             var response = await client.ListProfilesAsync(
                 filterId: null, filterName: null, 
                 filterProfileState: null, filterProfileType: null,
-                include: "bundleId", sort: null, limit: 100,
-                limitCertificates: null, limitDevices: null,
+                include: "bundleId,certificates", sort: null, limit: 100,
+                limitCertificates: 50, limitDevices: null,
                 fieldsProfiles: null, fieldsBundleIds: null,
                 fieldsCertificates: null, fieldsDevices: null,
                 cancellationToken: default);
@@ -529,6 +601,12 @@ public class AppleConnectService : IAppleConnectService
                             .ToList()
                         : [];
                     var bundleIdentifier = string.Join(", ", bundleIds);
+                    var certificateIds = p.Relationships?.TryGetValue("certificates", out var certificateRel) == true
+                        ? (certificateRel?.Data ?? [])
+                            .Select(data => data.Id)
+                            .Where(id => !string.IsNullOrWhiteSpace(id))
+                            .ToList()
+                        : [];
                     return new AppleProfile(
                         p.Id,
                         p.Attributes?.Name ?? "",
@@ -537,7 +615,8 @@ public class AppleConnectService : IAppleConnectService
                         p.Attributes?.ProfileState.ToString() ?? "ACTIVE",
                         p.Attributes?.ExpirationDate?.DateTime ?? DateTime.UtcNow.AddYears(1),
                         bundleIdentifier,
-                        p.Attributes?.Uuid ?? "");
+                        p.Attributes?.Uuid ?? "",
+                        certificateIds);
                 })
                 .ToList();
         }

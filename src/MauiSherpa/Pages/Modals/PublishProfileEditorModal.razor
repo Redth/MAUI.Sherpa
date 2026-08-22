@@ -158,17 +158,17 @@
                                         var identityName = appleIdentities.FirstOrDefault(i => i.Id == config.IdentityId)?.Name ?? config.IdentityId;
                                         <div class="summary-item"><i class="fa-solid fa-id-badge"></i> <span class="@(demoMode ? "demo-blur" : "")">@identityName</span></div>
                                     }
-                                    @if (!string.IsNullOrEmpty(config.CertificateSerialNumber))
+                                    @if (config.SigningCertificates.Any())
                                     {
-                                        <div class="summary-item"><i class="fa-solid fa-stamp"></i> <span class="@(demoMode ? "demo-blur" : "")">@(config.CertificateName ?? config.CertificateSerialNumber)</span></div>
+                                        <div class="summary-item"><i class="fa-solid fa-stamp"></i> <span class="@(demoMode ? "demo-blur" : "")">@string.Join(", ", config.SigningCertificates.Select(certificate => certificate.Name))</span></div>
                                     }
                                     @if (!string.IsNullOrEmpty(config.InstallerCertSerialNumber))
                                     {
                                         <div class="summary-item"><i class="fa-solid fa-box"></i> <span class="@(demoMode ? "demo-blur" : "")">@(config.InstallerCertName ?? "Installer")</span></div>
                                     }
-                                    @if (!string.IsNullOrEmpty(config.ProfileId))
+                                    @if (config.ProvisioningProfiles.Any())
                                     {
-                                        <div class="summary-item"><i class="fa-solid fa-file-signature"></i> <span class="@(demoMode ? "demo-blur" : "")">@(config.ProfileName ?? config.ProfileId)</span></div>
+                                        <div class="summary-item"><i class="fa-solid fa-file-signature"></i> <span class="@(demoMode ? "demo-blur" : "")">@string.Join(", ", config.ProvisioningProfiles.Select(profile => profile.Name))</span></div>
                                     }
                                     @if (config.IncludeNotarization)
                                     {
@@ -1294,9 +1294,15 @@
                 Platform = a.Platform,
                 DistributionType = a.DistributionType,
                 CertificateSerialNumber = a.CertificateSerialNumber,
+                SigningCertificates = a.GetSigningCertificates()
+                    .Select(certificate => certificate with { })
+                    .ToList(),
                 InstallerCertSerialNumber = a.InstallerCertSerialNumber,
                 ProfileId = a.ProfileId,
                 ProfileUuid = a.ProfileUuid,
+                ProvisioningProfiles = a.GetProvisioningProfiles()
+                    .Select(profile => profile with { })
+                    .ToList(),
                 IncludeNotarization = a.IncludeNotarization,
                 NotarizationAppleIdSecretKey = a.NotarizationAppleIdSecretKey,
                 NotarizationPasswordSecretKey = a.NotarizationPasswordSecretKey,
@@ -1411,24 +1417,36 @@
             PublisherId: profilePublishers.FirstOrDefault()?.PublisherId,
             RepositoryId: profilePublishers.FirstOrDefault()?.RepositoryId,
             RepositoryFullName: profilePublishers.FirstOrDefault()?.RepositoryFullName,
-            AppleConfigs: appleConfigs.Select(a => new PublishProfileAppleConfig(
-                a.Label,
-                a.IdentityId,
-                a.Platform,
-                a.DistributionType,
-                a.CertificateSerialNumber,
-                a.InstallerCertSerialNumber,
-                a.ProfileId,
-                a.ProfileUuid,
-                a.IncludeNotarization,
-                a.NotarizationAppleIdUseManual ? null : a.NotarizationAppleIdSecretKey,
-                a.NotarizationPasswordUseManual ? null : a.NotarizationPasswordSecretKey,
-                a.NotarizationTeamIdUseManual ? null : a.NotarizationTeamIdSecretKey,
-                a.NotarizationAppleIdUseManual ? a.NotarizationAppleIdManualValue : null,
-                a.NotarizationPasswordUseManual ? a.NotarizationPasswordManualValue : null,
-                a.NotarizationTeamIdUseManual ? a.NotarizationTeamIdManualValue : null,
-                a.KeyMappings.ToDictionary(k => k.Key, k => k.Value.ToList())
-            )).ToList(),
+            AppleConfigs: appleConfigs.Select(a =>
+            {
+                var firstCertificate = a.SigningCertificates.FirstOrDefault();
+                var firstProfile = a.ProvisioningProfiles.FirstOrDefault();
+                return new PublishProfileAppleConfig(
+                    a.Label,
+                    a.IdentityId,
+                    a.Platform,
+                    a.DistributionType,
+                    firstCertificate?.SerialNumber,
+                    a.InstallerCertSerialNumber,
+                    firstProfile?.Id,
+                    firstProfile?.Uuid,
+                    a.IncludeNotarization,
+                    a.NotarizationAppleIdUseManual ? null : a.NotarizationAppleIdSecretKey,
+                    a.NotarizationPasswordUseManual ? null : a.NotarizationPasswordSecretKey,
+                    a.NotarizationTeamIdUseManual ? null : a.NotarizationTeamIdSecretKey,
+                    a.NotarizationAppleIdUseManual ? a.NotarizationAppleIdManualValue : null,
+                    a.NotarizationPasswordUseManual ? a.NotarizationPasswordManualValue : null,
+                    a.NotarizationTeamIdUseManual ? a.NotarizationTeamIdManualValue : null,
+                    a.KeyMappings.ToDictionary(k => k.Key, k => k.Value.ToList()))
+                {
+                    SigningCertificates = a.SigningCertificates
+                        .Select(certificate => certificate with { })
+                        .ToList(),
+                    ProvisioningProfiles = a.ProvisioningProfiles
+                        .Select(selectedProfile => selectedProfile with { })
+                        .ToList()
+                };
+            }).ToList(),
             AndroidConfigs: androidConfigs.Select(a => new PublishProfileAndroidConfig(
                 a.Label,
                 a.KeystoreId,
