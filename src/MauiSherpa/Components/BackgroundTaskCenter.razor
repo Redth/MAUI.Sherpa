@@ -1,0 +1,447 @@
+@using MauiSherpa.Core.Interfaces
+@inject IBackgroundTaskService BackgroundTasks
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<div class="background-task-center"
+     id="@_rootId"
+     data-open="@_isOpen.ToString().ToLowerInvariant()">
+    <button type="button"
+            class="task-center-trigger @GetTriggerClass()"
+            data-popover-trigger
+            aria-label="@GetTriggerLabel()"
+            aria-haspopup="dialog"
+            aria-expanded="@_isOpen"
+            aria-controls="@_flyoutId"
+            title="@GetTriggerLabel()"
+            @onclick="ToggleAsync">
+        <i class="@GetTriggerIcon()" aria-hidden="true"></i>
+        @if (BadgeCount > 0)
+        {
+            <span class="task-badge @(NeedsAttention.Count > 0 ? "attention" : "")"
+                  aria-hidden="true">@FormatCount(BadgeCount)</span>
+        }
+    </button>
+
+    <div class="background-task-visually-hidden" aria-live="polite" aria-atomic="true">@_announcement</div>
+
+    @if (_isOpen)
+    {
+        <section class="task-center-flyout"
+                 id="@_flyoutId"
+                 role="dialog"
+                 aria-modal="false"
+                 aria-labelledby="@_headingId">
+            <header class="task-center-flyout-header">
+                <div>
+                    <h2 id="@_headingId">Background tasks</h2>
+                    <p>Progress and recent activity</p>
+                </div>
+                <div class="task-center-header-actions">
+                    @if (CompletedTaskCount > 0)
+                    {
+                        <button type="button"
+                                class="task-center-clear"
+                                disabled="@_isClearingCompleted"
+                                aria-label="@($"Clear {CompletedTaskCount} completed background tasks")"
+                                @onclick="ClearCompletedAsync">
+                            <i class="fa-solid @(_isClearingCompleted ? "fa-spinner fa-spin" : "fa-broom")"
+                               aria-hidden="true"></i>
+                            <span>Clear completed</span>
+                        </button>
+                    }
+                    <button type="button"
+                            class="task-center-close"
+                            data-popover-initial-focus
+                            aria-label="Close background tasks"
+                            title="Close"
+                            @onclick="CloseAsync">
+                        <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+                    </button>
+                </div>
+            </header>
+
+            @if (!BackgroundTasks.IsPersistent)
+            {
+                <div class="task-center-persistence-warning" role="note">
+                    <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+                    <span>Task history is temporary and may be lost when the app closes.</span>
+                </div>
+            }
+
+            @if (!string.IsNullOrWhiteSpace(_operationError))
+            {
+                <div class="task-center-error" role="alert">
+                    <i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i>
+                    <span>@_operationError</span>
+                </div>
+            }
+
+            <div class="background-task-groups">
+                @if (RunningTasks.Count > 0)
+                {
+                    <section class="background-task-group" aria-labelledby="@_runningHeadingId">
+                        <h3 id="@_runningHeadingId">
+                            <span>Running</span>
+                            <span class="task-group-count">@RunningTasks.Count</span>
+                        </h3>
+                        @foreach (var item in RunningTasks)
+                        {
+                            <BackgroundTaskItem Item="@item"
+                                                IsBusy="@_busyTaskIds.Contains(item.Id)"
+                                                IsNavigable="@CanNavigateToItem(item)"
+                                                NavigateRequested="NavigateToItemAsync"
+                                                CancelRequested="CancelAsync" />
+                        }
+                    </section>
+                }
+
+                @if (NeedsAttention.Count > 0)
+                {
+                    <section class="background-task-group" aria-labelledby="@_attentionHeadingId">
+                        <h3 id="@_attentionHeadingId" class="task-group-attention">
+                            <span>Needs attention</span>
+                            <span class="task-group-count">@NeedsAttention.Count</span>
+                        </h3>
+                        @foreach (var item in NeedsAttention)
+                        {
+                            <BackgroundTaskItem Item="@item"
+                                                IsBusy="@_busyTaskIds.Contains(item.Id)"
+                                                IsNavigable="@CanNavigateToItem(item)"
+                                                NavigateRequested="NavigateToItemAsync"
+                                                RetryRequested="RetryAsync"
+                                                DismissRequested="DismissAsync" />
+                        }
+                    </section>
+                }
+
+                @if (RecentTasks.Count > 0)
+                {
+                    <section class="background-task-group" aria-labelledby="@_recentHeadingId">
+                        <h3 id="@_recentHeadingId">
+                            <span>Recent</span>
+                            <span class="task-group-count">@RecentTasks.Count</span>
+                        </h3>
+                        @foreach (var item in RecentTasks)
+                        {
+                            <BackgroundTaskItem Item="@item"
+                                                IsBusy="@_busyTaskIds.Contains(item.Id)"
+                                                IsNavigable="@CanNavigateToItem(item)"
+                                                NavigateRequested="NavigateToItemAsync"
+                                                RetryRequested="RetryAsync"
+                                                DismissRequested="DismissAsync" />
+                        }
+                    </section>
+                }
+
+                @if (_tasks.Count == 0)
+                {
+                    <div class="background-task-empty">
+                        <span class="background-task-empty-icon" aria-hidden="true">
+                            <i class="fa-solid fa-list-check"></i>
+                        </span>
+                        <strong>No background tasks</strong>
+                        <span>Long-running work will appear here.</span>
+                    </div>
+                }
+            </div>
+        </section>
+    }
+</div>
+
+@code {
+    private readonly string _rootId = $"background-task-center-{Guid.NewGuid():N}";
+    private readonly string _flyoutId = $"background-task-flyout-{Guid.NewGuid():N}";
+    private readonly string _headingId = $"background-task-heading-{Guid.NewGuid():N}";
+    private readonly string _runningHeadingId = $"background-task-running-{Guid.NewGuid():N}";
+    private readonly string _attentionHeadingId = $"background-task-attention-{Guid.NewGuid():N}";
+    private readonly string _recentHeadingId = $"background-task-recent-{Guid.NewGuid():N}";
+    private readonly HashSet<string> _busyTaskIds = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, BackgroundTaskState> _knownStates = new(StringComparer.Ordinal);
+    private IReadOnlyList<BackgroundTaskInfo> _tasks = Array.Empty<BackgroundTaskInfo>();
+    private DotNetObjectReference<BackgroundTaskCenter>? _dotNetReference;
+    private IJSObjectReference? _interopModule;
+    private bool _interopBound;
+    private bool _isOpen;
+    private bool _isClearingCompleted;
+    private bool _restoreFocus;
+    private string _announcement = "";
+    private string? _operationError;
+
+    [Parameter]
+    public EventCallback<BackgroundTaskInfo> ItemNavigationRequested { get; set; }
+
+    [Parameter]
+    public int MaxRecentItems { get; set; } = 5;
+
+    private IReadOnlyList<BackgroundTaskInfo> RunningTasks => _tasks
+        .Where(item => item.State is BackgroundTaskState.Pending or BackgroundTaskState.Running)
+        .ToArray();
+
+    private IReadOnlyList<BackgroundTaskInfo> NeedsAttention => _tasks
+        .Where(item => item.State is BackgroundTaskState.Failed or BackgroundTaskState.Interrupted)
+        .ToArray();
+
+    private IReadOnlyList<BackgroundTaskInfo> RecentTasks => _tasks
+        .Where(item => item.State is BackgroundTaskState.Succeeded or BackgroundTaskState.Cancelled)
+        .Take(Math.Max(0, MaxRecentItems))
+        .ToArray();
+
+    private int BadgeCount => NeedsAttention.Count > 0
+        ? NeedsAttention.Count
+        : RunningTasks.Count;
+
+    private int CompletedTaskCount => _tasks.Count(item =>
+        item.State is BackgroundTaskState.Succeeded or BackgroundTaskState.Cancelled);
+
+    protected override async Task OnInitializedAsync()
+    {
+        BackgroundTasks.TasksChanged += HandleTasksChanged;
+        try
+        {
+            await BackgroundTasks.InitializeAsync();
+            RefreshTasks(announceChanges: false);
+        }
+        catch (Exception ex)
+        {
+            _operationError = SanitizeText(ex.Message, 300);
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _interopModule ??= await JS.InvokeAsync<IJSObjectReference>(
+                "import",
+                "./js/mauiSherpaPopovers.js");
+            await _interopModule.InvokeVoidAsync(
+                "ensureStylesheets",
+                new[]
+                {
+                    "./css/backgroundTaskCenter.css",
+                    "./css/backgroundTaskItem.css"
+                });
+        }
+
+        if (_isOpen && !_interopBound)
+        {
+            _interopModule ??= await JS.InvokeAsync<IJSObjectReference>(
+                "import",
+                "./js/mauiSherpaPopovers.js");
+            _dotNetReference ??= DotNetObjectReference.Create(this);
+            await _interopModule.InvokeVoidAsync("bindPopover", _rootId, _dotNetReference);
+            _interopBound = true;
+        }
+        else if (!_isOpen && _restoreFocus && _interopModule is not null)
+        {
+            _restoreFocus = false;
+            await _interopModule.InvokeVoidAsync("focusTrigger", _rootId);
+        }
+    }
+
+    private Task ToggleAsync()
+    {
+        if (_isOpen)
+            return CloseAsync();
+
+        _operationError = null;
+        _isOpen = true;
+        return Task.CompletedTask;
+    }
+
+    [JSInvokable]
+    public Task CloseFromJavaScript(bool restoreFocus) =>
+        CloseAsync(restoreFocus);
+
+    private Task CloseAsync() => CloseAsync(restoreFocus: true);
+
+    private async Task CloseAsync(bool restoreFocus)
+    {
+        if (!_isOpen)
+            return;
+
+        _isOpen = false;
+        _restoreFocus = restoreFocus;
+        if (_interopBound && _interopModule is not null)
+        {
+            await _interopModule.InvokeVoidAsync("unbindPopover", _rootId);
+            _interopBound = false;
+        }
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void HandleTasksChanged()
+    {
+        _ = InvokeAsync(() =>
+        {
+            RefreshTasks(announceChanges: true);
+            StateHasChanged();
+        });
+    }
+
+    private void RefreshTasks(bool announceChanges)
+    {
+        var updated = BackgroundTasks.Tasks;
+
+        if (announceChanges)
+        {
+            var changedItem = updated.FirstOrDefault(item =>
+                _knownStates.TryGetValue(item.Id, out var previousState) &&
+                previousState != item.State);
+
+            if (changedItem is not null)
+            {
+                _announcement = changedItem.State switch
+                {
+                    BackgroundTaskState.Succeeded => $"{changedItem.Request.Title} completed.",
+                    BackgroundTaskState.Failed or BackgroundTaskState.Interrupted =>
+                        $"{changedItem.Request.Title} needs attention.",
+                    BackgroundTaskState.Cancelled => $"{changedItem.Request.Title} was cancelled.",
+                    BackgroundTaskState.Running => $"{changedItem.Request.Title} started.",
+                    _ => $"{changedItem.Request.Title} is {GetStateText(changedItem.State)}."
+                };
+            }
+        }
+
+        _tasks = updated;
+        _knownStates.Clear();
+        foreach (var item in updated)
+            _knownStates[item.Id] = item.State;
+    }
+
+    private Task RetryAsync(string taskId) =>
+        RunActionAsync(taskId, () => BackgroundTasks.RetryAsync(taskId), "Task queued to retry.");
+
+    private Task CancelAsync(string taskId) =>
+        RunActionAsync(taskId, () => BackgroundTasks.CancelAsync(taskId), "Cancellation requested.");
+
+    private Task DismissAsync(string taskId) =>
+        RunActionAsync(taskId, () => BackgroundTasks.DismissAsync(taskId), "Task dismissed.");
+
+    private async Task ClearCompletedAsync()
+    {
+        if (_isClearingCompleted)
+            return;
+
+        _isClearingCompleted = true;
+        _operationError = null;
+        var count = CompletedTaskCount;
+        try
+        {
+            await BackgroundTasks.ClearCompletedAsync();
+            _announcement = count == 1
+                ? "Cleared 1 completed task."
+                : $"Cleared {count} completed tasks.";
+            RefreshTasks(announceChanges: false);
+        }
+        catch (Exception ex)
+        {
+            _operationError = SanitizeText(ex.Message, 300);
+            _announcement = $"Completed tasks could not be cleared. {_operationError}";
+        }
+        finally
+        {
+            _isClearingCompleted = false;
+        }
+    }
+
+    private async Task RunActionAsync(string taskId, Func<Task> action, string successMessage)
+    {
+        if (!_busyTaskIds.Add(taskId))
+            return;
+
+        _operationError = null;
+        try
+        {
+            await action();
+            _announcement = successMessage;
+            RefreshTasks(announceChanges: false);
+        }
+        catch (Exception ex)
+        {
+            _operationError = SanitizeText(ex.Message, 300);
+            _announcement = $"The task action failed. {_operationError}";
+        }
+        finally
+        {
+            _busyTaskIds.Remove(taskId);
+        }
+    }
+
+    private async Task NavigateToItemAsync(BackgroundTaskInfo item)
+    {
+        await CloseAsync();
+
+        if (ItemNavigationRequested.HasDelegate)
+        {
+            await ItemNavigationRequested.InvokeAsync(item);
+        }
+        else if (!string.IsNullOrWhiteSpace(item.Request.ItemRoute))
+        {
+            Navigation.NavigateTo(item.Request.ItemRoute);
+        }
+    }
+
+    private bool CanNavigateToItem(BackgroundTaskInfo item) =>
+        ItemNavigationRequested.HasDelegate || !string.IsNullOrWhiteSpace(item.Request.ItemRoute);
+
+    private string GetTriggerLabel()
+    {
+        if (NeedsAttention.Count == 1)
+            return "Background tasks: 1 task needs attention";
+        if (NeedsAttention.Count > 1)
+            return $"Background tasks: {NeedsAttention.Count} tasks need attention";
+        if (RunningTasks.Count == 1)
+            return "Background tasks: 1 task in progress";
+        if (RunningTasks.Count > 1)
+            return $"Background tasks: {RunningTasks.Count} tasks in progress";
+        return "Background tasks";
+    }
+
+    private string GetTriggerClass() => NeedsAttention.Count > 0
+        ? "has-attention"
+        : RunningTasks.Count > 0
+            ? "has-running"
+            : "";
+
+    private string GetTriggerIcon() => RunningTasks.Count > 0
+        ? "fa-solid fa-arrows-rotate task-trigger-spinning"
+        : "fa-solid fa-list-check";
+
+    private static string GetStateText(BackgroundTaskState state) =>
+        state.ToString().ToLowerInvariant();
+
+    private static string FormatCount(int count) => count > 99 ? "99+" : count.ToString();
+
+    private static string SanitizeText(string? value, int maxLength)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return "The operation could not be completed.";
+
+        var singleLine = value.ReplaceLineEndings(" ").Trim();
+        var sanitized = string.Concat(singleLine.Where(character => !char.IsControl(character)));
+        return sanitized.Length <= maxLength ? sanitized : $"{sanitized[..maxLength]}…";
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        BackgroundTasks.TasksChanged -= HandleTasksChanged;
+
+        try
+        {
+            if (_interopModule is not null)
+            {
+                await _interopModule.InvokeVoidAsync("unbindPopover", _rootId);
+                await _interopModule.DisposeAsync();
+            }
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+
+        _dotNetReference?.Dispose();
+    }
+}

@@ -134,12 +134,12 @@ public class AzureKeyVaultProvider : ICloudSecretsProvider
         catch (FormatException ex)
         {
             _logger.LogError($"Azure Key Vault secret not base64 encoded: {key} - {ex.Message}");
-            return null;
+            throw;
         }
         catch (Exception ex)
         {
             _logger.LogError($"Azure Key Vault get secret error: {ex.Message}", ex);
-            return null;
+            throw;
         }
     }
 
@@ -239,7 +239,7 @@ public class AzureKeyVaultProvider : ICloudSecretsProvider
         catch (Exception ex)
         {
             _logger.LogError($"Azure Key Vault secret exists check error: {ex.Message}", ex);
-            return false;
+            throw;
         }
     }
 

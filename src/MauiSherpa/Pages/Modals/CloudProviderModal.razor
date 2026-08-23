@@ -97,6 +97,7 @@
     private string providerName = "";
     private CloudSecretsProviderType providerType = CloudSecretsProviderType.Local;
     private Dictionary<string, string> providerSettings = new();
+    private List<SecretItemKind> defaultItemKinds = SecretItemKinds.All.ToList();
     private IEnumerable<CloudSecretsProviderType> AddableProviderTypes =>
         CloudSecretsProviderFactory.SupportedProviders.Where(type => type != CloudSecretsProviderType.Local);
 
@@ -122,6 +123,7 @@
             providerName = provider.Name;
             providerType = provider.ProviderType;
             providerSettings = new Dictionary<string, string>(provider.Settings);
+            defaultItemKinds = provider.EffectiveDefaultItemKinds.ToList();
         }
         else
         {
@@ -154,7 +156,8 @@
             isEditing ? editingId : Guid.NewGuid().ToString("N"),
             providerName,
             providerType,
-            new Dictionary<string, string>(providerSettings));
+            new Dictionary<string, string>(providerSettings),
+            defaultItemKinds);
         ModalParams.Complete(config);
     }
 

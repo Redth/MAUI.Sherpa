@@ -146,12 +146,12 @@ public class VaultwardenProvider : ICloudSecretsProvider
         catch (FormatException ex)
         {
             _logger.LogError($"Vaultwarden secret not base64 encoded: {key} - {ex.Message}");
-            return null;
+            throw;
         }
         catch (Exception ex)
         {
             _logger.LogError($"Vaultwarden get secret error: {ex.Message}", ex);
-            return null;
+            throw;
         }
     }
 
@@ -249,7 +249,7 @@ public class VaultwardenProvider : ICloudSecretsProvider
         catch (Exception ex)
         {
             _logger.LogError($"Vaultwarden secret exists check error: {ex.Message}", ex);
-            return false;
+            throw;
         }
     }
 

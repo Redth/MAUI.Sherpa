@@ -41,6 +41,8 @@ public static class LocalVaultScopes
     public const string SecureStorage = "secure";
     public const string CloudProvider = "cloud-provider";
     public const string Migration = "migration";
+    public const string BackgroundTask = "background-task";
+    public const string SecretSync = "secret-sync";
 }
 
 public static class LocalVaultNames

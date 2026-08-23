@@ -161,12 +161,12 @@ public class AwsSecretsManagerProvider : ICloudSecretsProvider
         catch (AmazonSecretsManagerException ex)
         {
             _logger.LogError($"AWS Secrets Manager get secret failed: {ex.StatusCode} - {ex.Message}", ex);
-            return null;
+            throw;
         }
         catch (Exception ex)
         {
             _logger.LogError($"AWS Secrets Manager get secret error: {ex.Message}", ex);
-            return null;
+            throw;
         }
     }
 
@@ -262,7 +262,7 @@ public class AwsSecretsManagerProvider : ICloudSecretsProvider
         catch (Exception ex)
         {
             _logger.LogError($"AWS Secrets Manager secret exists check error: {ex.Message}", ex);
-            return false;
+            throw;
         }
     }
 

@@ -25,6 +25,7 @@
 @inject IPlatformService PlatformInfo
 @inject IPreferences AppPreferences
 @inject ILocalVaultAccessService LocalVaultAccess
+@inject ISecretSyncCoordinator SecretSyncCoordinator
 
 <h1><i class="fas fa-certificate"></i> Certificates</h1>
 
@@ -41,15 +42,6 @@
         <button class="btn btn-success" @onclick="ShowCreateDialog" disabled="@isLoading">
             <i class="fas fa-plus"></i> Create Certificate
         </button>
-        @if (CloudSecretsService.ActiveProvider != null)
-        {
-            <button class="btn btn-outline-primary" @onclick="SyncAllFromCloud" disabled="@(isLoading || !HasCloudOnlyCerts)">
-                <i class="fas fa-cloud-download-alt"></i> Install All from Cloud
-            </button>
-            <button class="btn btn-outline-primary" @onclick="SyncAllToCloud" disabled="@(isLoading || !HasLocalOnlyCerts)">
-                <i class="fas fa-cloud-upload-alt"></i> Upload All to Cloud
-            </button>
-        }
     </div>
     }
 
@@ -174,54 +166,30 @@
                             {
                                 <span class="badge badge-valid">Valid</span>
                             }
-                            @* Sync status badge *@
-                            @if (CloudSecretsService.ActiveProvider != null)
-                            {
-                                <span class="badge @GetSyncBadgeClass(syncStatus)" title="@GetSyncStatusTooltip(syncStatus)">
-                                    <i class="@GetSyncStatusIcon(syncStatus)"></i> @GetSyncStatusText(syncStatus)
-                                </span>
-                            }
                         </div>
                         <div class="cert-expiry">
                             Expires: @cert.ExpirationDate.ToString("MMM dd, yyyy")
                         </div>
                     </div>
                     <div class="cert-actions">
-                        @if (CloudSecretsService.ActiveProvider != null)
+                        @if (!string.IsNullOrWhiteSpace(cert.SerialNumber))
                         {
-                            var currentCertId = cert.Id;
-                            var currentSyncStatus = syncStatus;
-                            <button class="btn btn-secondary btn-icon" @onclick="@(() => ToggleSyncMenu(currentCertId))" @onclick:stopPropagation="true" title="Sync">
-                                <i class="fas fa-cloud"></i>
-                            </button>
-                            @if (openSyncMenuCertId == currentCertId)
+                            <MauiSherpa.Components.SecretProviderPickerHost
+                                @key="@($"certificate-sync-{cert.SerialNumber}")"
+                                Item="@(new SecretItemRef(SecretItemKind.Certificate, GetCertificateSyncItemId(cert.SerialNumber), cert.Name))"
+                                CanAddProviderCopy="@(syncStatus != SecretLocation.None)"
+                                UnavailableSourceReason="This certificate has no matching private key in Keychain and no provider copy. Import or install its private key before syncing." />
+                            @if (syncStatus is SecretLocation.CloudOnly or SecretLocation.Both)
                             {
-                                <div class="cert-dropdown-menu">
-                                    @if (currentSyncStatus == SecretLocation.LocalOnly || currentSyncStatus == SecretLocation.Both)
-                                    {
-                                        <button type="button" class="cert-dropdown-item" @onclick="@(() => HandleUploadClick(currentCertId))">
-                                            <i class="fas fa-cloud-upload-alt"></i> Upload to Cloud
-                                        </button>
-                                        <button type="button" class="cert-dropdown-item danger" @onclick="@(() => DeleteLocalCertificate(cert))">
-                                            <i class="fas fa-trash-alt"></i> Delete from Keychain
-                                        </button>
-                                    }
-                                    @if (currentSyncStatus == SecretLocation.CloudOnly || currentSyncStatus == SecretLocation.Both)
-                                    {
-                                        <button type="button" class="cert-dropdown-item" @onclick="@(() => HandleInstallClick(currentCertId))">
-                                            <i class="fas fa-download"></i> Install Locally
-                                        </button>
-                                        <button type="button" class="cert-dropdown-item danger" @onclick="@(() => DeleteFromCloud(cert))">
-                                            <i class="fas fa-cloud"></i> Delete from Cloud
-                                        </button>
-                                    }
-                                    @if (currentSyncStatus == SecretLocation.None)
-                                    {
-                                        <div class="cert-dropdown-item disabled">
-                                            <i class="fas fa-exclamation-circle"></i> No private key
-                                        </div>
-                                    }
-                                </div>
+                                <button class="btn btn-secondary btn-icon" @onclick="@(() => InstallLocally(cert))" title="Install private key locally">
+                                    <i class="fas fa-download"></i>
+                                </button>
+                            }
+                            @if (syncStatus is SecretLocation.LocalOnly or SecretLocation.Both)
+                            {
+                                <button class="btn btn-secondary btn-icon" @onclick="@(() => DeleteLocalCertificate(cert))" title="Delete private key from Keychain">
+                                    <i class="fas fa-hard-drive"></i>
+                                </button>
                             }
                         }
                         <button class="btn btn-secondary btn-icon" @onclick="@(() => ShowExportDialog(cert))" 
@@ -771,6 +739,16 @@
 
         await AlertService.ShowToastAsync($"Certificate saved: ~/Downloads/{fileName}");
         await RefreshData(forceRefresh: true);
+        var createdCertificate = certificates.FirstOrDefault(certificate =>
+            string.Equals(certificate.Id, certResult.CertificateId, StringComparison.Ordinal));
+        if (createdCertificate is not null && !string.IsNullOrWhiteSpace(createdCertificate.SerialNumber))
+        {
+            await SecretSyncCoordinator.SetDefaultProvidersAsync(
+                new SecretItemRef(
+                    SecretItemKind.Certificate,
+                    GetCertificateSyncItemId(createdCertificate.SerialNumber),
+                    createdCertificate.Name));
+        }
     }
 
     private async Task ShowExportDialog(AppleCertificate cert)
@@ -1058,6 +1036,13 @@
 
     private static bool SerialsMatch(string? a, string? b)
         => (a ?? "").TrimStart('0').Equals((b ?? "").TrimStart('0'), StringComparison.OrdinalIgnoreCase);
+
+    private static string GetCertificateSyncItemId(string serialNumber) =>
+        new string(serialNumber
+            .Where(char.IsLetterOrDigit)
+            .Select(char.ToUpperInvariant)
+            .ToArray())
+        .TrimStart('0');
 
     private string FormatCertType(string? certType)
     {
