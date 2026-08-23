@@ -6,6 +6,7 @@ namespace MauiSherpa.Core.Tests;
 public class CapabilityCategoriesTests
 {
     [Theory]
+    [InlineData("APP_GROUPS")]
     [InlineData("CARPLAY_PLAYABLE_CONTENT")]
     [InlineData("MARZIPAN")]
     [InlineData("COMMUNICATION_NOTIFICATIONS")]
@@ -29,7 +30,6 @@ public class CapabilityCategoriesTests
     [InlineData("PUSH_NOTIFICATIONS")]
     [InlineData("WALLET")]
     [InlineData("ASSOCIATED_DOMAINS")]
-    [InlineData("APP_GROUPS")]
     [InlineData("HEALTHKIT")]
     [InlineData("HOMEKIT")]
     [InlineData("APPLE_PAY")]
@@ -46,6 +46,6 @@ public class CapabilityCategoriesTests
     [Fact]
     public void NonToggleableCapabilities_ContainsAllKnownNonToggleableTypes()
     {
-        CapabilityCategories.NonToggleableCapabilities.Should().HaveCount(11);
+        CapabilityCategories.NonToggleableCapabilities.Should().HaveCount(12);
     }
 }
