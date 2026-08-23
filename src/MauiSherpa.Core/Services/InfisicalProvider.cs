@@ -13,13 +13,27 @@ public class InfisicalProvider : ICloudSecretsProvider
 {
     private readonly CloudSecretsProviderConfig _config;
     private readonly ILoggingService _logger;
-    private InfisicalClient? _client;
-    private bool _isAuthenticated;
+    private readonly Func<string, IInfisicalSdkClient> _clientFactory;
+    private readonly TimeProvider _timeProvider;
+    private readonly SemaphoreSlim _authenticationLock = new(1, 1);
+    private IInfisicalSdkClient? _client;
+    private DateTimeOffset _reauthenticateAt = DateTimeOffset.MinValue;
 
     public InfisicalProvider(CloudSecretsProviderConfig config, ILoggingService logger)
+        : this(config, logger, siteUrl => new InfisicalSdkClient(siteUrl), TimeProvider.System)
+    {
+    }
+
+    internal InfisicalProvider(
+        CloudSecretsProviderConfig config,
+        ILoggingService logger,
+        Func<string, IInfisicalSdkClient> clientFactory,
+        TimeProvider timeProvider)
     {
         _config = config;
         _logger = logger;
+        _clientFactory = clientFactory;
+        _timeProvider = timeProvider;
     }
 
     public CloudSecretsProviderType ProviderType => CloudSecretsProviderType.Infisical;
@@ -38,29 +52,37 @@ public class InfisicalProvider : ICloudSecretsProvider
 
     #region Client Initialization
 
-    private async Task<InfisicalClient?> GetClientAsync(CancellationToken cancellationToken = default)
+    private async Task<IInfisicalSdkClient?> GetClientAsync(CancellationToken cancellationToken = default)
     {
-        if (_client != null && _isAuthenticated)
+        if (_client != null && _timeProvider.GetUtcNow() < _reauthenticateAt)
             return _client;
 
+        await _authenticationLock.WaitAsync(cancellationToken);
         try
         {
-            var settings = new InfisicalSdkSettingsBuilder()
-                .WithHostUri(SiteUrl)
-                .Build();
+            if (_client != null && _timeProvider.GetUtcNow() < _reauthenticateAt)
+                return _client;
 
-            _client = new InfisicalClient(settings);
-            
-            await _client.Auth().UniversalAuth().LoginAsync(ClientId, ClientSecretValue);
-            _isAuthenticated = true;
-            
+            _client ??= _clientFactory(SiteUrl);
+            var credential = await _client.LoginAsync(ClientId, ClientSecretValue, cancellationToken);
+            var lifetime = TimeSpan.FromSeconds(decimal.ToDouble(credential.ExpiresIn));
+            var refreshSkew = TimeSpan.FromSeconds(Math.Min(30, lifetime.TotalSeconds * 0.1));
+            _reauthenticateAt = _timeProvider.GetUtcNow() + lifetime - refreshSkew;
             return _client;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
             _logger.LogError($"Infisical authentication failed: {ex.Message}", ex);
-            _isAuthenticated = false;
+            _reauthenticateAt = DateTimeOffset.MinValue;
             return null;
+        }
+        finally
+        {
+            _authenticationLock.Release();
         }
     }
 
@@ -84,7 +106,7 @@ public class InfisicalProvider : ICloudSecretsProvider
                 ProjectId = ProjectId,
             };
             
-            await client.Secrets().ListAsync(options);
+            await client.ListSecretsAsync(options, cancellationToken);
             
             _logger.LogInformation($"Infisical connection test successful for project {ProjectId}");
             return true;
@@ -110,41 +132,16 @@ public class InfisicalProvider : ICloudSecretsProvider
                 return false;
 
             var secretName = SanitizeSecretName(key);
-            // Store binary data as base64 encoded string
             var base64Value = Convert.ToBase64String(value);
-            
-            // Check if secret exists to decide create vs update
-            var exists = await SecretExistsInternalAsync(client, secretName, cancellationToken);
-            
-            if (exists)
-            {
-                var updateOptions = new UpdateSecretOptions
-                {
-                    SecretName = secretName,
-                    EnvironmentSlug = Environment,
-                    SecretPath = SecretPath,
-                    ProjectId = ProjectId,
-                    NewSecretValue = base64Value
-                };
-                
-                await client.Secrets().UpdateAsync(updateOptions);
-            }
-            else
-            {
-                var createOptions = new CreateSecretOptions
-                {
-                    SecretName = secretName,
-                    SecretValue = base64Value,
-                    EnvironmentSlug = Environment,
-                    SecretPath = SecretPath,
-                    ProjectId = ProjectId,
-                };
+            await UpsertSecretAsync(
+                client,
+                secretName,
+                base64Value,
+                ToInfisicalMetadata(metadata),
+                cancellationToken);
 
-                await client.Secrets().CreateAsync(createOptions);
-            }
-
-            if (metadata is not null && !await SetSecretMetadataAsync(key, metadata, cancellationToken))
-                return false;
+            if (metadata is { Count: 0 })
+                await DeleteLegacyMetadataAsync(client, secretName, cancellationToken);
 
             _logger.LogInformation($"Stored secret: {key}");
             return true;
@@ -171,15 +168,7 @@ public class InfisicalProvider : ICloudSecretsProvider
 
             var secretName = SanitizeSecretName(key);
             
-            var options = new GetSecretOptions
-            {
-                SecretName = secretName,
-                EnvironmentSlug = Environment,
-                SecretPath = SecretPath,
-                ProjectId = ProjectId,
-            };
-            
-            var secret = await client.Secrets().GetAsync(options);
+            var secret = await GetSecretRecordAsync(client, secretName, cancellationToken);
             
             if (secret?.SecretValue == null)
                 return null;
@@ -187,7 +176,7 @@ public class InfisicalProvider : ICloudSecretsProvider
             // Decode from base64
             return Convert.FromBase64String(secret.SecretValue);
         }
-        catch (InfisicalException ex) when (ex.Message.Contains("not found", StringComparison.OrdinalIgnoreCase))
+        catch (InfisicalException ex) when (IsNotFound(ex))
         {
             return null;
         }
@@ -207,14 +196,25 @@ public class InfisicalProvider : ICloudSecretsProvider
     {
         try
         {
-            var secretName = SanitizeSecretName(key);
             var client = await GetClientAsync(cancellationToken);
             if (client == null)
                 return null;
-            if (!await SecretExistsInternalAsync(client, secretName, cancellationToken))
+
+            var secretName = SanitizeSecretName(key);
+            var secret = await TryGetSecretRecordAsync(client, secretName, cancellationToken);
+            if (secret is null)
                 return null;
 
-            var metadataBytes = await GetSecretAsync(CloudSecretMetadata.GetMetadataKey(secretName), cancellationToken);
+            if (secret.Metadata is { Length: > 0 })
+                return FromInfisicalMetadata(secret.Metadata);
+
+            var metadataSecret = await TryGetSecretRecordAsync(
+                client,
+                GetLegacyMetadataSecretName(secretName),
+                cancellationToken);
+            var metadataBytes = metadataSecret is null
+                ? null
+                : Convert.FromBase64String(metadataSecret.SecretValue);
             return metadataBytes is null
                 ? new Dictionary<string, string>(StringComparer.Ordinal)
                 : CloudSecretMetadata.Deserialize(metadataBytes);
@@ -237,13 +237,29 @@ public class InfisicalProvider : ICloudSecretsProvider
             var client = await GetClientAsync(cancellationToken);
             if (client == null)
                 return false;
-            if (!await SecretExistsInternalAsync(client, secretName, cancellationToken))
-                return false;
 
-            var metadataKey = CloudSecretMetadata.GetMetadataKey(secretName);
-            return metadata.Count == 0
-                ? await DeleteSecretAsync(metadataKey, cancellationToken)
-                : await StoreSecretAsync(metadataKey, CloudSecretMetadata.Serialize(metadata), cancellationToken: cancellationToken);
+            var options = new UpdateSecretOptions
+            {
+                SecretName = secretName,
+                EnvironmentSlug = Environment,
+                SecretPath = SecretPath,
+                ProjectId = ProjectId,
+                NewMetadata = ToInfisicalMetadata(metadata),
+            };
+
+            try
+            {
+                await client.UpdateSecretAsync(options, cancellationToken);
+            }
+            catch (InfisicalException ex) when (IsNotFound(ex))
+            {
+                return false;
+            }
+
+            if (metadata.Count == 0)
+                await DeleteLegacyMetadataAsync(client, secretName, cancellationToken);
+
+            return true;
         }
         catch (Exception ex)
         {
@@ -270,16 +286,14 @@ public class InfisicalProvider : ICloudSecretsProvider
                 ProjectId = ProjectId,
             };
             
-            await client.Secrets().DeleteAsync(options);
+            await client.DeleteSecretAsync(options, cancellationToken);
             if (!CloudSecretMetadata.IsMetadataKey(key))
                 await DeleteSecretAsync(CloudSecretMetadata.GetMetadataKey(secretName), cancellationToken);
             
             _logger.LogInformation($"Deleted secret: {key}");
             return true;
         }
-        catch (InfisicalException ex) when (
-            ex.Message.Contains("not found", StringComparison.OrdinalIgnoreCase) ||
-            ex.InnerException?.Message?.Contains("not found", StringComparison.OrdinalIgnoreCase) == true)
+        catch (InfisicalException ex) when (IsNotFound(ex))
         {
             if (!CloudSecretMetadata.IsMetadataKey(key))
                 await DeleteSecretAsync(CloudSecretMetadata.GetMetadataKey(SanitizeSecretName(key)), cancellationToken);
@@ -317,22 +331,17 @@ public class InfisicalProvider : ICloudSecretsProvider
         }
     }
 
-    private async Task<bool> SecretExistsInternalAsync(InfisicalClient client, string secretName, CancellationToken cancellationToken)
+    private async Task<bool> SecretExistsInternalAsync(
+        IInfisicalSdkClient client,
+        string secretName,
+        CancellationToken cancellationToken)
     {
         try
         {
-            var options = new GetSecretOptions
-            {
-                SecretName = secretName,
-                EnvironmentSlug = Environment,
-                SecretPath = SecretPath,
-                ProjectId = ProjectId,
-            };
-            
-            await client.Secrets().GetAsync(options);
+            await GetSecretRecordAsync(client, secretName, cancellationToken);
             return true;
         }
-        catch (InfisicalException)
+        catch (InfisicalException ex) when (IsNotFound(ex))
         {
             return false;
         }
@@ -353,7 +362,7 @@ public class InfisicalProvider : ICloudSecretsProvider
                 ProjectId = ProjectId,
             };
             
-            var secrets = await client.Secrets().ListAsync(options);
+            var secrets = await client.ListSecretsAsync(options, cancellationToken);
             
             if (secrets == null)
                 return Array.Empty<string>();
@@ -397,6 +406,143 @@ public class InfisicalProvider : ICloudSecretsProvider
 
     #region Private Helpers
 
+    private async Task UpsertSecretAsync(
+        IInfisicalSdkClient client,
+        string secretName,
+        string secretValue,
+        SecretMetadata[]? metadata,
+        CancellationToken cancellationToken)
+    {
+        var updateOptions = new UpdateSecretOptions
+        {
+            SecretName = secretName,
+            EnvironmentSlug = Environment,
+            SecretPath = SecretPath,
+            ProjectId = ProjectId,
+            NewSecretValue = secretValue,
+            NewMetadata = metadata,
+        };
+
+        try
+        {
+            await client.UpdateSecretAsync(updateOptions, cancellationToken);
+            return;
+        }
+        catch (InfisicalException ex) when (IsNotFound(ex))
+        {
+            var createOptions = new CreateSecretOptions
+            {
+                SecretName = secretName,
+                SecretValue = secretValue,
+                EnvironmentSlug = Environment,
+                SecretPath = SecretPath,
+                ProjectId = ProjectId,
+                Metadata = metadata,
+            };
+
+            try
+            {
+                await client.CreateSecretAsync(createOptions, cancellationToken);
+                return;
+            }
+            catch (InfisicalException createException) when (IsAlreadyExists(createException))
+            {
+                await client.UpdateSecretAsync(updateOptions, cancellationToken);
+            }
+        }
+    }
+
+    private async Task<Secret> GetSecretRecordAsync(
+        IInfisicalSdkClient client,
+        string secretName,
+        CancellationToken cancellationToken)
+    {
+        var options = new GetSecretOptions
+        {
+            SecretName = secretName,
+            EnvironmentSlug = Environment,
+            SecretPath = SecretPath,
+            ProjectId = ProjectId,
+        };
+
+        return await client.GetSecretAsync(options, cancellationToken);
+    }
+
+    private async Task<Secret?> TryGetSecretRecordAsync(
+        IInfisicalSdkClient client,
+        string secretName,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await GetSecretRecordAsync(client, secretName, cancellationToken);
+        }
+        catch (InfisicalException ex) when (IsNotFound(ex))
+        {
+            return null;
+        }
+    }
+
+    private async Task DeleteLegacyMetadataAsync(
+        IInfisicalSdkClient client,
+        string secretName,
+        CancellationToken cancellationToken)
+    {
+        var options = new DeleteSecretOptions
+        {
+            SecretName = GetLegacyMetadataSecretName(secretName),
+            EnvironmentSlug = Environment,
+            SecretPath = SecretPath,
+            ProjectId = ProjectId,
+        };
+
+        try
+        {
+            await client.DeleteSecretAsync(options, cancellationToken);
+        }
+        catch (InfisicalException ex) when (IsNotFound(ex))
+        {
+        }
+    }
+
+    private static SecretMetadata[]? ToInfisicalMetadata(Dictionary<string, string>? metadata) =>
+        metadata?
+            .OrderBy(x => x.Key, StringComparer.Ordinal)
+            .Select(x => new SecretMetadata { Key = x.Key, Value = x.Value })
+            .ToArray();
+
+    private static string GetLegacyMetadataSecretName(string secretName) =>
+        SanitizeSecretName(CloudSecretMetadata.GetMetadataKey(secretName));
+
+    private static Dictionary<string, string> FromInfisicalMetadata(IEnumerable<SecretMetadata> metadata)
+    {
+        var result = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var item in metadata)
+            result[item.Key] = item.Value;
+        return result;
+    }
+
+    internal static bool IsNotFound(Exception exception) =>
+        ExceptionChainContains(exception, "not found") ||
+        ExceptionChainContains(exception, "notfound") ||
+        ExceptionChainContains(exception, "404");
+
+    private static bool IsAlreadyExists(Exception exception) =>
+        ExceptionChainContains(exception, "already exists") ||
+        ExceptionChainContains(exception, "conflict") ||
+        ExceptionChainContains(exception, "409");
+
+    private static bool ExceptionChainContains(Exception exception, string value)
+    {
+        for (Exception? current = exception; current is not null; current = current.InnerException)
+        {
+            if (current.Message.Contains(value, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
+    }
+
     /// <summary>
     /// Sanitize secret name for Infisical
     /// Secret names must be uppercase and can only contain letters, numbers, and underscores
@@ -422,4 +568,79 @@ public class InfisicalProvider : ICloudSecretsProvider
     }
 
     #endregion
+}
+
+internal interface IInfisicalSdkClient
+{
+    Task<MachineIdentityCredential> LoginAsync(
+        string clientId,
+        string clientSecret,
+        CancellationToken cancellationToken);
+    Task<Secret[]> ListSecretsAsync(ListSecretsOptions options, CancellationToken cancellationToken);
+    Task<Secret> GetSecretAsync(GetSecretOptions options, CancellationToken cancellationToken);
+    Task<Secret> CreateSecretAsync(CreateSecretOptions options, CancellationToken cancellationToken);
+    Task<Secret> UpdateSecretAsync(UpdateSecretOptions options, CancellationToken cancellationToken);
+    Task<Secret> DeleteSecretAsync(DeleteSecretOptions options, CancellationToken cancellationToken);
+}
+
+internal sealed class InfisicalSdkClient : IInfisicalSdkClient
+{
+    private readonly InfisicalClient _client;
+
+    public InfisicalSdkClient(string siteUrl)
+    {
+        var settings = new InfisicalSdkSettingsBuilder()
+            .WithHostUri(siteUrl)
+            .Build();
+        _client = new InfisicalClient(settings);
+    }
+
+    public Task<MachineIdentityCredential> LoginAsync(
+        string clientId,
+        string clientSecret,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return _client.Auth().UniversalAuth().LoginAsync(clientId, clientSecret);
+    }
+
+    public Task<Secret[]> ListSecretsAsync(
+        ListSecretsOptions options,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return _client.Secrets().ListAsync(options);
+    }
+
+    public Task<Secret> GetSecretAsync(
+        GetSecretOptions options,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return _client.Secrets().GetAsync(options);
+    }
+
+    public Task<Secret> CreateSecretAsync(
+        CreateSecretOptions options,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return _client.Secrets().CreateAsync(options);
+    }
+
+    public Task<Secret> UpdateSecretAsync(
+        UpdateSecretOptions options,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return _client.Secrets().UpdateAsync(options);
+    }
+
+    public Task<Secret> DeleteSecretAsync(
+        DeleteSecretOptions options,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return _client.Secrets().DeleteAsync(options);
+    }
 }
