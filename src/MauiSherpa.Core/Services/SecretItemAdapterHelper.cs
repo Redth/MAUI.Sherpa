@@ -61,19 +61,24 @@ internal static class SecretItemAdapterHelper
         var ordered = artifacts
             .OrderBy(x => x.Key, StringComparer.Ordinal)
             .ToList();
-        var snapshots = new Dictionary<string, ArtifactSnapshot>(StringComparer.Ordinal);
-
-        foreach (var artifact in ordered)
+        var existingKeys = provider.ProviderType == CloudSecretsProviderType.Infisical
+            ? await provider.ListSecretsAsync(prefix: null, cancellationToken: cancellationToken)
+            : null;
+        var snapshotEntries = await Task.WhenAll(ordered.Select(async artifact =>
         {
-            var exists = await provider.SecretExistsAsync(artifact.Key, cancellationToken);
-            var value = exists
-                ? await provider.GetSecretAsync(artifact.Key, cancellationToken)
+            var exists = existingKeys is null ||
+                existingKeys.Any(key => StorageKeysEqual(key, artifact.Key));
+            var existing = exists
+                ? await ReadArtifactAsync(provider, artifact.Key, cancellationToken)
                 : null;
-            var metadata = value is null
-                ? null
-                : await provider.GetSecretMetadataAsync(artifact.Key, cancellationToken);
-            snapshots[artifact.Key] = new ArtifactSnapshot(value, metadata);
-        }
+            return KeyValuePair.Create(
+                artifact.Key,
+                new ArtifactSnapshot(existing?.Value, existing?.Metadata));
+        }));
+        var snapshots = snapshotEntries.ToDictionary(
+            x => x.Key,
+            x => x.Value,
+            StringComparer.Ordinal);
 
         var attemptedKeys = new List<string>();
         foreach (var artifact in ordered)
