@@ -107,30 +107,29 @@ public class FileSystemService : MauiSherpa.Core.Interfaces.IFileSystemService
 
         try
         {
-#if MACCATALYST
-            // Use 'open' command on macOS - works for both files and directories
-            if (File.Exists(path))
+            if (OperatingSystem.IsMacOS() || OperatingSystem.IsMacCatalyst())
             {
-                // Reveal and select the file in Finder
-                Process.Start("open", $"-R \"{path}\"");
+                var startInfo = new ProcessStartInfo("/usr/bin/open");
+                if (File.Exists(path))
+                    startInfo.ArgumentList.Add("-R");
+                startInfo.ArgumentList.Add(path);
+                Process.Start(startInfo);
             }
-            else if (Directory.Exists(path))
+            else if (OperatingSystem.IsWindows())
             {
-                // Open the directory in Finder
-                Process.Start("open", $"\"{path}\"");
+                var startInfo = new ProcessStartInfo("explorer.exe");
+                if (File.Exists(path))
+                    startInfo.ArgumentList.Add($"/select,{path}");
+                else
+                    startInfo.ArgumentList.Add(path);
+                Process.Start(startInfo);
             }
-#elif WINDOWS
-            if (File.Exists(path))
+            else if (OperatingSystem.IsLinux() && (File.Exists(path) || Directory.Exists(path)))
             {
-                // Select the file in Explorer
-                Process.Start("explorer.exe", $"/select,\"{path}\"");
+                var startInfo = new ProcessStartInfo("xdg-open");
+                startInfo.ArgumentList.Add(File.Exists(path) ? Path.GetDirectoryName(path)! : path);
+                Process.Start(startInfo);
             }
-            else if (Directory.Exists(path))
-            {
-                // Open the directory in Explorer
-                Process.Start("explorer.exe", $"\"{path}\"");
-            }
-#endif
         }
         catch
         {

@@ -789,11 +789,6 @@
         errorMessage = "";
         try
         {
-            // Delete the old profile
-            await AppleService.DeleteProfileAsync(Profile.Id);
-            Logger.LogInformation($"Deleted old profile: {Profile.Name}");
-
-            // Create the new profile
             var request = new AppleProfileCreateRequest(
                 Profile.Name,
                 Profile.ProfileType,
@@ -801,7 +796,7 @@
                 selectedCertificateIds.ToList(),
                 RequiresDevices ? selectedDeviceIds.ToList() : null);
 
-            var newProfile = await AppleService.CreateProfileAsync(request);
+            var newProfile = await AppleService.RegenerateProfileAsync(Profile.Id, request);
             
             // Invalidate profiles cache after regeneration
             if (IdentityState.SelectedIdentity != null)

@@ -635,6 +635,7 @@ public static class CapabilityCategories
     /// </summary>
     public static readonly IReadOnlySet<string> NonToggleableCapabilities = new HashSet<string>
     {
+        "APP_GROUPS",
         "CARPLAY_PLAYABLE_CONTENT",
         "MARZIPAN",
         "COMMUNICATION_NOTIFICATIONS",
@@ -787,6 +788,26 @@ public record AppleProfile(
     IReadOnlyList<string>? CertificateIds = null
 );
 
+public sealed record InstalledProvisioningProfileAssessment(
+    string Path,
+    string FileName,
+    string Name,
+    string? Uuid,
+    string? BundleId,
+    string? TeamIdentifier,
+    string ProfileKind,
+    string Location,
+    DateTimeOffset? CreationDate,
+    DateTimeOffset? ExpirationDate,
+    int CertificateCount,
+    bool HasMatchingCertificate,
+    bool IsExpired,
+    bool IsOlderVersion,
+    bool IsReadable,
+    bool RecommendedForDeletion,
+    IReadOnlyList<string> Reasons
+);
+
 public interface IAppleIdentityService
 {
     Task<IReadOnlyList<AppleIdentity>> GetIdentitiesAsync();
@@ -855,10 +876,13 @@ public interface IAppleConnectService
     // Provisioning Profiles
     Task<IReadOnlyList<AppleProfile>> GetProfilesAsync();
     Task<AppleProfile> CreateProfileAsync(AppleProfileCreateRequest request);
+    Task<AppleProfile> RegenerateProfileAsync(string existingProfileId, AppleProfileCreateRequest request);
     Task<byte[]> DownloadProfileAsync(string id);
     Task DeleteProfileAsync(string id);
     Task<string> InstallProfileAsync(string id);
     Task<int> InstallProfilesAsync(IEnumerable<string> ids, IProgress<string>? progress = null);
+    Task<IReadOnlyList<string>> GetProvisioningProfilesDirectoriesAsync();
+    Task<IReadOnlyList<string>> FindInstalledProfilePathsAsync(string uuid);
 }
 
 /// <summary>
@@ -4151,6 +4175,7 @@ public record AppPreferences
     public string XcodeBundleSeparator { get; init; } = XcodeBundleSeparatorOptions.Underscore;
     public string XcodeSelectionAction { get; init; } = XcodeSelectionActionOptions.Rename;
     public bool XcodeCreateSymlinkOnSelect { get; init; } = false;
+    public string ProvisioningProfilesDirectory { get; init; } = ProvisioningProfilesDirectoryOptions.Auto;
 }
 
 public static class XcodeArchiveExtractorOptions
@@ -4178,6 +4203,14 @@ public static class XcodeSelectionActionOptions
 {
     public const string None = "none";
     public const string Rename = "rename";
+}
+
+public static class ProvisioningProfilesDirectoryOptions
+{
+    public const string Auto = "auto";
+    public const string Xcode16AndLater = "xcode-16-and-later";
+    public const string Xcode15AndEarlier = "xcode-15-and-earlier";
+    public const string Both = "both";
 }
 
 public record PushTestingSettings

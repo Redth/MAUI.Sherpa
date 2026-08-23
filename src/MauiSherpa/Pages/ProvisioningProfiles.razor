@@ -1,6 +1,7 @@
 @page "/profiles"
 @using MauiSherpa.Core.Interfaces
 @using MauiSherpa.Core.Requests.Apple
+@using MauiSherpa.Core.Services
 @using MauiSherpa.Services
 @using Shiny.Mediator
 @inject IMediator Mediator
@@ -34,6 +35,12 @@
         </button>
         <button class="btn btn-primary" @onclick="@(() => RefreshData(forceRefresh: true))" disabled="@isLoading">
             <i class="fas @(isLoading ? "fa-spinner fa-spin" : "fa-sync-alt")"></i> Refresh
+        </button>
+        <button class="btn btn-secondary" @onclick="RevealProfilesFolder" disabled="@isLoading">
+            <i class="fas fa-folder-open"></i> Profiles Folder
+        </button>
+        <button class="btn btn-secondary" @onclick="ShowCleanupDialog" disabled="@isLoading">
+            <i class="fas fa-broom"></i> Clean Up
         </button>
         @if (GetInstallableProfiles().Any())
         {
@@ -195,6 +202,9 @@
                                     </button>
                                     <button class="prof-dropdown-item" @onclick="@(() => { openDropdown = null; InstallProfile(profile); })">
                                         <i class="fas fa-folder-plus"></i> Install to System
+                                    </button>
+                                    <button class="prof-dropdown-item" @onclick="@(() => RevealInstalledProfile(profile))">
+                                        <i class="fas fa-magnifying-glass"></i> @RevealProfileLabel
                                     </button>
                                     <div class="prof-dropdown-divider"></div>
                                     <button class="prof-dropdown-item danger" @onclick="@(() => { openDropdown = null; DeleteProfile(profile); })" disabled="@isLoading">
@@ -460,6 +470,7 @@
                                       !string.IsNullOrEmpty(filterState) || 
                                       !string.IsNullOrEmpty(filterType) || 
                                       !string.IsNullOrEmpty(filterPlatform);
+    private string RevealProfileLabel => PlatformInfo.IsWindows ? "Reveal in File Explorer" : "Reveal in Finder";
 
     // Get profiles that can be installed (active, not expired, matching current filters)
     private List<AppleProfile> GetInstallableProfiles() => FilteredProfiles
@@ -518,7 +529,9 @@
     {
         ToolbarService.SetItems(
             new ToolbarAction("refresh", "Refresh", "arrow.clockwise"),
-            new ToolbarAction("create", "Create Profile", "plus")
+            new ToolbarAction("create", "Create Profile", "plus"),
+            new ToolbarAction("profiles-folder", "Profiles Folder", "folder"),
+            new ToolbarAction("cleanup", "Clean Up", "trash")
         );
         ToolbarService.SetSearch("Search profiles...");
         ToolbarService.SetFilters(
@@ -589,6 +602,8 @@
                     try { await RefreshData(forceRefresh: true); } finally { ToolbarService.SetItemEnabled("refresh", true); }
                     break;
                 case "create": await ShowCreateDialog(); break;
+                case "profiles-folder": await RevealProfilesFolder(); break;
+                case "cleanup": await ShowCleanupDialog(); break;
             }
             StateHasChanged();
         });
@@ -653,22 +668,7 @@
         {
             // Save to Downloads folder by default
             var downloadsFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
-            var fileName = SanitizeFileName($"{profile.Name}.mobileprovision");
-            var savePath = Path.Combine(downloadsFolder, fileName);
-            
-            // If file exists, add a number suffix
-            var counter = 1;
-            var baseName = Path.GetFileNameWithoutExtension(fileName);
-            while (File.Exists(savePath))
-            {
-                savePath = Path.Combine(downloadsFolder, $"{baseName} ({counter}).mobileprovision");
-                counter++;
-            }
-
-            var content = await AppleService.DownloadProfileAsync(profile.Id);
-            await File.WriteAllBytesAsync(savePath, content);
-            
-            await AlertService.ShowToastAsync($"Profile saved to Downloads: {Path.GetFileName(savePath)}");
+            await SaveDownloadedProfileAsync(profile, downloadsFolder, "Downloads");
         }
         catch (Exception ex)
         {
@@ -689,13 +689,7 @@
             var folder = await DialogService.PickFolderAsync("Select Download Location");
             if (string.IsNullOrEmpty(folder)) return;
 
-            var fileName = SanitizeFileName($"{profile.Name}.mobileprovision");
-            var savePath = Path.Combine(folder, fileName);
-
-            var content = await AppleService.DownloadProfileAsync(profile.Id);
-            await File.WriteAllBytesAsync(savePath, content);
-            
-            await AlertService.ShowToastAsync($"Profile saved to {Path.GetFileName(savePath)}");
+            await SaveDownloadedProfileAsync(profile, folder);
         }
         catch (Exception ex)
         {
@@ -711,6 +705,101 @@
     {
         var invalid = Path.GetInvalidFileNameChars();
         return string.Join("_", fileName.Split(invalid, StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    private async Task SaveDownloadedProfileAsync(
+        AppleProfile profile,
+        string folder,
+        string? locationName = null)
+    {
+        var content = await AppleService.DownloadProfileAsync(profile.Id);
+        var extension = profile.Platform?.ToUpperInvariant() switch
+        {
+            "MACOS" or "MAC_OS" or "OSX" => ".provisionprofile",
+            _ => ".mobileprovision"
+        };
+        var fileName = SanitizeFileName($"{profile.Name}{extension}");
+        var plan = await ProvisioningProfileDownloadManager.PlanAsync(
+            folder,
+            fileName,
+            profile,
+            content);
+
+        var replaceConfirmedConflicts = false;
+        if (plan.RequiresConfirmation)
+        {
+            var message = plan.Conflict == ProvisioningProfileDownloadConflict.NewerProfile
+                ? $"A newer local copy of '{profile.Name}' already exists. Replace it with the downloaded profile?"
+                : $"A file named '{fileName}' already exists and could not be verified as an older copy of this profile. Replace it?";
+            replaceConfirmedConflicts = await AlertService.ShowConfirmAsync(
+                "Replace Existing Profile?",
+                message,
+                "Replace",
+                "Cancel");
+            if (!replaceConfirmedConflicts)
+                return;
+        }
+
+        var replacementCount = plan.AutomaticReplacementPaths.Count +
+                               (replaceConfirmedConflicts ? plan.ConfirmedReplacementPaths.Count : 0);
+        await ProvisioningProfileDownloadManager.SaveAsync(
+            plan,
+            content,
+            replaceConfirmedConflicts);
+
+        var location = locationName is null
+            ? Path.GetFileName(plan.TargetPath)
+            : $"{locationName}: {Path.GetFileName(plan.TargetPath)}";
+        var messagePrefix = replacementCount > 0
+            ? $"Replaced {replacementCount} older downloaded {(replacementCount == 1 ? "copy" : "copies")}"
+            : "Profile saved";
+        await AlertService.ShowToastAsync($"{messagePrefix} to {location}");
+    }
+
+    private async Task RevealProfilesFolder()
+    {
+        try
+        {
+            var directories = await AppleService.GetProvisioningProfilesDirectoriesAsync();
+            foreach (var directory in directories)
+            {
+                Directory.CreateDirectory(directory);
+                FileSystem.RevealInFileManager(directory);
+            }
+        }
+        catch (Exception ex)
+        {
+            await AlertService.ShowAlertAsync("Profiles Folder", $"Unable to open the profiles folder: {ex.Message}");
+        }
+    }
+
+    private async Task ShowCleanupDialog()
+    {
+        var page = new MauiSherpa.Pages.Modals.ProvisioningProfileCleanupPage(BridgeHolder);
+        var deleted = await FormModalService.ShowAsync<int>(page);
+        if (deleted > 0)
+            await AlertService.ShowToastAsync($"Deleted {deleted} provisioning {(deleted == 1 ? "profile" : "profiles")}");
+    }
+
+    private async Task RevealInstalledProfile(AppleProfile profile)
+    {
+        openDropdown = null;
+        try
+        {
+            var paths = await AppleService.FindInstalledProfilePathsAsync(profile.Uuid);
+            if (paths.Count == 0)
+            {
+                await AlertService.ShowToastAsync($"'{profile.Name}' is not installed locally");
+                return;
+            }
+
+            foreach (var path in paths)
+                FileSystem.RevealInFileManager(path);
+        }
+        catch (Exception ex)
+        {
+            await AlertService.ShowAlertAsync("Reveal Profile", $"Unable to reveal the profile: {ex.Message}");
+        }
     }
 
     private async Task InstallProfile(AppleProfile profile)

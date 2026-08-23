@@ -671,9 +671,6 @@
 
         try
         {
-            await AppleService.DeleteProfileAsync(Profile.Id);
-            Logger.LogInformation($"Deleted old profile: {Profile.Name}");
-
             var request = new AppleProfileCreateRequest(
                 Profile.Name,
                 Profile.ProfileType,
@@ -681,7 +678,7 @@
                 selectedCertificateIds.ToList(),
                 RequiresDevices ? selectedDeviceIds.ToList() : null);
 
-            var newProfile = await AppleService.CreateProfileAsync(request);
+            var newProfile = await AppleService.RegenerateProfileAsync(Profile.Id, request);
             
             if (IdentityState.SelectedIdentity != null)
                 await Mediator.FlushStores($"apple:profiles:{IdentityState.SelectedIdentity.Id}");

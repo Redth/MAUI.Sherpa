@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using AppleDev;
 using AppleAppStoreConnect;
 using MauiSherpa.Core.Interfaces;
 
@@ -16,17 +17,20 @@ public class AppleConnectService : IAppleConnectService
     private readonly IAppleIdentityStateService _identityState;
     private readonly IAppleIdentityService _identityService;
     private readonly ISecureStorageService _secureStorage;
+    private readonly IEncryptedSettingsService _settingsService;
     private readonly ILoggingService _logger;
 
     public AppleConnectService(
         IAppleIdentityStateService identityState,
         IAppleIdentityService identityService,
         ISecureStorageService secureStorage,
+        IEncryptedSettingsService settingsService,
         ILoggingService logger)
     {
         _identityState = identityState;
         _identityService = identityService;
         _secureStorage = secureStorage;
+        _settingsService = settingsService;
         _logger = logger;
     }
 
@@ -675,6 +679,148 @@ public class AppleConnectService : IAppleConnectService
         }
     }
 
+    public async Task<AppleProfile> RegenerateProfileAsync(
+        string existingProfileId,
+        AppleProfileCreateRequest request)
+    {
+        _logger.LogInformation($"Regenerating profile: {request.Name} ({existingProfileId})");
+
+        var existingContent = await DownloadProfileAsync(existingProfileId);
+        if (existingContent.Length == 0)
+        {
+            throw new InvalidOperationException(
+                "The existing profile could not be inspected, so regeneration was stopped before deleting it.");
+        }
+
+        ProvisioningProfileInfo existingProfile;
+        try
+        {
+            existingProfile = await ProvisioningProfiles.ParseAsync(existingContent).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException(
+                "The existing profile entitlements could not be inspected, so regeneration was stopped before deleting it.",
+                ex);
+        }
+
+        var existingAppGroups = GetAppGroups(existingProfile.Entitlements);
+        var validationRequest = request with
+        {
+            Name = $"Sherpa Validation {Guid.NewGuid():N}"[..34]
+        };
+        var validationProfile = await CreateProfileAsync(validationRequest);
+
+        try
+        {
+            await EnsureProfileAppGroupsAsync(validationProfile.Id, existingAppGroups);
+        }
+        catch
+        {
+            await TryDeleteValidationProfileAsync(validationProfile.Id);
+            throw;
+        }
+
+        try
+        {
+            await DeleteProfileAsync(existingProfileId);
+        }
+        catch
+        {
+            await TryDeleteValidationProfileAsync(validationProfile.Id);
+            throw;
+        }
+
+        AppleProfile? regeneratedProfile = null;
+        try
+        {
+            regeneratedProfile = await CreateProfileAsync(request);
+            await EnsureProfileAppGroupsAsync(regeneratedProfile.Id, existingAppGroups);
+        }
+        catch (Exception ex)
+        {
+            if (regeneratedProfile is not null)
+                await TryDeleteValidationProfileAsync(regeneratedProfile.Id);
+
+            throw new InvalidOperationException(
+                $"The original profile was deleted, but its replacement could not be completed. " +
+                $"The valid temporary profile '{validationProfile.Name}' was retained in Apple Developer.",
+                ex);
+        }
+
+        await TryDeleteValidationProfileAsync(validationProfile.Id);
+        return regeneratedProfile;
+    }
+
+    internal static void EnsureAppGroupsPreserved(
+        IReadOnlyDictionary<string, object> existingEntitlements,
+        IReadOnlyDictionary<string, object> regeneratedEntitlements)
+    {
+        var existingGroups = GetAppGroups(existingEntitlements);
+        if (existingGroups.Count == 0)
+            return;
+
+        var selectedGroups = GetAppGroups(regeneratedEntitlements)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var missingGroups = existingGroups
+            .Where(group => !selectedGroups.Contains(group))
+            .ToList();
+
+        if (missingGroups.Count > 0)
+        {
+            throw new InvalidOperationException(
+                $"The selected Bundle ID is missing App Group assignments used by the existing profile: {string.Join(", ", missingGroups)}. " +
+                "Assign the required App Group in Apple Developer → Identifiers before regenerating. " +
+                "The existing profile was not deleted.");
+        }
+    }
+
+    private async Task EnsureProfileAppGroupsAsync(
+        string profileId,
+        IReadOnlyList<string> expectedAppGroups)
+    {
+        var content = await DownloadProfileAsync(profileId);
+        if (content.Length == 0)
+            throw new InvalidOperationException("The regenerated profile content is empty.");
+
+        var profile = await ProvisioningProfiles.ParseAsync(content).ConfigureAwait(false);
+        EnsureAppGroupsPreserved(
+            new Dictionary<string, object>
+            {
+                ["com.apple.security.application-groups"] = expectedAppGroups.ToArray()
+            },
+            profile.Entitlements);
+    }
+
+    private async Task TryDeleteValidationProfileAsync(string profileId)
+    {
+        try
+        {
+            await DeleteProfileAsync(profileId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning($"Could not delete temporary validation profile '{profileId}': {ex.Message}");
+        }
+    }
+
+    private static IReadOnlyList<string> GetAppGroups(
+        IReadOnlyDictionary<string, object> entitlements)
+    {
+        if (!entitlements.TryGetValue("com.apple.security.application-groups", out var value))
+            return [];
+
+        return value switch
+        {
+            string text when !string.IsNullOrWhiteSpace(text) => [text],
+            IEnumerable<object> values => values
+                .OfType<string>()
+                .Where(item => !string.IsNullOrWhiteSpace(item))
+                .ToList(),
+            _ => []
+        };
+    }
+
     public async Task<byte[]> DownloadProfileAsync(string id)
     {
         _logger.LogInformation($"Downloading profile: {id}");
@@ -732,21 +878,24 @@ public class AppleConnectService : IAppleConnectService
                 throw new InvalidOperationException("Profile content is empty");
             }
 
-            var profilesDir = GetProvisioningProfilesDirectory();
-            if (!Directory.Exists(profilesDir))
+            var profile = await ProvisioningProfiles.ParseAsync(content).ConfigureAwait(false);
+            var extension = profile.Platform.Any(platform =>
+                string.Equals(platform, "MacOS", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(platform, "OSX", StringComparison.OrdinalIgnoreCase))
+                ? "provisionprofile"
+                : "mobileprovision";
+            var directories = await GetProvisioningProfilesDirectoriesAsync().ConfigureAwait(false);
+            var installedPaths = new List<string>();
+
+            foreach (var directory in directories)
             {
-                Directory.CreateDirectory(profilesDir);
+                var filePath = Path.Combine(directory, $"{profile.Uuid}.{extension}");
+                await WriteFileAtomicallyAsync(filePath, content).ConfigureAwait(false);
+                installedPaths.Add(filePath);
+                _logger.LogInformation($"Profile installed to: {filePath}");
             }
 
-            // Parse the profile to get UUID for filename
-            var uuid = ExtractProfileUuid(content);
-            var fileName = $"{uuid}.mobileprovision";
-            var filePath = Path.Combine(profilesDir, fileName);
-
-            await File.WriteAllBytesAsync(filePath, content);
-            _logger.LogInformation($"Profile installed to: {filePath}");
-
-            return filePath;
+            return installedPaths[0];
         }
         catch (Exception ex)
         {
@@ -782,40 +931,101 @@ public class AppleConnectService : IAppleConnectService
         return installed;
     }
 
-    private static string GetProvisioningProfilesDirectory()
+    public async Task<IReadOnlyList<string>> GetProvisioningProfilesDirectoriesAsync()
     {
-        // macOS: ~/Library/MobileDevice/Provisioning Profiles
-        // Windows: Not typically used, but we can use a similar path
-        if (OperatingSystem.IsMacOS() || OperatingSystem.IsMacCatalyst())
+        var autoDirectory = (await ProvisioningProfiles.GetDirectory().ConfigureAwait(false)).FullName;
+        var preference = ProvisioningProfilesDirectoryOptions.Auto;
+
+        try
         {
-            return Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                "Library", "MobileDevice", "Provisioning Profiles");
+            var settings = await _settingsService.GetSettingsAsync().ConfigureAwait(false);
+            preference = settings.Preferences.ProvisioningProfilesDirectory;
         }
-        
-        // Fallback for other platforms
-        return Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "MobileDevice", "Provisioning Profiles");
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                $"Failed to read the provisioning profiles directory preference; using Auto: {ex.Message}");
+        }
+
+        return ResolveProvisioningProfilesDirectories(
+            preference,
+            autoDirectory,
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            OperatingSystem.IsMacOS() || OperatingSystem.IsMacCatalyst());
     }
 
-    private static string ExtractProfileUuid(byte[] content)
+    public async Task<IReadOnlyList<string>> FindInstalledProfilePathsAsync(string uuid)
     {
-        // The UUID is in the plist content of the profile
-        // Look for <key>UUID</key><string>...</string>
-        var text = System.Text.Encoding.UTF8.GetString(content);
-        var uuidKeyIndex = text.IndexOf("<key>UUID</key>");
-        if (uuidKeyIndex >= 0)
+        ArgumentException.ThrowIfNullOrWhiteSpace(uuid);
+
+        var directories = await GetProvisioningProfilesDirectoriesAsync().ConfigureAwait(false);
+        var paths = new List<string>();
+
+        foreach (var directory in directories)
         {
-            var stringStart = text.IndexOf("<string>", uuidKeyIndex);
-            var stringEnd = text.IndexOf("</string>", stringStart);
-            if (stringStart >= 0 && stringEnd > stringStart)
+            foreach (var extension in new[] { "mobileprovision", "provisionprofile" })
             {
-                return text.Substring(stringStart + 8, stringEnd - stringStart - 8);
+                var path = Path.Combine(directory, $"{uuid}.{extension}");
+                if (File.Exists(path))
+                    paths.Add(path);
             }
         }
-        
-        // Fallback to a generated UUID
-        return Guid.NewGuid().ToString("D").ToUpperInvariant();
+
+        return paths;
+    }
+
+    internal static IReadOnlyList<string> ResolveProvisioningProfilesDirectories(
+        string? preference,
+        string autoDirectory,
+        string userProfileDirectory,
+        bool isApplePlatform)
+    {
+        if (!isApplePlatform)
+            return [autoDirectory];
+
+        var xcode16Directory = Path.Combine(
+            userProfileDirectory,
+            "Library", "Developer", "Xcode", "UserData", "Provisioning Profiles");
+        var legacyDirectory = Path.Combine(
+            userProfileDirectory,
+            "Library", "MobileDevice", "Provisioning Profiles");
+
+        return preference switch
+        {
+            ProvisioningProfilesDirectoryOptions.Xcode16AndLater => [xcode16Directory],
+            ProvisioningProfilesDirectoryOptions.Xcode15AndEarlier => [legacyDirectory],
+            ProvisioningProfilesDirectoryOptions.Both => [xcode16Directory, legacyDirectory],
+            _ => [autoDirectory]
+        };
+    }
+
+    private static async Task WriteFileAtomicallyAsync(string path, byte[] content)
+    {
+        var directory = Path.GetDirectoryName(path)
+            ?? throw new InvalidOperationException($"Could not determine the directory for '{path}'.");
+        Directory.CreateDirectory(directory);
+
+        var tempPath = Path.Combine(directory, $".{Path.GetFileName(path)}.{Guid.NewGuid():N}.tmp");
+        try
+        {
+            await using (var stream = new FileStream(
+                tempPath,
+                FileMode.CreateNew,
+                FileAccess.Write,
+                FileShare.None,
+                bufferSize: 81920,
+                FileOptions.Asynchronous | FileOptions.WriteThrough))
+            {
+                await stream.WriteAsync(content).ConfigureAwait(false);
+                await stream.FlushAsync().ConfigureAwait(false);
+            }
+
+            File.Move(tempPath, path, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(tempPath))
+                File.Delete(tempPath);
+        }
     }
 }

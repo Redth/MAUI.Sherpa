@@ -1,5 +1,6 @@
 using AppleAppStoreConnect;
 using FluentAssertions;
+using MauiSherpa.Core.Interfaces;
 using MauiSherpa.Core.Services;
 
 namespace MauiSherpa.Core.Tests.Services;
@@ -57,5 +58,107 @@ public class AppleConnectServiceTests
     {
         AppleConnectService.ResolveCertificateDisplayName(alias, name, displayName)
             .Should().Be(expected);
+    }
+
+    [Fact]
+    public void EnsureAppGroupsPreserved_RejectsMissingGroupAssignment()
+    {
+        var entitlements = new Dictionary<string, object>
+        {
+            ["com.apple.security.application-groups"] = new object[]
+            {
+                "group.com.example.shared"
+            }
+        };
+        var regeneratedEntitlements = new Dictionary<string, object>();
+
+        var action = () => AppleConnectService.EnsureAppGroupsPreserved(
+            entitlements,
+            regeneratedEntitlements);
+
+        action.Should().Throw<InvalidOperationException>()
+            .WithMessage("*missing App Group assignments*group.com.example.shared*existing profile was not deleted*");
+    }
+
+    [Fact]
+    public void EnsureAppGroupsPreserved_AllowsSelectedGroupAssignment()
+    {
+        var entitlements = new Dictionary<string, object>
+        {
+            ["com.apple.security.application-groups"] = new object[]
+            {
+                "group.com.example.shared"
+            }
+        };
+        var regeneratedEntitlements = new Dictionary<string, object>
+        {
+            ["com.apple.security.application-groups"] = new object[]
+            {
+                "group.com.example.shared"
+            }
+        };
+
+        var action = () => AppleConnectService.EnsureAppGroupsPreserved(
+            entitlements,
+            regeneratedEntitlements);
+
+        action.Should().NotThrow();
+    }
+
+    [Fact]
+    public void EnsureAppGroupsPreserved_RejectsDifferentSelectedGroup()
+    {
+        var entitlements = new Dictionary<string, object>
+        {
+            ["com.apple.security.application-groups"] = new object[]
+            {
+                "group.com.example.required"
+            }
+        };
+        var regeneratedEntitlements = new Dictionary<string, object>
+        {
+            ["com.apple.security.application-groups"] = new object[]
+            {
+                "group.com.example.other"
+            }
+        };
+
+        var action = () => AppleConnectService.EnsureAppGroupsPreserved(
+            entitlements,
+            regeneratedEntitlements);
+
+        action.Should().Throw<InvalidOperationException>()
+            .WithMessage("*group.com.example.required*");
+    }
+
+    [Theory]
+    [InlineData(ProvisioningProfilesDirectoryOptions.Auto, "/auto")]
+    [InlineData(ProvisioningProfilesDirectoryOptions.Xcode16AndLater, "/Users/test/Library/Developer/Xcode/UserData/Provisioning Profiles")]
+    [InlineData(ProvisioningProfilesDirectoryOptions.Xcode15AndEarlier, "/Users/test/Library/MobileDevice/Provisioning Profiles")]
+    public void ResolveProvisioningProfilesDirectories_UsesConfiguredMode(
+        string preference,
+        string expected)
+    {
+        var result = AppleConnectService.ResolveProvisioningProfilesDirectories(
+            preference,
+            "/auto",
+            "/Users/test",
+            isApplePlatform: true);
+
+        result.Should().ContainSingle().Which.Should().Be(expected);
+    }
+
+    [Fact]
+    public void ResolveProvisioningProfilesDirectories_BothReturnsNewAndLegacyFolders()
+    {
+        var result = AppleConnectService.ResolveProvisioningProfilesDirectories(
+            ProvisioningProfilesDirectoryOptions.Both,
+            "/auto",
+            "/Users/test",
+            isApplePlatform: true);
+
+        result.Should().Equal(
+            "/Users/test/Library/Developer/Xcode/UserData/Provisioning Profiles",
+            "/Users/test/Library/MobileDevice/Provisioning Profiles");
     }
 }
