@@ -36,12 +36,27 @@
     @if (!PlatformInfo.HasNativeToolbar)
     {
     <div class="toolbar">
-        <button class="btn btn-primary" @onclick="@(() => RefreshData(forceRefresh: true))" disabled="@isLoading">
-            <i class="fas @(isLoading ? "fa-spinner fa-spin" : "fa-sync-alt")"></i> Refresh
-        </button>
-        <button class="btn btn-success" @onclick="ShowCreateDialog" disabled="@isLoading">
-            <i class="fas fa-plus"></i> Create Certificate
-        </button>
+        @if (isSelectionMode)
+        {
+            <button class="btn btn-primary" @onclick="ExportSelectedAsync" disabled="@(selectedCertificateIds.Count == 0)">
+                <i class="fas fa-file-export"></i> Export Selected
+            </button>
+            <button class="btn btn-secondary" @onclick="CancelSelectionMode">
+                <i class="fas fa-times"></i> Cancel
+            </button>
+        }
+        else
+        {
+            <button class="btn btn-primary" @onclick="@(() => RefreshData(forceRefresh: true))" disabled="@isLoading">
+                <i class="fas @(isLoading ? "fa-spinner fa-spin" : "fa-sync-alt")"></i> Refresh
+            </button>
+            <button class="btn btn-success" @onclick="ShowCreateDialog" disabled="@isLoading">
+                <i class="fas fa-plus"></i> Create Certificate
+            </button>
+            <button class="btn btn-secondary" @onclick="BeginSelectionModeAsync" disabled="@isLoading">
+                <i class="fas fa-file-export"></i> Export
+            </button>
+        }
     </div>
     }
 
@@ -107,6 +122,19 @@
         Showing @FilteredCertificates.Count() of @certificates.Count certificates
     </div>
 
+    @if (isSelectionMode)
+    {
+        <div class="selection-bar">
+            <label class="select-all-checkbox">
+                <input type="checkbox"
+                       checked="@AllVisibleExportableSelected"
+                       @onchange="ToggleAllVisible" />
+                <span>Select all exportable certificates shown</span>
+            </label>
+            <span class="selection-count">@selectedCertificateIds.Count selected</span>
+        </div>
+    }
+
     <div class="cert-list">
         @if (isLoading && certificates.Count == 0)
         {
@@ -134,7 +162,18 @@
                 var isExpiringSoon = !isExpired && cert.ExpirationDate < DateTime.UtcNow.AddDays(30);
                 var syncStatus = GetSyncStatus(cert);
                 
-                <div class="cert-card @(isExpired ? "expired" : isExpiringSoon ? "expiring" : "")">
+                var canExportP12 = HasLocalIdentity(cert);
+
+                <div class="cert-card @(isExpired ? "expired" : isExpiringSoon ? "expiring" : "") @(selectedCertificateIds.Contains(cert.Id) ? "selected" : "") @((isSelectionMode && !canExportP12) ? "not-exportable" : "")">
+                    @if (isSelectionMode)
+                    {
+                        <label class="cert-select" title="@(canExportP12 ? "Include in P12 bundle" : "No local private key available")">
+                            <input type="checkbox"
+                                   checked="@selectedCertificateIds.Contains(cert.Id)"
+                                   disabled="@(!canExportP12)"
+                                   @onchange="@(e => ToggleCertificateSelection(cert.Id, e.Value is bool selected && selected))" />
+                        </label>
+                    }
                     <div class="cert-icon"><i class="fas fa-lock"></i></div>
                     <div class="cert-details">
                         <div class="cert-name"><span>@cert.Name</span></div>
@@ -171,6 +210,8 @@
                             Expires: @cert.ExpirationDate.ToString("MMM dd, yyyy")
                         </div>
                     </div>
+                    @if (!isSelectionMode)
+                    {
                     <div class="cert-actions">
                         @if (!string.IsNullOrWhiteSpace(cert.SerialNumber))
                         {
@@ -179,16 +220,10 @@
                                 Item="@(new SecretItemRef(SecretItemKind.Certificate, GetCertificateSyncItemId(cert.SerialNumber), cert.Name))"
                                 CanAddProviderCopy="@(syncStatus != SecretLocation.None)"
                                 UnavailableSourceReason="This certificate has no matching private key in Keychain and no provider copy. Import or install its private key before syncing." />
-                            @if (syncStatus is SecretLocation.CloudOnly or SecretLocation.Both)
+                            @if (syncStatus is SecretLocation.CloudOnly)
                             {
                                 <button class="btn btn-secondary btn-icon" @onclick="@(() => InstallLocally(cert))" title="Install private key locally">
                                     <i class="fas fa-download"></i>
-                                </button>
-                            }
-                            @if (syncStatus is SecretLocation.LocalOnly or SecretLocation.Both)
-                            {
-                                <button class="btn btn-secondary btn-icon" @onclick="@(() => DeleteLocalCertificate(cert))" title="Delete private key from Keychain">
-                                    <i class="fas fa-hard-drive"></i>
                                 </button>
                             }
                         }
@@ -196,11 +231,19 @@
                                 disabled="@isLoading" title="Export">
                             <i class="fas fa-file-export"></i>
                         </button>
+                        @if (!string.IsNullOrWhiteSpace(cert.SerialNumber) &&
+                             syncStatus is SecretLocation.LocalOnly or SecretLocation.Both)
+                        {
+                            <button class="btn btn-danger btn-icon" @onclick="@(() => DeleteLocalCertificate(cert))" title="Delete private key from Keychain">
+                                <i class="fas fa-trash-alt"></i>
+                            </button>
+                        }
                         <button class="btn btn-danger btn-icon" @onclick="@(() => RevokeCertificate(cert))" 
                                 disabled="@isLoading" title="Revoke">
                             <i class="fas fa-ban"></i>
                         </button>
                     </div>
+                    }
                 </div>
             }
         }
@@ -396,6 +439,8 @@
 
     .cert-card.expired { border-left-color: #f56565; opacity: 0.7; }
     .cert-card.expiring { border-left-color: var(--accent-warning); }
+    .cert-card.selected { box-shadow: 0 0 0 2px var(--accent-primary); }
+    .cert-card.not-exportable { opacity: 0.55; }
 
     .cert-icon { font-size: 1.5rem; color: #6b46c1; }
     .cert-icon i { font-size: 1.25rem; }
@@ -413,6 +458,43 @@
     .cert-expiry { font-size: 0.8125rem; color: var(--text-muted); margin-top: 0.5rem; }
     .cert-badges { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; }
     .cert-actions { display: flex; gap: 0.25rem; align-items: center; position: relative; }
+    .cert-select {
+        display: flex;
+        align-items: center;
+        align-self: center;
+        cursor: pointer;
+    }
+    .cert-select input {
+        width: 18px;
+        height: 18px;
+        accent-color: var(--accent-primary);
+    }
+
+    .selection-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 0.75rem 1rem;
+        margin-bottom: 0.75rem;
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: var(--card-radius);
+    }
+    .select-all-checkbox {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        color: var(--text-secondary);
+        cursor: pointer;
+        font-size: 0.875rem;
+    }
+    .select-all-checkbox input { accent-color: var(--accent-primary); }
+    .selection-count {
+        color: var(--text-muted);
+        font-size: 0.8125rem;
+        white-space: nowrap;
+    }
 
     .btn-copy {
         background: none;
@@ -493,6 +575,9 @@
     private string filterType = "";
     private string filterPlatform = "";
     private string filterStatus = "";
+    private bool isSelectionMode;
+    private readonly HashSet<string> selectedCertificateIds = new(StringComparer.Ordinal);
+    private IReadOnlyList<LocalSigningIdentity> localIdentities = Array.Empty<LocalSigningIdentity>();
     
     // Sync state
     private Dictionary<string, CertificateSecretInfo> syncStatuses = new();
@@ -515,6 +600,19 @@
         .OrderByDescending(c => c.ExpirationDate > DateTime.UtcNow) // Valid first
         .ThenBy(c => c.ExpirationDate);
 
+    private bool AllVisibleExportableSelected
+    {
+        get
+        {
+            var exportableIds = FilteredCertificates
+                .Where(HasLocalIdentity)
+                .Select(certificate => certificate.Id)
+                .ToList();
+            return exportableIds.Count > 0 &&
+                   exportableIds.All(selectedCertificateIds.Contains);
+        }
+    }
+
     // Computed properties for bulk sync buttons
     private bool HasCloudOnlyCerts => syncStatuses.Values.Any(s => s.Location == SecretLocation.CloudOnly);
     private bool HasLocalOnlyCerts => syncStatuses.Values.Any(s => s.Location == SecretLocation.LocalOnly);
@@ -536,16 +634,7 @@
 
     protected override async Task OnInitializedAsync()
     {
-        ToolbarService.SetItems(
-            new ToolbarAction("refresh", "Refresh", "arrow.clockwise"),
-            new ToolbarAction("create", "Create Certificate", "plus")
-        );
-        ToolbarService.SetSearch("Search certificates...");
-        ToolbarService.SetFilters(
-            new ToolbarFilter("type", "Type", ["All Types", "Development", "Distribution", "Developer ID"]),
-            new ToolbarFilter("platform", "Platform", ["All Platforms", "iOS", "macOS"]),
-            new ToolbarFilter("status", "Status", ["All Statuses", "Valid", "Expiring Soon", "Expired"])
-        );
+        ConfigureToolbar();
         ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
         ToolbarService.SearchTextChanged += OnSearchTextChanged;
         ToolbarService.FilterChanged += OnFilterChanged;
@@ -628,6 +717,9 @@
                     try { await RefreshData(forceRefresh: true); } finally { ToolbarService.SetItemEnabled("refresh", true); }
                     break;
                 case "create": await ShowCreateDialog(); break;
+                case "export": await BeginSelectionModeAsync(); break;
+                case "export-selected": await ExportSelectedAsync(); break;
+                case "cancel-selection": CancelSelectionMode(); break;
             }
             StateHasChanged();
         });
@@ -815,15 +907,108 @@
 
     private async Task ShowExportDialog(AppleCertificate cert)
     {
-        IReadOnlyList<LocalSigningIdentity>? localIds = null;
         if (LocalCertificateService.IsSupported)
         {
-            localIds = await LocalCertificateService.GetSigningIdentitiesAsync();
+            localIdentities = await LocalCertificateService.GetSigningIdentitiesAsync();
         }
 
-        var page = new ExportCertificatePage(BridgeHolder, cert, localIds);
+        var page = new ExportCertificatePage(BridgeHolder, [cert], localIdentities);
         await FormModalService.ShowAsync<bool>(page);
     }
+
+    private void ConfigureToolbar()
+    {
+        if (isSelectionMode)
+        {
+            ToolbarService.SetItems(
+                new ToolbarAction("export-selected", "Export Selected", "square.and.arrow.up"),
+                new ToolbarAction("cancel-selection", "Cancel", "xmark", IsPrimary: false));
+            ToolbarService.SetItemEnabled("export-selected", selectedCertificateIds.Count > 0);
+        }
+        else
+        {
+            ToolbarService.SetItems(
+                new ToolbarAction("refresh", "Refresh", "arrow.clockwise"),
+                new ToolbarAction("create", "Create Certificate", "plus"),
+                new ToolbarAction("export", "Export", "square.and.arrow.up"));
+        }
+
+        ToolbarService.SetSearch("Search certificates...");
+        ToolbarService.SetFilters(
+            new ToolbarFilter("type", "Type", ["All Types", "Development", "Distribution", "Developer ID"]),
+            new ToolbarFilter("platform", "Platform", ["All Platforms", "iOS", "macOS"]),
+            new ToolbarFilter("status", "Status", ["All Statuses", "Valid", "Expiring Soon", "Expired"]));
+    }
+
+    private async Task BeginSelectionModeAsync()
+    {
+        if (!LocalCertificateService.IsSupported)
+        {
+            await AlertService.ShowAlertAsync(
+                "Not Supported",
+                $"Certificate bundle export is not supported on {PlatformInfo.PlatformName}.");
+            return;
+        }
+
+        localIdentities = await LocalCertificateService.GetSigningIdentitiesAsync();
+        if (!certificates.Any(HasLocalIdentity))
+        {
+            await AlertService.ShowAlertAsync(
+                "No Exportable Certificates",
+                "No certificates with local private keys are available to export.");
+            return;
+        }
+
+        isSelectionMode = true;
+        selectedCertificateIds.Clear();
+        ConfigureToolbar();
+    }
+
+    private void CancelSelectionMode()
+    {
+        isSelectionMode = false;
+        selectedCertificateIds.Clear();
+        ConfigureToolbar();
+    }
+
+    private void ToggleCertificateSelection(string certificateId, bool selected)
+    {
+        if (selected)
+            selectedCertificateIds.Add(certificateId);
+        else
+            selectedCertificateIds.Remove(certificateId);
+        ToolbarService.SetItemEnabled("export-selected", selectedCertificateIds.Count > 0);
+    }
+
+    private void ToggleAllVisible(ChangeEventArgs args)
+    {
+        var exportableIds = FilteredCertificates
+            .Where(HasLocalIdentity)
+            .Select(certificate => certificate.Id)
+            .ToList();
+        if (args.Value is bool selected && selected)
+            selectedCertificateIds.UnionWith(exportableIds);
+        else
+            selectedCertificateIds.ExceptWith(exportableIds);
+        ToolbarService.SetItemEnabled("export-selected", selectedCertificateIds.Count > 0);
+    }
+
+    private async Task ExportSelectedAsync()
+    {
+        var selectedCertificates = certificates
+            .Where(certificate => selectedCertificateIds.Contains(certificate.Id))
+            .ToList();
+        if (selectedCertificates.Count == 0)
+            return;
+
+        var page = new ExportCertificatePage(BridgeHolder, selectedCertificates, localIdentities);
+        var exported = await FormModalService.ShowAsync<bool>(page);
+        if (exported)
+            CancelSelectionMode();
+    }
+
+    private bool HasLocalIdentity(AppleCertificate certificate) =>
+        localIdentities.Any(identity => SerialsMatch(identity.SerialNumber, certificate.SerialNumber));
 
     private async Task RevokeCertificate(AppleCertificate cert)
     {

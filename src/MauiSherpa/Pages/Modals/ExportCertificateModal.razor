@@ -16,42 +16,59 @@
 @if (bridge != null)
 {
     <div class="form-content">
-        @if (exportCertificate != null)
+        @if (exportCertificates.Count > 0)
         {
             <div class="cert-export-info">
-                <strong>@exportCertificate.Name</strong>
-                <div class="text-muted">@exportCertificate.CertificateType</div>
+                @if (exportCertificates.Count == 1)
+                {
+                    <strong>@exportCertificates[0].Name</strong>
+                    <div class="text-muted">@exportCertificates[0].CertificateType</div>
+                }
+                else
+                {
+                    <strong>@exportCertificates.Count certificates selected</strong>
+                    <div class="selected-certificates">
+                        @foreach (var certificate in exportCertificates)
+                        {
+                            <span><i class="fas fa-certificate"></i> @certificate.Name</span>
+                        }
+                    </div>
+                }
             </div>
 
-            <div class="form-group">
-                <label>Export Type</label>
-                <div class="export-type-options">
-                    <label class="radio-option">
-                        <input type="radio" name="exportType" value="p12" checked="@(exportType == "p12")" @onchange="@(() => { exportType = "p12"; OnFieldChanged(); })" />
-                        <span class="radio-label">
-                            <strong>P12 / PFX (with private key)</strong>
-                            <small>Includes both public and private key - can be used for signing</small>
-                        </span>
-                    </label>
-                    <label class="radio-option">
-                        <input type="radio" name="exportType" value="cer" checked="@(exportType == "cer")" @onchange="@(() => { exportType = "cer"; OnFieldChanged(); })" />
-                        <span class="radio-label">
-                            <strong>CER (public key only)</strong>
-                            <small>Contains only the public certificate - cannot be used for signing</small>
-                        </span>
-                    </label>
-                </div>
-            </div>
-
-            @if (exportType == "p12")
+            @if (exportCertificates.Count == 1)
             {
-                var localIdentity = localIdentities?.FirstOrDefault(i =>
-                    i.SerialNumber?.Equals(exportCertificate?.SerialNumber, StringComparison.OrdinalIgnoreCase) == true);
-                if (localIdentity == null)
+                <div class="form-group">
+                    <label>Export Type</label>
+                    <div class="export-type-options">
+                        <label class="radio-option">
+                            <input type="radio" name="exportType" value="p12" checked="@(exportType == "p12")" @onchange="@(() => { exportType = "p12"; OnFieldChanged(); })" />
+                            <span class="radio-label">
+                                <strong>P12 / PFX (with private key)</strong>
+                                <small>Includes both public and private key - can be used for signing</small>
+                            </span>
+                        </label>
+                        <label class="radio-option">
+                            <input type="radio" name="exportType" value="cer" checked="@(exportType == "cer")" @onchange="@(() => { exportType = "cer"; OnFieldChanged(); })" />
+                            <span class="radio-label">
+                                <strong>CER (public key only)</strong>
+                                <small>Contains only the public certificate - cannot be used for signing</small>
+                            </span>
+                        </label>
+                    </div>
+                </div>
+            }
+
+            @if (IsP12Export)
+            {
+                if (MissingCertificates.Count > 0)
                 {
                     <div class="alert alert-warning">
                         <i class="fas fa-exclamation-triangle"></i>
-                        Private key not found in local keychain. You can only export the public certificate.
+                        <span>
+                            Private keys were not found locally for:
+                            @string.Join(", ", MissingCertificates.Select(certificate => certificate.Name))
+                        </span>
                     </div>
                 }
                 else
@@ -59,45 +76,76 @@
                     <div class="form-group">
                         <label class="checkbox-label">
                             <input type="checkbox" @bind="exportWithPassword" @bind:after="OnFieldChanged" />
-                            <span>Protect with password</span>
+                            <span>Protect with passphrase</span>
                         </label>
                     </div>
 
                     @if (exportWithPassword)
                     {
                         <div class="form-group">
-                            <label>Password</label>
-                            <input type="password" @bind="exportPassword" @bind:after="OnFieldChanged" class="form-control" placeholder="Enter password" />
+                            <label>Passphrase</label>
+                            <input type="password" @bind="exportPassword" @bind:after="OnFieldChanged" class="form-control" placeholder="Enter passphrase" />
                         </div>
                         <div class="form-group">
-                            <label>Confirm Password</label>
-                            <input type="password" @bind="exportPasswordConfirm" @bind:after="OnFieldChanged" class="form-control" placeholder="Confirm password" />
+                            <label>Confirm Passphrase</label>
+                            <input type="password" @bind="exportPasswordConfirm" @bind:after="OnFieldChanged" class="form-control" placeholder="Confirm passphrase" />
                             @if (!string.IsNullOrEmpty(exportPassword) && !string.IsNullOrEmpty(exportPasswordConfirm) && exportPassword != exportPasswordConfirm)
                             {
-                                <small class="form-error">Passwords do not match</small>
+                                <small class="form-error">Passphrases do not match</small>
                             }
                         </div>
                     }
                 }
             }
+
+            <div class="form-group">
+                <label>Destination</label>
+                <div class="destination-options">
+                    <label class="checkbox-label destination-option">
+                        <input type="checkbox" @bind="saveToFile" @bind:after="OnFieldChanged" />
+                        <span>
+                            <strong>Save to file</strong>
+                            <small>Choose where to save the @(IsP12Export ? "P12 bundle" : "certificate")</small>
+                        </span>
+                    </label>
+                    <label class="checkbox-label destination-option">
+                        <input type="checkbox" @bind="copyAsBase64" @bind:after="OnFieldChanged" />
+                        <span>
+                            <strong>Copy as Base64</strong>
+                            <small>Copy the encoded file contents to the clipboard</small>
+                        </span>
+                    </label>
+                </div>
+                @if (!saveToFile && !copyAsBase64)
+                {
+                    <small class="form-error">Choose at least one destination</small>
+                }
+            </div>
         }
     </div>
 }
 
 @code {
-    private AppleCertificate? exportCertificate;
+    private IReadOnlyList<AppleCertificate> exportCertificates = Array.Empty<AppleCertificate>();
     private string exportType = "p12";
     private bool exportWithPassword = false;
     private string exportPassword = "";
     private string exportPasswordConfirm = "";
     private bool isExporting = false;
-    private IReadOnlyList<LocalSigningIdentity>? localIdentities;
+    private bool saveToFile = true;
+    private bool copyAsBase64;
+    private IReadOnlyList<LocalSigningIdentity> localIdentities = Array.Empty<LocalSigningIdentity>();
 
-    private bool CanExport => exportCertificate != null &&
+    private bool IsP12Export => exportCertificates.Count > 1 || exportType == "p12";
+    private IReadOnlyList<AppleCertificate> MissingCertificates => exportCertificates
+        .Where(certificate => !localIdentities.Any(identity =>
+           SerialsMatch(identity.SerialNumber, certificate.SerialNumber)))
+        .ToList();
+    private bool CanExport => exportCertificates.Count > 0 &&
         !isExporting &&
-        (exportType == "cer" ||
-         (exportType == "p12" &&
-          localIdentities?.Any(i => i.SerialNumber?.Equals(exportCertificate.SerialNumber, StringComparison.OrdinalIgnoreCase) == true) == true &&
+        (saveToFile || copyAsBase64) &&
+        (!IsP12Export ||
+         (MissingCertificates.Count == 0 &&
           (!exportWithPassword || (exportPassword == exportPasswordConfirm && !string.IsNullOrEmpty(exportPassword)))));
 
     protected override void OnInitialized()
@@ -105,69 +153,86 @@
         var bridge = BridgeHolder.Current;
         if (bridge == null) return;
 
-        exportCertificate = bridge.Parameters.GetValueOrDefault("Certificate") as AppleCertificate;
-        localIdentities = bridge.Parameters.GetValueOrDefault("LocalIdentities") as IReadOnlyList<LocalSigningIdentity>;
+        exportCertificates = bridge.Parameters.GetValueOrDefault("Certificates") as IReadOnlyList<AppleCertificate>
+            ?? Array.Empty<AppleCertificate>();
+        localIdentities = bridge.Parameters.GetValueOrDefault("LocalIdentities") as IReadOnlyList<LocalSigningIdentity>
+            ?? Array.Empty<LocalSigningIdentity>();
 
         bridge.SubmitRequested += OnSubmitRequested;
-        bridge.SetValid(CanExport);
+        bridge.PreventSubmitClose = true;
+        UpdateActionState();
     }
 
     private void OnFieldChanged()
     {
-        BridgeHolder.Current?.SetValid(CanExport);
+        UpdateActionState();
     }
 
     private async Task OnSubmitRequested()
     {
-        if (exportCertificate == null) return;
+        if (!CanExport) return;
 
         isExporting = true;
+        UpdateActionState();
         StateHasChanged();
 
         try
         {
-            var cert = exportCertificate;
-            var fileName = $"{cert.Name?.Replace(" ", "_") ?? "certificate"}_{DateTime.Now:yyyyMMdd}";
+            var cert = exportCertificates[0];
+            var fileName = exportCertificates.Count == 1
+                ? $"{SanitizeFileName(cert.Name)}_{DateTime.Now:yyyyMMdd}"
+                : $"apple-certificates_{DateTime.Now:yyyyMMdd}";
             byte[] data;
             string extension;
 
-            if (exportType == "p12")
+            if (IsP12Export)
             {
-                extension = ".p12";
-                var matchingIdentity = localIdentities?.FirstOrDefault(i =>
-                    SerialsMatch(i.SerialNumber, cert.SerialNumber));
-
-                if (matchingIdentity == null)
-                {
-                    await AlertService.ShowAlertAsync("Error", "Private key not found in local keychain.");
-                    return;
-                }
+                extension = "p12";
+                var matchingIdentities = exportCertificates
+                    .Select(certificate => localIdentities.First(identity =>
+                        SerialsMatch(identity.SerialNumber, certificate.SerialNumber)))
+                    .ToList();
 
                 var password = exportWithPassword ? exportPassword : "";
-                data = await LocalCertificateService.ExportP12Async(matchingIdentity.Identity, password);
+                data = await LocalCertificateService.ExportP12Async(matchingIdentities, password);
             }
             else
             {
-                extension = ".cer";
+                extension = "cer";
                 data = await LocalCertificateService.ExportCertificateAsync(cert.SerialNumber ?? "");
             }
 
-            var savePath = await DialogService.ShowFileDialogAsync(
-                "Save Certificate",
-                isSave: true,
-                defaultFileName: fileName + extension);
-
-            if (string.IsNullOrEmpty(savePath))
+            string? savePath = null;
+            if (saveToFile)
             {
-                return;
+                savePath = await DialogService.PickSaveFileAsync(
+                    IsP12Export ? "Save Certificate Bundle" : "Save Certificate",
+                    $"{fileName}.{extension}",
+                    extension);
+
+                if (!string.IsNullOrEmpty(savePath))
+                    await File.WriteAllBytesAsync(savePath, data);
+                else if (!copyAsBase64)
+                    return;
             }
 
-            await File.WriteAllBytesAsync(savePath, data);
-            await AlertService.ShowToastAsync($"Certificate exported to {Path.GetFileName(savePath)}");
+            if (copyAsBase64)
+                await DialogService.CopyToClipboardAsync(Convert.ToBase64String(data));
+
+            var message = (savePath, copyAsBase64) switch
+            {
+                ({ Length: > 0 }, true) => $"Saved {Path.GetFileName(savePath)} and copied Base64 to clipboard",
+                ({ Length: > 0 }, false) => $"Certificate export saved to {Path.GetFileName(savePath)}",
+                _ => "Certificate export copied to clipboard as Base64"
+            };
+            await AlertService.ShowToastAsync(message);
 
             var bridge = BridgeHolder.Current;
             if (bridge != null)
+            {
                 bridge.Result = true;
+                bridge.RequestClose();
+            }
         }
         catch (Exception ex)
         {
@@ -177,8 +242,25 @@
         finally
         {
             isExporting = false;
+            UpdateActionState();
             StateHasChanged();
         }
+    }
+
+    private void UpdateActionState()
+    {
+        BridgeHolder.Current?.SetActionState(
+            enabled: CanExport,
+            busy: isExporting,
+            actionText: isExporting ? "Exporting..." : "Export");
+    }
+
+    private static string SanitizeFileName(string value)
+    {
+        var invalidCharacters = Path.GetInvalidFileNameChars().ToHashSet();
+        return new string(value
+            .Select(character => invalidCharacters.Contains(character) || char.IsWhiteSpace(character) ? '_' : character)
+            .ToArray());
     }
 
     private static bool SerialsMatch(string? a, string? b)
@@ -207,6 +289,17 @@
         padding: 0.75rem 1rem;
         border-radius: var(--card-radius, 1rem);
     }
+    .selected-certificates {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+        margin-top: 0.5rem;
+        max-height: 110px;
+        overflow-y: auto;
+        color: var(--text-muted);
+        font-size: 0.8125rem;
+    }
+    .selected-certificates i { width: 1rem; color: var(--accent-primary); }
 
     .export-type-options { display: flex; flex-direction: column; gap: 0.75rem; }
 
@@ -232,9 +325,20 @@
 
     .checkbox-label { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; }
     .checkbox-label input[type="checkbox"] { width: 18px; height: 18px; }
+    .destination-options { display: flex; flex-direction: column; gap: 0.5rem; }
+    .destination-option {
+        align-items: flex-start;
+        padding: 0.625rem 0.75rem;
+        background: var(--card-bg);
+        border-radius: var(--card-radius, 1rem);
+    }
+    .destination-option > span { display: flex; flex-direction: column; gap: 0.125rem; }
+    .destination-option strong { color: var(--text-primary); font-size: 0.875rem; }
+    .destination-option small { color: var(--text-muted); font-size: 0.75rem; }
 
     .form-group { margin-bottom: 0; }
     .form-group label { display: block; font-weight: 500; margin-bottom: 0.5rem; color: var(--text-secondary); }
+    .form-group label.checkbox-label { display: flex; }
     .form-control {
         width: 100%; padding: 0.625rem 0.75rem;
         border: 1px solid var(--border-color); border-radius: 0.375rem;
