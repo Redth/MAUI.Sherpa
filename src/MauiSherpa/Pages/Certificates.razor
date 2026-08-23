@@ -720,35 +720,97 @@
 
     private async Task ShowCreateDialog()
     {
-        var page = new CreateCertificatePage(AppleService);
-        var certResult = await FormModalService.ShowAsync<AppleCertificateCreateResult>(page);
-        if (certResult == null) return;
+        var page = new CreateCertificatePage(
+            requireDiskExport: !LocalCertificateService.IsSupported);
+        var request = await FormModalService.ShowAsync<CreateCertificateFormResult>(page);
+        if (request == null) return;
 
-        // Import into the local keychain so the cert is available for signing, export, and cloud backup
-        if (LocalCertificateService.IsSupported)
+        string? savePath = null;
+        if (request.SaveToDisk)
         {
-            var imported = await LocalCertificateService.ImportP12Async(
-                certResult.PfxData, certResult.Passphrase ?? "");
-            if (!imported)
-                Logger.LogWarning("Certificate was created but could not be imported into the local keychain");
+            var typeName = request.CertificateType.ToLowerInvariant().Replace('_', '-');
+            savePath = await DialogService.PickSaveFileAsync(
+                "Save Certificate",
+                $"{typeName}-{DateTime.Now:yyyyMMdd-HHmmss}.p12",
+                "p12");
+            if (string.IsNullOrWhiteSpace(savePath)) return;
         }
 
-        var fileName = $"certificate_{DateTime.Now:yyyyMMdd_HHmmss}.pfx";
-        var downloadsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", fileName);
-        await File.WriteAllBytesAsync(downloadsPath, certResult.PfxData);
+        AppleCertificateCreateResult? certResult = null;
+        var importedLocally = false;
+        var operation = await OperationModal.RunAsync(
+            "Create Certificate",
+            $"Creating {request.CertificateType.Replace('_', ' ')} certificate...",
+            async ctx =>
+            {
+                ctx.SetStatus("Submitting certificate request to Apple...");
+                certResult = await AppleService.CreateCertificateAsync(
+                    request.CertificateType,
+                    commonName: null,
+                    passphrase: request.Passphrase);
+                ctx.LogSuccess("Apple issued the certificate");
 
-        await AlertService.ShowToastAsync($"Certificate saved: ~/Downloads/{fileName}");
+                if (LocalCertificateService.IsSupported)
+                {
+                    ctx.SetStatus($"Installing certificate in the {PlatformInfo.PlatformName} certificate store...");
+                    importedLocally = await LocalCertificateService.ImportP12Async(
+                        certResult.PfxData,
+                        certResult.Passphrase ?? "",
+                        ctx.CancellationToken);
+                    if (importedLocally)
+                        ctx.LogSuccess("Certificate installed locally");
+                    else
+                        ctx.LogWarning("Certificate could not be installed locally");
+                }
+
+                if (!string.IsNullOrWhiteSpace(savePath))
+                {
+                    ctx.SetStatus("Saving certificate copy...");
+                    await File.WriteAllBytesAsync(savePath, certResult.PfxData, ctx.CancellationToken);
+                    ctx.LogSuccess($"Saved certificate to {savePath}");
+                }
+
+                return true;
+            },
+            canCancel: false);
+        if (!operation.Success || certResult == null) return;
+
+        if (LocalCertificateService.IsSupported && !importedLocally && string.IsNullOrWhiteSpace(savePath))
+        {
+            await AlertService.ShowAlertAsync(
+                "Local Installation Failed",
+                "Apple issued the certificate, but its private key could not be installed locally. Choose a location to save a recovery copy.");
+            savePath = await DialogService.PickSaveFileAsync(
+                "Save Certificate Recovery Copy",
+                $"{request.CertificateType.ToLowerInvariant().Replace('_', '-')}-{DateTime.Now:yyyyMMdd-HHmmss}.p12",
+                "p12");
+            if (!string.IsNullOrWhiteSpace(savePath))
+            {
+                await File.WriteAllBytesAsync(savePath, certResult.PfxData);
+            }
+        }
+
         await RefreshData(forceRefresh: true);
         var createdCertificate = certificates.FirstOrDefault(certificate =>
             string.Equals(certificate.Id, certResult.CertificateId, StringComparison.Ordinal));
-        if (createdCertificate is not null && !string.IsNullOrWhiteSpace(createdCertificate.SerialNumber))
+        var serialNumber = createdCertificate?.SerialNumber ?? certResult.SerialNumber;
+        var certificateName = createdCertificate?.Name ?? certResult.CommonName ?? request.CertificateType;
+        if (importedLocally &&
+            !string.IsNullOrWhiteSpace(serialNumber))
         {
             await SecretSyncCoordinator.SetDefaultProvidersAsync(
                 new SecretItemRef(
                     SecretItemKind.Certificate,
-                    GetCertificateSyncItemId(createdCertificate.SerialNumber),
-                    createdCertificate.Name));
+                    GetCertificateSyncItemId(serialNumber),
+                    certificateName));
         }
+
+        var toast = !string.IsNullOrWhiteSpace(savePath)
+            ? $"Certificate created and saved to {Path.GetFileName(savePath)}"
+            : importedLocally
+                ? "Certificate created and installed locally"
+                : "Certificate created";
+        await AlertService.ShowToastAsync(toast);
     }
 
     private async Task ShowExportDialog(AppleCertificate cert)

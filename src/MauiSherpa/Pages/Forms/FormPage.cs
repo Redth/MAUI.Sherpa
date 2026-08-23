@@ -26,6 +26,7 @@ public abstract class FormPage<TResult> : ContentPage, IFormPage<TResult>, IForm
 
     protected abstract string FormTitle { get; }
     protected virtual string SubmitButtonText => "Create";
+    protected virtual double FormBodyHeightRequest => -1;
 
     /// <summary>Build the form fields. Return a View containing all form inputs.</summary>
     protected abstract View BuildFormContent();
@@ -80,6 +81,14 @@ public abstract class FormPage<TResult> : ContentPage, IFormPage<TResult>, IForm
 
         var formContent = BuildFormContent();
         formContent.Margin = new Thickness(28, 16, 28, 16);
+        var formScrollView = new ScrollView
+        {
+            Content = formContent,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Default,
+            VerticalOptions = LayoutOptions.Fill,
+        };
+        if (FormBodyHeightRequest > 0)
+            formScrollView.HeightRequest = FormBodyHeightRequest;
 
         // Footer separator — full width
         var footerSeparator = new BoxView { HeightRequest = 1, Opacity = 0.2 };
@@ -130,18 +139,34 @@ public abstract class FormPage<TResult> : ContentPage, IFormPage<TResult>, IForm
             Children = { cancelButton, _submittingIndicator, _submitButton },
         };
 
-        Content = new VerticalStackLayout
+        var grid = new Grid
         {
-            Spacing = 0,
-            Children =
+            RowDefinitions =
             {
-                titleLabel,
-                headerSeparator,
-                formContent,
-                footerSeparator,
-                footerLayout,
+                new RowDefinition(GridLength.Auto),
+                new RowDefinition(GridLength.Auto),
+                new RowDefinition(GridLength.Star),
+                new RowDefinition(GridLength.Auto),
+                new RowDefinition(GridLength.Auto),
             },
+            RowSpacing = 0,
+            VerticalOptions = LayoutOptions.Fill,
         };
+        grid.SetDynamicResource(Grid.BackgroundColorProperty, FormTheme.PageBg);
+
+        Grid.SetRow(titleLabel, 0);
+        Grid.SetRow(headerSeparator, 1);
+        Grid.SetRow(formScrollView, 2);
+        Grid.SetRow(footerSeparator, 3);
+        Grid.SetRow(footerLayout, 4);
+
+        grid.Children.Add(titleLabel);
+        grid.Children.Add(headerSeparator);
+        grid.Children.Add(formScrollView);
+        grid.Children.Add(footerSeparator);
+        grid.Children.Add(footerLayout);
+
+        Content = grid;
     }
 
     /// <summary>Call this from subclasses when form validity changes.</summary>

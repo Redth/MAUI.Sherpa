@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
 using FluentAssertions;
 using MauiSherpa.Core.Interfaces;
@@ -154,6 +156,84 @@ public class PublishProfileServiceTests
     }
 
     [Fact]
+    public async Task ResolveSecretsAsync_WithMultipleAppleAssets_CombinesCertificatesAndMapsProfilesSeparately()
+    {
+        var firstP12 = CreateTestP12("First Certificate", "first-password");
+        var secondP12 = CreateTestP12("Second Certificate", "second-password");
+        _certSync.Setup(x => x.GetCertificateSecretsAsync("CERT1", It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((firstP12, "first-password"));
+        _certSync.Setup(x => x.GetCertificateSecretsAsync("CERT2", It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((secondP12, "second-password"));
+        _appleConnect.Setup(x => x.DownloadProfileAsync("profile-1"))
+            .ReturnsAsync(new byte[] { 0x10, 0x11 });
+        _appleConnect.Setup(x => x.DownloadProfileAsync("profile-2"))
+            .ReturnsAsync(new byte[] { 0x20, 0x21 });
+
+        var config = new PublishProfileAppleConfig(
+            Label: "iOS App Store",
+            IdentityId: null,
+            Platform: ApplePlatformType.iOS,
+            DistributionType: AppleDistributionType.AppStore,
+            CertificateSerialNumber: "CERT1",
+            InstallerCertSerialNumber: null,
+            ProfileId: "profile-1",
+            ProfileUuid: "uuid-1",
+            IncludeNotarization: false,
+            NotarizationAppleIdSecretKey: null,
+            NotarizationPasswordSecretKey: null,
+            NotarizationTeamIdSecretKey: null,
+            NotarizationAppleIdManualValue: null,
+            NotarizationPasswordManualValue: null,
+            NotarizationTeamIdManualValue: null,
+            KeyMappings: new Dictionary<string, List<string>>())
+        {
+            SigningCertificates =
+            [
+                new("CERT1", "First Certificate"),
+                new("CERT2", "Second Certificate")
+            ],
+            ProvisioningProfiles =
+            [
+                new("profile-1", "uuid-1", "First Profile"),
+                new("profile-2", "uuid-2", "Second Profile")
+            ]
+        };
+        var profile = CreateProfile() with
+        {
+            AppleConfigs = [config]
+        };
+
+        var secrets = await _sut.ResolveSecretsAsync(profile);
+
+        secrets.Should().ContainKey("APPLE_IOS_APPSTORE_CERTIFICATE_P12");
+        secrets.Should().ContainKey("APPLE_IOS_APPSTORE_CERTIFICATE_PASSWORD");
+        secrets.Should().Contain(
+            "APPLE_IOS_APPSTORE_PROFILE_1",
+            Convert.ToBase64String(new byte[] { 0x10, 0x11 }));
+        secrets.Should().Contain(
+            "APPLE_IOS_APPSTORE_PROFILE_2",
+            Convert.ToBase64String(new byte[] { 0x20, 0x21 }));
+
+        var combinedP12 = Convert.FromBase64String(secrets["APPLE_IOS_APPSTORE_CERTIFICATE_P12"]);
+        var combinedCertificates = new X509Certificate2Collection();
+        combinedCertificates.Import(
+            combinedP12,
+            secrets["APPLE_IOS_APPSTORE_CERTIFICATE_PASSWORD"],
+            X509KeyStorageFlags.DefaultKeySet);
+        try
+        {
+            combinedCertificates.Cast<X509Certificate2>()
+                .Count(certificate => certificate.HasPrivateKey)
+                .Should().Be(2);
+        }
+        finally
+        {
+            foreach (var certificate in combinedCertificates)
+                certificate.Dispose();
+        }
+    }
+
+    [Fact]
     public void DeserializeProfile_WhenIdentityPropertiesAreMissing_UsesEmptyLists()
     {
         var original = CreateProfile();
@@ -172,6 +252,51 @@ public class PublishProfileServiceTests
         profile.GoogleIdentities.Should().BeEmpty();
     }
 
+    [Fact]
+    public void SerializeProfile_WithMultipleAppleAssets_RoundTripsSelections()
+    {
+        var config = new PublishProfileAppleConfig(
+            Label: "iOS Development",
+            IdentityId: "identity-1",
+            Platform: ApplePlatformType.iOS,
+            DistributionType: AppleDistributionType.Development,
+            CertificateSerialNumber: "CERT1",
+            InstallerCertSerialNumber: null,
+            ProfileId: "profile-1",
+            ProfileUuid: "uuid-1",
+            IncludeNotarization: false,
+            NotarizationAppleIdSecretKey: null,
+            NotarizationPasswordSecretKey: null,
+            NotarizationTeamIdSecretKey: null,
+            NotarizationAppleIdManualValue: null,
+            NotarizationPasswordManualValue: null,
+            NotarizationTeamIdManualValue: null,
+            KeyMappings: new Dictionary<string, List<string>>())
+        {
+            SigningCertificates =
+            [
+                new("CERT1", "First Certificate"),
+                new("CERT2", "Second Certificate")
+            ],
+            ProvisioningProfiles =
+            [
+                new("profile-1", "uuid-1", "First Profile"),
+                new("profile-2", "uuid-2", "Second Profile")
+            ]
+        };
+        var original = CreateProfile() with
+        {
+            AppleConfigs = [config]
+        };
+
+        var json = JsonSerializer.Serialize(original, JsonOptions);
+        var deserialized = JsonSerializer.Deserialize<PublishProfile>(json, JsonOptions);
+
+        deserialized.Should().NotBeNull();
+        deserialized!.AppleConfigs.Single().SigningCertificates.Should().Equal(config.SigningCertificates);
+        deserialized.AppleConfigs.Single().ProvisioningProfiles.Should().Equal(config.ProvisioningProfiles);
+    }
+
     static PublishProfile CreateProfile() => new(
         Id: "profile-1",
         Name: "Profile",
@@ -184,4 +309,18 @@ public class PublishProfileServiceTests
         SecretMappings: new List<PublishProfileSecretMapping>(),
         CreatedAt: DateTime.UtcNow,
         UpdatedAt: DateTime.UtcNow);
+
+    static byte[] CreateTestP12(string commonName, string password)
+    {
+        using var rsa = RSA.Create(2048);
+        var request = new CertificateRequest(
+            $"CN={commonName}",
+            rsa,
+            HashAlgorithmName.SHA256,
+            RSASignaturePadding.Pkcs1);
+        using var certificate = request.CreateSelfSigned(
+            DateTimeOffset.UtcNow.AddMinutes(-1),
+            DateTimeOffset.UtcNow.AddDays(1));
+        return certificate.Export(X509ContentType.Pfx, password);
+    }
 }

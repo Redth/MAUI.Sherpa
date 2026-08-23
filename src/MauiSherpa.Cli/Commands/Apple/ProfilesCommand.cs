@@ -557,7 +557,7 @@ public static class ProfilesCommand
 
             return new CertInfo(
                 c.Id,
-                c.Attributes?.DisplayName ?? c.Attributes?.Name ?? "",
+                c.Attributes?.Name ?? c.Attributes?.DisplayName ?? "",
                 c.Attributes?.CertificateTypeValue ?? c.Attributes?.CertificateType.ToString() ?? "DEVELOPMENT",
                 expirationDate);
         }).ToList();

@@ -120,8 +120,8 @@
             @if (config.WizardStep == 4)
             {
                 <div class="step-header-row">
-                    <h4>Signing Certificate <span class="optional-badge">Optional</span></h4>
-                    <button class="btn-text-action" style="@(config.CertificateSerialNumber is null ? "visibility: hidden;" : "")" @onclick="@(() => { config.CertificateSerialNumber = null; })">
+                    <h4>Signing Certificates <span class="optional-badge">Optional</span></h4>
+                    <button class="btn-text-action" style="@(!config.SigningCertificates.Any() ? "visibility: hidden;" : "")" @onclick="@(() => ClearSigningCertificates())">
                         <i class="fa-solid fa-times"></i> Clear
                     </button>
                 </div>
@@ -132,12 +132,13 @@
                         {
                             var syncLoc = GetCertSyncLocation(cert);
                             var hasLocal = syncLoc == SecretLocation.LocalOnly || syncLoc == SecretLocation.Both;
-                            <label class="cert-item @(config.CertificateSerialNumber == cert.SerialNumber ? "selected" : "") @(!hasLocal ? "no-key" : "")"
+                            var isSelected = IsSigningCertificateSelected(cert);
+                            <label class="cert-item @(isSelected ? "selected" : "") @(!hasLocal ? "no-key" : "")"
                                    title="@(!hasLocal ? "Private key not available locally" : "")">
-                                <input type="radio" name="wizardSigningCert"
+                                <input type="checkbox"
                                        disabled="@(!hasLocal)"
-                                       checked="@(config.CertificateSerialNumber == cert.SerialNumber)"
-                                       @onchange="@(() => config.CertificateSerialNumber = cert.SerialNumber)" />
+                                       checked="@isSelected"
+                                       @onchange="@(() => ToggleSigningCertificate(cert))" />
                                 <div class="cert-info">
                                     <div class="cert-name"><span class="@(demoMode ? "demo-blur" : "")">@cert.Name</span></div>
                                     <div class="cert-detail">
@@ -238,8 +239,8 @@
             @if (config.NeedsProfileStep && config.WizardStep == profileStep)
             {
                 <div class="step-header-row">
-                    <h4>Provisioning Profile <span class="optional-badge">Optional</span></h4>
-                    <button class="btn-text-action" style="@(config.ProfileId is null ? "visibility: hidden;" : "")" @onclick="@(() => { config.ProfileId = null; config.ProfileUuid = null; })">
+                    <h4>Provisioning Profiles <span class="optional-badge">Optional</span></h4>
+                    <button class="btn-text-action" style="@(!config.ProvisioningProfiles.Any() ? "visibility: hidden;" : "")" @onclick="@(() => config.ProvisioningProfiles.Clear())">
                         <i class="fa-solid fa-times"></i> Clear
                     </button>
                 </div>
@@ -248,10 +249,11 @@
                     <div class="cert-list">
                         @foreach (var prof in FilteredProfiles)
                         {
-                            <label class="cert-item @(config.ProfileId == prof.Id ? "selected" : "")">
-                                <input type="radio" name="wizardProfile"
-                                       checked="@(config.ProfileId == prof.Id)"
-                                       @onchange="@(() => { config.ProfileId = prof.Id; config.ProfileUuid = prof.Uuid; })" />
+                            var isSelected = IsProvisioningProfileSelected(prof);
+                            <label class="cert-item @(isSelected ? "selected" : "")">
+                                <input type="checkbox"
+                                       checked="@isSelected"
+                                       @onchange="@(() => ToggleProvisioningProfile(prof))" />
                                 <div class="cert-info">
                                     <div class="cert-name"><span class="@(demoMode ? "demo-blur" : "")">@prof.Name</span></div>
                                     <div class="cert-detail">
@@ -795,13 +797,8 @@
         if (string.IsNullOrEmpty(config.Label))
             config.Label = $"{config.PlatformLabel} {config.DistributionLabel}";
 
-        // Populate display names for the parent's summary cards
-        if (!string.IsNullOrEmpty(config.CertificateSerialNumber))
-            config.CertificateName = certificates.FirstOrDefault(c => c.SerialNumber == config.CertificateSerialNumber)?.Name;
         if (!string.IsNullOrEmpty(config.InstallerCertSerialNumber))
             config.InstallerCertName = certificates.FirstOrDefault(c => c.SerialNumber == config.InstallerCertSerialNumber)?.Name;
-        if (!string.IsNullOrEmpty(config.ProfileId))
-            config.ProfileName = profiles.FirstOrDefault(p => p.Id == config.ProfileId)?.Name;
 
         config.GetDefaultKeys();
 
@@ -866,20 +863,18 @@
     {
         config.Platform = platform;
         config.DistributionType = null;
-        config.CertificateSerialNumber = null;
+        ClearSigningCertificates();
         config.InstallerCertSerialNumber = null;
-        config.ProfileId = null;
-        config.ProfileUuid = null;
+        config.ProvisioningProfiles.Clear();
         UpdateWizardState();
     }
 
     private void SelectDistribution(AppleDistributionType dist)
     {
         config.DistributionType = dist;
-        config.CertificateSerialNumber = null;
+        ClearSigningCertificates();
         config.InstallerCertSerialNumber = null;
-        config.ProfileId = null;
-        config.ProfileUuid = null;
+        config.ProvisioningProfiles.Clear();
         UpdateWizardState();
     }
 
@@ -936,6 +931,70 @@
         return loc == SecretLocation.LocalOnly || loc == SecretLocation.Both;
     }
 
+    private bool IsSigningCertificateSelected(AppleCertificate certificate) =>
+        config.SigningCertificates.Any(selection =>
+            selection.SerialNumber.Equals(certificate.SerialNumber, StringComparison.OrdinalIgnoreCase));
+
+    private void ToggleSigningCertificate(AppleCertificate certificate)
+    {
+        var existing = config.SigningCertificates.FirstOrDefault(selection =>
+            selection.SerialNumber.Equals(certificate.SerialNumber, StringComparison.OrdinalIgnoreCase));
+        if (existing is null)
+        {
+            config.SigningCertificates.Add(new PublishProfileCertificateSelection(
+                certificate.SerialNumber,
+                certificate.Name));
+        }
+        else
+        {
+            config.SigningCertificates.Remove(existing);
+        }
+
+        config.ProvisioningProfiles.RemoveAll(selection =>
+        {
+            var profile = profiles.FirstOrDefault(candidate => candidate.Id == selection.Id);
+            return profile is null || !ProfileMatchesSelectedCertificates(profile);
+        });
+    }
+
+    private void ClearSigningCertificates()
+    {
+        config.SigningCertificates.Clear();
+        config.CertificateSerialNumber = null;
+        config.CertificateName = null;
+    }
+
+    private bool IsProvisioningProfileSelected(AppleProfile profile) =>
+        config.ProvisioningProfiles.Any(selection => selection.Id == profile.Id);
+
+    private void ToggleProvisioningProfile(AppleProfile profile)
+    {
+        var existing = config.ProvisioningProfiles.FirstOrDefault(selection => selection.Id == profile.Id);
+        if (existing is null)
+        {
+            config.ProvisioningProfiles.Add(new PublishProfileProvisioningProfileSelection(
+                profile.Id,
+                profile.Uuid,
+                profile.Name));
+        }
+        else
+        {
+            config.ProvisioningProfiles.Remove(existing);
+        }
+    }
+
+    private bool ProfileMatchesSelectedCertificates(AppleProfile profile)
+    {
+        var selectedCertificateIds = config.SigningCertificates
+            .Select(selection => certificates.FirstOrDefault(certificate =>
+                certificate.SerialNumber.Equals(selection.SerialNumber, StringComparison.OrdinalIgnoreCase))?.Id)
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .ToList();
+        return selectedCertificateIds.Count == 0 ||
+            selectedCertificateIds.All(id =>
+                profile.CertificateIds?.Contains(id!, StringComparer.Ordinal) == true);
+    }
+
     private IEnumerable<AppleCertificate> FilteredSigningCerts =>
         certificates.Where(c => IsSigningCertCompatible(c.CertificateType) && c.ExpirationDate > DateTime.UtcNow)
                     .OrderByDescending(c => CertHasLocalKey(c));
@@ -945,7 +1004,10 @@
                     .OrderByDescending(c => CertHasLocalKey(c));
 
     private IEnumerable<AppleProfile> FilteredProfiles =>
-        profiles.Where(p => p.State == "ACTIVE" && IsProfileCompatible(p.ProfileType));
+        profiles.Where(p =>
+            p.State == "ACTIVE" &&
+            IsProfileCompatible(p.ProfileType) &&
+            ProfileMatchesSelectedCertificates(p));
 
     private IEnumerable<(AppleDistributionType Type, string Name, string Description, string Icon)> GetAvailableDistributionTypes()
     {
