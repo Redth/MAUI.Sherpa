@@ -1077,6 +1077,8 @@ public class BlazorContentPage : ContentPage
                 ("up-folder", "Up Folder", "arrow.up"),
                 ("import", "Import", "square.and.arrow.down"),
                 ("open-project", "Open Project Folder", "folder"),
+                ("profiles-folder", "Profiles Folder", "folder"),
+                ("cleanup", "Clean Up", "trash"),
                 ("install-missing", "Install Missing", "arrow.down.circle"),
                 ("save", "Save", "checkmark"),
                 ("reset", "Reset to Defaults", "trash"),

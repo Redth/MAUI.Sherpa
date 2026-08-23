@@ -129,6 +129,25 @@
                     </div>
                 </div>
             </div>
+            @if (PlatformInfo.IsMacOS || PlatformInfo.IsMacCatalyst)
+            {
+                <div class="setting-item setting-item-start">
+                    <label class="setting-label">Provisioning Profiles Folder</label>
+                    <div class="setting-control setting-control-stack">
+                        <select value="@provisioningProfilesDirectory" @onchange="OnProvisioningProfilesDirectoryChanged" class="setting-select-wide">
+                            <option value="@ProvisioningProfilesDirectoryOptions.Auto">Auto (based on selected Xcode)</option>
+                            <option value="@ProvisioningProfilesDirectoryOptions.Xcode16AndLater">Xcode 16+ folder</option>
+                            <option value="@ProvisioningProfilesDirectoryOptions.Xcode15AndEarlier">Xcode 15 and earlier folder</option>
+                            <option value="@ProvisioningProfilesDirectoryOptions.Both">Both folders</option>
+                        </select>
+                        <div class="setting-description setting-description-block">
+                            Auto uses <code>~/Library/Developer/Xcode/UserData/Provisioning Profiles</code> for Xcode 16+
+                            and the legacy <code>~/Library/MobileDevice/Provisioning Profiles</code> folder for older Xcode versions.
+                            Both installs each profile in both locations for compatibility with mixed tooling.
+                        </div>
+                    </div>
+                </div>
+            }
         </div>
 
         <div class="actions">
@@ -1499,6 +1518,7 @@
     private string xcodeBundleSeparator = XcodeBundleSeparatorOptions.Underscore;
     private string xcodeSelectionAction = XcodeSelectionActionOptions.Rename;
     private bool xcodeCreateSymlinkOnSelect = false;
+    private string provisioningProfilesDirectory = ProvisioningProfilesDirectoryOptions.Auto;
     private bool isNormalizingBundles = false;
     private string appVersion = "";
     private UpdateCheckResult? updateResult;
@@ -1591,6 +1611,8 @@
             xcodeSelectionAction = NormalizeXcodeSelectionAction(settings.Preferences.XcodeSelectionAction);
             xcodeCreateSymlinkOnSelect = xcodeSelectionAction == XcodeSelectionActionOptions.None &&
                 settings.Preferences.XcodeCreateSymlinkOnSelect;
+            provisioningProfilesDirectory = NormalizeProvisioningProfilesDirectory(
+                settings.Preferences.ProvisioningProfilesDirectory);
         }
         catch { }
     }
@@ -1791,6 +1813,11 @@
         xcodeCreateSymlinkOnSelect = xcodeSelectionAction == XcodeSelectionActionOptions.None && e.Value is true;
     }
 
+    private void OnProvisioningProfilesDirectoryChanged(ChangeEventArgs e)
+    {
+        provisioningProfilesDirectory = NormalizeProvisioningProfilesDirectory(e.Value?.ToString());
+    }
+
     private async Task OnXcodeBundleSeparatorChanged(ChangeEventArgs e)
     {
         var newValue = NormalizeXcodeBundleSeparator(e.Value?.ToString());
@@ -1918,7 +1945,8 @@
                     XcodeBundleSeparator = xcodeBundleSeparator,
                     XcodeSelectionAction = xcodeSelectionAction,
                     XcodeCreateSymlinkOnSelect = xcodeSelectionAction == XcodeSelectionActionOptions.None &&
-                        xcodeCreateSymlinkOnSelect
+                        xcodeCreateSymlinkOnSelect,
+                    ProvisioningProfilesDirectory = provisioningProfilesDirectory
                 }
             });
             await AlertService.ShowToastAsync("Settings saved");
@@ -1942,6 +1970,7 @@
         xcodeBundleSeparator = XcodeBundleSeparatorOptions.Underscore;
         xcodeSelectionAction = XcodeSelectionActionOptions.Rename;
         xcodeCreateSymlinkOnSelect = false;
+        provisioningProfilesDirectory = ProvisioningProfilesDirectoryOptions.Auto;
         ThemeService.SetTheme(ViewModel.Theme);
         ThemeService.SetFontScale(ViewModel.FontScale);
     }
@@ -2217,6 +2246,18 @@
         string.Equals(value, XcodeSelectionActionOptions.None, StringComparison.OrdinalIgnoreCase)
             ? XcodeSelectionActionOptions.None
             : XcodeSelectionActionOptions.Rename;
+
+    private static string NormalizeProvisioningProfilesDirectory(string? value) =>
+        value switch
+        {
+            ProvisioningProfilesDirectoryOptions.Xcode16AndLater =>
+                ProvisioningProfilesDirectoryOptions.Xcode16AndLater,
+            ProvisioningProfilesDirectoryOptions.Xcode15AndEarlier =>
+                ProvisioningProfilesDirectoryOptions.Xcode15AndEarlier,
+            ProvisioningProfilesDirectoryOptions.Both =>
+                ProvisioningProfilesDirectoryOptions.Both,
+            _ => ProvisioningProfilesDirectoryOptions.Auto
+        };
 
     // Google Identity Methods
 
@@ -2650,6 +2691,8 @@
             demoMode = settings.Preferences.DemoMode;
             xcodeArchiveExtractor = NormalizeXcodeArchiveExtractor(settings.Preferences.XcodeArchiveExtractor);
             xcodeBundleSeparator = NormalizeXcodeBundleSeparator(settings.Preferences.XcodeBundleSeparator);
+            provisioningProfilesDirectory = NormalizeProvisioningProfilesDirectory(
+                settings.Preferences.ProvisioningProfilesDirectory);
             ThemeService.SetTheme(ViewModel.Theme);
             ThemeService.SetFontScale(ViewModel.FontScale);
         }

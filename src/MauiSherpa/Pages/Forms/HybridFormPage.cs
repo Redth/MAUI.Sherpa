@@ -40,6 +40,9 @@ public abstract class HybridFormPage<TResult> : ContentPage, IFormPage<TResult>,
     /// <summary>Height of the native footer actions.</summary>
     protected virtual double ActionButtonHeight => 30;
 
+    /// <summary>Whether the native submit button performs a destructive action.</summary>
+    protected virtual bool IsDestructiveSubmit => false;
+
     /// <summary>Blazor route for the form content (e.g. "/modal/edit-secret").</summary>
     protected abstract string BlazorRoute { get; }
 
@@ -179,7 +182,9 @@ public abstract class HybridFormPage<TResult> : ContentPage, IFormPage<TResult>,
             HeightRequest = ActionButtonHeight,
             IsEnabled = false,
         };
-        _submitButton.SetDynamicResource(Button.BackgroundColorProperty, FormTheme.AccentPrimary);
+        _submitButton.SetDynamicResource(
+            Button.BackgroundColorProperty,
+            IsDestructiveSubmit ? FormTheme.AccentDanger : FormTheme.AccentPrimary);
         _submitButton.Clicked += OnSubmitClicked;
 
         var footerLayout = new HorizontalStackLayout
