@@ -137,17 +137,39 @@ public partial class LocalCertificateService : ILocalCertificateService
         if (string.IsNullOrEmpty(identity))
             throw new ArgumentException("Identity cannot be empty", nameof(identity));
 
-        _logger.LogInformation($"Exporting P12 for identity: {identity}");
+        var availableIdentities = await GetSigningIdentitiesAsync();
+        var selectedIdentity = availableIdentities.FirstOrDefault(candidate =>
+            string.Equals(candidate.Identity, identity, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(candidate.Hash, identity, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(candidate.SerialNumber, identity, StringComparison.OrdinalIgnoreCase));
+        if (selectedIdentity is null)
+            throw new InvalidOperationException($"Signing identity not found: {identity}");
 
-        var tempFile = Path.GetTempFileName();
+        return await ExportP12Async([selectedIdentity], password);
+    }
+
+    public async Task<byte[]> ExportP12Async(
+        IReadOnlyList<LocalSigningIdentity> identities,
+        string password)
+    {
+        if (!IsSupported)
+            throw new PlatformNotSupportedException("P12 export is only supported on macOS");
+
+        ArgumentNullException.ThrowIfNull(identities);
+        if (identities.Count == 0)
+            throw new ArgumentException("At least one signing identity must be selected.", nameof(identities));
+
+        _logger.LogInformation($"Exporting {identities.Count} selected signing identity(ies) to P12");
+
+        var tempFile = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.p12");
         var loginKeychain = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
             "Library/Keychains/login.keychain-db");
         
         try
         {
-            // Use security command to export the identity
-            // security export -t identities -f pkcs12 -P password -o output.p12
+            // security can only export all identities, so filter the resulting bundle
+            // down to the requested hashes before returning it.
             var result = await RunSecurityCommandAsync(
                 "export",
                 "-t", "identities",
@@ -163,15 +185,18 @@ public partial class LocalCertificateService : ILocalCertificateService
                 throw new InvalidOperationException($"Failed to export P12: {result.Error}");
             }
 
-            // Read the exported file
             var p12Data = await File.ReadAllBytesAsync(tempFile);
-            _logger.LogInformation($"Exported P12: {p12Data.Length} bytes");
-            
-            return p12Data;
+            var selectedP12 = CertificateBundleUtilities.ExportSelectedIdentities(
+                p12Data,
+                password,
+                identities,
+                password);
+            _logger.LogInformation($"Exported selected P12 bundle: {selectedP12.Length} bytes");
+
+            return selectedP12;
         }
         finally
         {
-            // Clean up temp file
             try { File.Delete(tempFile); } catch { }
         }
     }

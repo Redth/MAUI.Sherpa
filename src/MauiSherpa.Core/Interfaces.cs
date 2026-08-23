@@ -1630,6 +1630,14 @@ public interface ILocalCertificateService
     /// <param name="password">Password to protect the P12 file</param>
     /// <returns>P12 file contents</returns>
     Task<byte[]> ExportP12Async(string identity, string password);
+
+    /// <summary>
+    /// Exports selected signing identities into a single P12/PFX bundle.
+    /// </summary>
+    /// <param name="identities">The identities to include in the bundle</param>
+    /// <param name="password">Password to protect the P12 file</param>
+    /// <returns>P12 file contents containing only the selected identities</returns>
+    Task<byte[]> ExportP12Async(IReadOnlyList<LocalSigningIdentity> identities, string password);
     
     /// <summary>
     /// Exports a certificate (public key only) as a .cer file

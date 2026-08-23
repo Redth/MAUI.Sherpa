@@ -166,32 +166,77 @@ public class WindowsCertificateService : ILocalCertificateService
         }, cancellationToken);
     }
 
-    public Task<byte[]> ExportP12Async(string identity, string password)
+    public async Task<byte[]> ExportP12Async(string identity, string password)
     {
         if (!IsSupported)
             throw new PlatformNotSupportedException("Certificate export not supported on this platform");
+
+        if (string.IsNullOrWhiteSpace(identity))
+            throw new ArgumentException("Identity cannot be empty.", nameof(identity));
+
+        var availableIdentities = await GetSigningIdentitiesAsync();
+        var selectedIdentity = availableIdentities.FirstOrDefault(candidate =>
+            string.Equals(candidate.Identity, identity, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(candidate.Hash, identity, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(candidate.SerialNumber, identity, StringComparison.OrdinalIgnoreCase));
+        if (selectedIdentity is null)
+            throw new InvalidOperationException($"Certificate not found: {identity}");
+
+        return await ExportP12Async([selectedIdentity], password);
+    }
+
+    public Task<byte[]> ExportP12Async(
+        IReadOnlyList<LocalSigningIdentity> identities,
+        string password)
+    {
+        if (!IsSupported)
+            throw new PlatformNotSupportedException("Certificate export not supported on this platform");
+
+        ArgumentNullException.ThrowIfNull(identities);
+        if (identities.Count == 0)
+            throw new ArgumentException("At least one signing identity must be selected.", nameof(identities));
 
         return Task.Run(() =>
         {
             using var store = new X509Store(StoreName.My, StoreLocation.CurrentUser);
             store.Open(OpenFlags.ReadOnly);
 
-            var cert = FindCertByIdentity(store, identity);
-            if (cert == null)
-                throw new InvalidOperationException($"Certificate not found: {identity}");
-
+            var selectedCertificates = new X509Certificate2Collection();
+            var thumbprints = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             try
             {
-                if (!cert.HasPrivateKey)
-                    throw new InvalidOperationException($"Certificate has no private key: {identity}");
+                foreach (var identity in identities)
+                {
+                    var certificate = !string.IsNullOrWhiteSpace(identity.Hash)
+                        ? FindCertByIdentity(store, identity.Hash)
+                        : !string.IsNullOrWhiteSpace(identity.SerialNumber)
+                            ? FindCertBySerial(store, identity.SerialNumber)
+                            : FindCertByIdentity(store, identity.Identity);
+                    if (certificate is null)
+                        throw new InvalidOperationException($"Certificate not found: {identity.Identity}");
+                    if (!certificate.HasPrivateKey)
+                    {
+                        certificate.Dispose();
+                        throw new InvalidOperationException($"Certificate has no private key: {identity.Identity}");
+                    }
+                    if (!thumbprints.Add(certificate.Thumbprint))
+                    {
+                        certificate.Dispose();
+                        continue;
+                    }
 
-                var p12 = cert.Export(X509ContentType.Pfx, password);
-                _logger.LogInformation($"Exported P12 for: {identity}");
+                    selectedCertificates.Add(certificate);
+                }
+
+                var p12 = selectedCertificates.Export(X509ContentType.Pfx, password)
+                    ?? throw new InvalidOperationException("Failed to export the selected certificate bundle.");
+                _logger.LogInformation($"Exported {selectedCertificates.Count} certificate(s) to one P12 bundle");
                 return p12;
             }
             finally
             {
-                cert.Dispose();
+                foreach (var certificate in selectedCertificates)
+                    certificate.Dispose();
             }
         });
     }
