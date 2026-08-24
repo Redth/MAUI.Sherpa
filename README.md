@@ -72,6 +72,12 @@ MAUI Sherpa is a desktop application for **macOS**, **Windows**, and **Linux** t
 - Publish secrets to GitHub, GitLab, Azure DevOps repositories
 - Multi-destination publishing with review workflow
 
+### 🥾 Expedition Packs
+- Pack self-contained, password-protected install/build/deploy routes
+- Build Android, iOS, macOS, Mac Catalyst, and Windows artifacts with the `maui-sherpa` CLI
+- Deploy to TestFlight, Google Play, Firebase App Distribution, and Amazon Appstore
+- Send the same trusted pack through GitHub Actions, Azure DevOps, or another CI basecamp ([docs](docs/expedition-packs.md))
+
 ### 🤖 GitHub Copilot Integration
 - Chat with Copilot directly in the app
 - Get AI-assisted help with your development environment
