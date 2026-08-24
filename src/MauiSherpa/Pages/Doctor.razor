@@ -375,10 +375,19 @@
                                         <span class="dep-message">@dep.Message</span>
                                     }
                                 </div>
-                                @if (dep.IsFixable)
+                                @if (IsMissingJdk(dep))
+                                {
+                                    <button class="btn btn-sm btn-fix"
+                                            @onclick="DownloadMicrosoftOpenJdk"
+                                            disabled="@isLoading">
+                                        <i class="fas fa-download"></i>
+                                        Download Microsoft OpenJDK
+                                    </button>
+                                }
+                                else if (dep.IsFixable)
                                 {
                                     <button class="btn btn-sm btn-fix" @onclick="@(() => FixDependency(dep))" disabled="@isLoading">
-                                        Fix
+                                        @GetDependencyActionLabel(dep)
                                     </button>
                                 }
                             </div>
@@ -1181,6 +1190,18 @@ else
         DependencyStatusType.Error => "status-error",
         _ => "status-unknown"
     };
+
+    private static bool IsMissingJdk(DependencyStatus dependency) =>
+        dependency.Category == DependencyCategory.Jdk &&
+        dependency.Status == DependencyStatusType.Error;
+
+    private static string GetDependencyActionLabel(DependencyStatus dependency) =>
+        dependency.FixAction == "install-android-sdk"
+            ? "Install Android SDK"
+            : "Fix";
+
+    private Task DownloadMicrosoftOpenJdk() =>
+        OpenUrl("https://learn.microsoft.com/java/openjdk/download");
 
     private string GetCategoryName(DependencyCategory category) => category switch
     {

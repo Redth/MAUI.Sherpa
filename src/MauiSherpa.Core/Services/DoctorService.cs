@@ -794,7 +794,7 @@ public class DoctorService : IDoctorService
         var status = installedVersion != null ? DependencyStatusType.Ok : DependencyStatusType.Error;
         var message = installedVersion != null 
             ? $"JDK {installedVersion} found"
-            : "JDK not found. Required for Android development.";
+            : "JDK not found. Download and run the Microsoft OpenJDK installer, then run Doctor again.";
         
         dependencies.Add(new DependencyStatus(
             "JDK",
