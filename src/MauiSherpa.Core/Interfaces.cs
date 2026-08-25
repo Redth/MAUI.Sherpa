@@ -2379,6 +2379,11 @@ public interface IOperationModalService
         string description,
         Func<IOperationContext, Task<bool>> operation,
         bool canCancel = true);
+
+    /// <summary>
+    /// Request cancellation of the currently running operation.
+    /// </summary>
+    void RequestCancellation();
     
     /// <summary>
     /// Whether an operation is currently running
