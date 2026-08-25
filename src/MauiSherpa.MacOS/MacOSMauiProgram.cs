@@ -219,6 +219,8 @@ public static class MacOSMauiProgram
 
         // Publish Profiles
         builder.Services.AddSingleton<IPublishProfileService, PublishProfileService>();
+        builder.Services.AddSingleton<ISherpaBundleService, SherpaBundleService>();
+        builder.Services.AddSingleton<ISherpaBundleExportService, SherpaBundleExportService>();
 
         // Encrypted Settings services
         builder.Services.AddSingleton<IEncryptedSettingsService, EncryptedSettingsService>();

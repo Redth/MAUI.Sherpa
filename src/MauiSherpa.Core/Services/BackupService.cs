@@ -1,6 +1,6 @@
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using MauiSherpa.Bundles;
 using MauiSherpa.Core.Interfaces;
 
 namespace MauiSherpa.Core.Services;
@@ -11,10 +11,6 @@ namespace MauiSherpa.Core.Services;
 /// </summary>
 public class BackupService : IBackupService
 {
-    private const int SaltSize = 32;
-    private const int NonceSize = 12;
-    private const int TagSize = 16;
-    private const int KeySize = 32;
     private const int Iterations = 100_000;
     private const int BackupPayloadVersion = 2;
     private static readonly byte[] MagicHeader = "MSSBAK01"u8.ToArray();
@@ -78,37 +74,7 @@ public class BackupService : IBackupService
         var json = JsonSerializer.Serialize(payload);
         var plaintext = Encoding.UTF8.GetBytes(json);
 
-        // Generate salt and derive key
-        var salt = RandomNumberGenerator.GetBytes(SaltSize);
-        var key = DeriveKey(password, salt);
-        
-        // Encrypt with AES-GCM
-        var nonce = RandomNumberGenerator.GetBytes(NonceSize);
-        var ciphertext = new byte[plaintext.Length];
-        var tag = new byte[TagSize];
-        
-        using var aes = new AesGcm(key, TagSize);
-        aes.Encrypt(nonce, plaintext, ciphertext, tag);
-
-        // Format: [magic 8][salt 32][nonce 12][tag 16][ciphertext]
-        var result = new byte[MagicHeader.Length + SaltSize + NonceSize + TagSize + ciphertext.Length];
-        var offset = 0;
-        
-        Buffer.BlockCopy(MagicHeader, 0, result, offset, MagicHeader.Length);
-        offset += MagicHeader.Length;
-        
-        Buffer.BlockCopy(salt, 0, result, offset, SaltSize);
-        offset += SaltSize;
-        
-        Buffer.BlockCopy(nonce, 0, result, offset, NonceSize);
-        offset += NonceSize;
-        
-        Buffer.BlockCopy(tag, 0, result, offset, TagSize);
-        offset += TagSize;
-        
-        Buffer.BlockCopy(ciphertext, 0, result, offset, ciphertext.Length);
-
-        return result;
+        return PasswordEncryption.EncryptLegacy(plaintext, password, MagicHeader, Iterations);
     }
 
     public async Task<BackupImportResult> ImportBackupAsync(byte[] encryptedData, string password)
@@ -119,33 +85,19 @@ public class BackupService : IBackupService
         if (!await ValidateBackupAsync(encryptedData))
             throw new InvalidOperationException("Invalid backup file format");
 
-        var minLength = MagicHeader.Length + SaltSize + NonceSize + TagSize;
-        if (encryptedData.Length < minLength)
-            throw new InvalidOperationException("Backup file is too small");
-
-        var offset = MagicHeader.Length;
-        
-        var salt = new byte[SaltSize];
-        Buffer.BlockCopy(encryptedData, offset, salt, 0, SaltSize);
-        offset += SaltSize;
-        
-        var nonce = new byte[NonceSize];
-        Buffer.BlockCopy(encryptedData, offset, nonce, 0, NonceSize);
-        offset += NonceSize;
-        
-        var tag = new byte[TagSize];
-        Buffer.BlockCopy(encryptedData, offset, tag, 0, TagSize);
-        offset += TagSize;
-        
-        var ciphertext = new byte[encryptedData.Length - offset];
-        Buffer.BlockCopy(encryptedData, offset, ciphertext, 0, ciphertext.Length);
-
-        // Derive key and decrypt
-        var key = DeriveKey(password, salt);
-        var plaintext = new byte[ciphertext.Length];
-        
-        using var aes = new AesGcm(key, TagSize);
-        aes.Decrypt(nonce, ciphertext, tag, plaintext);
+        byte[] plaintext;
+        try
+        {
+            plaintext = PasswordEncryption.DecryptLegacy(
+                encryptedData,
+                password,
+                MagicHeader,
+                Iterations);
+        }
+        catch (InvalidDataException ex)
+        {
+            throw new InvalidOperationException("Backup file is too small", ex);
+        }
 
         var json = Encoding.UTF8.GetString(plaintext);
         var payload = JsonSerializer.Deserialize<BackupPayload>(json);
@@ -189,16 +141,6 @@ public class BackupService : IBackupService
         }
 
         return Task.FromResult(true);
-    }
-
-    private static byte[] DeriveKey(string password, byte[] salt)
-    {
-        using var pbkdf2 = new Rfc2898DeriveBytes(
-            password, 
-            salt, 
-            Iterations, 
-            HashAlgorithmName.SHA256);
-        return pbkdf2.GetBytes(KeySize);
     }
 
     private async Task<MauiSherpaSettings> BuildCurrentSettingsSnapshotAsync()

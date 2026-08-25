@@ -1,0 +1,1408 @@
+@page "/bundles"
+@page "/expedition-packs"
+@using MauiSherpa.Bundles
+@using MauiSherpa.Core.Interfaces
+@inject ISherpaBundleService BundleService
+@inject ISherpaBundleExportService BundleExportService
+@inject IPublishProfileService ProfileService
+@inject ICloudSecretsService CloudSecretsService
+@inject IAlertService AlertService
+@inject IDialogService DialogService
+@inject ILoggingService Logger
+@inject IToolbarService ToolbarService
+@inject IJSRuntime JSRuntime
+@implements IDisposable
+
+<h1><i class="fa-solid fa-person-hiking"></i> Expedition Packs</h1>
+
+@if (CloudSecretsService.ActiveProvider is null)
+{
+    <div class="info-message">
+        <i class="fa-solid fa-circle-info"></i>
+        Configure a secrets provider in <a href="settings">Settings</a> to create and manage Expedition Packs.
+    </div>
+}
+else if (isLoading)
+{
+    <div class="loading-inline"><i class="fa-solid fa-spinner fa-spin"></i> Loading Expedition Packs...</div>
+}
+else if (!string.IsNullOrEmpty(errorMessage))
+{
+    <div class="error-state">
+        <div class="error-icon"><i class="fa-solid fa-triangle-exclamation"></i></div>
+        <h2>Failed to Load Expedition Packs</h2>
+        <p>@errorMessage</p>
+        <button class="btn btn-secondary" @onclick="LoadBundlesAsync">
+            <i class="fa-solid fa-rotate-right"></i> Retry
+        </button>
+    </div>
+}
+else if (!bundles.Any())
+{
+    <div class="empty-state">
+        <div class="empty-icon"><i class="fa-solid fa-person-hiking"></i></div>
+        <h2>No Expedition Packs</h2>
+        <p>Prepare an Expedition Pack with the tools, signing gear, build route, and deployment targets your CI crew needs to reach release.</p>
+        <button class="btn btn-primary" @onclick="@(() => OpenEditor(null))">
+            <i class="fa-solid fa-plus"></i> Prepare Expedition Pack
+        </button>
+    </div>
+}
+else
+{
+    <div class="bundle-grid">
+        @foreach (var bundle in bundles)
+        {
+            <div class="bundle-card" @key="bundle.Id">
+                <div class="bundle-header">
+                    <div class="bundle-title">@bundle.Name</div>
+                    <div class="bundle-actions">
+                        <button class="btn-icon" @onclick="@(() => OpenEditor(bundle))" title="Edit Expedition Pack" aria-label="Edit @bundle.Name">
+                            <i class="fa-solid fa-pen"></i>
+                        </button>
+                        <button class="btn-icon" @onclick="@(() => OpenExport(bundle))" title="Export Expedition Pack" aria-label="Export @bundle.Name">
+                            <i class="fa-solid fa-file-export"></i>
+                        </button>
+                        <button class="btn-icon danger" @onclick="@(() => DeleteBundleAsync(bundle))" title="Delete Expedition Pack" aria-label="Delete @bundle.Name">
+                            <i class="fa-solid fa-trash-can"></i>
+                        </button>
+                    </div>
+                </div>
+
+                @if (!string.IsNullOrEmpty(bundle.Description))
+                {
+                    <div class="bundle-description">@bundle.Description</div>
+                }
+
+                <div class="bundle-meta">
+                    <i class="fa-solid fa-upload"></i> @GetProfileName(bundle.PublishProfileId)
+                </div>
+
+                <div class="bundle-summary">
+                    <span class="summary-badge environments">
+                        <i class="fa-solid fa-layer-group"></i> @bundle.Template.Environments.Count @(bundle.Template.Environments.Count == 1 ? "Environment" : "Environments")
+                    </span>
+                    @foreach (var platform in GetPlatforms(bundle))
+                    {
+                        <span class="summary-badge platform">
+                            <i class="@PlatformIcon(platform)"></i> @PlatformLabel(platform)
+                        </span>
+                    }
+                    @if (bundle.Template.Variables.Count > 0)
+                    {
+                        <span class="summary-badge variables">
+                            <i class="fa-solid fa-code"></i> @bundle.Template.Variables.Count @(bundle.Template.Variables.Count == 1 ? "Variable" : "Variables")
+                        </span>
+                    }
+                </div>
+
+                <div class="bundle-footer">
+                    <span class="bundle-updated">Updated @bundle.UpdatedAt.ToLocalTime().ToString("MMM d, yyyy")</span>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@if (showEditor)
+{
+    <div class="modal-overlay" id="bundle-editor-modal" @onclick="TryCloseEditor">
+        <div class="bundle-modal" role="dialog" aria-modal="true" aria-labelledby="bundle-editor-title" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h2 id="bundle-editor-title">
+                    <i class="fa-solid fa-person-hiking"></i>
+                    @(editingId is null ? "Prepare Expedition Pack" : "Edit Expedition Pack")
+                </h2>
+                <button type="button" class="btn-close" @onclick="TryCloseEditor" aria-label="Close dialog">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="bundle-name">Name</label>
+                    <input id="bundle-name" type="text" @bind="editName" @bind:event="oninput"
+                           placeholder="e.g. MyApp Summit Release" disabled="@isSavingEditor" />
+                </div>
+
+                <div class="form-group">
+                    <label for="bundle-description">Description</label>
+                    <textarea id="bundle-description" rows="2" @bind="editDescription"
+                              placeholder="Optional trail notes for this Expedition Pack" disabled="@isSavingEditor"></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label for="bundle-profile">Publish Profile</label>
+                    @if (profiles.Count == 0)
+                    {
+                        <div class="help-text">
+                            No publish profiles found. Create one on the <a href="secrets/publish">Publish Profiles</a> page first.
+                        </div>
+                    }
+                    else
+                    {
+                        <select id="bundle-profile" @bind="editPublishProfileId" disabled="@isSavingEditor">
+                            <option value="">-- Select a publish profile --</option>
+                            @foreach (var profile in profiles)
+                            {
+                                <option value="@profile.Id">@profile.Name</option>
+                            }
+                        </select>
+                        <div class="help-text">Signing gear and secrets from this profile are packed automatically during export.</div>
+                    }
+                </div>
+
+                <div class="form-group">
+                    <label for="bundle-project-path">Project Path</label>
+                    <div class="path-row">
+                        <input id="bundle-project-path" type="text" @bind="editProjectPath" @bind:event="oninput"
+                               placeholder="src/MyApp/MyApp.csproj" disabled="@isSavingEditor" />
+                        <button type="button" class="btn btn-secondary btn-sm" @onclick="BrowseProjectPathAsync" disabled="@isSavingEditor">
+                            <i class="fa-solid fa-folder-open"></i> Browse
+                        </button>
+                    </div>
+                    <div class="help-text">The .NET MAUI project file that CI will build for each configured platform. Must be relative to the CI source (repository) root, e.g. <code>src/MyApp/MyApp.csproj</code> — not an absolute local path.</div>
+                    @if (!string.IsNullOrEmpty(projectPathHint))
+                    {
+                        <div class="help-text field-warning">
+                            <i class="fa-solid fa-triangle-exclamation"></i> @projectPathHint
+                        </div>
+                    }
+                </div>
+
+                <div class="form-group">
+                    <label id="bundle-environments-label">Environments</label>
+                    <div class="help-text">At least one environment name (e.g. Production, Staging) is required.</div>
+                    <div class="list-editor" role="group" aria-labelledby="bundle-environments-label">
+                        @for (var i = 0; i < editEnvironments.Count; i++)
+                        {
+                            var index = i;
+                            <div class="list-row" @key="@($"env-{index}")">
+                                <input type="text" value="@editEnvironments[index]"
+                                       @onchange="@(e => editEnvironments[index] = e.Value?.ToString() ?? string.Empty)"
+                                       aria-label="Environment name"
+                                       placeholder="e.g. Production" disabled="@isSavingEditor" />
+                                <button type="button" class="btn-remove-row" @onclick="@(() => RemoveEnvironment(index))"
+                                        disabled="@(isSavingEditor || editEnvironments.Count <= 1)"
+                                        title="Remove environment" aria-label="Remove environment @editEnvironments[index]">
+                                    <i class="fa-solid fa-xmark"></i>
+                                </button>
+                            </div>
+                        }
+                    </div>
+                    <button type="button" class="btn btn-secondary btn-sm" @onclick="AddEnvironment" disabled="@isSavingEditor">
+                        <i class="fa-solid fa-plus"></i> Add Environment
+                    </button>
+                </div>
+
+                <div class="form-group">
+                    <label id="bundle-variables-label">Global Variables</label>
+                    <div class="help-text">Shared key/value pairs available on every route and platform in this Expedition Pack.</div>
+                    <div class="list-editor" role="group" aria-labelledby="bundle-variables-label">
+                        @foreach (var row in editVariables)
+                        {
+                            <div class="list-row" @key="row">
+                                <input type="text" value="@row.Key" @onchange="@(e => row.Key = e.Value?.ToString() ?? string.Empty)"
+                                       aria-label="Variable name" placeholder="VARIABLE_NAME" class="kv-key" disabled="@isSavingEditor" />
+                                <input type="text" value="@row.Value" @onchange="@(e => row.Value = e.Value?.ToString() ?? string.Empty)"
+                                       aria-label="Variable value" placeholder="value" class="kv-value" disabled="@isSavingEditor" />
+                                <button type="button" class="btn-remove-row" @onclick="@(() => RemoveVariable(row))"
+                                        disabled="@isSavingEditor" title="Remove variable" aria-label="Remove variable @row.Key">
+                                    <i class="fa-solid fa-xmark"></i>
+                                </button>
+                            </div>
+                        }
+                    </div>
+                    <button type="button" class="btn btn-secondary btn-sm" @onclick="AddVariable" disabled="@isSavingEditor">
+                        <i class="fa-solid fa-plus"></i> Add Variable
+                    </button>
+                </div>
+
+                <div class="form-group">
+                    <label id="bundle-platforms-label">Target Platforms</label>
+                    <div class="help-text">Platforms selected here apply to every environment in this Expedition Pack.</div>
+                    <div class="platform-grid" role="group" aria-labelledby="bundle-platforms-label">
+                        @foreach (var platform in AllPlatforms)
+                        {
+                            var isSelected = editPlatforms.Contains(platform);
+                            <button type="button" class="platform-card @(isSelected ? "selected" : "")"
+                                    aria-pressed="@(isSelected ? "true" : "false")"
+                                    disabled="@isSavingEditor"
+                                    @onclick="@(() => TogglePlatform(platform))">
+                                <i class="@PlatformIcon(platform)"></i>
+                                <span>@PlatformLabel(platform)</span>
+                            </button>
+                        }
+                    </div>
+                </div>
+
+                @foreach (var platform in AllPlatforms.Where(p => editPlatforms.Contains(p)))
+                {
+                    <div class="form-group deploy-section" @key="@($"deploy-{platform}")">
+                        <label id="@($"bundle-deploy-{platform}-label")">
+                            <i class="@PlatformIcon(platform)"></i> @PlatformLabel(platform) Deployment
+                        </label>
+                        @{
+                            var availableProviders = AvailableProviders(platform);
+                        }
+                        @if (availableProviders.Length == 0)
+                        {
+                            <div class="help-text">No deployment providers are available for @PlatformLabel(platform) yet. The Expedition Pack will still install and build for this platform.</div>
+                        }
+                        else
+                        {
+                            <div class="provider-chip-row" role="group" aria-labelledby="@($"bundle-deploy-{platform}-label")">
+                                @foreach (var provider in availableProviders)
+                                {
+                                    var isSelected = editDeployments.TryGetValue(platform, out var selectedProviders) && selectedProviders.Contains(provider);
+                                    <button type="button" class="provider-chip @(isSelected ? "selected" : "")"
+                                            aria-pressed="@(isSelected ? "true" : "false")"
+                                            disabled="@isSavingEditor"
+                                            @onclick="@(() => ToggleDeploymentProvider(platform, provider))">
+                                        <i class="@ProviderIcon(provider)"></i> @ProviderLabel(provider)
+                                    </button>
+                                }
+                            </div>
+
+                            @if (editDeployments.TryGetValue(platform, out var providersNeedingGuidance) && providersNeedingGuidance.Count > 0)
+                            {
+                                <div class="provider-guidance">
+                                    @foreach (var provider in availableProviders.Where(providersNeedingGuidance.Contains))
+                                    {
+                                        var guidance = ProviderGuidance(provider);
+                                        <div class="provider-guidance-item" @key="@($"guidance-{platform}-{provider}")">
+                                            <i class="@ProviderIcon(provider)"></i>
+                                            <span><strong>@ProviderLabel(provider)</strong> requires global variables:</span>
+                                            <code>@string.Join(", ", guidance.Variables)</code>
+                                            @if (!string.IsNullOrEmpty(guidance.Note))
+                                            {
+                                                <span class="help-text">— @guidance.Note</span>
+                                            }
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        }
+                    </div>
+                }
+
+                @if (!string.IsNullOrEmpty(editorError))
+                {
+                    <div class="field-error">
+                        <i class="fa-solid fa-triangle-exclamation"></i> @editorError
+                    </div>
+                }
+            </div>
+
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" @onclick="TryCloseEditor" disabled="@isSavingEditor">
+                    <i class="fa-solid fa-xmark"></i> Cancel
+                </button>
+                <button type="button" class="btn btn-primary" disabled="@(!CanSaveEditor)" @onclick="SaveBundleDefinitionAsync">
+                    @if (isSavingEditor)
+                    {
+                        <i class="fa-solid fa-spinner fa-spin"></i>
+                        <span>Saving...</span>
+                    }
+                    else
+                    {
+                        <i class="fa-solid fa-floppy-disk"></i>
+                        <span>Save Expedition Pack</span>
+                    }
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (exportingDefinition is { } exportDefinition)
+{
+    <div class="modal-overlay" id="bundle-export-modal" @onclick="TryCloseExport">
+        <div class="bundle-modal export-modal" role="dialog" aria-modal="true" aria-labelledby="bundle-export-title" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h2 id="bundle-export-title"><i class="fa-solid fa-file-export"></i> Export "@exportDefinition.Name"</h2>
+                <button type="button" class="btn-close" @onclick="TryCloseExport" aria-label="Close dialog" disabled="@isExporting">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <div class="modal-body">
+                <p class="help-text">
+                    The Expedition Pack is encrypted with the password below. Your CI crew must supply the same password before departure.
+                </p>
+
+                <div class="form-group">
+                    <label for="export-password">Password</label>
+                    <input id="export-password" type="password" @bind="exportPassword" @bind:event="oninput"
+                           placeholder="At least 8 characters" disabled="@isExporting" autocomplete="new-password" />
+                </div>
+
+                <div class="form-group">
+                    <label for="export-password-confirm">Confirm Password</label>
+                    <input id="export-password-confirm" type="password" @bind="exportPasswordConfirm" @bind:event="oninput"
+                           placeholder="Re-enter password" disabled="@isExporting" autocomplete="new-password" />
+                </div>
+
+                @if (!string.IsNullOrEmpty(exportPassword) && exportPassword.Length < 8)
+                {
+                    <div class="field-error"><i class="fa-solid fa-triangle-exclamation"></i> Password must be at least 8 characters.</div>
+                }
+                else if (!string.IsNullOrEmpty(exportPasswordConfirm) && exportPassword != exportPasswordConfirm)
+                {
+                    <div class="field-error"><i class="fa-solid fa-triangle-exclamation"></i> Passwords do not match.</div>
+                }
+
+                @if (!string.IsNullOrEmpty(exportProgressMessage))
+                {
+                    <div class="loading-inline"><i class="fa-solid fa-spinner fa-spin"></i> @exportProgressMessage</div>
+                }
+
+                @if (!string.IsNullOrEmpty(exportError))
+                {
+                    <div class="field-error"><i class="fa-solid fa-triangle-exclamation"></i> @exportError</div>
+                }
+            </div>
+
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" @onclick="TryCloseExport" disabled="@isExporting">
+                    <i class="fa-solid fa-xmark"></i> Cancel
+                </button>
+                <button type="button" class="btn btn-primary" disabled="@(!CanExport)" @onclick="ExportBundleAsync">
+                    @if (isExporting)
+                    {
+                        <i class="fa-solid fa-spinner fa-spin"></i>
+                        <span>Exporting...</span>
+                    }
+                    else
+                    {
+                        <i class="fa-solid fa-file-export"></i>
+                        <span>Export</span>
+                    }
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    // NOTE: This editor applies one shared set of target platforms and deployment
+    // providers across every environment in a bundle definition, rather than allowing
+    // per-environment platform customization. This keeps the authoring surface simple.
+    // Editing a definition whose environments already have divergent per-environment
+    // platform/provider configuration (e.g. authored by hand or via another tool) will
+    // union those settings into this shared editor state, which is a lossy but
+    // deliberate simplification for round-tripping complex externally-authored bundles.
+
+    static readonly BundlePlatform[] AllPlatforms =
+    {
+        BundlePlatform.Android,
+        BundlePlatform.Ios,
+        BundlePlatform.MacOS,
+        BundlePlatform.MacCatalyst,
+        BundlePlatform.Windows
+    };
+
+    // BundleValidator only allows TestFlight for Ios/MacOS (not MacCatalyst) and the
+    // store providers only for Android; MacCatalyst/Windows currently have none.
+    static readonly Dictionary<BundlePlatform, BundleDeploymentProvider[]> ProvidersByPlatform = new()
+    {
+        [BundlePlatform.Android] = new[]
+        {
+            BundleDeploymentProvider.GooglePlay,
+            BundleDeploymentProvider.FirebaseAppDistribution,
+            BundleDeploymentProvider.AmazonAppstore
+        },
+        [BundlePlatform.Ios] = new[] { BundleDeploymentProvider.TestFlight },
+        [BundlePlatform.MacOS] = new[] { BundleDeploymentProvider.TestFlight }
+    };
+
+    static BundleDeploymentProvider[] AvailableProviders(BundlePlatform platform) =>
+        ProvidersByPlatform.TryGetValue(platform, out var providers) ? providers : Array.Empty<BundleDeploymentProvider>();
+
+    static string PlatformLabel(BundlePlatform platform) => platform switch
+    {
+        BundlePlatform.Android => "Android",
+        BundlePlatform.Ios => "iOS",
+        BundlePlatform.MacOS => "macOS",
+        BundlePlatform.MacCatalyst => "Mac Catalyst",
+        BundlePlatform.Windows => "Windows",
+        _ => platform.ToString()
+    };
+
+    static string PlatformIcon(BundlePlatform platform) => platform switch
+    {
+        BundlePlatform.Android => "fa-brands fa-android",
+        BundlePlatform.Ios => "fa-brands fa-apple",
+        BundlePlatform.MacOS => "fa-brands fa-apple",
+        BundlePlatform.MacCatalyst => "fa-brands fa-apple",
+        BundlePlatform.Windows => "fa-brands fa-windows",
+        _ => "fa-solid fa-microchip"
+    };
+
+    static string ProviderLabel(BundleDeploymentProvider provider) => provider switch
+    {
+        BundleDeploymentProvider.TestFlight => "TestFlight",
+        BundleDeploymentProvider.GooglePlay => "Google Play",
+        BundleDeploymentProvider.FirebaseAppDistribution => "Firebase App Distribution",
+        BundleDeploymentProvider.AmazonAppstore => "Amazon Appstore",
+        _ => provider.ToString()
+    };
+
+    static string ProviderIcon(BundleDeploymentProvider provider) => provider switch
+    {
+        BundleDeploymentProvider.TestFlight => "fa-brands fa-app-store-ios",
+        BundleDeploymentProvider.GooglePlay => "fa-brands fa-google-play",
+        BundleDeploymentProvider.FirebaseAppDistribution => "fa-solid fa-fire",
+        BundleDeploymentProvider.AmazonAppstore => "fa-brands fa-amazon",
+        _ => "fa-solid fa-cloud-arrow-up"
+    };
+
+    // Guidance shown beside a selected provider chip so authors know which global
+    // variable keys to add for that provider's credentials/settings; this page keeps a
+    // lightweight guidance panel rather than a full per-provider credential editor.
+    static (string[] Variables, string? Note) ProviderGuidance(BundleDeploymentProvider provider) => provider switch
+    {
+        BundleDeploymentProvider.TestFlight =>
+            (new[] { "apiKey", "apiIssuer", "AppleApiKeyPath" }, "App Store Connect API key used to authenticate the upload."),
+        BundleDeploymentProvider.GooglePlay =>
+            (new[] { "packageName", "track", "serviceAccountJsonPath" }, "Google Play service account JSON used to authenticate the Play Developer API."),
+        BundleDeploymentProvider.FirebaseAppDistribution =>
+            (new[] { "appId", "groups", "testers" }, "groups/testers are optional lists of Firebase tester group aliases or emails to notify."),
+        BundleDeploymentProvider.AmazonAppstore =>
+            (new[] { "clientId", "clientSecret", "applicationId" }, "Amazon Appstore accepts APK artifacts only."),
+        _ => (Array.Empty<string>(), null)
+    };
+
+    sealed class KeyValueRow
+    {
+        public string Key { get; set; } = string.Empty;
+        public string Value { get; set; } = string.Empty;
+    }
+
+    List<SherpaBundleDefinition> bundles = new();
+    List<PublishProfile> profiles = new();
+    bool isLoading;
+    string? errorMessage;
+
+    // Editor state
+    bool showEditor;
+    string? editingId;
+    string editName = string.Empty;
+    string editDescription = string.Empty;
+    string editPublishProfileId = string.Empty;
+    string editProjectPath = string.Empty;
+    string? projectPathHint;
+    List<string> editEnvironments = new() { "Production" };
+    List<KeyValueRow> editVariables = new();
+    HashSet<BundlePlatform> editPlatforms = new();
+    Dictionary<BundlePlatform, HashSet<BundleDeploymentProvider>> editDeployments = new();
+    bool isSavingEditor;
+    string? editorError;
+
+    // Export state
+    SherpaBundleDefinition? exportingDefinition;
+    string exportPassword = string.Empty;
+    string exportPasswordConfirm = string.Empty;
+    bool isExporting;
+    string? exportError;
+    string? exportProgressMessage;
+
+    DotNetObjectReference<Bundles>? _dotNetRef;
+
+    protected override async Task OnInitializedAsync()
+    {
+        ToolbarService.SetItems(
+            new ToolbarAction("create", "Prepare Pack", "plus"),
+            new ToolbarAction("refresh", "Refresh", "arrow.clockwise")
+        );
+        ToolbarService.SetSearch(string.Empty);
+        ToolbarService.SetFilters();
+        ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
+        BundleService.OnBundlesChanged += OnBundlesChanged;
+
+        await CloudSecretsService.InitializeAsync();
+        await LoadProfilesAsync();
+        await LoadBundlesAsync();
+    }
+
+    void OnToolbarItemClicked(string actionId)
+    {
+        switch (actionId)
+        {
+            case "create":
+                InvokeAsync(() => OpenEditor(null));
+                break;
+            case "refresh":
+                ToolbarService.SetItemEnabled("refresh", false);
+                InvokeAsync(async () =>
+                {
+                    try { await LoadBundlesAsync(); }
+                    finally { ToolbarService.SetItemEnabled("refresh", true); }
+                });
+                break;
+        }
+    }
+
+    void OnBundlesChanged() => InvokeAsync(async () =>
+    {
+        await LoadBundlesAsync();
+        StateHasChanged();
+    });
+
+    async Task LoadBundlesAsync()
+    {
+        isLoading = true;
+        errorMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            bundles = (await BundleService.GetBundlesAsync())
+                .OrderBy(b => b.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError($"Failed to load Expedition Packs: {ex}");
+            errorMessage = $"Failed to load Expedition Packs: {ex.Message}";
+            bundles = new List<SherpaBundleDefinition>();
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    async Task LoadProfilesAsync()
+    {
+        try
+        {
+            profiles = (await ProfileService.GetProfilesAsync()).ToList();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError($"Failed to load publish profiles: {ex}");
+        }
+    }
+
+    string GetProfileName(string profileId) =>
+        profiles.FirstOrDefault(p => p.Id == profileId)?.Name ?? "(unknown profile)";
+
+    static IEnumerable<BundlePlatform> GetPlatforms(SherpaBundleDefinition bundle) =>
+        AllPlatforms.Where(p => bundle.Template.Environments.Values.Any(e => e.Platforms.ContainsKey(p)));
+
+    // ---- Editor ----
+
+    bool CanSaveEditor =>
+        !isSavingEditor &&
+        !string.IsNullOrWhiteSpace(editName) &&
+        !string.IsNullOrWhiteSpace(editPublishProfileId) &&
+        editEnvironments.Any(e => !string.IsNullOrWhiteSpace(e)) &&
+        editPlatforms.Count > 0;
+
+    void OpenEditor(SherpaBundleDefinition? existing)
+    {
+        if (existing is null)
+            ResetEditorState();
+        else
+            BuildEditorStateFromDefinition(existing);
+
+        showEditor = true;
+        _ = InitModalAsync("bundle-editor-modal");
+    }
+
+    void ResetEditorState()
+    {
+        editingId = null;
+        editName = string.Empty;
+        editDescription = string.Empty;
+        editPublishProfileId = profiles.FirstOrDefault()?.Id ?? string.Empty;
+        editProjectPath = string.Empty;
+        projectPathHint = null;
+        editEnvironments = new List<string> { "Production" };
+        editVariables = new List<KeyValueRow>();
+        editPlatforms = new HashSet<BundlePlatform>();
+        editDeployments = new Dictionary<BundlePlatform, HashSet<BundleDeploymentProvider>>();
+        editorError = null;
+    }
+
+    void BuildEditorStateFromDefinition(SherpaBundleDefinition definition)
+    {
+        editingId = definition.Id;
+        editName = definition.Name;
+        editDescription = definition.Description ?? string.Empty;
+        editPublishProfileId = definition.PublishProfileId;
+        editorError = null;
+
+        editEnvironments = definition.Template.Environments.Keys.ToList();
+        if (editEnvironments.Count == 0)
+            editEnvironments.Add("Production");
+
+        editVariables = definition.Template.Variables
+            .Select(kv => new KeyValueRow { Key = kv.Key, Value = kv.Value })
+            .ToList();
+
+        editPlatforms = new HashSet<BundlePlatform>(
+            definition.Template.Environments.Values.SelectMany(e => e.Platforms.Keys));
+
+        editDeployments = new Dictionary<BundlePlatform, HashSet<BundleDeploymentProvider>>();
+        editProjectPath = string.Empty;
+        projectPathHint = null;
+
+        foreach (var environment in definition.Template.Environments.Values)
+        {
+            foreach (var (platform, configuration) in environment.Platforms)
+            {
+                if (string.IsNullOrEmpty(editProjectPath) && !string.IsNullOrEmpty(configuration.Build.Project))
+                    editProjectPath = configuration.Build.Project;
+
+                if (!editDeployments.TryGetValue(platform, out var providers))
+                {
+                    providers = new HashSet<BundleDeploymentProvider>();
+                    editDeployments[platform] = providers;
+                }
+
+                foreach (var deploy in configuration.Deploy)
+                    providers.Add(deploy.Provider);
+            }
+        }
+    }
+
+    void TryCloseEditor()
+    {
+        if (isSavingEditor)
+            return;
+        CloseEditor();
+    }
+
+    void CloseEditor()
+    {
+        showEditor = false;
+        _ = DisposeModalAsync("bundle-editor-modal");
+    }
+
+    void AddEnvironment() => editEnvironments.Add(string.Empty);
+
+    void RemoveEnvironment(int index)
+    {
+        if (editEnvironments.Count <= 1)
+            return;
+        editEnvironments.RemoveAt(index);
+    }
+
+    void AddVariable() => editVariables.Add(new KeyValueRow());
+
+    void RemoveVariable(KeyValueRow row) => editVariables.Remove(row);
+
+    void TogglePlatform(BundlePlatform platform)
+    {
+        if (!editPlatforms.Add(platform))
+        {
+            editPlatforms.Remove(platform);
+            editDeployments.Remove(platform);
+        }
+    }
+
+    void ToggleDeploymentProvider(BundlePlatform platform, BundleDeploymentProvider provider)
+    {
+        if (!editDeployments.TryGetValue(platform, out var providers))
+        {
+            providers = new HashSet<BundleDeploymentProvider>();
+            editDeployments[platform] = providers;
+        }
+
+        if (!providers.Add(provider))
+            providers.Remove(provider);
+    }
+
+    async Task BrowseProjectPathAsync()
+    {
+        try
+        {
+            var path = await DialogService.PickOpenFileAsync("Select .NET MAUI Project", new[] { ".csproj" });
+            if (!string.IsNullOrEmpty(path))
+            {
+                var (relativePath, repoRootFound) = ToSourceRelativePath(path);
+                editProjectPath = relativePath;
+                projectPathHint = repoRootFound
+                    ? null
+                    : "No repository root (.git) was found above the selected file, so only the file name was kept. Edit this value so it is relative to your CI source checkout root.";
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError($"Failed to browse for project file: {ex}");
+        }
+    }
+
+    // Expedition Pack execution runs against a CI checkout, so the stored project path must be
+    // relative to the repository root rather than an absolute local path. Walk up from the
+    // selected file looking for a ".git" directory (or file, for git worktrees/submodules)
+    // and express the path relative to that root; fall back to just the file name if no
+    // repository root can be found so the value never leaks an absolute local path.
+    static (string RelativePath, bool RepoRootFound) ToSourceRelativePath(string absolutePath)
+    {
+        var directory = Path.GetDirectoryName(absolutePath);
+        while (!string.IsNullOrEmpty(directory))
+        {
+            var gitPath = Path.Combine(directory, ".git");
+            if (Directory.Exists(gitPath) || File.Exists(gitPath))
+            {
+                var relative = Path.GetRelativePath(directory, absolutePath).Replace('\\', '/');
+                return (relative, true);
+            }
+
+            var parent = Path.GetDirectoryName(directory);
+            if (string.Equals(parent, directory, StringComparison.Ordinal))
+                break;
+            directory = parent;
+        }
+
+        return (Path.GetFileName(absolutePath), false);
+    }
+
+    async Task SaveBundleDefinitionAsync()
+    {
+        if (!CanSaveEditor)
+            return;
+
+        isSavingEditor = true;
+        editorError = null;
+        StateHasChanged();
+
+        try
+        {
+            var environmentNames = editEnvironments
+                .Select(e => e.Trim())
+                .Where(e => e.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (environmentNames.Count == 0)
+            {
+                editorError = "At least one environment name is required.";
+                return;
+            }
+
+            if (editPlatforms.Count == 0)
+            {
+                editorError = "Select at least one target platform.";
+                return;
+            }
+
+            var trimmedProjectPath = editProjectPath.Trim();
+            if (trimmedProjectPath.Length > 0 && Path.IsPathRooted(trimmedProjectPath))
+            {
+                editorError = "Project path must be relative to the CI basecamp (repository) root, not an absolute path.";
+                return;
+            }
+
+            var platformConfigurations = new Dictionary<BundlePlatform, BundlePlatformConfiguration>();
+            foreach (var platform in AllPlatforms.Where(p => editPlatforms.Contains(p)))
+            {
+                var deployTargets = editDeployments.TryGetValue(platform, out var providers)
+                    ? providers.Select(p => new BundleDeploymentTarget { Provider = p }).ToList()
+                    : new List<BundleDeploymentTarget>();
+
+                platformConfigurations[platform] = new BundlePlatformConfiguration
+                {
+                    Build = new BundleBuildConfiguration
+                    {
+                        Project = trimmedProjectPath.Length == 0 ? null : trimmedProjectPath
+                    },
+                    Deploy = deployTargets
+                };
+            }
+
+            var environments = new Dictionary<string, SherpaBundleEnvironment>(StringComparer.OrdinalIgnoreCase);
+            foreach (var name in environmentNames)
+            {
+                environments[name] = new SherpaBundleEnvironment
+                {
+                    Platforms = new Dictionary<BundlePlatform, BundlePlatformConfiguration>(platformConfigurations)
+                };
+            }
+
+            var variables = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var row in editVariables)
+            {
+                var key = row.Key.Trim();
+                if (key.Length == 0)
+                    continue;
+                variables[key] = row.Value;
+            }
+
+            var description = string.IsNullOrWhiteSpace(editDescription) ? null : editDescription.Trim();
+
+            var template = new SherpaBundle
+            {
+                Name = editName.Trim(),
+                Description = description,
+                Variables = variables,
+                Environments = environments
+            };
+
+            var existing = editingId is null ? null : bundles.FirstOrDefault(b => b.Id == editingId);
+
+            var definition = new SherpaBundleDefinition
+            {
+                Id = editingId ?? Guid.NewGuid().ToString("N"),
+                Name = template.Name,
+                Description = description,
+                PublishProfileId = editPublishProfileId,
+                Template = template,
+                CreatedAt = existing?.CreatedAt ?? DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+
+            await BundleService.SaveBundleAsync(definition);
+            await LoadBundlesAsync();
+            CloseEditor();
+            await AlertService.ShowToastAsync($"Expedition Pack '{definition.Name}' saved.");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError($"Failed to save Expedition Pack: {ex}");
+            editorError = $"Failed to save Expedition Pack: {ex.Message}";
+        }
+        finally
+        {
+            isSavingEditor = false;
+            StateHasChanged();
+        }
+    }
+
+    async Task DeleteBundleAsync(SherpaBundleDefinition definition)
+    {
+        var confirmed = await AlertService.ShowConfirmAsync(
+            "Delete Expedition Pack",
+            $"Are you sure you want to unpack '{definition.Name}' permanently? This cannot be undone.");
+
+        if (!confirmed)
+            return;
+
+        try
+        {
+            await BundleService.DeleteBundleAsync(definition.Id);
+            await LoadBundlesAsync();
+            await AlertService.ShowToastAsync($"Expedition Pack '{definition.Name}' deleted.");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError($"Failed to delete Expedition Pack '{definition.Id}': {ex}");
+            await AlertService.ShowAlertAsync("Error", $"Failed to delete Expedition Pack: {ex.Message}");
+        }
+    }
+
+    // ---- Export ----
+
+    bool CanExport =>
+        exportingDefinition is not null &&
+        !isExporting &&
+        exportPassword.Length >= 8 &&
+        exportPassword == exportPasswordConfirm;
+
+    void OpenExport(SherpaBundleDefinition definition)
+    {
+        exportingDefinition = definition;
+        exportPassword = string.Empty;
+        exportPasswordConfirm = string.Empty;
+        exportError = null;
+        exportProgressMessage = null;
+        isExporting = false;
+        _ = InitModalAsync("bundle-export-modal");
+    }
+
+    void TryCloseExport()
+    {
+        if (isExporting)
+            return;
+        CloseExport();
+    }
+
+    void CloseExport()
+    {
+        exportingDefinition = null;
+        _ = DisposeModalAsync("bundle-export-modal");
+    }
+
+    async Task ExportBundleAsync()
+    {
+        if (exportingDefinition is not { } definition)
+            return;
+
+        if (exportPassword.Length < 8)
+        {
+            exportError = "Password must be at least 8 characters.";
+            return;
+        }
+
+        if (exportPassword != exportPasswordConfirm)
+        {
+            exportError = "Passwords do not match.";
+            return;
+        }
+
+        isExporting = true;
+        exportError = null;
+        exportProgressMessage = "Preparing export...";
+        StateHasChanged();
+
+        try
+        {
+            var progress = new Progress<string>(message =>
+            {
+                exportProgressMessage = message;
+                InvokeAsync(StateHasChanged);
+            });
+
+            var bytes = await BundleExportService.ExportAsync(definition, exportPassword, progress);
+
+            var suggestedName = SanitizeFileName(definition.Name);
+            var path = await DialogService.PickSaveFileAsync(
+                "Save Expedition Pack",
+                suggestedName,
+                "sherpapack");
+
+            if (string.IsNullOrEmpty(path))
+            {
+                // User cancelled the save dialog.
+                return;
+            }
+
+            try
+            {
+                if (File.Exists(path))
+                    File.Delete(path);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning($"Could not remove placeholder file at '{path}': {ex.Message}");
+            }
+
+            await File.WriteAllBytesAsync(path, bytes);
+
+            CloseExport();
+            await AlertService.ShowToastAsync($"Expedition Pack exported to {Path.GetFileName(path)}.");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError($"Failed to export Expedition Pack '{definition.Id}': {ex}");
+            exportError = $"Export failed: {ex.Message}";
+        }
+        finally
+        {
+            isExporting = false;
+            exportProgressMessage = null;
+            StateHasChanged();
+        }
+    }
+
+    static string SanitizeFileName(string name)
+    {
+        var invalidChars = Path.GetInvalidFileNameChars();
+        var chars = name.Select(c => invalidChars.Contains(c) ? '-' : c).ToArray();
+        var sanitized = new string(chars).Trim();
+        return sanitized.Length == 0 ? "expedition-pack" : sanitized;
+    }
+
+    // ---- Modal focus trapping (modalInterop.js, loaded globally via wwwroot/index.html) ----
+
+    async Task InitModalAsync(string modalId)
+    {
+        await Task.Yield();
+        _dotNetRef ??= DotNetObjectReference.Create(this);
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("modalInterop.initialize", modalId, _dotNetRef);
+        }
+        catch
+        {
+            // Focus trapping is a progressive enhancement; ignore if unavailable.
+        }
+    }
+
+    async Task DisposeModalAsync(string modalId)
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("modalInterop.dispose", modalId);
+        }
+        catch
+        {
+            // The modal element may already be gone.
+        }
+    }
+
+    [JSInvokable]
+    public void OnEscapePressed()
+    {
+        if (exportingDefinition is not null)
+            TryCloseExport();
+        else if (showEditor)
+            TryCloseEditor();
+
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        ToolbarService.ToolbarItemClicked -= OnToolbarItemClicked;
+        BundleService.OnBundlesChanged -= OnBundlesChanged;
+        _dotNetRef?.Dispose();
+    }
+}
+
+<style>
+    h1 { margin-bottom: 1.25rem; font-size: 1.75rem; color: var(--text-primary); }
+
+    .info-message {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.5rem;
+        padding: 0.75rem 1rem;
+        background: linear-gradient(135deg, rgba(66, 153, 225, 0.1), rgba(66, 153, 225, 0.05));
+        border: none;
+        border-radius: 0.75rem;
+        font-size: 0.875rem;
+        color: var(--text-secondary);
+    }
+    .info-message i { color: var(--accent-primary); margin-top: 2px; }
+    .info-message a { color: var(--accent-primary); text-decoration: none; }
+    .info-message a:hover { text-decoration: underline; }
+
+    .loading-inline {
+        font-size: 0.875rem;
+        color: var(--text-muted);
+        padding: 0.5rem 0;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    /* Error state */
+    .error-state {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 3rem 1.5rem;
+        text-align: center;
+    }
+    .error-icon { font-size: 3rem; color: var(--status-error-text, #ef4444); opacity: 0.6; margin-bottom: 1rem; }
+    .error-state h2 { margin: 0 0 0.5rem; font-size: 1.25rem; color: var(--text-primary); }
+    .error-state p { margin: 0 0 1.5rem; font-size: 0.875rem; color: var(--text-muted); max-width: 400px; }
+
+    /* Empty state */
+    .empty-state {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 3rem 1.5rem;
+        text-align: center;
+    }
+    .empty-icon { font-size: 3rem; color: var(--text-muted); opacity: 0.3; margin-bottom: 1rem; }
+    .empty-state h2 { margin: 0 0 0.5rem; font-size: 1.25rem; color: var(--text-primary); }
+    .empty-state p { margin: 0 0 1.5rem; font-size: 0.875rem; color: var(--text-muted); max-width: 460px; }
+
+    /* Bundle grid/cards */
+    .bundle-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+        gap: 1rem;
+    }
+
+    .bundle-card {
+        background: var(--card-bg);
+        border-radius: 0.75rem;
+        padding: 1rem 1.25rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .bundle-header { display: flex; justify-content: space-between; align-items: flex-start; }
+    .bundle-title { font-size: 1rem; font-weight: 600; color: var(--text-primary); }
+    .bundle-actions { display: flex; gap: 2px; }
+
+    .btn-icon {
+        background: none;
+        border: none;
+        cursor: pointer;
+        padding: 4px 6px;
+        border-radius: 0.25rem;
+        color: var(--text-muted);
+        font-size: 0.8125rem;
+        transition: all 0.15s;
+    }
+    .btn-icon:hover { background: var(--bg-hover); color: var(--text-primary); }
+    .btn-icon.danger:hover { color: var(--danger-color, #ef4444); }
+
+    .bundle-description { font-size: 0.8125rem; color: var(--text-muted); }
+
+    .bundle-meta {
+        font-size: 0.75rem;
+        color: var(--text-muted);
+        display: flex;
+        align-items: center;
+        gap: 4px;
+    }
+
+    .bundle-summary { display: flex; flex-wrap: wrap; gap: 6px; }
+
+    .summary-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 3px 8px;
+        border-radius: 0.75rem;
+        font-size: 0.6875rem;
+        font-weight: 500;
+    }
+    .summary-badge.environments { background: var(--status-info-bg, rgba(66, 153, 225, 0.1)); color: var(--status-info-text, #2b6cb0); }
+    .summary-badge.platform { background: rgba(107, 70, 193, 0.1); color: #6b46c1; }
+    .summary-badge.variables { background: rgba(52, 168, 83, 0.1); color: #2d7d46; }
+
+    .bundle-footer { margin-top: 4px; }
+    .bundle-updated { font-size: 0.6875rem; color: var(--text-muted); }
+
+    /* Buttons */
+    .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 14px;
+        border: none;
+        border-radius: 0.375rem;
+        font-size: 0.8125rem;
+        font-weight: 500;
+        cursor: pointer;
+        transition: opacity 0.15s;
+    }
+    .btn i { font-size: 0.75rem; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-primary { background: var(--accent-primary, #3b82f6); color: white; }
+    .btn-primary:hover:not(:disabled) { opacity: 0.9; }
+    .btn-secondary { background-color: var(--bg-hover); color: var(--text-secondary); }
+    .btn-secondary:hover:not(:disabled) { background-color: var(--btn-secondary-hover, var(--bg-tertiary)); }
+    .btn-sm { padding: 5px 12px; font-size: 0.75rem; }
+
+    .btn-close {
+        background: none;
+        border: none;
+        cursor: pointer;
+        color: var(--text-muted);
+        font-size: 1rem;
+        padding: 4px 8px;
+        border-radius: 0.25rem;
+    }
+    .btn-close:hover:not(:disabled) { background: var(--bg-hover); color: var(--text-primary); }
+    .btn-close:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    /* Modal */
+    .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: var(--modal-overlay, rgba(0, 0, 0, 0.5));
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+        backdrop-filter: blur(4px);
+        padding: 1.5rem;
+    }
+
+    .bundle-modal {
+        background: var(--card-bg);
+        border-radius: 1rem;
+        box-shadow: 0 1.25rem 3.75rem rgba(0, 0, 0, 0.3);
+        width: 100%;
+        max-width: 640px;
+        max-height: 90vh;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    .modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 1.25rem 1.5rem;
+        border-bottom: 1px solid var(--border-color);
+        flex-shrink: 0;
+    }
+    .modal-header h2 { margin: 0; font-size: 1.125rem; color: var(--text-primary); display: flex; align-items: center; gap: 0.5rem; }
+
+    .modal-body { padding: 1.5rem; overflow-y: auto; flex: 1; }
+
+    .modal-footer {
+        padding: 1rem 1.5rem;
+        border-top: 1px solid var(--border-color);
+        display: flex;
+        justify-content: flex-end;
+        gap: 0.75rem;
+        flex-shrink: 0;
+    }
+
+    /* Forms */
+    .form-group { margin-bottom: 1.25rem; }
+    .form-group label {
+        display: block;
+        margin-bottom: 0.5rem;
+        font-weight: 500;
+        color: var(--text-secondary);
+        font-size: 0.875rem;
+    }
+    .form-group input[type="text"],
+    .form-group input[type="password"],
+    .form-group textarea,
+    .form-group select {
+        width: 100%;
+        padding: 0.625rem 0.75rem;
+        border: 1px solid var(--border-color);
+        border-radius: 0.375rem;
+        font-size: 0.875rem;
+        box-sizing: border-box;
+        background: var(--bg-tertiary);
+        color: var(--text-primary);
+        font-family: inherit;
+    }
+    .form-group textarea { resize: vertical; }
+    .form-group input:focus,
+    .form-group textarea:focus,
+    .form-group select:focus {
+        outline: none;
+        border-color: var(--accent-primary);
+        box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.1);
+    }
+    .help-text { margin-top: 0.375rem; font-size: 0.75rem; color: var(--text-muted); }
+    .help-text a { color: var(--accent-primary); }
+
+    .path-row { display: flex; gap: 0.5rem; }
+    .path-row input { flex: 1; }
+
+    .field-error {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.625rem 0.75rem;
+        background: var(--status-error-bg, rgba(239, 68, 68, 0.1));
+        color: var(--status-error-text, #c53030);
+        border-radius: 0.5rem;
+        font-size: 0.8125rem;
+        margin-bottom: 0.75rem;
+    }
+
+    /* Key/value + environment list editor */
+    .list-editor { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 0.5rem; }
+    .list-row { display: flex; gap: 0.5rem; align-items: center; }
+    .list-row input { flex: 1; }
+    .list-row input.kv-key { flex: 0 0 40%; }
+    .list-row input.kv-value { flex: 1; }
+
+    .btn-remove-row {
+        flex-shrink: 0;
+        background: none;
+        border: none;
+        cursor: pointer;
+        color: var(--text-muted);
+        padding: 6px 10px;
+        border-radius: 0.375rem;
+        font-size: 0.75rem;
+    }
+    .btn-remove-row:hover:not(:disabled) { background: var(--bg-hover); color: var(--danger-color, #ef4444); }
+    .btn-remove-row:disabled { opacity: 0.35; cursor: not-allowed; }
+
+    /* Platform / provider chip selectors */
+    .platform-grid, .provider-chip-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    .platform-card {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.625rem 1rem;
+        border: 2px solid transparent;
+        border-radius: 0.625rem;
+        cursor: pointer;
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+        font-size: 0.8125rem;
+        font-weight: 500;
+        transition: all 0.15s ease;
+    }
+    .platform-card:disabled { opacity: 0.5; cursor: not-allowed; }
+    .platform-card.selected {
+        border-color: var(--accent-primary);
+        background: rgba(66, 153, 225, 0.1);
+        color: var(--accent-primary);
+        box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.12);
+    }
+
+    .deploy-section { padding: 0.75rem 1rem; background: var(--bg-tertiary); border-radius: 0.625rem; }
+    .deploy-section label { display: flex; align-items: center; gap: 0.375rem; }
+
+    .provider-chip {
+        display: flex;
+        align-items: center;
+        gap: 0.375rem;
+        padding: 0.5rem 0.875rem;
+        border: 2px solid transparent;
+        border-radius: 999px;
+        cursor: pointer;
+        background: var(--card-bg);
+        color: var(--text-secondary);
+        font-size: 0.75rem;
+        font-weight: 500;
+        transition: all 0.15s ease;
+    }
+    .provider-chip:disabled { opacity: 0.5; cursor: not-allowed; }
+    .provider-chip.selected {
+        border-color: var(--accent-primary);
+        background: rgba(66, 153, 225, 0.1);
+        color: var(--accent-primary);
+    }
+
+    /* Per-provider required global-variable guidance, shown beside selected chips */
+    .provider-guidance {
+        display: flex;
+        flex-direction: column;
+        gap: 0.375rem;
+        margin-top: 0.625rem;
+        padding-top: 0.625rem;
+        border-top: 1px dashed var(--border-color);
+    }
+    .provider-guidance-item {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.375rem;
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+    }
+    .provider-guidance-item i { color: var(--accent-primary); }
+    .provider-guidance-item code {
+        background: var(--bg-secondary);
+        color: var(--text-primary);
+        padding: 0.0625rem 0.375rem;
+        border-radius: 0.25rem;
+        font-size: 0.75rem;
+    }
+    .provider-guidance-item .help-text { margin-top: 0; }
+
+    .help-text.field-warning { color: var(--status-warning-text); }
+
+    /* Dark mode adjustments for custom badge/section colors */
+    :global(.theme-dark) .summary-badge.platform { background: rgba(107, 70, 193, 0.2); color: #d6bcfa; }
+    :global(.theme-dark) .summary-badge.variables { background: rgba(52, 168, 83, 0.15); color: #6fcf97; }
+</style>

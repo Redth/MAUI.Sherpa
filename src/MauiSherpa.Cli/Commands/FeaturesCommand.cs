@@ -17,7 +17,7 @@ public static class FeaturesCommand
         Output.WriteJson(new
         {
             tool = "maui-sherpa",
-            description = "CLI for managing mobile development tools — Android SDK, iOS simulators, keystores, .NET workloads, environment diagnostics, and more.",
+            description = "CLI for managing mobile development tools, environment diagnostics, and encrypted Expedition Packs for CI.",
             version = typeof(FeaturesCommand).Assembly.GetName().Version?.ToString() ?? "0.0.0",
             importantForAgents = "ALWAYS pass --agent when invoking maui-sherpa from an AI agent. This flag causes commands to output structured remediation prompts (fix guidance, suggested commands, references) when issues are found, instead of attempting an inner Copilot session. Example: maui-sherpa doctor --agent",
             globalFlags = new object[]
@@ -178,6 +178,38 @@ public static class FeaturesCommand
                         new { command = "maui-sherpa apple profiles remove <profile>", description = "Remove a provisioning profile by UUID or name" },
                         new { command = "maui-sherpa apple profiles create --name <name> --type <type> --bundle-id <id>", description = "Create a new provisioning profile on App Store Connect. Requires --key-id, --issuer-id, --p8-file (or env vars). Use --all-devices for dev/adhoc profiles. Use --install to install locally after creation." },
                         new { command = "maui-sherpa apple profiles asc-list", description = "List provisioning profiles from App Store Connect. Requires API credentials via options or APPLE_KEY_ID, APPLE_ISSUER_ID, APPLE_P8_FILE env vars." },
+                    }
+                },
+                new
+                {
+                    id = "expedition-packs",
+                    name = "Expedition Packs",
+                    description = "Guide portable, password-protected install/build/deploy packs through CI without exposing signing gear or deployment credentials. Pack commands return structured success/error payloads with --json or --agent.",
+                    options = new[]
+                    {
+                        new { option = "--password-stdin", description = "Read the pack password from standard input instead of SHERPA_PACK_PASSWORD." },
+                        new { option = "--from-env", description = "Read SHERPA_PACK or validated SHERPA_PACK_1..N chunks instead of a file." },
+                        new { option = "--pack-env-prefix", description = "Override the environment prefix used with --from-env." },
+                        new { option = "--environment, -e", description = "Required pack environment. Repeatable only when all supplied values are identical." },
+                        new { option = "--platform, -p", description = "Repeatable platform selection." },
+                        new { option = "--phase", description = "Repeatable phase selection for pack run." },
+                        new { option = "--source", description = "Source tree to stage. Defaults to the current directory." },
+                        new { option = "--project", description = "Project path relative to --source." },
+                        new { option = "--output", description = "Persistent artifact output directory for build/run." },
+                        new { option = "--artifact", description = "Artifact path for deploy-only invocations." },
+                        new { option = "--variable NAME=VALUE", description = "Repeatable highest-precedence variable override." },
+                        new { option = "--dry-run", description = "Validate the plan without invoking builds or uploads." },
+                        new { option = "--parallel", description = "Run selected platforms concurrently in isolated staging workspaces." },
+                        new { option = "--json / --agent", description = "Emit stable structured success/error responses." },
+                    },
+                    commands = new[]
+                    {
+                        new { command = "maui-sherpa pack validate <file> [--password-stdin]", description = "Decrypt and inspect an Expedition Pack" },
+                        new { command = "maui-sherpa pack split <file> [--max-value-length 44000] [--output <dir>]", description = "Create GitHub secret-sized pack values or files" },
+                        new { command = "maui-sherpa pack install <file> --environment <name> [-p <platform>...]", description = "Lay out toolchains and signing gear" },
+                        new { command = "maui-sherpa pack build <file> --environment <name> [--source <dir>] [--project <path>] [--output <dir>]", description = "Build selected platform artifacts" },
+                        new { command = "maui-sherpa pack deploy <file> --environment <name> --artifact <path>", description = "Send an existing artifact toward its summit target" },
+                        new { command = "maui-sherpa pack run <file> --environment <name> [--phase <phase>...] [--parallel]", description = "Run install, build, and deploy in route order" },
                     }
                 },
                 new

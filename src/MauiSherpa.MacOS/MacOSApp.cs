@@ -204,6 +204,7 @@ class MacOSApp : Application
                 {
                     new() { Title = "Secrets", SystemImage = "key.fill", Tag = "/secrets" },
                     new() { Title = "Publish", SystemImage = "square.and.arrow.up", Tag = "/secrets/publish" },
+                    new() { Title = "Expedition Packs", SystemImage = "backpack.fill", Tag = "/expedition-packs" },
                 }
             },
             new MacOSSidebarItem
