@@ -81,14 +81,17 @@ public abstract class FormPage<TResult> : ContentPage, IFormPage<TResult>, IForm
 
         var formContent = BuildFormContent();
         formContent.Margin = new Thickness(28, 16, 28, 16);
-        var formScrollView = new ScrollView
-        {
-            Content = formContent,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Default,
-            VerticalOptions = LayoutOptions.Fill,
-        };
+        View formBody = formContent;
         if (FormBodyHeightRequest > 0)
-            formScrollView.HeightRequest = FormBodyHeightRequest;
+        {
+            formBody = new ScrollView
+            {
+                Content = formContent,
+                HeightRequest = FormBodyHeightRequest,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Default,
+                VerticalOptions = LayoutOptions.Fill,
+            };
+        }
 
         // Footer separator — full width
         var footerSeparator = new BoxView { HeightRequest = 1, Opacity = 0.2 };
@@ -145,7 +148,7 @@ public abstract class FormPage<TResult> : ContentPage, IFormPage<TResult>, IForm
             {
                 new RowDefinition(GridLength.Auto),
                 new RowDefinition(GridLength.Auto),
-                new RowDefinition(GridLength.Star),
+                new RowDefinition(FormBodyHeightRequest > 0 ? GridLength.Star : GridLength.Auto),
                 new RowDefinition(GridLength.Auto),
                 new RowDefinition(GridLength.Auto),
             },
@@ -156,13 +159,13 @@ public abstract class FormPage<TResult> : ContentPage, IFormPage<TResult>, IForm
 
         Grid.SetRow(titleLabel, 0);
         Grid.SetRow(headerSeparator, 1);
-        Grid.SetRow(formScrollView, 2);
+        Grid.SetRow(formBody, 2);
         Grid.SetRow(footerSeparator, 3);
         Grid.SetRow(footerLayout, 4);
 
         grid.Children.Add(titleLabel);
         grid.Children.Add(headerSeparator);
-        grid.Children.Add(formScrollView);
+        grid.Children.Add(formBody);
         grid.Children.Add(footerSeparator);
         grid.Children.Add(footerLayout);
 
