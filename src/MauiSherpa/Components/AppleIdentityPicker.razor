@@ -5,6 +5,9 @@
 @inject IPlatformService PlatformInfo
 @inject NavigationManager Navigation
 @inject ILocalVaultAccessService LocalVaultAccess
+@inject IFormModalService FormModalService
+@inject MauiSherpa.Pages.Forms.HybridFormBridgeHolder BridgeHolder
+@inject ILoggingService Logger
 @implements IDisposable
 
 @if (RequiresLocalVaultAccess)
@@ -22,22 +25,34 @@
         </button>
     </div>
 }
-else if (PlatformInfo.HasNativeToolbar)
+else if (!identitiesLoaded)
 {
-    @* Identity picker is in the native toolbar (macOS/Linux/Windows) *@
+    @* First load still in flight; the host page shows its own loading state *@
 }
 else if (identities.Count == 0)
 {
+    @* Shown on every platform: the native toolbar replaces the picker, not this prompt *@
     <div class="no-identity-container">
         <div class="no-identity-icon">
             <i class="fab fa-apple"></i>
         </div>
-        <h2>No App Store Connect Profile</h2>
-        <p>Configure your App Store Connect API credentials to manage certificates, provisioning profiles, devices, and bundle IDs.</p>
-        <button class="btn btn-primary" @onclick="GoToSettings">
+        <h2>@(loadError == null ? "No App Store Connect Profile" : "Could not load App Store Connect profiles")</h2>
+        @if (loadError == null)
+        {
+            <p>Configure your App Store Connect API credentials to manage certificates, provisioning profiles, devices, and bundle IDs.</p>
+        }
+        else
+        {
+            <p class="no-identity-error">@loadError</p>
+        }
+        <button class="btn btn-primary" @onclick="GoToSettingsAsync">
             <i class="fas fa-cog"></i> Configure in Settings
         </button>
     </div>
+}
+else if (PlatformInfo.HasNativeToolbar)
+{
+    @* Identity picker is in the native toolbar (macOS/Linux/Windows) *@
 }
 else
 {
@@ -133,6 +148,10 @@ else
         line-height: 1.6;
     }
 
+    .no-identity-error {
+        color: var(--status-error-text, #c53030);
+    }
+
     .no-identity-container .btn-primary {
         padding: 0.75rem 1.5rem;
         font-size: 0.9375rem;
@@ -181,6 +200,10 @@ else
     private List<AppleIdentity> identities = new();
     private string selectedIdentityId = "";
     private bool isUnlocking;
+    // Suppresses the "no profile" prompt until identities have actually been fetched,
+    // so it does not flash while the first load is in flight.
+    private bool identitiesLoaded;
+    private string? loadError;
 
     private bool RequiresLocalVaultAccess => LocalVaultAccess.GetState().RequiresUserAction;
 
@@ -199,6 +222,7 @@ else
 
     private async Task LoadIdentitiesAsync()
     {
+        loadError = null;
         try
         {
             identities = (await IdentityService.GetIdentitiesAsync()).ToList();
@@ -209,6 +233,21 @@ else
             selectedIdentityId = "";
             IdentityState.SetSelectedIdentity(null);
             return;
+        }
+        catch (Exception ex)
+        {
+            // This component gates the entire body of every Apple page, so a failure here
+            // must render something actionable rather than letting the page come up blank.
+            Logger.LogError("Failed to load Apple identities", ex);
+            loadError = ex.Message;
+            identities = new();
+            selectedIdentityId = "";
+            IdentityState.SetSelectedIdentity(null);
+            return;
+        }
+        finally
+        {
+            identitiesLoaded = true;
         }
         
         // Restore the in-memory selection, then the last persisted selection.
@@ -287,9 +326,21 @@ else
         }
     }
 
-    private void GoToSettings()
+    private async Task GoToSettingsAsync()
     {
-        Navigation.NavigateTo("settings");
+        // Settings is a native modal on the desktop heads; the Blazor /settings route is
+        // only reachable where the shell navigates in-page.
+        if (PlatformInfo.HasNativeToolbar)
+        {
+            var page = new MauiSherpa.Pages.Forms.SettingsPage(BridgeHolder);
+            await FormModalService.ShowViewAsync(page, async () => await page.ShowAsync());
+            await LoadIdentitiesAsync();
+            StateHasChanged();
+        }
+        else
+        {
+            Navigation.NavigateTo("settings");
+        }
     }
 
     public void Dispose()

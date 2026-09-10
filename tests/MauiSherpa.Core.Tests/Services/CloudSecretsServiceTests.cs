@@ -317,6 +317,19 @@ public class CloudSecretsServiceTests
     }
 
     [Fact]
+    public async Task InitializeAsync_WithUnreadableVault_DoesNotThrow()
+    {
+        var service = CreateService(vaultStore: new ThrowingLocalVaultStore());
+
+        Func<Task> act = () => service.InitializeAsync();
+
+        // A locked or unreadable Local Vault must not fault the caller: pages call this
+        // from OnInitializedAsync and would otherwise be left permanently blank.
+        await act.Should().NotThrowAsync();
+        service.ActiveProvider.Should().BeNull();
+    }
+
+    [Fact]
     public async Task GetProvidersAsync_WithVaultStore_MigratesLegacyJsonAndDeletesFiles()
     {
         var fileSystem = new InMemoryFileSystem();

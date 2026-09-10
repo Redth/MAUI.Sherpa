@@ -309,29 +309,42 @@ public class CloudSecretsService : ICloudSecretsService, ISecretsProviderRegistr
     }
 
     /// <summary>
-    /// Initializes the service by loading the active provider
+    /// Initializes the service by loading the active provider.
+    /// Best-effort: a locked or unreadable Local Vault leaves the service uninitialized
+    /// rather than throwing, so callers can render before the vault has been unlocked.
+    /// Metadata is not cached on failure, so a later call retries.
     /// </summary>
     public async Task InitializeAsync()
     {
-        _activeProviderId = await TryGetSecureStorageAsync(ActiveProviderKey);
-        if (!string.IsNullOrEmpty(_activeProviderId))
+        try
         {
-            var providers = await GetProvidersAsync();
-            ActiveProvider = providers.FirstOrDefault(p => p.Id == _activeProviderId);
-            if (ActiveProvider == null)
+            _activeProviderId = await TryGetSecureStorageAsync(ActiveProviderKey);
+            if (!string.IsNullOrEmpty(_activeProviderId))
             {
-                // Provider was deleted, clear the active provider
-                _activeProviderId = null;
-                await TryRemoveSecureStorageAsync(ActiveProviderKey);
+                var providers = await GetProvidersAsync();
+                ActiveProvider = providers.FirstOrDefault(p => p.Id == _activeProviderId);
+                if (ActiveProvider == null)
+                {
+                    // Provider was deleted, clear the active provider
+                    _activeProviderId = null;
+                    await TryRemoveSecureStorageAsync(ActiveProviderKey);
+                }
+            }
+
+            if (ActiveProvider is null)
+            {
+                var providers = await GetProvidersAsync();
+                var defaultProviderId = ChooseDefaultProviderId(providers);
+                if (defaultProviderId is not null)
+                    await SetActiveProviderAsync(defaultProviderId);
             }
         }
-
-        if (ActiveProvider is null)
+        catch (LocalVaultUnavailableException ex)
         {
-            var providers = await GetProvidersAsync();
-            var defaultProviderId = ChooseDefaultProviderId(providers);
-            if (defaultProviderId is not null)
-                await SetActiveProviderAsync(defaultProviderId);
+            // The Local Vault needs the user to approve OS secure storage access.
+            // ILocalVaultAccessService drives the "Unlock Local Vault" UI for that; any
+            // real provider operation will surface the error again on its own.
+            _logger.LogWarning($"Cloud secrets initialization deferred, Local Vault unavailable: {ex.Message}");
         }
     }
 
