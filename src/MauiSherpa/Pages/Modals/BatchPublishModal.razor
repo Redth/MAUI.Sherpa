@@ -79,10 +79,10 @@
                     </div>
                     <div class="run-info">
                         <div class="run-name">@run.Profile.Name</div>
-                        <div class="run-message">@run.StatusMessage</div>
+                        <div class="run-message @(run.Status == RunStatus.Error ? "failed" : "")">@run.StatusMessage</div>
                         @foreach (var destination in run.Destinations)
                         {
-                            <div class="run-destination">
+                            <div class="run-destination @(destination.Status == RunStatus.Error ? "failed" : "")">
                                 <i class="@GetStatusIcon(destination.Status)" style="@GetStatusStyle(destination.Status)"></i>
                                 <i class="@GetProviderIcon(destination.ProviderId)"></i>
                                 <span class="destination-repo">@destination.RepositoryFullName</span>
@@ -249,7 +249,8 @@
 
     .run-destination {
         display: flex;
-        align-items: center;
+        align-items: baseline;
+        flex-wrap: wrap;
         gap: 6px;
         font-size: 11px;
         color: var(--text-muted);
@@ -257,6 +258,20 @@
     }
 
     .destination-repo { color: var(--text-secondary); }
+
+    /* Publisher errors carry the detail that matters, so let them wrap instead of clipping. */
+    .destination-message,
+    .run-message {
+        overflow-wrap: anywhere;
+    }
+
+    .run-destination.failed .destination-message,
+    .run-message.failed {
+        color: #b91c1c;
+    }
+
+    :global(.theme-dark) .run-destination.failed .destination-message,
+    :global(.theme-dark) .run-message.failed { color: #f87171; }
 
     .publish-summary-bar {
         display: flex;

@@ -163,6 +163,7 @@ public abstract class WizardFormPage<TResult> : ContentPage, IFormPage<TResult>,
             CornerRadius = 5,
             Padding = new Thickness(14, 4),
             HeightRequest = 30,
+            MinimumWidthRequest = 88,
             IsEnabled = false,
         };
         _primaryButton.SetDynamicResource(Button.BackgroundColorProperty, FormTheme.AccentPrimary);
@@ -238,9 +239,20 @@ public abstract class WizardFormPage<TResult> : ContentPage, IFormPage<TResult>,
             if (_primaryButton != null)
             {
                 _primaryButton.IsEnabled = _bridge.CanProceed && !_bridge.IsSubmitting;
-                _primaryButton.Text = _isOnLastStep
+
+                var primaryText = _isOnLastStep
                     ? (_bridge.SubmitText ?? DefaultSubmitText)
                     : "Next →";
+                if (!string.Equals(_primaryButton.Text, primaryText, StringComparison.Ordinal))
+                {
+                    _primaryButton.Text = primaryText;
+
+                    // The native button keeps the width measured for its previous label, so a
+                    // longer one gets clipped ("Next →" → "Publish" loses its last character).
+                    // Force the button and the row that lays it out to measure again.
+                    _primaryButton.InvalidateMeasure();
+                    (_primaryButton.Parent as IView)?.InvalidateMeasure();
+                }
             }
             if (_submittingIndicator != null)
             {
