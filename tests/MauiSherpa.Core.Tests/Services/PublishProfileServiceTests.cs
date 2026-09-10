@@ -297,6 +297,103 @@ public class PublishProfileServiceTests
         deserialized.AppleConfigs.Single().ProvisioningProfiles.Should().Equal(config.ProvisioningProfiles);
     }
 
+    [Fact]
+    public async Task GetProfilesAsync_WhenCacheIsInvalidatedMidLoad_StillReturnsLoadedProfiles()
+    {
+        var profile = CreateProfile();
+        var syncCoordinator = new Mock<ISecretSyncCoordinator>();
+
+        _cloudService.SetupGet(x => x.ActiveProvider)
+            .Returns(new CloudSecretsProviderConfig(
+                "provider-1",
+                "Provider",
+                CloudSecretsProviderType.Local,
+                new Dictionary<string, string>()));
+        _cloudService
+            .Setup(x => x.ListSecretsAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { "sherpa-publish-profiles/" + profile.Id });
+        _cloudService
+            .Setup(x => x.GetSecretAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() =>
+            {
+                // A provider sync completing mid-read invalidates the cache — the read
+                // that is already in flight must still hand its results back.
+                syncCoordinator.Raise(
+                    x => x.ItemStateChanged += null,
+                    new SecretItemRef(SecretItemKind.PublishProfile, profile.Id, profile.Name));
+                return JsonSerializer.SerializeToUtf8Bytes(profile, JsonOptions);
+            });
+
+        var sut = new PublishProfileService(
+            _cloudService.Object,
+            _certSync.Object,
+            _keystoreService.Object,
+            _secureStorage.Object,
+            _managedSecrets.Object,
+            _appleConnect.Object,
+            _appleIdentity.Object,
+            _identityState.Object,
+            _googleIdentity.Object,
+            _logger.Object,
+            providerRegistry: null,
+            syncCoordinator: syncCoordinator.Object);
+
+        var profiles = await sut.GetProfilesAsync();
+
+        profiles.Should().ContainSingle(loaded => loaded.Id == profile.Id);
+    }
+
+    [Fact]
+    public async Task GetProfilesAsync_DoesNotRefetchProfilesAHigherPriorityProviderAlreadyOwns()
+    {
+        var profile = CreateProfile();
+        var localKey = "sherpa-publish-profiles/" + profile.Id;
+        // Providers that cannot store '/' mangle the key, so the ids must still match.
+        var remoteKey = "sherpa-publish-profiles-" + profile.Id;
+        var payload = JsonSerializer.SerializeToUtf8Bytes(profile, JsonOptions);
+
+        var localConfig = new CloudSecretsProviderConfig(
+            "local", "Local", CloudSecretsProviderType.Local, new Dictionary<string, string>());
+        var remoteConfig = new CloudSecretsProviderConfig(
+            "remote", "Remote Vault", CloudSecretsProviderType.AzureKeyVault, new Dictionary<string, string>());
+
+        var local = new Mock<ICloudSecretsProvider>();
+        local.Setup(x => x.ListSecretsAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { localKey });
+        local.Setup(x => x.GetSecretAsync(localKey, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(payload);
+
+        var remote = new Mock<ICloudSecretsProvider>();
+        remote.Setup(x => x.ListSecretsAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { remoteKey });
+
+        var registry = new Mock<ISecretsProviderRegistry>();
+        registry.Setup(x => x.GetProvidersAsync())
+            .ReturnsAsync(new[] { localConfig, remoteConfig });
+        registry.Setup(x => x.GetProviderAsync("local")).ReturnsAsync(local.Object);
+        registry.Setup(x => x.GetProviderAsync("remote")).ReturnsAsync(remote.Object);
+
+        var sut = new PublishProfileService(
+            _cloudService.Object,
+            _certSync.Object,
+            _keystoreService.Object,
+            _secureStorage.Object,
+            _managedSecrets.Object,
+            _appleConnect.Object,
+            _appleIdentity.Object,
+            _identityState.Object,
+            _googleIdentity.Object,
+            _logger.Object,
+            providerRegistry: registry.Object);
+
+        var profiles = await sut.GetProfilesAsync();
+
+        profiles.Should().ContainSingle(loaded => loaded.Id == profile.Id);
+        remote.Verify(
+            x => x.GetSecretAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
     static PublishProfile CreateProfile() => new(
         Id: "profile-1",
         Name: "Profile",

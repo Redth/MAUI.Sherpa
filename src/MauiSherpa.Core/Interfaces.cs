@@ -2394,16 +2394,11 @@ public interface IOperationModalService
     bool IsRunning { get; }
 
     /// <summary>
-    /// Requests cancellation of the running operation
-    /// </summary>
-    void RequestCancellation();
-    
-    /// <summary>
     /// Request cancellation of the running operation. No-op unless an operation
     /// is running and was started with canCancel: true.
     /// </summary>
     void RequestCancellation();
-    
+
     /// <summary>
     /// Event fired when the modal is shown
     /// </summary>
@@ -4020,6 +4015,15 @@ public record PublishProfileSecretMapping(
 public interface IPublishProfileService
 {
     Task<IReadOnlyList<PublishProfile>> GetProfilesAsync();
+    /// <summary>
+    /// Reads the profiles, reporting the merged set each time a provider finishes so the
+    /// UI can render the fast providers' profiles without waiting on the slow ones.
+    /// </summary>
+    Task<IReadOnlyList<PublishProfile>> GetProfilesAsync(
+        IProgress<IReadOnlyList<PublishProfile>>? progress);
+    /// <summary>Drops the cached profiles and re-reads them from every configured provider.</summary>
+    Task<IReadOnlyList<PublishProfile>> RefreshProfilesAsync(
+        IProgress<IReadOnlyList<PublishProfile>>? progress = null);
     Task<PublishProfile?> GetProfileAsync(string id);
     Task SaveProfileAsync(PublishProfile profile);
     Task DeleteProfileAsync(string id);

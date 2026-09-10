@@ -224,11 +224,24 @@ public class SecretsPublisherService : ISecretsPublisherService
 
     public async Task<bool> TestConnectionAsync(string publisherId, CancellationToken cancellationToken = default)
     {
-        var publisher = GetPublisherInstance(publisherId);
+        var publisher = await ResolvePublisherInstanceAsync(publisherId);
         if (publisher == null)
             return false;
 
         return await publisher.TestConnectionAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Resolves a publisher, loading the configured publishers first when nothing has
+    /// populated the cache yet. <see cref="GetPublisherInstance"/> is synchronous and can
+    /// only see an already-loaded cache, so callers that reach it cold get nothing back.
+    /// </summary>
+    async Task<ISecretsPublisher?> ResolvePublisherInstanceAsync(string publisherId)
+    {
+        if (_cachedPublishers is null)
+            await GetPublishersAsync();
+
+        return GetPublisherInstance(publisherId);
     }
 
     public ISecretsPublisher? GetPublisherInstance(string publisherId)
@@ -255,7 +268,7 @@ public class SecretsPublisherService : ISecretsPublisherService
 
     public async Task<IReadOnlyList<PublisherRepository>> ListRepositoriesAsync(string publisherId, string? filter = null, CancellationToken cancellationToken = default)
     {
-        var publisher = GetPublisherInstance(publisherId);
+        var publisher = await ResolvePublisherInstanceAsync(publisherId);
         if (publisher == null)
             return new List<PublisherRepository>();
 
@@ -264,7 +277,7 @@ public class SecretsPublisherService : ISecretsPublisherService
 
     public async Task PublishSecretsAsync(string publisherId, string repositoryId, IReadOnlyDictionary<string, string> secrets, IProgress<string>? progress = null, CancellationToken cancellationToken = default)
     {
-        var publisher = GetPublisherInstance(publisherId);
+        var publisher = await ResolvePublisherInstanceAsync(publisherId);
         if (publisher == null)
             throw new InvalidOperationException($"Publisher not found: {publisherId}");
 
