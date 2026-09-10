@@ -73,21 +73,32 @@ else
         await this.State.Attach(this.Client);
     }
 
+    /// <summary>
+    /// Async void because this is an event handler, which is also why nothing may escape it: an
+    /// exception here has no caller to surface it and would take the circuit down.
+    /// </summary>
     async void OnOpenChanged()
     {
-        // A database is browsed where it lives rather than fetched, so opening one is the session
-        // being pointed at a file - and it is what swaps the layout.
-        if (this.State.Open is { Kind: FileKind.Database } session)
+        try
         {
-            if (this.Db.File?.Path != session.Path && this.Client is not null)
-                await this.Db.Open(this.Client, session);
-        }
-        else if (this.Db.IsOpen)
-        {
-            this.Db.Close();
-        }
+            // A database is browsed where it lives rather than fetched, so opening one is the
+            // session being pointed at a file - and it is what swaps the layout.
+            if (this.State.Open is { Kind: FileKind.Database } session)
+            {
+                if (this.Db.File?.Path != session.Path && this.Client is not null)
+                    await this.Db.Open(this.Client, session);
+            }
+            else if (this.Db.IsOpen)
+            {
+                this.Db.Close();
+            }
 
-        await this.InvokeAsync(this.Refresh);
+            await this.InvokeAsync(this.Refresh);
+        }
+        catch (ObjectDisposedException)
+        {
+            // The circuit went away mid-swap. There is nothing left to draw to.
+        }
     }
 
     void OnPanelsChanged() => this.InvokeAsync(this.Refresh);

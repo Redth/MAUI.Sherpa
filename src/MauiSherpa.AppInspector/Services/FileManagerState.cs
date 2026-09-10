@@ -46,6 +46,11 @@ public sealed class FileManagerState
     /// </summary>
     public async Task Attach(InspectorUiClient client)
     {
+        // Reconnecting hands us a different client and the old one is disposed, so anything that was
+        // open is pointed at a connection that no longer exists - including a database session, which
+        // closes with it because the tab is listening for this.
+        this.CloseFile();
+
         _client = client;
         this.Roots = [];
         this.Root = null;
@@ -158,6 +163,18 @@ public sealed class FileManagerState
 
         if (kind is FileKind.Image or FileKind.Text)
         {
+            var cap = FileKinds.MaxOpenBytes(kind);
+            if (entry.Size > cap)
+            {
+                // Refused before it is asked for rather than after a long transfer, and it says what
+                // to do instead.
+                session.Error = $"{entry.Name} is {Format(entry.Size)}, and this viewer opens files up "
+                    + $"to {Format(cap)}. Download it to open it elsewhere.";
+                this.Open = session;
+                this.OpenChanged?.Invoke();
+                return;
+            }
+
             session.IsLoading = true;
             this.Open = session;
             this.OpenChanged?.Invoke();
@@ -213,6 +230,20 @@ public sealed class FileManagerState
     /// <summary>Tell the tree that a directory's children are stale. Safe to call when nothing is listening.</summary>
     public Task InvalidateDirectory(string path)
         => this.DirectoryInvalidated?.Invoke(path) ?? Task.CompletedTask;
+
+    static string Format(long bytes)
+    {
+        string[] units = ["B", "KB", "MB", "GB"];
+        double size = bytes;
+        var unit = 0;
+        while (size >= 1024 && unit < units.Length - 1)
+        {
+            size /= 1024;
+            unit++;
+        }
+
+        return unit == 0 ? $"{bytes} B" : $"{size:0.#} {units[unit]}";
+    }
 
     /// <summary>Joins a directory path and a name the way the agent expects: forward slashes, no leading one.</summary>
     public static string Combine(string directory, string name)

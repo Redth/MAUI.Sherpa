@@ -65,6 +65,25 @@ public static class FileKinds
         [".ini"] = "ini"
     };
 
+    /// <summary>
+    /// The most this kind is worth fetching to look at.
+    /// </summary>
+    /// <remarks>
+    /// Not the agent's transfer limit, which is far higher - this is about what the viewer can
+    /// usefully show. Monaco is unhappy long before a text file gets large, and a picture past this
+    /// is a picture nobody is inspecting in a side panel. Over the cap, downloading it is the
+    /// honest answer.
+    /// </remarks>
+    public static long MaxOpenBytes(FileKind kind) => kind switch
+    {
+        FileKind.Text => 8L * 1024 * 1024,
+        FileKind.Image => 32L * 1024 * 1024,
+
+        // A database is never fetched - it is read where it lives - so its size is not this
+        // question's business.
+        _ => long.MaxValue
+    };
+
     public static FileKind For(string fileName)
     {
         var extension = Path.GetExtension(fileName);

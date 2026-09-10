@@ -144,10 +144,22 @@
     /// A database has no save button: its writes went through the moment they were made. Everything
     /// else is edited in the browser and written back whole.
     /// </summary>
+    /// <remarks>
+    /// A picture only offers it while the editor is open. Saving one that was merely looked at would
+    /// re-encode it and move its timestamp for no change anybody asked for.
+    /// </remarks>
     bool CanSave(FileSession session)
-        => session.Kind is FileKind.Image or FileKind.Text
-            && session.Content is not null
-            && this.State.Can(InspectorStorageOperations.Upload);
+    {
+        if (session.Content is null || !this.State.Can(InspectorStorageOperations.Upload))
+            return false;
+
+        return session.Kind switch
+        {
+            FileKind.Image => this.editing,
+            FileKind.Text => true,
+            _ => false
+        };
+    }
 
     async Task Save(FileSession session)
     {
