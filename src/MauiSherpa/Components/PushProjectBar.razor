@@ -5,216 +5,142 @@
 @inject BlazorToastService ToastService
 @implements IDisposable
 
-<div class="project-bar">
-    <div class="project-bar-row">
-        <div class="project-selector">
-            <label><i class="fas fa-folder-open"></i> Project:</label>
-            <select value="@selectedProjectId" @onchange="OnProjectDropdownChanged">
+<div class="push-project-bar">
+    <div class="push-project-row">
+        <span class="push-project-icon"><i class="fas fa-folder-open"></i></span>
+
+        <div class="push-project-fields">
+            <select class="push-input push-project-select" value="@selectedProjectId" @onchange="OnProjectDropdownChanged" title="Switch project">
                 <option value="__new__">+ New Project</option>
                 @foreach (var project in projects)
                 {
                     <option value="@project.Id">@project.Name</option>
                 }
             </select>
-        </div>
-
-        <div class="project-name-group">
-            <input type="text" class="project-name-input" placeholder="Project name"
+            <input type="text" class="push-input push-project-name" placeholder="Project name"
                    value="@projectName"
                    @oninput="OnNameInput" />
         </div>
 
-        <div class="project-actions">
-            <button class="btn btn-sm @(IsDirty ? "btn-save-dirty" : "btn-save")" @onclick="HandleSave" title="Save project">
-                <i class="fas fa-save"></i> Save
+        <div class="push-project-actions">
+            @if (IsDirty)
+            {
+                <span class="push-unsaved"><span class="push-unsaved-dot"></span> Unsaved</span>
+            }
+            <button class="btn btn-sm @(IsDirty ? "btn-primary" : "btn-secondary")" @onclick="HandleSave" title="Save project">
+                <i class="fas fa-floppy-disk"></i> Save
             </button>
-            <button class="btn btn-sm btn-ghost" @onclick="HandleDuplicate" disabled="@(ActiveProject == null)" title="Duplicate project">
+            <button class="push-icon-btn @(showDescription ? "active" : "")" @onclick="() => showDescription = !showDescription" title="@(showDescription ? "Hide description" : "Add description")">
+                <i class="fas fa-align-left"></i>
+            </button>
+            <button class="push-icon-btn" @onclick="HandleDuplicate" disabled="@(ActiveProject == null)" title="Duplicate project">
                 <i class="fas fa-copy"></i>
             </button>
-            <button class="btn btn-sm btn-ghost btn-danger-ghost" @onclick="HandleDelete" disabled="@(ActiveProject == null)" title="Delete project">
-                <i class="fas fa-trash-alt"></i>
+            <button class="push-icon-btn danger" @onclick="HandleDelete" disabled="@(ActiveProject == null)" title="Delete project">
+                <i class="fas fa-trash-can"></i>
             </button>
         </div>
     </div>
 
     @if (showDescription)
     {
-        <div class="project-description-row">
-            <input type="text" class="project-description-input" placeholder="Description (optional)"
+        <div class="push-project-description">
+            <input type="text" class="push-input" placeholder="Description (optional)"
                    value="@projectDescription"
                    @oninput="OnDescriptionInput" />
         </div>
     }
-
-    <button class="description-toggle" @onclick="() => showDescription = !showDescription">
-        <i class="fas @(showDescription ? "fa-chevron-up" : "fa-chevron-down")"></i>
-        @(showDescription ? "Hide description" : "Description")
-    </button>
 </div>
 
 <style>
-    .project-bar {
+    .push-project-bar {
+        margin-bottom: 1.5rem;
+        padding: 0.75rem 0.85rem;
+        border-radius: var(--card-radius);
         background: var(--card-bg);
-        border: none;
-        border-radius: var(--card-radius, 1rem);
-        padding: 0.75rem 1rem;
-        margin-bottom: 1rem;
     }
 
-    .project-bar-row {
+    .push-project-row {
         display: flex;
         align-items: center;
-        gap: 0.75rem;
         flex-wrap: wrap;
+        gap: 0.75rem;
     }
 
-    .project-selector {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        flex-shrink: 0;
-    }
-
-    .project-selector label {
-        font-weight: 500;
-        font-size: 0.8125rem;
-        color: var(--text-secondary);
-        white-space: nowrap;
-        display: flex;
-        align-items: center;
-        gap: 0.375rem;
-    }
-
-    .project-selector select {
-        max-width: 220px;
-        padding: 0.375rem 0.625rem;
-        border: 1px solid var(--border-color);
-        border-radius: 6px;
-        font-size: 0.8125rem;
-        background: var(--card-bg);
-        color: var(--text-primary);
-    }
-
-    .project-selector select:focus {
-        outline: none;
-        border-color: var(--accent-primary);
-    }
-
-    .project-name-group {
-        flex: 1;
-        min-width: 150px;
-    }
-
-    .project-name-input {
-        width: 100%;
-        padding: 0.375rem 0.625rem;
-        border: 1px solid var(--border-color);
-        border-radius: 6px;
-        font-size: 0.8125rem;
-        background: var(--card-bg);
-        color: var(--text-primary);
-        box-sizing: border-box;
-    }
-
-    .project-name-input:focus {
-        outline: none;
-        border-color: var(--accent-primary);
-    }
-
-    .project-actions {
-        display: flex;
-        gap: 0.25rem;
-        flex-shrink: 0;
-    }
-
-    .project-description-row {
-        margin-top: 0.5rem;
-    }
-
-    .project-description-input {
-        width: 100%;
-        padding: 0.375rem 0.625rem;
-        border: 1px solid var(--border-color);
-        border-radius: 6px;
-        font-size: 0.8125rem;
-        background: var(--card-bg);
-        color: var(--text-primary);
-        box-sizing: border-box;
-    }
-
-    .project-description-input:focus {
-        outline: none;
-        border-color: var(--accent-primary);
-    }
-
-    .description-toggle {
-        background: none;
-        border: none;
-        color: var(--text-muted);
-        font-size: 0.6875rem;
-        cursor: pointer;
-        padding: 0.25rem 0;
-        display: flex;
-        align-items: center;
-        gap: 0.25rem;
-        margin-top: 0.25rem;
-    }
-
-    .description-toggle:hover {
-        color: var(--text-secondary);
-    }
-
-    .btn-sm {
-        padding: 0.3rem 0.625rem;
-        font-size: 0.75rem;
-        border: none;
-        border-radius: 5px;
-        cursor: pointer;
+    .push-project-icon {
         display: inline-flex;
         align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        width: 2.25rem;
+        height: 2.25rem;
+        border-radius: 0.75rem;
+        background: var(--accent-bg);
+        color: var(--accent-primary);
+        font-size: 0.9rem;
+    }
+
+    .push-project-fields {
+        display: flex;
+        flex: 1;
+        gap: 0.5rem;
+        min-width: 16rem;
+    }
+
+    .push-project-select.push-input {
+        flex: 0 1 14rem;
+        min-width: 9rem;
+        font-weight: 600;
+    }
+
+    .push-project-name.push-input {
+        flex: 1;
+        min-width: 8rem;
+    }
+
+    .push-project-actions {
+        display: flex;
+        align-items: center;
         gap: 0.25rem;
-        transition: all 0.15s ease;
+        flex-shrink: 0;
     }
 
-    .btn-sm:disabled {
-        opacity: 0.4;
-        cursor: not-allowed;
+    .push-project-actions .btn {
+        height: 2.25rem;
+        margin-right: 0.25rem;
     }
 
-    .btn-save {
+    .push-icon-btn.active {
         background: var(--bg-hover);
-        color: var(--text-secondary);
+        color: var(--accent-primary);
     }
 
-    .btn-save:hover:not(:disabled) {
-        background: var(--accent-primary);
-        color: white;
+    .push-unsaved {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        margin-right: 0.5rem;
+        font-size: 0.75rem;
+        font-weight: 500;
+        color: var(--text-muted);
     }
 
-    .btn-save-dirty {
-        background: var(--accent-primary);
-        color: white;
-        animation: pulse-save 2s ease-in-out infinite;
+    .push-unsaved-dot {
+        width: 0.5rem;
+        height: 0.5rem;
+        border-radius: 50%;
+        background: var(--accent-warning);
+        animation: push-unsaved-pulse 2s ease-in-out infinite;
     }
 
-    @@keyframes pulse-save {
-        0%, 100% { box-shadow: 0 0 0 0 rgba(66, 153, 225, 0.4); }
-        50% { box-shadow: 0 0 0 4px rgba(66, 153, 225, 0); }
+    @@keyframes push-unsaved-pulse {
+        0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent-warning) 50%, transparent); }
+        50% { box-shadow: 0 0 0 4px transparent; }
     }
 
-    .btn-ghost {
-        background: transparent;
-        color: var(--text-secondary);
-    }
-
-    .btn-ghost:hover:not(:disabled) {
-        background: var(--bg-hover);
-        color: var(--text-primary);
-    }
-
-    .btn-danger-ghost:hover:not(:disabled) {
-        background: rgba(239, 68, 68, 0.1);
-        color: var(--danger, #ef4444);
+    .push-project-description {
+        margin-top: 0.6rem;
+        padding-left: 3rem;
     }
 </style>
 
