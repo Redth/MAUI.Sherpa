@@ -1,0 +1,65 @@
+@using BlazorMonaco.Editor
+@using System.Text
+
+@*
+    Text and markdown, in Monaco. The language comes from the extension, so a .md gets markdown
+    folding and a .json gets bracket matching, and anything nobody has taught it about still opens
+    as plain text rather than not at all.
+*@
+
+<div class="fm-monaco">
+    <StandaloneCodeEditor @ref="this.editor"
+                          Id="@this.editorId"
+                          ConstructionOptions="this.Configure"
+                          OnDidChangeModelContent="this.OnChanged" />
+</div>
+
+@code {
+    [Parameter, EditorRequired] public FileSession Session { get; set; } = null!;
+
+    /// <summary>Raised on the first edit, so the panel can mark the file dirty.</summary>
+    [Parameter] public EventCallback Changed { get; set; }
+
+    StandaloneCodeEditor? editor;
+
+    // Stable per instance: Monaco keys its editors by element id, and a regenerated one on every
+    // render would leave the old editor attached to an element that no longer exists.
+    readonly string editorId = $"fm-monaco-{Guid.NewGuid():N}";
+
+    string? loadedPath;
+
+    StandaloneEditorConstructionOptions Configure(StandaloneCodeEditor _) => new()
+    {
+        Value = this.Session.Text,
+        Language = FileKinds.LanguageFor(this.Session.Name),
+        Theme = "vs-dark",
+        AutomaticLayout = true,
+        Minimap = new EditorMinimapOptions { Enabled = false },
+        ScrollBeyondLastLine = false,
+        WordWrap = "on",
+        TabSize = 4
+    };
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // The same panel is reused for the next file opened, and ConstructionOptions only runs once -
+        // so a second file has to be pushed into the model that is already there.
+        if (this.editor is null || this.loadedPath == this.Session.Path)
+            return;
+
+        this.loadedPath = this.Session.Path;
+        await this.editor.SetValue(this.Session.Text);
+    }
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender)
+            this.loadedPath = this.Session.Path;
+    }
+
+    Task OnChanged(ModelContentChangedEvent _) => this.Changed.InvokeAsync();
+
+    /// <summary>What is in the editor now, as UTF-8 without a BOM.</summary>
+    public async Task<byte[]?> ReadAsync()
+        => this.editor is null ? null : new UTF8Encoding(false).GetBytes(await this.editor.GetValue());
+}

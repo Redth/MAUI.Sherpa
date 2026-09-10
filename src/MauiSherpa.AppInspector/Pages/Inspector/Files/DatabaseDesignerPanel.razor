@@ -1,0 +1,193 @@
+@using Shiny.Blazor.Controls
+@implements IDisposable
+@inject DatabaseSession Db
+@inject IToastService Toasts
+
+@*
+    A table being designed. The SQL it would run is shown before it runs, on purpose: SQLite's ALTER
+    TABLE can only add a column, rename one, drop one, or rename the table - anything else means
+    rebuilding, and a reader should be able to see which of those they are about to do rather than
+    trusting a button.
+*@
+
+<div class="fm-pane">
+    @if (this.Design is not { } design)
+    {
+        <div class="fm-empty">
+            <h2>Nothing being designed</h2>
+            <p>Create a table, or pick one and choose Design.</p>
+        </div>
+    }
+    else
+    {
+        <div class="fm-head">
+            <span class="fm-open-name">@design.Title</span>
+            <div class="fm-head__spacer"></div>
+            <div class="fm-actions">
+                <button type="button" class="fm-action" @onclick="this.Db.CloseDesign">Cancel</button>
+                <button type="button" class="fm-action fm-action--primary" @onclick="() => this.Apply(design)"
+                        disabled="@(this.applying || design.Problems().Count > 0)">
+                    <i class="fas fa-check" aria-hidden="true"></i> @(this.applying ? "Applying…" : "Apply")
+                </button>
+            </div>
+        </div>
+
+        <div class="fm-body db-designer">
+            <label class="db-field">
+                <span class="db-field__label">Table name</span>
+                <input class="db-cell-input" value="@design.Name" @onchange="e => this.Rename(design, e.Value?.ToString())" />
+            </label>
+
+            <div class="db-detail__heading">Columns</div>
+
+            <table class="db-grid db-designer__columns">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th style="width:120px">Type</th>
+                        <th style="width:70px" title="NOT NULL">Required</th>
+                        <th style="width:70px" title="PRIMARY KEY">Key</th>
+                        <th style="width:130px">Default</th>
+                        <th class="db-grid__actions"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var column in design.Columns.ToList())
+                    {
+                        var current = column;
+                        <tr>
+                            <td>
+                                <input class="db-cell-input" value="@current.Name"
+                                       @onchange="e => this.SetName(current, e)" />
+                            </td>
+                            <td>
+                                <select class="db-cell-input" value="@current.Type"
+                                        @onchange="e => this.SetType(current, e)">
+                                    @foreach (var type in DatabaseDesign.Types)
+                                    {
+                                        <option value="@type">@type</option>
+                                    }
+                                </select>
+                            </td>
+                            <td class="db-designer__flag">
+                                <input type="checkbox" checked="@current.NotNull"
+                                       @onchange="e => this.SetNotNull(current, e)" />
+                            </td>
+                            <td class="db-designer__flag">
+                                <input type="checkbox" checked="@current.PrimaryKey"
+                                       @onchange="e => this.SetPrimaryKey(current, e)" />
+                            </td>
+                            <td>
+                                <input class="db-cell-input" value="@current.DefaultValue" placeholder="none"
+                                       @onchange="e => this.SetDefault(current, e)" />
+                            </td>
+                            <td class="db-grid__actions">
+                                <button type="button" class="fm-icon-btn fm-icon-btn--danger" title="Remove this column"
+                                        @onclick="() => this.Remove(design, current)">
+                                    <i class="fas fa-xmark" aria-hidden="true"></i>
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+
+            <button type="button" class="fm-action" @onclick="() => this.AddColumn(design)">
+                <i class="fas fa-plus" aria-hidden="true"></i> Column
+            </button>
+
+            @foreach (var problem in design.Problems())
+            {
+                <div class="db-error">@problem</div>
+            }
+
+            @* Changes ALTER TABLE cannot express, said here rather than by generating SQL that
+               quietly does less than the form shows. *@
+            @foreach (var unsupported in design.Unsupported())
+            {
+                <div class="db-warn">@unsupported</div>
+            }
+
+            <div class="db-detail__heading">SQL</div>
+            <pre class="db-sql-preview">@design.BuildSql()</pre>
+
+            @if (this.error is { } failure)
+            {
+                <div class="db-error">@failure</div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    /// <summary>Which designer this is - the new-table one, or the edit-an-existing-one.</summary>
+    [Parameter] public bool Creating { get; set; }
+
+    bool applying;
+    string? error;
+
+    /// <summary>
+    /// The design this panel is for. Both designers are registered panel types so a new table and an
+    /// edit can be half-written at once, and each shows only the design that matches it.
+    /// </summary>
+    DatabaseDesign? Design
+        => this.Db.Design is { } design && design.IsNew == this.Creating ? design : null;
+
+    protected override void OnInitialized() => this.Db.Changed += this.OnChanged;
+
+    public void Dispose() => this.Db.Changed -= this.OnChanged;
+
+    void OnChanged() => this.InvokeAsync(this.StateHasChanged);
+
+    /// <summary>
+    /// Mutates the design and re-renders. The design is shared state that outlives this panel rather
+    /// than a bound model, so every edit goes through here to keep the render in step with it.
+    /// </summary>
+    void Set(Action change)
+    {
+        change();
+        this.error = null;
+        this.StateHasChanged();
+    }
+
+    void Rename(DatabaseDesign design, string? name) => this.Set(() => design.Name = name ?? "");
+
+    void SetName(DesignColumn column, ChangeEventArgs args)
+        => this.Set(() => column.Name = args.Value?.ToString() ?? "");
+
+    void SetType(DesignColumn column, ChangeEventArgs args)
+        => this.Set(() => column.Type = args.Value?.ToString() ?? "TEXT");
+
+    void SetNotNull(DesignColumn column, ChangeEventArgs args)
+        => this.Set(() => column.NotNull = args.Value as bool? == true);
+
+    void SetPrimaryKey(DesignColumn column, ChangeEventArgs args)
+        => this.Set(() => column.PrimaryKey = args.Value as bool? == true);
+
+    void SetDefault(DesignColumn column, ChangeEventArgs args)
+        => this.Set(() => column.DefaultValue = args.Value?.ToString());
+
+    void AddColumn(DatabaseDesign design) => this.Set(() => design.Columns.Add(new DesignColumn()));
+
+    void Remove(DatabaseDesign design, DesignColumn column) => this.Set(() => design.Columns.Remove(column));
+
+    async Task Apply(DatabaseDesign design)
+    {
+        this.applying = true;
+        this.error = null;
+
+        try
+        {
+            var result = await this.Db.ApplyDesign(design.BuildSql());
+            if (result.Ok)
+                await this.Toasts.SuccessAsync(design.IsNew ? $"Created {design.Name}" : $"Changed {design.Name}");
+            else
+                this.error = result.Error;
+        }
+        finally
+        {
+            this.applying = false;
+            this.StateHasChanged();
+        }
+    }
+}

@@ -169,6 +169,68 @@ public interface IAppInspectorClient : IDisposable
     Task SetSecureStorageAsync(string key, string value, CancellationToken ct = default);
     Task DeleteSecureStorageAsync(string key, CancellationToken ct = default);
     Task ClearSecureStorageAsync(CancellationToken ct = default);
+
+    // ─────────────────────── File Storage ────────────────────
+
+    /// <summary>List the directories the agent will let you browse.</summary>
+    Task<IReadOnlyList<InspectorStorageRoot>> GetStorageRootsAsync(CancellationToken ct = default);
+
+    /// <summary>List one directory. <paramref name="path"/> is relative to the root; empty lists the root itself.</summary>
+    Task<InspectorFileListing> ListFilesAsync(string? root = null, string? path = null, CancellationToken ct = default);
+
+    /// <summary>Read a file's bytes.</summary>
+    Task<InspectorFileContent?> DownloadFileAsync(string path, string? root = null, CancellationToken ct = default);
+
+    /// <summary>Write a file, creating any missing parent directories. Overwrites what is there.</summary>
+    Task UploadFileAsync(string path, byte[] content, string? root = null, CancellationToken ct = default);
+
+    Task DeleteFileAsync(string path, string? root = null, CancellationToken ct = default);
+
+    Task CreateDirectoryAsync(string path, string? root = null, CancellationToken ct = default);
+
+    /// <summary>Delete a directory. Without <paramref name="recursive"/> a non-empty one is refused.</summary>
+    Task DeleteDirectoryAsync(string path, bool recursive = false, string? root = null, CancellationToken ct = default);
+
+    /// <summary>Rename or move a file or directory within one root.</summary>
+    Task MoveAsync(string from, string to, bool overwrite = false, string? root = null, CancellationToken ct = default);
+
+    // ─────────────────────── SQLite ──────────────────────────
+    //
+    // Answered by the app itself, against the live file. Copying the database out would read a
+    // snapshot, miss whatever is still in the write-ahead log, and overwrite the app's own writes
+    // when it went back.
+
+    /// <summary>The tables and views in a database.</summary>
+    Task<InspectorDatabaseSchema> GetDatabaseSchemaAsync(string path, string? root = null, CancellationToken ct = default);
+
+    /// <summary>
+    /// Runs SQL and returns a page of the result, or the error it failed with. Does not throw for
+    /// anything the SQL did - a statement that will not parse is an answer, not a fault.
+    /// </summary>
+    Task<InspectorDatabaseResult> QueryDatabaseAsync(string path, string sql, int? maxRows = null, string? root = null, CancellationToken ct = default);
+
+    /// <summary>One table's rows, with the rowid that names each - what the editable grid is built from.</summary>
+    Task<InspectorDatabaseRows> GetDatabaseRowsAsync(string path, string table, int? maxRows = null, string? root = null, CancellationToken ct = default);
+
+    /// <summary>Adds one record, and answers with it as it stands afterwards.</summary>
+    Task<InspectorDatabaseResult> InsertDatabaseRowAsync(string path, string table, IReadOnlyList<InspectorDatabaseCell> values, string? root = null, CancellationToken ct = default);
+
+    /// <summary>Changes cells of one record, and answers with the record as it stands afterwards.</summary>
+    Task<InspectorDatabaseResult> UpdateDatabaseRowAsync(string path, string table, long rowId, IReadOnlyList<InspectorDatabaseCell> changes, string? root = null, CancellationToken ct = default);
+
+    Task<InspectorDatabaseResult> DeleteDatabaseRowAsync(string path, string table, long rowId, string? root = null, CancellationToken ct = default);
+
+    /// <summary>Makes a new, empty database - a real one, with the header a file needs.</summary>
+    Task CreateDatabaseAsync(string path, string? root = null, CancellationToken ct = default);
+}
+
+/// <summary>
+/// Thrown when the agent refuses a file operation. Carries the agent's own wording — it explains the
+/// refusal far better than a status code does ("root 'cache' does not support 'upload'").
+/// </summary>
+public class InspectorFileException : Exception
+{
+    public InspectorFileException(string message) : base(message) { }
 }
 
 /// <summary>

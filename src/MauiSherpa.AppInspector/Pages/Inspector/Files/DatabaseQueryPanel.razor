@@ -1,0 +1,111 @@
+@using Shiny.Blazor.Controls
+@using MauiSherpa.Core.Models.Inspector
+@implements IDisposable
+@inject DatabaseSession Db
+
+@*
+    A statement and what it did.
+
+    A textarea, not Monaco. The editor this app loads is one instance parked on a model; a second one
+    living inside a dock panel that can be torn off, re-docked and closed is a lifetime problem in
+    exchange for syntax colour on statements that are mostly one line long.
+
+    This can write. That is the point - the pane is a database client, and a database client that
+    cannot fix a row is a table viewer with a text box.
+*@
+
+<div class="fm-pane">
+    <div class="fm-head">
+        <span class="fm-cell-muted">@this.Outcome</span>
+        <div class="fm-head__spacer"></div>
+        <div class="fm-actions">
+            <button type="button" class="fm-action fm-action--primary" @onclick="this.Run" disabled="@this.running">
+                <i class="fas fa-play" aria-hidden="true"></i> @(this.running ? "Running…" : "Run")
+            </button>
+            @if (this.PanelId != FilePanelIds.DatabaseQuery)
+            {
+                <button type="button" class="fm-action" @onclick="() => this.Db.CloseQueryWindow(this.PanelId)" title="Close this window">
+                    <i class="fas fa-xmark" aria-hidden="true"></i>
+                </button>
+            }
+        </div>
+    </div>
+
+    <textarea class="db-sql"
+              spellcheck="false"
+              placeholder="SELECT * FROM …"
+              value="@this.Sql"
+              @onchange="this.OnSqlChanged"
+              @onkeydown="this.OnKeyDown"></textarea>
+
+    <div class="fm-body">
+        <DatabaseResultGrid Result="this.result" />
+    </div>
+</div>
+
+@code {
+    /// <summary>Which window this is, so a second one knows it is not the first.</summary>
+    [Parameter, EditorRequired] public string PanelId { get; set; } = FilePanelIds.DatabaseQuery;
+
+    InspectorDatabaseResult? result;
+    bool running;
+
+    string Sql => this.Db.QueryText.GetValueOrDefault(this.PanelId, "");
+
+    protected override void OnInitialized() => this.Db.Changed += this.OnChanged;
+
+    public void Dispose() => this.Db.Changed -= this.OnChanged;
+
+    void OnChanged() => this.InvokeAsync(this.StateHasChanged);
+
+    void OnSqlChanged(ChangeEventArgs args)
+        => this.Db.QueryText[this.PanelId] = args.Value?.ToString() ?? "";
+
+    /// <summary>Ctrl/Cmd+Enter runs, which is what every other SQL client does.</summary>
+    Task OnKeyDown(KeyboardEventArgs args)
+        => args.Key == "Enter" && (args.CtrlKey || args.MetaKey) ? this.Run() : Task.CompletedTask;
+
+    string Outcome
+    {
+        get
+        {
+            if (this.result is null)
+                return "";
+
+            if (this.result.Error is not null)
+                return "Failed";
+
+            if (this.result.RowsAffected >= 0)
+                return $"{this.result.RowsAffected} row{(this.result.RowsAffected == 1 ? "" : "s")} changed · {this.result.ElapsedMs} ms";
+
+            var rows = this.result.Rows.Length;
+            var of = this.result.Truncated ? " of more" : "";
+            return $"{rows} row{(rows == 1 ? "" : "s")}{of} · {this.result.ElapsedMs} ms";
+        }
+    }
+
+    async Task Run()
+    {
+        var sql = this.Sql;
+        if (string.IsNullOrWhiteSpace(sql) || this.running)
+            return;
+
+        this.running = true;
+        this.StateHasChanged();
+
+        try
+        {
+            this.result = await this.Db.Query(sql);
+
+            // A statement that changed something may well have changed what the grid is showing, and
+            // DDL may have changed the schema the tables list is drawn from.
+            if (this.result.Ok && this.result.RowsAffected >= 0)
+                await this.Db.ReloadSchema();
+        }
+        finally
+        {
+            this.running = false;
+            this.StateHasChanged();
+        }
+    }
+}

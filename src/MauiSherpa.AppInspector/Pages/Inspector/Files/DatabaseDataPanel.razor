@@ -1,0 +1,264 @@
+@using Shiny.Blazor.Controls
+@using MauiSherpa.Core.Models.Inspector
+@implements IDisposable
+@inject DatabaseSession Db
+@inject IToastService Toasts
+@inject Shiny.Blazor.Controls.Dialogs.IDialogService Dialogs
+
+@*
+    The selected table's rows, editable in place. A cell is saved by leaving it, and the row is
+    re-read afterwards rather than assumed - SQLite applies the column's type affinity, so "42"
+    typed into an INTEGER column is stored as the number, and a grid that kept showing what was
+    typed would be showing something the database does not contain.
+*@
+
+<div class="fm-pane">
+    <div class="fm-head">
+        <span class="fm-open-name">@(this.Db.Table?.Name ?? "No table")</span>
+
+        @if (this.Db.Rows is { Error: null } summary)
+        {
+            <span class="fm-cell-muted">
+                @summary.Rows.Length row@(summary.Rows.Length == 1 ? "" : "s")@(summary.Truncated ? " of more" : "") · @summary.ElapsedMs ms
+            </span>
+        }
+
+        <div class="fm-head__spacer"></div>
+
+        <div class="fm-actions">
+            @if (this.Db.CanEditRows)
+            {
+                <button type="button" class="fm-action" @onclick="this.ToggleNewRow">
+                    <i class="fas fa-plus" aria-hidden="true"></i> Row
+                </button>
+            }
+            <button type="button" class="fm-action" @onclick="this.Db.ReloadRows" title="Read this table again">
+                <i class="fas fa-arrows-rotate" aria-hidden="true"></i>
+            </button>
+        </div>
+    </div>
+
+    @if (!this.Db.CanEditRows && this.Db.Table is not null)
+    {
+        @* Said once, above the grid, rather than discovered by trying to type into a cell. *@
+        <div class="db-note">
+            @(this.Db.Table.IsView
+                ? "This is a view. It can be read but not edited - a view has no rowid, so there is no record to change."
+                : "This table has no rowid, so its rows cannot be named for editing.")
+        </div>
+    }
+
+    <div class="fm-body">
+        @if (this.Db.Table is null)
+        {
+            <div class="fm-empty">
+                <h2>Pick a table</h2>
+                <p>Choose one on the left to see what is in it.</p>
+            </div>
+        }
+        else if (this.Db.Rows is { Error: { } error })
+        {
+            <div class="fm-empty">
+                <h2>That table would not open</h2>
+                <p>@error</p>
+                <button type="button" class="fm-action" @onclick="this.Db.ReloadRows">Try again</button>
+            </div>
+        }
+        else if (this.Db.Rows is { } rows)
+        {
+            <table class="db-grid">
+                <thead>
+                    <tr>
+                        @foreach (var column in rows.Columns)
+                        {
+                            <th>@column</th>
+                        }
+                        @if (this.Db.CanEditRows)
+                        {
+                            <th class="db-grid__actions"></th>
+                        }
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (this.adding)
+                    {
+                        <tr class="db-grid__new">
+                            @for (var i = 0; i < rows.Columns.Length; i++)
+                            {
+                                var index = i;
+                                <td>
+                                    <input class="db-cell-input"
+                                           placeholder="@Placeholder(rows.Columns[index])"
+                                           value="@this.newRow[index]"
+                                           @onchange="e => this.newRow[index] = e.Value?.ToString()" />
+                                </td>
+                            }
+                            <td class="db-grid__actions">
+                                <button type="button" class="fm-icon-btn" title="Add this record" @onclick="this.Insert">
+                                    <i class="fas fa-check" aria-hidden="true"></i>
+                                </button>
+                                <button type="button" class="fm-icon-btn" title="Discard" @onclick="this.ToggleNewRow">
+                                    <i class="fas fa-xmark" aria-hidden="true"></i>
+                                </button>
+                            </td>
+                        </tr>
+                    }
+
+                    @for (var r = 0; r < rows.Rows.Length; r++)
+                    {
+                        var rowIndex = r;
+                        <tr>
+                            @for (var c = 0; c < rows.Columns.Length; c++)
+                            {
+                                var columnIndex = c;
+                                var value = rows.Rows[rowIndex][columnIndex];
+                                <td class="@(value is null ? "db-grid__null" : "")">
+                                    @if (this.Db.CanEditRows)
+                                    {
+                                        <input class="db-cell-input"
+                                               value="@value"
+                                               placeholder="@(value is null ? "NULL" : "")"
+                                               @onchange="e => this.Save(rowIndex, columnIndex, e.Value?.ToString())" />
+                                    }
+                                    else
+                                    {
+                                        <span class="db-cell-read">@(value ?? "NULL")</span>
+                                    }
+                                </td>
+                            }
+
+                            @if (this.Db.CanEditRows)
+                            {
+                                <td class="db-grid__actions">
+                                    <button type="button" class="fm-icon-btn fm-icon-btn--danger" title="Delete this record"
+                                            @onclick="() => this.Delete(rowIndex)">
+                                        <i class="fas fa-xmark" aria-hidden="true"></i>
+                                    </button>
+                                </td>
+                            }
+                        </tr>
+                    }
+                </tbody>
+            </table>
+
+            @if (rows.Rows.Length == 0 && !this.adding)
+            {
+                <div class="fm-empty"><p>This table is empty.</p></div>
+            }
+
+            @if (rows.Truncated)
+            {
+                <div class="db-note">
+                    Showing the first @rows.Rows.Length rows. Use a query window to page through the rest.
+                </div>
+            }
+        }
+    </div>
+</div>
+
+@code {
+    bool adding;
+    string?[] newRow = [];
+
+    protected override void OnInitialized() => this.Db.Changed += this.OnChanged;
+
+    public void Dispose() => this.Db.Changed -= this.OnChanged;
+
+    void OnChanged()
+    {
+        // A different table arrives in the same panel, so a half-typed new row has to go with it.
+        if (this.adding && this.newRow.Length != (this.Db.Rows?.Columns.Length ?? 0))
+            this.adding = false;
+
+        this.InvokeAsync(this.StateHasChanged);
+    }
+
+    void ToggleNewRow()
+    {
+        this.adding = !this.adding;
+        this.newRow = new string?[this.Db.Rows?.Columns.Length ?? 0];
+        this.StateHasChanged();
+    }
+
+    /// <summary>A column left blank takes the table's default, which is the only way to get one.</summary>
+    string Placeholder(string column)
+    {
+        var definition = this.Db.Table?.Columns.FirstOrDefault(x => x.Name == column);
+        return definition is null ? "" : definition.NotNull ? $"{definition.Type} · required" : definition.Type;
+    }
+
+    async Task Save(int rowIndex, int columnIndex, string? value)
+    {
+        if (this.Db.Rows is not { } rows || rowIndex >= rows.RowIds.Length)
+            return;
+
+        var current = rows.Rows[rowIndex][columnIndex];
+        if (string.Equals(current, value, StringComparison.Ordinal))
+            return;
+
+        var result = await this.Db.UpdateCell(rows.RowIds[rowIndex], rows.Columns[columnIndex], value);
+        if (!result.Ok)
+        {
+            await this.Toasts.DangerAsync(result.Error!);
+
+            // Put back what the database still holds, so the cell is never left showing a value the
+            // file does not agree with.
+            await this.Db.ReloadRows();
+            return;
+        }
+
+        // The record as it stands afterwards, which is routinely not what was sent.
+        if (result.Rows.Length == 1)
+            rows.Rows[rowIndex] = result.Rows[0];
+
+        this.StateHasChanged();
+    }
+
+    async Task Insert()
+    {
+        if (this.Db.Rows is not { } rows)
+            return;
+
+        // A column left blank is left out rather than sent as an empty string: that is what lets the
+        // table apply its default and pick the next rowid.
+        var values = rows.Columns
+            .Select((column, i) => new InspectorDatabaseCell(column, this.newRow[i]))
+            .Where(cell => !string.IsNullOrEmpty(cell.Value))
+            .ToList();
+
+        var result = await this.Db.InsertRow(values);
+        if (!result.Ok)
+        {
+            await this.Toasts.DangerAsync(result.Error!);
+            return;
+        }
+
+        this.adding = false;
+        await this.Toasts.SuccessAsync("Record added");
+        await this.Db.ReloadRows();
+    }
+
+    async Task Delete(int rowIndex)
+    {
+        if (this.Db.Rows is not { } rows || rowIndex >= rows.RowIds.Length)
+            return;
+
+        var confirmed = await this.Dialogs.Confirm(
+            "Delete this record?",
+            "It will be removed from the table. There is no undo - the file manager holds files, not rows.",
+            okText: "Delete",
+            cancelText: "Keep");
+
+        if (!confirmed)
+            return;
+
+        var result = await this.Db.DeleteRow(rows.RowIds[rowIndex]);
+        if (!result.Ok)
+        {
+            await this.Toasts.DangerAsync(result.Error!);
+            return;
+        }
+
+        await this.Db.ReloadRows();
+    }
+}

@@ -1,0 +1,52 @@
+@using Shiny.Blazor.Controls
+
+@*
+    A picture, in whichever of three ways is wanted.
+
+    The panel itself shows the image plainly, on a checkerboard so transparency reads as transparency
+    rather than as whatever colour the theme happens to be. The viewer is a full-screen overlay -
+    pinch, pan, double-tap to zoom - which is what it is for, and why it is opened on demand rather
+    than rendered inline. The editor brings crop, rotate, draw and text, and replaces the panel's
+    contents while it is on.
+*@
+
+@if (this.Editing)
+{
+    <ImageEditor @ref="this.editor"
+                 ImageData="this.Session.Content"
+                 AllowCrop="true"
+                 AllowRotate="true"
+                 AllowDraw="true"
+                 AllowTextAnnotation="true"
+                 ToolbarPosition="top" />
+}
+else
+{
+    <div class="fm-image">
+        <img class="fm-image__picture" src="@this.Session.DataUri" alt="@this.Session.Name" />
+    </div>
+
+    <ImageViewer Source="this.Session.DataUri"
+                 IsOpen="this.FullScreen"
+                 IsOpenChanged="this.FullScreenChanged"
+                 MaxZoom="8" />
+}
+
+@code {
+    [Parameter, EditorRequired] public FileSession Session { get; set; } = null!;
+    [Parameter] public bool Editing { get; set; }
+
+    /// <summary>Whether the full-screen viewer is up. Owned by the panel, which has the button.</summary>
+    [Parameter] public bool FullScreen { get; set; }
+    [Parameter] public EventCallback<bool> FullScreenChanged { get; set; }
+
+    ImageEditor? editor;
+
+    /// <summary>
+    /// The edited picture as bytes. PNG regardless of what came in - the editor composites layers
+    /// onto a canvas, and re-encoding that as a JPEG would quietly lose an alpha channel the
+    /// original had.
+    /// </summary>
+    public async Task<byte[]?> ExportAsync()
+        => this.editor is null ? this.Session.Content : await this.editor.ExportAsync("png");
+}

@@ -702,6 +702,55 @@ public sealed class InspectorUiClient : IDisposable
         _ => value.ToString()
     };
 
+    // ─────────────────────── File Storage ────────────────────
+
+    public Task<IReadOnlyList<InspectorStorageRoot>> GetStorageRootsAsync(CancellationToken ct = default)
+        => _client.GetStorageRootsAsync(ct);
+
+    public Task<InspectorFileListing> ListFilesAsync(string root, string? path = null, CancellationToken ct = default)
+        => _client.ListFilesAsync(root, path, ct);
+
+    public Task<InspectorFileContent?> DownloadFileAsync(string root, string path, CancellationToken ct = default)
+        => _client.DownloadFileAsync(path, root, ct);
+
+    public Task UploadFileAsync(string root, string path, byte[] content, CancellationToken ct = default)
+        => _client.UploadFileAsync(path, content, root, ct);
+
+    public Task DeleteFileAsync(string root, string path, CancellationToken ct = default)
+        => _client.DeleteFileAsync(path, root, ct);
+
+    public Task CreateDirectoryAsync(string root, string path, CancellationToken ct = default)
+        => _client.CreateDirectoryAsync(path, root, ct);
+
+    public Task DeleteDirectoryAsync(string root, string path, bool recursive, CancellationToken ct = default)
+        => _client.DeleteDirectoryAsync(path, recursive, root, ct);
+
+    public Task MoveAsync(string root, string from, string to, bool overwrite = false, CancellationToken ct = default)
+        => _client.MoveAsync(from, to, overwrite, root, ct);
+
+    // ─────────────────────── SQLite ──────────────────────────
+
+    public Task<InspectorDatabaseSchema> GetDatabaseSchemaAsync(string root, string path, CancellationToken ct = default)
+        => _client.GetDatabaseSchemaAsync(path, root, ct);
+
+    public Task<InspectorDatabaseResult> QueryDatabaseAsync(string root, string path, string sql, int? maxRows = null, CancellationToken ct = default)
+        => _client.QueryDatabaseAsync(path, sql, maxRows, root, ct);
+
+    public Task<InspectorDatabaseRows> GetDatabaseRowsAsync(string root, string path, string table, int? maxRows = null, CancellationToken ct = default)
+        => _client.GetDatabaseRowsAsync(path, table, maxRows, root, ct);
+
+    public Task<InspectorDatabaseResult> InsertDatabaseRowAsync(string root, string path, string table, IReadOnlyList<InspectorDatabaseCell> values, CancellationToken ct = default)
+        => _client.InsertDatabaseRowAsync(path, table, values, root, ct);
+
+    public Task<InspectorDatabaseResult> UpdateDatabaseRowAsync(string root, string path, string table, long rowId, IReadOnlyList<InspectorDatabaseCell> changes, CancellationToken ct = default)
+        => _client.UpdateDatabaseRowAsync(path, table, rowId, changes, root, ct);
+
+    public Task<InspectorDatabaseResult> DeleteDatabaseRowAsync(string root, string path, string table, long rowId, CancellationToken ct = default)
+        => _client.DeleteDatabaseRowAsync(path, table, rowId, root, ct);
+
+    public Task CreateDatabaseAsync(string root, string path, CancellationToken ct = default)
+        => _client.CreateDatabaseAsync(path, root, ct);
+
     public void Dispose()
     {
         if (_disposed)

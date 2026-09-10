@@ -1,0 +1,382 @@
+@using Shiny.Blazor.Controls
+@using MauiSherpa.Core.Models.Inspector
+@implements IAsyncDisposable
+@inject FileManagerState State
+@inject IToastService Toasts
+@inject Shiny.Blazor.Controls.Dialogs.IDialogService Dialogs
+@inject IJSRuntime JS
+
+<div class="fm-pane">
+    <div class="fm-head">
+        <nav class="fm-crumbs" aria-label="Location">
+            @if (this.State.Root is { } root)
+            {
+                <button type="button" class="fm-crumb" @onclick="@(() => this.State.Navigate(string.Empty))">@root.DisplayName</button>
+                @foreach (var crumb in this.Crumbs)
+                {
+                    <span class="fm-crumbs__sep" aria-hidden="true">/</span>
+                    <button type="button" class="fm-crumb" @onclick="@(() => this.State.Navigate(crumb.Path))">@crumb.Name</button>
+                }
+            }
+        </nav>
+
+        <div class="fm-head__spacer"></div>
+
+        <div class="fm-actions">
+            @if (this.State.Path.Length > 0)
+            {
+                <button type="button" class="fm-action" @onclick="this.State.NavigateUp" title="Up one directory">
+                    <i class="fas fa-turn-up" aria-hidden="true"></i>
+                </button>
+            }
+
+            <button type="button" class="fm-action" @onclick="this.Refresh" title="Read this directory again">
+                <i class="fas fa-arrows-rotate" aria-hidden="true"></i>
+            </button>
+
+            @if (this.State.Can(InspectorStorageOperations.CreateDirectory))
+            {
+                <button type="button" class="fm-action" @onclick="this.NewFolder">
+                    <i class="fas fa-folder-plus" aria-hidden="true"></i> New folder
+                </button>
+            }
+
+            @if (this.State.Can(InspectorStorageOperations.Upload))
+            {
+                <button type="button" class="fm-action" @onclick="this.NewDatabase" title="Create an empty SQLite database">
+                    <i class="fas fa-database" aria-hidden="true"></i> New database
+                </button>
+
+                <label class="fm-action fm-action--primary" title="Copy files into this directory">
+                    <i class="fas fa-arrow-up-from-bracket" aria-hidden="true"></i> Upload
+                    <InputFile OnChange="this.OnFilesPicked" multiple style="display:none" />
+                </label>
+            }
+        </div>
+    </div>
+
+    <div class="fm-body">
+        @if (this.State.Root is null)
+        {
+            <div class="fm-empty">
+                <h2>Pick a location</h2>
+                <p>Choose a storage root on the left to see what the app has written.</p>
+            </div>
+        }
+        else if (this.State.Error is { } error)
+        {
+            <div class="fm-empty">
+                <h2>That directory would not open</h2>
+                <p>@error</p>
+                <button type="button" class="fm-action" @onclick="this.Refresh">Try again</button>
+            </div>
+        }
+        else
+        {
+            @* Outlined off: the dock panel already draws the border, and the grid's own adds a
+               second one with rounded corners inside a square frame. *@
+            <Shiny.Blazor.Controls.DataGrid TItem="InspectorFileEntry"
+                      Items="this.State.Entries"
+                      Loading="this.State.IsLoading"
+                      Dense="true"
+                      Hover="true"
+                      Outlined="false"
+                      FixedHeader="true"
+                      Height="100%"
+                      NoRecordsText="This directory is empty.">
+                <Columns>
+                    <TemplateColumn TItem="InspectorFileEntry" Title="Name" Sortable="false">
+                        <CellTemplate Context="cell">
+                            <span class="fm-cell-name">
+                                <i class="@(cell.Item.IsDirectory ? "fas fa-folder" : "far fa-file") fm-cell-name__glyph" aria-hidden="true"></i>
+                                @if (cell.Item.IsDirectory)
+                                {
+                                    <button type="button" class="fm-cell-name__link" @onclick="@(() => this.State.Navigate(cell.Item.Path))">@cell.Item.Name</button>
+                                }
+                                else if (FileKinds.For(cell.Item.Name) != FileKind.Unsupported)
+                                {
+                                    <button type="button" class="fm-cell-name__link" @onclick="@(() => this.State.OpenFile(cell.Item))">@cell.Item.Name</button>
+                                }
+                                else
+                                {
+                                    @* Nothing here can show it, so it is not offered as a link. Download still works. *@
+                                    <span class="fm-cell-name__text">@cell.Item.Name</span>
+                                }
+                            </span>
+                        </CellTemplate>
+                    </TemplateColumn>
+
+                    <TemplateColumn TItem="InspectorFileEntry" Title="Size" Width="100px" Alignment="DataGridCellAlignment.End" Sortable="false">
+                        <CellTemplate Context="cell">
+                            <span class="fm-cell-muted">@(cell.Item.IsDirectory ? "—" : FormatBytes(cell.Item.Size))</span>
+                        </CellTemplate>
+                    </TemplateColumn>
+
+                    <TemplateColumn TItem="InspectorFileEntry" Title="Modified" Width="150px" Sortable="false">
+                        <CellTemplate Context="cell">
+                            <span class="fm-cell-muted">@FormatWhen(cell.Item.LastModified)</span>
+                        </CellTemplate>
+                    </TemplateColumn>
+
+                    <TemplateColumn TItem="InspectorFileEntry" Title="" Width="120px" Alignment="DataGridCellAlignment.End" Sortable="false">
+                        <CellTemplate Context="cell">
+                            <span class="fm-row-actions">
+                                @if (!cell.Item.IsDirectory && FileKinds.For(cell.Item.Name) != FileKind.Unsupported)
+                                {
+                                    <button type="button" class="fm-icon-btn" title="Open @cell.Item.Name"
+                                            @onclick="@(() => this.State.OpenFile(cell.Item))">
+                                        <i class="far fa-eye" aria-hidden="true"></i>
+                                    </button>
+                                }
+                                @if (!cell.Item.IsDirectory && this.State.Can(InspectorStorageOperations.Download))
+                                {
+                                    <button type="button" class="fm-icon-btn" title="Save @cell.Item.Name"
+                                            @onclick="@(() => this.Download(cell.Item))">
+                                        <i class="fas fa-download" aria-hidden="true"></i>
+                                    </button>
+                                }
+                                @if (this.State.Can(InspectorStorageOperations.Move))
+                                {
+                                    <button type="button" class="fm-icon-btn" title="Rename @cell.Item.Name"
+                                            @onclick="@(() => this.Rename(cell.Item))">
+                                        <i class="fas fa-pen" aria-hidden="true"></i>
+                                    </button>
+                                }
+                                @if (this.CanDelete(cell.Item))
+                                {
+                                    <button type="button" class="fm-icon-btn fm-icon-btn--danger" title="Delete @cell.Item.Name"
+                                            @onclick="@(() => this.Delete(cell.Item))">
+                                        <i class="fas fa-xmark" aria-hidden="true"></i>
+                                    </button>
+                                }
+                            </span>
+                        </CellTemplate>
+                    </TemplateColumn>
+                </Columns>
+            </Shiny.Blazor.Controls.DataGrid>
+        }
+    </div>
+</div>
+
+@code {
+    /// <summary>
+    /// The agent buffers a whole file in memory on both ends, so a large upload is a way to take the
+    /// app under test down. This is the same ceiling the agent enforces, refused here first so the
+    /// bytes are never sent.
+    /// </summary>
+    const long MaxTransferBytes = 64L * 1024 * 1024;
+
+    IJSObjectReference? module;
+
+    protected override void OnInitialized() => this.State.Changed += this.OnStateChanged;
+
+    public async ValueTask DisposeAsync()
+    {
+        this.State.Changed -= this.OnStateChanged;
+
+        if (this.module is not null)
+        {
+            try { await this.module.DisposeAsync(); }
+            catch (JSDisconnectedException) { /* the circuit went first; nothing to release */ }
+        }
+    }
+
+    void OnStateChanged() => this.InvokeAsync(this.StateHasChanged);
+
+    IEnumerable<(string Name, string Path)> Crumbs
+    {
+        get
+        {
+            var walked = "";
+            foreach (var segment in this.State.Path.Split('/', StringSplitOptions.RemoveEmptyEntries))
+            {
+                walked = FileManagerState.Combine(walked, segment);
+                yield return (segment, walked);
+            }
+        }
+    }
+
+    bool CanDelete(InspectorFileEntry entry) => this.State.Can(
+        entry.IsDirectory ? InspectorStorageOperations.DeleteDirectory : InspectorStorageOperations.Delete);
+
+    Task Refresh() => this.State.Reload();
+
+    async Task NewFolder()
+    {
+        var result = await this.Dialogs.Prompt(
+            "New folder",
+            "What should it be called?",
+            placeholder: "Name",
+            okText: "Create folder"
+        );
+
+        if (result is not { Ok: true } || string.IsNullOrWhiteSpace(result.Value))
+            return;
+
+        var name = result.Value.Trim();
+        await this.Run(
+            () => this.State.Client.CreateDirectoryAsync(this.State.Root!.Id, FileManagerState.Combine(this.State.Path, name)),
+            $"Created {name}");
+    }
+
+    async Task NewDatabase()
+    {
+        var result = await this.Dialogs.Prompt(
+            "New database",
+            "What should the file be called?",
+            placeholder: "app.db",
+            okText: "Create database");
+
+        if (result is not { Ok: true } || string.IsNullOrWhiteSpace(result.Value))
+            return;
+
+        var name = result.Value.Trim();
+        if (!name.Contains('.'))
+            name += ".db";
+
+        await this.Run(
+            () => this.State.Client.CreateDatabaseAsync(this.State.Root!.Id, FileManagerState.Combine(this.State.Path, name)),
+            $"Created {name}");
+    }
+
+    async Task Rename(InspectorFileEntry entry)
+    {
+        var result = await this.Dialogs.Prompt(
+            $"Rename {entry.Name}",
+            "What should it be called instead?",
+            placeholder: entry.Name,
+            okText: "Rename",
+            initialValue: entry.Name
+        );
+
+        if (result is not { Ok: true } || string.IsNullOrWhiteSpace(result.Value))
+            return;
+
+        var name = result.Value.Trim();
+        if (name == entry.Name)
+            return;
+
+        await this.Run(
+            () => this.State.Client.MoveAsync(this.State.Root!.Id, entry.Path, FileManagerState.Combine(this.State.Path, name)),
+            $"Renamed to {name}");
+    }
+
+    async Task Delete(InspectorFileEntry entry)
+    {
+        var confirmed = await this.Dialogs.Confirm(
+            entry.IsDirectory ? "Delete this directory?" : "Delete this file?",
+            entry.IsDirectory
+                ? $"{entry.Name} and everything in it will be removed from the app. This cannot be undone."
+                : $"{entry.Name} will be removed from the app. This cannot be undone.",
+            okText: "Delete",
+            cancelText: "Keep"
+        );
+
+        if (!confirmed)
+            return;
+
+        await this.Run(
+            () => entry.IsDirectory
+                ? this.State.Client.DeleteDirectoryAsync(this.State.Root!.Id, entry.Path, recursive: true)
+                : this.State.Client.DeleteFileAsync(this.State.Root!.Id, entry.Path),
+            $"Deleted {entry.Name}");
+    }
+
+    async Task Download(InspectorFileEntry entry)
+    {
+        if (entry.Size > MaxTransferBytes)
+        {
+            await this.Toasts.WarningAsync($"{entry.Name} is {FormatBytes(entry.Size)}, over the {FormatBytes(MaxTransferBytes)} transfer limit.");
+            return;
+        }
+
+        try
+        {
+            var file = await this.State.Client.DownloadFileAsync(this.State.Root!.Id, entry.Path);
+            if (file is null)
+            {
+                await this.Toasts.WarningAsync($"{entry.Name} is no longer there.");
+                await this.State.Reload();
+                return;
+            }
+
+            this.module ??= await this.JS.InvokeAsync<IJSObjectReference>(
+                "import", "./_content/MauiSherpa.AppInspector/js/fileManager.js");
+
+            await this.module.InvokeVoidAsync("saveFile", entry.Name, Convert.ToBase64String(file.Content), "application/octet-stream");
+        }
+        catch (Exception ex)
+        {
+            await this.Toasts.DangerAsync(ex.Message);
+        }
+    }
+
+    async Task OnFilesPicked(InputFileChangeEventArgs args)
+    {
+        if (this.State.Root is not { } root || args.FileCount == 0)
+            return;
+
+        var picked = args.GetMultipleFiles(50);
+        if (picked.FirstOrDefault(f => f.Size > MaxTransferBytes) is { } tooBig)
+        {
+            await this.Toasts.WarningAsync($"{tooBig.Name} is {FormatBytes(tooBig.Size)}, over the {FormatBytes(MaxTransferBytes)} transfer limit.");
+            return;
+        }
+
+        try
+        {
+            foreach (var file in picked)
+            {
+                using var buffer = new MemoryStream();
+                await using (var stream = file.OpenReadStream(MaxTransferBytes))
+                    await stream.CopyToAsync(buffer);
+
+                await this.State.Client.UploadFileAsync(root.Id, FileManagerState.Combine(this.State.Path, file.Name), buffer.ToArray());
+            }
+
+            await this.Toasts.SuccessAsync(picked.Count == 1 ? $"Uploaded {picked[0].Name}" : $"Uploaded {picked.Count} files");
+            await this.State.Reload();
+        }
+        catch (Exception ex)
+        {
+            await this.Toasts.DangerAsync(ex.Message);
+            await this.State.Reload();
+        }
+    }
+
+    /// <summary>
+    /// The one path for anything that changes the directory: do it, say so, then re-read both the
+    /// listing and the tree branch so neither is showing something that is no longer true.
+    /// </summary>
+    async Task Run(Func<Task> action, string success)
+    {
+        try
+        {
+            await action();
+            await this.Toasts.SuccessAsync(success);
+            await this.State.Reload();
+            await this.State.InvalidateDirectory(this.State.Path);
+        }
+        catch (Exception ex)
+        {
+            await this.Toasts.DangerAsync(ex.Message);
+        }
+    }
+
+    static string FormatBytes(long bytes)
+    {
+        string[] units = ["B", "KB", "MB", "GB", "TB"];
+        double size = bytes;
+        var unit = 0;
+        while (size >= 1024 && unit < units.Length - 1)
+        {
+            size /= 1024;
+            unit++;
+        }
+
+        return unit == 0 ? $"{bytes} B" : $"{size:0.#} {units[unit]}";
+    }
+
+    static string FormatWhen(DateTimeOffset? when)
+        => when is null ? "—" : when.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
+}

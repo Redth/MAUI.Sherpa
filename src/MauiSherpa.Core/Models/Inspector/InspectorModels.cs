@@ -650,6 +650,83 @@ public record InspectorSecureStorageEntry
     public bool Exists { get; init; }
 }
 
+// ─────────────────────────── File Storage ────────────────────────────────
+
+/// <summary>
+/// A browsable directory the agent exposes. Paths in every other file API are relative to one of
+/// these — the agent never discloses, and never accepts, an absolute path.
+/// </summary>
+public record InspectorStorageRoot
+{
+    public string Id { get; init; } = string.Empty;
+    public string DisplayName { get; init; } = string.Empty;
+
+    /// <summary>What kind of location this is: "appData", "cache", or whatever the host contributed.</summary>
+    public string Kind { get; init; } = string.Empty;
+
+    public bool IsWritable { get; init; }
+    public bool IsReadOnly { get; init; }
+    public bool IsPersistent { get; init; }
+    public bool IsBackedUp { get; init; }
+
+    /// <summary>The OS may empty this root at any time — worth saying out loud before someone stores something here.</summary>
+    public bool MayBeClearedBySystem { get; init; }
+
+    public bool IsUserVisible { get; init; }
+
+    /// <summary>Operation names this root accepts: list, download, upload, delete, create-directory, delete-directory, move.</summary>
+    public IReadOnlyList<string> SupportedOperations { get; init; } = [];
+
+    public bool Supports(string operation) => SupportedOperations.Contains(operation, StringComparer.Ordinal);
+}
+
+/// <summary>Operation names used by <see cref="InspectorStorageRoot.Supports"/>.</summary>
+public static class InspectorStorageOperations
+{
+    public const string List = "list";
+    public const string Download = "download";
+    public const string Upload = "upload";
+    public const string Delete = "delete";
+    public const string CreateDirectory = "create-directory";
+    public const string DeleteDirectory = "delete-directory";
+    public const string Move = "move";
+}
+
+public record InspectorFileEntry
+{
+    public string Name { get; init; } = string.Empty;
+
+    /// <summary>Root-relative path, forward-slashed. Older agents omit it; see <see cref="InspectorFileListing"/>.</summary>
+    public string Path { get; init; } = string.Empty;
+
+    /// <summary>"file" or "directory".</summary>
+    public string Type { get; init; } = "file";
+
+    public long Size { get; init; }
+    public DateTimeOffset? LastModified { get; init; }
+
+    public bool IsDirectory => string.Equals(Type, "directory", StringComparison.OrdinalIgnoreCase);
+}
+
+public record InspectorFileListing
+{
+    public string Root { get; init; } = string.Empty;
+
+    /// <summary>The directory that was listed, relative to the root. Empty means the root itself.</summary>
+    public string Path { get; init; } = string.Empty;
+
+    public IReadOnlyList<InspectorFileEntry> Entries { get; init; } = [];
+}
+
+public record InspectorFileContent
+{
+    public string Root { get; init; } = string.Empty;
+    public string Path { get; init; } = string.Empty;
+    public long Size { get; init; }
+    public DateTimeOffset? LastModified { get; init; }
+    public byte[] Content { get; init; } = [];
+}
+
 // ─────────────────────────── Protocol Version ────────────────────────────
 
 /// <summary>Identifies which protocol version an agent speaks.</summary>

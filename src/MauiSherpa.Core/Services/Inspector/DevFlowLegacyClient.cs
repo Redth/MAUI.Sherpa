@@ -715,6 +715,59 @@ public class DevFlowLegacyClient : IAppInspectorClient
     public Task ClearSecureStorageAsync(CancellationToken ct = default)
         => _legacy.ClearSecureStorageAsync(ct);
 
+    // ─────────────────────── File Storage ────────────────────
+    //
+    // The legacy protocol never had a file API. Rather than half-answer, every call says so, and the
+    // Files tab reads the empty root list as "this agent cannot do it" and shows that instead.
+
+    public Task<IReadOnlyList<InspectorStorageRoot>> GetStorageRootsAsync(CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyList<InspectorStorageRoot>>([]);
+
+    public Task<InspectorFileListing> ListFilesAsync(string? root = null, string? path = null, CancellationToken ct = default)
+        => throw NotSupported();
+
+    public Task<InspectorFileContent?> DownloadFileAsync(string path, string? root = null, CancellationToken ct = default)
+        => throw NotSupported();
+
+    public Task UploadFileAsync(string path, byte[] content, string? root = null, CancellationToken ct = default)
+        => throw NotSupported();
+
+    public Task DeleteFileAsync(string path, string? root = null, CancellationToken ct = default)
+        => throw NotSupported();
+
+    public Task CreateDirectoryAsync(string path, string? root = null, CancellationToken ct = default)
+        => throw NotSupported();
+
+    public Task DeleteDirectoryAsync(string path, bool recursive = false, string? root = null, CancellationToken ct = default)
+        => throw NotSupported();
+
+    public Task MoveAsync(string from, string to, bool overwrite = false, string? root = null, CancellationToken ct = default)
+        => throw NotSupported();
+
+    public Task<InspectorDatabaseSchema> GetDatabaseSchemaAsync(string path, string? root = null, CancellationToken ct = default)
+        => throw NotSupported();
+
+    public Task<InspectorDatabaseResult> QueryDatabaseAsync(string path, string sql, int? maxRows = null, string? root = null, CancellationToken ct = default)
+        => throw NotSupported();
+
+    public Task<InspectorDatabaseRows> GetDatabaseRowsAsync(string path, string table, int? maxRows = null, string? root = null, CancellationToken ct = default)
+        => throw NotSupported();
+
+    public Task<InspectorDatabaseResult> InsertDatabaseRowAsync(string path, string table, IReadOnlyList<InspectorDatabaseCell> values, string? root = null, CancellationToken ct = default)
+        => throw NotSupported();
+
+    public Task<InspectorDatabaseResult> UpdateDatabaseRowAsync(string path, string table, long rowId, IReadOnlyList<InspectorDatabaseCell> changes, string? root = null, CancellationToken ct = default)
+        => throw NotSupported();
+
+    public Task<InspectorDatabaseResult> DeleteDatabaseRowAsync(string path, string table, long rowId, string? root = null, CancellationToken ct = default)
+        => throw NotSupported();
+
+    public Task CreateDatabaseAsync(string path, string? root = null, CancellationToken ct = default)
+        => throw NotSupported();
+
+    private static InspectorFileException NotSupported()
+        => new("This app is running an older DevFlow agent that has no file API. Update the Microsoft.Maui.DevFlow.Agent package to browse its files.");
+
     public void Dispose()
     {
         _legacy.Dispose();

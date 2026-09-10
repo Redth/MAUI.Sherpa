@@ -8,6 +8,10 @@ using MauiSherpa.Workloads.Services;
 using Microsoft.Maui.Platforms.MacOS.Hosting;
 using Microsoft.Maui.Platforms.MacOS.Handlers;
 using Microsoft.Maui.Platforms.MacOS.Essentials;
+using MauiSherpa.AppInspector.Pages.Inspector.Files;
+using MauiSherpa.AppInspector.Services;
+using Shiny.Blazor.Controls;
+using Shiny.Blazor.Controls.Docking;
 using Shiny.Mediator;
 using Sentry.Maui;
 #if DEBUG
@@ -91,6 +95,27 @@ public static class MacOSMauiProgram
         builder.Services.AddSingleton<ILocalVaultAccessService>(sp => sp.GetRequiredService<LocalSecretsKeyStore>());
         builder.Services.AddSingleton<ILocalVaultStore, SqlCipherLocalVaultStore>();
         builder.Services.AddSingleton<IThemeService, MacOSThemeService>();
+
+        // The DevFlow inspector's file manager and database workspace. Panel types are registered up
+        // front because the docking host names them in its layout - and a tab's title comes from the
+        // type, which is why the query windows and the two designers are separate types rather than
+        // repeats of one.
+        builder.Services.AddShinyControls();
+        builder.Services.AddScoped<FileManagerState>();
+        builder.Services.AddScoped<DatabaseSession>();
+
+        builder.Services.AddDockPanel<FileTreePanel>(FilePanelIds.Tree, displayName: "Folders", icon: "\uf07b", canClose: false);
+        builder.Services.AddDockPanel<FileListPanel>(FilePanelIds.Listing, displayName: "Files", icon: "\uf15b", canClose: false);
+        builder.Services.AddDockPanel<FileViewerPanel>(FilePanelIds.Viewer, displayName: "Open file", icon: "\uf06e");
+
+        builder.Services.AddDockPanel<DatabaseTablesPanel>(FilePanelIds.DatabaseTables, displayName: "Tables", icon: "\uf1c0", canClose: false);
+        builder.Services.AddDockPanel<DatabaseDataPanel>(FilePanelIds.DatabaseData, displayName: "Data", icon: "\uf0ce", canClose: false);
+        builder.Services.AddDockPanel<DatabaseQueryOne>(FilePanelIds.DatabaseQueries[0], displayName: "Query", icon: "\uf120", canClose: false);
+        builder.Services.AddDockPanel<DatabaseQueryTwo>(FilePanelIds.DatabaseQueries[1], displayName: "Query 2", icon: "\uf120");
+        builder.Services.AddDockPanel<DatabaseQueryThree>(FilePanelIds.DatabaseQueries[2], displayName: "Query 3", icon: "\uf120");
+        builder.Services.AddDockPanel<DatabaseNewTablePanel>(FilePanelIds.DatabaseNewTable, displayName: "New table", icon: "\uf0fe");
+        builder.Services.AddDockPanel<DatabaseEditTablePanel>(FilePanelIds.DatabaseEditTable, displayName: "Design", icon: "\uf304");
+
 
         // macOS Essentials — AddMacOSEssentials() sets the .Default statics via reflection,
         // but MAUI's TryAddSingleton may have already captured the portable stubs.

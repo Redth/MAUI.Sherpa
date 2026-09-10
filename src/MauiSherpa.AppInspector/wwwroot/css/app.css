@@ -1078,3 +1078,564 @@ pre {
 .notes-content a:hover {
     text-decoration: underline;
 }
+
+/* ── File manager (DevFlow Files tab) ─────────────────────────────────── */
+
+.fm-host {
+    height: 100%;
+    min-height: 0;
+}
+
+.fm-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    gap: 1rem;
+    color: var(--text-secondary);
+}
+
+.fm-loading i {
+    font-size: 2rem;
+}
+
+/* Panels fill their dock slot and scroll internally; the dock host itself never scrolls. */
+.fm-pane {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    background: var(--bg-secondary);
+}
+
+.fm-head {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 0.6rem;
+    border-bottom: 1px solid var(--border-color);
+    flex-shrink: 0;
+}
+
+.fm-head__spacer {
+    flex: 1;
+}
+
+.fm-body {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+}
+
+.fm-crumbs {
+    display: flex;
+    align-items: center;
+    gap: 0.15rem;
+    flex-wrap: wrap;
+    font-size: 0.8125rem;
+    min-width: 0;
+}
+
+.fm-crumbs__sep {
+    color: var(--text-muted);
+}
+
+.fm-crumb {
+    background: none;
+    border: none;
+    padding: 0.1rem 0.25rem;
+    border-radius: 0.25rem;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: inherit;
+}
+
+.fm-crumb:hover {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+}
+
+.fm-crumb:last-child {
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.fm-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    flex-shrink: 0;
+}
+
+.fm-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.3rem 0.6rem;
+    border: 1px solid var(--border-color);
+    border-radius: 0.3rem;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    font-size: 0.8125rem;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.fm-action:hover {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+}
+
+.fm-action--primary {
+    border-color: var(--accent-purple, #8b5cf6);
+    color: var(--accent-purple, #8b5cf6);
+}
+
+.fm-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    height: 100%;
+    padding: 1.5rem;
+    text-align: center;
+    color: var(--text-secondary);
+}
+
+.fm-empty h2 {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.fm-empty p {
+    font-size: 0.8125rem;
+    max-width: 34ch;
+}
+
+.fm-tree-row {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    min-width: 0;
+}
+
+.fm-tree-row__glyph {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.fm-tree-row__name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.fm-tree-row__note {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 0.05rem 0.3rem;
+    border-radius: 0.2rem;
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
+}
+
+.fm-cell-name {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    min-width: 0;
+}
+
+.fm-cell-name__glyph {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.fm-cell-name__link {
+    background: none;
+    border: none;
+    padding: 0;
+    color: var(--text-primary);
+    cursor: pointer;
+    font: inherit;
+    text-align: left;
+}
+
+.fm-cell-name__link:hover {
+    text-decoration: underline;
+}
+
+.fm-cell-muted {
+    color: var(--text-muted);
+    font-size: 0.8125rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.fm-row-actions {
+    display: inline-flex;
+    gap: 0.15rem;
+}
+
+/* Row actions stay quiet until the row is under the pointer - four glyphs on every row is noise. */
+.fm-icon-btn {
+    background: none;
+    border: none;
+    padding: 0.2rem 0.35rem;
+    border-radius: 0.25rem;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 0.8125rem;
+}
+
+.fm-icon-btn:hover {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+}
+
+.fm-icon-btn--danger:hover {
+    color: #ef4444;
+}
+
+/* ── Database workspace ───────────────────────────────────────────────── */
+
+.fm-open-name {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    min-width: 0;
+}
+
+.fm-open-dirty {
+    color: var(--accent-purple, #8b5cf6);
+    font-size: 1rem;
+    line-height: 0;
+}
+
+.fm-body--viewer {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.fm-image {
+    flex: 1;
+    min-height: 0;
+    height: 100%;
+}
+
+/* Monaco sizes itself to its container, and its container is a bare div it renders itself - so the
+   height has to be pushed all the way down or the editor collapses to a sliver. */
+.fm-monaco {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+}
+
+.fm-monaco > div,
+.fm-monaco .monaco-editor-container {
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+    height: 100%;
+}
+
+.db-actions {
+    display: flex;
+    gap: 0.35rem;
+    padding: 0.4rem 0.6rem 0;
+}
+
+.db-tables {
+    list-style: none;
+    margin: 0;
+    padding: 0.4rem 0.35rem;
+}
+
+.db-table {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    width: 100%;
+    padding: 0.3rem 0.45rem;
+    border: none;
+    border-radius: 0.3rem;
+    background: none;
+    color: var(--text-primary);
+    font: inherit;
+    font-size: 0.8125rem;
+    text-align: left;
+    cursor: pointer;
+}
+
+.db-table:hover {
+    background: var(--bg-tertiary);
+}
+
+.db-table--on {
+    background: var(--bg-tertiary);
+    font-weight: 600;
+}
+
+.db-table__glyph {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+}
+
+.db-table__name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* The selected table's columns and indexes, indented under it. */
+.db-detail {
+    padding: 0.2rem 0 0.5rem 1.6rem;
+}
+
+.db-detail__heading {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    margin: 0.5rem 0 0.25rem;
+}
+
+.db-detail__edit {
+    margin-top: 0.45rem;
+}
+
+.db-col {
+    display: flex;
+    align-items: baseline;
+    gap: 0.4rem;
+    padding: 0.12rem 0;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.db-col__key {
+    font-size: 0.6rem;
+    color: var(--text-muted);
+}
+
+.db-col__name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.db-col__type {
+    color: var(--text-muted);
+    font-size: 0.7rem;
+}
+
+.db-col__flag {
+    font-size: 0.6rem;
+    padding: 0 0.25rem;
+    border-radius: 0.2rem;
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
+}
+
+.db-foot {
+    padding: 0.5rem 0.7rem;
+    border-top: 1px solid var(--border-color);
+    font-size: 0.7rem;
+    color: var(--text-muted);
+}
+
+.db-note {
+    padding: 0.4rem 0.7rem;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    background: var(--bg-tertiary);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.db-error,
+.db-warn {
+    margin: 0.5rem 0;
+    padding: 0.45rem 0.6rem;
+    border-radius: 0.3rem;
+    font-size: 0.78125rem;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+.db-error {
+    background: rgba(239, 68, 68, 0.12);
+    color: #ef4444;
+}
+
+.db-warn {
+    background: rgba(234, 179, 8, 0.12);
+    color: #a16207;
+}
+
+/* A plain table rather than the Shiny grid: every cell is an input, and the row is addressed by a
+   rowid the grid knows nothing about. */
+.db-grid {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.78125rem;
+}
+
+.db-grid th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    text-align: left;
+    padding: 0.35rem 0.5rem;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.db-grid td {
+    padding: 0;
+    border-bottom: 1px solid var(--border-color-light);
+    vertical-align: middle;
+}
+
+.db-grid tbody tr:hover {
+    background: var(--bg-hover);
+}
+
+.db-grid__new {
+    background: rgba(139, 92, 246, 0.06);
+}
+
+.db-grid__actions {
+    width: 60px;
+    white-space: nowrap;
+    text-align: right;
+    padding-right: 0.35rem !important;
+}
+
+/* "No value" and the word "NULL" are different cells, so the empty one is drawn differently. */
+.db-grid__null .db-cell-read {
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+.db-cell-input {
+    width: 100%;
+    padding: 0.3rem 0.5rem;
+    border: 1px solid transparent;
+    border-radius: 0.2rem;
+    background: none;
+    color: var(--text-primary);
+    font: inherit;
+    font-size: 0.78125rem;
+}
+
+.db-cell-input:hover {
+    border-color: var(--border-color);
+}
+
+.db-cell-input:focus {
+    outline: none;
+    border-color: var(--accent-purple, #8b5cf6);
+    background: var(--bg-secondary);
+}
+
+.db-cell-read {
+    display: block;
+    padding: 0.3rem 0.5rem;
+}
+
+.db-sql {
+    width: 100%;
+    min-height: 6.5rem;
+    max-height: 40%;
+    padding: 0.55rem 0.7rem;
+    border: none;
+    border-bottom: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    resize: vertical;
+}
+
+.db-sql:focus {
+    outline: none;
+}
+
+.db-sql-preview {
+    margin: 0;
+    padding: 0.6rem 0.7rem;
+    border-radius: 0.3rem;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 0.78125rem;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    overflow-x: auto;
+}
+
+.db-designer {
+    padding: 0.7rem;
+}
+
+.db-designer__columns {
+    margin: 0.25rem 0 0.5rem;
+}
+
+.db-designer__flag {
+    text-align: center;
+}
+
+.db-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    max-width: 22rem;
+}
+
+.db-field__label {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+}
+
+.db-field .db-cell-input {
+    border-color: var(--border-color);
+}
+
+/* A checkerboard behind the picture, so transparency reads as transparency rather than as
+   whichever colour the theme happens to be. */
+.fm-image {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: auto;
+    padding: 1rem;
+    background-color: var(--bg-tertiary);
+    background-image:
+        linear-gradient(45deg, rgba(128, 128, 128, 0.18) 25%, transparent 25%),
+        linear-gradient(-45deg, rgba(128, 128, 128, 0.18) 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, rgba(128, 128, 128, 0.18) 75%),
+        linear-gradient(-45deg, transparent 75%, rgba(128, 128, 128, 0.18) 75%);
+    background-size: 18px 18px;
+    background-position: 0 0, 0 9px, 9px -9px, -9px 0;
+}
+
+.fm-image__picture {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    image-rendering: pixelated;
+    box-shadow: 0 1px 12px rgba(0, 0, 0, 0.25);
+}

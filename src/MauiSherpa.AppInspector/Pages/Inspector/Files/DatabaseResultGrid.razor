@@ -1,0 +1,61 @@
+@using MauiSherpa.Core.Models.Inspector
+
+@*
+    What a statement returned, read-only. The editable grid is a different component on purpose: this
+    one is showing the result of arbitrary SQL, whose rows do not necessarily belong to any one table
+    and so cannot be named for editing.
+*@
+
+@if (this.Result is not { } result)
+{
+    <div class="fm-empty"><p>Nothing has been run yet.</p></div>
+}
+else if (result.Error is { } error)
+{
+    <div class="db-error">@error</div>
+}
+else if (result.Columns.Length == 0)
+{
+    <div class="fm-empty">
+        <p>
+            @(result.RowsAffected >= 0
+                ? $"{result.RowsAffected} row{(result.RowsAffected == 1 ? "" : "s")} changed."
+                : "That statement returned nothing.")
+        </p>
+    </div>
+}
+else
+{
+    <table class="db-grid">
+        <thead>
+            <tr>
+                @foreach (var column in result.Columns)
+                {
+                    <th>@column</th>
+                }
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var row in result.Rows)
+            {
+                <tr>
+                    @foreach (var value in row)
+                    {
+                        <td class="@(value is null ? "db-grid__null" : "")">
+                            <span class="db-cell-read">@(value ?? "NULL")</span>
+                        </td>
+                    }
+                </tr>
+            }
+        </tbody>
+    </table>
+
+    @if (result.Rows.Length == 0)
+    {
+        <div class="fm-empty"><p>No rows matched.</p></div>
+    }
+}
+
+@code {
+    [Parameter] public InspectorDatabaseResult? Result { get; set; }
+}

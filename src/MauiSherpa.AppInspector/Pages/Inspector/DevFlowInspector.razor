@@ -32,6 +32,9 @@
             <button class="tab-btn @(activeTab == "webview" ? "active" : "")" @onclick='@(() => SwitchTab("webview"))'>
                 <i class="fas fa-globe"></i> WebView
             </button>
+            <button class="tab-btn @(activeTab == "files" ? "active" : "")" @onclick='@(() => SwitchTab("files"))'>
+                <i class="fas fa-folder-tree"></i> Files
+            </button>
             <button class="tab-btn @(activeTab == "logs" ? "active" : "")" @onclick='@(() => SwitchTab("logs"))'>
                 <i class="fas fa-scroll"></i> Logs
             </button>
@@ -68,6 +71,9 @@
                 case "webview":
                     <DevFlowWebViewTab Client="@client" Logs="@webviewLogs" OnClearLogs="ClearWebViewLogs" />
                     break;
+                case "files":
+                    <DevFlowFilesTab Client="@client" />
+                    break;
                 case "logs":
                     <DevFlowLogsTab Client="@client" Logs="@allLogs" OnClearLogs="ClearAllLogs" />
                     break;
@@ -99,7 +105,7 @@
     private string activeTab = "tree";
     private static readonly HashSet<string> ValidTabs = new(StringComparer.OrdinalIgnoreCase)
     {
-        "tree", "network", "profiling", "webview", "logs", "platform"
+        "tree", "network", "profiling", "webview", "files", "logs", "platform"
     };
     private bool isConnected;
     private bool isReconnecting;

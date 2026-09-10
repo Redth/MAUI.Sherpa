@@ -1,0 +1,168 @@
+@using MauiSherpa.AppInspector.Pages.Inspector.Files
+@implements IDisposable
+@inject FileManagerState State
+@inject DatabaseSession Db
+
+@*
+    The file manager, and the database workspace it turns into.
+
+    Two layouts through one dock host rather than a dock host inside a dock panel. Browsing wants a
+    directory tree in a rail with a listing beside it; a database wants its tables in that rail, its
+    rows in the document area, and a tab for every query window - and neither is a good shape for the
+    other. Opening a .db swaps the layout; closing it swaps back.
+*@
+
+@if (!this.State.IsReady)
+{
+    <div class="fm-loading">
+        <i class="fas fa-spinner fa-spin" aria-hidden="true"></i>
+        <p>Reading the app's storage…</p>
+    </div>
+}
+else
+{
+    <div class="fm-host">
+        @* The initial layout is evaluated once and then owned by the host; later changes go through
+           LoadAsync rather than through this parameter, so a re-render never rebuilds the panels. *@
+        <DockHost @ref="this.dock" InitialLayout="this.initialLayout" BackgroundColor="var(--bg-primary)" />
+    </div>
+}
+
+<ToastHost />
+<Shiny.Blazor.Controls.Dialogs.DialogHost />
+
+@code {
+    [Parameter, EditorRequired] public InspectorUiClient? Client { get; set; }
+
+    DockHost? dock;
+    InspectorUiClient? attached;
+
+    /// <summary>
+    /// What the host is told to draw first. Held in a field rather than computed in the markup: a
+    /// parameter that changed on every render would have the host rebuilding every panel, which
+    /// throws away a half-typed query somewhere else on screen.
+    /// </summary>
+    DockRoot? initialLayout;
+
+    /// <summary>What the dock host is currently showing, so it is only reloaded when that changes.</summary>
+    string shownLayout = "";
+
+    protected override void OnInitialized()
+    {
+        this.State.OpenChanged += this.OnOpenChanged;
+        this.Db.PanelsChanged += this.OnPanelsChanged;
+
+        this.initialLayout = this.BrowserLayout();
+        this.shownLayout = this.LayoutKey();
+    }
+
+    public void Dispose()
+    {
+        this.State.OpenChanged -= this.OnOpenChanged;
+        this.Db.PanelsChanged -= this.OnPanelsChanged;
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Reconnecting hands us a new client; the state has to follow it or every panel keeps
+        // talking to a disposed one.
+        if (this.Client is null || ReferenceEquals(this.Client, this.attached))
+            return;
+
+        this.attached = this.Client;
+        await this.State.Attach(this.Client);
+    }
+
+    async void OnOpenChanged()
+    {
+        // A database is browsed where it lives rather than fetched, so opening one is the session
+        // being pointed at a file - and it is what swaps the layout.
+        if (this.State.Open is { Kind: FileKind.Database } session)
+        {
+            if (this.Db.File?.Path != session.Path && this.Client is not null)
+                await this.Db.Open(this.Client, session);
+        }
+        else if (this.Db.IsOpen)
+        {
+            this.Db.Close();
+        }
+
+        await this.InvokeAsync(this.Refresh);
+    }
+
+    void OnPanelsChanged() => this.InvokeAsync(this.Refresh);
+
+    async Task Refresh()
+    {
+        // Only reload when the shape actually differs: LoadAsync rebuilds every panel, which would
+        // throw away a half-typed query on every keystroke elsewhere.
+        var key = this.LayoutKey();
+        if (this.dock is not null && key != this.shownLayout)
+        {
+            this.shownLayout = key;
+            await this.dock.LoadAsync(this.Db.IsOpen ? this.DatabaseLayout() : this.BrowserLayout());
+        }
+
+        this.StateHasChanged();
+    }
+
+    /// <summary>What the layout is made of, as a string - two equal keys mean nothing needs reloading.</summary>
+    string LayoutKey()
+        => this.Db.IsOpen
+            ? $"db:{string.Join(',', this.Db.OpenQueries)}:{this.Db.Design?.IsNew.ToString() ?? "-"}"
+            : $"files:{this.State.Open?.Kind.ToString() ?? "-"}";
+
+    /// <summary>
+    /// The directory tree in a rail, the listing in the document area, and the open file beside it.
+    /// Neither the tree nor the listing can be closed - the tree without the listing selects into
+    /// nothing, and the listing without the tree lists nowhere.
+    /// </summary>
+    DockRoot BrowserLayout()
+    {
+        var documents = new DockGroup { Tabs = { new DockTab { PanelTypeId = FilePanelIds.Listing } } };
+
+        if (this.State.Open is not null)
+        {
+            documents.Tabs.Add(new DockTab { PanelTypeId = FilePanelIds.Viewer });
+            documents.ActiveTabIndex = 1;
+        }
+
+        return new DockRoot
+        {
+            MainWindow = new DockWindowState
+            {
+                LeftRailSize = 260,
+                LeftRail = new DockGroup { Tabs = { new DockTab { PanelTypeId = FilePanelIds.Tree } } },
+                DocumentArea = documents
+            }
+        };
+    }
+
+    /// <summary>
+    /// The tables in the rail, the rows in the document area, and a tab for every query window and
+    /// designer that is open.
+    /// </summary>
+    DockRoot DatabaseLayout()
+    {
+        var documents = new DockGroup { Tabs = { new DockTab { PanelTypeId = FilePanelIds.DatabaseData } } };
+
+        foreach (var query in this.Db.OpenQueries)
+            documents.Tabs.Add(new DockTab { PanelTypeId = query });
+
+        if (this.Db.Design is { } design)
+        {
+            documents.Tabs.Add(new DockTab { PanelTypeId = FilePanelIds.ForDesign(design.IsNew) });
+            documents.ActiveTabIndex = documents.Tabs.Count - 1;
+        }
+
+        return new DockRoot
+        {
+            MainWindow = new DockWindowState
+            {
+                LeftRailSize = 260,
+                LeftRail = new DockGroup { Tabs = { new DockTab { PanelTypeId = FilePanelIds.DatabaseTables } } },
+                DocumentArea = documents
+            }
+        };
+    }
+}

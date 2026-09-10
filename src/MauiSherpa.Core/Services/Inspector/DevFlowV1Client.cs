@@ -1,6 +1,7 @@
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 using MauiSherpa.Core.Interfaces;
 using MauiSherpa.Core.Models.Inspector;
 using Microsoft.Extensions.Logging;
@@ -550,8 +551,359 @@ public class DevFlowV1Client : IAppInspectorClient
         await _http.DeleteAsync("/api/v1/storage/secure", ct);
     }
 
+    // ─────────────────────── Mutation lease ─────────────────
+    //
+    // Newer agents refuse to be changed by a session that has not taken control, so that two tools
+    // driving one app cannot interleave writes. Reads never need this; every write below goes
+    // through EnsureLeaseAsync first.
+
+    private string? _leaseId;
+    private readonly SemaphoreSlim _leaseGate = new(1, 1);
+
+    /// <summary>
+    /// Takes the mutation lease if this client does not already hold one.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The id is ours to choose, not the agent's to hand out: a claim names the lease it wants and
+    /// is granted when nobody else holds one. Once granted it rides on every later request as a
+    /// header, which is what tells the agent these writes are all the same session.
+    /// </para>
+    /// <para>
+    /// Silent when the agent has no lease to give - an older one has no such route, and that is a
+    /// fine outcome: it had no gate to begin with. A lease genuinely held by somebody else is left
+    /// alone, and the write that follows comes back with the agent's own explanation of who is
+    /// driving, which is a better message than anything this could invent.
+    /// </para>
+    /// </remarks>
+    /// <summary>
+    /// Sends a request that changes the app, taking the lease first and re-taking it once if the
+    /// agent says it has gone.
+    /// </summary>
+    /// <remarks>
+    /// A lease lapses after a spell of no contact, which is what stops a crashed session locking the
+    /// app forever. That means a session left idle long enough loses one - and the next thing the
+    /// user does would otherwise fail for a reason that has already fixed itself by the time they
+    /// read it. Re-claiming and sending again turns that into nothing they ever see.
+    /// </remarks>
+    private async Task<HttpResponseMessage> MutateAsync(Func<Task<HttpResponseMessage>> send, CancellationToken ct)
+    {
+        await this.EnsureLeaseAsync(ct);
+
+        var response = await send();
+        if (!IsLeaseRefusal(response))
+            return response;
+
+        response.Dispose();
+
+        // Whatever we were holding is no longer good. Drop it so the claim below is a fresh one.
+        _leaseId = null;
+        _http.DefaultRequestHeaders.Remove("X-DevFlow-Lease");
+
+        await this.EnsureLeaseAsync(ct);
+        return await send();
+    }
+
+    /// <summary>Whether the agent refused this because of the mutation lease rather than the request.</summary>
+    private static bool IsLeaseRefusal(HttpResponseMessage response)
+        => response.StatusCode == System.Net.HttpStatusCode.Conflict;
+
+    private async Task EnsureLeaseAsync(CancellationToken ct)
+    {
+        if (_leaseId is not null)
+            return;
+
+        await _leaseGate.WaitAsync(ct);
+        try
+        {
+            if (_leaseId is not null)
+                return;
+
+            var candidate = $"sherpa-inspector-{Guid.NewGuid():N}";
+
+            using var response = await _http.PostAsJsonAsync(
+                "/api/v1/agent/lease",
+                new MutationLeaseBody
+                {
+                    Action = "claim",
+                    LeaseId = candidate,
+                    HolderKind = "inspector",
+                    Label = "MAUI Sherpa Inspector"
+                },
+                InspectorJsonContext.Default.MutationLeaseBody,
+                ct);
+
+            if (!response.IsSuccessStatusCode)
+                return;
+
+            var status = await response.Content.ReadFromJsonAsync(
+                InspectorJsonContext.Default.MutationLeaseStatusBody, ct);
+
+            if (status is not { YouHold: true })
+                return;
+
+            _leaseId = candidate;
+            _http.DefaultRequestHeaders.Remove("X-DevFlow-Lease");
+            _http.DefaultRequestHeaders.Add("X-DevFlow-Lease", candidate);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+        {
+            // No lease is not a reason to refuse to try the write.
+        }
+        finally
+        {
+            _leaseGate.Release();
+        }
+    }
+
+    // ─────────────────────── File Storage ────────────────────
+
+    public async Task<IReadOnlyList<InspectorStorageRoot>> GetStorageRootsAsync(CancellationToken ct = default)
+    {
+        var result = await _http.GetFromJsonAsync("/api/v1/storage/roots", InspectorJsonContext.Default.StorageRootsEnvelope, ct);
+        return result?.Roots?.AsReadOnly() ?? (IReadOnlyList<InspectorStorageRoot>)[];
+    }
+
+    public async Task<InspectorFileListing> ListFilesAsync(string? root = null, string? path = null, CancellationToken ct = default)
+    {
+        var url = "/api/v1/storage/files";
+        var query = new List<string>();
+        if (!string.IsNullOrEmpty(path)) query.Add($"path={Uri.EscapeDataString(path)}");
+        if (!string.IsNullOrEmpty(root)) query.Add($"root={Uri.EscapeDataString(root)}");
+        if (query.Count > 0) url += "?" + string.Join("&", query);
+
+        using var response = await _http.GetAsync(url, ct);
+        await ThrowIfRefusedAsync(response, ct);
+
+        var listing = await response.Content.ReadFromJsonAsync(InspectorJsonContext.Default.InspectorFileListing, ct)
+            ?? new InspectorFileListing();
+
+        // Agents before the file manager landed did not send a per-entry path. Rebuild it here so
+        // every caller can rely on it rather than each one re-deriving it.
+        if (listing.Entries.Any(e => string.IsNullOrEmpty(e.Path)))
+        {
+            listing = listing with
+            {
+                Entries = listing.Entries
+                    .Select(e => string.IsNullOrEmpty(e.Path)
+                        ? e with { Path = string.IsNullOrEmpty(listing.Path) ? e.Name : $"{listing.Path}/{e.Name}" }
+                        : e)
+                    .ToList()
+            };
+        }
+
+        return listing;
+    }
+
+    public async Task<InspectorFileContent?> DownloadFileAsync(string path, string? root = null, CancellationToken ct = default)
+    {
+        // raw=true asks for the bytes themselves. The response carries no metadata, which is why the
+        // size and timestamp below come from the listing the caller already has, not from here.
+        var url = $"/api/v1/storage/files/{Uri.EscapeDataString(path)}?raw=true{RootQuery(root, first: false)}";
+
+        using var response = await _http.GetAsync(url, ct);
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            return null;
+
+        await ThrowIfRefusedAsync(response, ct);
+
+        var bytes = await response.Content.ReadAsByteArrayAsync(ct);
+        return new InspectorFileContent
+        {
+            Root = root ?? string.Empty,
+            Path = path,
+            Size = bytes.LongLength,
+            Content = bytes
+        };
+    }
+
+    public async Task UploadFileAsync(string path, byte[] content, string? root = null, CancellationToken ct = default)
+    {
+        var url = $"/api/v1/storage/files/{Uri.EscapeDataString(path)}{RootQuery(root, first: true)}";
+
+        using var response = await this.MutateAsync(
+            () =>
+            {
+                // A fresh content each attempt: a ByteArrayContent that has already been sent cannot
+                // be sent again.
+                var body = new ByteArrayContent(content);
+                body.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
+                return _http.PutAsync(url, body, ct);
+            },
+            ct);
+
+        await ThrowIfRefusedAsync(response, ct);
+    }
+
+    public async Task DeleteFileAsync(string path, string? root = null, CancellationToken ct = default)
+    {
+        var url = $"/api/v1/storage/files/{Uri.EscapeDataString(path)}{RootQuery(root, first: true)}";
+        using var response = await this.MutateAsync(() => _http.DeleteAsync(url, ct), ct);
+        await ThrowIfRefusedAsync(response, ct);
+    }
+
+    public async Task CreateDirectoryAsync(string path, string? root = null, CancellationToken ct = default)
+    {
+        var url = $"/api/v1/storage/directories/{Uri.EscapeDataString(path)}{RootQuery(root, first: true)}";
+
+        using var response = await this.MutateAsync(
+            () => _http.PutAsJsonAsync(url, new EmptyBody(), InspectorJsonContext.Default.EmptyBody, ct), ct);
+
+        await ThrowIfRefusedAsync(response, ct);
+    }
+
+    public async Task DeleteDirectoryAsync(string path, bool recursive = false, string? root = null, CancellationToken ct = default)
+    {
+        var url = $"/api/v1/storage/directories/{Uri.EscapeDataString(path)}?recursive={(recursive ? "true" : "false")}{RootQuery(root, first: false)}";
+        using var response = await this.MutateAsync(() => _http.DeleteAsync(url, ct), ct);
+        await ThrowIfRefusedAsync(response, ct);
+    }
+
+    public async Task MoveAsync(string from, string to, bool overwrite = false, string? root = null, CancellationToken ct = default)
+    {
+        var url = $"/api/v1/storage/files/move{RootQuery(root, first: true)}";
+        var body = new FileMoveBody { From = from, To = to, Overwrite = overwrite };
+
+        using var response = await this.MutateAsync(
+            () => _http.PostAsJsonAsync(url, body, InspectorJsonContext.Default.FileMoveBody, ct), ct);
+
+        await ThrowIfRefusedAsync(response, ct);
+    }
+
+    private static string RootQuery(string? root, bool first)
+        => string.IsNullOrEmpty(root) ? string.Empty : $"{(first ? '?' : '&')}root={Uri.EscapeDataString(root)}";
+
+    /// <summary>
+    /// Surfaces the agent's own refusal text. "Storage root 'cache' does not support 'upload'" tells
+    /// someone what to do next; "400 Bad Request" does not.
+    /// </summary>
+    private static async Task ThrowIfRefusedAsync(HttpResponseMessage response, CancellationToken ct)
+    {
+        if (response.IsSuccessStatusCode)
+            return;
+
+        throw new InspectorFileException(await ReadRefusalAsync(response, ct));
+    }
+
+    private static async Task<string> ReadRefusalAsync(HttpResponseMessage response, CancellationToken ct)
+    {
+        try
+        {
+            var body = await response.Content.ReadAsStringAsync(ct);
+            if (!string.IsNullOrWhiteSpace(body))
+            {
+                using var doc = JsonDocument.Parse(body);
+                if (doc.RootElement.TryGetProperty("error", out var error) && error.GetString() is { } message)
+                    return message;
+            }
+        }
+        catch (JsonException) { }
+
+        return $"The agent refused the request ({(int)response.StatusCode}).";
+    }
+
+    // ─────────────────────── SQLite ──────────────────────────
+
+    public Task<InspectorDatabaseSchema> GetDatabaseSchemaAsync(string path, string? root = null, CancellationToken ct = default)
+        => ReadAsync(
+            $"/api/v1/storage/sqlite/schema?path={Uri.EscapeDataString(path)}{RootQuery(root, first: false)}",
+            InspectorJsonContext.Default.InspectorDatabaseSchema,
+            ct);
+
+    public Task<InspectorDatabaseResult> QueryDatabaseAsync(string path, string sql, int? maxRows = null, string? root = null, CancellationToken ct = default)
+        => PostAsync(
+            "query",
+            new SqliteQueryBody { Path = path, Sql = sql, MaxRows = maxRows },
+            InspectorJsonContext.Default.SqliteQueryBody,
+            root,
+            ct);
+
+    public Task<InspectorDatabaseRows> GetDatabaseRowsAsync(string path, string table, int? maxRows = null, string? root = null, CancellationToken ct = default)
+    {
+        var url = $"/api/v1/storage/sqlite/rows?path={Uri.EscapeDataString(path)}&table={Uri.EscapeDataString(table)}";
+        if (maxRows is { } cap)
+            url += $"&maxRows={cap}";
+
+        return ReadAsync(url + RootQuery(root, first: false), InspectorJsonContext.Default.InspectorDatabaseRows, ct);
+    }
+
+    public Task<InspectorDatabaseResult> InsertDatabaseRowAsync(string path, string table, IReadOnlyList<InspectorDatabaseCell> values, string? root = null, CancellationToken ct = default)
+        => PostAsync(
+            "rows",
+            new SqliteRowBody { Path = path, Table = table, Values = [.. values] },
+            InspectorJsonContext.Default.SqliteRowBody,
+            root,
+            ct);
+
+    public async Task<InspectorDatabaseResult> UpdateDatabaseRowAsync(string path, string table, long rowId, IReadOnlyList<InspectorDatabaseCell> changes, string? root = null, CancellationToken ct = default)
+    {
+        var url = $"/api/v1/storage/sqlite/rows{RootQuery(root, first: true)}";
+        var body = new SqliteRowBody { Path = path, Table = table, RowId = rowId, Values = [.. changes] };
+
+        using var response = await this.MutateAsync(
+            () => _http.PutAsJsonAsync(url, body, InspectorJsonContext.Default.SqliteRowBody, ct), ct);
+
+        return await ReadResultAsync(response, ct);
+    }
+
+    public Task<InspectorDatabaseResult> DeleteDatabaseRowAsync(string path, string table, long rowId, string? root = null, CancellationToken ct = default)
+        => PostAsync(
+            "rows/delete",
+            new SqliteRowBody { Path = path, Table = table, RowId = rowId },
+            InspectorJsonContext.Default.SqliteRowBody,
+            root,
+            ct);
+
+    public async Task CreateDatabaseAsync(string path, string? root = null, CancellationToken ct = default)
+    {
+        var url = $"/api/v1/storage/sqlite/create{RootQuery(root, first: true)}";
+        var body = new SqlitePathBody { Path = path };
+
+        using var response = await this.MutateAsync(
+            () => _http.PostAsJsonAsync(url, body, InspectorJsonContext.Default.SqlitePathBody, ct), ct);
+
+        await ThrowIfRefusedAsync(response, ct);
+    }
+
+    private async Task<InspectorDatabaseResult> PostAsync<TBody>(
+        string route, TBody body, JsonTypeInfo<TBody> typeInfo, string? root, CancellationToken ct)
+    {
+        // Even a SELECT goes through here: the query pane can run DDL, so the agent treats the
+        // route as a mutation and this client has to be holding the lease to use it.
+        var url = $"/api/v1/storage/sqlite/{route}{RootQuery(root, first: true)}";
+
+        using var response = await this.MutateAsync(
+            () => _http.PostAsJsonAsync(url, body, typeInfo, ct), ct);
+
+        return await ReadResultAsync(response, ct);
+    }
+
+    /// <summary>
+    /// A statement's outcome, whichever way it arrived. The agent answers a failed statement with a
+    /// 200 and an error field, and a refused request - no such root, no such file - with a 4xx and
+    /// its own wording; both are the same thing to the pane that shows them.
+    /// </summary>
+    private static async Task<InspectorDatabaseResult> ReadResultAsync(HttpResponseMessage response, CancellationToken ct)
+    {
+        if (!response.IsSuccessStatusCode)
+            return new InspectorDatabaseResult { Error = await ReadRefusalAsync(response, ct) };
+
+        return await response.Content.ReadFromJsonAsync(InspectorJsonContext.Default.InspectorDatabaseResult, ct)
+            ?? new InspectorDatabaseResult { Error = "The agent answered with nothing." };
+    }
+
+    private async Task<T> ReadAsync<T>(string url, JsonTypeInfo<T> typeInfo, CancellationToken ct) where T : new()
+    {
+        using var response = await _http.GetAsync(url, ct);
+        if (!response.IsSuccessStatusCode)
+            throw new InspectorFileException(await ReadRefusalAsync(response, ct));
+
+        return await response.Content.ReadFromJsonAsync(typeInfo, ct) ?? new T();
+    }
+
     public void Dispose()
     {
+        _leaseGate.Dispose();
         _http.Dispose();
     }
 }

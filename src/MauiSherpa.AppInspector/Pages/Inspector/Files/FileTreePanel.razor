@@ -1,0 +1,133 @@
+@using Shiny.Blazor.Controls
+@using MauiSherpa.Core.Models.Inspector
+@implements IDisposable
+@inject FileManagerState State
+@inject IToastService Toasts
+
+<div class="fm-pane">
+    @if (this.State.Unsupported is { } reason)
+    {
+        <div class="fm-empty">
+            <h2>No files to browse</h2>
+            <p>@reason</p>
+        </div>
+    }
+    else if (this.roots.Count == 0)
+    {
+        <div class="fm-empty"><p>Looking for storage…</p></div>
+    }
+    else
+    {
+        <TreeView TItem="FileManagerNode"
+                  @ref="this.tree"
+                  ItemsSource="this.roots"
+                  ChildrenLoader="this.LoadChildren"
+                  HasChildrenSelector="@(_ => true)"
+                  SelectionMode="BlazorTreeSelectionMode.Single"
+                  SelectedItem="this.selected"
+                  SelectedItemChanged="this.OnSelected"
+                  ShowGuideLines="true"
+                  IndentSize="18"
+                  ChevronSize="11"
+                  ChevronColor="var(--text-tertiary)"
+                  LoadFailed="this.OnLoadFailed">
+            <ItemTemplate Context="node">
+                <span class="fm-tree-row">
+                    <i class="@(node.IsRoot ? "fas fa-hard-drive" : "fas fa-folder") fm-tree-row__glyph" aria-hidden="true"></i>
+                    <span class="fm-tree-row__name">@node.Name</span>
+                    @* Worth saying on the root rather than in a tooltip: anything put here can be gone
+                       by the next launch, and that is surprising the first time it happens. *@
+                    @if (node.MayBeClearedBySystem)
+                    {
+                        <span class="fm-tree-row__note" title="The system may empty this at any time">volatile</span>
+                    }
+                </span>
+            </ItemTemplate>
+            <LoadingTemplate>
+                <div class="fm-empty"><p>Reading…</p></div>
+            </LoadingTemplate>
+        </TreeView>
+    }
+</div>
+
+@code {
+    TreeView<FileManagerNode>? tree;
+    List<FileManagerNode> roots = [];
+    FileManagerNode? selected;
+
+    protected override void OnInitialized()
+    {
+        this.State.Changed += this.OnStateChanged;
+        this.State.DirectoryInvalidated += this.OnDirectoryInvalidated;
+        this.Rebuild();
+    }
+
+    public void Dispose()
+    {
+        this.State.Changed -= this.OnStateChanged;
+        this.State.DirectoryInvalidated -= this.OnDirectoryInvalidated;
+    }
+
+    void OnStateChanged()
+    {
+        this.Rebuild();
+        this.InvokeAsync(this.StateHasChanged);
+    }
+
+    void Rebuild()
+    {
+        var next = this.State.Roots.Select(FileManagerNode.ForRoot).ToList();
+
+        // Replacing the list on every state change would collapse the tree, so it is only swapped
+        // when the roots themselves actually differ.
+        if (next.Count != this.roots.Count || !next.SequenceEqual(this.roots))
+            this.roots = next;
+
+        if (this.State.Root is { } root)
+        {
+            this.selected = new FileManagerNode
+            {
+                RootId = root.Id,
+                Path = this.State.Path,
+                Name = this.State.Path.Length == 0 ? root.DisplayName : this.State.Path[(this.State.Path.LastIndexOf('/') + 1)..]
+            };
+        }
+    }
+
+    async Task<IEnumerable<FileManagerNode>> LoadChildren(FileManagerNode node)
+    {
+        var listing = await this.State.Client.ListFilesAsync(node.RootId, node.Path);
+        return listing.Entries
+            .Where(e => e.IsDirectory)
+            .OrderBy(e => e.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(e => new FileManagerNode { RootId = node.RootId, Path = e.Path, Name = e.Name })
+            .ToList();
+    }
+
+    Task OnSelected(FileManagerNode? node)
+    {
+        this.selected = node;
+        if (node is null)
+            return Task.CompletedTask;
+
+        var root = this.State.Roots.FirstOrDefault(r => r.Id == node.RootId);
+        return root is null ? Task.CompletedTask : this.State.OpenRoot(root, node.Path);
+    }
+
+    async Task OnDirectoryInvalidated(string path)
+    {
+        if (this.tree is null || this.State.Root is not { } root)
+            return;
+
+        // Refresh drops the cached children for that branch; collapsing would only hide them.
+        await this.tree.RefreshAsync(new FileManagerNode
+        {
+            RootId = root.Id,
+            Path = path,
+            Name = path.Length == 0 ? root.DisplayName : path[(path.LastIndexOf('/') + 1)..]
+        });
+    }
+
+    Task OnLoadFailed(TreeLoadFailedEventArgs<FileManagerNode> args)
+        => this.Toasts.DangerAsync($"Could not read that directory. {args.Exception.Message}");
+}

@@ -1,0 +1,174 @@
+@using Shiny.Blazor.Controls
+@using MauiSherpa.Core.Models.Inspector
+@implements IDisposable
+@inject DatabaseSession Db
+@inject FileManagerState Files
+@inject IToastService Toasts
+
+@*
+    What the database holds. Selecting a table drives the grid; the columns and indexes underneath
+    are the other half of reading a schema - the columns say what a table holds, and the indexes say
+    what it can be looked up by.
+*@
+
+<div class="fm-pane">
+    <div class="fm-head">
+        <button type="button" class="fm-action" @onclick="this.BackToFiles" title="Close this database">
+            <i class="fas fa-arrow-left" aria-hidden="true"></i>
+        </button>
+        <span class="fm-open-name">@(this.Db.File?.Name ?? "Database")</span>
+        <div class="fm-head__spacer"></div>
+        <button type="button" class="fm-action" @onclick="this.Db.ReloadSchema" title="Read the schema again">
+            <i class="fas fa-arrows-rotate" aria-hidden="true"></i>
+        </button>
+    </div>
+
+    <div class="fm-body">
+        @if (this.Db.Error is { } error)
+        {
+            <div class="fm-empty">
+                <h2>That database would not open</h2>
+                <p>@error</p>
+            </div>
+        }
+        else if (this.Db.Schema is not { } schema)
+        {
+            <div class="fm-empty"><i class="fas fa-spinner fa-spin" aria-hidden="true"></i><p>Reading the schema…</p></div>
+        }
+        else
+        {
+            <div class="db-actions">
+                <button type="button" class="fm-action" @onclick="this.NewQuery">
+                    <i class="fas fa-terminal" aria-hidden="true"></i> Query
+                </button>
+                <button type="button" class="fm-action" @onclick="this.Db.StartNewTable">
+                    <i class="fas fa-plus" aria-hidden="true"></i> Table
+                </button>
+            </div>
+
+            @if (schema.Tables.Length == 0)
+            {
+                <div class="fm-empty">
+                    <h2>Nothing in here yet</h2>
+                    <p>This database has no tables. Create one to get started.</p>
+                </div>
+            }
+
+            <ul class="db-tables">
+                @foreach (var table in schema.Tables)
+                {
+                    <li>
+                        <button type="button"
+                                class="db-table @(table.Name == this.Db.Table?.Name ? "db-table--on" : "")"
+                                @onclick="() => this.Db.Select(table)">
+                            <i class="@(table.IsView ? "far fa-eye" : "fas fa-table") db-table__glyph" aria-hidden="true"></i>
+                            <span class="db-table__name">@table.Name</span>
+                            @if (table.IsView)
+                            {
+                                <span class="fm-tree-row__note" title="A view has no rowid, so its rows cannot be edited">view</span>
+                            }
+                            else if (!table.HasRowId)
+                            {
+                                <span class="fm-tree-row__note" title="WITHOUT ROWID, so its rows cannot be named for editing">no rowid</span>
+                            }
+                        </button>
+
+                        @if (table.Name == this.Db.Table?.Name)
+                        {
+                            <div class="db-detail">
+                                @foreach (var column in table.Columns)
+                                {
+                                    <div class="db-col">
+                                        @if (column.PrimaryKey)
+                                        {
+                                            <i class="fas fa-key db-col__key" title="Primary key" aria-hidden="true"></i>
+                                        }
+                                        <span class="db-col__name">@column.Name</span>
+                                        <span class="db-col__type">@column.Type</span>
+                                        @if (column.NotNull)
+                                        {
+                                            <span class="db-col__flag" title="NOT NULL">!</span>
+                                        }
+                                    </div>
+                                }
+
+                                @if (table.Indexes.Length > 0)
+                                {
+                                    <div class="db-detail__heading">Indexes</div>
+                                    @foreach (var index in table.Indexes)
+                                    {
+                                        <div class="db-col" title="@Describe(index)">
+                                            <i class="fas fa-list-ol db-col__key" aria-hidden="true"></i>
+                                            <span class="db-col__name">@string.Join(", ", index.Columns)</span>
+                                            @if (index.Unique)
+                                            {
+                                                <span class="db-col__flag">unique</span>
+                                            }
+                                        </div>
+                                    }
+                                }
+
+                                @if (!table.IsView)
+                                {
+                                    <button type="button" class="fm-action db-detail__edit" @onclick="() => this.Db.EditTable(table)">
+                                        <i class="fas fa-pen" aria-hidden="true"></i> Design
+                                    </button>
+                                }
+                            </div>
+                        }
+                    </li>
+                }
+            </ul>
+
+            <div class="db-foot">
+                SQLite @schema.SqliteVersion · @FormatBytes(schema.FileSize)
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    protected override void OnInitialized() => this.Db.Changed += this.OnChanged;
+
+    public void Dispose() => this.Db.Changed -= this.OnChanged;
+
+    void OnChanged() => this.InvokeAsync(this.StateHasChanged);
+
+    void BackToFiles()
+    {
+        this.Db.Close();
+        this.Files.CloseFile();
+    }
+
+    async Task NewQuery()
+    {
+        if (this.Db.OpenQueryWindow() is null)
+            await this.Toasts.WarningAsync("Every query window this workspace holds is already open.");
+    }
+
+    /// <summary>The tooltip for an index: what it is over, and where it came from.</summary>
+    static string Describe(InspectorDatabaseIndex index)
+    {
+        var parts = new List<string> { index.Name };
+        if (index.Automatic)
+            parts.Add("created by SQLite for a constraint; cannot be dropped");
+        if (index.Partial)
+            parts.Add("partial - covers only some rows");
+
+        return string.Join(" · ", parts);
+    }
+
+    static string FormatBytes(long bytes)
+    {
+        string[] units = ["B", "KB", "MB", "GB"];
+        double size = bytes;
+        var unit = 0;
+        while (size >= 1024 && unit < units.Length - 1)
+        {
+            size /= 1024;
+            unit++;
+        }
+
+        return unit == 0 ? $"{bytes} B" : $"{size:0.#} {units[unit]}";
+    }
+}

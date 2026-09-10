@@ -1,0 +1,187 @@
+@using Shiny.Blazor.Controls
+@using MauiSherpa.Core.Models.Inspector
+@implements IDisposable
+@inject FileManagerState State
+@inject IToastService Toasts
+
+@*
+    Whatever the open file turned out to be. One panel rather than one per kind, because the dock
+    layout has to name its panel types up front and "the file that is open" is one slot however many
+    shapes it can hold.
+*@
+
+<div class="fm-pane">
+    @if (this.State.Open is not { } session)
+    {
+        <div class="fm-empty">
+            <h2>Nothing open</h2>
+            <p>Choose a file in the listing to see what is in it.</p>
+        </div>
+    }
+    else
+    {
+        <div class="fm-head">
+            <span class="fm-open-name">
+                <i class="@Glyph(session.Kind) fm-cell-name__glyph" aria-hidden="true"></i>
+                @session.Name
+                @if (session.IsDirty)
+                {
+                    <span class="fm-open-dirty" title="Unsaved changes">•</span>
+                }
+            </span>
+
+            <div class="fm-head__spacer"></div>
+
+            <div class="fm-actions">
+                @if (session.Kind == FileKind.Image && session.Content is not null)
+                {
+                    @if (!this.editing)
+                    {
+                        <button type="button" class="fm-action" @onclick="() => this.fullScreen = true" title="Fill the screen">
+                            <i class="fas fa-expand" aria-hidden="true"></i>
+                        </button>
+                    }
+                    <button type="button" class="fm-action" @onclick="this.ToggleEdit">
+                        <i class="@(this.editing ? "far fa-image" : "fas fa-pen")" aria-hidden="true"></i>
+                        @(this.editing ? "Done" : "Edit")
+                    </button>
+                }
+
+                @if (this.CanSave(session))
+                {
+                    <button type="button" class="fm-action fm-action--primary" @onclick="() => this.Save(session)" disabled="@this.saving">
+                        <i class="fas fa-floppy-disk" aria-hidden="true"></i>
+                        @(this.saving ? "Saving…" : "Save")
+                    </button>
+                }
+
+                <button type="button" class="fm-action" @onclick="this.State.CloseFile" title="Close this file">
+                    <i class="fas fa-xmark" aria-hidden="true"></i>
+                </button>
+            </div>
+        </div>
+
+        <div class="fm-body fm-body--viewer">
+            @if (session.IsLoading)
+            {
+                <div class="fm-empty"><i class="fas fa-spinner fa-spin" aria-hidden="true"></i><p>Reading @session.Name…</p></div>
+            }
+            else if (session.Error is { } error)
+            {
+                <div class="fm-empty">
+                    <h2>That file would not open</h2>
+                    <p>@error</p>
+                </div>
+            }
+            else
+            {
+                @switch (session.Kind)
+                {
+                    case FileKind.Image:
+                        <FileImageView Session="session"
+                                       Editing="this.editing"
+                                       FullScreen="this.fullScreen"
+                                       FullScreenChanged="v => this.fullScreen = v"
+                                       @ref="this.imageView" />
+                        break;
+
+                    case FileKind.Text:
+                        <FileTextView Session="session" @ref="this.textView" Changed="this.OnTextChanged" />
+                        break;
+
+                    case FileKind.Database:
+                        <DatabaseWorkspacePanel Session="session" />
+                        break;
+
+                    default:
+                        <div class="fm-empty">
+                            <h2>Nothing here can show this</h2>
+                            <p>@session.Name is not a picture, a text file or a database. Download it to open it elsewhere.</p>
+                        </div>
+                        break;
+                }
+            }
+        </div>
+    }
+</div>
+
+@code {
+    FileImageView? imageView;
+    FileTextView? textView;
+    bool editing;
+    bool fullScreen;
+    bool saving;
+
+    protected override void OnInitialized() => this.State.OpenChanged += this.OnOpenChanged;
+
+    public void Dispose() => this.State.OpenChanged -= this.OnOpenChanged;
+
+    void OnOpenChanged()
+    {
+        // A different file arrives in the same panel, so the editing toggle has to go back to off -
+        // otherwise a picture opens straight into the crop tool because the last one did.
+        this.editing = false;
+        this.fullScreen = false;
+        this.InvokeAsync(this.StateHasChanged);
+    }
+
+    void ToggleEdit()
+    {
+        this.editing = !this.editing;
+        this.StateHasChanged();
+    }
+
+    void OnTextChanged()
+    {
+        if (this.State.Open is { } session && !session.IsDirty)
+        {
+            session.IsDirty = true;
+            this.StateHasChanged();
+        }
+    }
+
+    /// <summary>
+    /// A database has no save button: its writes went through the moment they were made. Everything
+    /// else is edited in the browser and written back whole.
+    /// </summary>
+    bool CanSave(FileSession session)
+        => session.Kind is FileKind.Image or FileKind.Text
+            && session.Content is not null
+            && this.State.Can(InspectorStorageOperations.Upload);
+
+    async Task Save(FileSession session)
+    {
+        this.saving = true;
+        try
+        {
+            var bytes = session.Kind switch
+            {
+                FileKind.Image when this.imageView is not null => await this.imageView.ExportAsync(),
+                FileKind.Text when this.textView is not null => await this.textView.ReadAsync(),
+                _ => null
+            };
+
+            if (bytes is null)
+                return;
+
+            await this.State.SaveOpenFile(bytes);
+            await this.Toasts.SuccessAsync($"Saved {session.Name}");
+        }
+        catch (Exception ex)
+        {
+            await this.Toasts.DangerAsync(ex.Message);
+        }
+        finally
+        {
+            this.saving = false;
+        }
+    }
+
+    static string Glyph(FileKind kind) => kind switch
+    {
+        FileKind.Image => "far fa-image",
+        FileKind.Text => "far fa-file-lines",
+        FileKind.Database => "fas fa-database",
+        _ => "far fa-file"
+    };
+}

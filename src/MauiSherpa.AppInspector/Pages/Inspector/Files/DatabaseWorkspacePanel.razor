@@ -1,0 +1,38 @@
+@implements IDisposable
+@inject DatabaseSession Db
+@inject FileManagerState Files
+
+@*
+    Placeholder for a database opened in the viewer slot. The workspace proper is not drawn here -
+    when a database is open the Files tab swaps its whole dock layout for the workspace one, which is
+    what gives the tables list a rail of its own and the query windows tabs of their own. This is
+    what the viewer shows in the moment between the two.
+*@
+
+<div class="fm-pane">
+    @if (this.Db.Error is { } error)
+    {
+        <div class="fm-empty">
+            <h2>That database would not open</h2>
+            <p>@error</p>
+            <button type="button" class="fm-action" @onclick="this.Files.CloseFile">Back to files</button>
+        </div>
+    }
+    else
+    {
+        <div class="fm-empty">
+            <i class="fas fa-spinner fa-spin" aria-hidden="true"></i>
+            <p>Opening @(this.Session?.Name ?? "the database")…</p>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public FileSession? Session { get; set; }
+
+    protected override void OnInitialized() => this.Db.Changed += this.OnChanged;
+
+    public void Dispose() => this.Db.Changed -= this.OnChanged;
+
+    void OnChanged() => this.InvokeAsync(this.StateHasChanged);
+}
