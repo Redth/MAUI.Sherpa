@@ -774,7 +774,15 @@ public record AppleCertificate(
     string Platform,
     DateTime ExpirationDate,
     string SerialNumber
-);
+)
+{
+    /// <summary>
+    /// True when this certificate came from the local keychain rather than App Store
+    /// Connect. Developer ID Installer certificates are not returned by the API, so they
+    /// only exist locally — App Store Connect actions such as revoke do not apply.
+    /// </summary>
+    public bool IsLocalOnly { get; init; }
+}
 
 public record AppleProfile(
     string Id,
@@ -2384,6 +2392,11 @@ public interface IOperationModalService
     /// Whether an operation is currently running
     /// </summary>
     bool IsRunning { get; }
+
+    /// <summary>
+    /// Requests cancellation of the running operation
+    /// </summary>
+    void RequestCancellation();
     
     /// <summary>
     /// Event fired when the modal is shown
