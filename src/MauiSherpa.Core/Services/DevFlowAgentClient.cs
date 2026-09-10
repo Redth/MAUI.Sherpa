@@ -50,7 +50,10 @@ public class DevFlowAgentClient : IDisposable
     {
         AgentHost = host;
         AgentPort = port;
-        _http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+        _http = new HttpClient(new DevFlowMutationLeaseHandler(new DevFlowMutationLease(), new HttpClientHandler()))
+        {
+            Timeout = TimeSpan.FromSeconds(15)
+        };
     }
 
     // --- Broker API ---

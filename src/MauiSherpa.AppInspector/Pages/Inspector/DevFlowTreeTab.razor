@@ -130,6 +130,16 @@
                 </button>
             }
         </div>
+        @if (!string.IsNullOrEmpty(propertyError))
+        {
+            <div class="prop-error" role="alert">
+                <i class="fas fa-triangle-exclamation"></i>
+                <span>@propertyError</span>
+                <button class="btn-icon" @onclick="() => propertyError = null" title="Dismiss">
+                    <i class="fas fa-xmark"></i>
+                </button>
+            </div>
+        }
         <div class="props-container">
             @if (selectedElement != null)
             {
@@ -306,6 +316,7 @@
     private string searchQuery = "";
     private string? screenshotData;
     private string? screenshotError;
+    private string? propertyError;
     private bool isLoadingTree;
     private bool isLoadingProps;
     private int autoRefreshInterval;
@@ -1370,7 +1381,21 @@
         selectedStopIndex = null;
         isDraggingStop = false;
         StateHasChanged();
-        await Client.SetPropertyAsync(elementId, prop, val);
+        await SetPropertyAndRefreshAsync(elementId, prop, val);
+    }
+
+    private async Task SetPropertyAndRefreshAsync(string elementId, string propertyName, string value)
+    {
+        try
+        {
+            await Client.SetPropertyAsync(elementId, propertyName, value);
+            propertyError = null;
+        }
+        catch (Exception ex)
+        {
+            propertyError = $"Couldn't set {propertyName}: {ex.Message}";
+        }
+
         await RefreshTree();
         await RefreshProperties();
     }
@@ -1517,9 +1542,7 @@
         {
             if (selectedElement != null)
             {
-                await Client.SetPropertyAsync(selectedElement.Id, prop.Name, e.Value?.ToString() ?? "");
-                await RefreshTree();
-                await RefreshProperties();
+                await SetPropertyAndRefreshAsync(selectedElement.Id, prop.Name, e.Value?.ToString() ?? "");
             }
         }));
 
@@ -1576,10 +1599,8 @@
             {
                 if (selectedElement != null)
                 {
-                    await Client.SetPropertyAsync(selectedElement.Id, prop.Name, e.Value?.ToString() ?? "");
                     editingProperty = null;
-                    await RefreshTree();
-                    await RefreshProperties();
+                    await SetPropertyAndRefreshAsync(selectedElement.Id, prop.Name, e.Value?.ToString() ?? "");
                 }
             }));
             __builder.CloseElement();
@@ -2350,9 +2371,7 @@
     private async Task ToggleBoolProperty(string propertyName, bool currentValue)
     {
         if (selectedElement == null) return;
-        await Client.SetPropertyAsync(selectedElement.Id, propertyName, (!currentValue).ToString());
-        await RefreshTree();
-        await RefreshProperties();
+        await SetPropertyAndRefreshAsync(selectedElement.Id, propertyName, (!currentValue).ToString());
     }
 
     private async Task FocusSelected()
@@ -2386,9 +2405,7 @@
     private async Task CommitThickness(string propName, string top, string right, string bottom, string left)
     {
         if (selectedElement == null) return;
-        await Client.SetPropertyAsync(selectedElement.Id, propName, $"{left},{top},{right},{bottom}");
-        await RefreshTree();
-        await RefreshProperties();
+        await SetPropertyAndRefreshAsync(selectedElement.Id, propName, $"{left},{top},{right},{bottom}");
     }
 
     // --- Color parsing helpers ---
@@ -2502,6 +2519,22 @@
         display: flex;
         flex-direction: column;
         flex-shrink: 0;
+    }
+
+    .prop-error {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.5rem;
+        padding: 0.5rem 0.75rem;
+        border-bottom: 1px solid var(--border-color);
+        color: var(--text-error, #c0392b);
+        font-size: 0.8rem;
+        flex-shrink: 0;
+    }
+
+    .prop-error span {
+        flex: 1;
+        overflow-wrap: anywhere;
     }
 
     .resize-handle {
