@@ -93,6 +93,7 @@
                 <option value="DEVELOPMENT">Development</option>
                 <option value="DISTRIBUTION">Distribution</option>
                 <option value="DEVELOPER_ID">Developer ID</option>
+                <option value="DEVELOPER_ID_INSTALLER">Developer ID Installer</option>
             </select>
             <select @bind="filterPlatform" class="filter-select">
                 <option value="">All Platforms</option>
@@ -193,6 +194,12 @@
                             {
                                 <span class="badge badge-platform">@formattedPlatform</span>
                             }
+                            @if (cert.IsLocalOnly)
+                            {
+                                <span class="badge badge-local-only" title="Not published by App Store Connect — read from your local keychain">
+                                    <i class="fas fa-key"></i> Keychain only
+                                </span>
+                            }
                             @if (isExpired)
                             {
                                 <span class="badge badge-expired">Expired</span>
@@ -238,10 +245,13 @@
                                 <i class="fas fa-trash-alt"></i>
                             </button>
                         }
-                        <button class="btn btn-danger btn-icon" @onclick="@(() => RevokeCertificate(cert))" 
-                                disabled="@isLoading" title="Revoke">
-                            <i class="fas fa-ban"></i>
-                        </button>
+                        @if (!cert.IsLocalOnly)
+                        {
+                            <button class="btn btn-danger btn-icon" @onclick="@(() => RevokeCertificate(cert))"
+                                    disabled="@isLoading" title="Revoke">
+                                <i class="fas fa-ban"></i>
+                            </button>
+                        }
                     </div>
                     }
                 </div>
@@ -514,6 +524,7 @@
 
     .badge { padding: 2px 0.625rem; border-radius: 0.75rem; font-size: 0.75rem; font-weight: 500; }
     .badge-type { background: #faf5ff; color: #6b46c1; }
+    .badge-local-only { background: var(--sync-local-bg); color: var(--sync-local-text); }
     .badge-platform { background: #bee3f8; color: #2c5282; }
     .badge-valid { background: var(--status-success-bg); color: var(--status-success-text); }
     .badge-expiring { background: var(--status-warning-bg); color: var(--status-warning-text); }
@@ -685,7 +696,14 @@
             switch (filterId)
             {
                 case "type":
-                    filterType = selectedIndex switch { 1 => "DEVELOPMENT", 2 => "DISTRIBUTION", 3 => "DEVELOPER_ID", _ => "" };
+                    filterType = selectedIndex switch
+                    {
+                        1 => "DEVELOPMENT",
+                        2 => "DISTRIBUTION",
+                        3 => "DEVELOPER_ID",
+                        4 => "DEVELOPER_ID_INSTALLER",
+                        _ => ""
+                    };
                     break;
                 case "platform":
                     filterPlatform = selectedIndex switch { 1 => "IOS", 2 => "MAC", _ => "" };
@@ -935,7 +953,7 @@
 
         ToolbarService.SetSearch("Search certificates...");
         ToolbarService.SetFilters(
-            new ToolbarFilter("type", "Type", ["All Types", "Development", "Distribution", "Developer ID"]),
+            new ToolbarFilter("type", "Type", ["All Types", "Development", "Distribution", "Developer ID", "Developer ID Installer"]),
             new ToolbarFilter("platform", "Platform", ["All Platforms", "iOS", "macOS"]),
             new ToolbarFilter("status", "Status", ["All Statuses", "Valid", "Expiring Soon", "Expired"]));
     }
