@@ -1,0 +1,204 @@
+@using System.Text
+@using System.Text.Encodings.Web
+@using System.Text.Json
+@using System.Text.Json.Nodes
+
+<div class="push-json-editor @(isInvalid ? "invalid" : "")">
+    <div class="push-json-toolbar">
+        <span class="push-json-file"><i class="fas fa-code"></i> @FileName</span>
+        <div class="push-json-meta">
+            @if (MaxBytes.HasValue)
+            {
+                <span class="push-json-size @(byteCount > MaxBytes.Value ? "over" : "")"
+                      title="APNs rejects payloads larger than @MaxBytes.Value.ToString("N0") bytes">
+                    @byteCount.ToString("N0") / @MaxBytes.Value.ToString("N0") B
+                </span>
+            }
+            @if (!string.IsNullOrWhiteSpace(Value))
+            {
+                <span class="push-json-state @(isInvalid ? "invalid" : "valid")">
+                    <i class="fas @(isInvalid ? "fa-circle-exclamation" : "fa-circle-check")"></i>
+                    @(isInvalid ? "Invalid JSON" : "Valid JSON")
+                </span>
+            }
+            <button type="button" class="push-link-btn" @onclick="Format" disabled="@(isInvalid || string.IsNullOrWhiteSpace(Value))" title="Pretty-print the JSON">
+                <i class="fas fa-align-left"></i> Format
+            </button>
+        </div>
+    </div>
+    <textarea class="push-json-input" rows="@Rows" spellcheck="false" placeholder="@Placeholder"
+              value="@Value" @oninput="OnInput"></textarea>
+    @if (isInvalid && !string.IsNullOrEmpty(parseError))
+    {
+        <div class="push-json-error"><i class="fas fa-triangle-exclamation"></i> @parseError</div>
+    }
+</div>
+
+<style>
+    .push-json-editor {
+        border: 1px solid var(--input-border);
+        border-radius: 0.6rem;
+        overflow: hidden;
+        background: var(--input-bg);
+        transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .push-json-editor:focus-within {
+        border-color: var(--accent-primary);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 20%, transparent);
+    }
+
+    .push-json-editor.invalid {
+        border-color: color-mix(in srgb, var(--accent-danger) 65%, var(--input-border));
+    }
+
+    .push-json-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.5rem;
+        padding: 0.35rem 0.4rem 0.35rem 0.8rem;
+        border-bottom: 1px solid var(--input-border);
+        background: color-mix(in srgb, var(--input-bg) 94%, var(--text-primary));
+    }
+
+    .push-json-file {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        font-family: 'SF Mono', 'Menlo', 'Cascadia Code', 'Consolas', monospace;
+        font-size: 0.72rem;
+        color: var(--text-secondary);
+    }
+
+    .push-json-file i {
+        color: var(--accent-primary);
+    }
+
+    .push-json-meta {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .push-json-size {
+        font-family: 'SF Mono', 'Menlo', 'Cascadia Code', 'Consolas', monospace;
+        font-size: 0.68rem;
+        color: var(--text-muted);
+    }
+
+    .push-json-size.over {
+        font-weight: 700;
+        color: var(--accent-danger);
+    }
+
+    .push-json-state {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+        padding: 0.12rem 0.5rem;
+        border-radius: 999px;
+        font-size: 0.68rem;
+        font-weight: 600;
+    }
+
+    .push-json-state.valid { background: var(--status-success-bg); color: var(--status-success-text); }
+    .push-json-state.invalid { background: var(--status-error-bg); color: var(--status-error-text); }
+
+    .push-json-input {
+        display: block;
+        width: 100%;
+        min-height: 14rem;
+        padding: 0.8rem 0.9rem;
+        border: none;
+        outline: none;
+        background: transparent;
+        color: var(--text-primary);
+        font-family: 'SF Mono', 'Menlo', 'Cascadia Code', 'Consolas', monospace;
+        font-size: 0.78rem;
+        line-height: 1.55;
+        white-space: pre;
+        tab-size: 2;
+        resize: vertical;
+        box-sizing: border-box;
+    }
+
+    .push-json-error {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.45rem;
+        padding: 0.5rem 0.8rem;
+        border-top: 1px solid var(--input-border);
+        background: var(--status-error-bg);
+        color: var(--status-error-text);
+        font-size: 0.72rem;
+        line-height: 1.4;
+    }
+
+    .push-json-error i {
+        margin-top: 0.1rem;
+    }
+</style>
+
+@code {
+    static readonly JsonSerializerOptions FormatOptions = new()
+    {
+        WriteIndented = true,
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+    };
+
+    [Parameter] public string? Value { get; set; }
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+    [Parameter] public string FileName { get; set; } = "payload.json";
+    [Parameter] public string? Placeholder { get; set; }
+    [Parameter] public int Rows { get; set; } = 14;
+    [Parameter] public int? MaxBytes { get; set; }
+
+    bool isInvalid;
+    string? parseError;
+    int byteCount;
+
+    protected override void OnParametersSet() => Analyze();
+
+    void Analyze()
+    {
+        var text = Value ?? "";
+        byteCount = Encoding.UTF8.GetByteCount(text);
+        isInvalid = false;
+        parseError = null;
+
+        if (string.IsNullOrWhiteSpace(text))
+            return;
+
+        try
+        {
+            using var _ = JsonDocument.Parse(text);
+        }
+        catch (JsonException ex)
+        {
+            isInvalid = true;
+            parseError = ex.Message;
+        }
+    }
+
+    async Task OnInput(ChangeEventArgs e)
+    {
+        Value = e.Value?.ToString() ?? "";
+        Analyze();
+        await ValueChanged.InvokeAsync(Value);
+    }
+
+    async Task Format()
+    {
+        if (isInvalid || string.IsNullOrWhiteSpace(Value))
+            return;
+
+        var formatted = JsonNode.Parse(Value)?.ToJsonString(FormatOptions);
+        if (formatted == null || formatted == Value)
+            return;
+
+        Value = formatted;
+        Analyze();
+        await ValueChanged.InvokeAsync(Value);
+    }
+}
