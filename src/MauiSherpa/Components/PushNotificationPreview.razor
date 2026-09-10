@@ -1,0 +1,317 @@
+@* Approximates how a notification renders on the device. Variant is "ios" or "android". *@
+
+<div class="push-preview">
+    <div class="push-preview-head">
+        <span>Preview</span>
+        <span class="push-preview-caption">
+            <i class="@(IsIos ? "fab fa-apple" : "fab fa-android")"></i>
+            @(IsIos ? "Lock screen" : "Notification shade")
+        </span>
+    </div>
+
+    <div class="push-preview-stage @(IsIos ? "ios" : "android")">
+        @if (IsIos)
+        {
+            <div class="push-preview-clock">
+                <span class="push-preview-date">@DateTime.Now.ToString("dddd, MMMM d")</span>
+                <span class="push-preview-time">@DateTime.Now.ToString("h:mm")</span>
+            </div>
+        }
+
+        @if (Silent)
+        {
+            <div class="push-notif silent">
+                <div class="push-notif-icon muted"><i class="fas fa-moon"></i></div>
+                <div class="push-notif-body">
+                    <div class="push-notif-title">No visible alert</div>
+                    <div class="push-notif-text">@SilentMessage</div>
+                </div>
+            </div>
+        }
+        else if (IsIos)
+        {
+            <div class="push-notif ios">
+                <div class="push-notif-icon">
+                    <i class="fas fa-paper-plane"></i>
+                    @if (Badge is > 0)
+                    {
+                        <span class="push-notif-badge">@Badge</span>
+                    }
+                </div>
+                <div class="push-notif-body">
+                    <div class="push-notif-top">
+                        <span class="push-notif-app">@AppName</span>
+                        <span>now</span>
+                    </div>
+                    <div class="push-notif-title @(string.IsNullOrWhiteSpace(Title) ? "placeholder" : "")">@(string.IsNullOrWhiteSpace(Title) ? "Notification title" : Title)</div>
+                    @if (!string.IsNullOrWhiteSpace(Subtitle))
+                    {
+                        <div class="push-notif-subtitle">@Subtitle</div>
+                    }
+                    <div class="push-notif-text @(string.IsNullOrWhiteSpace(Body) ? "placeholder" : "")">@(string.IsNullOrWhiteSpace(Body) ? "Notification body" : Body)</div>
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="push-notif android">
+                <div class="push-notif-top">
+                    <span class="push-notif-icon small"><i class="fas fa-bell"></i></span>
+                    <span class="push-notif-app">@AppName</span>
+                    <span class="push-notif-dot">·</span>
+                    <span>now</span>
+                </div>
+                <div class="push-notif-title @(string.IsNullOrWhiteSpace(Title) ? "placeholder" : "")">@(string.IsNullOrWhiteSpace(Title) ? "Notification title" : Title)</div>
+                <div class="push-notif-text @(string.IsNullOrWhiteSpace(Body) ? "placeholder" : "")">@(string.IsNullOrWhiteSpace(Body) ? "Notification body" : Body)</div>
+                @if (HasImage)
+                {
+                    <div class="push-notif-image"><img src="@ImageUrl" alt="" /></div>
+                }
+            </div>
+        }
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(Footnote))
+    {
+        <div class="push-preview-foot">@Footnote</div>
+    }
+</div>
+
+<style>
+    .push-preview {
+        overflow: hidden;
+        border-radius: var(--card-radius);
+        background: var(--card-bg);
+    }
+
+    .push-preview-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.5rem;
+        padding: 0.9rem 1.15rem 0;
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--text-muted);
+    }
+
+    .push-preview-caption {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        font-weight: 500;
+        letter-spacing: normal;
+        text-transform: none;
+    }
+
+    .push-preview-stage {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: 0.85rem;
+        min-height: 9.5rem;
+        margin: 0.75rem;
+        padding: 1rem 0.8rem 1.15rem;
+        border-radius: 0.9rem;
+        background:
+            radial-gradient(circle at 15% 10%, color-mix(in srgb, var(--accent-primary) 45%, transparent), transparent 60%),
+            radial-gradient(circle at 90% 90%, color-mix(in srgb, var(--accent-purple) 45%, transparent), transparent 65%),
+            color-mix(in srgb, var(--accent-indigo) 22%, var(--bg-primary));
+    }
+
+    .push-preview-clock {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        color: var(--text-primary);
+        line-height: 1.1;
+    }
+
+    .push-preview-date {
+        font-size: 0.72rem;
+        font-weight: 600;
+        opacity: 0.75;
+    }
+
+    .push-preview-time {
+        font-size: 2rem;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        opacity: 0.85;
+    }
+
+    .push-notif {
+        display: flex;
+        gap: 0.65rem;
+        padding: 0.7rem 0.8rem;
+        border-radius: 1.1rem;
+        background: color-mix(in srgb, var(--bg-primary) 80%, transparent);
+        -webkit-backdrop-filter: blur(16px) saturate(1.4);
+        backdrop-filter: blur(16px) saturate(1.4);
+        box-shadow: 0 8px 22px rgba(0, 0, 0, 0.14);
+    }
+
+    .push-notif.android {
+        flex-direction: column;
+        gap: 0.2rem;
+        border-radius: 1rem;
+        padding: 0.75rem 0.9rem 0.85rem;
+    }
+
+    .push-notif.silent {
+        align-items: center;
+        border: 1px dashed color-mix(in srgb, var(--text-muted) 55%, transparent);
+        box-shadow: none;
+    }
+
+    .push-notif-icon {
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        width: 2.1rem;
+        height: 2.1rem;
+        border-radius: 0.55rem;
+        background: linear-gradient(135deg, var(--accent-primary), var(--accent-purple));
+        color: var(--text-inverse);
+        font-size: 0.85rem;
+    }
+
+    .push-notif-icon.small {
+        width: 1.1rem;
+        height: 1.1rem;
+        border-radius: 50%;
+        font-size: 0.55rem;
+    }
+
+    .push-notif-icon.muted {
+        background: var(--bg-tertiary);
+        color: var(--text-muted);
+    }
+
+    .push-notif-badge {
+        position: absolute;
+        top: -0.35rem;
+        right: -0.4rem;
+        min-width: 1.05rem;
+        height: 1.05rem;
+        padding: 0 0.25rem;
+        border-radius: 999px;
+        background: var(--accent-danger);
+        color: var(--text-inverse);
+        font-size: 0.6rem;
+        font-weight: 700;
+        line-height: 1.05rem;
+        text-align: center;
+    }
+
+    .push-notif-body {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .push-notif-top {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+        margin-bottom: 0.1rem;
+        font-size: 0.68rem;
+        color: var(--text-muted);
+    }
+
+    .push-notif.ios .push-notif-top {
+        justify-content: space-between;
+    }
+
+    .push-notif.android .push-notif-top {
+        margin-bottom: 0.3rem;
+    }
+
+    .push-notif-app {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-weight: 600;
+        color: var(--text-secondary);
+    }
+
+    .push-notif.ios .push-notif-app {
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+    }
+
+    .push-notif-title {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: var(--text-primary);
+    }
+
+    .push-notif-subtitle {
+        font-size: 0.76rem;
+        font-weight: 500;
+        color: var(--text-primary);
+    }
+
+    .push-notif-text {
+        display: -webkit-box;
+        -webkit-line-clamp: 4;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+        font-size: 0.76rem;
+        line-height: 1.35;
+        color: var(--text-secondary);
+        word-break: break-word;
+    }
+
+    .push-notif-title.placeholder,
+    .push-notif-text.placeholder {
+        font-style: italic;
+        font-weight: 400;
+        color: var(--text-muted);
+    }
+
+    .push-notif-image {
+        overflow: hidden;
+        margin-top: 0.5rem;
+        border-radius: 0.6rem;
+        background: var(--bg-tertiary);
+    }
+
+    .push-notif-image img {
+        display: block;
+        width: 100%;
+        max-height: 8rem;
+        object-fit: cover;
+    }
+
+    .push-preview-foot {
+        padding: 0 1.15rem 0.9rem;
+        font-size: 0.72rem;
+        line-height: 1.4;
+        color: var(--text-muted);
+    }
+</style>
+
+@code {
+    [Parameter] public string Variant { get; set; } = "ios";
+    [Parameter] public string AppName { get; set; } = "Your App";
+    [Parameter] public string? Title { get; set; }
+    [Parameter] public string? Subtitle { get; set; }
+    [Parameter] public string? Body { get; set; }
+    [Parameter] public string? ImageUrl { get; set; }
+    [Parameter] public int? Badge { get; set; }
+    [Parameter] public bool Silent { get; set; }
+    [Parameter] public string SilentMessage { get; set; } = "Delivered to your app in the background.";
+    [Parameter] public string? Footnote { get; set; }
+
+    bool IsIos => Variant == "ios";
+
+    bool HasImage => Uri.TryCreate(ImageUrl, UriKind.Absolute, out var uri)
+        && (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp);
+}

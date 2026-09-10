@@ -1,4 +1,5 @@
 @page "/firebase-push"
+@using System.Text.Json
 @using MauiSherpa.Core.Interfaces
 @using MauiSherpa.Core.Services
 @using MauiSherpa.Services
@@ -14,8 +15,24 @@
 @inject ILocalVaultAccessService LocalVaultAccess
 @implements IDisposable
 
-<h1><i class="fas fa-paper-plane"></i> Firebase Push Testing</h1>
-<p class="page-description">Send test push notifications via Firebase Cloud Messaging to Android devices.</p>
+<div class="push-page-header">
+    <div class="push-page-heading">
+        <h1><i class="fas fa-paper-plane"></i> Firebase Push Testing</h1>
+        <p>Send test notifications to Android devices through Firebase Cloud Messaging (FCM v1).</p>
+    </div>
+    <div class="push-page-status">
+        @if (hasCredentials)
+        {
+            <span class="push-pill success" title="Firebase project">
+                <i class="fas fa-fire"></i> @(string.IsNullOrEmpty(projectId) ? "Service account ready" : projectId)
+            </span>
+        }
+        else
+        {
+            <span class="push-pill warning"><i class="fas fa-triangle-exclamation"></i> No service account</span>
+        }
+    </div>
+</div>
 
 <PushProjectBar @ref="projectBar"
     Platform="PushProjectPlatform.Fcm"
@@ -26,498 +43,176 @@
 
 <GoogleIdentityPicker />
 
-<!-- Compose Section -->
-<div class="section-title-row">
-    <h2 class="section-title"><i class="fas fa-edit"></i> Compose Message</h2>
-    <div class="target-toggle">
-        <button class="toggle-btn small @(!rawJsonMode ? "active" : "")" @onclick="() => { rawJsonMode = false; MarkDirty(); }">
-            <i class="fas fa-list-alt"></i> Form
-        </button>
-        <button class="toggle-btn small @(rawJsonMode ? "active" : "")" @onclick="() => { rawJsonMode = true; MarkDirty(); }">
-            <i class="fas fa-code"></i> JSON
-        </button>
-    </div>
-</div>
-<div class="section">
-    <div class="compose-card">
-        @if (rawJsonMode)
-        {
-            <div class="form-group">
-                <label>Message JSON</label>
-                <textarea class="form-input mono json-editor" rows="16" placeholder="@jsonPlaceholder"
-                          @bind="rawJson" @bind:event="oninput" @bind:after="MarkDirty"></textarea>
-                <p class="help-text">Enter the FCM v1 <code>message</code> object. The <code>{"{"}"message": ...{"}"}</code> wrapper is added automatically if omitted.</p>
-            </div>
+<div class="push-workspace-container">
+    <div class="push-workspace">
+        <div class="push-main">
+            <section>
+                <div class="push-section-head">
+                    <div class="push-section-head-main">
+                        <h2><span class="push-section-icon"><i class="fas fa-pen-to-square"></i></span> Message</h2>
+                        <p class="push-section-desc">
+                            @(rawJsonMode ? "Paste a raw FCM v1 message for full control over platform options." : "Compose a notification and pick who receives it.")
+                        </p>
+                    </div>
+                    <div class="push-section-actions">
+                        <div class="push-segmented">
+                            <button type="button" class="@(!rawJsonMode ? "active" : "")" @onclick="@(() => SetRawJsonMode(false))">
+                                <i class="fas fa-list"></i> Form
+                            </button>
+                            <button type="button" class="@(rawJsonMode ? "active" : "")" @onclick="@(() => SetRawJsonMode(true))">
+                                <i class="fas fa-code"></i> JSON
+                            </button>
+                        </div>
+                    </div>
+                </div>
 
-            <div class="send-bar">
-                <button class="btn btn-primary btn-lg" @onclick="SendRawJson"
-                        disabled="@(!hasCredentials || string.IsNullOrWhiteSpace(rawJson) || isSending)">
-                    @if (isSending)
+                <div class="push-card">
+                    @if (rawJsonMode)
                     {
-                        <i class="fas fa-spinner fa-spin"></i>
-                        <span>Sending...</span>
+                        <div class="push-field">
+                            <PushJsonEditor @bind-Value="rawJson" @bind-Value:after="MarkDirty"
+                                            FileName="message.json"
+                                            Placeholder="@jsonPlaceholder"
+                                            Rows="18" />
+                            <p class="push-hint">Enter the FCM v1 <code>message</code> object. The <code>{"{"}"message": …{"}"}</code> wrapper is added automatically if omitted.</p>
+                        </div>
                     }
                     else
                     {
-                        <i class="fas fa-paper-plane"></i>
-                        <span>Send Push</span>
-                    }
-                </button>
-            </div>
-        }
-        else
-        {
-        <div class="form-group">
-            <label>Target</label>
-            <div class="target-toggle">
-                <button class="toggle-btn small @(useToken ? "active" : "")" @onclick="() => { useToken = true; MarkDirty(); }">
-                    <i class="fas fa-mobile-alt"></i> Device Token
-                </button>
-                <button class="toggle-btn small @(!useToken ? "active" : "")" @onclick="() => { useToken = false; MarkDirty(); }">
-                    <i class="fas fa-hashtag"></i> Topic
-                </button>
-            </div>
-        </div>
+                        <div class="push-subheading">Target</div>
+                        <div class="push-fields">
+                            <div class="push-segmented">
+                                <button type="button" class="@(useToken ? "active" : "")" @onclick="@(() => SetUseToken(true))">
+                                    <i class="fas fa-mobile-screen"></i> Device token
+                                </button>
+                                <button type="button" class="@(!useToken ? "active" : "")" @onclick="@(() => SetUseToken(false))">
+                                    <i class="fas fa-hashtag"></i> Topic
+                                </button>
+                            </div>
+                            @if (useToken)
+                            {
+                                <div class="push-field">
+                                    <input type="text" class="push-input mono" placeholder="FCM registration token" aria-label="Device token"
+                                           @bind="deviceToken" @bind:event="oninput" @bind:after="MarkDirty" />
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="push-field">
+                                    <input type="text" class="push-input" placeholder="e.g. news, updates" aria-label="Topic"
+                                           @bind="topic" @bind:event="oninput" @bind:after="MarkDirty" />
+                                </div>
+                            }
+                        </div>
 
-        @if (useToken)
-        {
-            <div class="form-group">
-                <label>Device Token</label>
-                <input type="text" class="form-input mono" placeholder="FCM registration token"
-                       @bind="deviceToken" @bind:event="oninput" @bind:after="MarkDirty" />
-            </div>
-        }
-        else
-        {
-            <div class="form-group">
-                <label>Topic</label>
-                <input type="text" class="form-input" placeholder="e.g. news, updates"
-                       @bind="topic" @bind:event="oninput" @bind:after="MarkDirty" />
-            </div>
-        }
+                        <div class="push-card-divider"></div>
 
-        <div class="form-row">
-            <div class="form-group flex-1">
-                <label>Title</label>
-                <input type="text" class="form-input" placeholder="Notification title"
-                       @bind="title" @bind:event="oninput" @bind:after="MarkDirty" />
-            </div>
-        </div>
+                        <div class="push-subheading">Notification</div>
+                        <div class="push-fields">
+                            <div class="push-field">
+                                <label>Title</label>
+                                <input type="text" class="push-input" placeholder="Notification title"
+                                       @bind="title" @bind:event="oninput" @bind:after="MarkDirty" />
+                            </div>
+                            <div class="push-field">
+                                <label>Body</label>
+                                <textarea class="push-input" rows="3" placeholder="Notification body text"
+                                          @bind="body" @bind:event="oninput" @bind:after="MarkDirty"></textarea>
+                            </div>
+                            <div class="push-field">
+                                <label>Image URL <span class="push-optional">optional</span></label>
+                                <input type="text" class="push-input" placeholder="https://example.com/image.png"
+                                       @bind="imageUrl" @bind:event="oninput" @bind:after="MarkDirty" />
+                            </div>
+                        </div>
 
-        <div class="form-group">
-            <label>Body</label>
-            <textarea class="form-input" rows="3" placeholder="Notification body text"
-                      @bind="body" @bind:event="oninput" @bind:after="MarkDirty"></textarea>
-        </div>
+                        <div class="push-card-divider"></div>
 
-        <div class="form-group">
-            <label>Image URL <span class="optional">(optional)</span></label>
-            <input type="text" class="form-input" placeholder="https://example.com/image.png"
-                   @bind="imageUrl" @bind:event="oninput" @bind:after="MarkDirty" />
-        </div>
-
-        <!-- Data Payload -->
-        <div class="form-group">
-            <label>
-                Data Payload <span class="optional">(optional)</span>
-                <button class="btn btn-sm btn-ghost" @onclick="AddDataEntry">
-                    <i class="fas fa-plus"></i> Add
-                </button>
-            </label>
-            @if (dataEntries.Count > 0)
-            {
-                <div class="data-entries">
-                    @for (var i = 0; i < dataEntries.Count; i++)
-                    {
-                        var index = i;
-                        <div class="data-entry">
-                            <input type="text" class="form-input" placeholder="Key"
-                                   value="@dataEntries[index].Key"
-                                   @oninput="e => { UpdateDataKey(index, e.Value?.ToString()); MarkDirty(); }" />
-                            <input type="text" class="form-input" placeholder="Value"
-                                   value="@dataEntries[index].Value"
-                                   @oninput="e => { UpdateDataValue(index, e.Value?.ToString()); MarkDirty(); }" />
-                            <button class="btn btn-sm btn-icon btn-danger" @onclick="() => { RemoveDataEntry(index); MarkDirty(); }">
-                                <i class="fas fa-times"></i>
+                        <div class="push-subheading">
+                            <span>Data payload <span class="push-optional">optional</span></span>
+                            <button type="button" class="push-link-btn" @onclick="AddDataEntry">
+                                <i class="fas fa-plus"></i> Add field
                             </button>
                         </div>
-                    }
-                </div>
-            }
-        </div>
-
-        <div class="send-bar">
-            <button class="btn btn-primary btn-lg" @onclick="SendPush"
-                    disabled="@(!CanSend || isSending)">
-                @if (isSending)
-                {
-                    <i class="fas fa-spinner fa-spin"></i>
-                    <span>Sending...</span>
-                }
-                else
-                {
-                    <i class="fas fa-paper-plane"></i>
-                    <span>Send Push</span>
-                }
-            </button>
-        </div>
-        }
-    </div>
-</div>
-@if (activeProject?.History.Count > 0)
-{
-    <div class="section-title-row">
-        <h2 class="section-title"><i class="fas fa-history"></i> Recent Sends</h2>
-        <button class="btn btn-sm btn-ghost" @onclick="ClearHistory">
-            <i class="fas fa-eraser"></i> Clear
-        </button>
-    </div>
-    <div class="section">
-
-        <div class="history-list">
-            @foreach (var entry in activeProject.History)
-            {
-                <div class="history-card @(entry.Success ? "success" : "error")">
-                    <div class="history-status">
-                        <i class="fas @(entry.Success ? "fa-check-circle text-success" : "fa-times-circle text-danger")"></i>
-                        <span class="history-time">@entry.Timestamp.ToLocalTime().ToString("HH:mm:ss")</span>
-                        @if (entry.StatusCode.HasValue)
+                        @if (dataEntries.Count == 0)
                         {
-                            <span class="badge @(entry.Success ? "badge-success" : "badge-danger")">@entry.StatusCode</span>
+                            <div class="push-kv-empty">No custom data. Add key/value pairs your app reads from <code>RemoteMessage.data</code>.</div>
                         }
-                    </div>
-                    <div class="history-details">
-                        @if (!string.IsNullOrEmpty(entry.Target))
+                        else
                         {
-                            <div class="history-target mono">
-                                <i class="fas fa-mobile-alt"></i> @entry.Target
+                            <div class="push-kv-list">
+                                @for (var i = 0; i < dataEntries.Count; i++)
+                                {
+                                    var index = i;
+                                    <div class="push-kv-row">
+                                        <input type="text" class="push-input mono" placeholder="key" aria-label="Data key"
+                                               value="@dataEntries[index].Key"
+                                               @oninput="e => { UpdateDataKey(index, e.Value?.ToString()); MarkDirty(); }" />
+                                        <input type="text" class="push-input" placeholder="value" aria-label="Data value"
+                                               value="@dataEntries[index].Value"
+                                               @oninput="e => { UpdateDataValue(index, e.Value?.ToString()); MarkDirty(); }" />
+                                        <button type="button" class="push-icon-btn danger" title="Remove field" @onclick="() => { RemoveDataEntry(index); MarkDirty(); }">
+                                            <i class="fas fa-xmark"></i>
+                                        </button>
+                                    </div>
+                                }
                             </div>
                         }
-                        @if (entry.Success && !string.IsNullOrEmpty(entry.MessageId))
-                        {
-                            <div class="history-message-id mono">@entry.MessageId</div>
-                        }
-                        @if (!entry.Success && !string.IsNullOrEmpty(entry.ErrorReason))
-                        {
-                            <div class="history-error">@entry.ErrorReason</div>
-                        }
-                    </div>
+                    }
                 </div>
+            </section>
+
+            @if (activeProject?.History.Count > 0)
+            {
+                <PushHistoryList History="activeProject.History" OnClear="ClearHistory" />
             }
         </div>
+
+        <aside class="push-aside">
+            @{ var preview = BuildPreview(); }
+            <PushNotificationPreview Variant="android"
+                                     AppName="@(string.IsNullOrEmpty(projectId) ? "Your App" : projectId)"
+                                     Title="@preview.Title"
+                                     Body="@preview.Body"
+                                     ImageUrl="@preview.ImageUrl"
+                                     Silent="@preview.Silent"
+                                     SilentMessage="@preview.SilentMessage" />
+
+            <div class="push-panel">
+                <div class="push-panel-title">@(CanSendCurrent ? "Ready to send" : "Before you send")</div>
+                <dl class="push-summary">
+                    <div class="push-summary-row"><dt>Project</dt><dd>@(string.IsNullOrEmpty(projectId) ? "—" : projectId)</dd></div>
+                    <div class="push-summary-row"><dt>Mode</dt><dd>@(rawJsonMode ? "Raw JSON" : "Form")</dd></div>
+                    <div class="push-summary-row"><dt>Target</dt><dd class="push-mono">@(preview.Target ?? "—")</dd></div>
+                    @if (!rawJsonMode)
+                    {
+                        <div class="push-summary-row"><dt>Data fields</dt><dd>@dataEntries.Count(d => !string.IsNullOrWhiteSpace(d.Key))</dd></div>
+                    }
+                </dl>
+                <ul class="push-checklist">
+                    <li class="@(hasCredentials ? "done" : "")"><i class="@CheckIcon(hasCredentials)"></i> Service account</li>
+                    @if (rawJsonMode)
+                    {
+                        <li class="@(HasRawJson ? "done" : "")"><i class="@CheckIcon(HasRawJson)"></i> Message JSON</li>
+                    }
+                    else
+                    {
+                        <li class="@(HasTarget ? "done" : "")"><i class="@CheckIcon(HasTarget)"></i> @(useToken ? "Device token" : "Topic")</li>
+                        <li class="@(HasContent ? "done" : "")"><i class="@CheckIcon(HasContent)"></i> Title, body, or data</li>
+                    }
+                </ul>
+                <button class="btn btn-primary push-send-btn" @onclick="SendCurrent" disabled="@(!CanSendCurrent || isSending)">
+                    <i class="fas @(isSending ? "fa-spinner fa-spin" : "fa-paper-plane")"></i>
+                    @(isSending ? "Sending…" : "Send Push")
+                </button>
+                @if (activeProject == null)
+                {
+                    <p class="push-send-note">Save this project to keep a send history.</p>
+                }
+            </div>
+        </aside>
     </div>
-}
-
-<style>
-    h1 {
-        margin-bottom: 1.25rem;
-        font-size: 1.75rem;
-        color: var(--text-primary);
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-    }
-
-    .page-description {
-        color: var(--text-muted);
-        font-size: 0.875rem;
-        margin-bottom: 1.5rem;
-    }
-
-    .section {
-        margin-bottom: 1.5rem;
-        background: var(--card-bg);
-        border-radius: var(--card-radius, 1rem);
-        overflow: hidden;
-    }
-
-    .section-title {
-        font-size: 1rem;
-        font-weight: 600;
-        color: var(--text-primary);
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        margin: 0 0 4px 4px;
-    }
-
-    .section-title-row {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        margin-bottom: 4px;
-    }
-
-    .section-title-row .section-title {
-        margin-bottom: 0;
-    }
-
-    .target-toggle {
-        display: flex;
-        gap: 0;
-        margin-bottom: 1rem;
-        border: 1px solid var(--border-color);
-        border-radius: 8px;
-        overflow: hidden;
-        width: fit-content;
-    }
-
-    .toggle-btn {
-        padding: 0.5rem 1rem;
-        background: var(--bg-secondary);
-        color: var(--text-secondary);
-        border: none;
-        cursor: pointer;
-        font-size: 0.8125rem;
-        font-weight: 500;
-        display: flex;
-        align-items: center;
-        gap: 0.375rem;
-        transition: all 0.15s ease;
-    }
-
-    .toggle-btn:not(:last-child) {
-        border-right: 1px solid var(--border-color);
-    }
-
-    .toggle-btn.active {
-        background: var(--accent-primary);
-        color: white;
-    }
-
-    .toggle-btn.small {
-        padding: 0.375rem 0.75rem;
-        font-size: 0.75rem;
-    }
-
-    .credential-card, .compose-card {
-        padding: 1.25rem;
-    }
-
-    .credential-status {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        padding: 0.625rem 0.875rem;
-        border-radius: var(--card-radius, 1rem);
-        margin-bottom: 1rem;
-        font-size: 0.8125rem;
-    }
-
-    .credential-status.success {
-        background: rgba(34, 197, 94, 0.1);
-        color: var(--success, #22c55e);
-    }
-
-    .credential-status.warning {
-        background: rgba(234, 179, 8, 0.1);
-        color: var(--warning, #eab308);
-    }
-
-    .form-group {
-        margin-bottom: 0.875rem;
-    }
-
-    .form-group label {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        font-size: 0.8125rem;
-        font-weight: 600;
-        color: var(--text-secondary);
-        margin-bottom: 0.375rem;
-    }
-
-    .optional {
-        font-weight: 400;
-        color: var(--text-muted);
-        font-size: 0.75rem;
-    }
-
-    .form-input {
-        width: 100%;
-        padding: 0.5rem 0.75rem;
-        border: 1px solid var(--input-border, var(--border-color));
-        border-radius: 6px;
-        background: var(--input-bg, var(--bg-primary));
-        color: var(--text-primary);
-        font-size: 0.8125rem;
-        transition: border-color 0.15s ease;
-        box-sizing: border-box;
-    }
-
-    .form-input:focus {
-        outline: none;
-        border-color: var(--accent-primary);
-    }
-
-    .form-input.mono {
-        font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
-        font-size: 0.75rem;
-    }
-
-    textarea.form-input {
-        resize: vertical;
-        min-height: 60px;
-    }
-
-    .form-row {
-        display: flex;
-        gap: 0.75rem;
-    }
-
-    .flex-1 {
-        flex: 1;
-    }
-
-    .data-entries {
-        display: flex;
-        flex-direction: column;
-        gap: 0.375rem;
-    }
-
-    .data-entry {
-        display: flex;
-        gap: 0.375rem;
-        align-items: center;
-    }
-
-    .data-entry .form-input {
-        flex: 1;
-    }
-
-    .send-bar {
-        margin-top: 1rem;
-        display: flex;
-        justify-content: flex-end;
-    }
-
-    .btn-ghost {
-        background: transparent;
-        color: var(--accent-primary);
-        padding: 0.25rem 0.5rem;
-    }
-
-    .btn-ghost:hover {
-        background: var(--bg-tertiary);
-    }
-
-    .btn-icon {
-        padding: 0.25rem 0.375rem;
-    }
-
-    .help-text {
-        font-size: 0.75rem;
-        color: var(--text-muted);
-        margin-top: 0.625rem;
-        margin-bottom: 0;
-    }
-
-    /* History */
-    .history-list {
-        display: flex;
-        flex-direction: column;
-    }
-
-    .history-card {
-        padding: 0.75rem 1rem;
-        display: flex;
-        gap: 0.75rem;
-        align-items: flex-start;
-        border-bottom: 1px solid var(--border-color);
-    }
-
-    .history-card:last-child {
-        border-bottom: none;
-    }
-
-    .history-card.success {
-    }
-
-    .history-card.error {
-    }
-
-    .history-status {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        flex-shrink: 0;
-    }
-
-    .history-time {
-        font-size: 0.75rem;
-        color: var(--text-muted);
-        font-family: 'SF Mono', monospace;
-    }
-
-    .history-details {
-        flex: 1;
-        min-width: 0;
-    }
-
-    .history-target {
-        font-size: 0.75rem;
-        color: var(--text-secondary);
-        margin-bottom: 0.25rem;
-    }
-
-    .history-title {
-        font-size: 0.8125rem;
-        font-weight: 500;
-        color: var(--text-primary);
-    }
-
-    .history-message-id {
-        font-size: 0.6875rem;
-        color: var(--text-muted);
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
-    .history-error {
-        font-size: 0.75rem;
-        color: var(--danger, #ef4444);
-        word-break: break-word;
-        max-height: 60px;
-        overflow-y: auto;
-    }
-
-    .badge {
-        padding: 0.125rem 0.375rem;
-        border-radius: 0.75rem;
-        font-size: 0.6875rem;
-        font-weight: 600;
-    }
-
-    .badge-success {
-        background: rgba(34, 197, 94, 0.15);
-        color: var(--success, #22c55e);
-    }
-
-    .badge-danger {
-        background: rgba(239, 68, 68, 0.15);
-        color: var(--danger, #ef4444);
-    }
-
-    .text-success { color: var(--success, #22c55e); }
-    .text-danger { color: var(--danger, #ef4444); }
-    .mono { font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace; }
-
-    .json-editor {
-        min-height: 280px;
-        line-height: 1.5;
-        tab-size: 2;
-        white-space: pre;
-    }
-
-    code {
-        background: var(--bg-tertiary);
-        padding: 0.125rem 0.375rem;
-        border-radius: 3px;
-        font-size: 0.75rem;
-    }
-</style>
+</div>
 
 @code {
     PushProjectBar? projectBar;
@@ -541,10 +236,75 @@
     string rawJson = "";
     const string jsonPlaceholder = "{\n  \"token\": \"DEVICE_TOKEN\",\n  \"notification\": {\n    \"title\": \"Test\",\n    \"body\": \"Hello from Sherpa!\"\n  },\n  \"android\": {\n    \"priority\": \"high\",\n    \"notification\": {\n      \"channel_id\": \"default\"\n    }\n  },\n  \"data\": {\n    \"key\": \"value\"\n  }\n}";
 
-    bool CanSend => hasCredentials
-        && ((useToken && !string.IsNullOrWhiteSpace(deviceToken))
-            || (!useToken && !string.IsNullOrWhiteSpace(topic)))
-        && (!string.IsNullOrWhiteSpace(title) || !string.IsNullOrWhiteSpace(body) || dataEntries.Any(d => !string.IsNullOrWhiteSpace(d.Key)));
+    bool HasTarget => useToken ? !string.IsNullOrWhiteSpace(deviceToken) : !string.IsNullOrWhiteSpace(topic);
+    bool HasContent => !string.IsNullOrWhiteSpace(title) || !string.IsNullOrWhiteSpace(body) || dataEntries.Any(d => !string.IsNullOrWhiteSpace(d.Key));
+    bool HasRawJson => !string.IsNullOrWhiteSpace(rawJson);
+
+    bool CanSend => hasCredentials && HasTarget && HasContent;
+    bool CanSendCurrent => rawJsonMode ? hasCredentials && HasRawJson : CanSend;
+
+    static string CheckIcon(bool done) => done ? "fas fa-circle-check" : "fa-regular fa-circle";
+
+    Task SendCurrent() => rawJsonMode ? SendRawJson() : SendPush();
+
+    FcmPreview BuildPreview()
+    {
+        if (!rawJsonMode)
+        {
+            var target = useToken
+                ? (string.IsNullOrWhiteSpace(deviceToken) ? null : TruncateToken(deviceToken.Trim()))
+                : (string.IsNullOrWhiteSpace(topic) ? null : $"#{topic.Trim()}");
+            var dataOnly = string.IsNullOrWhiteSpace(title) && string.IsNullOrWhiteSpace(body)
+                && dataEntries.Any(d => !string.IsNullOrWhiteSpace(d.Key));
+            return new(title, body, imageUrl, target, dataOnly,
+                "Data-only messages are delivered to your app without showing a notification.");
+        }
+
+        if (string.IsNullOrWhiteSpace(rawJson))
+            return new(null, null, null, null, false, "");
+
+        try
+        {
+            using var doc = JsonDocument.Parse(rawJson);
+            var message = doc.RootElement;
+            if (message.ValueKind != JsonValueKind.Object)
+                return new(null, null, null, null, true, "The message must be a JSON object.");
+            if (message.TryGetProperty("message", out var inner) && inner.ValueKind == JsonValueKind.Object)
+                message = inner;
+
+            string? t = null, b = null, image = null;
+            if (message.TryGetProperty("notification", out var notification) && notification.ValueKind == JsonValueKind.Object)
+            {
+                t = GetString(notification, "title");
+                b = GetString(notification, "body");
+                image = GetString(notification, "image");
+            }
+            if (message.TryGetProperty("android", out var android) && android.ValueKind == JsonValueKind.Object
+                && android.TryGetProperty("notification", out var androidNotification) && androidNotification.ValueKind == JsonValueKind.Object)
+            {
+                t = GetString(androidNotification, "title") ?? t;
+                b = GetString(androidNotification, "body") ?? b;
+                image = GetString(androidNotification, "image") ?? image;
+            }
+
+            var target = GetString(message, "token") is { Length: > 0 } token
+                ? TruncateToken(token)
+                : GetString(message, "topic") is { Length: > 0 } jsonTopic
+                    ? $"#{jsonTopic}"
+                    : GetString(message, "condition");
+
+            var silent = string.IsNullOrWhiteSpace(t) && string.IsNullOrWhiteSpace(b);
+            return new(t, b, image, target, silent,
+                "This message has no notification block, so it is delivered to your app silently.");
+        }
+        catch (JsonException)
+        {
+            return new(null, null, null, null, true, "Fix the message JSON to see a preview.");
+        }
+    }
+
+    static string? GetString(JsonElement element, string name) =>
+        element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
 
     protected override async Task OnInitializedAsync()
     {
@@ -651,6 +411,20 @@
     }
 
     void MarkDirty() => isDirty = true;
+
+    void SetRawJsonMode(bool value)
+    {
+        if (rawJsonMode == value) return;
+        rawJsonMode = value;
+        MarkDirty();
+    }
+
+    void SetUseToken(bool value)
+    {
+        if (useToken == value) return;
+        useToken = value;
+        MarkDirty();
+    }
 
     FcmPushProjectConfig BuildConfig() => new()
     {
@@ -820,6 +594,8 @@
 
     static string TruncateToken(string token) =>
         token.Length > 24 ? $"{token[..12]}...{token[^8..]}" : token;
+
+    record FcmPreview(string? Title, string? Body, string? ImageUrl, string? Target, bool Silent, string SilentMessage);
 
     class DataEntry
     {

@@ -11,16 +11,23 @@ namespace MauiSherpa.Pages.Modals;
 
 public class SecretPickerPage : HybridFormPage<string?>
 {
-    protected override string FormTitle => "Add Secret Mapping";
-    protected override string SubmitButtonText => "Add";
+    readonly string _title;
+    readonly string _submitButtonText;
+
+    protected override string FormTitle => _title;
+    protected override string SubmitButtonText => _submitButtonText;
     protected override string BlazorRoute => "/modal/secret-picker";
 
     public SecretPickerPage(
         HybridFormBridgeHolder bridgeHolder,
         IReadOnlyList<ManagedSecret> managedSecrets,
-        IReadOnlyList<string> existingKeys)
+        IReadOnlyList<string> existingKeys,
+        string title = "Add Secret Mapping",
+        string submitButtonText = "Add")
         : base(bridgeHolder)
     {
+        _title = title;
+        _submitButtonText = submitButtonText;
         Bridge.Parameters["ManagedSecrets"] = managedSecrets;
         Bridge.Parameters["ExistingKeys"] = existingKeys;
 

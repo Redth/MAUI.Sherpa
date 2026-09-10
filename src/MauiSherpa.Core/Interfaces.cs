@@ -2379,6 +2379,11 @@ public interface IOperationModalService
         string description,
         Func<IOperationContext, Task<bool>> operation,
         bool canCancel = true);
+
+    /// <summary>
+    /// Request cancellation of the running operation
+    /// </summary>
+    void RequestCancellation();
     
     /// <summary>
     /// Whether an operation is currently running
@@ -4040,6 +4045,8 @@ public record ApnsPushProjectConfig
     public string? SelectedIdentityId { get; init; }
     public string? P8FilePath { get; init; }
     public string? P8KeyId { get; init; }
+    /// <summary>Managed secret key holding the .p8 content when AuthMode is "secret".</summary>
+    public string? P8SecretKey { get; init; }
     public string? TeamId { get; init; }
     public string PushType { get; init; } = "alert";
     public int Priority { get; init; } = 5;

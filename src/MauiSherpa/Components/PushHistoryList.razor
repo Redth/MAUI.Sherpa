@@ -1,0 +1,219 @@
+@using MauiSherpa.Core.Interfaces
+
+<section>
+    <div class="push-section-head">
+        <div class="push-section-head-main">
+            <h2>
+                <span class="push-section-icon"><i class="fas fa-clock-rotate-left"></i></span>
+                Send History
+                <span class="push-count">@History.Count</span>
+            </h2>
+        </div>
+        <div class="push-section-actions">
+            <button type="button" class="push-link-btn muted" @onclick="OnClear">
+                <i class="fas fa-eraser"></i> Clear
+            </button>
+        </div>
+    </div>
+
+    <div class="push-history">
+        @foreach (var entry in History)
+        {
+            <div class="push-history-row @(entry.Success ? "success" : "error")" @key="entry.Id">
+                <div class="push-history-status">
+                    <i class="fas @(entry.Success ? "fa-check" : "fa-xmark")"></i>
+                </div>
+                <div class="push-history-body">
+                    <div class="push-history-headline">
+                        <span class="push-history-title">@(entry.Success ? "Delivered" : "Failed")</span>
+                        @if (entry.StatusCode.HasValue)
+                        {
+                            <span class="push-history-code">@entry.StatusCode</span>
+                        }
+                    </div>
+                    <div class="push-history-meta">
+                        @if (!string.IsNullOrEmpty(entry.Target))
+                        {
+                            <span class="push-mono"><i class="fas @TargetIcon(entry.Target)"></i> @entry.Target</span>
+                        }
+                        @if (entry.Success && !string.IsNullOrEmpty(entry.MessageId))
+                        {
+                            <span class="push-mono push-history-id" title="@entry.MessageId"><i class="fas fa-fingerprint"></i> @entry.MessageId</span>
+                        }
+                    </div>
+                    @if (!entry.Success && (!string.IsNullOrEmpty(entry.ErrorReason) || !string.IsNullOrEmpty(entry.ErrorDescription)))
+                    {
+                        <div class="push-history-error text-selectable">
+                            @if (!string.IsNullOrEmpty(entry.ErrorReason))
+                            {
+                                <div class="push-history-reason">@entry.ErrorReason</div>
+                            }
+                            @if (!string.IsNullOrEmpty(entry.ErrorDescription))
+                            {
+                                <div class="push-history-description">@entry.ErrorDescription</div>
+                            }
+                        </div>
+                    }
+                </div>
+                <div class="push-history-time" title="@entry.Timestamp.ToLocalTime().ToString("F")">@FormatTime(entry.Timestamp)</div>
+            </div>
+        }
+    </div>
+</section>
+
+<style>
+    .push-count {
+        padding: 0.05rem 0.5rem;
+        border-radius: 999px;
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+        font-size: 0.72rem;
+        font-weight: 600;
+    }
+
+    .push-history {
+        overflow: hidden;
+        border-radius: var(--card-radius);
+        background: var(--card-bg);
+    }
+
+    .push-history-row {
+        position: relative;
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        gap: 0.85rem;
+        align-items: start;
+        padding: 0.85rem 1.15rem;
+    }
+
+    .push-history-row:not(:last-child)::after {
+        content: '';
+        position: absolute;
+        bottom: 0;
+        left: 3.9rem;
+        right: 1.15rem;
+        height: 1px;
+        background: var(--border-color-light);
+    }
+
+    .push-history-status {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 1.9rem;
+        height: 1.9rem;
+        border-radius: 50%;
+        font-size: 0.8rem;
+    }
+
+    .push-history-row.success .push-history-status { background: var(--status-success-bg); color: var(--status-success-text); }
+    .push-history-row.error .push-history-status { background: var(--status-error-bg); color: var(--status-error-text); }
+
+    .push-history-body {
+        min-width: 0;
+        padding-top: 0.1rem;
+    }
+
+    .push-history-headline {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .push-history-title {
+        font-size: 0.82rem;
+        font-weight: 600;
+        color: var(--text-primary);
+    }
+
+    .push-history-code {
+        padding: 0.05rem 0.4rem;
+        border-radius: 0.35rem;
+        font-family: 'SF Mono', 'Menlo', 'Cascadia Code', 'Consolas', monospace;
+        font-size: 0.66rem;
+        font-weight: 700;
+    }
+
+    .push-history-row.success .push-history-code { background: var(--status-success-bg); color: var(--status-success-text); }
+    .push-history-row.error .push-history-code { background: var(--status-error-bg); color: var(--status-error-text); }
+
+    .push-history-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.25rem 0.9rem;
+        margin-top: 0.25rem;
+        font-size: 0.72rem;
+        color: var(--text-muted);
+    }
+
+    .push-history-meta span {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        min-width: 0;
+        color: var(--text-muted);
+        font-weight: 400;
+    }
+
+    .push-history-meta i {
+        font-size: 0.65rem;
+        opacity: 0.8;
+    }
+
+    .push-history-id {
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .push-history-error {
+        max-height: 5.5rem;
+        overflow-y: auto;
+        margin-top: 0.45rem;
+        padding: 0.45rem 0.6rem;
+        border-radius: 0.5rem;
+        background: color-mix(in srgb, var(--accent-danger) 10%, transparent);
+        font-size: 0.74rem;
+        line-height: 1.4;
+        word-break: break-word;
+    }
+
+    .push-history-reason {
+        font-weight: 600;
+        color: var(--accent-danger);
+    }
+
+    .push-history-description {
+        margin-top: 0.1rem;
+        color: var(--text-secondary);
+    }
+
+    .push-history-time {
+        padding-top: 0.3rem;
+        font-family: 'SF Mono', 'Menlo', 'Cascadia Code', 'Consolas', monospace;
+        font-size: 0.7rem;
+        white-space: nowrap;
+        color: var(--text-muted);
+    }
+</style>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<PushSendHistoryEntry> History { get; set; } = [];
+    [Parameter] public EventCallback OnClear { get; set; }
+
+    static string TargetIcon(string target) => target switch
+    {
+        "raw-json" => "fa-code",
+        _ when target.StartsWith('#') => "fa-hashtag",
+        _ => "fa-mobile-screen"
+    };
+
+    static string FormatTime(DateTime timestamp)
+    {
+        var local = timestamp.ToLocalTime();
+        return local.Date == DateTime.Today
+            ? local.ToString("HH:mm:ss")
+            : local.ToString("MMM d, HH:mm");
+    }
+}
