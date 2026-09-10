@@ -76,13 +76,35 @@ public partial class LocalCertificateService : ILocalCertificateService
             // Parse output - each line looks like:
             // 1) HASH "Identity String"
             // or with CSSMERR_TP_CERT_EXPIRED for invalid certs
-            var lines = result.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
-            
+            var lines = result.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries).ToList();
+
+            // Installer certificates (Developer ID Installer, Mac Installer Distribution)
+            // sign packages rather than code, so the codesigning policy leaves them out.
+            // The basic policy lists them — take only the installer identities from it so
+            // unrelated basic identities (web server certs and the like) stay out.
+            var installerResult = await RunSecurityCommandAsync("find-identity", "-v", "-p", "basic");
+            if (installerResult.ExitCode == 0)
+            {
+                lines.AddRange(installerResult.Output
+                    .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                    .Where(IsInstallerIdentityLine));
+            }
+            else
+            {
+                _logger.LogWarning(
+                    $"Could not list installer identities: security find-identity -p basic exited with {installerResult.ExitCode}");
+            }
+
+            var seenHashes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var line in lines)
             {
                 var identity = ParseIdentityLine(line);
                 if (identity != null)
                 {
+                    // The two policies overlap, so keep the first copy of each certificate.
+                    if (!string.IsNullOrEmpty(identity.Hash) && !seenHashes.Add(identity.Hash))
+                        continue;
+
                     // Look up the serial number for this identity
                     if (!string.IsNullOrEmpty(identity.Hash))
                     {
@@ -622,6 +644,11 @@ public partial class LocalCertificateService : ILocalCertificateService
 
         return (process.ExitCode, output, error);
     }
+
+    internal static bool IsInstallerIdentityLine(string line) =>
+        line.Contains("Developer ID Installer:", StringComparison.OrdinalIgnoreCase) ||
+        line.Contains("Mac Installer Distribution:", StringComparison.OrdinalIgnoreCase) ||
+        line.Contains("3rd Party Mac Developer Installer:", StringComparison.OrdinalIgnoreCase);
 
     // Regex to parse identity lines from security find-identity output
     [GeneratedRegex(@"^\s*\d+\)\s+(?<hash>[A-F0-9]+)\s+""(?<identity>[^""]+)""", RegexOptions.IgnoreCase)]
