@@ -641,17 +641,27 @@
 
         try { var settings = await SettingsService.GetSettingsAsync(); demoMode = settings.Preferences.DemoMode; } catch { }
         IdentityState.OnSelectionChanged += OnIdentityChanged;
+        LocalVaultAccess.StateChanged += OnLocalVaultStateChanged;
         
         // Load sync hint dismissed preference
         syncHintDismissed = AppPreferences.Get(SyncHintDismissedKey, false);
         
-        // Initialize cloud secrets service to load active provider
-        await CloudSecretsService.InitializeAsync();
-        
-        if (IdentityState.SelectedIdentity != null)
-            await RefreshData();
-        
-        _initialLoadComplete = true;
+        try
+        {
+            // Initialize cloud secrets service to load active provider
+            await CloudSecretsService.InitializeAsync();
+        }
+        catch (Exception ex)
+        {
+            // Never let this leave the page stuck on its first (empty) render.
+            Logger.LogError("Failed to initialize cloud secrets on the certificates page", ex);
+        }
+
+        // The Apple identity is resolved asynchronously, by AppleIdentityPicker and by the
+        // native toolbar menu. If it is already known, load now; if it lands later,
+        // OnIdentityChanged picks it up.
+        await RefreshData();
+        await InvokeAsync(StateHasChanged);
     }
 
     private void DismissSyncHint()
@@ -661,13 +671,14 @@
         StateHasChanged();
     }
 
-    private bool _initialLoadComplete;
+    // Id of the identity the current certificate list belongs to, so an identity that
+    // resolves while the initial load is still in flight is not fetched twice.
+    private string? _loadedIdentityId;
     
     private void OnIdentityChanged()
     {
         InvokeAsync(async () =>
         {
-            if (!_initialLoadComplete) return; // Skip during initial load (OnInitializedAsync handles it)
             await RefreshData();
             StateHasChanged();
         });
@@ -704,6 +715,17 @@
         ToolbarService.SearchTextChanged -= OnSearchTextChanged;
         ToolbarService.FilterChanged -= OnFilterChanged;
         IdentityState.OnSelectionChanged -= OnIdentityChanged;
+        LocalVaultAccess.StateChanged -= OnLocalVaultStateChanged;
+    }
+
+    // The whole page body is gated on the vault state, so re-render (and load) when it changes.
+    private void OnLocalVaultStateChanged()
+    {
+        InvokeAsync(async () =>
+        {
+            await RefreshData();
+            StateHasChanged();
+        });
     }
 
     private void OnToolbarItemClicked(string actionId)
@@ -727,11 +749,16 @@
 
     private async Task RefreshData(bool forceRefresh = false)
     {
-        if (IdentityState.SelectedIdentity == null || LocalVaultAccess.GetState().RequiresUserAction)
+        var identity = IdentityState.SelectedIdentity;
+        if (identity == null || LocalVaultAccess.GetState().RequiresUserAction)
             return;
 
-        if (IdentityState.SelectedIdentity == null) return;
+        // Both the initial load and OnIdentityChanged can fire for the same identity;
+        // only the explicit Refresh action re-fetches one we already have.
+        if (!forceRefresh && _loadedIdentityId == identity.Id)
+            return;
 
+        _loadedIdentityId = identity.Id;
         isLoading = true;
         errorMessage = "";
         
@@ -752,10 +779,10 @@
             // If force refresh, invalidate the mediator cache first
             if (forceRefresh)
             {
-                await Mediator.FlushStores($"apple:certs:{IdentityState.SelectedIdentity.Id}");
+                await Mediator.FlushStores($"apple:certs:{identity.Id}");
             }
             
-            var request = new GetCertificatesRequest(IdentityState.SelectedIdentity.Id);
+            var request = new GetCertificatesRequest(identity.Id);
             var (_, result) = await Mediator.Request(request);
             certificates = result.ToList();
             
@@ -768,7 +795,7 @@
             // when concurrent requests write to the same cache file. Retry once.
             try
             {
-                var request = new GetCertificatesRequest(IdentityState.SelectedIdentity.Id);
+                var request = new GetCertificatesRequest(identity.Id);
                 var (_, result) = await Mediator.Request(request);
                 certificates = result.ToList();
                 await LoadSyncStatuses();
@@ -784,6 +811,10 @@
         }
         finally
         {
+            // Let a failed load be retried for the same identity.
+            if (!string.IsNullOrEmpty(errorMessage) && _loadedIdentityId == identity.Id)
+                _loadedIdentityId = null;
+
             isLoading = false;
             if (toast != null) ToastService.Dismiss(toast);
             await InvokeAsync(StateHasChanged);
