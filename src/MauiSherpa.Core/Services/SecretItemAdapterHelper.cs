@@ -162,6 +162,13 @@ internal static class SecretItemAdapterHelper
     public static bool KeyMatchesPrefix(string key, string prefix) =>
         NormalizeStorageKey(key).StartsWith(NormalizeStorageKey(prefix), StringComparison.Ordinal);
 
+    /// <summary>
+    /// Returns a form of the key that ignores the punctuation differences providers
+    /// introduce (Azure Key Vault cannot store '/', for example), so keys from two
+    /// different providers can be compared for identity.
+    /// </summary>
+    public static string GetComparableStorageKey(string key) => NormalizeStorageKey(key);
+
     public static bool StorageKeysEqual(string left, string right) =>
         string.Equals(
             NormalizeStorageKey(left),

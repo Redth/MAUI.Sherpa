@@ -1,0 +1,573 @@
+@page "/modal/batch-publish"
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Pages.Forms
+@inject HybridFormBridgeHolder BridgeHolder
+@inject IPublishProfileService ProfileService
+@inject ISecretsPublisherService PublisherService
+@inject ILoggingService Logger
+@implements IDisposable
+
+<div class="batch-publish">
+    @if (isPreparing)
+    {
+        <div class="centered-state">
+            <i class="fa-solid fa-spinner fa-spin" style="font-size: 24px; color: var(--accent-color, #3b82f6);"></i>
+            <h3>Loading Destinations</h3>
+            <p class="step-description">Reading the repositories configured on each profile...</p>
+        </div>
+    }
+    else if (step == 1)
+    {
+        <h3>Publish In Sequence</h3>
+        <p class="step-description">
+            Each profile's secrets are re-resolved and published to its own destinations, one profile at a time.
+        </p>
+
+        <div class="select-controls">
+            <span class="select-count">@runs.Count(run => run.Include) of @runs.Count profiles selected</span>
+            <button class="btn-text-action" @onclick="ToggleAllProfiles">
+                @(runs.Any(run => run.CanPublish) && runs.Where(run => run.CanPublish).All(run => run.Include) ? "Uncheck All" : "Check All")
+            </button>
+        </div>
+
+        <div class="profile-checklist">
+            @foreach (var run in runs)
+            {
+                <label class="check-item @(run.CanPublish ? "" : "unavailable")">
+                    <input type="checkbox" checked="@run.Include" disabled="@(!run.CanPublish)"
+                           @onchange="@(e => { run.Include = e.Value is bool on && on; UpdateWizardState(); })" />
+                    <div class="profile-info">
+                        <span class="profile-name">@run.Profile.Name</span>
+                        @if (run.CanPublish)
+                        {
+                            <span class="profile-detail">
+                                @string.Join(", ", run.Destinations.Select(destination => destination.RepositoryFullName))
+                            </span>
+                        }
+                        else
+                        {
+                            <span class="profile-detail warning">
+                                <i class="fa-solid fa-triangle-exclamation"></i>
+                                No destinations configured — open the profile to add one
+                            </span>
+                        }
+                    </div>
+                </label>
+            }
+        </div>
+    }
+    else
+    {
+        <h3>Publishing</h3>
+        <p class="step-description">
+            @if (publishComplete)
+            {
+                @:All profiles processed.
+            }
+            else
+            {
+                @:Publishing each profile in sequence...
+            }
+        </p>
+
+        <div class="run-list">
+            @foreach (var run in runs.Where(run => run.Include))
+            {
+                <div class="run-row">
+                    <div class="status-icon">
+                        <i class="@GetStatusIcon(run.Status)" style="@GetStatusStyle(run.Status)"></i>
+                    </div>
+                    <div class="run-info">
+                        <div class="run-name">@run.Profile.Name</div>
+                        <div class="run-message">@run.StatusMessage</div>
+                        @foreach (var destination in run.Destinations)
+                        {
+                            <div class="run-destination">
+                                <i class="@GetStatusIcon(destination.Status)" style="@GetStatusStyle(destination.Status)"></i>
+                                <i class="@GetProviderIcon(destination.ProviderId)"></i>
+                                <span class="destination-repo">@destination.RepositoryFullName</span>
+                                <span class="destination-message">@destination.StatusMessage</span>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+
+        @if (publishComplete)
+        {
+            <div class="publish-summary-bar">
+                @if (FailureCount == 0)
+                {
+                    <i class="fa-solid fa-circle-check" style="color: #22c55e;"></i>
+                    <span>Published @SuccessCount profile(s)</span>
+                }
+                else
+                {
+                    <i class="fa-solid fa-triangle-exclamation" style="color: #f59e0b;"></i>
+                    <span>@SuccessCount succeeded, @FailureCount failed — see the log for details</span>
+                }
+            </div>
+        }
+    }
+</div>
+
+<style>
+    .batch-publish {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        padding: 1rem 1.25rem;
+    }
+
+    .batch-publish h3 {
+        font-size: 16px;
+        font-weight: 600;
+        margin: 0 0 2px 0;
+        color: var(--text-primary);
+    }
+
+    .centered-state {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 40px 20px;
+        text-align: center;
+    }
+
+    .step-description {
+        font-size: 12px;
+        color: var(--text-muted);
+        margin: 0 0 12px 0;
+    }
+
+    .select-controls {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 8px;
+    }
+
+    .select-count {
+        font-size: 12px;
+        color: var(--text-muted);
+    }
+
+    .btn-text-action {
+        background: none;
+        border: none;
+        color: var(--accent-color, #3b82f6);
+        font-size: 13px;
+        cursor: pointer;
+        padding: 4px 0;
+    }
+
+    .btn-text-action:hover { text-decoration: underline; }
+
+    .profile-checklist, .run-list {
+        display: flex;
+        flex-direction: column;
+        overflow-y: auto;
+        max-height: 360px;
+    }
+
+    .check-item {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        padding: 8px;
+        border-bottom: 1px solid var(--border-color, #e2e8f0);
+        cursor: pointer;
+    }
+
+    .check-item:last-child { border-bottom: none; }
+    .check-item.unavailable { cursor: default; opacity: 0.75; }
+
+    .check-item input[type="checkbox"] {
+        width: 16px;
+        height: 16px;
+        margin-top: 2px;
+        flex-shrink: 0;
+        accent-color: var(--accent-color, #3b82f6);
+    }
+
+    .profile-info {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+    }
+
+    .profile-name {
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--text-primary);
+    }
+
+    .profile-detail {
+        font-size: 11px;
+        color: var(--text-muted);
+    }
+
+    .profile-detail.warning { color: #b45309; }
+    .profile-detail.warning i { margin-right: 4px; }
+
+    .run-row {
+        display: flex;
+        gap: 8px;
+        padding: 8px;
+        border-bottom: 1px solid var(--border-color, #e2e8f0);
+    }
+
+    .run-row:last-child { border-bottom: none; }
+
+    .status-icon {
+        width: 16px;
+        text-align: center;
+        margin-top: 2px;
+        flex-shrink: 0;
+    }
+
+    .run-info {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 0;
+    }
+
+    .run-name {
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--text-primary);
+    }
+
+    .run-message {
+        font-size: 11px;
+        color: var(--text-muted);
+    }
+
+    .run-destination {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 11px;
+        color: var(--text-muted);
+        padding-left: 4px;
+    }
+
+    .destination-repo { color: var(--text-secondary); }
+
+    .publish-summary-bar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 10px;
+        padding: 8px 12px;
+        border-radius: 6px;
+        background: var(--bg-tertiary);
+        font-size: 12px;
+        color: var(--text-secondary);
+    }
+
+    :global(.theme-dark) .profile-detail.warning { color: #fbbf24; }
+</style>
+
+@code {
+    IReadOnlyList<PublishProfile> profiles = Array.Empty<PublishProfile>();
+    List<ProfileRunVM> runs = new();
+    readonly CancellationTokenSource cancellation = new();
+    bool isPreparing = true;
+    bool isPublishing;
+    bool publishComplete;
+    int step = 1;
+
+    int SuccessCount => runs.Count(run => run.Include && run.Status == RunStatus.Success);
+    int FailureCount => runs.Count(run => run.Include && run.Status == RunStatus.Error);
+
+    protected override async Task OnInitializedAsync()
+    {
+        var bridge = BridgeHolder.Current;
+        if (bridge is null)
+            return;
+
+        if (bridge.Parameters.TryGetValue("Profiles", out var value) &&
+            value is IReadOnlyList<PublishProfile> selected)
+        {
+            profiles = selected;
+        }
+
+        bridge.SubmitRequested += OnSubmitRequested;
+        bridge.SetWizardState(showBack: false, showNext: false, showSubmit: false, canProceed: false, submitText: "Publish");
+        StateHasChanged();
+
+        runs = new List<ProfileRunVM>();
+        foreach (var profile in profiles)
+        {
+            var run = new ProfileRunVM { Profile = profile };
+            run.Destinations = await LoadDestinationsAsync(profile);
+            run.Include = run.CanPublish;
+            runs.Add(run);
+        }
+
+        isPreparing = false;
+        UpdateWizardState();
+        StateHasChanged();
+    }
+
+    async Task<List<DestinationVM>> LoadDestinationsAsync(PublishProfile profile)
+    {
+        if (profile.Publishers.Count > 0)
+        {
+            return profile.Publishers
+                .Select(publisher => new DestinationVM
+                {
+                    PublisherId = publisher.PublisherId,
+                    PublisherName = publisher.PublisherName,
+                    ProviderId = publisher.ProviderId,
+                    RepositoryFullName = publisher.RepositoryFullName
+                })
+                .ToList();
+        }
+
+        // Legacy profiles stored a single publisher + repository instead of a list.
+        if (string.IsNullOrEmpty(profile.PublisherId) || string.IsNullOrEmpty(profile.RepositoryId))
+            return new List<DestinationVM>();
+
+        try
+        {
+            var publisher = await PublisherService.GetPublisherAsync(profile.PublisherId);
+            if (publisher is null)
+                return new List<DestinationVM>();
+
+            return new List<DestinationVM>
+            {
+                new()
+                {
+                    PublisherId = publisher.Id,
+                    PublisherName = publisher.Name,
+                    ProviderId = publisher.ProviderId,
+                    RepositoryFullName = profile.RepositoryFullName ?? profile.RepositoryId
+                }
+            };
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning($"Failed to load destinations for profile '{profile.Name}': {ex.Message}");
+            return new List<DestinationVM>();
+        }
+    }
+
+    void UpdateWizardState()
+    {
+        var bridge = BridgeHolder.Current;
+        if (bridge is null)
+            return;
+
+        bridge.SetWizardState(
+            showBack: false,
+            showNext: false,
+            showSubmit: (step == 1 && !isPublishing) || publishComplete,
+            canProceed: publishComplete || runs.Any(run => run.Include && run.CanPublish),
+            submitText: publishComplete ? "Done" : "Publish");
+    }
+
+    void ToggleAllProfiles()
+    {
+        var publishable = runs.Where(run => run.CanPublish).ToList();
+        var allChecked = publishable.All(run => run.Include);
+        foreach (var run in publishable)
+            run.Include = !allChecked;
+        UpdateWizardState();
+    }
+
+    async Task OnSubmitRequested()
+    {
+        var bridge = BridgeHolder.Current;
+
+        if (publishComplete)
+        {
+            if (bridge is not null)
+            {
+                bridge.Result = true;
+                bridge.PreventSubmitClose = false;
+            }
+            return;
+        }
+
+        if (step != 1)
+            return;
+
+        var selected = runs.Where(run => run.Include && run.CanPublish).ToList();
+        if (selected.Count == 0)
+            return;
+
+        // Hold the wizard open while the sequence runs, then let "Done" close it.
+        if (bridge is not null)
+            bridge.PreventSubmitClose = true;
+
+        step = 2;
+        isPublishing = true;
+        UpdateWizardState();
+        await InvokeAsync(StateHasChanged);
+
+        foreach (var run in selected)
+        {
+            if (cancellation.IsCancellationRequested)
+                return;
+
+            await PublishRunAsync(run);
+        }
+
+        isPublishing = false;
+        publishComplete = true;
+        UpdateWizardState();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    async Task PublishRunAsync(ProfileRunVM run)
+    {
+        run.Status = RunStatus.InProgress;
+        run.StatusMessage = "Resolving secrets...";
+        await InvokeAsync(StateHasChanged);
+
+        Dictionary<string, string> secrets;
+        try
+        {
+            var progress = new Progress<string>(message =>
+            {
+                run.StatusMessage = message;
+                InvokeAsync(StateHasChanged);
+            });
+
+            secrets = await ProfileService.ResolveSecretsAsync(
+                run.Profile,
+                progress,
+                cancellation.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        catch (Exception ex)
+        {
+            run.Status = RunStatus.Error;
+            run.StatusMessage = $"Failed to resolve secrets: {ex.Message}";
+            Logger.LogError($"Failed to resolve secrets for '{run.Profile.Name}': {ex}");
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        if (secrets.Count == 0)
+        {
+            run.Status = RunStatus.Error;
+            run.StatusMessage = "No secrets could be resolved from this profile.";
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        run.StatusMessage = $"Publishing {secrets.Count} secret(s)...";
+        await InvokeAsync(StateHasChanged);
+
+        foreach (var destination in run.Destinations)
+        {
+            if (cancellation.IsCancellationRequested)
+                return;
+
+            destination.Status = RunStatus.InProgress;
+            destination.StatusMessage = "Publishing...";
+            await InvokeAsync(StateHasChanged);
+
+            try
+            {
+                var progress = new Progress<string>(message =>
+                {
+                    destination.StatusMessage = message;
+                    InvokeAsync(StateHasChanged);
+                });
+
+                await PublisherService.PublishSecretsAsync(
+                    destination.PublisherId,
+                    destination.RepositoryFullName,
+                    secrets,
+                    progress,
+                    cancellation.Token);
+
+                destination.Status = RunStatus.Success;
+                destination.StatusMessage = $"{secrets.Count} secret(s) published";
+            }
+            catch (Exception ex)
+            {
+                destination.Status = RunStatus.Error;
+                destination.StatusMessage = $"Error: {ex.Message}";
+                Logger.LogError($"Failed to publish '{run.Profile.Name}' to {destination.RepositoryFullName}: {ex}");
+            }
+
+            await InvokeAsync(StateHasChanged);
+        }
+
+        var failed = run.Destinations.Count(destination => destination.Status == RunStatus.Error);
+        run.Status = failed == 0 ? RunStatus.Success : RunStatus.Error;
+        run.StatusMessage = failed == 0
+            ? $"Published {secrets.Count} secret(s) to {run.Destinations.Count} destination(s)"
+            : $"{run.Destinations.Count - failed} of {run.Destinations.Count} destination(s) published";
+        await InvokeAsync(StateHasChanged);
+    }
+
+    static string GetStatusIcon(RunStatus status) => status switch
+    {
+        RunStatus.InProgress => "fa-solid fa-spinner fa-spin",
+        RunStatus.Success => "fa-solid fa-circle-check",
+        RunStatus.Error => "fa-solid fa-circle-xmark",
+        _ => "fa-solid fa-circle"
+    };
+
+    static string GetStatusStyle(RunStatus status) => status switch
+    {
+        RunStatus.InProgress => "color: var(--accent-color, #3b82f6);",
+        RunStatus.Success => "color: #22c55e;",
+        RunStatus.Error => "color: #ef4444;",
+        _ => "color: var(--text-muted); font-size: 8px;"
+    };
+
+    static string GetProviderIcon(string providerId) => providerId switch
+    {
+        "github" => "fa-brands fa-github",
+        "gitlab" => "fa-brands fa-gitlab",
+        "gitea" => "fa-solid fa-mug-hot",
+        "azuredevops" or "azure-devops" => "fa-brands fa-microsoft",
+        _ => "fa-solid fa-cloud"
+    };
+
+    public void Dispose()
+    {
+        // Only cancel — an in-flight resolve/publish still holds this token.
+        cancellation.Cancel();
+
+        var bridge = BridgeHolder.Current;
+        if (bridge is not null)
+            bridge.SubmitRequested -= OnSubmitRequested;
+    }
+
+    class ProfileRunVM
+    {
+        public PublishProfile Profile { get; init; } = default!;
+        public bool Include { get; set; }
+        public List<DestinationVM> Destinations { get; set; } = new();
+        public RunStatus Status { get; set; } = RunStatus.Pending;
+        public string StatusMessage { get; set; } = "";
+        public bool CanPublish => Destinations.Count > 0;
+    }
+
+    class DestinationVM
+    {
+        public string PublisherId { get; set; } = "";
+        public string PublisherName { get; set; } = "";
+        public string ProviderId { get; set; } = "";
+        public string RepositoryFullName { get; set; } = "";
+        public RunStatus Status { get; set; } = RunStatus.Pending;
+        public string StatusMessage { get; set; } = "";
+    }
+
+    enum RunStatus { Pending, InProgress, Success, Error }
+}
