@@ -52,23 +52,37 @@ else
         </div>
     }
 
-    @if (!ViewModel.IsAuthenticated)
-    {
-        <div class="auth-banner">
-            <div class="auth-banner-icon">
-                <i class="fas fa-user-lock"></i>
-            </div>
-            <div class="auth-banner-content">
+    <div class="auth-banner @(ViewModel.IsAuthenticated ? "auth-banner-signed-in" : "")" data-testid="apple-account-card">
+        <div class="auth-banner-icon">
+            <i class="fas @(ViewModel.IsAuthenticated ? "fa-user-check" : "fa-user-lock")"></i>
+        </div>
+        <div class="auth-banner-content">
+            @if (ViewModel.IsAuthenticated)
+            {
+                <strong>Signed in with Apple ID</strong>
+                <p class="text-selectable">@ViewModel.AuthenticatedAppleId</p>
+            }
+            else
+            {
                 <strong>Sign in with your Apple ID to download Xcode and simulator runtimes</strong>
                 <p>Some Xcode Management tasks require an Apple Developer sign-in, including downloading Xcode and installing simulator runtimes from Apple.</p>
-            </div>
-            <div class="auth-banner-actions">
-                <button class="btn btn-primary" @onclick="OpenAuthModal">
+            }
+        </div>
+        <div class="auth-banner-actions">
+            @if (ViewModel.IsAuthenticated)
+            {
+                <button class="btn btn-outline" data-testid="apple-sign-out" @onclick="SignOut">
+                    <i class="fas fa-lock"></i> Sign Out
+                </button>
+            }
+            else
+            {
+                <button class="btn btn-primary" data-testid="apple-sign-in" @onclick="OpenAuthModal">
                     <i class="fas fa-lock-open"></i> Sign In
                 </button>
-            </div>
+            }
         </div>
-    }
+    </div>
 
     <div class="tabs">
         <button class="tab @(activeTab == "installed" ? "active" : "")" @onclick="@(() => SwitchTab("installed"))">
@@ -504,6 +518,20 @@ else
         margin: 0;
         font-size: 0.875rem;
         color: var(--status-warning-text);
+    }
+
+    .auth-banner-signed-in {
+        background: var(--status-success-bg);
+        color: var(--status-success-text);
+    }
+
+    .auth-banner-signed-in .auth-banner-icon {
+        color: var(--accent-success);
+    }
+
+    .auth-banner-signed-in .auth-banner-content strong,
+    .auth-banner-signed-in .auth-banner-content p {
+        color: var(--status-success-text);
     }
 
     .auth-banner-actions {

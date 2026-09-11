@@ -287,8 +287,8 @@ public class XcodeManagementViewModel : ViewModelBase
 
     public bool IsInstalled(XcodeRelease release)
     {
-        return InstalledXcodes.Any(i =>
-            i.Version == release.Version || i.BuildNumber == release.BuildNumber);
+        return !string.IsNullOrWhiteSpace(release.BuildNumber)
+            && InstalledXcodes.Any(i => i.BuildNumber == release.BuildNumber);
     }
 
     public long TotalRuntimeStorageBytes => RuntimeStorage
