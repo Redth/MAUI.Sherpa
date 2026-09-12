@@ -14,6 +14,7 @@ public class DevFlowV1Client : IAppInspectorClient
 {
     private readonly HttpClient _http;
     private readonly ILogger _logger;
+    private readonly DevFlowMutationLease _lease = new();
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -33,6 +34,7 @@ public class DevFlowV1Client : IAppInspectorClient
         _http = httpClientFactory.CreateClient("DevFlowAgent");
         _http.BaseAddress = new Uri($"http://{host}:{port}");
         _http.Timeout = TimeSpan.FromSeconds(15);
+        _lease.ApplyHeaders(_http.DefaultRequestHeaders);
     }
 
     // ─────────────────────── Agent ───────────────────────────
@@ -134,8 +136,8 @@ public class DevFlowV1Client : IAppInspectorClient
     public async Task<object?> SetPropertyAsync(string elementId, string propertyName, object value, CancellationToken ct = default)
     {
         var url = $"/api/v1/ui/elements/{Uri.EscapeDataString(elementId)}/properties/{Uri.EscapeDataString(propertyName)}";
-        var response = await _http.PutAsJsonAsync(url, new { value }, JsonOptions, ct);
-        response.EnsureSuccessStatusCode();
+        var response = await PutMutationAsync(url, new { value }, JsonOptions, ct);
+        await EnsureSuccessAsync(response, ct);
         var result = await response.Content.ReadFromJsonAsync<JsonElement>(JsonOptions, ct);
         return result.TryGetProperty("value", out var val) ? val.Deserialize<object>(JsonOptions) : null;
     }
@@ -144,7 +146,7 @@ public class DevFlowV1Client : IAppInspectorClient
 
     private async Task<ActionResult> PostActionAsync<T>(string path, T request, CancellationToken ct)
     {
-        var response = await _http.PostAsJsonAsync(path, request, JsonOptions, ct);
+        var response = await PostMutationAsync(path, request, JsonOptions, ct);
         if (!response.IsSuccessStatusCode)
         {
             var error = await response.Content.ReadFromJsonAsync<InspectorError>(JsonOptions, ct);
@@ -197,7 +199,7 @@ public class DevFlowV1Client : IAppInspectorClient
 
     public async Task<WebViewEvalResult> EvaluateJavaScriptAsync(string expression, string? contextId = null, CancellationToken ct = default)
     {
-        var response = await _http.PostAsJsonAsync("/api/v1/webview/evaluate",
+        var response = await PostMutationAsync("/api/v1/webview/evaluate",
             new { expression, contextId }, JsonOptions, ct);
         response.EnsureSuccessStatusCode();
         var result = await response.Content.ReadFromJsonAsync<WebViewEvalResult>(JsonOptions, ct);
@@ -212,7 +214,7 @@ public class DevFlowV1Client : IAppInspectorClient
 
     public async Task<IReadOnlyList<object>> QueryWebViewDomAsync(string selector, string? contextId = null, CancellationToken ct = default)
     {
-        var response = await _http.PostAsJsonAsync("/api/v1/webview/dom/query",
+        var response = await PostMutationAsync("/api/v1/webview/dom/query",
             new { selector, contextId }, JsonOptions, ct);
         response.EnsureSuccessStatusCode();
         var result = await response.Content.ReadFromJsonAsync<List<object>>(JsonOptions, ct);
@@ -227,21 +229,21 @@ public class DevFlowV1Client : IAppInspectorClient
 
     public async Task<bool> NavigateWebViewAsync(string url, string? contextId = null, CancellationToken ct = default)
     {
-        var response = await _http.PostAsJsonAsync("/api/v1/webview/navigate",
+        var response = await PostMutationAsync("/api/v1/webview/navigate",
             new { url, contextId }, JsonOptions, ct);
         return response.IsSuccessStatusCode;
     }
 
     public async Task<bool> ClickInWebViewAsync(string selector, string? contextId = null, CancellationToken ct = default)
     {
-        var response = await _http.PostAsJsonAsync("/api/v1/webview/input/click",
+        var response = await PostMutationAsync("/api/v1/webview/input/click",
             new { selector, contextId }, JsonOptions, ct);
         return response.IsSuccessStatusCode;
     }
 
     public async Task<bool> FillInWebViewAsync(string selector, string text, string? contextId = null, CancellationToken ct = default)
     {
-        var response = await _http.PostAsJsonAsync("/api/v1/webview/input/fill",
+        var response = await PostMutationAsync("/api/v1/webview/input/fill",
             new { selector, text, contextId }, JsonOptions, ct);
         return response.IsSuccessStatusCode;
     }
@@ -276,7 +278,7 @@ public class DevFlowV1Client : IAppInspectorClient
 
     public async Task ClearNetworkRequestsAsync(CancellationToken ct = default)
     {
-        await _http.DeleteAsync("/api/v1/network/requests", ct);
+        await DeleteMutationAsync("/api/v1/network/requests", ct);
     }
 
     public Task StreamNetworkRequestsAsync(
@@ -331,7 +333,7 @@ public class DevFlowV1Client : IAppInspectorClient
     public async Task<InspectorProfilerSession> StartProfilingAsync(int? sampleIntervalMs = null, CancellationToken ct = default)
     {
         var payload = sampleIntervalMs.HasValue ? new { sampleIntervalMs = sampleIntervalMs.Value } : (object?)null;
-        var response = await _http.PostAsJsonAsync("/api/v1/profiler/sessions", payload, JsonOptions, ct);
+        var response = await PostMutationAsync("/api/v1/profiler/sessions", payload, JsonOptions, ct);
         response.EnsureSuccessStatusCode();
         var result = await response.Content.ReadFromJsonAsync<InspectorProfilerSession>(JsonOptions, ct);
         return result ?? new InspectorProfilerSession();
@@ -339,7 +341,7 @@ public class DevFlowV1Client : IAppInspectorClient
 
     public async Task StopProfilingAsync(string sessionId, CancellationToken ct = default)
     {
-        await _http.DeleteAsync($"/api/v1/profiler/sessions/{Uri.EscapeDataString(sessionId)}", ct);
+        await DeleteMutationAsync($"/api/v1/profiler/sessions/{Uri.EscapeDataString(sessionId)}", ct);
     }
 
     public async Task<InspectorProfilerBatch> GetProfilerSamplesAsync(string sessionId, int? sampleCursor = null, int? markerCursor = null, int? spanCursor = null, int? limit = null, CancellationToken ct = default)
@@ -437,13 +439,13 @@ public class DevFlowV1Client : IAppInspectorClient
     {
         var url = $"/api/v1/device/sensors/{Uri.EscapeDataString(sensor)}/start";
         if (speed != null) url += $"?speed={Uri.EscapeDataString(speed)}";
-        var response = await _http.PostAsync(url, null, ct);
+        var response = await PostMutationAsync(url, null, ct);
         response.EnsureSuccessStatusCode();
     }
 
     public async Task StopSensorAsync(string sensor, CancellationToken ct = default)
     {
-        var response = await _http.PostAsync($"/api/v1/device/sensors/{Uri.EscapeDataString(sensor)}/stop", null, ct);
+        var response = await PostMutationAsync($"/api/v1/device/sensors/{Uri.EscapeDataString(sensor)}/stop", null, ct);
         response.EnsureSuccessStatusCode();
     }
 
@@ -505,7 +507,7 @@ public class DevFlowV1Client : IAppInspectorClient
     public async Task SetPreferenceAsync(string key, object value, string? type = null, string? sharedName = null, CancellationToken ct = default)
     {
         var url = $"/api/v1/storage/preferences/{Uri.EscapeDataString(key)}";
-        var response = await _http.PutAsJsonAsync(url, new { value, type, sharedName }, JsonOptions, ct);
+        var response = await PutMutationAsync(url, new { value, type, sharedName }, JsonOptions, ct);
         response.EnsureSuccessStatusCode();
     }
 
@@ -513,14 +515,14 @@ public class DevFlowV1Client : IAppInspectorClient
     {
         var url = $"/api/v1/storage/preferences/{Uri.EscapeDataString(key)}";
         if (sharedName != null) url += $"?sharedName={Uri.EscapeDataString(sharedName)}";
-        await _http.DeleteAsync(url, ct);
+        await DeleteMutationAsync(url, ct);
     }
 
     public async Task ClearPreferencesAsync(string? sharedName = null, CancellationToken ct = default)
     {
         var url = "/api/v1/storage/preferences";
         if (sharedName != null) url += $"?sharedName={Uri.EscapeDataString(sharedName)}";
-        await _http.DeleteAsync(url, ct);
+        await DeleteMutationAsync(url, ct);
     }
 
     public async Task<InspectorSecureStorageEntry?> GetSecureStorageAsync(string key, CancellationToken ct = default)
@@ -535,19 +537,77 @@ public class DevFlowV1Client : IAppInspectorClient
 
     public async Task SetSecureStorageAsync(string key, string value, CancellationToken ct = default)
     {
-        var response = await _http.PutAsJsonAsync(
+        var response = await PutMutationAsync(
             $"/api/v1/storage/secure/{Uri.EscapeDataString(key)}", new { value }, JsonOptions, ct);
         response.EnsureSuccessStatusCode();
     }
 
     public async Task DeleteSecureStorageAsync(string key, CancellationToken ct = default)
     {
-        await _http.DeleteAsync($"/api/v1/storage/secure/{Uri.EscapeDataString(key)}", ct);
+        await DeleteMutationAsync($"/api/v1/storage/secure/{Uri.EscapeDataString(key)}", ct);
     }
 
     public async Task ClearSecureStorageAsync(CancellationToken ct = default)
     {
-        await _http.DeleteAsync("/api/v1/storage/secure", ct);
+        await DeleteMutationAsync("/api/v1/storage/secure", ct);
+    }
+
+    // ─────────────────────── Mutations ───────────────────────
+
+    // Every v1 mutation must hold the agent's mutation lease, or the agent answers 409 Conflict.
+    private Task ClaimMutationLeaseAsync(CancellationToken ct) =>
+        _lease.ClaimAsync(_http.BaseAddress!, _http.SendAsync, ct);
+
+    private async Task<HttpResponseMessage> PostMutationAsync<T>(string url, T value, JsonSerializerOptions options, CancellationToken ct)
+    {
+        await ClaimMutationLeaseAsync(ct);
+        return await _http.PostAsJsonAsync(url, value, options, ct);
+    }
+
+    private async Task<HttpResponseMessage> PostMutationAsync(string url, HttpContent? content, CancellationToken ct)
+    {
+        await ClaimMutationLeaseAsync(ct);
+        return await _http.PostAsync(url, content, ct);
+    }
+
+    private async Task<HttpResponseMessage> PutMutationAsync<T>(string url, T value, JsonSerializerOptions options, CancellationToken ct)
+    {
+        await ClaimMutationLeaseAsync(ct);
+        return await _http.PutAsJsonAsync(url, value, options, ct);
+    }
+
+    private async Task<HttpResponseMessage> DeleteMutationAsync(string url, CancellationToken ct)
+    {
+        await ClaimMutationLeaseAsync(ct);
+        return await _http.DeleteAsync(url, ct);
+    }
+
+    /// <summary>Throws a <see cref="DevFlowAgentException"/> carrying the agent's error message.</summary>
+    private static async Task EnsureSuccessAsync(HttpResponseMessage response, CancellationToken ct)
+    {
+        if (response.IsSuccessStatusCode)
+            return;
+
+        string? message = null;
+        try
+        {
+            var body = await response.Content.ReadFromJsonAsync<JsonElement>(JsonOptions, ct);
+            if (body.ValueKind == JsonValueKind.Object
+                && body.TryGetProperty("error", out var error)
+                && error.ValueKind == JsonValueKind.String)
+            {
+                message = error.GetString();
+            }
+        }
+        catch (JsonException)
+        {
+        }
+
+        throw new DevFlowAgentException(
+            (int)response.StatusCode,
+            string.IsNullOrWhiteSpace(message)
+                ? $"Agent returned {(int)response.StatusCode} ({response.ReasonPhrase})."
+                : message);
     }
 
     public void Dispose()
