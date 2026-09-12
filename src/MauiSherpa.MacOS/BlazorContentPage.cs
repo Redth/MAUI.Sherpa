@@ -1070,6 +1070,8 @@ public class BlazorContentPage : ContentPage
                 ("create", "New Secret", "plus"),
                 ("export", "Export", "square.and.arrow.up"),
                 ("export-selected", "Export Selected", "square.and.arrow.up"),
+                ("select", "Select", "checkmark.circle"),
+                ("publish-selected", "Publish Selected", "square.and.arrow.up"),
                 ("cancel-selection", "Cancel", "xmark"),
                 ("create-folder", "New Folder", "folder.badge.plus"),
                 ("rename-folder", "Rename Folder", "pencil"),
