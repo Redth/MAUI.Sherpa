@@ -4,6 +4,7 @@ using System.Numerics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Web;
 using MauiSherpa.Core.Interfaces;
 
 namespace MauiSherpa.Core.Services;
@@ -29,8 +30,7 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
     internal static readonly TimeSpan SessionRenewalThreshold = TimeSpan.FromDays(7);
 
     // Apple auth endpoints
-    // Olympus only returns authServiceKey for the iTunes Connect hostname variant.
-    private const string AuthServiceKey = "https://appstoreconnect.apple.com/olympus/v1/app/config?hostname=itunesconnect.apple.com";
+    private const string ServiceKeyDiscoveryUrl = "https://appstoreconnect.apple.com/logout";
     private const string FederateUrl = "https://idmsa.apple.com/appleauth/auth/federate";
     private const string SignInInitUrl = "https://idmsa.apple.com/appleauth/auth/signin/init";
     private const string SignInCompleteUrl = "https://idmsa.apple.com/appleauth/auth/signin/complete";
@@ -97,8 +97,6 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
 
             // Step 1: Get service key
             var serviceKey = await GetServiceKeyAsync();
-            if (serviceKey == null)
-                return new AppleAuthResult(false, false, ErrorMessage: "Failed to get Apple auth service key");
 
             // Step 2: Compute SRP client ephemeral
             var (aPublicBase64, aPrivate) = ComputeSrpInit();
@@ -205,8 +203,6 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
         try
         {
             var serviceKey = _pendingServiceKey ?? await GetServiceKeyAsync();
-            if (serviceKey == null)
-                return new AppleAuthResult(false, false, ErrorMessage: "Failed to get service key");
 
             string verifyUrl;
             HttpContent content;
@@ -287,7 +283,6 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
         try
         {
             var serviceKey = _pendingServiceKey ?? await GetServiceKeyAsync();
-            if (serviceKey == null) return false;
 
             var request = new HttpRequestMessage(HttpMethod.Put, $"{AuthUrl}/verify/phone");
             request.Headers.Add("X-Apple-Widget-Key", serviceKey);
@@ -580,31 +575,39 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
 
     // ── Private helpers ─────────────────────────────────────────────────
 
-    private async Task<string?> GetServiceKeyAsync()
+    internal static async Task<string> GetServiceKeyAsync(HttpMessageHandler? handler = null)
     {
-        try
+        // Olympus app/config no longer exists. ASC's logout redirect advertises its
+        // current widget key. Never send session cookies or follow the signout redirect.
+        using var cleanClient = new HttpClient(handler ?? new SocketsHttpHandler
         {
-            // Use SocketsHttpHandler explicitly — the platform default (NSUrlSessionHandler
-            // on macOS) gets a 403 from Apple's Olympus endpoint.
-            using var handler = new SocketsHttpHandler();
-            using var cleanClient = new HttpClient(handler);
-            cleanClient.DefaultRequestHeaders.Add("User-Agent", "MauiSherpa");
-            cleanClient.DefaultRequestHeaders.Add("Accept", "application/json");
+            AllowAutoRedirect = false,
+            UseCookies = false
+        });
+        cleanClient.DefaultRequestHeaders.Add("User-Agent", "MauiSherpa");
 
-            var responseText = await cleanClient.GetStringAsync(AuthServiceKey);
-
-            using var doc = JsonDocument.Parse(responseText);
-            if (doc.RootElement.TryGetProperty("authServiceKey", out var key))
-                return key.GetString();
-
-            _logger.LogError($"Failed to get service key: authServiceKey missing from response: {responseText}");
-            return null;
-        }
-        catch (Exception ex)
+        using var response = await cleanClient.GetAsync(ServiceKeyDiscoveryUrl);
+        if ((int)response.StatusCode is not (301 or 302 or 303 or 307 or 308))
         {
-            _logger.LogError($"Failed to get service key: {ex.Message}", ex);
-            return null;
+            throw new HttpRequestException(
+                $"Unable to get Apple auth service key: Apple returned HTTP {(int)response.StatusCode}. Please try again later.",
+                null, response.StatusCode);
         }
+
+        var location = response.Headers.Location;
+        if (location is not { IsAbsoluteUri: true }
+            || location.Scheme != Uri.UriSchemeHttps
+            || location.Host != "idmsa.apple.com"
+            || !location.IsDefaultPort
+            || location.UserInfo.Length != 0
+            || location.AbsolutePath != "/appleauth/signout")
+            throw new InvalidOperationException("Unable to get Apple auth service key: Apple returned an unexpected signout redirect.");
+
+        var key = HttpUtility.ParseQueryString(location.Query)["widgetKey"];
+        if (string.IsNullOrWhiteSpace(key) || key.Any(char.IsControl))
+            throw new InvalidOperationException("Unable to get Apple auth service key: Apple's signout redirect did not contain a valid widget key.");
+
+        return key;
     }
 
     private async Task<AppleAuthOptions?> GetAuthOptionsInternalAsync(string serviceKey)

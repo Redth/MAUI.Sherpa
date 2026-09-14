@@ -2,11 +2,124 @@ using System.Net;
 using FluentAssertions;
 using MauiSherpa.Core.Interfaces;
 using MauiSherpa.Core.Services;
+using Moq;
+using Moq.Protected;
 
 namespace MauiSherpa.Core.Tests.Services;
 
 public class AppleDownloadAuthServiceTests
 {
+    [Theory]
+    [InlineData(301)]
+    [InlineData(302)]
+    [InlineData(303)]
+    [InlineData(307)]
+    [InlineData(308)]
+    public async Task GetServiceKeyAsync_ReadsCurrentKeyFromRedirect(int statusCode)
+    {
+        var handler = CreateDiscoveryHandler(
+            (HttpStatusCode)statusCode,
+            "https://idmsa.apple.com/appleauth/signout?asop=destroy-session&widgetKey=current%2Dapple%2Dkey&rv=3");
+
+        var key = await AppleDownloadAuthService.GetServiceKeyAsync(handler.Object);
+
+        key.Should().Be("current-apple-key");
+        handler.Protected().Verify(
+            "SendAsync",
+            Times.Once(),
+            ItExpr.Is<HttpRequestMessage>(request =>
+                request.Method == HttpMethod.Get
+                && request.RequestUri == new Uri("https://appstoreconnect.apple.com/logout")
+                && !request.Headers.Contains("Cookie")
+                && !request.Headers.Contains("Authorization")),
+            ItExpr.IsAny<CancellationToken>());
+        handler.Protected().Verify(
+            "SendAsync", Times.Once(),
+            ItExpr.IsAny<HttpRequestMessage>(), ItExpr.IsAny<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData(200)]
+    [InlineData(401)]
+    [InlineData(403)]
+    [InlineData(404)]
+    [InlineData(429)]
+    [InlineData(500)]
+    public async Task GetServiceKeyAsync_UnexpectedStatusPreservesHttpError(int statusCode)
+    {
+        var handler = CreateDiscoveryHandler((HttpStatusCode)statusCode);
+
+        var act = () => AppleDownloadAuthService.GetServiceKeyAsync(handler.Object);
+
+        var error = await act.Should().ThrowAsync<HttpRequestException>()
+            .WithMessage($"*Apple auth service key*HTTP {statusCode}*");
+        error.Which.StatusCode.Should().Be((HttpStatusCode)statusCode);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("/appleauth/signout?widgetKey=key")]
+    [InlineData("http://idmsa.apple.com/appleauth/signout?widgetKey=key")]
+    [InlineData("https://example.com/appleauth/signout?widgetKey=key")]
+    [InlineData("https://idmsa.apple.com.example.com/appleauth/signout?widgetKey=key")]
+    [InlineData("https://idmsa.apple.com:8443/appleauth/signout?widgetKey=key")]
+    [InlineData("https://user@idmsa.apple.com/appleauth/signout?widgetKey=key")]
+    [InlineData("https://idmsa.apple.com/appleauth/signin?widgetKey=key")]
+    public async Task GetServiceKeyAsync_RejectsUnexpectedRedirect(string? location)
+    {
+        var handler = CreateDiscoveryHandler(HttpStatusCode.Found, location);
+
+        var act = () => AppleDownloadAuthService.GetServiceKeyAsync(handler.Object);
+
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*unexpected signout redirect*");
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("?other=value")]
+    [InlineData("?widgetKey=")]
+    [InlineData("?widgetKey=%20%20")]
+    [InlineData("?widgetKey=invalid%0D%0Akey")]
+    public async Task GetServiceKeyAsync_RejectsMissingOrInvalidKey(string query)
+    {
+        var handler = CreateDiscoveryHandler(
+            HttpStatusCode.Found, $"https://idmsa.apple.com/appleauth/signout{query}");
+
+        var act = () => AppleDownloadAuthService.GetServiceKeyAsync(handler.Object);
+
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*did not contain a valid widget key*");
+    }
+
+    [Fact]
+    public async Task GetServiceKeyAsync_PropagatesNetworkFailure()
+    {
+        var handler = new Mock<HttpMessageHandler>();
+        handler.Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync", ItExpr.IsAny<HttpRequestMessage>(), ItExpr.IsAny<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("Network unavailable"));
+
+        var act = () => AppleDownloadAuthService.GetServiceKeyAsync(handler.Object);
+
+        await act.Should().ThrowAsync<HttpRequestException>().WithMessage("Network unavailable");
+    }
+
+    private static Mock<HttpMessageHandler> CreateDiscoveryHandler(HttpStatusCode statusCode, string? location = null)
+    {
+        var response = new HttpResponseMessage(statusCode);
+        if (location != null)
+            response.Headers.Location = new Uri(location, UriKind.RelativeOrAbsolute);
+
+        var handler = new Mock<HttpMessageHandler>();
+        handler.Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync", ItExpr.IsAny<HttpRequestMessage>(), ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(response);
+        return handler;
+    }
+
     [Fact]
     public void CaptureCookieDetails_PreservesCookieMetadata()
     {
