@@ -330,6 +330,16 @@ public class CloudSecretsServiceTests
     }
 
     [Fact]
+    public async Task GetProvidersAsync_WithUnreadableVault_ReturnsEmptyResult()
+    {
+        var service = CreateService(vaultStore: new ThrowingLocalVaultStore());
+
+        var providers = await service.GetProvidersAsync();
+
+        providers.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task GetProvidersAsync_WithVaultStore_MigratesLegacyJsonAndDeletesFiles()
     {
         var fileSystem = new InMemoryFileSystem();

@@ -76,7 +76,15 @@ public class CloudSecretsService : ICloudSecretsService, ISecretsProviderRegistr
 
     public async Task<IReadOnlyList<CloudSecretsProviderConfig>> GetProvidersAsync()
     {
-        await LoadMetadataAsync();
+        try
+        {
+            await LoadMetadataAsync();
+        }
+        catch (LocalVaultUnavailableException ex)
+        {
+            _logger.LogWarning($"Cloud provider enumeration deferred, Local Vault unavailable: {ex.Message}");
+            return Array.Empty<CloudSecretsProviderConfig>();
+        }
 
         List<CloudSecretsProviderMetadata> metadata;
         lock (_metadataLock)
