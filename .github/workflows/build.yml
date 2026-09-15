@@ -20,9 +20,34 @@ env:
   DOTNET_CLI_TELEMETRY_OPTOUT: true
 
 jobs:
+  vault-compatibility:
+    name: Vault compatibility (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Read and migrate pre-upgrade SQLCipher fixtures
+        run: dotnet test tests/MauiSherpa.Core.Tests --configuration Release --filter FullyQualifiedName~SqlCipherUpgradeTests --logger "trx;LogFileName=vault-compatibility.trx"
+      - name: Upload compatibility results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: vault-compatibility-${{ matrix.os }}
+          path: '**/TestResults/vault-compatibility.trx'
+          retention-days: 7
+
   build-test:
     name: Build & Test
     runs-on: macos-26
+    needs: vault-compatibility
 
     steps:
       - name: Checkout
