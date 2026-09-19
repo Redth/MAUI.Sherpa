@@ -2388,6 +2388,12 @@ public interface IOperationModalService
     bool IsRunning { get; }
     
     /// <summary>
+    /// Request cancellation of the running operation. No-op unless an operation
+    /// is running and was started with canCancel: true.
+    /// </summary>
+    void RequestCancellation();
+    
+    /// <summary>
     /// Event fired when the modal is shown
     /// </summary>
     event Action? OnModalShown;
