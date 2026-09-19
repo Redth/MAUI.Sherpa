@@ -271,6 +271,35 @@ public class DialogService : IDialogService
         });
 
         return await tcs.Task;
+#elif MACOSAPP
+        var tcs = new TaskCompletionSource<string?>();
+
+        await Dispatcher.DispatchAsync(() =>
+        {
+            var panel = new NSOpenPanel
+            {
+                Title = title,
+                CanChooseFiles = true,
+                CanChooseDirectories = false,
+                AllowsMultipleSelection = false,
+            };
+
+            var allowedFileTypes = extensions?
+                .Select(extension => extension.TrimStart('.', '*'))
+                .Where(extension => !string.IsNullOrWhiteSpace(extension))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (allowedFileTypes is { Length: > 0 })
+                panel.AllowedFileTypes = allowedFileTypes;
+
+            var result = panel.RunModal();
+            if (result == 1 && panel.Url?.Path is string path)
+                tcs.TrySetResult(path);
+            else
+                tcs.TrySetResult(null);
+        });
+
+        return await tcs.Task;
 #elif LINUXGTK
         if (_filePicker == null) return null;
         try
