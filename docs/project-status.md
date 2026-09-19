@@ -40,7 +40,7 @@ The app exits immediately, likely due to:
 ### Phase 1: Initial Project Setup ✅
 
 1. Created solution structure:
-   - `MauiSherpa.sln` - Root solution file
+   - `MauiSherpa.slnx` - Root solution file
    - `src/MauiSherpa.Core/` - Business logic library
    - `src/MauiSherpa/` - MAUI platform application
 
@@ -108,7 +108,7 @@ Created `wwwroot/index.html` - HTML host for Blazor WebView
 ## Current File Structure
 
 ```
-MauiSherpa.sln
+MauiSherpa.slnx
 ├── src/
 │   ├── MauiSherpa.Core/
 │   │   ├── MauiSherpa.Core.csproj          ✅ Building
@@ -318,7 +318,7 @@ open src/MauiSherpa/bin/Debug/net10.0-maccatalyst/maccatalyst-arm64/MauiSherpa.a
 
 **Working Directory:** `/Users/redth/code/MauiSherpa`
 
-**Solution File:** `/Users/redth/code/MauiSherpa/MauiSherpa.sln`
+**Solution File:** `/Users/redth/code/MauiSherpa/MauiSherpa.slnx`
 
 **Date:** Sun Feb 01 2026
 

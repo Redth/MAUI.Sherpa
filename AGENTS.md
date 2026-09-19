@@ -52,10 +52,10 @@ dotnet build src/MauiSherpa.MacOS -f net10.0-macos
 dotnet build src/MauiSherpa -f net10.0-windows10.0.19041.0
 
 # Build entire solution (uses default TFM for each project)
-dotnet build MauiSherpa.sln
+dotnet build MauiSherpa.slnx
 
 # Run all tests
-dotnet test MauiSherpa.sln
+dotnet test MauiSherpa.slnx
 
 # Publish macOS app
 dotnet publish src/MauiSherpa.MacOS -f net10.0-macos -c Release

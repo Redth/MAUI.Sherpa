@@ -4,13 +4,14 @@ using Shiny.DocumentDb.Sqlite.SqlCipher;
 
 namespace MauiSherpa.Core.Services;
 
-public sealed class SqlCipherLocalVaultStore : ILocalVaultStore
+public sealed class SqlCipherLocalVaultStore : ILocalVaultStore, IDisposable
 {
     private readonly ILocalVaultKeyStore _keyStore;
     private readonly ILoggingService _logger;
     private readonly SemaphoreSlim _openLock = new(1, 1);
     private readonly SemaphoreSlim _operationLock = new(1, 1);
-    private IDocumentStore? _store;
+    private DocumentStore? _store;
+    private bool _disposed;
 
     public SqlCipherLocalVaultStore(
         ILocalVaultKeyStore keyStore,
@@ -154,6 +155,7 @@ public sealed class SqlCipherLocalVaultStore : ILocalVaultStore
 
     private async Task<IDocumentStore> GetStoreAsync(CancellationToken cancellationToken)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         if (_store is not null)
             return _store;
 
@@ -180,5 +182,16 @@ public sealed class SqlCipherLocalVaultStore : ILocalVaultStore
         {
             _openLock.Release();
         }
+    }
+
+    public void Dispose()
+    {
+        if (_disposed)
+            return;
+
+        _disposed = true;
+        _store?.Dispose();
+        _openLock.Dispose();
+        _operationLock.Dispose();
     }
 }

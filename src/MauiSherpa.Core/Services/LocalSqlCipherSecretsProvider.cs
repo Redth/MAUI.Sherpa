@@ -1,6 +1,8 @@
 using System.Text;
 using System.Text.Json;
+using System.Security.Cryptography;
 using MauiSherpa.Core.Interfaces;
+using Microsoft.Data.Sqlite;
 using Shiny.DocumentDb;
 using Shiny.DocumentDb.Sqlite.SqlCipher;
 
@@ -134,7 +136,7 @@ public class LocalSqlCipherSecretsProvider : ICloudSecretsProvider
         catch (Exception ex)
         {
             _logger.LogError($"Local secrets provider metadata get error: {ex.Message}", ex);
-            return null;
+            throw;
         }
     }
 
@@ -233,7 +235,7 @@ public class LocalSqlCipherSecretsProvider : ICloudSecretsProvider
         catch (Exception ex)
         {
             _logger.LogError($"Local secrets provider list error: {ex.Message}", ex);
-            return Array.Empty<string>();
+            throw;
         }
     }
 
@@ -271,22 +273,44 @@ public class LocalSqlCipherSecretsProvider : ICloudSecretsProvider
 
             if (_keyStore is null ||
                 string.Equals(_legacyDatabasePath, _vaultStore.DatabasePath, StringComparison.Ordinal) ||
-                !File.Exists(_legacyDatabasePath) ||
-                await IsMigrationStepCompleteAsync(cancellationToken))
+                !File.Exists(_legacyDatabasePath))
             {
                 _legacyMigrationChecked = true;
                 return;
             }
 
-            var key = await _keyStore.GetOrCreateKeyAsync(cancellationToken);
-            var legacyStore = new DocumentStore(new DocumentStoreOptions
+            var migrationMarker = await GetMigrationMarkerAsync(cancellationToken);
+            if (migrationMarker is not null)
             {
-                DatabaseProvider = new SqlCipherDatabaseProvider(_legacyDatabasePath, key)
-            });
+                await DeleteMigratedDatabaseIfUnchangedAsync(migrationMarker, cancellationToken);
+                _legacyMigrationChecked = true;
+                return;
+            }
 
-            var legacyDocuments = await legacyStore.Query<LocalSecretDocument>().ToList();
-            foreach (var document in legacyDocuments.Where(x => !string.IsNullOrWhiteSpace(x.Key)))
+            var key = await _keyStore.GetOrCreateKeyAsync(cancellationToken);
+            var legacyProvider = new SqlCipherDatabaseProvider(_legacyDatabasePath, key);
+            IReadOnlyList<LocalSecretDocument> legacyDocuments;
+            try
             {
+                using var legacyStore = new DocumentStore(new DocumentStoreOptions
+                {
+                    DatabaseProvider = legacyProvider
+                });
+                legacyDocuments = await legacyStore.Query<LocalSecretDocument>().ToList();
+            }
+            finally
+            {
+                // Disposing the store returns its connection to the pool. Release this database's
+                // native handle as well so cleanup can remove it on Windows.
+                using var connection = (SqliteConnection)legacyProvider.CreateConnection();
+                SqliteConnection.ClearPool(connection);
+            }
+
+            foreach (var document in legacyDocuments)
+            {
+                if (string.IsNullOrWhiteSpace(document.Key))
+                    throw new InvalidOperationException("A legacy local secret has no key; the source database has been retained.");
+
                 var metadata = document.Metadata is null
                     ? new Dictionary<string, string>(StringComparer.Ordinal)
                     : new Dictionary<string, string>(document.Metadata, StringComparer.Ordinal);
@@ -302,16 +326,29 @@ public class LocalSqlCipherSecretsProvider : ICloudSecretsProvider
                     LocalVaultContentTypes.Binary,
                     metadata,
                     cancellationToken);
+
+                var migrated = await _vaultStore.GetAsync(
+                    LocalVaultScopes.LocalProviderSecret, path.FolderPath, path.Key, cancellationToken);
+                if (migrated is null ||
+                    !migrated.Value.SequenceEqual(document.Value) ||
+                    migrated.ContentType != LocalVaultContentTypes.Binary ||
+                    migrated.Metadata.Count != metadata.Count ||
+                    metadata.Any(x => !migrated.Metadata.TryGetValue(x.Key, out var value) || value != x.Value))
+                {
+                    throw new InvalidOperationException($"Failed to verify migrated local secret '{document.Key}'.");
+                }
             }
 
-            await MarkMigrationStepCompleteAsync(legacyDocuments.Count, cancellationToken);
+            var sourceHashes = await GetSourceHashesAsync(_legacyDatabasePath, cancellationToken);
+            await MarkMigrationStepCompleteAsync(legacyDocuments.Count, sourceHashes, cancellationToken);
             DeleteLegacyDatabaseFiles(_legacyDatabasePath);
             _logger.LogInformation($"Migrated {legacyDocuments.Count} local secrets into the shared local vault.");
             _legacyMigrationChecked = true;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning($"Local secrets legacy database migration was skipped: {ex.Message}");
+            _logger.LogError($"Local secrets legacy database migration failed: {ex.Message}", ex);
+            throw;
         }
         finally
         {
@@ -319,16 +356,19 @@ public class LocalSqlCipherSecretsProvider : ICloudSecretsProvider
         }
     }
 
-    private async Task<bool> IsMigrationStepCompleteAsync(CancellationToken cancellationToken)
+    private Task<LocalVaultItem?> GetMigrationMarkerAsync(CancellationToken cancellationToken)
     {
-        return await _vaultStore.ExistsAsync(
+        return _vaultStore.GetAsync(
             LocalVaultScopes.Migration,
             "/",
             LegacyMigrationStepId,
             cancellationToken);
     }
 
-    private async Task MarkMigrationStepCompleteAsync(int migratedCount, CancellationToken cancellationToken)
+    private async Task MarkMigrationStepCompleteAsync(
+        int migratedCount,
+        Dictionary<string, string> sourceHashes,
+        CancellationToken cancellationToken)
     {
         var payload = JsonSerializer.Serialize(new
         {
@@ -343,7 +383,55 @@ public class LocalSqlCipherSecretsProvider : ICloudSecretsProvider
             LegacyMigrationStepId,
             Encoding.UTF8.GetBytes(payload),
             LocalVaultContentTypes.Json,
+            sourceHashes,
             cancellationToken: cancellationToken);
+    }
+
+    private async Task DeleteMigratedDatabaseIfUnchangedAsync(
+        LocalVaultItem migrationMarker,
+        CancellationToken cancellationToken)
+    {
+        if (!migrationMarker.Metadata.TryGetValue("SourceDatabaseSha256", out var migratedDatabaseSha256))
+            return;
+
+        var currentDatabaseSha256 = await GetFileSha256Async(_legacyDatabasePath, cancellationToken);
+        var walPath = _legacyDatabasePath + "-wal";
+        var walMatches = !File.Exists(walPath) ||
+            migrationMarker.Metadata.TryGetValue("SourceWalSha256", out var migratedWalSha256) &&
+            string.Equals(
+                await GetFileSha256Async(walPath, cancellationToken),
+                migratedWalSha256,
+                StringComparison.Ordinal);
+        if (!string.Equals(currentDatabaseSha256, migratedDatabaseSha256, StringComparison.Ordinal) ||
+            !walMatches)
+        {
+            _logger.LogWarning("A different legacy local secrets database exists after migration; it has been retained.");
+            return;
+        }
+
+        DeleteLegacyDatabaseFiles(_legacyDatabasePath);
+        _logger.LogInformation("Completed deferred cleanup of the migrated local secrets database.");
+    }
+
+    private static async Task<Dictionary<string, string>> GetSourceHashesAsync(
+        string databasePath,
+        CancellationToken cancellationToken)
+    {
+        var hashes = new Dictionary<string, string>
+        {
+            ["SourceDatabaseSha256"] = await GetFileSha256Async(databasePath, cancellationToken)
+        };
+        var walPath = databasePath + "-wal";
+        if (File.Exists(walPath))
+            hashes["SourceWalSha256"] = await GetFileSha256Async(walPath, cancellationToken);
+        return hashes;
+    }
+
+    private static async Task<string> GetFileSha256Async(string path, CancellationToken cancellationToken)
+    {
+        await using var stream = File.OpenRead(path);
+        var hash = await SHA256.HashDataAsync(stream, cancellationToken);
+        return Convert.ToHexString(hash);
     }
 
     private static string GetFlatKey(LocalVaultItem item)
@@ -355,11 +443,13 @@ public class LocalSqlCipherSecretsProvider : ICloudSecretsProvider
 
     private static void DeleteLegacyDatabaseFiles(string legacyDatabasePath)
     {
+        // Remove sidecars before the main database so any failure leaves the source discoverable
+        // and eligible for a fingerprint-verified cleanup retry.
         foreach (var path in new[]
         {
-            legacyDatabasePath,
             legacyDatabasePath + "-wal",
-            legacyDatabasePath + "-shm"
+            legacyDatabasePath + "-shm",
+            legacyDatabasePath
         })
         {
             if (File.Exists(path))
