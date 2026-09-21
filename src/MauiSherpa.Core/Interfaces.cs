@@ -2394,11 +2394,6 @@ public interface IOperationModalService
     bool IsRunning { get; }
 
     /// <summary>
-    /// Requests cancellation of the running operation
-    /// </summary>
-    void RequestCancellation();
-    
-    /// <summary>
     /// Request cancellation of the running operation. No-op unless an operation
     /// is running and was started with canCancel: true.
     /// </summary>
