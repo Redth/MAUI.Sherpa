@@ -2388,8 +2388,6 @@ public interface IOperationModalService
         Func<IOperationContext, Task<bool>> operation,
         bool canCancel = true);
 
-    void RequestCancellation();
-    
     /// <summary>
     /// Whether an operation is currently running
     /// </summary>
