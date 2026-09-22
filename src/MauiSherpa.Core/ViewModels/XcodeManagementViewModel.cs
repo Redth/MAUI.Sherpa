@@ -276,6 +276,21 @@ public class XcodeManagementViewModel : ViewModelBase
         StatusMessage = "Signed out";
     }
 
+    public Task<IReadOnlyList<FastlaneSessionInfo>> DetectFastlaneSessionsAsync() =>
+        _authService.DetectFastlaneSessionsAsync();
+
+    public async Task<AppleAuthResult> ImportFastlaneSessionAsync(string appleId, string cookieFilePath)
+    {
+        StatusMessage = "Importing fastlane session...";
+        var result = await _authService.ImportFastlaneSessionAsync(appleId, cookieFilePath);
+
+        StatusMessage = result.Success
+            ? $"Signed in as {appleId}"
+            : result.ErrorMessage ?? "Failed to import fastlane session";
+
+        return result;
+    }
+
     public IReadOnlyList<XcodeRelease> FilteredAvailableReleases
     {
         get

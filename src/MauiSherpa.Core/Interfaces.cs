@@ -1239,7 +1239,18 @@ public record AppleAuthResult(
     bool RequiresTwoFactor,
     AppleAuthOptions? TwoFactorOptions = null,
     AppleAuthSession? Session = null,
-    string? ErrorMessage = null
+    string? ErrorMessage = null,
+    bool IsAccountLocked = false
+);
+
+/// <summary>
+/// A detected fastlane/spaceship session cookie file for an Apple ID, available for import
+/// instead of running a fresh SRP sign-in (which can trigger Apple's anti-automation lock).
+/// </summary>
+public record FastlaneSessionInfo(
+    string AppleId,
+    string CookieFilePath,
+    DateTime LastModifiedAt
 );
 
 /// <summary>
@@ -1298,6 +1309,20 @@ public interface IAppleDownloadAuthService
     /// Clear stored credentials and session
     /// </summary>
     Task SignOutAsync();
+
+    /// <summary>
+    /// Scans <c>~/.fastlane/spaceship</c> for existing session cookie files left behind by
+    /// fastlane/spaceship (e.g. via <c>fastlane spaceauth</c>). Importing one of these avoids
+    /// running a fresh SRP sign-in, which is the flow Apple's anti-automation detection watches
+    /// most closely.
+    /// </summary>
+    Task<IReadOnlyList<FastlaneSessionInfo>> DetectFastlaneSessionsAsync();
+
+    /// <summary>
+    /// Imports a fastlane/spaceship session cookie file and validates it against Apple's session
+    /// endpoint. On success, the session is persisted just like a normal sign-in.
+    /// </summary>
+    Task<AppleAuthResult> ImportFastlaneSessionAsync(string appleId, string cookieFilePath);
 
     /// <summary>
     /// Fired when authentication state changes
