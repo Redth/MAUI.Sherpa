@@ -12,6 +12,12 @@ namespace MauiSherpa.Core.Services;
 
 public sealed class DotnetWorkloadService : IDotnetWorkloadService
 {
+    // Concurrent `dotnet workload` invocations across SDK feature bands can contend for shared
+    // per-user resources (NuGet HTTP cache locks, first-run experience markers, etc.), which has
+    // been observed to serialize enough to blow the per-invocation timeout when many SDKs are
+    // scanned at once (e.g. on app startup). Throttle to a small number in flight at a time.
+    private const int MaxParallelInventoryReads = 2;
+
     private readonly IDotnetUpService _dotnetUp;
     private readonly ILoggingService _logger;
     private readonly IGlobalJsonWorkloadPinEditor _pinEditor;
@@ -93,9 +99,20 @@ public sealed class DotnetWorkloadService : IDotnetWorkloadService
         CancellationToken cancellationToken = default)
     {
         var targets = await GetTargetsAsync(list, cancellationToken).ConfigureAwait(false);
-        return await Task.WhenAll(targets.Select(target =>
-            GetInventoryAsync(target, forceRefresh: forceRefresh, cancellationToken: cancellationToken)))
-            .ConfigureAwait(false);
+        using var throttle = new SemaphoreSlim(MaxParallelInventoryReads);
+        return await Task.WhenAll(targets.Select(async target =>
+        {
+            await throttle.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                return await GetInventoryAsync(target, forceRefresh: forceRefresh, cancellationToken: cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            finally
+            {
+                throttle.Release();
+            }
+        })).ConfigureAwait(false);
     }
 
     public async Task<DotnetWorkloadInventory> GetInventoryAsync(
