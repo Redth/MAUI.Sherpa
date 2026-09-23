@@ -11,7 +11,7 @@
 
 ```
 MauiSherpa/
-├── MauiSherpa.sln                      # Solution file
+├── MauiSherpa.slnx                     # Solution file
 ├── agents.md                       # This documentation file
 │
 ├── MauiSherpa/                         # Main CLI application

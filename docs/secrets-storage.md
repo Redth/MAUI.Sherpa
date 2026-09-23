@@ -156,6 +156,12 @@ Migrations must be explicit, idempotent, and cleanup-aware:
 
 The implemented Local-provider bridge migrates `local-secrets.db` into `local-vault.db`, preserves each original flat key in metadata, and deletes the old SQLite file and sidecars after successful migration. The secure-storage, encrypted-settings, and secrets-provider configuration adapters follow the same cleanup rule for the data they migrate.
 
+### SQLCipher provider upgrades
+
+Persisted-storage package updates must be tested against databases produced by the previously shipped package, not databases created by the current dependency. `SqlCipherUpgradeTests` uses encrypted `local-vault.db` and `local-secrets.db` fixtures generated with the frozen Shiny DocumentDB SQLCipher 5.2.2 model and package graph. The fixtures cover every vault scope, binary and empty values, metadata, timestamps, reads after restart, writes with the new provider, and migration into an existing vault. They also verify that wrong keys, corruption, partial writes, and read-back verification failures leave the source database intact and retryable.
+
+The fixture generator and its exact dependency lock are under `tests/Fixtures/SqlCipher522/Generator`. The committed databases are synthetic and contain no production secrets. Run the generator only into a new directory, review its JSON manifests, and replace the committed fixtures deliberately; ordinary test and application builds never invoke the old vulnerable dependency.
+
 ## Guidance for new code
 
 - Store app-owned secret-bearing data through `ILocalVaultStore` or higher-level services backed by it.
