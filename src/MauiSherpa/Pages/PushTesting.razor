@@ -1,7 +1,17 @@
 @page "/push-testing"
+@using System.Text
+@using System.Text.Json
+@using System.Text.RegularExpressions
 @using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Pages.Forms
+@using MauiSherpa.Pages.Modals
 @using MauiSherpa.Services
 @inject IAppleIdentityService IdentityService
+@inject IManagedSecretsService SecretsService
+@inject ISecretSyncCoordinator SecretSyncCoordinator
+@inject IFormModalService FormModal
+@inject HybridFormBridgeHolder BridgeHolder
+@inject IAlertService AlertService
 @inject IApnsPushService PushService
 @inject IDialogService DialogService
 @inject IPushProjectService ProjectService
@@ -11,7 +21,17 @@
 @inject ILocalVaultAccessService LocalVaultAccess
 @implements IDisposable
 
-<h1><i class="fas fa-paper-plane"></i> Push Testing</h1>
+<div class="push-page-header">
+    <div class="push-page-heading">
+        <h1><i class="fas fa-paper-plane"></i> Push Testing</h1>
+        <p>Send test notifications to Apple devices through APNs, signed with a token-based (.p8) authentication key.</p>
+    </div>
+    <div class="push-page-status">
+        <span class="push-pill @(useSandbox ? "info" : "warning")">
+            <i class="fas @(useSandbox ? "fa-flask" : "fa-bolt")"></i> @(useSandbox ? "Sandbox" : "Production")
+        </span>
+    </div>
+</div>
 
 <PushProjectBar @ref="projectBar"
     Platform="PushProjectPlatform.Apns"
@@ -20,449 +40,283 @@
     OnSaveRequested="SaveProject"
     IsDirty="isDirty" />
 
-<div class="push-layout">
-    <h2 class="section-title"><i class="fas fa-key"></i> Authentication</h2>
-    <div class="push-section">
-        <div class="section-body">
-            <div class="form-group">
-                <label>Auth Method</label>
-                <select @bind="authMode" @bind:after="MarkDirty">
-                    <option value="identity">Stored Apple Identity</option>
-                    <option value="p8file">.p8 File from Filesystem</option>
-                </select>
-            </div>
-
-            @if (authMode == "identity")
-            {
-                @if (RequiresLocalVaultAccess)
-                {
-                    <div class="vault-access-card">
-                        <div class="vault-access-content">
-                            <i class="fas fa-key"></i>
-                            <div>
-                                <strong>Unlock Local Vault to use a stored identity</strong>
-                                <p>Unlock the vault, or select the .p8 filesystem option above.</p>
+<div class="push-workspace-container">
+    <div class="push-workspace">
+        <div class="push-main">
+            <section>
+                <div class="push-section-head">
+                    <div class="push-section-head-main">
+                        <h2><span class="push-section-icon"><i class="fas fa-key"></i></span> Authentication</h2>
+                        <p class="push-section-desc">Sign requests with an APNs auth key from your Apple Developer account.</p>
+                    </div>
+                </div>
+                <div class="push-card">
+                    <div class="push-fields cols-2">
+                        <div class="push-field span-2">
+                            <span class="push-field-label">Key source</span>
+                            <div class="push-segmented">
+                                <button type="button" class="@(authMode == "identity" ? "active" : "")" @onclick="@(() => SetAuthMode("identity"))">
+                                    <i class="fab fa-apple"></i> Stored Apple identity
+                                </button>
+                                <button type="button" class="@(authMode == "p8file" ? "active" : "")" @onclick="@(() => SetAuthMode("p8file"))">
+                                    <i class="fas fa-file-shield"></i> .p8 key file
+                                </button>
+                                <button type="button" class="@(authMode == "secret" ? "active" : "")" @onclick="@(() => SetAuthMode("secret"))">
+                                    <i class="fas fa-vault"></i> Secret provider
+                                </button>
                             </div>
                         </div>
-                        <button class="btn btn-primary" @onclick="UnlockLocalVaultAsync" disabled="@isUnlockingLocalVault">
-                            <i class="fas @(isUnlockingLocalVault ? "fa-spinner fa-spin" : "fa-unlock")"></i> Unlock Local Vault
-                        </button>
-                    </div>
-                }
-                else
-                {
-                    <div class="form-group">
-                    <label>Apple Identity</label>
-                    @if (identities.Count == 0)
-                    {
-                        <div class="empty-state">No Apple identities configured. Add one in Settings.</div>
-                    }
-                    else
-                    {
-                        <select @bind="selectedIdentityId" @bind:after="MarkDirty">
-                            <option value="">-- Select Identity --</option>
-                            @foreach (var identity in identities)
+
+                        @if (authMode == "identity")
+                        {
+                            @if (RequiresLocalVaultAccess)
                             {
-                                <option value="@identity.Id">@identity.Name (Key: @identity.KeyId)</option>
+                                <div class="push-field span-2">
+                                    <div class="push-callout">
+                                        <div class="push-callout-content">
+                                            <i class="fas fa-lock"></i>
+                                            <div>
+                                                <strong>Unlock Local Vault to use a stored identity</strong>
+                                                <p>Unlock the vault, or switch to a .p8 key file above.</p>
+                                            </div>
+                                        </div>
+                                        <button class="btn btn-primary" @onclick="UnlockLocalVaultAsync" disabled="@isUnlockingLocalVault">
+                                            <i class="fas @(isUnlockingLocalVault ? "fa-spinner fa-spin" : "fa-unlock")"></i> Unlock
+                                        </button>
+                                    </div>
+                                </div>
                             }
-                        </select>
-                    }
+                            else
+                            {
+                                <div class="push-field">
+                                    <label>Apple identity</label>
+                                    @if (identities.Count == 0)
+                                    {
+                                        <div class="push-kv-empty">No Apple identities yet. Add one in Settings.</div>
+                                    }
+                                    else
+                                    {
+                                        <select class="push-input" @bind="selectedIdentityId" @bind:after="MarkDirty">
+                                            <option value="">Select an identity…</option>
+                                            @foreach (var identity in identities)
+                                            {
+                                                <option value="@identity.Id">@identity.Name (Key: @identity.KeyId)</option>
+                                            }
+                                        </select>
+                                    }
+                                </div>
+                            }
+                            <div class="push-field">
+                                <label>Team ID</label>
+                                <input type="text" class="push-input mono" @bind="teamId" @bind:event="oninput" @bind:after="MarkDirty" placeholder="ABC1234DEF" />
+                            </div>
+                        }
+                        else if (authMode == "p8file")
+                        {
+                            <div class="push-field span-2">
+                                <label>Key file</label>
+                                <div class="push-input-group">
+                                    <input type="text" class="push-input mono" value="@p8FilePath" readonly placeholder="No file selected" />
+                                    <button class="btn btn-secondary" @onclick="PickP8File">
+                                        <i class="fas fa-folder-open"></i> Browse
+                                    </button>
+                                    @if (!string.IsNullOrEmpty(p8FilePath))
+                                    {
+                                        <button class="btn btn-secondary" @onclick="MoveP8FileToSecrets" disabled="@isImportingP8" title="Copy this key into your secret providers">
+                                            <i class="fas @(isImportingP8 ? "fa-spinner fa-spin" : "fa-vault")"></i> Store in provider
+                                        </button>
+                                    }
+                                </div>
+                            </div>
+                            <div class="push-field">
+                                <label>Key ID</label>
+                                <input type="text" class="push-input mono" @bind="p8KeyId" @bind:event="oninput" @bind:after="MarkDirty" placeholder="ABCDE12345" />
+                            </div>
+                            <div class="push-field">
+                                <label>Team ID</label>
+                                <input type="text" class="push-input mono" @bind="teamId" @bind:event="oninput" @bind:after="MarkDirty" placeholder="ABC1234DEF" />
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="push-field span-2">
+                                <label>APNs key secret</label>
+                                <div class="push-input-group">
+                                    <input type="text" class="push-input mono" value="@p8SecretKey" readonly placeholder="No key selected" />
+                                    <button class="btn btn-secondary" @onclick="ChooseP8Secret" disabled="@isImportingP8">
+                                        <i class="fas fa-list-check"></i> Choose
+                                    </button>
+                                    <button class="btn btn-secondary" @onclick="ImportP8ToSecrets" disabled="@isImportingP8">
+                                        <i class="fas @(isImportingP8 ? "fa-spinner fa-spin" : "fa-file-import")"></i> Import .p8…
+                                    </button>
+                                </div>
+                                @if (!string.IsNullOrEmpty(p8SecretKey))
+                                {
+                                    <div class="push-secret-placement">
+                                        <span class="push-hint">Stored in</span>
+                                        <SecretProviderPickerHost @key="p8SecretKey"
+                                                                  Item="@(new SecretItemRef(SecretItemKind.ManagedSecret, p8SecretKey, SecretDisplayName(p8SecretKey)))" />
+                                    </div>
+                                }
+                                else
+                                {
+                                    <p class="push-hint">Keep the .p8 in your secret providers (Local Vault, 1Password, Key Vault…) instead of on disk. It also shows up on the Secrets page.</p>
+                                }
+                            </div>
+                            <div class="push-field">
+                                <label>Key ID</label>
+                                <input type="text" class="push-input mono" @bind="p8KeyId" @bind:event="oninput" @bind:after="MarkDirty" placeholder="ABCDE12345" />
+                            </div>
+                            <div class="push-field">
+                                <label>Team ID</label>
+                                <input type="text" class="push-input mono" @bind="teamId" @bind:event="oninput" @bind:after="MarkDirty" placeholder="ABC1234DEF" />
+                            </div>
+                        }
                     </div>
-                }
-                <div class="form-group">
-                    <label>Team ID</label>
-                    <input type="text" @bind="teamId" @bind:after="MarkDirty" placeholder="e.g. ABC1234DEF" />
                 </div>
-            }
-            else
+            </section>
+
+            <section>
+                <div class="push-section-head">
+                    <div class="push-section-head-main">
+                        <h2><span class="push-section-icon"><i class="fas fa-sliders"></i></span> Delivery</h2>
+                        <p class="push-section-desc">Choose the APNs environment and how the notification is routed, prioritized, and expired.</p>
+                    </div>
+                </div>
+                <div class="push-card">
+                    <div class="push-fields cols-2">
+                        <div class="push-field">
+                            <span class="push-field-label">Environment</span>
+                            <div class="push-segmented block">
+                                <button type="button" class="@(useSandbox ? "active" : "")" @onclick="@(() => SetSandbox(true))">
+                                    <i class="fas fa-flask"></i> Sandbox
+                                </button>
+                                <button type="button" class="@(!useSandbox ? "active warn" : "")" @onclick="@(() => SetSandbox(false))">
+                                    <i class="fas fa-bolt"></i> Production
+                                </button>
+                            </div>
+                        </div>
+                        <div class="push-field">
+                            <span class="push-field-label">Priority</span>
+                            <div class="push-segmented block">
+                                <button type="button" class="@(priority == 5 ? "active" : "")" @onclick="@(() => SetPriority(5))">Normal · 5</button>
+                                <button type="button" class="@(priority == 10 ? "active" : "")" @onclick="@(() => SetPriority(10))">Immediate · 10</button>
+                            </div>
+                            @if (pushType == "background" && priority == 10)
+                            {
+                                <p class="push-hint"><i class="fas fa-triangle-exclamation text-warning"></i> Background pushes must use priority 5.</p>
+                            }
+                        </div>
+                        <div class="push-field">
+                            <label>Push type</label>
+                            <select class="push-input" @bind="pushType" @bind:after="MarkDirty">
+                                @foreach (var (value, label) in PushTypes)
+                                {
+                                    <option value="@value">@label</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="push-field">
+                            <label>Expiration <span class="push-optional">seconds</span></label>
+                            <input type="number" class="push-input" @bind="expirationSeconds" @bind:after="MarkDirty" placeholder="0 = deliver once, don't store" />
+                        </div>
+                        <div class="push-field">
+                            <label>Collapse ID <span class="push-optional">optional</span></label>
+                            <input type="text" class="push-input" @bind="collapseId" @bind:event="oninput" @bind:after="MarkDirty" placeholder="Groups repeat notifications" />
+                        </div>
+                        <div class="push-field">
+                            <label>Notification ID <span class="push-optional">optional</span></label>
+                            <input type="text" class="push-input mono" @bind="notificationId" @bind:event="oninput" @bind:after="MarkDirty" placeholder="UUID" />
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section>
+                <div class="push-section-head">
+                    <div class="push-section-head-main">
+                        <h2><span class="push-section-icon"><i class="fas fa-envelope-open-text"></i></span> Target &amp; Payload</h2>
+                        <p class="push-section-desc">The app and device to deliver to, and the JSON body APNs sends.</p>
+                    </div>
+                </div>
+                <div class="push-card">
+                    <div class="push-fields cols-2">
+                        <div class="push-field">
+                            <label>Bundle ID</label>
+                            <input type="text" class="push-input mono" @bind="bundleId" @bind:event="oninput" @bind:after="MarkDirty" placeholder="com.example.myapp" />
+                        </div>
+                        <div class="push-field">
+                            <label>Device token</label>
+                            <input type="text" class="push-input mono" @bind="deviceToken" @bind:event="oninput" @bind:after="MarkDirty" placeholder="Hex device token" />
+                        </div>
+                    </div>
+                    <div class="push-card-divider"></div>
+                    <PushJsonEditor @bind-Value="jsonPayload" @bind-Value:after="MarkDirty"
+                                    FileName="payload.json"
+                                    MaxBytes="@(pushType == "voip" ? 5120 : 4096)"
+                                    Rows="14" />
+                </div>
+            </section>
+
+            @if (activeProject?.History.Count > 0)
             {
-                <div class="form-group">
-                    <label>.p8 Key File</label>
-                    <div class="file-picker">
-                        <input type="text" value="@p8FilePath" readonly placeholder="No file selected" />
-                        <button class="btn btn-secondary" @onclick="PickP8File">
-                            <i class="fas fa-folder-open"></i> Browse
-                        </button>
-                    </div>
-                </div>
-                <div class="form-group">
-                    <label>Team ID</label>
-                    <input type="text" @bind="teamId" @bind:after="MarkDirty" placeholder="e.g. ABC1234DEF" />
-                </div>
-                <div class="form-group">
-                    <label>Key ID</label>
-                    <input type="text" @bind="p8KeyId" @bind:after="MarkDirty" placeholder="e.g. ABCDE12345" />
-                </div>
+                <PushHistoryList History="activeProject.History" OnClear="ClearHistory" />
             }
         </div>
-    </div>
 
-    <h2 class="section-title"><i class="fas fa-sliders-h"></i> Push Configuration</h2>
-    <div class="push-section">
-        <div class="section-body">
-            <div class="form-row">
-                <div class="form-group flex-1">
-                    <label>Push Type</label>
-                    <select @bind="pushType" @bind:after="MarkDirty">
-                        <option value="alert">Alert</option>
-                        <option value="background">Background</option>
-                        <option value="voip">VoIP</option>
-                        <option value="complication">Complication</option>
-                        <option value="fileprovider">File Provider</option>
-                        <option value="mdm">MDM</option>
-                        <option value="liveactivity">Live Activity</option>
-                        <option value="pushtotalk">Push to Talk</option>
-                        <option value="location">Location</option>
-                    </select>
-                </div>
-                <div class="form-group flex-1">
-                    <label>Priority</label>
-                    <select @bind="priority" @bind:after="MarkDirty">
-                        <option value="5">Normal (5)</option>
-                        <option value="10">Immediate (10)</option>
-                    </select>
-                </div>
-            </div>
+        <aside class="push-aside">
+            @{ var preview = BuildPreview(); }
+            <PushNotificationPreview Variant="ios"
+                                     AppName="@PreviewAppName"
+                                     Title="@preview.Title"
+                                     Subtitle="@preview.Subtitle"
+                                     Body="@preview.Body"
+                                     Badge="@preview.Badge"
+                                     Silent="@preview.Silent"
+                                     SilentMessage="@preview.SilentMessage" />
 
-            <div class="form-row">
-                <div class="form-group flex-1">
-                    <label>Collapse ID <span class="optional">(optional)</span></label>
-                    <input type="text" @bind="collapseId" @bind:after="MarkDirty" placeholder="Collapse identifier" />
-                </div>
-                <div class="form-group flex-1">
-                    <label>Notification ID <span class="optional">(optional)</span></label>
-                    <input type="text" @bind="notificationId" @bind:after="MarkDirty" placeholder="UUID format" />
-                </div>
-            </div>
-
-            <div class="form-row">
-                <div class="form-group flex-1">
-                    <label>Expiration <span class="optional">(seconds, optional)</span></label>
-                    <input type="number" @bind="expirationSeconds" @bind:after="MarkDirty" placeholder="0 = immediate expiry" />
-                </div>
-                <div class="form-group flex-1">
-                    <label>Environment</label>
-                    <select @bind="useSandbox" @bind:after="MarkDirty">
-                        <option value="true">Sandbox</option>
-                        <option value="false">Production</option>
-                    </select>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <h2 class="section-title"><i class="fas fa-envelope"></i> Payload</h2>
-    <div class="push-section">
-        <div class="section-body">
-            <div class="form-row">
-                <div class="form-group flex-1">
-                    <label>Bundle ID</label>
-                    <input type="text" @bind="bundleId" @bind:after="MarkDirty" placeholder="e.g. com.example.myapp" />
-                </div>
-                <div class="form-group flex-1">
-                    <label>Device Token</label>
-                    <input type="text" @bind="deviceToken" @bind:after="MarkDirty" placeholder="Hex device token" />
-                </div>
-            </div>
-            <div class="form-group">
-                <label>JSON Body</label>
-                <textarea class="json-editor" @bind="jsonPayload" @bind:after="MarkDirty" rows="12" spellcheck="false"></textarea>
-            </div>
-        </div>
-    </div>
-
-    <div class="action-bar">
-        <button class="btn btn-primary btn-lg" @onclick="SendPush" disabled="@(isSending || !IsValid)">
-            <i class="fas @(isSending ? "fa-spinner fa-spin" : "fa-paper-plane")"></i>
-            @(isSending ? "Sending..." : "Send Push Notification")
-        </button>
-    </div>
-
-    @if (activeProject?.History.Count > 0)
-    {
-        <div class="section-title-row">
-            <h2 class="section-title"><i class="fas fa-history"></i> Send History</h2>
-            <button class="btn-clear" @onclick="ClearHistory">
-                <i class="fas fa-eraser"></i> Clear
-            </button>
-        </div>
-        <div class="push-section">
-            <div class="section-body history-list">
-                @foreach (var entry in activeProject.History)
+            <div class="push-panel">
+                <div class="push-panel-title">@(IsValid ? "Ready to send" : "Before you send")</div>
+                <dl class="push-summary">
+                    <div class="push-summary-row"><dt>Environment</dt><dd>@(useSandbox ? "Sandbox" : "Production")</dd></div>
+                    <div class="push-summary-row"><dt>Type</dt><dd>@PushTypeLabel</dd></div>
+                    <div class="push-summary-row"><dt>Priority</dt><dd>@(priority == 10 ? "Immediate" : "Normal")</dd></div>
+                    <div class="push-summary-row"><dt>Device</dt><dd class="push-mono">@(string.IsNullOrWhiteSpace(deviceToken) ? "—" : TruncateToken(deviceToken))</dd></div>
+                </dl>
+                <ul class="push-checklist">
+                    <li class="@(HasSigningKey ? "done" : "")"><i class="@CheckIcon(HasSigningKey)"></i> Signing key</li>
+                    <li class="@(HasTeamId ? "done" : "")"><i class="@CheckIcon(HasTeamId)"></i> Team ID</li>
+                    <li class="@(HasBundleId ? "done" : "")"><i class="@CheckIcon(HasBundleId)"></i> Bundle ID</li>
+                    <li class="@(HasDeviceToken ? "done" : "")"><i class="@CheckIcon(HasDeviceToken)"></i> Device token</li>
+                    <li class="@(HasPayload ? "done" : "")"><i class="@CheckIcon(HasPayload)"></i> Payload</li>
+                </ul>
+                <button class="btn btn-primary push-send-btn" @onclick="SendPush" disabled="@(isSending || !IsValid)">
+                    <i class="fas @(isSending ? "fa-spinner fa-spin" : "fa-paper-plane")"></i>
+                    @(isSending ? "Sending…" : "Send Notification")
+                </button>
+                @if (activeProject == null)
                 {
-                    <div class="history-card @(entry.Success ? "success" : "error")">
-                        <div class="history-status">
-                            <i class="fas @(entry.Success ? "fa-check-circle text-success" : "fa-times-circle text-danger")"></i>
-                            <span class="history-time">@entry.Timestamp.ToLocalTime().ToString("HH:mm:ss")</span>
-                            @if (entry.StatusCode.HasValue)
-                            {
-                                <span class="badge @(entry.Success ? "badge-success" : "badge-danger")">@entry.StatusCode</span>
-                            }
-                        </div>
-                        <div class="history-details">
-                            @if (!string.IsNullOrEmpty(entry.Target))
-                            {
-                                <div class="history-target mono"><i class="fas fa-mobile-alt"></i> @entry.Target</div>
-                            }
-                            @if (entry.Success && !string.IsNullOrEmpty(entry.MessageId))
-                            {
-                                <div class="history-message-id mono">@entry.MessageId</div>
-                            }
-                            @if (!entry.Success && !string.IsNullOrEmpty(entry.ErrorReason))
-                            {
-                                <div class="history-error">@entry.ErrorReason</div>
-                            }
-                            @if (!entry.Success && !string.IsNullOrEmpty(entry.ErrorDescription))
-                            {
-                                <div class="history-error-detail">@entry.ErrorDescription</div>
-                            }
-                        </div>
-                    </div>
+                    <p class="push-send-note">Save this project to keep a send history.</p>
                 }
             </div>
-        </div>
-    }
+        </aside>
+    </div>
 </div>
 
-<style>
-    h1 {
-        margin-bottom: 1.25rem;
-    }
-
-    .push-layout {
-        display: flex;
-        flex-direction: column;
-        gap: 16px;
-        padding-bottom: 40px;
-    }
-
-    .push-section {
-        background: var(--card-bg);
-        border-radius: var(--card-radius, 1rem);
-        overflow: hidden;
-    }
-
-    .vault-access-card { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: 1rem; background: var(--bg-tertiary); border-radius: 0.5rem; }
-    .vault-access-content { display: flex; align-items: flex-start; gap: 0.875rem; color: var(--text-secondary); }
-    .vault-access-content i { color: var(--accent-primary); margin-top: 0.125rem; }
-    .vault-access-content strong { display: block; color: var(--text-primary); margin-bottom: 0.25rem; }
-    .vault-access-content p { margin: 0; color: var(--text-muted); font-size: 0.875rem; }
-
-    .section-title {
-        font-weight: 600;
-        font-size: 14px;
-        color: var(--text-primary);
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        margin: 0 0 4px 4px;
-    }
-
-    .section-title-row {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        margin-bottom: 4px;
-    }
-
-    .section-title-row .section-title {
-        margin-bottom: 0;
-    }
-
-    .section-body {
-        padding: 16px 20px;
-    }
-
-    .form-group {
-        margin-bottom: 12px;
-    }
-
-    .form-group:last-child {
-        margin-bottom: 0;
-    }
-
-    .form-group label {
-        display: block;
-        font-size: 13px;
-        font-weight: 600;
-        color: var(--text-secondary);
-        margin-bottom: 4px;
-    }
-
-    .optional {
-        font-weight: 400;
-        color: var(--text-tertiary);
-    }
-
-    .form-group input,
-    .form-group select,
-    .form-group textarea {
-        width: 100%;
-        padding: 8px 12px;
-        border: 1px solid var(--input-border);
-        border-radius: 6px;
-        background: var(--input-bg);
-        color: var(--text-primary);
-        font-size: 14px;
-        box-sizing: border-box;
-    }
-
-    .form-group input:focus,
-    .form-group select:focus,
-    .form-group textarea:focus {
-        outline: none;
-        border-color: var(--accent-primary);
-        box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.1);
-    }
-
-    .form-row {
-        display: flex;
-        gap: 12px;
-    }
-
-    .flex-1 {
-        flex: 1;
-    }
-
-    .file-picker {
-        display: flex;
-        gap: 8px;
-    }
-
-    .file-picker input {
-        flex: 1;
-    }
-
-    .json-editor {
-        font-family: 'SF Mono', 'Menlo', 'Monaco', 'Consolas', monospace;
-        font-size: 13px;
-        line-height: 1.5;
-        resize: vertical;
-        min-height: 200px;
-        tab-size: 2;
-    }
-
-    .action-bar {
-        display: flex;
-        justify-content: flex-end;
-    }
-
-    .empty-state {
-        color: var(--text-tertiary);
-        font-size: 13px;
-        padding: 8px 0;
-    }
-
-    .btn-clear {
-        background: none;
-        border: none;
-        color: var(--text-muted);
-        font-size: 0.75rem;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        gap: 0.25rem;
-        padding: 0.25rem 0.5rem;
-        border-radius: 4px;
-    }
-
-    .btn-clear:hover {
-        background: var(--bg-hover);
-        color: var(--text-secondary);
-    }
-
-    /* History */
-    .history-list {
-        display: flex;
-        flex-direction: column;
-        padding: 0;
-    }
-
-    .history-card {
-        padding: 0.75rem 1rem;
-        display: flex;
-        gap: 0.75rem;
-        align-items: flex-start;
-        border-bottom: 1px solid var(--border-color);
-    }
-
-    .history-card:last-child {
-        border-bottom: none;
-    }
-
-    .history-card.success {
-    }
-
-    .history-card.error {
-    }
-
-    .history-status {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        flex-shrink: 0;
-    }
-
-    .history-time {
-        font-size: 0.75rem;
-        color: var(--text-muted);
-        font-family: 'SF Mono', monospace;
-    }
-
-    .history-details {
-        flex: 1;
-        min-width: 0;
-    }
-
-    .history-target {
-        font-size: 0.75rem;
-        color: var(--text-secondary);
-        margin-bottom: 0.25rem;
-    }
-
-    .history-message-id {
-        font-size: 0.6875rem;
-        color: var(--text-muted);
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
-    .history-error {
-        font-size: 0.75rem;
-        color: var(--danger-color, #f56565);
-    }
-
-    .history-error-detail {
-        font-size: 0.6875rem;
-        color: var(--text-muted);
-        margin-top: 0.125rem;
-        word-break: break-word;
-    }
-
-    .badge {
-        padding: 0.125rem 0.375rem;
-        border-radius: 0.75rem;
-        font-size: 0.6875rem;
-        font-weight: 600;
-    }
-
-    .badge-success {
-        background: rgba(72, 187, 120, 0.15);
-        color: var(--success-color, #48bb78);
-    }
-
-    .badge-danger {
-        background: rgba(245, 101, 101, 0.15);
-        color: var(--danger-color, #f56565);
-    }
-
-    .text-success { color: var(--success-color, #48bb78); }
-    .text-danger { color: var(--danger-color, #f56565); }
-    .mono { font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace; }
-</style>
-
 @code {
+    static readonly (string Value, string Label)[] PushTypes =
+    [
+        ("alert", "Alert"),
+        ("background", "Background"),
+        ("voip", "VoIP"),
+        ("complication", "Complication"),
+        ("fileprovider", "File Provider"),
+        ("mdm", "MDM"),
+        ("liveactivity", "Live Activity"),
+        ("pushtotalk", "Push to Talk"),
+        ("location", "Location")
+    ];
+
     bool isUnlockingLocalVault;
     bool RequiresLocalVaultAccess => LocalVaultAccess.GetState().RequiresUserAction;
     PushProjectBar? projectBar;
@@ -474,7 +328,15 @@
     string selectedIdentityId = "";
     string p8FilePath = "";
     string p8KeyId = "";
+    string p8SecretKey = "";
     string teamId = "";
+    bool isImportingP8;
+
+    // Secret-provider storage for .p8 keys (managed File secrets under the "apns" folder)
+    const string ApnsSecretFolder = "apns";
+    const string ApnsKeyIdMetadata = "apnsKeyId";
+    const string ApnsTeamIdMetadata = "apnsTeamId";
+    static readonly Regex AuthKeyFileName = new(@"AuthKey_([A-Z0-9]{10})", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     // Config
     string pushType = "alert";
@@ -493,27 +355,77 @@
     bool isSending;
     bool isDirty;
 
-    bool IsValid
+    bool HasSigningKey => authMode switch
+    {
+        "identity" => !string.IsNullOrWhiteSpace(selectedIdentityId),
+        "secret" => !string.IsNullOrWhiteSpace(p8SecretKey) && !string.IsNullOrWhiteSpace(p8KeyId),
+        _ => !string.IsNullOrWhiteSpace(p8FilePath) && !string.IsNullOrWhiteSpace(p8KeyId)
+    };
+    bool HasTeamId => !string.IsNullOrWhiteSpace(teamId);
+    bool HasBundleId => !string.IsNullOrWhiteSpace(bundleId);
+    bool HasDeviceToken => !string.IsNullOrWhiteSpace(deviceToken);
+    bool HasPayload => !string.IsNullOrWhiteSpace(jsonPayload);
+
+    bool IsValid => HasSigningKey && HasTeamId && HasBundleId && HasDeviceToken && HasPayload;
+
+    string PushTypeLabel => PushTypes.FirstOrDefault(t => t.Value == pushType).Label ?? pushType;
+
+    string PreviewAppName
     {
         get
         {
-            if (string.IsNullOrWhiteSpace(bundleId) || string.IsNullOrWhiteSpace(deviceToken) || string.IsNullOrWhiteSpace(jsonPayload))
-                return false;
-
-            if (authMode == "identity")
-            {
-                if (string.IsNullOrWhiteSpace(selectedIdentityId) || string.IsNullOrWhiteSpace(teamId))
-                    return false;
-            }
-            else
-            {
-                if (string.IsNullOrWhiteSpace(p8FilePath) || string.IsNullOrWhiteSpace(teamId) || string.IsNullOrWhiteSpace(p8KeyId))
-                    return false;
-            }
-
-            return true;
+            var name = bundleId.Trim().Split('.', StringSplitOptions.RemoveEmptyEntries).LastOrDefault();
+            return string.IsNullOrEmpty(name) ? "Your App" : name;
         }
     }
+
+    static string CheckIcon(bool done) => done ? "fas fa-circle-check" : "fa-regular fa-circle";
+
+    ApnsPreview BuildPreview()
+    {
+        if (pushType != "alert")
+            return new(null, null, null, null, true, $"{PushTypeLabel} pushes are handled by your app without showing an alert.");
+
+        try
+        {
+            using var doc = JsonDocument.Parse(jsonPayload);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object
+                || !doc.RootElement.TryGetProperty("aps", out var aps)
+                || aps.ValueKind != JsonValueKind.Object)
+                return new(null, null, null, null, true, "The payload has no \"aps\" dictionary, so nothing is displayed.");
+
+            string? title = null, subtitle = null, body = null;
+            if (aps.TryGetProperty("alert", out var alert))
+            {
+                if (alert.ValueKind == JsonValueKind.String)
+                {
+                    body = alert.GetString();
+                }
+                else if (alert.ValueKind == JsonValueKind.Object)
+                {
+                    title = GetString(alert, "title");
+                    subtitle = GetString(alert, "subtitle");
+                    body = GetString(alert, "body");
+                }
+            }
+
+            int? badge = aps.TryGetProperty("badge", out var b) && b.ValueKind == JsonValueKind.Number && b.TryGetInt32(out var count)
+                ? count
+                : null;
+
+            if (string.IsNullOrWhiteSpace(title) && string.IsNullOrWhiteSpace(subtitle) && string.IsNullOrWhiteSpace(body))
+                return new(null, null, null, badge, true, "The payload has no alert text, so it arrives silently.");
+
+            return new(title, subtitle, body, badge, false, "");
+        }
+        catch (JsonException)
+        {
+            return new(null, null, null, null, true, "Fix the payload JSON to see a preview.");
+        }
+    }
+
+    static string? GetString(JsonElement element, string name) =>
+        element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
 
     protected override async Task OnInitializedAsync()
     {
@@ -567,6 +479,7 @@
         selectedIdentityId = config.SelectedIdentityId ?? "";
         p8FilePath = config.P8FilePath ?? "";
         p8KeyId = config.P8KeyId ?? "";
+        p8SecretKey = config.P8SecretKey ?? "";
         teamId = config.TeamId ?? "";
         pushType = config.PushType;
         priority = config.Priority;
@@ -588,6 +501,7 @@
         selectedIdentityId = "";
         p8FilePath = "";
         p8KeyId = "";
+        p8SecretKey = "";
         teamId = "";
         pushType = defaults.PushType;
         priority = defaults.Priority;
@@ -614,12 +528,34 @@
 
     void MarkDirty() => isDirty = true;
 
+    void SetAuthMode(string mode)
+    {
+        if (authMode == mode) return;
+        authMode = mode;
+        MarkDirty();
+    }
+
+    void SetSandbox(bool sandbox)
+    {
+        if (useSandbox == sandbox) return;
+        useSandbox = sandbox;
+        MarkDirty();
+    }
+
+    void SetPriority(int value)
+    {
+        if (priority == value) return;
+        priority = value;
+        MarkDirty();
+    }
+
     ApnsPushProjectConfig BuildConfig() => new()
     {
         AuthMode = authMode,
         SelectedIdentityId = string.IsNullOrEmpty(selectedIdentityId) ? null : selectedIdentityId,
         P8FilePath = string.IsNullOrEmpty(p8FilePath) ? null : p8FilePath,
         P8KeyId = string.IsNullOrEmpty(p8KeyId) ? null : p8KeyId,
+        P8SecretKey = string.IsNullOrEmpty(p8SecretKey) ? null : p8SecretKey,
         TeamId = string.IsNullOrEmpty(teamId) ? null : teamId,
         PushType = pushType,
         Priority = priority,
@@ -673,6 +609,146 @@
         }
     }
 
+    async Task ChooseP8Secret()
+    {
+        IReadOnlyList<ManagedSecret> secrets;
+        try
+        {
+            secrets = await SecretsService.ListAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError($"Failed to list secrets for APNs key picker: {ex.Message}", ex);
+            ToastService.Show($"Couldn't load secrets: {ex.Message}", ToastType.Error);
+            return;
+        }
+
+        var candidates = secrets.Where(IsApnsKeySecret).OrderBy(s => s.Key, StringComparer.OrdinalIgnoreCase).ToList();
+        if (candidates.Count == 0)
+        {
+            ToastService.Show("No .p8 keys in your secret providers yet. Use Import .p8… to add one.", ToastType.Warning);
+            return;
+        }
+
+        var page = new SecretPickerPage(BridgeHolder, candidates, [], title: "Choose APNs Key", submitButtonText: "Select");
+        var selectedKey = await FormModal.ShowAsync(page);
+        var selected = candidates.FirstOrDefault(s => s.Key == selectedKey);
+        if (selected == null) return;
+
+        p8SecretKey = selected.Key;
+        if (selected.Metadata?.TryGetValue(ApnsKeyIdMetadata, out var storedKeyId) == true && !string.IsNullOrWhiteSpace(storedKeyId))
+            p8KeyId = storedKeyId;
+        else if (KeyIdFromFileName(selected.OriginalFileName ?? selected.Key) is { } parsedKeyId)
+            p8KeyId = parsedKeyId;
+        if (selected.Metadata?.TryGetValue(ApnsTeamIdMetadata, out var storedTeamId) == true && !string.IsNullOrWhiteSpace(storedTeamId))
+            teamId = storedTeamId;
+        MarkDirty();
+    }
+
+    async Task ImportP8ToSecrets()
+    {
+        var path = await DialogService.PickOpenFileAsync("Select .p8 Key File", new[] { ".p8" });
+        if (!string.IsNullOrEmpty(path))
+            await StoreP8FileAsSecretAsync(path);
+    }
+
+    async Task MoveP8FileToSecrets()
+    {
+        if (!File.Exists(p8FilePath))
+        {
+            ToastService.Show("P8 file not found.", ToastType.Error);
+            return;
+        }
+
+        await StoreP8FileAsSecretAsync(p8FilePath);
+    }
+
+    async Task StoreP8FileAsSecretAsync(string path)
+    {
+        isImportingP8 = true;
+        StateHasChanged();
+
+        try
+        {
+            var bytes = await File.ReadAllBytesAsync(path);
+            if (!Encoding.UTF8.GetString(bytes).Contains("PRIVATE KEY", StringComparison.Ordinal))
+            {
+                ToastService.Show("That file isn't an APNs auth key (.p8).", ToastType.Error);
+                return;
+            }
+
+            var fileName = Path.GetFileName(path);
+            var keyId = KeyIdFromFileName(fileName) ?? (string.IsNullOrWhiteSpace(p8KeyId) ? null : p8KeyId.Trim());
+            var secretKey = $"{ApnsSecretFolder}/{fileName}";
+            var description = keyId != null ? $"APNs auth key {keyId}" : "APNs auth key";
+            var metadata = new Dictionary<string, string>();
+            if (keyId != null)
+                metadata[ApnsKeyIdMetadata] = keyId;
+            if (!string.IsNullOrWhiteSpace(teamId))
+                metadata[ApnsTeamIdMetadata] = teamId.Trim();
+
+            bool stored;
+            if (await SecretsService.GetAsync(secretKey) != null)
+            {
+                var replace = await AlertService.ShowConfirmAsync(
+                    "Replace APNs Key",
+                    $"A secret named \"{secretKey}\" already exists. Replace its contents?",
+                    "Replace", "Cancel");
+                if (!replace) return;
+
+                stored = await SecretsService.UpdateAsync(secretKey, bytes, description, metadata);
+            }
+            else
+            {
+                stored = await SecretsService.CreateAsync(secretKey, bytes, ManagedSecretType.File, description, fileName, metadata);
+                if (stored)
+                    await SecretSyncCoordinator.SetDefaultProvidersAsync(
+                        new SecretItemRef(SecretItemKind.ManagedSecret, secretKey, fileName));
+            }
+
+            if (!stored)
+            {
+                ToastService.Show("Couldn't store the key in your secret provider.", ToastType.Error);
+                return;
+            }
+
+            p8SecretKey = secretKey;
+            if (keyId != null)
+                p8KeyId = keyId;
+            authMode = "secret";
+            MarkDirty();
+            ToastService.Show($"Stored {fileName} in your secret providers.", ToastType.Success);
+        }
+        catch (LocalVaultUnavailableException)
+        {
+            ToastService.Show("Unlock the Local Vault to store the key there, or make a cloud provider active in Settings.", ToastType.Error);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError($"Failed to store .p8 in secret provider: {ex.Message}", ex);
+            ToastService.Show($"Couldn't store the key: {ex.Message}", ToastType.Error);
+        }
+        finally
+        {
+            isImportingP8 = false;
+            StateHasChanged();
+        }
+    }
+
+    static bool IsApnsKeySecret(ManagedSecret secret) =>
+        secret.Type == ManagedSecretType.File
+        && (secret.Metadata?.ContainsKey(ApnsKeyIdMetadata) == true
+            || secret.OriginalFileName?.EndsWith(".p8", StringComparison.OrdinalIgnoreCase) == true
+            || secret.Key.EndsWith(".p8", StringComparison.OrdinalIgnoreCase));
+
+    static string? KeyIdFromFileName(string? fileName)
+    {
+        var match = AuthKeyFileName.Match(fileName ?? "");
+        return match.Success ? match.Groups[1].Value.ToUpperInvariant() : null;
+    }
+
+    static string SecretDisplayName(string key) => key.Split('/').Last();
+
     async Task PickP8File()
     {
         var path = await DialogService.PickOpenFileAsync("Select .p8 Key File", new[] { ".p8" });
@@ -712,6 +788,18 @@
 
                 p8Key = identity.P8KeyContent;
                 keyId = identity.KeyId;
+            }
+            else if (authMode == "secret")
+            {
+                var secretBytes = await SecretsService.GetValueAsync(p8SecretKey);
+                if (secretBytes is not { Length: > 0 })
+                {
+                    ToastService.Show("Couldn't read the APNs key from your secret providers. If it's in the Local Vault, unlock it first.", ToastType.Error);
+                    return;
+                }
+
+                p8Key = Encoding.UTF8.GetString(secretBytes);
+                keyId = p8KeyId;
             }
             else
             {
@@ -786,6 +874,8 @@
 
     static string TruncateToken(string token) =>
         token.Length > 24 ? $"{token[..12]}...{token[^8..]}" : token;
+
+    record ApnsPreview(string? Title, string? Subtitle, string? Body, int? Badge, bool Silent, string SilentMessage);
 
     public void Dispose()
     {
