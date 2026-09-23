@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Numerics;
@@ -33,7 +35,7 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
     private const string ServiceKeyDiscoveryUrl = "https://appstoreconnect.apple.com/logout";
     private const string FederateUrl = "https://idmsa.apple.com/appleauth/auth/federate";
     private const string SignInInitUrl = "https://idmsa.apple.com/appleauth/auth/signin/init";
-    private const string SignInCompleteUrl = "https://idmsa.apple.com/appleauth/auth/signin/complete";
+    private const string SignInCompleteUrl = "https://idmsa.apple.com/appleauth/auth/signin/complete?isRememberMeEnabled=false";
     private const string AuthUrl = "https://idmsa.apple.com/appleauth/auth";
     private const string TrustUrl = "https://idmsa.apple.com/appleauth/auth/2sv/trust";
     private const string OlympusSessionUrl = "https://appstoreconnect.apple.com/olympus/v1/session";
@@ -117,7 +119,9 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
             {
                 var error = await initResponse.Content.ReadAsStringAsync();
                 _logger.LogError($"SRP init failed: {error}");
-                return new AppleAuthResult(false, false, ErrorMessage: "Authentication failed: invalid Apple ID");
+                return new AppleAuthResult(false, false,
+                    ErrorMessage: ExtractAppleErrorMessage(error) ?? "Authentication failed: invalid Apple ID",
+                    IsAccountLocked: IsAccountLockedResponse(error));
             }
 
             var initJson = await initResponse.Content.ReadAsStringAsync();
@@ -144,7 +148,7 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
                 ["accountName"] = appleId,
                 ["m1"] = m1,
                 ["m2"] = m2,
-                ["rememberMe"] = true
+                ["rememberMe"] = false
             };
             if (cValue != null) completePayload["c"] = cValue;
 
@@ -176,7 +180,9 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
             {
                 var error = await completeResponse.Content.ReadAsStringAsync();
                 _logger.LogError($"Authentication failed: {error}");
-                return new AppleAuthResult(false, false, ErrorMessage: "Authentication failed: invalid password");
+                return new AppleAuthResult(false, false,
+                    ErrorMessage: ExtractAppleErrorMessage(error) ?? "Authentication failed: invalid password",
+                    IsAccountLocked: IsAccountLockedResponse(error));
             }
 
             // Success — establish session
@@ -364,6 +370,181 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
 
         AuthStateChanged?.Invoke();
         _logger.LogInformation("Signed out of Apple Developer");
+    }
+
+    // ── Fastlane session import ─────────────────────────────────────────
+    // fastlane/spaceship stores a plain YAML cookie jar on disk after a successful
+    // `fastlane spaceauth` (or any spaceship) sign-in. Importing it lets a user avoid
+    // re-running our SRP sign-in flow, which is the surface Apple's anti-automation
+    // detection watches most closely and can trigger account locks (e.g. error -20209).
+
+    private static readonly string[] FastlaneCookieBaseDirs =
+    {
+        "~/.fastlane/spaceship",
+        "~/.spaceship",
+    };
+
+    public Task<IReadOnlyList<FastlaneSessionInfo>> DetectFastlaneSessionsAsync()
+    {
+        var results = new List<FastlaneSessionInfo>();
+
+        foreach (var baseDir in FastlaneCookieBaseDirs)
+        {
+            var expandedBaseDir = ExpandHomePath(baseDir);
+            if (!Directory.Exists(expandedBaseDir)) continue;
+
+            foreach (var accountDir in Directory.EnumerateDirectories(expandedBaseDir))
+            {
+                var cookieFile = Path.Combine(accountDir, "cookie");
+                if (!File.Exists(cookieFile)) continue;
+
+                var appleId = Path.GetFileName(accountDir);
+                results.Add(new FastlaneSessionInfo(appleId, cookieFile, File.GetLastWriteTimeUtc(cookieFile)));
+            }
+        }
+
+        return Task.FromResult<IReadOnlyList<FastlaneSessionInfo>>(results);
+    }
+
+    public async Task<AppleAuthResult> ImportFastlaneSessionAsync(string appleId, string cookieFilePath)
+    {
+        try
+        {
+            if (!File.Exists(cookieFilePath))
+                return new AppleAuthResult(false, false, ErrorMessage: "The fastlane cookie file could not be found.");
+
+            var yaml = await File.ReadAllTextAsync(cookieFilePath);
+            var cookies = ParseFastlaneCookies(yaml);
+            if (cookies.Count == 0)
+                return new AppleAuthResult(false, false, ErrorMessage: "No usable cookies were found in the fastlane session file.");
+
+            foreach (var cookieDetail in cookies)
+            {
+                if (cookieDetail.Expires is { } expires && expires <= DateTime.UtcNow)
+                    continue;
+
+                try
+                {
+                    _cookieContainer.Add(CreateCookie(cookieDetail));
+                }
+                catch (CookieException ex)
+                {
+                    _logger.LogWarning($"Skipped invalid fastlane cookie {cookieDetail.Name}@{cookieDetail.Domain}: {ex.Message}");
+                }
+            }
+
+            var serviceKey = await GetServiceKeyAsync();
+            var session = await EstablishSessionAsync(appleId, serviceKey);
+            if (session == null)
+            {
+                return new AppleAuthResult(false, false, ErrorMessage:
+                    "Apple did not accept the imported fastlane session. It may have expired — run 'fastlane spaceauth' again and retry the import.");
+            }
+
+            _session = session;
+            await PersistSessionAsync(session);
+            AuthStateChanged?.Invoke();
+            _logger.LogInformation($"Imported fastlane session for {appleId}");
+
+            return new AppleAuthResult(true, false, Session: session);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Failed to import fastlane session: {ex.Message}", ex);
+            return new AppleAuthResult(false, false, ErrorMessage: $"Failed to import fastlane session: {ex.Message}");
+        }
+    }
+
+    private static string ExpandHomePath(string path)
+    {
+        if (!path.StartsWith("~", StringComparison.Ordinal)) return path;
+
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        return Path.Combine(home, path.TrimStart('~', '/'));
+    }
+
+    /// <summary>
+    /// Minimal parser for fastlane/spaceship's cookie jar YAML format (an array of
+    /// <c>!ruby/object:HTTP::Cookie</c> mappings with fixed keys: name, value, domain,
+    /// for_domain, path, secure, httponly, expires, max_age, created_at, accessed_at).
+    /// Avoids taking a full YAML library dependency for this narrow, stable schema.
+    /// </summary>
+    internal static IReadOnlyList<AppleAuthCookie> ParseFastlaneCookies(string yamlContent)
+    {
+        var cookies = new List<AppleAuthCookie>();
+
+        string? name = null, value = null, domain = null, path = null;
+        bool secure = false, httpOnly = false;
+        DateTime? expires = null;
+        var inCookie = false;
+
+        void FlushCookie()
+        {
+            if (inCookie && !string.IsNullOrEmpty(name))
+            {
+                cookies.Add(new AppleAuthCookie(
+                    Name: name!,
+                    Value: value ?? string.Empty,
+                    Domain: domain ?? string.Empty,
+                    Path: string.IsNullOrWhiteSpace(path) ? "/" : path!,
+                    Expires: expires,
+                    Secure: secure,
+                    HttpOnly: httpOnly));
+            }
+
+            name = value = domain = path = null;
+            secure = httpOnly = false;
+            expires = null;
+            inCookie = false;
+        }
+
+        foreach (var rawLine in yamlContent.Replace("\r\n", "\n").Split('\n'))
+        {
+            if (rawLine.TrimStart().StartsWith("- !ruby/object:", StringComparison.Ordinal))
+            {
+                FlushCookie();
+                inCookie = true;
+                continue;
+            }
+
+            if (!inCookie) continue;
+
+            var trimmed = rawLine.Trim();
+            if (trimmed.Length == 0) continue;
+
+            var separatorIndex = trimmed.IndexOf(':');
+            if (separatorIndex < 0) continue;
+
+            var key = trimmed[..separatorIndex].Trim();
+            var rawValue = UnquoteYamlScalar(trimmed[(separatorIndex + 1)..].Trim());
+
+            switch (key)
+            {
+                case "name": name = rawValue; break;
+                case "value": value = rawValue; break;
+                case "domain": domain = rawValue; break;
+                case "path": path = rawValue; break;
+                case "secure": secure = string.Equals(rawValue, "true", StringComparison.OrdinalIgnoreCase); break;
+                case "httponly": httpOnly = string.Equals(rawValue, "true", StringComparison.OrdinalIgnoreCase); break;
+                case "expires":
+                    if (!string.IsNullOrWhiteSpace(rawValue) &&
+                        DateTime.TryParse(rawValue, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var parsedExpires))
+                        expires = parsedExpires;
+                    break;
+            }
+        }
+
+        FlushCookie();
+        return cookies;
+    }
+
+    private static string UnquoteYamlScalar(string value)
+    {
+        if (value.Length >= 2 && value[0] == '"' && value[^1] == '"')
+            return value[1..^1];
+        if (value.Length >= 2 && value[0] == '\'' && value[^1] == '\'')
+            return value[1..^1];
+        return value;
     }
 
     // ── SRP-6a Implementation ───────────────────────────────────────────
@@ -574,6 +755,59 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
     }
 
     // ── Private helpers ─────────────────────────────────────────────────
+
+    /// <summary>
+    /// Extracts Apple's human-readable "message" field from an error response body
+    /// (e.g. account locked, too many attempts), so the UI can surface the real
+    /// reason instead of a generic "invalid password" message.
+    /// </summary>
+    private static string? ExtractAppleErrorMessage(string responseBody)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(responseBody);
+            if (doc.RootElement.TryGetProperty("message", out var messageProp))
+            {
+                var message = messageProp.GetString();
+                if (!string.IsNullOrWhiteSpace(message))
+                    return message;
+            }
+        }
+        catch (JsonException)
+        {
+            // Not JSON, or unexpected shape — fall back to the caller's default message.
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Apple's account-lock code, returned when its anti-automation/security heuristics have
+    /// locked the idmsa sign-in surface (distinct from an ordinary wrong-password error).
+    /// Once seen, the UI should stop retrying SRP sign-in and guide the user to unlock it.
+    /// </summary>
+    private const string AccountLockedErrorCode = "-20209";
+
+    private static bool IsAccountLockedResponse(string responseBody)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(responseBody);
+            if (doc.RootElement.TryGetProperty("code", out var codeProp))
+            {
+                var code = codeProp.ValueKind == JsonValueKind.String
+                    ? codeProp.GetString()
+                    : codeProp.ValueKind == JsonValueKind.Number ? codeProp.GetRawText() : null;
+                return code == AccountLockedErrorCode;
+            }
+        }
+        catch (JsonException)
+        {
+            // Not JSON, or unexpected shape.
+        }
+
+        return false;
+    }
 
     internal static async Task<string> GetServiceKeyAsync(HttpMessageHandler? handler = null)
     {

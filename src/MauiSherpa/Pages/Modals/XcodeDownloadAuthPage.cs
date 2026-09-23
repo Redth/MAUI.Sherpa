@@ -19,11 +19,11 @@ public class XcodeDownloadAuthPage : WizardFormPage<bool>
     {
 #if MACOSAPP
         MacOSPage.SetModalSheetSizesToContent(this, false);
-        MacOSPage.SetModalSheetWidth(this, 520);
+        MacOSPage.SetModalSheetWidth(this, 560);
         MacOSPage.SetModalSheetHeight(this, 520);
 #elif LINUXGTK
         GtkPage.SetModalSizesToContent(this, false);
-        GtkPage.SetModalWidth(this, 520);
+        GtkPage.SetModalWidth(this, 560);
         GtkPage.SetModalHeight(this, 520);
 #endif
     }
