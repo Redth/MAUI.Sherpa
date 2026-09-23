@@ -31,6 +31,11 @@
 
 <AppleIdentityPicker />
 
+@if (!string.IsNullOrEmpty(cloudSecretsErrorMessage))
+{
+    <div class="error-bar">@cloudSecretsErrorMessage</div>
+}
+
 @if (IdentityState.SelectedIdentity != null && !LocalVaultAccess.GetState().RequiresUserAction)
 {
     @if (!PlatformInfo.HasNativeToolbar)
@@ -580,6 +585,7 @@
     private bool isLoading = false;
     private bool demoMode = false;
     private string errorMessage = "";
+    private string cloudSecretsErrorMessage = "";
     
     // Filter state
     private string searchQuery = "";
@@ -652,17 +658,18 @@
 
         try { var settings = await SettingsService.GetSettingsAsync(); demoMode = settings.Preferences.DemoMode; } catch { }
         IdentityState.OnSelectionChanged += OnIdentityChanged;
+        LocalVaultAccess.StateChanged += OnLocalVaultStateChanged;
         
         // Load sync hint dismissed preference
         syncHintDismissed = AppPreferences.Get(SyncHintDismissedKey, false);
         
-        // Initialize cloud secrets service to load active provider
-        await CloudSecretsService.InitializeAsync();
-        
-        if (IdentityState.SelectedIdentity != null)
-            await RefreshData();
-        
-        _initialLoadComplete = true;
+        await InitializeCloudSecretsAsync();
+
+        // The Apple identity is resolved asynchronously, by AppleIdentityPicker and by the
+        // native toolbar menu. If it is already known, load now; if it lands later,
+        // OnIdentityChanged picks it up.
+        await RefreshData();
+        await InvokeAsync(StateHasChanged);
     }
 
     private void DismissSyncHint()
@@ -672,13 +679,29 @@
         StateHasChanged();
     }
 
-    private bool _initialLoadComplete;
+    // Id of the identity the current certificate list belongs to, so an identity that
+    // resolves while the initial load is still in flight is not fetched twice.
+    private string? _loadedIdentityId;
+    private long _certificateLoadVersion;
+
+    private async Task InitializeCloudSecretsAsync()
+    {
+        try
+        {
+            await CloudSecretsService.InitializeAsync();
+            cloudSecretsErrorMessage = "";
+        }
+        catch (Exception ex)
+        {
+            cloudSecretsErrorMessage = $"Cloud certificate sync is unavailable: {ex.Message}";
+            Logger.LogError("Failed to initialize cloud secrets on the certificates page", ex);
+        }
+    }
     
     private void OnIdentityChanged()
     {
         InvokeAsync(async () =>
         {
-            if (!_initialLoadComplete) return; // Skip during initial load (OnInitializedAsync handles it)
             await RefreshData();
             StateHasChanged();
         });
@@ -722,6 +745,20 @@
         ToolbarService.SearchTextChanged -= OnSearchTextChanged;
         ToolbarService.FilterChanged -= OnFilterChanged;
         IdentityState.OnSelectionChanged -= OnIdentityChanged;
+        LocalVaultAccess.StateChanged -= OnLocalVaultStateChanged;
+    }
+
+    // The whole page body is gated on the vault state, so re-render (and load) when it changes.
+    private void OnLocalVaultStateChanged()
+    {
+        InvokeAsync(async () =>
+        {
+            if (!LocalVaultAccess.GetState().RequiresUserAction)
+                await InitializeCloudSecretsAsync();
+
+            await RefreshData();
+            StateHasChanged();
+        });
     }
 
     private void OnToolbarItemClicked(string actionId)
@@ -745,11 +782,24 @@
 
     private async Task RefreshData(bool forceRefresh = false)
     {
-        if (IdentityState.SelectedIdentity == null || LocalVaultAccess.GetState().RequiresUserAction)
+        var identity = IdentityState.SelectedIdentity;
+        if (identity == null || LocalVaultAccess.GetState().RequiresUserAction)
+        {
+            _certificateLoadVersion++;
+            _loadedIdentityId = null;
+            certificates.Clear();
+            syncStatuses.Clear();
+            isLoading = false;
+            return;
+        }
+
+        // Both the initial load and OnIdentityChanged can fire for the same identity;
+        // only the explicit Refresh action re-fetches one we already have.
+        if (!forceRefresh && _loadedIdentityId == identity.Id)
             return;
 
-        if (IdentityState.SelectedIdentity == null) return;
-
+        var loadVersion = ++_certificateLoadVersion;
+        _loadedIdentityId = identity.Id;
         isLoading = true;
         errorMessage = "";
         
@@ -770,15 +820,19 @@
             // If force refresh, invalidate the mediator cache first
             if (forceRefresh)
             {
-                await Mediator.FlushStores($"apple:certs:{IdentityState.SelectedIdentity.Id}");
+                await Mediator.FlushStores($"apple:certs:{identity.Id}");
             }
             
-            var request = new GetCertificatesRequest(IdentityState.SelectedIdentity.Id);
+            var request = new GetCertificatesRequest(identity.Id);
             var (_, result) = await Mediator.Request(request);
-            certificates = result.ToList();
-            
-            // Load sync statuses if cloud provider is configured
-            await LoadSyncStatuses();
+            var loadedCertificates = result.ToList();
+            var loadedSyncStatuses = await GetSyncStatusesAsync(loadedCertificates);
+
+            if (IsCurrentCertificateLoad(loadVersion, identity.Id))
+            {
+                certificates = loadedCertificates;
+                syncStatuses = loadedSyncStatuses;
+            }
         }
         catch (IOException)
         {
@@ -786,46 +840,70 @@
             // when concurrent requests write to the same cache file. Retry once.
             try
             {
-                var request = new GetCertificatesRequest(IdentityState.SelectedIdentity.Id);
+                var request = new GetCertificatesRequest(identity.Id);
                 var (_, result) = await Mediator.Request(request);
-                certificates = result.ToList();
-                await LoadSyncStatuses();
+                var loadedCertificates = result.ToList();
+                var loadedSyncStatuses = await GetSyncStatusesAsync(loadedCertificates);
+
+                if (IsCurrentCertificateLoad(loadVersion, identity.Id))
+                {
+                    certificates = loadedCertificates;
+                    syncStatuses = loadedSyncStatuses;
+                }
             }
             catch (Exception ex2)
             {
-                errorMessage = $"Failed to load certificates: {ex2.Message}";
+                if (IsCurrentCertificateLoad(loadVersion, identity.Id))
+                    errorMessage = $"Failed to load certificates: {ex2.Message}";
             }
         }
         catch (Exception ex)
         {
-            errorMessage = $"Failed to load certificates: {ex.Message}";
+            if (IsCurrentCertificateLoad(loadVersion, identity.Id))
+                errorMessage = $"Failed to load certificates: {ex.Message}";
         }
         finally
         {
-            isLoading = false;
             if (toast != null) ToastService.Dismiss(toast);
-            await InvokeAsync(StateHasChanged);
+
+            if (IsCurrentCertificateLoad(loadVersion, identity.Id))
+            {
+                // Let a failed load be retried for the same identity.
+                if (!string.IsNullOrEmpty(errorMessage))
+                    _loadedIdentityId = null;
+
+                isLoading = false;
+                await InvokeAsync(StateHasChanged);
+            }
         }
     }
-    
-    private async Task LoadSyncStatuses()
+
+    private bool IsCurrentCertificateLoad(long loadVersion, string identityId) =>
+        loadVersion == _certificateLoadVersion &&
+        IdentityState.SelectedIdentity?.Id == identityId &&
+        !LocalVaultAccess.GetState().RequiresUserAction;
+
+    private async Task<Dictionary<string, CertificateSecretInfo>> GetSyncStatusesAsync(
+        IReadOnlyList<AppleCertificate> loadedCertificates)
     {
-        if (certificates.Count == 0)
-        {
-            syncStatuses.Clear();
-            return;
-        }
-        
+        if (loadedCertificates.Count == 0)
+            return new();
+
         try
         {
-            var statuses = await CertificateSyncService.GetCertificateStatusesAsync(certificates);
-            syncStatuses = statuses.ToDictionary(s => s.CertificateId, s => s);
+            var statuses = await CertificateSyncService.GetCertificateStatusesAsync(loadedCertificates);
+            return statuses.ToDictionary(s => s.CertificateId, s => s);
         }
         catch (Exception ex)
         {
             Logger.LogError($"Failed to load sync statuses: {ex.Message}", ex);
-            syncStatuses.Clear();
+            return new();
         }
+    }
+
+    private async Task LoadSyncStatuses()
+    {
+        syncStatuses = await GetSyncStatusesAsync(certificates);
     }
 
     private async Task ShowCreateDialog()
