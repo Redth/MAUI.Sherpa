@@ -286,9 +286,9 @@
                         @foreach (var version in report.AvailableWorkloadSetVersions.Take(5))
                         {
                             var isCurrent = version == report.InstalledWorkloadSetVersion;
-                            <span class="version-tag @(isCurrent ? "current" : "")" 
-                                  @onclick="@(() => UpdateToVersion(version))"
-                                  title="@(isCurrent ? "Current version" : "Click to update")">
+                            <span class="version-tag @(isCurrent ? "current" : "") @(isLoading ? "disabled" : "")"
+                                  @onclick="@(() => isLoading || isCurrent ? Task.CompletedTask : UpdateToVersion(version))"
+                                  title="@(isCurrent ? "Current version" : isLoading ? "A fix is already in progress" : "Click to update")">
                                 @version @(isCurrent ? "✓" : "")
                             </span>
                         }
@@ -562,6 +562,7 @@ else
     }
     .version-tag:hover { background: var(--bg-hover); }
     .version-tag.current { background: var(--status-success-bg); color: var(--status-success-text); cursor: default; }
+    .version-tag.disabled { opacity: 0.5; cursor: not-allowed; pointer-events: none; }
 
     .manifest-list { display: flex; flex-direction: column; }
     .manifest-section { padding: 0; }
@@ -889,6 +890,33 @@ else
 
     private async Task FixDependency(DependencyStatus dep)
     {
+        // Some fix paths (e.g. resolving available workload set versions) can take many
+        // seconds in a slow/contended dotnet environment. Without disabling the buttons and
+        // giving feedback here, a user who thinks their click didn't register can click again,
+        // which races a second ShowProcessAsync call against the still-in-flight first one and
+        // throws "A process modal is already being shown" as an unobserved exception -- i.e.
+        // the fix silently appears to do nothing.
+        if (isLoading)
+            return;
+
+        isLoading = true;
+        progressMessage = $"Fixing: {dep.Name}...";
+        StateHasChanged();
+
+        try
+        {
+            await FixDependencyCoreAsync(dep);
+        }
+        finally
+        {
+            isLoading = false;
+            progressMessage = "";
+            StateHasChanged();
+        }
+    }
+
+    private async Task FixDependencyCoreAsync(DependencyStatus dep)
+    {
         if (!string.IsNullOrEmpty(dep.FixAction))
         {
             if (dep.Category == DependencyCategory.AndroidSdk &&
@@ -1057,34 +1085,63 @@ else
     {
         if (version == report?.InstalledWorkloadSetVersion) return;
 
-        var featureBand = report?.Context.EffectiveFeatureBand;
-        var request = featureBand == null
-            ? null
-            : await DoctorService.GetWorkloadUpdateRequestAsync(
-                featureBand,
-                report!.Context.WorkingDirectory,
-                version,
-                report.Context.DotNetSdkPath,
-                report.Context.DotNetArchitecture,
-                report.Context.ActiveSdkVersion);
-        request ??= new ProcessRequest(
-            Command: DoctorService.GetDotNetExecutablePath(),
-            Arguments: new[] { "workload", "update", "--version", version },
-            RequiresElevation: true,
-            ElevationPrompt: "Install .NET Workloads",
-            Title: "Update Workloads",
-            Description: $"Update .NET workloads to version {version}");
+        // May be called both from FixDependency (which already guards/sets isLoading) and
+        // directly from the version-tag click handlers below (which guard it themselves), so
+        // this only needs to (re-)apply the loading/progress state here, not gate re-entrancy.
+        isLoading = true;
+        progressMessage = $"Preparing workload update to {version}...";
+        StateHasChanged();
 
-        var result = await ProcessModal.ShowProcessAsync(request);
-        
-        if (result?.Success == true)
+        try
         {
-            // ProcessModal already shows completion status, no need for redundant toast
-            await RunDoctor();
+            var featureBand = report?.Context.EffectiveFeatureBand;
+            var request = featureBand == null
+                ? null
+                : await DoctorService.GetWorkloadUpdateRequestAsync(
+                    featureBand,
+                    report!.Context.WorkingDirectory,
+                    version,
+                    report.Context.DotNetSdkPath,
+                    report.Context.DotNetArchitecture,
+                    report.Context.ActiveSdkVersion);
+            request ??= new ProcessRequest(
+                Command: DoctorService.GetDotNetExecutablePath(),
+                Arguments: new[] { "workload", "update", "--version", version },
+                RequiresElevation: true,
+                ElevationPrompt: "Install .NET Workloads",
+                Title: "Update Workloads",
+                Description: $"Update .NET workloads to version {version}");
+
+            ProcessResult? result;
+            try
+            {
+                result = await ProcessModal.ShowProcessAsync(request);
+            }
+            catch (InvalidOperationException)
+            {
+                // A process modal was already open (e.g. a previous click that is still in
+                // flight). Surface this instead of letting it become an unobserved exception.
+                await AlertService.ShowToastAsync("A fix is already in progress. Please wait for it to finish.");
+                return;
+            }
+
+            if (result?.Success == true)
+            {
+                // ProcessModal already shows completion status, no need for redundant toast
+                await RunDoctor();
+                return;
+            }
+
+            if (result != null && !result.WasCancelled && !result.WasKilled)
+            {
+                await AlertService.ShowAlertAsync("Update Failed", "Workload update failed. Check the output for details.");
+            }
         }
-        else if (result != null && !result.WasCancelled && !result.WasKilled)
+        finally
         {
-            await AlertService.ShowAlertAsync("Update Failed", "Workload update failed. Check the output for details.");
+            isLoading = false;
+            progressMessage = "";
+            StateHasChanged();
         }
     }
 

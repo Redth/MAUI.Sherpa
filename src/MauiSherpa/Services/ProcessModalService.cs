@@ -48,37 +48,47 @@ public class ProcessModalService : IProcessModalService
         _pendingResult = null;
         _completionSource = new TaskCompletionSource<ProcessResult?>();
 
-        OnModalShown?.Invoke();
-        OnShowRequested?.Invoke(request);
-
-        // Push native modal page
-        var nav = Application.Current?.Windows.FirstOrDefault()?.Page?.Navigation;
-        INavigation? activeNav = nav;
-        if (nav != null)
+        try
         {
-            var modalWidth = GetModalWidth(Application.Current?.Windows.FirstOrDefault());
-            var page = new HybridProgressPage(
-                _bridgeHolder,
-                "/modal/process",
-                request.Title ?? "Process Execution",
-                modalWidth,
-                500);
-            await nav.PushModalAsync(page, animated: true);
+            OnModalShown?.Invoke();
+            OnShowRequested?.Invoke(request);
+
+            // Push native modal page
+            var nav = Application.Current?.Windows.FirstOrDefault()?.Page?.Navigation;
+            INavigation? activeNav = nav;
+            if (nav != null)
+            {
+                var modalWidth = GetModalWidth(Application.Current?.Windows.FirstOrDefault());
+                var page = new HybridProgressPage(
+                    _bridgeHolder,
+                    "/modal/process",
+                    request.Title ?? "Process Execution",
+                    modalWidth,
+                    500);
+                await nav.PushModalAsync(page, animated: true);
+            }
+
+            var result = await _completionSource.Task;
+
+            // Pop native modal page
+            if (activeNav != null)
+            {
+                try { await activeNav.PopModalAsync(animated: true); } catch { }
+            }
+
+            return result;
         }
-
-        var result = await _completionSource.Task;
-
-        // Pop native modal page
-        if (activeNav != null)
+        finally
         {
-            try { await activeNav.PopModalAsync(animated: true); } catch { }
+            // Always release the "a modal is showing" gate, even if pushing the native modal
+            // page or awaiting completion threw. Without this, a failure here would leave
+            // IsVisible stuck true forever, and every subsequent ShowProcessAsync call would
+            // throw "A process modal is already being shown" -- silently, since callers await
+            // this from fire-and-forget UI event handlers.
+            IsVisible = false;
+            CurrentRequest = null;
+            OnModalClosed?.Invoke();
         }
-
-        IsVisible = false;
-        CurrentRequest = null;
-        OnModalClosed?.Invoke();
-
-        return result;
     }
 
     private static int GetModalWidth(Window? parentWindow)
