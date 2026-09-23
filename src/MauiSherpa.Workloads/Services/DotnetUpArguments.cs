@@ -59,8 +59,14 @@ public static class DotnetUpArguments
         return args;
     }
 
-    /// <summary><c>dotnetup sdk uninstall &lt;channel&gt; [--source &lt;All|Explicit|GlobalJson&gt;]</c></summary>
-    public static IReadOnlyList<string> SdkUninstall(string channel, DotnetUpInstallSource? source = null)
+    /// <summary>
+    /// <c>dotnetup sdk uninstall &lt;channel&gt; [--source &lt;All|Explicit|GlobalJson&gt;] [--install-path &lt;path&gt;]</c>.
+    /// <paramref name="installPath"/> MUST be the tracked spec's own <c>InstallRoot</c> — omitting it makes
+    /// dotnetup fall back to its own hardcoded default root, which silently targets the wrong installation
+    /// whenever the SDK is tracked under a different (e.g. user-configured default) install path.
+    /// </summary>
+    public static IReadOnlyList<string> SdkUninstall(
+        string channel, DotnetUpInstallSource? source = null, string? installPath = null)
     {
         if (string.IsNullOrWhiteSpace(channel))
             throw new ArgumentException("A channel is required to uninstall.", nameof(channel));
@@ -70,6 +76,11 @@ public static class DotnetUpArguments
         {
             args.Add("--source");
             args.Add(s.ToString());
+        }
+        if (!string.IsNullOrWhiteSpace(installPath))
+        {
+            args.Add("--install-path");
+            args.Add(installPath);
         }
         return args;
     }
@@ -97,12 +108,22 @@ public static class DotnetUpArguments
         return args;
     }
 
-    /// <summary><c>dotnetup runtime uninstall &lt;spec&gt;</c></summary>
-    public static IReadOnlyList<string> RuntimeUninstall(string spec)
+    /// <summary>
+    /// <c>dotnetup runtime uninstall &lt;spec&gt; [--install-path &lt;path&gt;]</c>. See <see cref="SdkUninstall"/>
+    /// for why <paramref name="installPath"/> must be the tracked spec's own <c>InstallRoot</c>.
+    /// </summary>
+    public static IReadOnlyList<string> RuntimeUninstall(string spec, string? installPath = null)
     {
         if (string.IsNullOrWhiteSpace(spec))
             throw new ArgumentException("A runtime spec is required to uninstall.", nameof(spec));
-        return new List<string> { "runtime", "uninstall", spec };
+
+        var args = new List<string> { "runtime", "uninstall", spec };
+        if (!string.IsNullOrWhiteSpace(installPath))
+        {
+            args.Add("--install-path");
+            args.Add(installPath);
+        }
+        return args;
     }
 
     /// <summary><c>dotnetup update [--no-progress]</c> — updates every tracked component.</summary>

@@ -2097,8 +2097,13 @@ public interface IDotnetUpService
     /// <summary>Builds a request to update all tracked SDKs.</summary>
     ProcessRequest UpdateSdksRequest();
 
-    /// <summary>Builds a request to uninstall an SDK channel.</summary>
-    ProcessRequest UninstallSdkRequest(string channel, MauiSherpa.Workloads.Models.DotnetUpInstallSource? source = null);
+    /// <summary>
+    /// Builds a request to uninstall an SDK channel. Pass <paramref name="installPath"/> as the tracked
+    /// spec's own <c>InstallRoot</c> so dotnetup targets the root the spec actually lives in instead of
+    /// its own hardcoded default.
+    /// </summary>
+    ProcessRequest UninstallSdkRequest(
+        string channel, MauiSherpa.Workloads.Models.DotnetUpInstallSource? source = null, string? installPath = null);
 
     /// <summary>Builds a request to install a runtime spec (channel or <c>component@version</c>).</summary>
     ProcessRequest InstallRuntimeRequest(string? spec = null);
@@ -2106,8 +2111,11 @@ public interface IDotnetUpService
     /// <summary>Builds a request to update all tracked runtimes.</summary>
     ProcessRequest UpdateRuntimesRequest();
 
-    /// <summary>Builds a request to uninstall a runtime spec.</summary>
-    ProcessRequest UninstallRuntimeRequest(string spec);
+    /// <summary>
+    /// Builds a request to uninstall a runtime spec. Pass <paramref name="installPath"/> as the tracked
+    /// spec's own <c>InstallRoot</c> — see <see cref="UninstallSdkRequest"/>.
+    /// </summary>
+    ProcessRequest UninstallRuntimeRequest(string spec, string? installPath = null);
 
     /// <summary>Builds a request to update every tracked component.</summary>
     ProcessRequest UpdateAllRequest();

@@ -360,9 +360,10 @@ public class DotnetUpService : IDotnetUpService
             description: "Updating tracked .NET SDKs via dotnetup",
             usePseudoTerminal: SupportsTerminalProgress);
 
-    public ProcessRequest UninstallSdkRequest(string channel, DotnetUpInstallSource? source = null) =>
+    public ProcessRequest UninstallSdkRequest(
+        string channel, DotnetUpInstallSource? source = null, string? installPath = null) =>
         CreateProcessRequest(
-            DotnetUpArguments.SdkUninstall(channel, source),
+            DotnetUpArguments.SdkUninstall(channel, source, installPath),
             title: "Uninstall .NET SDK",
             description: $"Uninstalling .NET SDK channel '{channel}' via dotnetup");
 
@@ -382,9 +383,9 @@ public class DotnetUpService : IDotnetUpService
             description: "Updating tracked .NET runtimes via dotnetup",
             usePseudoTerminal: SupportsTerminalProgress);
 
-    public ProcessRequest UninstallRuntimeRequest(string spec) =>
+    public ProcessRequest UninstallRuntimeRequest(string spec, string? installPath = null) =>
         CreateProcessRequest(
-            DotnetUpArguments.RuntimeUninstall(spec),
+            DotnetUpArguments.RuntimeUninstall(spec, installPath),
             title: "Uninstall .NET Runtime",
             description: $"Uninstalling .NET runtime '{spec}' via dotnetup");
 
