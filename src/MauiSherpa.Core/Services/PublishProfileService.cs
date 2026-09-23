@@ -9,6 +9,7 @@ namespace MauiSherpa.Core.Services;
 public class PublishProfileService : IPublishProfileService
 {
     const string CloudKeyPrefix = "sherpa-publish-profiles/";
+    const int MaxParallelSecretReads = 8;
 
     readonly ICloudSecretsService _cloudService;
     readonly ICertificateSyncService _certSync;
@@ -66,7 +67,11 @@ public class PublishProfileService : IPublishProfileService
             _syncCoordinator.ItemStateChanged += OnSyncItemStateChanged;
     }
 
-    public async Task<IReadOnlyList<PublishProfile>> GetProfilesAsync()
+    public Task<IReadOnlyList<PublishProfile>> GetProfilesAsync() =>
+        GetProfilesAsync(progress: null);
+
+    public async Task<IReadOnlyList<PublishProfile>> GetProfilesAsync(
+        IProgress<IReadOnlyList<PublishProfile>>? progress)
     {
         lock (_cacheLock)
         {
@@ -84,72 +89,15 @@ public class PublishProfileService : IPublishProfileService
             }
 
             var generation = Interlocked.Read(ref _cacheGeneration);
-            var profiles = new Dictionary<string, PublishProfile>(StringComparer.Ordinal);
-            if (_providerRegistry is not null)
-            {
-                var providerConfigs = await _providerRegistry.GetProvidersAsync();
-                foreach (var config in providerConfigs
-                    .OrderBy(provider => provider.ProviderType == CloudSecretsProviderType.Local ? 0 : 1)
-                    .ThenBy(provider => provider.Name, StringComparer.OrdinalIgnoreCase))
-                {
-                    try
-                    {
-                        var provider = await _providerRegistry.GetProviderAsync(config.Id);
-                        if (provider is null)
-                            continue;
-
-                        var keys = await provider.ListSecretsAsync(CloudKeyPrefix);
-                        foreach (var key in keys)
-                        {
-                            var bytes = await provider.GetSecretAsync(key);
-                            if (bytes is null)
-                                continue;
-
-                            var profile = JsonSerializer.Deserialize<PublishProfile>(
-                                Encoding.UTF8.GetString(bytes),
-                                JsonOptions);
-                            if (profile is not null)
-                                profiles.TryAdd(profile.Id, profile);
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning($"Failed to load publish profiles from '{config.Name}': {ex.Message}");
-                    }
-                }
-            }
-            else if (_cloudService.ActiveProvider is not null)
-            {
-                var keys = await _cloudService.ListSecretsAsync(CloudKeyPrefix);
-                foreach (var key in keys)
-                {
-                    try
-                    {
-                        var bytes = await _cloudService.GetSecretAsync(key);
-                        if (bytes is null)
-                            continue;
-
-                        var profile = JsonSerializer.Deserialize<PublishProfile>(
-                            Encoding.UTF8.GetString(bytes),
-                            JsonOptions);
-                        if (profile is not null)
-                            profiles.TryAdd(profile.Id, profile);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning($"Failed to load publish profile '{key}': {ex.Message}");
-                    }
-                }
-            }
-
-            var loaded = profiles.Values.OrderBy(p => p.Name).ToList();
+            var loaded = await LoadProfilesFromProvidersAsync(progress);
             lock (_cacheLock)
             {
+                // If the cache was invalidated while we were reading, leave it empty so the
+                // next call refetches — but still hand back what we just read. Returning
+                // nothing here made the page render an empty grid after a sync completed.
                 if (generation == Interlocked.Read(ref _cacheGeneration))
                     _cache = loaded;
-                return _cache is not null
-                    ? _cache
-                    : Array.Empty<PublishProfile>();
+                return loaded;
             }
         }
         finally
@@ -157,6 +105,137 @@ public class PublishProfileService : IPublishProfileService
             _cacheLoadGate.Release();
         }
     }
+
+    public Task<IReadOnlyList<PublishProfile>> RefreshProfilesAsync(
+        IProgress<IReadOnlyList<PublishProfile>>? progress = null)
+    {
+        InvalidateCache();
+        return GetProfilesAsync(progress);
+    }
+
+    async Task<List<PublishProfile>> LoadProfilesFromProvidersAsync(
+        IProgress<IReadOnlyList<PublishProfile>>? progress)
+    {
+        var profiles = new Dictionary<string, PublishProfile>(StringComparer.Ordinal);
+
+        if (_providerRegistry is null)
+        {
+            if (_cloudService.ActiveProvider is null)
+                return [];
+
+            var activeKeys = await _cloudService.ListSecretsAsync(CloudKeyPrefix);
+            foreach (var profile in await ReadProfilesAsync(activeKeys, key => _cloudService.GetSecretAsync(key)))
+                profiles.TryAdd(profile.Id, profile);
+            return Snapshot(profiles);
+        }
+
+        var orderedConfigs = (await _providerRegistry.GetProvidersAsync())
+            .OrderBy(provider => provider.ProviderType == CloudSecretsProviderType.Local ? 0 : 1)
+            .ThenBy(provider => provider.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        // Every provider starts listing at once, but contents are read in priority order so
+        // a slow remote vault never holds up the profiles a fast local one already has.
+        var listings = orderedConfigs.Select(ListProfileKeysAsync).ToList();
+        var claimedIds = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var listingTask in listings)
+        {
+            var listing = await listingTask;
+            if (listing.Provider is null)
+                continue;
+
+            // Only read the copies this provider owns outright. A key already claimed by a
+            // higher-priority provider would be deserialized and then dropped on merge, so
+            // fetching it is pure latency — and remote vaults are where that latency lives.
+            var keysToRead = listing.Keys
+                .Where(key => !TryGetComparableProfileId(key, out var id) || claimedIds.Add(id))
+                .ToList();
+
+            var loaded = await ReadProfilesAsync(keysToRead, key => listing.Provider.GetSecretAsync(key));
+            foreach (var profile in loaded)
+                profiles.TryAdd(profile.Id, profile);
+
+            _logger.LogInformation(
+                $"Provider '{listing.Config.Name}' listed {listing.Keys.Count} publish profile key(s), " +
+                $"read {keysToRead.Count}, {loaded.Count} readable");
+
+            progress?.Report(Snapshot(profiles));
+        }
+
+        return Snapshot(profiles);
+    }
+
+    static List<PublishProfile> Snapshot(Dictionary<string, PublishProfile> profiles) =>
+        profiles.Values.OrderBy(profile => profile.Name).ToList();
+
+    static bool TryGetComparableProfileId(string key, out string id)
+    {
+        if (SecretItemAdapterHelper.TryGetRelativeKey(key, CloudKeyPrefix, out var relativeKey))
+        {
+            id = SecretItemAdapterHelper.GetComparableStorageKey(relativeKey);
+            return true;
+        }
+
+        id = string.Empty;
+        return false;
+    }
+
+    async Task<ProviderListing> ListProfileKeysAsync(CloudSecretsProviderConfig config)
+    {
+        try
+        {
+            var provider = await _providerRegistry!.GetProviderAsync(config.Id);
+            if (provider is null)
+                return new ProviderListing(config, null, Array.Empty<string>());
+
+            var keys = await provider.ListSecretsAsync(CloudKeyPrefix);
+            return new ProviderListing(config, provider, keys);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning($"Failed to load publish profiles from '{config.Name}': {ex.Message}");
+            return new ProviderListing(config, null, Array.Empty<string>());
+        }
+    }
+
+    async Task<IReadOnlyList<PublishProfile>> ReadProfilesAsync(
+        IReadOnlyList<string> keys,
+        Func<string, Task<byte[]?>> readSecretAsync)
+    {
+        var loaded = new PublishProfile?[keys.Count];
+        using var throttle = new SemaphoreSlim(MaxParallelSecretReads);
+
+        await Task.WhenAll(keys.Select(async (key, index) =>
+        {
+            await throttle.WaitAsync();
+            try
+            {
+                var bytes = await readSecretAsync(key);
+                if (bytes is null)
+                    return;
+
+                loaded[index] = JsonSerializer.Deserialize<PublishProfile>(
+                    Encoding.UTF8.GetString(bytes),
+                    JsonOptions);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($"Failed to load publish profile '{key}': {ex.Message}");
+            }
+            finally
+            {
+                throttle.Release();
+            }
+        }));
+
+        return loaded.Where(profile => profile is not null).Select(profile => profile!).ToList();
+    }
+
+    readonly record struct ProviderListing(
+        CloudSecretsProviderConfig Config,
+        ICloudSecretsProvider? Provider,
+        IReadOnlyList<string> Keys);
 
     public async Task<PublishProfile?> GetProfileAsync(string id)
     {
@@ -211,10 +290,15 @@ public class PublishProfileService : IPublishProfileService
         if (item.Kind != SecretItemKind.PublishProfile)
             return;
 
+        InvalidateCache();
+        OnProfilesChanged?.Invoke();
+    }
+
+    void InvalidateCache()
+    {
         Interlocked.Increment(ref _cacheGeneration);
         lock (_cacheLock)
             _cache = null;
-        OnProfilesChanged?.Invoke();
     }
 
     public async Task<Dictionary<string, string>> ResolveSecretsAsync(
