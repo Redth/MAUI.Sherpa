@@ -81,6 +81,20 @@ public class DotnetUpArgumentsTests
     }
 
     [Fact]
+    public void SdkUninstall_WithInstallPath_AddsInstallPathFlag()
+    {
+        DotnetUpArguments.SdkUninstall("9.0.3xx", DotnetUpInstallSource.Explicit, "/custom/dotnet")
+            .Should().Equal("sdk", "uninstall", "9.0.3xx", "--source", "Explicit", "--install-path", "/custom/dotnet");
+    }
+
+    [Fact]
+    public void SdkUninstall_NoInstallPath_OmitsInstallPathFlag()
+    {
+        DotnetUpArguments.SdkUninstall("9.0.3xx")
+            .Should().NotContain("--install-path");
+    }
+
+    [Fact]
     public void RuntimeInstall_WithSpec_AddsSpec()
     {
         DotnetUpArguments.RuntimeInstall("aspnetcore@9.0")
@@ -98,6 +112,13 @@ public class DotnetUpArgumentsTests
     {
         DotnetUpArguments.RuntimeUninstall("runtime@9.0")
             .Should().Equal("runtime", "uninstall", "runtime@9.0");
+    }
+
+    [Fact]
+    public void RuntimeUninstall_WithInstallPath_AddsInstallPathFlag()
+    {
+        DotnetUpArguments.RuntimeUninstall("runtime@9.0", "/custom/dotnet")
+            .Should().Equal("runtime", "uninstall", "runtime@9.0", "--install-path", "/custom/dotnet");
     }
 
     [Fact]

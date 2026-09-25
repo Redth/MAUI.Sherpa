@@ -601,21 +601,23 @@
         ProcessRequest request;
         if (item.Component == DotnetUpComponent.Sdk)
         {
-            var spec = DotnetSdkPresentationBuilder.FindTrackedSdkSpec(item, list?.InstallSpecs);
+            var spec = DotnetSdkPresentationBuilder.FindTrackedSdkSpec(item, list?.InstallSpecs, list?.Installations);
             if (spec == null)
             {
                 await AlertService.ShowAlertAsync(
                     "SDK uninstall unavailable",
-                    $"Sherpa couldn't identify the tracked channel that installed SDK {item.Version}. " +
+                    $"Sherpa couldn't identify a tracked channel that uniquely resolves to SDK {item.Version}. " +
+                    "This can happen when a coarse channel (like 11.0.1xx) is shared with another prerelease " +
+                    "SDK (e.g. a different preview/rc build) installed alongside it. " +
                     "Use the Untrack action in Tracked channels to remove it safely.");
                 return;
             }
 
-            request = DotnetUp.UninstallSdkRequest(spec.VersionOrChannel, spec.Source);
+            request = DotnetUp.UninstallSdkRequest(spec.VersionOrChannel, spec.Source, spec.InstallRoot);
         }
         else
         {
-            request = DotnetUp.UninstallRuntimeRequest($"{RuntimeToken(item)}@{item.Version}");
+            request = DotnetUp.UninstallRuntimeRequest($"{RuntimeToken(item)}@{item.Version}", item.InstallRoot);
         }
 
         request = request with
@@ -630,8 +632,9 @@
     private async Task RunUntrack(DotnetUpInstallSpec spec)
     {
         ProcessRequest request = spec.Component == DotnetUpComponent.Sdk
-            ? DotnetUp.UninstallSdkRequest(spec.VersionOrChannel, spec.Source)
-            : DotnetUp.UninstallRuntimeRequest($"{RuntimeTokenForComponent(spec.Component)}@{spec.VersionOrChannel}");
+            ? DotnetUp.UninstallSdkRequest(spec.VersionOrChannel, spec.Source, spec.InstallRoot)
+            : DotnetUp.UninstallRuntimeRequest(
+                $"{RuntimeTokenForComponent(spec.Component)}@{spec.VersionOrChannel}", spec.InstallRoot);
         request = request with
         {
             Description =

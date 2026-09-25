@@ -61,9 +61,17 @@ public static partial class DotnetSdkPresentationBuilder
     /// Finds the single tracked SDK spec that owns an installed SDK. dotnetup uninstalls specs,
     /// rather than concrete SDK versions, so the UI must use this result for SDK removal.
     /// </summary>
+    /// <param name="allInstallations">
+    /// All known installations, used to detect a coarse channel (e.g. "11.0.1xx") that spans two
+    /// sibling prerelease SDKs (e.g. preview.7 and rc.2) sharing the same patch decade. dotnetup
+    /// resolves such a channel to whichever build currently satisfies it, so if a sibling
+    /// installation with a different prerelease feature band also matches, the spec cannot be
+    /// trusted to uninstall this specific installation and null is returned instead.
+    /// </param>
     public static DotnetUpInstallSpec? FindTrackedSdkSpec(
         DotnetUpInstallation installation,
-        IReadOnlyList<DotnetUpInstallSpec>? installSpecs)
+        IReadOnlyList<DotnetUpInstallSpec>? installSpecs,
+        IReadOnlyList<DotnetUpInstallation>? allInstallations = null)
     {
         ArgumentNullException.ThrowIfNull(installation);
 
@@ -85,7 +93,46 @@ public static partial class DotnetSdkPresentationBuilder
             .Take(2)
             .ToList();
 
-        return matches.Count == 1 ? matches[0] : null;
+        if (matches.Count != 1)
+            return null;
+
+        var spec2 = matches[0];
+        if (allInstallations != null &&
+            SpecMatchesSiblingWithDifferentPrereleaseBand(spec2, installation, allInstallations))
+        {
+            return null;
+        }
+
+        return spec2;
+    }
+
+    /// <summary>
+    /// Detects a coarse (non-exact-pinned) channel spec that also matches a sibling installation
+    /// whose prerelease feature band (e.g. "preview.7" vs "rc.2") differs from the target
+    /// installation's. dotnetup isolates workload state by that finer prerelease band, so such a
+    /// match means the channel is ambiguous between two unrelated prerelease SDKs.
+    /// </summary>
+    private static bool SpecMatchesSiblingWithDifferentPrereleaseBand(
+        DotnetUpInstallSpec spec,
+        DotnetUpInstallation installation,
+        IReadOnlyList<DotnetUpInstallation> allInstallations)
+    {
+        if (IsPinnedVersion(spec.VersionOrChannel) ||
+            !SdkFeatureBand.TryParse(installation.Version, out var installationBand))
+        {
+            return false;
+        }
+
+        return allInstallations.Any(sibling =>
+            sibling.Component == DotnetUpComponent.Sdk &&
+            !ReferenceEquals(sibling, installation) &&
+            !VersionsEqual(sibling.Version, installation.Version) &&
+            string.Equals(sibling.InstallRoot, installation.InstallRoot, StringComparison.OrdinalIgnoreCase) &&
+            (string.IsNullOrWhiteSpace(sibling.Architecture) ||
+             string.Equals(sibling.Architecture, installation.Architecture, StringComparison.OrdinalIgnoreCase)) &&
+            SdkSpecMatchesVersion(spec.VersionOrChannel, sibling.Version) &&
+            SdkFeatureBand.TryParse(sibling.Version, out var siblingBand) &&
+            siblingBand != installationBand);
     }
 
     public static DotnetMajorMinorGroupSummary? BuildProjectInstalledGroup(

@@ -166,6 +166,7 @@
     private bool _isOpen;
     private bool _isClearingCompleted;
     private bool _restoreFocus;
+    private bool _disposed;
     private string _announcement = "";
     private string? _operationError;
 
@@ -211,33 +212,61 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender)
-        {
-            _interopModule ??= await JS.InvokeAsync<IJSObjectReference>(
-                "import",
-                "./js/mauiSherpaPopovers.js");
-            await _interopModule.InvokeVoidAsync(
-                "ensureStylesheets",
-                new[]
-                {
-                    "./css/backgroundTaskCenter.css",
-                    "./css/backgroundTaskItem.css"
-                });
-        }
+        // JS interop here can outlive the component (e.g. app shutdown or a WebView reload
+        // racing with a pending await), which throws once the JS-side object is gone. Guard
+        // with the same disposed-object handling DisposeAsync uses so it doesn't surface as an
+        // unhandled exception during component disposal.
+        if (_disposed)
+            return;
 
-        if (_isOpen && !_interopBound)
+        try
         {
-            _interopModule ??= await JS.InvokeAsync<IJSObjectReference>(
-                "import",
-                "./js/mauiSherpaPopovers.js");
-            _dotNetReference ??= DotNetObjectReference.Create(this);
-            await _interopModule.InvokeVoidAsync("bindPopover", _rootId, _dotNetReference);
-            _interopBound = true;
+            if (firstRender)
+            {
+                _interopModule ??= await JS.InvokeAsync<IJSObjectReference>(
+                    "import",
+                    "./js/mauiSherpaPopovers.js");
+                if (_disposed)
+                    return;
+                await _interopModule.InvokeVoidAsync(
+                    "ensureStylesheets",
+                    new[]
+                    {
+                        "./css/backgroundTaskCenter.css",
+                        "./css/backgroundTaskItem.css"
+                    });
+            }
+
+            if (_disposed)
+                return;
+
+            if (_isOpen && !_interopBound)
+            {
+                _interopModule ??= await JS.InvokeAsync<IJSObjectReference>(
+                    "import",
+                    "./js/mauiSherpaPopovers.js");
+                if (_disposed)
+                    return;
+                _dotNetReference ??= DotNetObjectReference.Create(this);
+                await _interopModule.InvokeVoidAsync("bindPopover", _rootId, _dotNetReference);
+                _interopBound = true;
+            }
+            else if (!_isOpen && _restoreFocus && _interopModule is not null)
+            {
+                _restoreFocus = false;
+                await _interopModule.InvokeVoidAsync("focusTrigger", _rootId);
+            }
         }
-        else if (!_isOpen && _restoreFocus && _interopModule is not null)
+        catch (JSDisconnectedException)
         {
-            _restoreFocus = false;
-            await _interopModule.InvokeVoidAsync("focusTrigger", _rootId);
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+        catch (JSException ex) when (ex.Message.Contains(
+            "does not exist (has it been disposed?)",
+            StringComparison.Ordinal))
+        {
         }
     }
 
@@ -428,6 +457,7 @@
 
     public async ValueTask DisposeAsync()
     {
+        _disposed = true;
         BackgroundTasks.TasksChanged -= HandleTasksChanged;
 
         try

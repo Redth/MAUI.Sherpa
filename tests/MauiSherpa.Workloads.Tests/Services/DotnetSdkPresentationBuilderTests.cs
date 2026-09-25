@@ -110,6 +110,39 @@ public class DotnetSdkPresentationBuilderTests
     }
 
     [Fact]
+    public void FindTrackedSdkSpec_ReturnsNullWhenChannelSpansSiblingPrereleaseBands()
+    {
+        // A single "11.0.1xx" channel spec can loosely match two sibling SDKs whose actual
+        // workload/feature bands (preview.7 vs rc.2) are distinct, making the channel ambiguous
+        // for uninstall purposes.
+        var previewInstallation = Installation(DotnetUpComponent.Sdk, "11.0.100-preview.7.26381.103");
+        var rcInstallation = Installation(DotnetUpComponent.Sdk, "11.0.100-rc.2.26460.1");
+        var specs = new[] { Spec(DotnetUpComponent.Sdk, "11.0.1xx") };
+        var installations = new[] { previewInstallation, rcInstallation };
+
+        DotnetSdkPresentationBuilder
+            .FindTrackedSdkSpec(previewInstallation, specs, installations)
+            .Should().BeNull();
+        DotnetSdkPresentationBuilder
+            .FindTrackedSdkSpec(rcInstallation, specs, installations)
+            .Should().BeNull();
+    }
+
+    [Fact]
+    public void FindTrackedSdkSpec_MatchesChannelWhenNoSiblingHasDifferentPrereleaseBand()
+    {
+        // Two installs sharing the same prerelease band (e.g. re-installed builds of the same
+        // preview) should not be treated as ambiguous.
+        var installation = Installation(DotnetUpComponent.Sdk, "11.0.100-preview.7.26381.103");
+        var sibling = Installation(DotnetUpComponent.Sdk, "11.0.100-preview.7.26200.1");
+        var specs = new[] { Spec(DotnetUpComponent.Sdk, "11.0.1xx") };
+
+        DotnetSdkPresentationBuilder
+            .FindTrackedSdkSpec(installation, specs, [installation, sibling])
+            .Should().BeSameAs(specs[0]);
+    }
+
+    [Fact]
     public void Build_ComputesAggregateUpdateStateIncludingUnresolvedChannels()
     {
         var summary = DotnetSdkPresentationBuilder.Build(

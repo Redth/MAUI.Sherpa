@@ -210,4 +210,33 @@ public class LocalSdkServiceTests
             }
         }
     }
+
+    [Fact]
+    public void GetInstalledSdkVersions_SkipsIncompleteSdkDirectories()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "sherpa-sdk-test-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var complete = Path.Combine(root, "sdk", "10.0.401");
+            Directory.CreateDirectory(Path.Combine(complete, "Sdks"));
+            File.WriteAllText(Path.Combine(complete, "dotnet.dll"), "");
+            File.WriteAllText(Path.Combine(complete, "dotnet.runtimeconfig.json"), "{}");
+
+            // Leftover from a partial install/uninstall: version-named folder without the SDK payload.
+            Directory.CreateDirectory(Path.Combine(root, "sdk", "11.0.100-preview.7.26381.103"));
+            Directory.CreateDirectory(Path.Combine(root, "sdk", "not-a-version"));
+
+            var service = new LocalSdkService(
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<LocalSdkService>.Instance, root);
+
+            var versions = service.GetInstalledSdkVersions();
+
+            versions.Select(v => v.Version).Should().Equal("10.0.401");
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
 }

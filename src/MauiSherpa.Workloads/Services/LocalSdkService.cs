@@ -123,19 +123,30 @@ public class LocalSdkService : ILocalSdkService
         foreach (var dir in Directory.GetDirectories(sdkPath))
         {
             var versionDir = Path.GetFileName(dir);
-            try
+            if (!SdkVersion.TryParse(versionDir, out var sdkVersion))
+                continue;
+
+            if (!IsCompleteSdkDirectory(dir))
             {
-                var sdkVersion = SdkVersion.Parse(versionDir);
-                versions.Add(sdkVersion);
+                _logger.LogWarning("Skipping incomplete SDK directory: {Path}", dir);
+                continue;
             }
-            catch
-            {
-                // Skip directories that aren't valid SDK versions
-            }
+
+            versions.Add(sdkVersion);
         }
 
         return SdkVersion.SortDescending(versions);
     }
+
+    /// <summary>
+    /// A version-named folder under sdk/ only counts as installed if it contains the files the
+    /// dotnet muxer needs to actually run it. Guards against leftovers from interrupted or
+    /// partial installs/uninstalls being reported as installed SDKs.
+    /// </summary>
+    internal static bool IsCompleteSdkDirectory(string sdkVersionDirectory) =>
+        File.Exists(Path.Combine(sdkVersionDirectory, "dotnet.dll")) &&
+        File.Exists(Path.Combine(sdkVersionDirectory, "dotnet.runtimeconfig.json")) &&
+        Directory.Exists(Path.Combine(sdkVersionDirectory, "Sdks"));
 
     /// <inheritdoc />
     public IReadOnlyList<string> GetInstalledWorkloadManifests(string featureBand)
