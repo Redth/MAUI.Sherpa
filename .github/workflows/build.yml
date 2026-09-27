@@ -1192,3 +1192,20 @@ jobs:
           git diff --cached --quiet && echo "No changes to commit" && exit 0
           git commit -m "Update maui-sherpa to v${VERSION}"
           git push
+
+  publish-windows-msix:
+    name: Publish Windows MSIX
+    needs: [create-release]
+    if: >-
+      vars.WINDOWS_MSIX_ENABLED == 'true'
+      && startsWith(github.ref, 'refs/tags/v')
+      && !contains(github.ref, '-')
+      && !contains(github.ref, '+')
+    permissions:
+      contents: write
+      id-token: write
+    uses: ./.github/workflows/windows-msix.yml
+    with:
+      tag: ${{ github.ref_name }}
+      publish: true
+    secrets: inherit

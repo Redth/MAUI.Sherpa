@@ -16,6 +16,10 @@ on:
         description: 'Release tag to submit'
         required: true
         type: string
+      installer_type:
+        description: 'Keep inno until migration has been validated; msix requires signed release assets'
+        default: inno
+        type: string
     secrets:
       WINGET_FORK_DEPLOY_KEY:
         required: true
@@ -25,6 +29,11 @@ on:
         description: 'Release tag to submit (for example, v0.8.1)'
         required: true
         type: string
+      installer_type:
+        description: 'Installer format (MSIX is opt-in during migration)'
+        default: inno
+        type: choice
+        options: [inno, msix]
 
 permissions:
   contents: read
@@ -40,14 +49,30 @@ jobs:
 
       - name: Resolve release version
         shell: pwsh
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          INSTALLER_TYPE: ${{ inputs.installer_type }}
         run: |
-          $tag = "${{ inputs.tag }}"
+          $tag = $env:RELEASE_TAG
           if ($tag -notmatch '^v(?<version>\d+\.\d+\.\d+(?:\.\d+)?)$') {
             throw "Release tags must use v[major].[minor].[patch] with an optional [.revision] component, for example v1.2.3 or v1.2.3.4. Got $tag."
           }
 
+          $version = $Matches.version
+          if ($env:INSTALLER_TYPE -notin @('inno', 'msix')) {
+            throw "installer_type must be inno or msix."
+          }
+          if ($env:INSTALLER_TYPE -eq 'msix') {
+            if (($version -split '\.').Count -eq 3) { $version += '.0' }
+            "INSTALLER_PREFIX=MAUI-Sherpa" >> $env:GITHUB_ENV
+            "INSTALLER_EXTENSION=msix" >> $env:GITHUB_ENV
+          } else {
+            "INSTALLER_PREFIX=MAUI-Sherpa.Setup" >> $env:GITHUB_ENV
+            "INSTALLER_EXTENSION=exe" >> $env:GITHUB_ENV
+          }
           "RELEASE_TAG=$tag" >> $env:GITHUB_ENV
-          "PACKAGE_VERSION=$($Matches.version)" >> $env:GITHUB_ENV
+          "PACKAGE_VERSION=$version" >> $env:GITHUB_ENV
+          "INSTALLER_TYPE=$env:INSTALLER_TYPE" >> $env:GITHUB_ENV
 
       - name: Download release installers
         shell: pwsh
@@ -57,20 +82,24 @@ jobs:
           New-Item -ItemType Directory -Force -Path packages | Out-Null
           gh release download $env:RELEASE_TAG `
             --repo Redth/MAUI.Sherpa `
-            --pattern "MAUI-Sherpa.Setup.win-x64.exe" `
-            --pattern "MAUI-Sherpa.Setup.win-arm64.exe" `
+            --pattern "$env:INSTALLER_PREFIX.win-x64.$env:INSTALLER_EXTENSION" `
+            --pattern "$env:INSTALLER_PREFIX.win-arm64.$env:INSTALLER_EXTENSION" `
             --dir packages
+          if ($LASTEXITCODE -ne 0) { throw "Failed to download release installers." }
 
-          if (-not (Test-Path "packages/MAUI-Sherpa.Setup.win-x64.exe")) {
+          if (-not (Test-Path "packages/$env:INSTALLER_PREFIX.win-x64.$env:INSTALLER_EXTENSION")) {
             throw "Missing win-x64 installer for release $env:RELEASE_TAG."
           }
-          if (-not (Test-Path "packages/MAUI-Sherpa.Setup.win-arm64.exe")) {
+          if (-not (Test-Path "packages/$env:INSTALLER_PREFIX.win-arm64.$env:INSTALLER_EXTENSION")) {
             throw "Missing win-arm64 installer for release $env:RELEASE_TAG."
           }
           Get-ChildItem packages | Format-Table Name, Length
 
       - name: Generate winget manifest
         shell: pwsh
+        env:
+          MSIX_PACKAGE_FAMILY_NAME: ${{ vars.WINDOWS_MSIX_PACKAGE_FAMILY_NAME }}
+          MSIX_PUBLISHER: ${{ vars.WINDOWS_MSIX_PUBLISHER }}
         run: |
           $manifestDir = "manifests"
           New-Item -ItemType Directory -Force -Path $manifestDir | Out-Null
@@ -78,13 +107,43 @@ jobs:
           $replacements = @{
             "__VERSION__" = $env:PACKAGE_VERSION
             "__RELEASE_TAG__" = $env:RELEASE_TAG
-            "__X64_SHA256__" = (Get-FileHash "packages/MAUI-Sherpa.Setup.win-x64.exe" -Algorithm SHA256).Hash.ToLowerInvariant()
-            "__ARM64_SHA256__" = (Get-FileHash "packages/MAUI-Sherpa.Setup.win-arm64.exe" -Algorithm SHA256).Hash.ToLowerInvariant()
+            "__X64_SHA256__" = (Get-FileHash "packages/$env:INSTALLER_PREFIX.win-x64.$env:INSTALLER_EXTENSION" -Algorithm SHA256).Hash.ToLowerInvariant()
+            "__ARM64_SHA256__" = (Get-FileHash "packages/$env:INSTALLER_PREFIX.win-arm64.$env:INSTALLER_EXTENSION" -Algorithm SHA256).Hash.ToLowerInvariant()
+          }
+
+          $installerTemplate = "winget/Maui.Sherpa.installer.template.yaml"
+          if ($env:INSTALLER_TYPE -eq 'msix') {
+            if ($env:MSIX_PACKAGE_FAMILY_NAME -cnotmatch '^codes\.redth\.mauisherpa_[a-z0-9]{13}$' -or
+                [string]::IsNullOrWhiteSpace($env:MSIX_PUBLISHER)) {
+              throw "Configure WINDOWS_MSIX_PUBLISHER and WINDOWS_MSIX_PACKAGE_FAMILY_NAME from a validated signed installation."
+            }
+            $installerTemplate = "winget/Maui.Sherpa.msix.installer.template.yaml"
+            $replacements["__PACKAGE_FAMILY_NAME__"] = $env:MSIX_PACKAGE_FAMILY_NAME
+            foreach ($arch in @('x64', 'arm64')) {
+              $archive = [IO.Compression.ZipFile]::OpenRead((Resolve-Path "packages/MAUI-Sherpa.win-$arch.msix"))
+              try {
+                $reader = [IO.StreamReader]::new($archive.GetEntry('AppxManifest.xml').Open())
+                try { [xml]$manifest = $reader.ReadToEnd() } finally { $reader.Dispose() }
+                if ($manifest.Package.Identity.Name -cne 'codes.redth.mauisherpa' -or
+                    $manifest.Package.Identity.Publisher -cne $env:MSIX_PUBLISHER -or
+                    $manifest.Package.Identity.Version -ne $env:PACKAGE_VERSION -or
+                    $manifest.Package.Identity.ProcessorArchitecture -ne $arch) {
+                  throw "Unexpected MSIX identity for $arch."
+                }
+                $signature = $archive.GetEntry('AppxSignature.p7x')
+                if (-not $signature) { throw "The $arch MSIX is unsigned." }
+                $stream = $signature.Open()
+                try {
+                  $replacements["__$($arch.ToUpperInvariant())_SIGNATURE_SHA256__"] =
+                    [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($stream)).ToLowerInvariant()
+                } finally { $stream.Dispose() }
+              } finally { $archive.Dispose() }
+            }
           }
 
           $templates = @{
             "winget/Maui.Sherpa.version.template.yaml" = "Maui.Sherpa.yaml"
-            "winget/Maui.Sherpa.installer.template.yaml" = "Maui.Sherpa.installer.yaml"
+            $installerTemplate = "Maui.Sherpa.installer.yaml"
             "winget/Maui.Sherpa.locale.en-US.template.yaml" = "Maui.Sherpa.locale.en-US.yaml"
           }
 
