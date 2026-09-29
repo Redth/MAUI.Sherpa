@@ -27,6 +27,9 @@ public static class MauiProgram
 {
     public static MauiApp CreateMauiApp()
     {
+#if WINDOWS
+        WindowsLegacyStorageMigration.TryMigrate();
+#endif
         // Migrate data from old ~/.maui-sherpa/ to ~/Library/Application Support/MauiSherpa/
         MigrateAppData();
 

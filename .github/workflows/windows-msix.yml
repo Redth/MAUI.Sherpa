@@ -63,7 +63,6 @@ jobs:
           foreach ($part in $parts) {
             if ([long]$part -gt 65535) { throw 'MSIX version components must be <= 65535.' }
           }
-          if ([int]$parts[0] -eq 0) { throw 'MSIX major version must be greater than zero.' }
           $commit = & git rev-parse --verify "refs/tags/$($env:RELEASE_TAG)^{commit}"
           if ($LASTEXITCODE -ne 0 -or $commit -cnotmatch '^[0-9a-f]{40}$') {
             throw 'The release tag must exist in this repository.'
@@ -167,11 +166,12 @@ jobs:
           RELEASE_TAG: ${{ inputs.tag }}
           ARCHITECTURE: ${{ matrix.arch }}
           WINDOWS_MSIX_PUBLISHER: ${{ vars.WINDOWS_MSIX_PUBLISHER }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
         run: |
           & ./build/windows/Build-Msix.ps1 `
             -Version $env:RELEASE_VERSION -Architecture $env:ARCHITECTURE `
             -Publisher $env:WINDOWS_MSIX_PUBLISHER -ReleaseRepository $env:GITHUB_REPOSITORY `
-            -ReleaseTag $env:RELEASE_TAG `
+            -ReleaseTag $env:RELEASE_TAG -SentryDsn $env:SENTRY_DSN `
             -OutputDirectory (Join-Path $env:GITHUB_WORKSPACE "artifacts/msix/$env:ARCHITECTURE")
       - uses: actions/upload-artifact@v4
         with:

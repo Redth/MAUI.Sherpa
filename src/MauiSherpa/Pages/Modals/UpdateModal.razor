@@ -31,8 +31,20 @@
             @if (appInstallerPath != null)
             {
                 <p class="installer-info">
-                    Windows manages background updates for this installation.
-                    Open App Installer to check for and install an update now.
+                    @if (supportsEmbeddedAppInstallerUpdates)
+                    {
+                        <text>
+                            Windows manages background updates for this installation.
+                            Open App Installer to check for and install an update now.
+                        </text>
+                    }
+                    else
+                    {
+                        <text>
+                            This Windows version does not support embedded background updates.
+                            Open App Installer to check for and install this update manually.
+                        </text>
+                    }
                 </p>
             }
 
@@ -106,11 +118,13 @@
     private string? updateError;
     private string? appInstallerPath;
     private Func<Task>? retryAction;
+    private bool supportsEmbeddedAppInstallerUpdates;
 
     protected override void OnInitialized()
     {
         updateResult = ModalParams.Get<UpdateCheckResult>("UpdateResult");
 #if WINDOWS
+        supportsEmbeddedAppInstallerUpdates = OperatingSystem.IsWindowsVersionAtLeast(10, 0, 21300);
         var installerPath = Path.Combine(AppContext.BaseDirectory, "install.appinstaller");
         if (File.Exists(installerPath))
             appInstallerPath = installerPath;

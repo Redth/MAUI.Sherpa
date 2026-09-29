@@ -22,6 +22,8 @@ param(
     [Parameter(Mandatory)]
     [string] $OutputDirectory,
 
+    [string] $SentryDsn,
+
     [switch] $PrepareOnly
 )
 
@@ -95,6 +97,9 @@ $arguments = @(
     "-p:ApplicationVersion=$revision",
     "-p:AppxPackageDir=$packageDirectory/", '-verbosity:minimal'
 )
+if (-not [string]::IsNullOrWhiteSpace($SentryDsn)) {
+    $arguments += "-p:SentryDsn=$SentryDsn"
+}
 & dotnet @arguments
 if ($LASTEXITCODE -ne 0) { throw "MSIX build failed for $Architecture." }
 $packages = @(Get-ChildItem $packageDirectory -Recurse -Filter '*.msix' |

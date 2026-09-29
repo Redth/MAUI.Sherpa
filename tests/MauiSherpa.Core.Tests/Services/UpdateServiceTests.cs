@@ -441,10 +441,12 @@ public class UpdateServiceTests
 
     private void SetupMockResponse<T>(T content)
     {
-        var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(content) };
         _mockHttpMessageHandler
             .Protected()
             .Setup<Task<HttpResponseMessage>>("SendAsync", ItExpr.IsAny<HttpRequestMessage>(), ItExpr.IsAny<CancellationToken>())
-            .ReturnsAsync(response);
+            .ReturnsAsync(() => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = JsonContent.Create(content)
+            });
     }
 }
