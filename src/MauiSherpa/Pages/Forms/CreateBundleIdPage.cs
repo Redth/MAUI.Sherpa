@@ -27,7 +27,7 @@ public class CreateBundleIdPage : FormPage<AppleBundleId>
     {
         _identifierEntry = CreateEntry("com.example.myapp");
         _nameEntry = CreateEntry("My App");
-        _platformPicker = CreatePicker(null, new[] { "iOS", "macOS" });
+        _platformPicker = CreatePicker(null, new[] { "iOS", "macOS", "Universal" });
         _platformPicker.SelectedIndex = 0;
 
         return new VerticalStackLayout
@@ -45,7 +45,12 @@ public class CreateBundleIdPage : FormPage<AppleBundleId>
 
     protected override async Task<AppleBundleId> OnSubmitAsync()
     {
-        var platform = _platformPicker.SelectedIndex == 0 ? "IOS" : "MAC_OS";
+        var platform = _platformPicker.SelectedIndex switch
+        {
+            0 => "IOS",
+            1 => "MAC_OS",
+            _ => "UNIVERSAL"
+        };
         return await _appleService.CreateBundleIdAsync(
             _identifierEntry.Text.Trim(),
             _nameEntry.Text.Trim(),
