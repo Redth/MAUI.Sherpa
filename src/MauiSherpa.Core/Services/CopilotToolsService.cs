@@ -83,7 +83,7 @@ public class CopilotToolsService : ICopilotToolsService
         AddTool(AIFunctionFactory.Create(ListBundleIdsAsync, "list_bundle_ids", 
             "List all Bundle IDs (App IDs) for the current Apple Developer account. Optionally filter by search query."), isReadOnly: true);
         AddTool(AIFunctionFactory.Create(CreateBundleIdAsync, "create_bundle_id", 
-            "Create a new Bundle ID (App ID) in App Store Connect. Supports explicit IDs (com.company.appname) or wildcard IDs (com.company.*). Platform should be 'IOS' or 'MAC_OS'."), isReadOnly: false);
+            "Create a new Bundle ID (App ID) in App Store Connect. Supports explicit IDs (com.company.appname) or wildcard IDs (com.company.*). Platform should be 'IOS', 'MAC_OS', or 'UNIVERSAL'."), isReadOnly: false);
         AddTool(AIFunctionFactory.Create(GetAppIdPrefixesAsync, "get_app_id_prefixes", 
             "Get the list of App ID Prefixes (Team IDs) available for your account. These are assigned by Apple and shown on Bundle IDs."), isReadOnly: true);
         AddTool(AIFunctionFactory.Create(DeleteBundleIdAsync, "delete_bundle_id", 
@@ -282,7 +282,7 @@ public class CopilotToolsService : ICopilotToolsService
     private async Task<string> CreateBundleIdAsync(
         [Description("The bundle identifier (e.g., 'com.company.appname' for explicit or 'com.company.*' for wildcard)")] string identifier,
         [Description("A descriptive name for the Bundle ID")] string name,
-        [Description("Platform: 'IOS' for iPhone/iPad or 'MAC_OS' for Mac apps. Defaults to IOS.")] string platform = "IOS")
+        [Description("Platform: 'IOS' for iPhone/iPad, 'MAC_OS' for Mac apps, or 'UNIVERSAL' for all Apple platforms. Defaults to IOS.")] string platform = "IOS")
     {
         var error = CheckIdentitySelected();
         if (error != null) return error;
