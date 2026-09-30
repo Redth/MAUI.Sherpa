@@ -1130,15 +1130,6 @@ jobs:
           draft: false
           prerelease: ${{ contains(github.ref, '-') }}
 
-  publish-winget:
-    name: Publish WinGet Manifest
-    needs: [create-release]
-    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-')
-    uses: ./.github/workflows/publish-winget.yml
-    with:
-      tag: ${{ github.ref_name }}
-    secrets: inherit
-
   update-homebrew:
     name: Update Homebrew Tap
     runs-on: macos-latest
@@ -1192,3 +1183,36 @@ jobs:
           git diff --cached --quiet && echo "No changes to commit" && exit 0
           git commit -m "Update maui-sherpa to v${VERSION}"
           git push
+
+  publish-windows-msix:
+    name: Publish Windows MSIX
+    needs: [create-release]
+    if: >-
+      vars.WINDOWS_MSIX_ENABLED == 'true'
+      && startsWith(github.ref, 'refs/tags/v')
+      && !contains(github.ref, '-')
+      && !contains(github.ref, '+')
+    permissions:
+      contents: write
+      id-token: write
+    uses: ./.github/workflows/windows-msix.yml
+    with:
+      tag: ${{ github.ref_name }}
+      publish: true
+    secrets: inherit
+
+  publish-winget:
+    name: Publish WinGet Manifest
+    needs: [create-release, publish-windows-msix]
+    if: >-
+      always()
+      && needs['create-release'].result == 'success'
+      && startsWith(github.ref, 'refs/tags/v')
+      && !contains(github.ref, '-')
+      && (vars.WINDOWS_MSIX_ENABLED != 'true'
+        || needs['publish-windows-msix'].result == 'success')
+    uses: ./.github/workflows/publish-winget.yml
+    with:
+      tag: ${{ github.ref_name }}
+      installer_type: ${{ vars.WINDOWS_MSIX_ENABLED == 'true' && 'msix' || 'inno' }}
+    secrets: inherit
