@@ -871,38 +871,45 @@ public class BlazorContentPage : ContentPage
 
     void RebuildGoogleIdentityMenu()
     {
-        if (_cachedGoogleIdentities == null || _cachedGoogleIdentities.Count == 0)
+        if (_cachedGoogleIdentities == null)
         {
             Task.Run(async () =>
             {
                 _cachedGoogleIdentities = await _googleIdentityService.GetIdentitiesAsync();
-                if (_cachedGoogleIdentities?.Count > 0)
-                    Dispatcher.Dispatch(() => UpdateToolbarVisibility());
+                Dispatcher.Dispatch(UpdateToolbarVisibility);
             });
             return;
         }
 
         var identityNative = _nativeIdentityMenu;
-        if (identityNative?.Menu == null) return;
+        if (identityNative == null) return;
 
         var identities = _cachedGoogleIdentities;
         var selected = identities.FirstOrDefault(identity =>
                 identity.Id == _googleIdentityState.SelectedIdentity?.Id) ??
             identities.FirstOrDefault(identity =>
                 identity.Id == _googleIdentityState.LastSelectedIdentityId) ??
-            identities[0];
-        var selectedId = selected.Id;
+            identities.FirstOrDefault();
         if (!EqualityComparer<GoogleIdentity?>.Default.Equals(_googleIdentityState.SelectedIdentity, selected))
             _googleIdentityState.SetSelectedIdentity(selected);
 
-        UpdateNativeIdentityLabel(identityNative, selected.Name, "flame");
+        var selectedName = selected?.Name ?? "Google Identity";
+        UpdateNativeIdentityLabel(identityNative, selectedName, "flame");
 
-        var newMenu = new NSMenu { Title = selected.Name };
+        var newMenu = new NSMenu { Title = selectedName };
+        if (identities.Count == 0)
+        {
+            newMenu.AddItem(new NSMenuItem("No Google service accounts configured")
+            {
+                Enabled = false
+            });
+        }
+
         for (int i = 0; i < identities.Count; i++)
         {
             var identity = identities[i];
             var menuItem = new NSMenuItem(identity.Name);
-            menuItem.State = identity.Id == selectedId ? NSCellStateValue.On : NSCellStateValue.Off;
+            menuItem.State = identity.Id == selected?.Id ? NSCellStateValue.On : NSCellStateValue.Off;
 
             var target = new MenuActionTarget(identity.Id, i, (id, _) =>
             {
