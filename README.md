@@ -43,7 +43,7 @@ MAUI Sherpa is a desktop application for **macOS**, **Windows**, and **Linux** t
 - Create and manage Android signing keystores
 - View certificate signatures and details
 - Export PEPK keys for Google Play
-- Cloud sync keystores across machines
+- Cloud sync keystores across machines ([learn more](docs/keystore-sync.md))
 
 ### 🍎 Apple Developer Tools (macOS only)
 - **Xcode Management**: Browse available Xcode versions, download directly from Apple with authenticated sign-in (SRP + 2FA), and install — all from within the app
