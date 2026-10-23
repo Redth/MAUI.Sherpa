@@ -31,11 +31,43 @@ public class XcodeDownloadAuthPage : WizardFormPage<bool>
 #if MACOSAPP
     private NSView? _appleWebSignInContainer;
     private WKWebView? _appleWebView;
-    private NSTextField? _urlStatusLabel;
     private Func<IReadOnlyList<AppleAuthCookie>, Task<bool>>? _onCookiesCaptured;
     private bool _isWebSignInActive;
     private bool _isEvaluatingCookies;
     private readonly Dictionary<string, int> _triedMyAcInfoAttempts = new(StringComparer.Ordinal);
+
+    private const string CleanSignInLayoutScript = """
+        (function() {
+            var style = document.createElement('style');
+            style.textContent = `
+                #ac-globalfooter, footer { display: none !important; }
+                html, body {
+                    overflow-x: hidden !important;
+                    margin: 0 !important;
+                    padding: 0 !important;
+                }
+                body:has(#auth-container), html:has(#auth-container) {
+                    overflow: hidden !important;
+                    height: 100% !important;
+                }
+                main.widget-v2, .wrapper, .wrapper.window, #auth-container, .si-frame {
+                    height: 100% !important;
+                    min-height: 100% !important;
+                    max-height: 100% !important;
+                    margin: 0 !important;
+                    padding: 0 !important;
+                    overflow: hidden !important;
+                }
+                #auth-container iframe, #aid-auth-widget-iFrame {
+                    height: 100% !important;
+                    min-height: 100% !important;
+                    max-height: 100% !important;
+                    border: 0 !important;
+                }
+            `;
+            (document.head || document.documentElement).appendChild(style);
+        })();
+        """;
 #endif
 
     public XcodeDownloadAuthPage(HybridFormBridgeHolder bridgeHolder)
@@ -58,6 +90,7 @@ public class XcodeDownloadAuthPage : WizardFormPage<bool>
         bridge.Parameters["SupportsWebSignIn"] = true;
         bridge.Parameters["StartWebSignIn"] = new Func<Func<IReadOnlyList<AppleAuthCookie>, Task<bool>>, Task>(StartWebSignInAsync);
         bridge.Parameters["StopWebSignIn"] = new Action(StopWebSignIn);
+        bridge.Parameters["ReloadWebSignIn"] = new Action(ReloadWebSignIn);
         bridge.CancelRequested += StopWebSignIn;
         bridge.CloseRequested += StopWebSignIn;
 #else
@@ -66,21 +99,26 @@ public class XcodeDownloadAuthPage : WizardFormPage<bool>
     }
 
 #if MACOSAPP
-    private async Task StartWebSignInAsync(Func<IReadOnlyList<AppleAuthCookie>, Task<bool>> onCookiesCaptured)
+    private void ReloadWebSignIn()
+    {
+        Dispatcher.Dispatch(() =>
+        {
+            _triedMyAcInfoAttempts.Clear();
+            _appleWebView?.LoadRequest(new NSUrlRequest(new NSUrl(WebSignInEntryUrl)));
+        });
+    }
+
+    private Task StartWebSignInAsync(Func<IReadOnlyList<AppleAuthCookie>, Task<bool>> onCookiesCaptured)
     {
         _onCookiesCaptured = onCookiesCaptured;
         _triedMyAcInfoAttempts.Clear();
 
-        var cookieStore = WKWebsiteDataStore.DefaultDataStore.HttpCookieStore;
-        await ClearShortLivedWebKitCookiesAsync(cookieStore);
-
-        Dispatcher.Dispatch(() =>
+        Dispatcher.Dispatch(async () =>
         {
-            if (FormWebView?.Handler?.PlatformView is not NSView blazorNative)
-                return;
+            var cookieStore = WKWebsiteDataStore.DefaultDataStore.HttpCookieStore;
+            await ClearShortLivedWebKitCookiesAsync(cookieStore);
 
-            var superview = blazorNative.Superview;
-            if (superview == null)
+            if (FormWebView?.Handler?.PlatformView is not NSView blazorNative)
                 return;
 
             TearDownWebViewOnMainThread(restoreSheetSize: false);
@@ -88,83 +126,42 @@ public class XcodeDownloadAuthPage : WizardFormPage<bool>
             MacOSPage.SetModalSheetWidth(this, DefaultWidth);
             MacOSPage.SetModalSheetHeight(this, DefaultHeight);
 
-            var containerBounds = blazorNative.Frame;
-            nfloat barHeight = 34;
+            FormWebView.Opacity = 1;
+            blazorNative.Hidden = false;
+            blazorNative.AlphaValue = 1;
+
+            var containerBounds = blazorNative.Bounds;
+            if (containerBounds.Width <= 0 || containerBounds.Height <= 0)
+                containerBounds = new CGRect(0, 0, DefaultWidth, DefaultHeight - 125);
 
             _appleWebSignInContainer = new NSView(containerBounds)
             {
                 AutoresizingMask = NSViewResizingMask.WidthSizable | NSViewResizingMask.HeightSizable,
                 WantsLayer = true,
             };
+            _appleWebSignInContainer.Layer!.BackgroundColor = NSColor.WindowBackground.CGColor;
 
-            var isFlipped = _appleWebSignInContainer.IsFlipped;
-            var barY = isFlipped ? 0 : containerBounds.Height - barHeight;
-            var webY = isFlipped ? barHeight : 0;
-            var webHeight = Math.Max(100, containerBounds.Height - barHeight);
-
-            var topBar = new NSView(new CGRect(0, barY, containerBounds.Width, barHeight))
-            {
-                AutoresizingMask = NSViewResizingMask.WidthSizable
-                    | (isFlipped ? NSViewResizingMask.MaxYMargin : NSViewResizingMask.MinYMargin),
-                WantsLayer = true,
-            };
-            topBar.Layer!.BackgroundColor = NSColor.ControlBackground.CGColor;
-
-            _urlStatusLabel = new NSTextField(new CGRect(14, 7, Math.Max(120, containerBounds.Width - 260), 18))
-            {
-                Editable = false,
-                Bordered = false,
-                DrawsBackground = false,
-                StringValue = "Loading Apple Developer Sign In (developer.apple.com)...",
-                Font = NSFont.SystemFontOfSize(11.5f),
-                TextColor = NSColor.SecondaryLabel,
-                LineBreakMode = NSLineBreakMode.TruncatingMiddle,
-                AutoresizingMask = NSViewResizingMask.WidthSizable,
-            };
-
-            var legacyFormButton = NSButton.CreateButton("Password Form", () =>
-            {
-                _ = Bridge.RequestBackAsync();
-            });
-            legacyFormButton.BezelStyle = NSBezelStyle.AccessoryBarAction;
-            legacyFormButton.ControlSize = NSControlSize.Small;
-            legacyFormButton.Font = NSFont.SystemFontOfSize(11f);
-            legacyFormButton.Frame = new CGRect(containerBounds.Width - 216, 5, 108, 24);
-            legacyFormButton.AutoresizingMask = NSViewResizingMask.MinXMargin;
-
-            var reloadButton = NSButton.CreateButton("Reload", () =>
-            {
-                _triedMyAcInfoAttempts.Clear();
-                _appleWebView?.LoadRequest(new NSUrlRequest(new NSUrl(WebSignInEntryUrl)));
-            });
-            reloadButton.BezelStyle = NSBezelStyle.AccessoryBarAction;
-            reloadButton.ControlSize = NSControlSize.Small;
-            reloadButton.Font = NSFont.SystemFontOfSize(11f);
-            reloadButton.Frame = new CGRect(containerBounds.Width - 100, 5, 88, 24);
-            reloadButton.AutoresizingMask = NSViewResizingMask.MinXMargin;
-
-            topBar.AddSubview(_urlStatusLabel);
-            topBar.AddSubview(legacyFormButton);
-            topBar.AddSubview(reloadButton);
+            var userContentController = new WKUserContentController();
+            userContentController.AddUserScript(new WKUserScript(
+                new NSString(CleanSignInLayoutScript),
+                WKUserScriptInjectionTime.AtDocumentEnd,
+                isForMainFrameOnly: false));
 
             var config = new WKWebViewConfiguration
             {
-                WebsiteDataStore = WKWebsiteDataStore.DefaultDataStore
+                WebsiteDataStore = WKWebsiteDataStore.DefaultDataStore,
+                UserContentController = userContentController,
             };
 
-            _appleWebView = new WKWebView(new CGRect(0, webY, containerBounds.Width, webHeight), config)
+            _appleWebView = new WKWebView(new CGRect(0, 0, containerBounds.Width, containerBounds.Height), config)
             {
                 AutoresizingMask = NSViewResizingMask.WidthSizable | NSViewResizingMask.HeightSizable,
-                CustomUserAgent = MauiSherpa.Core.Services.AppleDownloadAuthService.DefaultUserAgent,
                 UIDelegate = new AppleSignInWebUIDelegate(),
                 NavigationDelegate = new AppleSignInNavigationDelegate(this),
             };
 
-            _appleWebSignInContainer.AddSubview(topBar);
             _appleWebSignInContainer.AddSubview(_appleWebView);
-
-            blazorNative.Hidden = true;
-            superview.AddSubview(_appleWebSignInContainer);
+            blazorNative.AddSubview(_appleWebSignInContainer);
 
             _isWebSignInActive = true;
             _appleWebView.LoadRequest(new NSUrlRequest(new NSUrl(WebSignInEntryUrl)));
@@ -178,6 +175,8 @@ public class XcodeDownloadAuthPage : WizardFormPage<bool>
                 return _isWebSignInActive;
             });
         });
+
+        return Task.CompletedTask;
     }
 
     private void StopWebSignIn()
@@ -210,10 +209,14 @@ public class XcodeDownloadAuthPage : WizardFormPage<bool>
             _appleWebSignInContainer = null;
         }
 
-        _urlStatusLabel = null;
+        if (FormWebView != null)
+            FormWebView.Opacity = 1;
 
         if (FormWebView?.Handler?.PlatformView is NSView blazorNative)
+        {
             blazorNative.Hidden = false;
+            blazorNative.AlphaValue = 1;
+        }
 
         if (restoreSheetSize)
         {
@@ -247,20 +250,6 @@ public class XcodeDownloadAuthPage : WizardFormPage<bool>
         return tcs.Task;
     }
 
-    private void UpdateUrlStatusOnMainThread(WKWebView webView)
-    {
-        if (_urlStatusLabel == null)
-            return;
-
-        var host = webView.Url?.Host;
-        if (string.IsNullOrWhiteSpace(host))
-            return;
-
-        _urlStatusLabel.StringValue = webView.IsLoading
-            ? $"Loading {host}..."
-            : $"Apple Sign-In ({host}) — sign in and complete any prompt below";
-    }
-
     private async Task CheckForCompletedWebSignInAsync()
     {
         if (!_isWebSignInActive || _isEvaluatingCookies || _appleWebView == null || _onCookiesCaptured == null)
@@ -272,7 +261,6 @@ public class XcodeDownloadAuthPage : WizardFormPage<bool>
         {
             if (_appleWebView != null)
             {
-                UpdateUrlStatusOnMainThread(_appleWebView);
                 host = _appleWebView.Url?.Host;
                 isLoading = _appleWebView.IsLoading;
             }
@@ -368,12 +356,8 @@ public class XcodeDownloadAuthPage : WizardFormPage<bool>
 
         public AppleSignInNavigationDelegate(XcodeDownloadAuthPage owner) => _owner = owner;
 
-        public override void DidStartProvisionalNavigation(WKWebView webView, WKNavigation navigation) =>
-            _owner.UpdateUrlStatusOnMainThread(webView);
-
         public override void DidFinishNavigation(WKWebView webView, WKNavigation navigation)
         {
-            _owner.UpdateUrlStatusOnMainThread(webView);
             _ = _owner.CheckForCompletedWebSignInAsync();
         }
     }

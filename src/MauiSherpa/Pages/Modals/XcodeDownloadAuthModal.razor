@@ -59,37 +59,21 @@
                                disabled="@isAuthenticating" />
                     </div>
 
-                    @if (supportsWebSignIn || fastlaneSessions.Count > 0)
+                    @if (fastlaneSessions.Count > 0)
                     {
                         <div class="fastlane-import">
-                            @if (supportsWebSignIn)
+                            <p class="fastlane-import-hint">
+                                Found an existing fastlane session on disk. Importing it avoids a fresh sign-in.
+                            </p>
+                            @foreach (var session in fastlaneSessions)
                             {
-                                <p class="fastlane-import-hint">
-                                    Having trouble with direct sign-in or seeing an account lock? Sign in through Apple's official web page instead.
-                                </p>
                                 <button type="button"
                                         class="btn-secondary fastlane-import-button"
                                         disabled="@isAuthenticating"
-                                        @onclick="OpenWebSignInAsync">
-                                    <i class="fab fa-apple"></i>
-                                    Sign in with Apple Web Sign-In
+                                        @onclick="() => ImportFastlaneSession(session)">
+                                    <i class="fas fa-file-import"></i>
+                                    Import fastlane session for @session.AppleId
                                 </button>
-                            }
-                            @if (fastlaneSessions.Count > 0)
-                            {
-                                <p class="fastlane-import-hint">
-                                    Found an existing fastlane session on disk. Importing it avoids a fresh sign-in.
-                                </p>
-                                @foreach (var session in fastlaneSessions)
-                                {
-                                    <button type="button"
-                                            class="btn-secondary fastlane-import-button"
-                                            disabled="@isAuthenticating"
-                                            @onclick="() => ImportFastlaneSession(session)">
-                                        <i class="fas fa-file-import"></i>
-                                        Import fastlane session for @session.AppleId
-                                    </button>
-                                }
                             }
                         </div>
                     }
@@ -298,6 +282,7 @@
 
         bridge.SubmitRequested += OnSubmitRequested;
         bridge.BackRequested += OnBackRequested;
+        bridge.ActionRequested += OnActionRequested;
         bridge.PreventSubmitClose = true;
 
         UpdateWizardState();
@@ -548,6 +533,46 @@
                 AuthStep.AccountLocked => "Try Again",
                 _ => "Sign In"
             });
+
+        if (!supportsWebSignIn)
+        {
+            bridge.SetHeaderActions();
+        }
+        else if (currentStep == AuthStep.WebSignIn)
+        {
+            bridge.SetHeaderActions(
+                new HybridHeaderAction("password-form", "key", "Sign in with Apple ID & password form", "⌨"),
+                new HybridHeaderAction("reload-web", "arrow.clockwise", "Reload sign-in page", "↻"));
+        }
+        else if (currentStep is AuthStep.Credentials or AuthStep.AccountLocked)
+        {
+            bridge.SetHeaderActions(
+                new HybridHeaderAction("web-signin", "globe", "Sign in with Apple Web Sign-In", "🌐"));
+        }
+        else
+        {
+            bridge.SetHeaderActions();
+        }
+    }
+
+    private async Task OnActionRequested(string actionId)
+    {
+        switch (actionId)
+        {
+            case "password-form":
+                await OnBackRequested();
+                break;
+            case "reload-web":
+                if (BridgeHolder.Current?.Parameters.TryGetValue("ReloadWebSignIn", out var reloadObj) == true
+                    && reloadObj is Action reloadWebSignIn)
+                {
+                    reloadWebSignIn();
+                }
+                break;
+            case "web-signin":
+                await OpenWebSignInAsync();
+                break;
+        }
     }
 
     private async Task OnBackRequested()
@@ -688,6 +713,7 @@
 
         bridge.SubmitRequested -= OnSubmitRequested;
         bridge.BackRequested -= OnBackRequested;
+        bridge.ActionRequested -= OnActionRequested;
     }
 }
 

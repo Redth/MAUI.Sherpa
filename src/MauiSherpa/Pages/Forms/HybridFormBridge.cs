@@ -1,4 +1,17 @@
+using Microsoft.Maui.Controls;
+
 namespace MauiSherpa.Pages.Forms;
+
+/// <summary>
+/// Describes an icon action button displayed in the top-right header area of a hybrid dialog.
+/// </summary>
+public record HybridHeaderAction(
+    string Id,
+    string Icon,
+    string? ToolTip = null,
+    string? FallbackText = null,
+    bool IsVisible = true,
+    bool IsEnabled = true);
 
 /// <summary>
 /// Communication bridge between a HybridFormPage (native MAUI) and its
@@ -27,6 +40,12 @@ public class HybridFormBridge
 
     /// <summary>Fired by the Blazor component when the native form actions change.</summary>
     public event Action? ActionStateChanged;
+
+    /// <summary>Fired when the top-right header icon actions change.</summary>
+    public event Action? HeaderActionsChanged;
+
+    /// <summary>Icon action buttons displayed in the top-right header bar of the dialog.</summary>
+    public IReadOnlyList<HybridHeaderAction> HeaderActions { get; private set; } = [];
 
     /// <summary>Current form validity, set by the Blazor component.</summary>
     public bool IsValid { get; private set; }
@@ -93,6 +112,61 @@ public class HybridFormBridge
         ActionText = actionText;
         SecondaryActionText = secondaryActionText;
         ActionStateChanged?.Invoke();
+    }
+
+    /// <summary>Updates the top-right header icon action buttons on the native dialog header.</summary>
+    public void SetHeaderActions(params HybridHeaderAction[] actions)
+    {
+        HeaderActions = actions ?? [];
+        HeaderActionsChanged?.Invoke();
+    }
+
+    internal static Button CreateHeaderActionButton(HybridFormBridge bridge, HybridHeaderAction action)
+    {
+        var button = new Button
+        {
+            Text = action.FallbackText ?? string.Empty,
+            FontSize = 13,
+            BackgroundColor = Colors.Transparent,
+            BorderWidth = 0,
+            CornerRadius = 6,
+            Padding = new Thickness(8, 4),
+            WidthRequest = 32,
+            HeightRequest = 28,
+            MinimumWidthRequest = 32,
+            IsEnabled = action.IsEnabled,
+            IsVisible = action.IsVisible,
+            VerticalOptions = LayoutOptions.Center,
+        };
+        button.SetDynamicResource(Button.TextColorProperty, FormTheme.TextSecondary);
+        if (!string.IsNullOrEmpty(action.ToolTip))
+            ToolTipProperties.SetText(button, action.ToolTip);
+
+        button.Clicked += async (_, _) => await bridge.RequestActionAsync(action.Id);
+
+#if MACOSAPP
+        void ApplyMacButtonStyle()
+        {
+            if (button.Handler?.PlatformView is AppKit.NSButton nsButton)
+            {
+                var symbol = AppKit.NSImage.GetSystemSymbol(action.Icon, null);
+                if (symbol != null)
+                {
+                    nsButton.Image = symbol;
+                    nsButton.ImagePosition = AppKit.NSCellImagePosition.ImageOnly;
+                    nsButton.Title = string.Empty;
+                }
+                nsButton.BezelStyle = AppKit.NSBezelStyle.AccessoryBarAction;
+                if (!string.IsNullOrEmpty(action.ToolTip))
+                    nsButton.ToolTip = action.ToolTip;
+            }
+        }
+
+        button.HandlerChanged += (_, _) => ApplyMacButtonStyle();
+        ApplyMacButtonStyle();
+#endif
+
+        return button;
     }
 
     /// <summary>Fired by the MAUI page when a custom action button is clicked (e.g. "save", "reset").</summary>
