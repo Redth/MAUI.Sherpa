@@ -1151,10 +1151,7 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
     {
         try
         {
-            using var listRequest = new HttpRequestMessage(HttpMethod.Post, DeveloperListDownloadsUrl)
-            {
-                Content = new StringContent(string.Empty)
-            };
+            using var listRequest = new HttpRequestMessage(HttpMethod.Post, DeveloperListDownloadsUrl);
             listRequest.Headers.Add("Accept", "application/json");
 
             using var listResponse = await _httpClient.SendAsync(listRequest);
