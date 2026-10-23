@@ -1,4 +1,17 @@
+using Microsoft.Maui.Controls;
+
 namespace MauiSherpa.Pages.Forms;
+
+/// <summary>
+/// Describes an icon action button displayed in the top-right header area of a hybrid dialog.
+/// </summary>
+public record HybridHeaderAction(
+    string Id,
+    string Icon,
+    string? ToolTip = null,
+    string? FallbackText = null,
+    bool IsVisible = true,
+    bool IsEnabled = true);
 
 /// <summary>
 /// Communication bridge between a HybridFormPage (native MAUI) and its
@@ -27,6 +40,12 @@ public class HybridFormBridge
 
     /// <summary>Fired by the Blazor component when the native form actions change.</summary>
     public event Action? ActionStateChanged;
+
+    /// <summary>Fired when the top-right header icon actions change.</summary>
+    public event Action? HeaderActionsChanged;
+
+    /// <summary>Icon action buttons displayed in the top-right header bar of the dialog.</summary>
+    public IReadOnlyList<HybridHeaderAction> HeaderActions { get; private set; } = [];
 
     /// <summary>Current form validity, set by the Blazor component.</summary>
     public bool IsValid { get; private set; }
@@ -94,6 +113,112 @@ public class HybridFormBridge
         SecondaryActionText = secondaryActionText;
         ActionStateChanged?.Invoke();
     }
+
+    /// <summary>Updates the top-right header icon action buttons on the native dialog header.</summary>
+    public void SetHeaderActions(params HybridHeaderAction[] actions)
+    {
+        HeaderActions = actions ?? [];
+        HeaderActionsChanged?.Invoke();
+    }
+
+    internal static Button CreateHeaderActionButton(HybridFormBridge bridge, HybridHeaderAction action)
+    {
+        var button = new Button
+        {
+            Text = action.FallbackText ?? string.Empty,
+            FontSize = 13,
+            BackgroundColor = Colors.Transparent,
+            BorderWidth = 0,
+            CornerRadius = 6,
+            Padding = new Thickness(8, 4),
+            WidthRequest = 32,
+            HeightRequest = 28,
+            MinimumWidthRequest = 32,
+            IsEnabled = action.IsEnabled,
+            IsVisible = action.IsVisible,
+            VerticalOptions = LayoutOptions.Center,
+        };
+        button.SetDynamicResource(Button.TextColorProperty, FormTheme.TextSecondary);
+        if (!string.IsNullOrEmpty(action.ToolTip))
+            ToolTipProperties.SetText(button, action.ToolTip);
+
+        button.Clicked += async (_, _) => await bridge.RequestActionAsync(action.Id);
+        return button;
+    }
+
+#if MACOSAPP
+    internal static void SyncMacHeaderActionButtons(
+        View? headerContainer,
+        HybridFormBridge bridge,
+        ref List<AppKit.NSButton>? macButtons)
+    {
+        if (macButtons != null)
+        {
+            foreach (var oldBtn in macButtons)
+            {
+                oldBtn.RemoveFromSuperview();
+                oldBtn.Dispose();
+            }
+            macButtons.Clear();
+        }
+
+        if (headerContainer?.Handler?.PlatformView is not AppKit.NSView containerView)
+            return;
+
+        var visibleActions = bridge.HeaderActions.Where(a => a.IsVisible).ToList();
+        if (visibleActions.Count == 0)
+            return;
+
+        macButtons ??= new List<AppKit.NSButton>();
+
+        var bounds = containerView.Bounds;
+        var containerWidth = bounds.Width > 0 ? bounds.Width : 540;
+        var containerHeight = bounds.Height > 0 ? bounds.Height : 56;
+
+        nfloat buttonWidth = 30;
+        nfloat buttonHeight = 26;
+        nfloat spacing = 6;
+        nfloat rightEdge = containerWidth - 24;
+        nfloat y = Math.Max(4, (containerHeight - buttonHeight) / 2 + 3);
+
+        var symbolConfig = AppKit.NSImageSymbolConfiguration.Create(13f, AppKit.NSFontWeight.Medium);
+
+        for (var i = visibleActions.Count - 1; i >= 0; i--)
+        {
+            var action = visibleActions[i];
+            var actionId = action.Id;
+            rightEdge -= buttonWidth;
+
+            var nsButton = AppKit.NSButton.CreateButton(action.FallbackText ?? string.Empty, () =>
+            {
+                _ = bridge.RequestActionAsync(actionId);
+            });
+            nsButton.BezelStyle = AppKit.NSBezelStyle.AccessoryBarAction;
+            nsButton.ControlSize = AppKit.NSControlSize.Regular;
+            nsButton.Enabled = action.IsEnabled;
+            if (!string.IsNullOrEmpty(action.ToolTip))
+                nsButton.ToolTip = action.ToolTip;
+
+            var symbol = AppKit.NSImage.GetSystemSymbol(action.Icon, null);
+            if (symbol != null)
+            {
+                if (symbolConfig != null)
+                    symbol = symbol.GetImage(symbolConfig) ?? symbol;
+                nsButton.Image = symbol;
+                nsButton.ImagePosition = AppKit.NSCellImagePosition.ImageOnly;
+                nsButton.Title = string.Empty;
+            }
+
+            nsButton.Frame = new CoreGraphics.CGRect(rightEdge, y, buttonWidth, buttonHeight);
+            nsButton.AutoresizingMask = AppKit.NSViewResizingMask.MinXMargin;
+
+            containerView.AddSubview(nsButton);
+            macButtons.Add(nsButton);
+
+            rightEdge -= spacing;
+        }
+    }
+#endif
 
     /// <summary>Fired by the MAUI page when a custom action button is clicked (e.g. "save", "reset").</summary>
     public event Func<string, Task>? ActionRequested;

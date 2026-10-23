@@ -311,7 +311,7 @@ public class XcodeService : IXcodeService
             // are already there, and listDownloads.action will add ADCDownloadAuth
             using var downloadClient = _authService.CreateAuthenticatedHttpClient();
 
-            // Step 1: POST to listDownloads.action to establish ADCDownloadAuth cookie
+            // Step 1: POST to listDownloads.action (with no Content-Type: text/plain) to establish ADCDownloadAuth cookie
             var listRequest = new HttpRequestMessage(HttpMethod.Post,
                 "https://developer.apple.com/services-account/QH65B2/downloadws/listDownloads.action");
             listRequest.Headers.Add("Accept", "application/json");
@@ -323,6 +323,23 @@ public class XcodeService : IXcodeService
             catch (Exception ex)
             {
                 _logger.LogWarning($"listDownloads failed (continuing): {ex.Message}");
+            }
+
+            // Fallback: if ADCDownloadAuth is still not in the cookie jar, request it via developerservices2
+            if (_authService.GetAllCookies()["ADCDownloadAuth"] == null
+                && Uri.TryCreate(release.DownloadUrl, UriKind.Absolute, out var downloadUri))
+            {
+                try
+                {
+                    var adcAuthUrl = $"https://developerservices2.apple.com/services/download?path={Uri.EscapeDataString(downloadUri.AbsolutePath)}";
+                    using var adcReq = new HttpRequestMessage(HttpMethod.Get, adcAuthUrl);
+                    using var adcResp = await downloadClient.SendAsync(adcReq, HttpCompletionOption.ResponseHeadersRead, ct);
+                    _logger.LogInformation($"developerservices2 download auth response: {(int)adcResp.StatusCode}");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning($"developerservices2 download auth failed (continuing): {ex.Message}");
+                }
             }
 
             // Step 2: Download the file. We must handle redirects manually because
@@ -338,7 +355,7 @@ public class XcodeService : IXcodeService
                 UseCookies = false
             };
             using var redirectClient = new HttpClient(noRedirectHandler);
-            redirectClient.DefaultRequestHeaders.Add("User-Agent", "MauiSherpa");
+            redirectClient.DefaultRequestHeaders.UserAgent.ParseAdd(AppleDownloadAuthService.DefaultUserAgent);
             redirectClient.Timeout = TimeSpan.FromHours(4);
 
             // Support resume if partial file exists

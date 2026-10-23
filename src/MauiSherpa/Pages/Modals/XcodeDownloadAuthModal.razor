@@ -15,7 +15,7 @@
 @if (bridge != null)
 {
     <div class="form-content">
-        @if (currentStep != AuthStep.AccountLocked)
+        @if (currentStep is not (AuthStep.AccountLocked or AuthStep.WebSignIn))
         {
             <div class="step-indicator">
                 <div class="step @(currentStep >= AuthStep.Credentials ? "active" : "") @(currentStep > AuthStep.Credentials ? "completed" : "")">
@@ -63,8 +63,7 @@
                     {
                         <div class="fastlane-import">
                             <p class="fastlane-import-hint">
-                                Found an existing fastlane session on disk. Importing it avoids a fresh sign-in,
-                                which can help if repeated sign-ins have triggered Apple's account lock.
+                                Found an existing fastlane session on disk. Importing it avoids a fresh sign-in.
                             </p>
                             @foreach (var session in fastlaneSessions)
                             {
@@ -134,15 +133,25 @@
                     </div>
                 </div>
             }
+            else if (currentStep == AuthStep.WebSignIn)
+            {
+                <div class="step-content">
+                    <h3>Apple Web Sign-In</h3>
+                    <p class="step-description">
+                        Complete sign-in in the embedded Apple Developer view. Once Apple finishes authenticating your account,
+                        MAUI Sherpa will capture the session automatically.
+                    </p>
+                </div>
+            }
             else
             {
                 <div class="step-content account-locked">
                     <div class="locked-icon" aria-hidden="true"><i class="fas fa-lock"></i></div>
                     <h3>Your Apple Account sign-in is locked</h3>
                     <p class="step-description">
-                        Apple locked in-app sign-in for <strong>@lockedAppleId</strong> as a security precaution.
-                        This usually isn't a full account lock &mdash; you can often clear it yourself in a couple of minutes
-                        by signing in through Apple's own web pages first.
+                        Apple locked automated sign-in for <strong>@lockedAppleId</strong> as a security precaution.
+                        This usually isn't a full account lock &mdash; signing in through Apple's web page clears the security
+                        prompt and signs you in directly.
                     </p>
 
                     @if (!string.IsNullOrEmpty(authError))
@@ -150,6 +159,22 @@
                         <div class="apple-said">
                             <i class="fas fa-quote-left" aria-hidden="true"></i>
                             <span>@authError</span>
+                        </div>
+                    }
+
+                    @if (supportsWebSignIn)
+                    {
+                        <div class="web-signin-callout">
+                            <div class="web-signin-callout-text">
+                                <strong>Recommended: Unlock &amp; Sign In with Apple Web Sign-In</strong>
+                                <span>
+                                    Opens Apple's official sign-in page inside MAUI Sherpa. Complete any identity check or 2FA prompt
+                                    there and your session will be imported automatically without running another automated login.
+                                </span>
+                            </div>
+                            <button type="button" class="btn-primary web-signin-cta" @onclick="OpenWebSignInAsync">
+                                <i class="fab fa-apple"></i> Open Apple Web Sign-In
+                            </button>
                         </div>
                     }
 
@@ -215,11 +240,13 @@
     private const int OtpLength = 6;
 
     private AuthStep currentStep = AuthStep.Credentials;
+    private AuthStep previousStepBeforeWebSignIn = AuthStep.Credentials;
     private string authAppleId = string.Empty;
     private string authPassword = string.Empty;
     private string authTwoFactorCode = string.Empty;
     private string? authError;
     private bool isAuthenticating;
+    private bool supportsWebSignIn;
     private AppleAuthOptions? twoFactorOptions;
     private int selectedPhoneIndex = -1;
     private List<FastlaneSessionInfo> fastlaneSessions = new();
@@ -233,7 +260,8 @@
     {
         Credentials,
         TwoFactor,
-        AccountLocked
+        AccountLocked,
+        WebSignIn
     }
 
     protected override void OnInitialized()
@@ -242,8 +270,19 @@
         if (bridge == null)
             return;
 
+        if (bridge.Parameters.TryGetValue("SupportsWebSignIn", out var sws) && sws is true)
+        {
+            supportsWebSignIn = true;
+            currentStep = AuthStep.WebSignIn;
+            previousStepBeforeWebSignIn = AuthStep.Credentials;
+        }
+
+        if (string.IsNullOrWhiteSpace(authAppleId) && !string.IsNullOrWhiteSpace(AuthService.CurrentAppleId))
+            authAppleId = AuthService.CurrentAppleId;
+
         bridge.SubmitRequested += OnSubmitRequested;
         bridge.BackRequested += OnBackRequested;
+        bridge.ActionRequested += OnActionRequested;
         bridge.PreventSubmitClose = true;
 
         UpdateWizardState();
@@ -253,6 +292,12 @@
     {
         var sessions = await ViewModel.DetectFastlaneSessionsAsync();
         fastlaneSessions = sessions.ToList();
+
+        if (string.IsNullOrWhiteSpace(authAppleId) && !string.IsNullOrWhiteSpace(AuthService.CurrentAppleId))
+        {
+            authAppleId = AuthService.CurrentAppleId;
+            UpdateWizardState();
+        }
     }
 
     private async Task ImportFastlaneSession(FastlaneSessionInfo session)
@@ -291,13 +336,57 @@
             !string.IsNullOrWhiteSpace(authPassword),
         AuthStep.TwoFactor => !string.IsNullOrWhiteSpace(authTwoFactorCode),
         AuthStep.AccountLocked => true,
+        AuthStep.WebSignIn => false,
         _ => false
     };
+
+    private async Task OpenWebSignInAsync()
+    {
+        var bridge = BridgeHolder.Current;
+        if (bridge == null || !supportsWebSignIn)
+            return;
+
+        if (!bridge.Parameters.TryGetValue("StartWebSignIn", out var startObj)
+            || startObj is not Func<Func<IReadOnlyList<AppleAuthCookie>, Task<bool>>, Task> startWebSignIn)
+        {
+            return;
+        }
+
+        previousStepBeforeWebSignIn = currentStep == AuthStep.WebSignIn ? AuthStep.Credentials : currentStep;
+        currentStep = AuthStep.WebSignIn;
+        authError = null;
+        UpdateWizardState();
+        await InvokeAsync(StateHasChanged);
+
+        await startWebSignIn(OnWebCookiesCapturedAsync);
+    }
+
+    private async Task<bool> OnWebCookiesCapturedAsync(IReadOnlyList<AppleAuthCookie> cookies)
+    {
+        var candidateAppleId = !string.IsNullOrWhiteSpace(authAppleId)
+            ? authAppleId
+            : lockedAppleId;
+
+        var result = await ViewModel.ImportCookiesAsync(candidateAppleId, cookies);
+        if (result.Success)
+        {
+            await InvokeAsync(CompleteSuccess);
+            return true;
+        }
+
+        return false;
+    }
 
     private void OnFieldChanged() => UpdateWizardState();
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (firstRender && supportsWebSignIn && currentStep == AuthStep.WebSignIn)
+        {
+            await OpenWebSignInAsync();
+            return;
+        }
+
         if (shouldFocusFirstOtpDigit && currentStep == AuthStep.TwoFactor)
         {
             shouldFocusFirstOtpDigit = false;
@@ -434,28 +523,83 @@
         bridge.SetWizardState(
             showBack: currentStep == AuthStep.TwoFactor,
             showNext: false,
-            showSubmit: true,
+            showSubmit: currentStep != AuthStep.WebSignIn,
             canProceed: CanSubmitCurrentStep,
             isSubmitting: isAuthenticating,
             submitText: currentStep switch
             {
                 AuthStep.Credentials => "Sign In",
                 AuthStep.TwoFactor => "Verify",
-                _ => "Try Again"
+                AuthStep.AccountLocked => "Try Again",
+                _ => "Sign In"
             });
+
+        if (!supportsWebSignIn)
+        {
+            bridge.SetHeaderActions();
+        }
+        else if (currentStep == AuthStep.WebSignIn)
+        {
+            bridge.SetHeaderActions(
+                new HybridHeaderAction("password-form", "key", "Sign in with Apple ID & password form", "⌨"),
+                new HybridHeaderAction("reload-web", "arrow.clockwise", "Reload sign-in page", "↻"));
+        }
+        else if (currentStep is AuthStep.Credentials or AuthStep.AccountLocked)
+        {
+            bridge.SetHeaderActions(
+                new HybridHeaderAction("web-signin", "globe", "Sign in with Apple Web Sign-In", "🌐"));
+        }
+        else
+        {
+            bridge.SetHeaderActions();
+        }
     }
 
-    private Task OnBackRequested()
+    private async Task OnActionRequested(string actionId)
     {
-        if (isAuthenticating || currentStep != AuthStep.TwoFactor)
-            return Task.CompletedTask;
+        switch (actionId)
+        {
+            case "password-form":
+                await OnBackRequested();
+                break;
+            case "reload-web":
+                if (BridgeHolder.Current?.Parameters.TryGetValue("ReloadWebSignIn", out var reloadObj) == true
+                    && reloadObj is Action reloadWebSignIn)
+                {
+                    reloadWebSignIn();
+                }
+                break;
+            case "web-signin":
+                await OpenWebSignInAsync();
+                break;
+        }
+    }
+
+    private async Task OnBackRequested()
+    {
+        if (isAuthenticating)
+            return;
+
+        if (currentStep == AuthStep.WebSignIn)
+        {
+            var bridge = BridgeHolder.Current;
+            if (bridge != null && bridge.Parameters.TryGetValue("StopWebSignIn", out var stopObj) && stopObj is Action stopWebSignIn)
+                stopWebSignIn();
+
+            currentStep = previousStepBeforeWebSignIn;
+            UpdateWizardState();
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        if (currentStep != AuthStep.TwoFactor)
+            return;
 
         currentStep = AuthStep.Credentials;
         ResetOtp();
         authError = null;
         UpdateWizardState();
-        StateHasChanged();
-        return Task.CompletedTask;
+        await InvokeAsync(StateHasChanged);
     }
 
     private async Task OnSubmitRequested()
@@ -465,7 +609,7 @@
 
         if (currentStep == AuthStep.AccountLocked)
         {
-            // Nothing to submit yet — just take the user back to try signing in again.
+            // Take the user back to try signing in again.
             currentStep = AuthStep.Credentials;
             authError = null;
             UpdateWizardState();
@@ -569,6 +713,7 @@
 
         bridge.SubmitRequested -= OnSubmitRequested;
         bridge.BackRequested -= OnBackRequested;
+        bridge.ActionRequested -= OnActionRequested;
     }
 }
 
@@ -827,6 +972,50 @@
         font-size: 12px;
         font-style: italic;
         text-align: left;
+    }
+
+    .web-signin-callout {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        margin: 0 0 14px 0;
+        padding: 12px 14px;
+        border-radius: 10px;
+        border: 1px solid var(--accent-primary, #6366f1);
+        background: var(--bg-tertiary, #f8fafc);
+        text-align: left;
+    }
+
+    .web-signin-callout-text {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .web-signin-callout-text strong {
+        font-size: 13px;
+        color: var(--text-primary);
+    }
+
+    .web-signin-callout-text span {
+        font-size: 12px;
+        color: var(--text-muted);
+        line-height: 1.45;
+    }
+
+    .web-signin-cta {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 8px 14px;
+        border-radius: 6px;
+        border: none;
+        background: var(--accent-primary, #6366f1);
+        color: white;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
     }
 
     .unlock-steps {

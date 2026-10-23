@@ -285,8 +285,20 @@ public class XcodeManagementViewModel : ViewModelBase
         var result = await _authService.ImportFastlaneSessionAsync(appleId, cookieFilePath);
 
         StatusMessage = result.Success
-            ? $"Signed in as {appleId}"
+            ? $"Signed in as {_authService.CurrentAppleId ?? appleId}"
             : result.ErrorMessage ?? "Failed to import fastlane session";
+
+        return result;
+    }
+
+    public async Task<AppleAuthResult> ImportCookiesAsync(string? appleId, IReadOnlyList<AppleAuthCookie> cookies)
+    {
+        StatusMessage = "Establishing Apple Developer session...";
+        var result = await _authService.ImportCookiesAsync(appleId, cookies);
+
+        StatusMessage = result.Success
+            ? $"Signed in as {_authService.CurrentAppleId ?? appleId}"
+            : result.ErrorMessage ?? "Failed to establish Apple Developer session";
 
         return result;
     }

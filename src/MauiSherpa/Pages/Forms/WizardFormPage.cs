@@ -26,6 +26,11 @@ public abstract class WizardFormPage<TResult> : ContentPage, IFormPage<TResult>,
     private Button? _backButton;
     private Button? _primaryButton;
     private ActivityIndicator? _submittingIndicator;
+    private Grid? _headerGrid;
+    private HorizontalStackLayout? _headerActionsLayout;
+#if MACOSAPP
+    private List<AppKit.NSButton>? _macHeaderButtons;
+#endif
     private View? _webView;
     private bool _isOnLastStep;
 
@@ -34,6 +39,10 @@ public abstract class WizardFormPage<TResult> : ContentPage, IFormPage<TResult>,
     protected abstract string BlazorRoute { get; }
 
     public HybridFormBridge Bridge => _bridge;
+
+    protected View? FormWebView => _webView;
+
+    protected virtual void ConfigureBridge(HybridFormBridge bridge) { }
 
     public WizardFormPage(HybridFormBridgeHolder bridgeHolder)
     {
@@ -57,21 +66,47 @@ public abstract class WizardFormPage<TResult> : ContentPage, IFormPage<TResult>,
 
     private void BuildPage()
     {
+        ConfigureBridge(_bridge);
         _bridgeHolder.Push(_bridge);
 
         // Listen for wizard state changes from Blazor
         _bridge.WizardStateChanged += OnWizardStateChanged;
+        _bridge.HeaderActionsChanged += OnHeaderActionsChanged;
         _bridge.CloseRequested += OnCloseRequested;
 
-        // Title
+        // Header: Title on left, optional icon action buttons on right
         var titleLabel = new Label
         {
             Text = FormTitle,
             FontSize = 18,
             FontAttributes = FontAttributes.Bold,
-            Margin = new Thickness(28, 24, 28, 12),
+            VerticalOptions = LayoutOptions.Center,
         };
         titleLabel.SetDynamicResource(Label.TextColorProperty, FormTheme.TextPrimary);
+
+        _headerActionsLayout = new HorizontalStackLayout
+        {
+            Spacing = 6,
+            VerticalOptions = LayoutOptions.Center,
+            HorizontalOptions = LayoutOptions.End,
+        };
+
+        var headerGrid = new Grid
+        {
+            ColumnDefinitions =
+            {
+                new ColumnDefinition(GridLength.Star),
+                new ColumnDefinition(GridLength.Auto),
+            },
+            Padding = new Thickness(28, 20, 20, 12),
+        };
+        Grid.SetColumn(titleLabel, 0);
+        Grid.SetColumn(_headerActionsLayout, 1);
+        headerGrid.Children.Add(titleLabel);
+        headerGrid.Children.Add(_headerActionsLayout);
+        headerGrid.HandlerChanged += (_, _) => RebuildHeaderActions();
+        headerGrid.SizeChanged += (_, _) => RebuildHeaderActions();
+        _headerGrid = headerGrid;
 
         // Header separator
         var headerSeparator = new BoxView { HeightRequest = 1 };
@@ -207,19 +242,20 @@ public abstract class WizardFormPage<TResult> : ContentPage, IFormPage<TResult>,
             VerticalOptions = LayoutOptions.Fill,
         };
 
-        Grid.SetRow(titleLabel, 0);
+        Grid.SetRow(headerGrid, 0);
         Grid.SetRow(headerSeparator, 1);
         Grid.SetRow(webView, 2);
         Grid.SetRow(footerSeparator, 3);
         Grid.SetRow(footerGrid, 4);
 
-        grid.Children.Add(titleLabel);
+        grid.Children.Add(headerGrid);
         grid.Children.Add(headerSeparator);
         grid.Children.Add(webView);
         grid.Children.Add(footerSeparator);
         grid.Children.Add(footerGrid);
 
         Content = grid;
+        RebuildHeaderActions();
 
         // Apply initial button state after native views are created.
         // Back button starts visible so macOS AppKit creates proper native view,
@@ -238,6 +274,7 @@ public abstract class WizardFormPage<TResult> : ContentPage, IFormPage<TResult>,
             if (_backButton != null) _backButton.IsVisible = _bridge.ShowBack;
             if (_primaryButton != null)
             {
+                _primaryButton.IsVisible = _bridge.ShowSubmit || _bridge.ShowNext;
                 _primaryButton.IsEnabled = _bridge.CanProceed && !_bridge.IsSubmitting;
 
                 var primaryText = _isOnLastStep
@@ -265,6 +302,33 @@ public abstract class WizardFormPage<TResult> : ContentPage, IFormPage<TResult>,
             Dispatcher.Dispatch(Apply);
         else
             Apply();
+    }
+
+    private void OnHeaderActionsChanged()
+    {
+        if (Dispatcher.IsDispatchRequired)
+            Dispatcher.Dispatch(RebuildHeaderActions);
+        else
+            RebuildHeaderActions();
+    }
+
+    private void RebuildHeaderActions()
+    {
+#if MACOSAPP
+        HybridFormBridge.SyncMacHeaderActionButtons(_headerGrid, _bridge, ref _macHeaderButtons);
+#else
+        if (_headerActionsLayout == null)
+            return;
+
+        _headerActionsLayout.Children.Clear();
+        foreach (var action in _bridge.HeaderActions)
+        {
+            if (!action.IsVisible)
+                continue;
+
+            _headerActionsLayout.Children.Add(HybridFormBridge.CreateHeaderActionButton(_bridge, action));
+        }
+#endif
     }
 
     private async void OnBackClicked(object? sender, EventArgs e)
