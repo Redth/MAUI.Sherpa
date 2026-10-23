@@ -466,6 +466,10 @@ public record LogStreamOptions
 
 public record InspectorProfilerCapabilities
 {
+    // Agents that do not report these flags are treated as having the profiler available.
+    public bool Available { get; init; } = true;
+    public bool SupportedInBuild { get; init; } = true;
+    public bool FeatureEnabled { get; init; } = true;
     public string Platform { get; init; } = string.Empty;
     public bool ManagedMemorySupported { get; init; }
     public bool NativeMemorySupported { get; init; }
@@ -527,7 +531,7 @@ public record InspectorProfilerSpan
     public string Kind { get; init; } = string.Empty;
     public string Name { get; init; } = string.Empty;
     public string? Status { get; init; }
-    public string? ThreadId { get; init; }
+    public int? ThreadId { get; init; }
     public string? Screen { get; init; }
     public string? ElementPath { get; init; }
     public string? TagsJson { get; init; }

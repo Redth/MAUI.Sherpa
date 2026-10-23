@@ -334,10 +334,13 @@ public class DevFlowV1Client : IAppInspectorClient
     {
         var payload = sampleIntervalMs.HasValue ? new { sampleIntervalMs = sampleIntervalMs.Value } : (object?)null;
         var response = await PostMutationAsync("/api/v1/profiler/sessions", payload, JsonOptions, ct);
-        response.EnsureSuccessStatusCode();
-        var result = await response.Content.ReadFromJsonAsync<InspectorProfilerSession>(JsonOptions, ct);
-        return result ?? new InspectorProfilerSession();
+        await EnsureSuccessAsync(response, ct);
+        var result = await response.Content.ReadFromJsonAsync<ProfilerStartResponse>(JsonOptions, ct);
+        return result?.Session ?? new InspectorProfilerSession();
     }
+
+    // The agent answers a profiler start with { "session": {...}, "capabilities": {...} }.
+    private sealed record ProfilerStartResponse(InspectorProfilerSession? Session);
 
     public async Task StopProfilingAsync(string sessionId, CancellationToken ct = default)
     {
@@ -561,7 +564,7 @@ public class DevFlowV1Client : IAppInspectorClient
     private async Task<HttpResponseMessage> PostMutationAsync<T>(string url, T value, JsonSerializerOptions options, CancellationToken ct)
     {
         await ClaimMutationLeaseAsync(ct);
-        return await _http.PostAsJsonAsync(url, value, options, ct);
+        return await _http.PostAsync(url, DevFlowJsonContent.Create(value, options), ct);
     }
 
     private async Task<HttpResponseMessage> PostMutationAsync(string url, HttpContent? content, CancellationToken ct)
@@ -573,7 +576,7 @@ public class DevFlowV1Client : IAppInspectorClient
     private async Task<HttpResponseMessage> PutMutationAsync<T>(string url, T value, JsonSerializerOptions options, CancellationToken ct)
     {
         await ClaimMutationLeaseAsync(ct);
-        return await _http.PutAsJsonAsync(url, value, options, ct);
+        return await _http.PutAsync(url, DevFlowJsonContent.Create(value, options), ct);
     }
 
     private async Task<HttpResponseMessage> DeleteMutationAsync(string url, CancellationToken ct)

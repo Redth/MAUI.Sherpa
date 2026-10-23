@@ -1,6 +1,5 @@
 using System.Net;
 using System.Net.Http.Headers;
-using System.Net.Http.Json;
 
 namespace MauiSherpa.Core.Services;
 
@@ -50,7 +49,7 @@ public sealed class DevFlowMutationLease
 
         using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(agentUri, LeasePath))
         {
-            Content = JsonContent.Create(new { action = "claim", leaseId = LeaseId, holderKind = HolderKind, label = Label })
+            Content = DevFlowJsonContent.Create(new { action = "claim", leaseId = LeaseId, holderKind = HolderKind, label = Label })
         };
         ApplyHeaders(request.Headers);
 

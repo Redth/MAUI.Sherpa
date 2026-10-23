@@ -424,6 +424,9 @@ public class DevFlowLegacyClient : IAppInspectorClient
         var caps = await _legacy.GetProfilerCapabilitiesAsync(ct);
         return new InspectorProfilerCapabilities
         {
+            Available = caps?.Available ?? true,
+            SupportedInBuild = caps?.SupportedInBuild ?? true,
+            FeatureEnabled = caps?.FeatureEnabled ?? true,
             Platform = caps?.Platform ?? string.Empty,
             ManagedMemorySupported = caps?.ManagedMemorySupported ?? false,
             NativeMemorySupported = caps?.NativeMemorySupported ?? false,
@@ -502,7 +505,7 @@ public class DevFlowLegacyClient : IAppInspectorClient
                 Kind = s.Kind,
                 Name = s.Name,
                 Status = s.Status,
-                ThreadId = s.ThreadId?.ToString(),
+                ThreadId = s.ThreadId,
                 Screen = s.Screen,
                 ElementPath = s.ElementPath,
                 TagsJson = s.TagsJson,
