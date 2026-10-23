@@ -4434,6 +4434,8 @@ public record KeystoreSignatureInfo(
     string? SHA256Base64
 );
 
+public record KeystoreInfo(string KeystoreType, IReadOnlyList<string> Aliases);
+
 public interface IKeystoreService
 {
     Task<AndroidKeystore> CreateKeystoreAsync(
@@ -4448,6 +4450,7 @@ public interface IKeystoreService
         string keystoreType = "PKCS12");
 
     Task<KeystoreSignatureInfo> GetSignatureHashesAsync(string keystorePath, string alias, string password);
+    Task<KeystoreInfo> GetKeystoreInfoAsync(string keystorePath, string password);
 
     Task ExportPepkAsync(
         string keystorePath,

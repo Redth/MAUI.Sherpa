@@ -98,13 +98,27 @@ public class KeystoreService : IKeystoreService
         var keytool = await GetKeytoolPathAsync()
             ?? throw new InvalidOperationException("keytool not found. Please configure OpenJDK path in Settings.");
 
-        var args = $"-list -v -keystore \"{keystorePath}\" -alias \"{alias}\" -storepass \"{password}\"";
-
-        var (exitCode, output) = await RunProcessAsync(keytool, args);
+        var (exitCode, output) = await RunProcessAsync(keytool,
+            ["-J-Duser.language=en", "-J-Duser.country=US", "-list", "-v",
+             "-keystore", keystorePath, "-alias", alias, "-storepass", password]);
         if (exitCode != 0)
             throw new InvalidOperationException($"keytool failed (exit {exitCode}): {output}");
 
         return ParseSignatureHashes(alias, output);
+    }
+
+    public async Task<KeystoreInfo> GetKeystoreInfoAsync(string keystorePath, string password)
+    {
+        var keytool = await GetKeytoolPathAsync()
+            ?? throw new InvalidOperationException("keytool not found. Please configure OpenJDK path in Settings.");
+
+        var (exitCode, output) = await RunProcessAsync(keytool,
+            ["-J-Duser.language=en", "-J-Duser.country=US", "-list", "-v",
+             "-keystore", keystorePath, "-storepass", password]);
+        if (exitCode != 0)
+            throw new InvalidOperationException($"keytool failed (exit {exitCode}): {output}");
+
+        return ParseKeystoreInfo(output);
     }
 
     public async Task ExportPepkAsync(
@@ -164,7 +178,39 @@ public class KeystoreService : IKeystoreService
         await SaveKeystoresAsync();
     }
 
-    // --- Signature parsing ---
+    // --- Keytool output parsing ---
+
+    internal static KeystoreInfo ParseKeystoreInfo(string keytoolOutput)
+    {
+        string? keystoreType = null;
+        string? alias = null;
+        var aliases = new List<string>();
+
+        foreach (var rawLine in keytoolOutput.Split('\n'))
+        {
+            var line = rawLine.TrimEnd('\r');
+            if (line.StartsWith("Keystore type: ", StringComparison.Ordinal))
+                keystoreType = line["Keystore type: ".Length..].Trim();
+            else if (line.StartsWith("Alias name: ", StringComparison.Ordinal))
+                alias = line["Alias name: ".Length..];
+            else if (line.StartsWith("Entry type: ", StringComparison.Ordinal))
+            {
+                if (line["Entry type: ".Length..].Trim() == "PrivateKeyEntry" &&
+                    !string.IsNullOrEmpty(alias))
+                {
+                    aliases.Add(alias);
+                }
+                alias = null;
+            }
+        }
+
+        if (string.IsNullOrEmpty(keystoreType))
+            throw new InvalidOperationException("Could not read the keystore type from keytool output.");
+        if (aliases.Count == 0)
+            throw new InvalidOperationException("The keystore does not contain any private key entries for Android signing.");
+
+        return new KeystoreInfo(keystoreType, aliases.AsReadOnly());
+    }
 
     internal static KeystoreSignatureInfo ParseSignatureHashes(string alias, string keytoolOutput)
     {
@@ -209,24 +255,32 @@ public class KeystoreService : IKeystoreService
     private static string Escape(string value)
         => value.Replace("\"", "\\\"").Replace(",", "\\,");
 
-    private async Task<(int ExitCode, string Output)> RunProcessAsync(string fileName, string arguments)
+    private static Task<(int ExitCode, string Output)> RunProcessAsync(string fileName, string arguments)
+        => RunProcessAsync(new ProcessStartInfo { FileName = fileName, Arguments = arguments });
+
+    private static Task<(int ExitCode, string Output)> RunProcessAsync(string fileName, string[] arguments)
     {
-        var psi = new ProcessStartInfo
-        {
-            FileName = fileName,
-            Arguments = arguments,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
+        var psi = new ProcessStartInfo { FileName = fileName };
+        foreach (var argument in arguments)
+            psi.ArgumentList.Add(argument);
+        return RunProcessAsync(psi);
+    }
+
+    private static async Task<(int ExitCode, string Output)> RunProcessAsync(ProcessStartInfo psi)
+    {
+        psi.RedirectStandardOutput = true;
+        psi.RedirectStandardError = true;
+        psi.UseShellExecute = false;
+        psi.CreateNoWindow = true;
 
         using var process = Process.Start(psi)
-            ?? throw new InvalidOperationException($"Failed to start: {fileName}");
+            ?? throw new InvalidOperationException($"Failed to start: {psi.FileName}");
 
-        var stdout = await process.StandardOutput.ReadToEndAsync();
-        var stderr = await process.StandardError.ReadToEndAsync();
+        var stdoutTask = process.StandardOutput.ReadToEndAsync();
+        var stderrTask = process.StandardError.ReadToEndAsync();
         await process.WaitForExitAsync();
+        var stdout = await stdoutTask;
+        var stderr = await stderrTask;
 
         var output = string.IsNullOrEmpty(stdout) ? stderr : stdout + "\n" + stderr;
         return (process.ExitCode, output.Trim());

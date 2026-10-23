@@ -24,6 +24,8 @@ MAUI Sherpa stores credentials, signing material, provider configuration, and ap
 | Platform certificate/private-key stores | `LocalCertificateService`, platform APIs | Installed signing identities | Remain in macOS Keychain, Windows certificate store, or Linux user X509 store. The vault stores Sherpa metadata and Local-provider sync copies, not installed platform private-key material. |
 | Non-sensitive caches/artifacts | logs, profiling artifacts, Apple root cert cache, downloaded tools, update temp files, Copilot caches, window size/basic UI prefs | Non-secret operational data | Outside the vault unless a future feature makes the data secret-bearing. |
 
+Android keystore import prompts for the password after file selection, including a masked native input dialog on Windows with OK and Cancel actions. It then reads the keystore type and private-key aliases with OpenJDK's `keytool` after validating the password. The filename does not need to match the signing alias, and the extension does not determine the keystore type. If the file contains multiple private keys, Sherpa asks which alias to import; files containing only trusted certificates or secret keys cannot be imported for Android signing. Import errors show the underlying failure, including an unavailable JDK or an incorrect password.
+
 ## Local vault model
 
 The central vault is intentionally migration-light. It uses one generic document envelope rather than feature-specific SQL tables:
