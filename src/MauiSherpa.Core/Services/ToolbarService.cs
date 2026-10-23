@@ -62,6 +62,10 @@ public class ToolbarService : IToolbarService
 
     public void InvokeToolbarItemClicked(string actionId)
     {
+        // Native controls can outlive the page state that made them visible.
+        if (!_items.Any(item => item.Id == actionId) || !IsItemEnabled(actionId))
+            return;
+
         ToolbarItemClicked?.Invoke(actionId);
     }
 
@@ -92,11 +96,11 @@ public class ToolbarService : IToolbarService
 
     public void SetItemEnabled(string actionId, bool enabled)
     {
-        if (enabled)
-            _disabledItems.Remove(actionId);
-        else
-            _disabledItems.Add(actionId);
-        ToolbarChanged?.Invoke();
+        var changed = enabled
+            ? _disabledItems.Remove(actionId)
+            : _disabledItems.Add(actionId);
+        if (changed)
+            ToolbarChanged?.Invoke();
     }
 
     public bool IsItemEnabled(string actionId) => !_disabledItems.Contains(actionId);

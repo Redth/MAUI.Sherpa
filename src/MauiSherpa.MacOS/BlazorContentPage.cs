@@ -80,7 +80,11 @@ public class BlazorContentPage : ContentPage
         _preferences = serviceProvider.GetRequiredService<IPreferences>();
         _formModalService = serviceProvider.GetRequiredService<IFormModalService>();
         _bridgeHolder = serviceProvider.GetRequiredService<MauiSherpa.Pages.Forms.HybridFormBridgeHolder>();
-        _toolbarService.RouteChanged += route => _currentRoute = route;
+        _toolbarService.RouteChanged += route =>
+        {
+            _currentRoute = route;
+            OnToolbarChanged();
+        };
         _xcodeDownloadAuthService.AuthStateChanged += OnXcodeDownloadAuthStateChanged;
 
         _splashService = serviceProvider.GetRequiredService<ISplashService>();
@@ -346,8 +350,8 @@ public class BlazorContentPage : ContentPage
 
     void ClearNativeSearchField()
     {
-        if (_hookedSearchField != null)
-            _hookedSearchField.StringValue = "";
+        if (_searchItem != null)
+            _searchItem.Text = "";
         _toolbarService.NotifySearchTextChanged("");
     }
 
@@ -383,32 +387,24 @@ public class BlazorContentPage : ContentPage
     // Toolbar caching: create items once, then show/hide natively
     bool _toolbarInitialized;
     bool _toolbarVisibilityApplied;
-    string _lastFilterSignature = "";
+    int _toolbarUpdatePending;
     Dictionary<string, ToolbarItem> _actionItemMap = new();
-    List<NSObject> _nativeMenuTargets = new();
-
-    // Superset signature for the initial build — includes all possible items
-    static readonly string SupersetSignature = "refresh,create,export,export-selected,cancel-selection,import,install-missing,save,reset,release-notes,|S|F|I";
+    readonly List<NSObject> _nativeFilterTargets = new();
+    readonly List<NSObject> _nativeIdentityTargets = new();
 
     void OnToolbarChanged()
     {
+        if (Interlocked.Exchange(ref _toolbarUpdatePending, 1) != 0)
+            return;
+
         Dispatcher.Dispatch(() =>
         {
-            var filterSignature = GetFilterSignature(_toolbarService.CurrentFilters);
-            if (_toolbarInitialized && !string.Equals(_lastFilterSignature, filterSignature, StringComparison.Ordinal))
-            {
-                _toolbarInitialized = false;
-                _toolbarVisibilityApplied = false;
-                _nativeIdentityMenu = null;
-                _nativeFilterMenu = null;
-                _nativePublishMenu = null;
-            }
+            Interlocked.Exchange(ref _toolbarUpdatePending, 0);
 
             if (!_toolbarInitialized)
             {
                 // First time: build with all possible items (superset)
                 _toolbarInitialized = true;
-                _lastFilterSignature = filterSignature;
                 FullRebuildToolbar();
             }
 
@@ -418,15 +414,6 @@ public class BlazorContentPage : ContentPage
             if (!TryUpdateToolbarVisibility())
                 ScheduleToolbarVisibilityRetry();
         });
-    }
-
-    static string GetFilterSignature(IReadOnlyList<ToolbarFilter> filters)
-    {
-        if (filters.Count == 0)
-            return "";
-
-        return string.Join("|", filters.Select(f =>
-            $"{f.Id}:{f.Label}:{f.SelectedIndex}:{string.Join('\u001f', f.Options)}"));
     }
 
     /// <summary>
@@ -455,7 +442,7 @@ public class BlazorContentPage : ContentPage
     }
 
     /// <summary>
-    /// Toggle native NSToolbarItem visibility and update action commands,
+    /// Toggle native NSToolbarItem visibility and update action state,
     /// search, and filter menus without triggering a full toolbar rebuild.
     /// </summary>
     void UpdateToolbarVisibility()
@@ -477,14 +464,16 @@ public class BlazorContentPage : ContentPage
                            XcodeDownloadRoutes.Contains(_currentRoute);
         bool hasPublishWizard = activeIds.Contains("publish-wizard");
 
-        // 1. Update action item visibility via MacOSToolbarItem.IsVisible API and commands
+        // Keep commands stable. The platform handler synchronizes labels and enabled
+        // state from these MAUI items in content-layout order, not dictionary order.
         foreach (var (actionId, toolbarItem) in _actionItemMap)
         {
             bool shouldShow = activeIds.Contains(actionId);
+            var action = _toolbarService.CurrentItems.FirstOrDefault(item => item.Id == actionId);
+            if (action != null)
+                toolbarItem.Text = action.Label;
+            toolbarItem.IsEnabled = shouldShow && _toolbarService.IsItemEnabled(actionId);
             MacOSToolbarItem.SetIsVisible(toolbarItem, shouldShow);
-            toolbarItem.Command = shouldShow
-                ? new Command(() => _toolbarService.InvokeToolbarItemClicked(actionId))
-                : null;
         }
 
         // 2. Toggle menu/search visibility via MacOSToolbarItem.IsVisible API
@@ -502,40 +491,7 @@ public class BlazorContentPage : ContentPage
         if (hasSearch && _searchItem != null)
         {
             _searchItem.Placeholder = _toolbarService.SearchPlaceholder ?? "";
-        }
-
-        // Update enabled state and labels for action items via native API.
-        // The shared superset assigns each item a default label, so adopt the
-        // label the current page registered — MAUI's toolbar handler does not
-        // propagate ToolbarItem.Text changes after the item is created.
-        var pageLabels = new Dictionary<string, string>();
-        foreach (var action in _toolbarService.CurrentItems)
-        {
-            if (!string.IsNullOrWhiteSpace(action.Label))
-                pageLabels[action.Id] = action.Label;
-        }
-
-        var enabledSelector = new ObjCRuntime.Selector("setEnabled:");
-        foreach (var nsItem in toolbar.Items)
-        {
-            var id = nsItem.Identifier;
-            if (id.StartsWith("MauiToolbarItem_"))
-            {
-                if (int.TryParse(id.Replace("MauiToolbarItem_", ""), out int idx) && idx < _actionItemMap.Count)
-                {
-                    var actionId = _actionItemMap.Keys.ElementAt(idx);
-                    if (nsItem.RespondsToSelector(enabledSelector))
-                        _objc_msgSend_bool(nsItem.Handle, enabledSelector.Handle, _toolbarService.IsItemEnabled(actionId));
-
-                    if (pageLabels.TryGetValue(actionId, out var label))
-                    {
-                        nsItem.Label = label;
-                        nsItem.PaletteLabel = label;
-                        nsItem.ToolTip = label;
-                    }
-
-                }
-            }
+            _searchItem.Text = _toolbarService.SearchText;
         }
 
         var releaseNotesItem = toolbar.Items.FirstOrDefault(item =>
@@ -559,10 +515,6 @@ public class BlazorContentPage : ContentPage
 
         // 6. Set custom Copilot icon on sidebar item (replaces SF Symbol)
         SetCopilotIcon(toolbar);
-
-        // 7. Re-hook native search field — upstream handler may have unsubscribed events
-        if (hasSearch)
-            Dispatcher.Dispatch(HookNativeSearchField);
     }
 
     void ConfigureReleaseNotesToolbarItem(NSToolbarItem toolbarItem)
@@ -654,9 +606,6 @@ public class BlazorContentPage : ContentPage
         }
     }
 
-    [System.Runtime.InteropServices.DllImport(ObjCRuntime.Constants.ObjectiveCLibrary, EntryPoint = "objc_msgSend")]
-    static extern void _objc_msgSend_bool(IntPtr receiver, IntPtr selector, bool arg1);
-
     void SetCopilotIcon(NSToolbar toolbar)
     {
         foreach (var nsItem in toolbar.Items)
@@ -708,8 +657,6 @@ public class BlazorContentPage : ContentPage
         var filters = _toolbarService.CurrentFilters;
         if (filters.Count == 0) return;
 
-        _nativeMenuTargets.Clear();
-
         var filterNative = _nativeFilterMenu;
         if (filterNative?.Menu == null) return;
 
@@ -718,6 +665,7 @@ public class BlazorContentPage : ContentPage
 
         var menu = filterNative.Menu;
         menu.RemoveAllItems();
+        _nativeFilterTargets.Clear();
 
         if (filters.Count == 1)
         {
@@ -736,7 +684,7 @@ public class BlazorContentPage : ContentPage
                     (fid, idx) => _toolbarService.NotifyFilterChanged(fid, idx));
                 optionItem.Target = target;
                 optionItem.Action = new ObjCRuntime.Selector("menuItemClicked:");
-                _nativeMenuTargets.Add(target);
+                _nativeFilterTargets.Add(target);
 
                 menu.AddItem(optionItem);
             }
@@ -764,7 +712,7 @@ public class BlazorContentPage : ContentPage
                     (fid, idx) => _toolbarService.NotifyFilterChanged(fid, idx));
                 optionItem.Target = target;
                 optionItem.Action = new ObjCRuntime.Selector("menuItemClicked:");
-                _nativeMenuTargets.Add(target);
+                _nativeFilterTargets.Add(target);
 
                 submenu.AddItem(optionItem);
             }
@@ -802,6 +750,7 @@ public class BlazorContentPage : ContentPage
         identityNative.Label = "Apple Developer Downloads";
 
         var newMenu = new NSMenu();
+        _nativeIdentityTargets.Clear();
         var accountItem = new NSMenuItem(isAuthenticated
             ? _xcodeDownloadAuthService.CurrentAppleId ?? "Signed in to Apple Developer"
             : "Not signed in")
@@ -820,7 +769,7 @@ public class BlazorContentPage : ContentPage
             });
             signOutItem.Target = signOutTarget;
             signOutItem.Action = new ObjCRuntime.Selector("menuItemClicked:");
-            _nativeMenuTargets.Add(signOutTarget);
+            _nativeIdentityTargets.Add(signOutTarget);
             newMenu.AddItem(signOutItem);
         }
         else
@@ -832,7 +781,7 @@ public class BlazorContentPage : ContentPage
             });
             signInItem.Target = signInTarget;
             signInItem.Action = new ObjCRuntime.Selector("menuItemClicked:");
-            _nativeMenuTargets.Add(signInTarget);
+            _nativeIdentityTargets.Add(signInTarget);
             newMenu.AddItem(signInItem);
         }
 
@@ -899,6 +848,7 @@ public class BlazorContentPage : ContentPage
         UpdateNativeIdentityLabel(identityNative, selectedName, "flame");
 
         var newMenu = new NSMenu { Title = selectedName };
+        _nativeIdentityTargets.Clear();
         if (identities.Count == 0)
         {
             newMenu.AddItem(new NSMenuItem("No Google service accounts configured")
@@ -924,7 +874,7 @@ public class BlazorContentPage : ContentPage
             });
             menuItem.Target = target;
             menuItem.Action = new ObjCRuntime.Selector("menuItemClicked:");
-            _nativeMenuTargets.Add(target);
+            _nativeIdentityTargets.Add(target);
 
             newMenu.AddItem(menuItem);
         }
@@ -938,7 +888,7 @@ public class BlazorContentPage : ContentPage
         });
         settingsItem.Target = settingsTarget;
         settingsItem.Action = new ObjCRuntime.Selector("menuItemClicked:");
-        _nativeMenuTargets.Add(settingsTarget);
+        _nativeIdentityTargets.Add(settingsTarget);
         newMenu.AddItem(settingsItem);
 
         identityNative.Menu = newMenu;
@@ -973,6 +923,7 @@ public class BlazorContentPage : ContentPage
         UpdateNativeIdentityLabel(identityNative, selected.Name, "apple.logo");
 
         var newMenu = new NSMenu { Title = selected.Name };
+        _nativeIdentityTargets.Clear();
         for (int i = 0; i < identities.Count; i++)
         {
             var identity = identities[i];
@@ -990,7 +941,7 @@ public class BlazorContentPage : ContentPage
             });
             menuItem.Target = target;
             menuItem.Action = new ObjCRuntime.Selector("menuItemClicked:");
-            _nativeMenuTargets.Add(target);
+            _nativeIdentityTargets.Add(target);
 
             newMenu.AddItem(menuItem);
         }
@@ -1004,7 +955,7 @@ public class BlazorContentPage : ContentPage
         });
         settingsItem.Target = settingsTarget;
         settingsItem.Action = new ObjCRuntime.Selector("menuItemClicked:");
-        _nativeMenuTargets.Add(settingsTarget);
+        _nativeIdentityTargets.Add(settingsTarget);
         newMenu.AddItem(settingsItem);
 
         identityNative.Menu = newMenu;
@@ -1045,6 +996,7 @@ public class BlazorContentPage : ContentPage
             _actionItemMap.Clear();
             _nativeIdentityMenu = null;
             _nativeFilterMenu = null;
+            _nativePublishMenu = null;
             _nativeReleaseNotesItem = null;
             _releaseNotesButton = null;
 
@@ -1139,14 +1091,6 @@ public class BlazorContentPage : ContentPage
             };
             _searchItem.TextChanged += (s, e) =>
                 _toolbarService.NotifySearchTextChanged(e.NewTextValue ?? "");
-
-            // WORKAROUND: The upstream ToolbarHandler's CleanupSearchItem unsubscribes
-            // from the native NSSearchField.Changed event on every RefreshToolbar call,
-            // but only re-subscribes when macOS inserts a new toolbar item. After the
-            // initial insertion, subsequent refreshes leave the native event disconnected.
-            // We work around this by finding the native NSSearchToolbarItem after toolbar
-            // setup and subscribing to its search field changes directly.
-            Dispatcher.Dispatch(() => Dispatcher.Dispatch(HookNativeSearchField));
 
             // Always create identity menu (hidden on non-Apple pages)
             _identityMenu = CreateAppleIdentityMenu() ?? new MacOSMenuToolbarItem
@@ -1269,58 +1213,6 @@ public class BlazorContentPage : ContentPage
             ToolbarItems.Clear();
             foreach (var ti in allToolbarItems)
                 ToolbarItems.Add(ti);
-    }
-
-    AppKit.NSSearchField? _hookedSearchField;
-    NSObject? _searchObserver;
-
-    void HookNativeSearchField()
-    {
-        var nsWindow = this.Window?.Handler?.PlatformView as AppKit.NSWindow;
-        var toolbar = nsWindow?.Toolbar;
-        if (toolbar == null || _searchItem == null)
-        {
-            Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(500), HookNativeSearchField);
-            return;
-        }
-
-        foreach (var nsItem in toolbar.Items)
-        {
-            if (nsItem is AppKit.NSSearchToolbarItem searchToolbarItem)
-            {
-                var sf = searchToolbarItem.SearchField;
-                // Already hooked to this exact field — skip
-                if (sf == _hookedSearchField && _searchObserver != null)
-                    return;
-
-                UnhookNativeSearchField();
-                _hookedSearchField = sf;
-                _searchObserver = NSNotificationCenter.DefaultCenter.AddObserver(
-                    NSTextField.TextDidChangeNotification,
-                    OnNativeSearchTextDidChange,
-                    _hookedSearchField);
-                return;
-            }
-        }
-
-        Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(500), HookNativeSearchField);
-    }
-
-    void UnhookNativeSearchField()
-    {
-        if (_searchObserver != null)
-        {
-            NSNotificationCenter.DefaultCenter.RemoveObserver(_searchObserver);
-            _searchObserver = null;
-        }
-        _hookedSearchField = null;
-    }
-
-    void OnNativeSearchTextDidChange(NSNotification notification)
-    {
-        if (notification.Object is not AppKit.NSSearchField sf) return;
-        var text = sf.StringValue ?? string.Empty;
-        _toolbarService.NotifySearchTextChanged(text);
     }
 
     private IReadOnlyList<AppleIdentity>? _cachedIdentities;
@@ -1453,7 +1345,6 @@ public class BlazorContentPage : ContentPage
     {
         base.OnDisappearing();
         _splashService.OnBlazorReady -= OnBlazorReady;
-        UnhookNativeSearchField();
     }
 }
 

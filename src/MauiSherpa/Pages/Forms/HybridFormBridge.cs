@@ -179,7 +179,7 @@ public class HybridFormBridge
         nfloat buttonHeight = 26;
         nfloat spacing = 6;
         nfloat rightEdge = containerWidth - 24;
-        nfloat y = Math.Max(4, (containerHeight - buttonHeight) / 2 + 3);
+        nfloat y = (nfloat)Math.Max(4, (containerHeight - buttonHeight) / 2 + 3);
 
         var symbolConfig = AppKit.NSImageSymbolConfiguration.Create(13f, AppKit.NSFontWeight.Medium);
 
