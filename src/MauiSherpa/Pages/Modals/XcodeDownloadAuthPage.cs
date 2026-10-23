@@ -116,6 +116,12 @@ public class XcodeDownloadAuthPage : WizardFormPage<bool>
         Dispatcher.Dispatch(async () =>
         {
             var cookieStore = WKWebsiteDataStore.DefaultDataStore.HttpCookieStore;
+
+            // If WebKit's persistent cookie store already has a valid Apple session (e.g. from a
+            // recent sign-in), try importing it before clearing short-lived cookies.
+            if (await TryCaptureWebKitCookiesFromStoreAsync(cookieStore, keyPrefix: "initial"))
+                return;
+
             await ClearShortLivedWebKitCookiesAsync(cookieStore);
 
             if (FormWebView?.Handler?.PlatformView is not NSView blazorNative)
@@ -255,77 +261,14 @@ public class XcodeDownloadAuthPage : WizardFormPage<bool>
         if (!_isWebSignInActive || _isEvaluatingCookies || _appleWebView == null || _onCookiesCaptured == null)
             return;
 
-        string? host = null;
-        bool isLoading = true;
-        Dispatcher.Dispatch(() =>
-        {
-            if (_appleWebView != null)
-            {
-                host = _appleWebView.Url?.Host;
-                isLoading = _appleWebView.IsLoading;
-            }
-        });
-
-        // Wait until Apple redirects off the sign-in/recovery hosts back to developer.apple.com or appstoreconnect.apple.com
-        if (isLoading || string.IsNullOrWhiteSpace(host))
-            return;
-
-        if (!host.EndsWith("developer.apple.com", StringComparison.OrdinalIgnoreCase)
-            && !host.EndsWith("appstoreconnect.apple.com", StringComparison.OrdinalIgnoreCase))
-        {
-            return;
-        }
+        // Called from Dispatcher.StartTimer and WKNavigationDelegate (both on the main thread).
+        var host = _appleWebView.Url?.Host ?? string.Empty;
 
         _isEvaluatingCookies = true;
         try
         {
             var cookieStore = WKWebsiteDataStore.DefaultDataStore.HttpCookieStore;
-            var nsCookies = await GetAllWebKitCookiesAsync(cookieStore);
-
-            var myAcInfo = nsCookies.FirstOrDefault(c =>
-                string.Equals(c.Name, "myacinfo", StringComparison.OrdinalIgnoreCase)
-                && !string.IsNullOrWhiteSpace(c.Value));
-
-            if (myAcInfo == null)
-                return;
-
-            var attempts = _triedMyAcInfoAttempts.GetValueOrDefault(myAcInfo.Value, 0);
-            if (attempts >= 3)
-                return;
-
-            _triedMyAcInfoAttempts[myAcInfo.Value] = attempts + 1;
-
-            var appleCookies = new List<AppleAuthCookie>();
-            foreach (var c in nsCookies)
-            {
-                if (string.IsNullOrWhiteSpace(c.Name) || string.IsNullOrWhiteSpace(c.Domain))
-                    continue;
-
-                if (!c.Domain.Contains("apple.com", StringComparison.OrdinalIgnoreCase))
-                    continue;
-
-                DateTime? expires = null;
-                if (c.ExpiresDate != null)
-                {
-                    var seconds = (long)c.ExpiresDate.SecondsSince1970;
-                    if (seconds > 0)
-                        expires = DateTimeOffset.FromUnixTimeSeconds(seconds).UtcDateTime;
-                }
-
-                appleCookies.Add(new AppleAuthCookie(
-                    Name: c.Name,
-                    Value: c.Value ?? string.Empty,
-                    Domain: c.Domain,
-                    Path: string.IsNullOrWhiteSpace(c.Path) ? "/" : c.Path,
-                    Expires: expires,
-                    Secure: c.IsSecure,
-                    HttpOnly: c.IsHttpOnly));
-            }
-
-            if (appleCookies.Count == 0)
-                return;
-
-            var accepted = await _onCookiesCaptured(appleCookies);
+            var accepted = await TryCaptureWebKitCookiesFromStoreAsync(cookieStore, keyPrefix: host);
             if (accepted)
                 StopWebSignIn();
         }
@@ -333,6 +276,60 @@ public class XcodeDownloadAuthPage : WizardFormPage<bool>
         {
             _isEvaluatingCookies = false;
         }
+    }
+
+    private async Task<bool> TryCaptureWebKitCookiesFromStoreAsync(WKHttpCookieStore cookieStore, string keyPrefix)
+    {
+        if (_onCookiesCaptured == null)
+            return false;
+
+        var nsCookies = await GetAllWebKitCookiesAsync(cookieStore);
+
+        var myAcInfo = nsCookies.FirstOrDefault(c =>
+            string.Equals(c.Name, "myacinfo", StringComparison.OrdinalIgnoreCase)
+            && !string.IsNullOrWhiteSpace(c.Value));
+
+        if (myAcInfo == null)
+            return false;
+
+        var attemptKey = $"{keyPrefix}|{myAcInfo.Value}";
+        var attempts = _triedMyAcInfoAttempts.GetValueOrDefault(attemptKey, 0);
+        if (attempts >= 2)
+            return false;
+
+        _triedMyAcInfoAttempts[attemptKey] = attempts + 1;
+
+        var appleCookies = new List<AppleAuthCookie>();
+        foreach (var c in nsCookies)
+        {
+            if (string.IsNullOrWhiteSpace(c.Name) || string.IsNullOrWhiteSpace(c.Domain))
+                continue;
+
+            if (!c.Domain.Contains("apple.com", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            DateTime? expires = null;
+            if (c.ExpiresDate != null)
+            {
+                var seconds = (long)c.ExpiresDate.SecondsSince1970;
+                if (seconds > 0)
+                    expires = DateTimeOffset.FromUnixTimeSeconds(seconds).UtcDateTime;
+            }
+
+            appleCookies.Add(new AppleAuthCookie(
+                Name: c.Name,
+                Value: c.Value ?? string.Empty,
+                Domain: c.Domain,
+                Path: string.IsNullOrWhiteSpace(c.Path) ? "/" : c.Path,
+                Expires: expires,
+                Secure: c.IsSecure,
+                HttpOnly: c.IsHttpOnly));
+        }
+
+        if (appleCookies.Count == 0)
+            return false;
+
+        return await _onCookiesCaptured(appleCookies);
     }
 
     private sealed class AppleSignInWebUIDelegate : WKUIDelegate

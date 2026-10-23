@@ -272,6 +272,27 @@ public class AppleDownloadAuthServiceTests
     }
 
     [Fact]
+    public void CreateCookie_WhenDomainIsBareAppleDotCom_PrependsDotSoSubdomainsReceiveIt()
+    {
+        var myAcInfo = new AppleAuthCookie(
+            Name: "myacinfo",
+            Value: "session-token",
+            Domain: "apple.com",
+            Path: "/",
+            Expires: null,
+            Secure: true,
+            HttpOnly: true);
+
+        var container = new CookieContainer();
+        container.Add(AppleDownloadAuthService.CreateCookie(myAcInfo));
+
+        container.GetCookies(new Uri("https://appstoreconnect.apple.com/olympus/v1/session"))["myacinfo"]
+            .Should().NotBeNull();
+        container.GetCookies(new Uri("https://developer.apple.com/services-account/QH65B2/downloadws/listDownloads.action"))["myacinfo"]
+            .Should().NotBeNull();
+    }
+
+    [Fact]
     public void ExtractTrustCookies_PreservesTrustCookiesWithFallbackExpiration()
     {
         var now = new DateTime(2026, 10, 23, 15, 0, 0, DateTimeKind.Utc);

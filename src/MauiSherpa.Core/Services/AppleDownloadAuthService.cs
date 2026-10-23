@@ -1529,11 +1529,21 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
             value = $"\"{value}\"";
         }
 
+        var domain = string.IsNullOrWhiteSpace(cookieDetail.Domain)
+            ? ".apple.com"
+            : cookieDetail.Domain.Trim();
+
+        // In .NET's CookieContainer, new Cookie(..., "apple.com") without a leading dot is treated
+        // as host-only (m_domain_implicit = true) and will NOT be sent to subdomains such as
+        // appstoreconnect.apple.com or developer.apple.com.
+        if (string.Equals(domain, "apple.com", StringComparison.OrdinalIgnoreCase))
+            domain = ".apple.com";
+
         var cookie = new Cookie(
             cookieDetail.Name,
             value,
             string.IsNullOrWhiteSpace(cookieDetail.Path) ? "/" : cookieDetail.Path,
-            string.IsNullOrWhiteSpace(cookieDetail.Domain) ? ".apple.com" : cookieDetail.Domain)
+            domain)
         {
             Secure = cookieDetail.Secure,
             HttpOnly = cookieDetail.HttpOnly
