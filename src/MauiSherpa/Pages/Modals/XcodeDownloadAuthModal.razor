@@ -287,7 +287,11 @@
             return;
 
         if (bridge.Parameters.TryGetValue("SupportsWebSignIn", out var sws) && sws is true)
+        {
             supportsWebSignIn = true;
+            currentStep = AuthStep.WebSignIn;
+            previousStepBeforeWebSignIn = AuthStep.Credentials;
+        }
 
         if (string.IsNullOrWhiteSpace(authAppleId) && !string.IsNullOrWhiteSpace(AuthService.CurrentAppleId))
             authAppleId = AuthService.CurrentAppleId;
@@ -392,6 +396,12 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (firstRender && supportsWebSignIn && currentStep == AuthStep.WebSignIn)
+        {
+            await OpenWebSignInAsync();
+            return;
+        }
+
         if (shouldFocusFirstOtpDigit && currentStep == AuthStep.TwoFactor)
         {
             shouldFocusFirstOtpDigit = false;
@@ -526,7 +536,7 @@
         bridge.PreventClose = isAuthenticating;
         bridge.PreventSubmitClose = true;
         bridge.SetWizardState(
-            showBack: currentStep is AuthStep.TwoFactor or AuthStep.WebSignIn,
+            showBack: currentStep == AuthStep.TwoFactor,
             showNext: false,
             showSubmit: currentStep != AuthStep.WebSignIn,
             canProceed: CanSubmitCurrentStep,
@@ -540,10 +550,10 @@
             });
     }
 
-    private Task OnBackRequested()
+    private async Task OnBackRequested()
     {
         if (isAuthenticating)
-            return Task.CompletedTask;
+            return;
 
         if (currentStep == AuthStep.WebSignIn)
         {
@@ -553,19 +563,18 @@
 
             currentStep = previousStepBeforeWebSignIn;
             UpdateWizardState();
-            StateHasChanged();
-            return Task.CompletedTask;
+            await InvokeAsync(StateHasChanged);
+            return;
         }
 
         if (currentStep != AuthStep.TwoFactor)
-            return Task.CompletedTask;
+            return;
 
         currentStep = AuthStep.Credentials;
         ResetOtp();
         authError = null;
         UpdateWizardState();
-        StateHasChanged();
-        return Task.CompletedTask;
+        await InvokeAsync(StateHasChanged);
     }
 
     private async Task OnSubmitRequested()

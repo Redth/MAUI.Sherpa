@@ -15,8 +15,13 @@ namespace MauiSherpa.Pages.Modals;
 
 public class XcodeDownloadAuthPage : WizardFormPage<bool>
 {
+#if MACOSAPP
+    private const int DefaultWidth = 600;
+    private const int DefaultHeight = 640;
+#else
     private const int DefaultWidth = 560;
     private const int DefaultHeight = 540;
+#endif
     private const string WebSignInEntryUrl = "https://developer.apple.com/account";
 
     protected override string FormTitle => "Apple Developer Sign In";
@@ -80,8 +85,8 @@ public class XcodeDownloadAuthPage : WizardFormPage<bool>
 
             TearDownWebViewOnMainThread(restoreSheetSize: false);
 
-            MacOSPage.SetModalSheetWidth(this, 620);
-            MacOSPage.SetModalSheetHeight(this, 660);
+            MacOSPage.SetModalSheetWidth(this, DefaultWidth);
+            MacOSPage.SetModalSheetHeight(this, DefaultHeight);
 
             var containerBounds = blazorNative.Frame;
             nfloat barHeight = 34;
@@ -105,7 +110,7 @@ public class XcodeDownloadAuthPage : WizardFormPage<bool>
             };
             topBar.Layer!.BackgroundColor = NSColor.ControlBackground.CGColor;
 
-            _urlStatusLabel = new NSTextField(new CGRect(14, 7, Math.Max(120, containerBounds.Width - 150), 18))
+            _urlStatusLabel = new NSTextField(new CGRect(14, 7, Math.Max(120, containerBounds.Width - 260), 18))
             {
                 Editable = false,
                 Bordered = false,
@@ -117,7 +122,17 @@ public class XcodeDownloadAuthPage : WizardFormPage<bool>
                 AutoresizingMask = NSViewResizingMask.WidthSizable,
             };
 
-            var reloadButton = NSButton.CreateButton("Reload Sign-In", () =>
+            var legacyFormButton = NSButton.CreateButton("Password Form", () =>
+            {
+                _ = Bridge.RequestBackAsync();
+            });
+            legacyFormButton.BezelStyle = NSBezelStyle.AccessoryBarAction;
+            legacyFormButton.ControlSize = NSControlSize.Small;
+            legacyFormButton.Font = NSFont.SystemFontOfSize(11f);
+            legacyFormButton.Frame = new CGRect(containerBounds.Width - 216, 5, 108, 24);
+            legacyFormButton.AutoresizingMask = NSViewResizingMask.MinXMargin;
+
+            var reloadButton = NSButton.CreateButton("Reload", () =>
             {
                 _triedMyAcInfoAttempts.Clear();
                 _appleWebView?.LoadRequest(new NSUrlRequest(new NSUrl(WebSignInEntryUrl)));
@@ -125,10 +140,11 @@ public class XcodeDownloadAuthPage : WizardFormPage<bool>
             reloadButton.BezelStyle = NSBezelStyle.AccessoryBarAction;
             reloadButton.ControlSize = NSControlSize.Small;
             reloadButton.Font = NSFont.SystemFontOfSize(11f);
-            reloadButton.Frame = new CGRect(containerBounds.Width - 124, 5, 112, 24);
+            reloadButton.Frame = new CGRect(containerBounds.Width - 100, 5, 88, 24);
             reloadButton.AutoresizingMask = NSViewResizingMask.MinXMargin;
 
             topBar.AddSubview(_urlStatusLabel);
+            topBar.AddSubview(legacyFormButton);
             topBar.AddSubview(reloadButton);
 
             var config = new WKWebViewConfiguration
