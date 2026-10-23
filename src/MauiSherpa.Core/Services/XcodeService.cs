@@ -313,7 +313,10 @@ public class XcodeService : IXcodeService
 
             // Step 1: POST to listDownloads.action to establish ADCDownloadAuth cookie
             var listRequest = new HttpRequestMessage(HttpMethod.Post,
-                "https://developer.apple.com/services-account/QH65B2/downloadws/listDownloads.action");
+                "https://developer.apple.com/services-account/QH65B2/downloadws/listDownloads.action")
+            {
+                Content = new StringContent(string.Empty)
+            };
             listRequest.Headers.Add("Accept", "application/json");
             try
             {
@@ -338,7 +341,7 @@ public class XcodeService : IXcodeService
                 UseCookies = false
             };
             using var redirectClient = new HttpClient(noRedirectHandler);
-            redirectClient.DefaultRequestHeaders.Add("User-Agent", "MauiSherpa");
+            redirectClient.DefaultRequestHeaders.UserAgent.ParseAdd(AppleDownloadAuthService.DefaultUserAgent);
             redirectClient.Timeout = TimeSpan.FromHours(4);
 
             // Support resume if partial file exists

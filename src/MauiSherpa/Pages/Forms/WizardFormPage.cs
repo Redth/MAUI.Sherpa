@@ -35,6 +35,10 @@ public abstract class WizardFormPage<TResult> : ContentPage, IFormPage<TResult>,
 
     public HybridFormBridge Bridge => _bridge;
 
+    protected View? FormWebView => _webView;
+
+    protected virtual void ConfigureBridge(HybridFormBridge bridge) { }
+
     public WizardFormPage(HybridFormBridgeHolder bridgeHolder)
     {
         _bridgeHolder = bridgeHolder;
@@ -57,6 +61,7 @@ public abstract class WizardFormPage<TResult> : ContentPage, IFormPage<TResult>,
 
     private void BuildPage()
     {
+        ConfigureBridge(_bridge);
         _bridgeHolder.Push(_bridge);
 
         // Listen for wizard state changes from Blazor
@@ -238,6 +243,7 @@ public abstract class WizardFormPage<TResult> : ContentPage, IFormPage<TResult>,
             if (_backButton != null) _backButton.IsVisible = _bridge.ShowBack;
             if (_primaryButton != null)
             {
+                _primaryButton.IsVisible = _bridge.ShowSubmit || _bridge.ShowNext;
                 _primaryButton.IsEnabled = _bridge.CanProceed && !_bridge.IsSubmitting;
 
                 var primaryText = _isOnLastStep

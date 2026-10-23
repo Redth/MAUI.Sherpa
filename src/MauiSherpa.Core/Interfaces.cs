@@ -1333,6 +1333,12 @@ public interface IAppleDownloadAuthService
     Task<AppleAuthResult> ImportFastlaneSessionAsync(string appleId, string cookieFilePath);
 
     /// <summary>
+    /// Imports browser or WebView cookies from an Apple sign-in session and validates them
+    /// against Apple's developer session endpoints.
+    /// </summary>
+    Task<AppleAuthResult> ImportCookiesAsync(string? appleId, IReadOnlyList<AppleAuthCookie> cookies);
+
+    /// <summary>
     /// Fired when authentication state changes
     /// </summary>
     event Action? AuthStateChanged;

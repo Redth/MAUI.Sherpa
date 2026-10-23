@@ -33,14 +33,20 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
 
     // Apple auth endpoints
     private const string ServiceKeyDiscoveryUrl = "https://appstoreconnect.apple.com/logout";
+    private const string SignInUrl = "https://idmsa.apple.com/appleauth/auth/signin";
     private const string FederateUrl = "https://idmsa.apple.com/appleauth/auth/federate";
     private const string SignInInitUrl = "https://idmsa.apple.com/appleauth/auth/signin/init";
     private const string SignInCompleteUrl = "https://idmsa.apple.com/appleauth/auth/signin/complete?isRememberMeEnabled=false";
     private const string AuthUrl = "https://idmsa.apple.com/appleauth/auth";
     private const string TrustUrl = "https://idmsa.apple.com/appleauth/auth/2sv/trust";
     private const string OlympusSessionUrl = "https://appstoreconnect.apple.com/olympus/v1/session";
+    private const string DeveloperListDownloadsUrl = "https://developer.apple.com/services-account/QH65B2/downloadws/listDownloads.action";
+
+    public const string DefaultUserAgent =
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15";
 
     private const string SecureStorageSessionKey = "apple_download_session";
+    private const string SecureStorageTrustCookiesKey = "apple_download_trust_cookies";
     private const string SecureStorageAppleIdKey = "apple_download_appleid";
 
     // RFC 5054 2048-bit SRP group
@@ -67,7 +73,8 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
 
     public AppleDownloadAuthService(
         ILoggingService logger,
-        ISecureStorageService secureStorage)
+        ISecureStorageService secureStorage,
+        HttpMessageHandler? httpHandler = null)
     {
         _logger = logger;
         _secureStorage = secureStorage;
@@ -75,15 +82,15 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
 
         // Use SocketsHttpHandler explicitly — the platform default (NSUrlSessionHandler
         // on macOS) gets a 403 from Apple's Olympus endpoint.
-        var handler = new SocketsHttpHandler
+        var handler = httpHandler ?? new SocketsHttpHandler
         {
             CookieContainer = _cookieContainer,
             AllowAutoRedirect = true,
             UseCookies = true
         };
         _httpClient = new HttpClient(handler);
-        _httpClient.DefaultRequestHeaders.Add("User-Agent", "MauiSherpa");
-        _httpClient.DefaultRequestHeaders.Add("Accept", "application/json");
+        _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd(DefaultUserAgent);
+        _httpClient.DefaultRequestHeaders.Add("Accept", "application/json, text/javascript, */*; q=0.01");
 
         // Try to restore session from secure storage
         _ = TryRestoreSessionAsync();
@@ -91,6 +98,7 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
 
     public async Task<AppleAuthResult> AuthenticateAsync(string appleId, string password)
     {
+        appleId = appleId.Trim();
         _pendingAppleId = appleId;
 
         try
@@ -103,33 +111,51 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
             // Step 2: Compute SRP client ephemeral
             var (aPublicBase64, aPrivate) = ComputeSrpInit();
 
-            // Step 3: Federate and mint hashcash
-            var hashcashToken = await FederateAndMintHashcashAsync(appleId, serviceKey);
+            // Step 3: Initialize sign-in widget session and mint hashcash
+            var hashcashToken = await FetchAndMintHashcashAsync(appleId, serviceKey);
+            if (string.IsNullOrEmpty(hashcashToken))
+            {
+                _logger.LogError("Refusing to submit SRP complete without a hashcash token (missing X-Apple-HC triggers Apple account lock).");
+                return new AppleAuthResult(false, false,
+                    ErrorMessage: "Unable to obtain Apple's sign-in security challenge. Please try again or use Apple Web Sign-In.");
+            }
+
+            var signInReferer = $"{SignInUrl}?widgetKey={Uri.EscapeDataString(serviceKey)}";
 
             // Step 4: Send SRP init
             var initRequest = new HttpRequestMessage(HttpMethod.Post, SignInInitUrl);
-            initRequest.Headers.Add("X-Apple-Widget-Key", serviceKey);
-            initRequest.Headers.Add("X-Requested-With", "XMLHttpRequest");
+            AddAppleWidgetHeaders(initRequest, serviceKey, signInReferer);
             initRequest.Content = new StringContent(
                 JsonSerializer.Serialize(new { a = aPublicBase64, accountName = appleId, protocols = new[] { "s2k", "s2k_fo" } }),
                 Encoding.UTF8, "application/json");
 
             var initResponse = await _httpClient.SendAsync(initRequest);
+            UpdatePendingSessionHeaders(initResponse);
+            var initJson = await initResponse.Content.ReadAsStringAsync();
+
             if (!initResponse.IsSuccessStatusCode)
             {
-                var error = await initResponse.Content.ReadAsStringAsync();
-                _logger.LogError($"SRP init failed: {error}");
+                _logger.LogError($"SRP init failed: {initJson}");
                 return new AppleAuthResult(false, false,
-                    ErrorMessage: ExtractAppleErrorMessage(error) ?? "Authentication failed: invalid Apple ID",
-                    IsAccountLocked: IsAccountLockedResponse(error));
+                    ErrorMessage: ExtractAppleErrorMessage(initJson) ?? "Authentication failed: invalid Apple ID",
+                    IsAccountLocked: IsAccountLockedResponse(initJson));
             }
 
-            var initJson = await initResponse.Content.ReadAsStringAsync();
             using var initDoc = JsonDocument.Parse(initJson);
+            if (initDoc.RootElement.TryGetProperty("serviceErrors", out _)
+                || !initDoc.RootElement.TryGetProperty("salt", out var saltProp)
+                || !initDoc.RootElement.TryGetProperty("b", out var serverBProp)
+                || !initDoc.RootElement.TryGetProperty("iteration", out var iterationProp))
+            {
+                _logger.LogError($"SRP init returned unexpected body: {initJson}");
+                return new AppleAuthResult(false, false,
+                    ErrorMessage: ExtractAppleErrorMessage(initJson) ?? "Authentication failed: invalid Apple ID",
+                    IsAccountLocked: IsAccountLockedResponse(initJson));
+            }
 
-            var salt = initDoc.RootElement.GetProperty("salt").GetString()!;
-            var serverB = initDoc.RootElement.GetProperty("b").GetString()!;
-            var iterations = initDoc.RootElement.GetProperty("iteration").GetInt32();
+            var salt = saltProp.GetString()!;
+            var serverB = serverBProp.GetString()!;
+            var iterations = iterationProp.GetInt32();
             var protocol = initDoc.RootElement.TryGetProperty("protocol", out var proto) ? proto.GetString() ?? "s2k" : "s2k";
             var cValue = initDoc.RootElement.TryGetProperty("c", out var cProp) ? cProp.GetString() : null;
 
@@ -138,10 +164,8 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
 
             // Step 6: Send SRP complete with hashcash
             var completeRequest = new HttpRequestMessage(HttpMethod.Post, SignInCompleteUrl);
-            completeRequest.Headers.Add("X-Apple-Widget-Key", serviceKey);
-            completeRequest.Headers.Add("X-Requested-With", "XMLHttpRequest");
-            if (hashcashToken != null)
-                completeRequest.Headers.Add("X-Apple-HC", hashcashToken);
+            AddAppleWidgetHeaders(completeRequest, serviceKey, signInReferer);
+            completeRequest.Headers.Add("X-Apple-HC", hashcashToken);
 
             var completePayload = new Dictionary<string, object>
             {
@@ -157,6 +181,7 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
                 Encoding.UTF8, "application/json");
 
             var completeResponse = await _httpClient.SendAsync(completeRequest);
+            UpdatePendingSessionHeaders(completeResponse);
 
             // Check for 2FA required (409 Conflict)
             if (completeResponse.StatusCode == HttpStatusCode.Conflict)
@@ -165,10 +190,6 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
 
                 // Save session headers needed for 2FA requests
                 _pendingServiceKey = serviceKey;
-                _pendingSessionId = completeResponse.Headers.TryGetValues("X-Apple-ID-Session-Id", out var sidValues)
-                    ? sidValues.FirstOrDefault() : null;
-                _pendingScnt = completeResponse.Headers.TryGetValues("scnt", out var scntValues)
-                    ? scntValues.FirstOrDefault() : null;
                 _logger.LogInformation($"Session headers - SessionId: {(_pendingSessionId != null ? "present" : "MISSING")}, scnt: {(_pendingScnt != null ? "present" : "MISSING")}");
 
                 var authOptions = await GetAuthOptionsInternalAsync(serviceKey);
@@ -250,7 +271,9 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
             {
                 var error = await response.Content.ReadAsStringAsync();
                 _logger.LogError($"2FA verification failed: {error}");
-                return new AppleAuthResult(false, false, ErrorMessage: "Invalid security code");
+                return new AppleAuthResult(false, false,
+                    ErrorMessage: ExtractAppleErrorMessage(error) ?? "Invalid security code",
+                    IsAccountLocked: IsAccountLockedResponse(error));
             }
 
             // Trust this session
@@ -353,7 +376,7 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
             UseCookies = true
         };
         var client = new HttpClient(handler);
-        client.DefaultRequestHeaders.Add("User-Agent", "MauiSherpa");
+        client.DefaultRequestHeaders.UserAgent.ParseAdd(DefaultUserAgent);
         return client;
     }
 
@@ -366,7 +389,8 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
         _pendingScnt = null;
         _pendingServiceKey = null;
 
-        await ClearPersistedSessionAsync();
+        ExpireAllCookies();
+        await ClearPersistedSessionAsync(clearTrustAndAppleId: true);
 
         AuthStateChanged?.Invoke();
         _logger.LogInformation("Signed out of Apple Developer");
@@ -418,6 +442,31 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
             if (cookies.Count == 0)
                 return new AppleAuthResult(false, false, ErrorMessage: "No usable cookies were found in the fastlane session file.");
 
+            var result = await ImportCookiesAsync(appleId, cookies);
+            if (!result.Success)
+            {
+                return new AppleAuthResult(false, false, ErrorMessage:
+                    "Apple did not accept the imported fastlane session. It may have expired — run 'fastlane spaceauth' again and retry the import.");
+            }
+
+            _logger.LogInformation($"Imported fastlane session for {result.Session?.AppleId ?? appleId}");
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Failed to import fastlane session: {ex.Message}", ex);
+            return new AppleAuthResult(false, false, ErrorMessage: $"Failed to import fastlane session: {ex.Message}");
+        }
+    }
+
+    public async Task<AppleAuthResult> ImportCookiesAsync(string? appleId, IReadOnlyList<AppleAuthCookie> cookies)
+    {
+        try
+        {
+            if (cookies == null || cookies.Count == 0)
+                return new AppleAuthResult(false, false, ErrorMessage: "No usable Apple session cookies were provided.");
+
+            var addedCount = 0;
             foreach (var cookieDetail in cookies)
             {
                 if (cookieDetail.Expires is { } expires && expires <= DateTime.UtcNow)
@@ -426,32 +475,50 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
                 try
                 {
                     _cookieContainer.Add(CreateCookie(cookieDetail));
+                    addedCount++;
                 }
                 catch (CookieException ex)
                 {
-                    _logger.LogWarning($"Skipped invalid fastlane cookie {cookieDetail.Name}@{cookieDetail.Domain}: {ex.Message}");
+                    _logger.LogWarning($"Skipped invalid Apple cookie {cookieDetail.Name}@{cookieDetail.Domain}: {ex.Message}");
                 }
             }
 
-            var serviceKey = await GetServiceKeyAsync();
-            var session = await EstablishSessionAsync(appleId, serviceKey);
+            if (addedCount == 0)
+                return new AppleAuthResult(false, false, ErrorMessage: "All provided Apple session cookies were expired or invalid.");
+
+            string? serviceKey = null;
+            try
+            {
+                serviceKey = await GetServiceKeyAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($"Service key lookup during cookie import failed (continuing): {ex.Message}");
+            }
+
+            var candidateAppleId = !string.IsNullOrWhiteSpace(appleId)
+                ? appleId.Trim()
+                : _pendingAppleId;
+
+            var session = await EstablishSessionAsync(candidateAppleId, serviceKey);
             if (session == null)
             {
                 return new AppleAuthResult(false, false, ErrorMessage:
-                    "Apple did not accept the imported fastlane session. It may have expired — run 'fastlane spaceauth' again and retry the import.");
+                    "Apple did not accept the session cookies. Please complete sign-in and try again.");
             }
 
             _session = session;
+            _pendingAppleId = session.AppleId;
             await PersistSessionAsync(session);
             AuthStateChanged?.Invoke();
-            _logger.LogInformation($"Imported fastlane session for {appleId}");
+            _logger.LogInformation($"Established Apple session from imported cookies for {session.AppleId}");
 
             return new AppleAuthResult(true, false, Session: session);
         }
         catch (Exception ex)
         {
-            _logger.LogError($"Failed to import fastlane session: {ex.Message}", ex);
-            return new AppleAuthResult(false, false, ErrorMessage: $"Failed to import fastlane session: {ex.Message}");
+            _logger.LogError($"Failed to import Apple cookies: {ex.Message}", ex);
+            return new AppleAuthResult(false, false, ErrorMessage: $"Failed to import Apple session: {ex.Message}");
         }
     }
 
@@ -649,49 +716,104 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
 
     // ── Hashcash Implementation ─────────────────────────────────────────
 
-    private async Task<string?> FederateAndMintHashcashAsync(string accountName, string serviceKey)
+    private async Task<string?> FetchAndMintHashcashAsync(string accountName, string serviceKey)
     {
+        // Both XcodesLoginKit (URLRequest.federate) and fastlane/spaceship (fetch_hashcash)
+        // fetch the hashcash challenge via GET /appleauth/auth/signin?widgetKey={serviceKey},
+        // which also initializes the idmsa.apple.com sign-in widget session cookies (aasp, dslang, site).
         try
         {
-            var request = new HttpRequestMessage(HttpMethod.Post, FederateUrl);
-            request.Headers.Add("X-Apple-Widget-Key", serviceKey);
-            request.Headers.Add("X-Requested-With", "XMLHttpRequest");
-            request.Content = new StringContent(
-                JsonSerializer.Serialize(new { accountName }),
-                Encoding.UTF8, "application/json");
+            var signInUrlWithKey = $"{SignInUrl}?widgetKey={Uri.EscapeDataString(serviceKey)}";
+            using var signInRequest = new HttpRequestMessage(HttpMethod.Get, signInUrlWithKey);
+            signInRequest.Headers.Add("X-Apple-Widget-Key", serviceKey);
 
-            var response = await _httpClient.SendAsync(request);
+            using var signInResponse = await _httpClient.SendAsync(signInRequest);
+            UpdatePendingSessionHeaders(signInResponse);
 
-            // Extract hashcash parameters from response headers
-            string? hcBitsStr = null;
-            string? hcChallenge = null;
-
-            if (response.Headers.TryGetValues("X-Apple-HC-Bits", out var bitsValues))
-                hcBitsStr = bitsValues.FirstOrDefault();
-            if (response.Headers.TryGetValues("X-Apple-HC-Challenge", out var challengeValues))
-                hcChallenge = challengeValues.FirstOrDefault();
-
-            if (hcBitsStr == null || hcChallenge == null)
-            {
-                _logger.LogWarning("No hashcash challenge received from federate endpoint");
-                return null;
-            }
-
-            if (!int.TryParse(hcBitsStr, out var hcBits))
-            {
-                _logger.LogWarning($"Invalid hashcash bits value: {hcBitsStr}");
-                return null;
-            }
-
-            _logger.LogInformation($"Minting hashcash: {hcBits} bits, challenge: {hcChallenge}");
-            var token = MintHashcash(hcBits, hcChallenge);
-            _logger.LogInformation($"Hashcash minted successfully");
-            return token;
+            if (TryExtractAndMintHashcash(signInResponse, out var token))
+                return token;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning($"Federate/hashcash failed (continuing without): {ex.Message}");
-            return null;
+            _logger.LogWarning($"GET signin hashcash request failed: {ex.Message}");
+        }
+
+        // Fallback: POST /appleauth/auth/federate with rememberMe=true
+        try
+        {
+            var signInReferer = $"{SignInUrl}?widgetKey={Uri.EscapeDataString(serviceKey)}";
+            using var federateRequest = new HttpRequestMessage(HttpMethod.Post, FederateUrl);
+            AddAppleWidgetHeaders(federateRequest, serviceKey, signInReferer);
+            federateRequest.Content = new StringContent(
+                JsonSerializer.Serialize(new { accountName, rememberMe = true }),
+                Encoding.UTF8, "application/json");
+
+            using var federateResponse = await _httpClient.SendAsync(federateRequest);
+            UpdatePendingSessionHeaders(federateResponse);
+
+            if (TryExtractAndMintHashcash(federateResponse, out var token))
+                return token;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning($"Federate hashcash fallback failed: {ex.Message}");
+        }
+
+        return null;
+    }
+
+    private bool TryExtractAndMintHashcash(HttpResponseMessage response, out string? token)
+    {
+        token = null;
+        string? hcBitsStr = null;
+        string? hcChallenge = null;
+
+        if (response.Headers.TryGetValues("X-Apple-HC-Bits", out var bitsValues))
+            hcBitsStr = bitsValues.FirstOrDefault();
+        if (response.Headers.TryGetValues("X-Apple-HC-Challenge", out var challengeValues))
+            hcChallenge = challengeValues.FirstOrDefault();
+
+        if (string.IsNullOrWhiteSpace(hcBitsStr) || string.IsNullOrWhiteSpace(hcChallenge))
+            return false;
+
+        if (!int.TryParse(hcBitsStr, out var hcBits) || hcBits <= 0 || hcBits > 32)
+        {
+            _logger.LogWarning($"Invalid hashcash bits value: {hcBitsStr}");
+            return false;
+        }
+
+        _logger.LogInformation($"Minting hashcash: {hcBits} bits, challenge: {hcChallenge}");
+        token = MintHashcash(hcBits, hcChallenge);
+        _logger.LogInformation("Hashcash minted successfully");
+        return true;
+    }
+
+    private void AddAppleWidgetHeaders(HttpRequestMessage request, string serviceKey, string referer)
+    {
+        request.Headers.Add("X-Apple-Widget-Key", serviceKey);
+        request.Headers.Add("X-Requested-With", "XMLHttpRequest");
+        request.Headers.Add("Origin", "https://idmsa.apple.com");
+        request.Headers.Referrer = new Uri(referer);
+        if (!string.IsNullOrEmpty(_pendingSessionId))
+            request.Headers.Add("X-Apple-ID-Session-Id", _pendingSessionId);
+        if (!string.IsNullOrEmpty(_pendingScnt))
+            request.Headers.Add("scnt", _pendingScnt);
+    }
+
+    private void UpdatePendingSessionHeaders(HttpResponseMessage response)
+    {
+        if (response.Headers.TryGetValues("X-Apple-ID-Session-Id", out var sidValues))
+        {
+            var sid = sidValues.FirstOrDefault();
+            if (!string.IsNullOrEmpty(sid))
+                _pendingSessionId = sid;
+        }
+
+        if (response.Headers.TryGetValues("scnt", out var scntValues))
+        {
+            var scnt = scntValues.FirstOrDefault();
+            if (!string.IsNullOrEmpty(scnt))
+                _pendingScnt = scnt;
         }
     }
 
@@ -758,20 +880,44 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
 
     /// <summary>
     /// Extracts Apple's human-readable "message" field from an error response body
-    /// (e.g. account locked, too many attempts), so the UI can surface the real
-    /// reason instead of a generic "invalid password" message.
+    /// (e.g. serviceErrors[0].message for account locked or invalid credentials), so the UI
+    /// can surface the real reason instead of a generic "invalid password" message.
     /// </summary>
-    private static string? ExtractAppleErrorMessage(string responseBody)
+    internal static string? ExtractAppleErrorMessage(string? responseBody)
     {
+        if (string.IsNullOrWhiteSpace(responseBody))
+            return null;
+
         try
         {
             using var doc = JsonDocument.Parse(responseBody);
-            if (doc.RootElement.TryGetProperty("message", out var messageProp))
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object)
+                return null;
+
+            foreach (var arrayName in new[] { "serviceErrors", "service_errors", "validationErrors", "errors" })
             {
-                var message = messageProp.GetString();
-                if (!string.IsNullOrWhiteSpace(message))
-                    return message;
+                if (root.TryGetProperty(arrayName, out var errorsArray) && errorsArray.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var item in errorsArray.EnumerateArray())
+                    {
+                        if (item.ValueKind != JsonValueKind.Object)
+                            continue;
+
+                        var nestedMessage = TryGetNonEmptyString(item, "message")
+                            ?? TryGetNonEmptyString(item, "description")
+                            ?? TryGetNonEmptyString(item, "title");
+                        if (nestedMessage != null)
+                            return NormalizeAppleMessage(nestedMessage);
+                    }
+                }
             }
+
+            var directMessage = TryGetNonEmptyString(root, "message")
+                ?? TryGetNonEmptyString(root, "errorMessage")
+                ?? TryGetNonEmptyString(root, "description");
+            if (directMessage != null)
+                return NormalizeAppleMessage(directMessage);
         }
         catch (JsonException)
         {
@@ -781,6 +927,21 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
         return null;
     }
 
+    private static string? TryGetNonEmptyString(JsonElement element, string propertyName)
+    {
+        if (element.TryGetProperty(propertyName, out var prop) && prop.ValueKind == JsonValueKind.String)
+        {
+            var value = prop.GetString();
+            if (!string.IsNullOrWhiteSpace(value))
+                return value;
+        }
+
+        return null;
+    }
+
+    private static string NormalizeAppleMessage(string message) =>
+        message.Replace('\u00A0', ' ').Trim();
+
     /// <summary>
     /// Apple's account-lock code, returned when its anti-automation/security heuristics have
     /// locked the idmsa sign-in surface (distinct from an ordinary wrong-password error).
@@ -788,17 +949,39 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
     /// </summary>
     private const string AccountLockedErrorCode = "-20209";
 
-    private static bool IsAccountLockedResponse(string responseBody)
+    internal static bool IsAccountLockedResponse(string? responseBody)
     {
+        if (string.IsNullOrWhiteSpace(responseBody))
+            return false;
+
         try
         {
             using var doc = JsonDocument.Parse(responseBody);
-            if (doc.RootElement.TryGetProperty("code", out var codeProp))
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object)
+                return false;
+
+            if (HasErrorCode(root, AccountLockedErrorCode))
+                return true;
+
+            foreach (var arrayName in new[] { "serviceErrors", "service_errors", "validationErrors", "errors" })
             {
-                var code = codeProp.ValueKind == JsonValueKind.String
-                    ? codeProp.GetString()
-                    : codeProp.ValueKind == JsonValueKind.Number ? codeProp.GetRawText() : null;
-                return code == AccountLockedErrorCode;
+                if (root.TryGetProperty(arrayName, out var errorsArray) && errorsArray.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var item in errorsArray.EnumerateArray())
+                    {
+                        if (item.ValueKind == JsonValueKind.Object && HasErrorCode(item, AccountLockedErrorCode))
+                            return true;
+                    }
+                }
+            }
+
+            var message = ExtractAppleErrorMessage(responseBody);
+            if (message != null
+                && message.Contains("locked", StringComparison.OrdinalIgnoreCase)
+                && message.Contains("iforgot.apple.com", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
             }
         }
         catch (JsonException)
@@ -807,6 +990,17 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
         }
 
         return false;
+    }
+
+    private static bool HasErrorCode(JsonElement element, string expectedCode)
+    {
+        if (!element.TryGetProperty("code", out var codeProp))
+            return false;
+
+        var code = codeProp.ValueKind == JsonValueKind.String
+            ? codeProp.GetString()?.Trim()
+            : codeProp.ValueKind == JsonValueKind.Number ? codeProp.GetRawText().Trim() : null;
+        return string.Equals(code, expectedCode, StringComparison.Ordinal);
     }
 
     internal static async Task<string> GetServiceKeyAsync(HttpMessageHandler? handler = null)
@@ -889,23 +1083,99 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
         }
     }
 
-    private async Task<AppleAuthSession?> EstablishSessionAsync(string appleId, string serviceKey)
+    private async Task<AppleAuthSession?> EstablishSessionAsync(string? appleId, string? serviceKey = null)
     {
         try
         {
+            var resolvedAppleId = string.IsNullOrWhiteSpace(appleId) || appleId == "unknown"
+                ? _pendingAppleId
+                : appleId.Trim();
+
             var request = new HttpRequestMessage(HttpMethod.Get, OlympusSessionUrl);
-            request.Headers.Add("X-Apple-Widget-Key", serviceKey);
+            if (!string.IsNullOrWhiteSpace(serviceKey))
+                request.Headers.Add("X-Apple-Widget-Key", serviceKey);
 
             var response = await _httpClient.SendAsync(request);
-            if (!response.IsSuccessStatusCode) return null;
+            if (response.IsSuccessStatusCode)
+            {
+                var body = await response.Content.ReadAsStringAsync();
+                var olympusEmail = ExtractOlympusEmail(body);
+                if (!string.IsNullOrWhiteSpace(olympusEmail))
+                    resolvedAppleId ??= olympusEmail;
 
-            return CreateSessionFromCurrentCookies(appleId, DateTime.UtcNow);
+                return CreateSessionFromCurrentCookies(resolvedAppleId ?? "Apple Developer", DateTime.UtcNow);
+            }
+
+            // Fallback for Apple Developer accounts that can download Xcode on developer.apple.com
+            // without belonging to an App Store Connect team (where olympus/v1/session returns 401/403).
+            if (await ValidateDeveloperDownloadsSessionAsync())
+            {
+                return CreateSessionFromCurrentCookies(resolvedAppleId ?? "Apple Developer", DateTime.UtcNow);
+            }
+
+            return null;
         }
         catch (Exception ex)
         {
             _logger.LogError($"Failed to establish session: {ex.Message}", ex);
             return null;
         }
+    }
+
+    private static string? ExtractOlympusEmail(string? responseBody)
+    {
+        if (string.IsNullOrWhiteSpace(responseBody))
+            return null;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(responseBody);
+            if (doc.RootElement.TryGetProperty("user", out var userProp)
+                && userProp.ValueKind == JsonValueKind.Object
+                && userProp.TryGetProperty("emailAddress", out var emailProp)
+                && emailProp.ValueKind == JsonValueKind.String)
+            {
+                var email = emailProp.GetString();
+                if (!string.IsNullOrWhiteSpace(email))
+                    return email.Trim();
+            }
+        }
+        catch (JsonException)
+        {
+        }
+
+        return null;
+    }
+
+    private async Task<bool> ValidateDeveloperDownloadsSessionAsync()
+    {
+        try
+        {
+            using var listRequest = new HttpRequestMessage(HttpMethod.Post, DeveloperListDownloadsUrl)
+            {
+                Content = new StringContent(string.Empty)
+            };
+            listRequest.Headers.Add("Accept", "application/json");
+
+            using var listResponse = await _httpClient.SendAsync(listRequest);
+            if (!listResponse.IsSuccessStatusCode)
+                return false;
+
+            var body = await listResponse.Content.ReadAsStringAsync();
+            using var doc = JsonDocument.Parse(body);
+            if (doc.RootElement.TryGetProperty("resultCode", out var rcProp)
+                && rcProp.ValueKind == JsonValueKind.Number
+                && rcProp.GetInt32() == 0)
+            {
+                return true;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning($"Developer portal session check failed: {ex.Message}");
+        }
+
+        return false;
     }
 
     private async Task PersistSessionAsync(AppleAuthSession session)
@@ -915,6 +1185,7 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
             var json = JsonSerializer.Serialize(session);
             await _secureStorage.SetAsync(SecureStorageSessionKey, json);
             await _secureStorage.SetAsync(SecureStorageAppleIdKey, session.AppleId);
+            await PersistTrustCookiesAsync(session.CookieDetails, DateTime.UtcNow);
         }
         catch (Exception ex)
         {
@@ -922,10 +1193,54 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
         }
     }
 
+    private async Task PersistTrustCookiesAsync(IReadOnlyList<AppleAuthCookie>? cookies, DateTime nowUtc)
+    {
+        if (cookies == null || cookies.Count == 0)
+            return;
+
+        var trustCookies = ExtractTrustCookies(cookies, nowUtc);
+        if (trustCookies.Count == 0)
+            return;
+
+        var json = JsonSerializer.Serialize(trustCookies);
+        await _secureStorage.SetAsync(SecureStorageTrustCookiesKey, json);
+    }
+
+    internal static IReadOnlyList<AppleAuthCookie> ExtractTrustCookies(
+        IEnumerable<AppleAuthCookie> cookies,
+        DateTime nowUtc)
+    {
+        var result = new List<AppleAuthCookie>();
+        foreach (var cookie in cookies)
+        {
+            if (!IsTrustCookieName(cookie.Name))
+                continue;
+
+            var expires = cookie.Expires is { } exp && exp > nowUtc
+                ? exp
+                : nowUtc.Add(PersistedSessionFallbackLifetime);
+
+            result.Add(cookie with { Expires = expires });
+        }
+
+        return result;
+    }
+
+    internal static bool IsTrustCookieName(string name) =>
+        name.StartsWith("DES", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(name, "aasp", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(name, "acn01", StringComparison.OrdinalIgnoreCase);
+
     private async Task TryRestoreSessionAsync()
     {
         try
         {
+            var savedAppleId = await _secureStorage.GetAsync(SecureStorageAppleIdKey);
+            if (!string.IsNullOrWhiteSpace(savedAppleId))
+                _pendingAppleId = savedAppleId;
+
+            await RestoreTrustCookiesAsync();
+
             var json = await _secureStorage.GetAsync(SecureStorageSessionKey);
             if (json == null) return;
 
@@ -933,6 +1248,7 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
             if (session != null && session.ExpiresAt > DateTime.UtcNow)
             {
                 _session = session;
+                _pendingAppleId ??= session.AppleId;
                 RestoreCookies(session);
                 _logger.LogInformation($"Restored Apple session for {session.AppleId} until {session.ExpiresAt:u}");
                 AuthStateChanged?.Invoke();
@@ -943,6 +1259,7 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
             else if (session != null)
             {
                 _session = session;
+                _pendingAppleId ??= session.AppleId;
                 RestoreCookies(session);
 
                 if (!await ValidateSessionWithServerAsync(renewIfValid: true))
@@ -955,6 +1272,39 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
         catch (Exception ex)
         {
             _logger.LogWarning($"Failed to restore session: {ex.Message}");
+        }
+    }
+
+    private async Task RestoreTrustCookiesAsync()
+    {
+        try
+        {
+            var trustJson = await _secureStorage.GetAsync(SecureStorageTrustCookiesKey);
+            if (string.IsNullOrWhiteSpace(trustJson))
+                return;
+
+            var trustCookies = JsonSerializer.Deserialize<List<AppleAuthCookie>>(trustJson);
+            if (trustCookies == null || trustCookies.Count == 0)
+                return;
+
+            foreach (var cookieDetail in trustCookies)
+            {
+                if (cookieDetail.Expires is { } expires && expires <= DateTime.UtcNow)
+                    continue;
+
+                try
+                {
+                    _cookieContainer.Add(CreateCookie(cookieDetail));
+                }
+                catch (CookieException ex)
+                {
+                    _logger.LogWarning($"Failed to restore Apple trust cookie {cookieDetail.Name}@{cookieDetail.Domain}: {ex.Message}");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning($"Failed to restore Apple trust cookies: {ex.Message}");
         }
     }
 
@@ -974,10 +1324,21 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
 
         if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
         {
-            await ClearPersistedSessionAsync();
+            if (await ValidateDeveloperDownloadsSessionAsync())
+            {
+                if (renewIfValid)
+                    await RenewSessionFromCurrentCookiesAsync();
+
+                return true;
+            }
+
+            _pendingAppleId = _session.AppleId;
+            await PersistTrustCookiesAsync(_session.CookieDetails, DateTime.UtcNow);
+            ExpireShortLivedSessionCookies();
+            await ClearPersistedSessionAsync(clearTrustAndAppleId: false);
             _session = null;
             AuthStateChanged?.Invoke();
-            _logger.LogInformation($"Apple Developer session validation failed with {(int)response.StatusCode}; cleared saved session");
+            _logger.LogInformation($"Apple Developer session validation failed with {(int)response.StatusCode}; cleared active session while preserving device trust cookies");
             return false;
         }
 
@@ -996,10 +1357,37 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
         _logger.LogInformation($"Renewed Apple Developer session for {refreshedSession.AppleId} until {refreshedSession.ExpiresAt:u}");
     }
 
-    private async Task ClearPersistedSessionAsync()
+    private async Task ClearPersistedSessionAsync(bool clearTrustAndAppleId = false)
     {
         await _secureStorage.RemoveAsync(SecureStorageSessionKey);
-        await _secureStorage.RemoveAsync(SecureStorageAppleIdKey);
+        if (clearTrustAndAppleId)
+        {
+            await _secureStorage.RemoveAsync(SecureStorageTrustCookiesKey);
+            await _secureStorage.RemoveAsync(SecureStorageAppleIdKey);
+        }
+    }
+
+    private void ExpireShortLivedSessionCookies()
+    {
+        foreach (Cookie cookie in _cookieContainer.GetAllCookies())
+        {
+            if (IsTrustCookieName(cookie.Name)
+                || string.Equals(cookie.Name, "dslang", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(cookie.Name, "site", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            cookie.Expired = true;
+        }
+    }
+
+    private void ExpireAllCookies()
+    {
+        foreach (Cookie cookie in _cookieContainer.GetAllCookies())
+        {
+            cookie.Expired = true;
+        }
     }
 
     private AppleAuthSession CreateSessionFromCurrentCookies(string appleId, DateTime nowUtc)
@@ -1128,11 +1516,22 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
         return cookieDetails;
     }
 
-    private static Cookie CreateCookie(AppleAuthCookie cookieDetail)
+    internal static Cookie CreateCookie(AppleAuthCookie cookieDetail)
     {
+        var value = cookieDetail.Value ?? string.Empty;
+
+        // Apple's idmsa.apple.com expects 2FA trust cookies (DES*) to be quoted in the Cookie header
+        // (e.g. DES5c148...="HSARM...==SRVT"), matching fastlane/spaceship's cookie jar workaround.
+        if (cookieDetail.Name.StartsWith("DES", StringComparison.OrdinalIgnoreCase)
+            && value.Length > 0
+            && !(value.StartsWith('"') && value.EndsWith('"')))
+        {
+            value = $"\"{value}\"";
+        }
+
         var cookie = new Cookie(
             cookieDetail.Name,
-            cookieDetail.Value,
+            value,
             string.IsNullOrWhiteSpace(cookieDetail.Path) ? "/" : cookieDetail.Path,
             string.IsNullOrWhiteSpace(cookieDetail.Domain) ? ".apple.com" : cookieDetail.Domain)
         {
