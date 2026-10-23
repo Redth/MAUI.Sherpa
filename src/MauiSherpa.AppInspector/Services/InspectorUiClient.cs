@@ -136,9 +136,9 @@ public sealed class InspectorUiClient : IDisposable
         var caps = await _client.GetProfilerCapabilitiesAsync(ct);
         return new DevFlowProfilerCapabilities
         {
-            Available = true,
-            SupportedInBuild = true,
-            FeatureEnabled = true,
+            Available = caps.Available,
+            SupportedInBuild = caps.SupportedInBuild,
+            FeatureEnabled = caps.FeatureEnabled,
             Platform = caps.Platform,
             ManagedMemorySupported = caps.ManagedMemorySupported,
             NativeMemorySupported = caps.NativeMemorySupported,
@@ -166,10 +166,7 @@ public sealed class InspectorUiClient : IDisposable
 
     public async Task<DevFlowProfilerStopResponse?> StopProfilerAsync(CancellationToken ct = default)
     {
-        var sessionId = await EnsureProfilerSessionIdAsync(ct);
-        if (sessionId is null)
-            return null;
-
+        var sessionId = ProfilerSessionId;
         await _client.StopProfilingAsync(sessionId, ct);
         return new DevFlowProfilerStopResponse
         {
@@ -189,12 +186,8 @@ public sealed class InspectorUiClient : IDisposable
         int limit = 200,
         CancellationToken ct = default)
     {
-        var sessionId = await EnsureProfilerSessionIdAsync(ct);
-        if (sessionId is null)
-            return new DevFlowProfilerBatch();
-
         var batch = await _client.GetProfilerSamplesAsync(
-            sessionId,
+            ProfilerSessionId,
             checked((int)Math.Min(sampleCursor, int.MaxValue)),
             checked((int)Math.Min(markerCursor, int.MaxValue)),
             checked((int)Math.Min(spanCursor, int.MaxValue)),
@@ -536,16 +529,10 @@ public sealed class InspectorUiClient : IDisposable
             return _sensorStreams.ContainsKey(sensor);
     }
 
-    private async Task<string?> EnsureProfilerSessionIdAsync(CancellationToken ct)
-    {
-        if (!string.IsNullOrWhiteSpace(_activeProfilerSessionId))
-            return _activeProfilerSessionId;
-
-        var sessions = await _client.GetProfilerSessionsAsync(ct);
-        var session = sessions.FirstOrDefault(s => s.IsActive) ?? sessions.FirstOrDefault();
-        _activeProfilerSessionId = session?.SessionId;
-        return _activeProfilerSessionId;
-    }
+    // The agent has no endpoint that lists sessions; it resolves "current" to its latest one,
+    // which also picks up a session started before this inspector connected.
+    private string ProfilerSessionId =>
+        string.IsNullOrWhiteSpace(_activeProfilerSessionId) ? "current" : _activeProfilerSessionId;
 
     private static DevFlowElementInfo MapElement(InspectorElement element) => new()
     {
@@ -670,7 +657,7 @@ public sealed class InspectorUiClient : IDisposable
         Kind = span.Kind,
         Name = span.Name,
         Status = span.Status ?? string.Empty,
-        ThreadId = int.TryParse(span.ThreadId, out var threadId) ? threadId : null,
+        ThreadId = span.ThreadId,
         Screen = span.Screen,
         ElementPath = span.ElementPath,
         TagsJson = span.TagsJson,

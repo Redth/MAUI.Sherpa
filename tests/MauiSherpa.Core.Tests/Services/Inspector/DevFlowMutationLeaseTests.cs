@@ -71,6 +71,21 @@ public class DevFlowMutationLeaseTests
     }
 
     [Fact]
+    public async Task SetPropertyAsync_SendsJsonBodiesWithContentLength()
+    {
+        // The agent reads bodies by Content-Length and does not decode chunked transfer encoding.
+        var handler = new RecordingHandler(req => req.RequestUri!.AbsolutePath == DevFlowMutationLease.LeasePath
+            ? Json(HttpStatusCode.OK, """{"ok":true,"allowed":true,"youHold":true}""")
+            : Json(HttpStatusCode.OK, """{"value":"24"}"""));
+        var client = CreateV1Client(handler);
+
+        await client.SetPropertyAsync("el-1", "FontSize", "24");
+
+        handler.Requests.Should().HaveCount(2);
+        handler.Requests.Should().OnlyContain(r => r.ContentLength == Encoding.UTF8.GetByteCount(r.Body!));
+    }
+
+    [Fact]
     public async Task LeaseHandler_ClaimsOnlyForV1Mutations()
     {
         var handler = new RecordingHandler(_ => Json(HttpStatusCode.OK, "{}"));
@@ -103,7 +118,7 @@ public class DevFlowMutationLeaseTests
     private static HttpResponseMessage Json(HttpStatusCode status, string json) =>
         new(status) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
 
-    private sealed record RecordedRequest(HttpMethod Method, string Path, string? LeaseHeader, string? Body);
+    private sealed record RecordedRequest(HttpMethod Method, string Path, string? LeaseHeader, long? ContentLength, string? Body);
 
     private sealed class RecordingHandler : HttpMessageHandler
     {
@@ -115,10 +130,13 @@ public class DevFlowMutationLeaseTests
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            // Read the length before the body: reading buffers the content, which then reports a length.
+            var contentLength = request.Content?.Headers.ContentLength;
             Requests.Add(new RecordedRequest(
                 request.Method,
                 request.RequestUri!.AbsolutePath,
                 request.Headers.TryGetValues("X-DevFlow-Lease", out var lease) ? lease.Single() : null,
+                contentLength,
                 request.Content is null ? null : await request.Content.ReadAsStringAsync(cancellationToken)));
             return _respond(request);
         }
