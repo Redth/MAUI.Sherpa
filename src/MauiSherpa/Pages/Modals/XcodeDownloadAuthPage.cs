@@ -93,6 +93,9 @@ public class XcodeDownloadAuthPage : WizardFormPage<bool>
         bridge.Parameters["ReloadWebSignIn"] = new Action(ReloadWebSignIn);
         bridge.CancelRequested += StopWebSignIn;
         bridge.CloseRequested += StopWebSignIn;
+        bridge.SetHeaderActions(
+            new HybridHeaderAction("password-form", "key", "Sign in with Apple ID & password form", "⌨"),
+            new HybridHeaderAction("reload-web", "arrow.clockwise", "Reload sign-in page", "↻"));
 #else
         bridge.Parameters["SupportsWebSignIn"] = false;
 #endif
@@ -116,12 +119,6 @@ public class XcodeDownloadAuthPage : WizardFormPage<bool>
         Dispatcher.Dispatch(async () =>
         {
             var cookieStore = WKWebsiteDataStore.DefaultDataStore.HttpCookieStore;
-
-            // If WebKit's persistent cookie store already has a valid Apple session (e.g. from a
-            // recent sign-in), try importing it before clearing short-lived cookies.
-            if (await TryCaptureWebKitCookiesFromStoreAsync(cookieStore, keyPrefix: "initial"))
-                return;
-
             await ClearShortLivedWebKitCookiesAsync(cookieStore);
 
             if (FormWebView?.Handler?.PlatformView is not NSView blazorNative)

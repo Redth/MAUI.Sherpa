@@ -26,7 +26,11 @@ public abstract class WizardFormPage<TResult> : ContentPage, IFormPage<TResult>,
     private Button? _backButton;
     private Button? _primaryButton;
     private ActivityIndicator? _submittingIndicator;
+    private Grid? _headerGrid;
     private HorizontalStackLayout? _headerActionsLayout;
+#if MACOSAPP
+    private List<AppKit.NSButton>? _macHeaderButtons;
+#endif
     private View? _webView;
     private bool _isOnLastStep;
 
@@ -94,12 +98,15 @@ public abstract class WizardFormPage<TResult> : ContentPage, IFormPage<TResult>,
                 new ColumnDefinition(GridLength.Star),
                 new ColumnDefinition(GridLength.Auto),
             },
-            Margin = new Thickness(28, 20, 20, 12),
+            Padding = new Thickness(28, 20, 20, 12),
         };
         Grid.SetColumn(titleLabel, 0);
         Grid.SetColumn(_headerActionsLayout, 1);
         headerGrid.Children.Add(titleLabel);
         headerGrid.Children.Add(_headerActionsLayout);
+        headerGrid.HandlerChanged += (_, _) => RebuildHeaderActions();
+        headerGrid.SizeChanged += (_, _) => RebuildHeaderActions();
+        _headerGrid = headerGrid;
 
         // Header separator
         var headerSeparator = new BoxView { HeightRequest = 1 };
@@ -307,6 +314,9 @@ public abstract class WizardFormPage<TResult> : ContentPage, IFormPage<TResult>,
 
     private void RebuildHeaderActions()
     {
+#if MACOSAPP
+        HybridFormBridge.SyncMacHeaderActionButtons(_headerGrid, _bridge, ref _macHeaderButtons);
+#else
         if (_headerActionsLayout == null)
             return;
 
@@ -318,6 +328,7 @@ public abstract class WizardFormPage<TResult> : ContentPage, IFormPage<TResult>,
 
             _headerActionsLayout.Children.Add(HybridFormBridge.CreateHeaderActionButton(_bridge, action));
         }
+#endif
     }
 
     private async void OnBackClicked(object? sender, EventArgs e)
