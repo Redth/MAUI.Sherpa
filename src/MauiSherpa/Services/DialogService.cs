@@ -6,6 +6,9 @@ using UniformTypeIdentifiers;
 #elif MACOSAPP
 using AppKit;
 using Foundation;
+#elif WINDOWS
+using WinUI = Microsoft.UI.Xaml;
+using WinUIControls = Microsoft.UI.Xaml.Controls;
 #endif
 using Microsoft.Extensions.DependencyInjection;
 
@@ -100,8 +103,50 @@ public class DialogService : IDialogService
         });
 
         return await tcs.Task;
+#elif WINDOWS
+        return await Dispatcher.DispatchAsync(async () =>
+        {
+            var window = Application.Current!.Windows[0].Handler?.PlatformView as WinUI.Window
+                ?? throw new InvalidOperationException("No Windows window is available for the input dialog.");
+            var xamlRoot = window.Content?.XamlRoot
+                ?? throw new InvalidOperationException("The Windows window is not ready to display an input dialog.");
+
+            WinUIControls.Control input = title.Contains("Password", StringComparison.OrdinalIgnoreCase)
+                ? new WinUIControls.PasswordBox { PlaceholderText = placeholder }
+                : new WinUIControls.TextBox { PlaceholderText = placeholder };
+            var content = new WinUIControls.StackPanel { Spacing = 12 };
+            content.Children.Add(new WinUIControls.TextBlock
+            {
+                Text = message,
+                TextWrapping = WinUI.TextWrapping.Wrap
+            });
+            content.Children.Add(input);
+
+            var dialog = new WinUIControls.ContentDialog
+            {
+                Title = title,
+                Content = content,
+                PrimaryButtonText = "OK",
+                CloseButtonText = "Cancel",
+                DefaultButton = WinUIControls.ContentDialogButton.Primary,
+                XamlRoot = xamlRoot,
+                RequestedTheme = Application.Current.RequestedTheme switch
+                {
+                    AppTheme.Dark => WinUI.ElementTheme.Dark,
+                    AppTheme.Light => WinUI.ElementTheme.Light,
+                    _ => WinUI.ElementTheme.Default
+                }
+            };
+            dialog.Opened += (_, _) => input.Focus(WinUI.FocusState.Programmatic);
+
+            if (await dialog.ShowAsync() != WinUIControls.ContentDialogResult.Primary)
+                return null;
+
+            return input is WinUIControls.PasswordBox passwordBox
+                ? passwordBox.Password
+                : ((WinUIControls.TextBox)input).Text;
+        });
 #else
-        // Windows implementation using ContentDialog would go here
         return await Task.FromResult<string?>(null);
 #endif
     }
