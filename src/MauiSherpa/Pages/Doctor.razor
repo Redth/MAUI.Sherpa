@@ -24,7 +24,7 @@
 @if (!PlatformInfo.HasNativeToolbar)
 {
 <div class="toolbar">
-    <button class="btn btn-primary" @onclick="RunDoctor" disabled="@isLoading">
+    <button class="btn btn-primary" @onclick="RunDoctor" disabled="@IsBusy">
         @if (isLoading)
         {
             <i class="fas fa-spinner fa-spin"></i>
@@ -38,11 +38,11 @@
     </button>
     @if (report != null && (report.HasErrors || report.HasWarnings))
     {
-        <button class="btn btn-success" @onclick="FixAll" disabled="@isLoading">
+        <button class="btn btn-success" @onclick="FixAll" disabled="@IsBusy">
             <i class="fas fa-wrench"></i>
             <span>Fix All Issues</span>
         </button>
-        <button class="btn btn-copilot" @onclick="FixWithCopilot" disabled="@isLoading">
+        <button class="btn btn-copilot" @onclick="FixWithCopilot" disabled="@IsBusy">
             <i class="fas fa-robot"></i>
             <span>Fix with Copilot</span>
         </button>
@@ -286,9 +286,9 @@
                         @foreach (var version in report.AvailableWorkloadSetVersions.Take(5))
                         {
                             var isCurrent = version == report.InstalledWorkloadSetVersion;
-                            <span class="version-tag @(isCurrent ? "current" : "") @(isLoading ? "disabled" : "")"
-                                  @onclick="@(() => isLoading || isCurrent ? Task.CompletedTask : UpdateToVersion(version))"
-                                  title="@(isCurrent ? "Current version" : isLoading ? "A fix is already in progress" : "Click to update")">
+                            <span class="version-tag @(isCurrent ? "current" : "") @(IsBusy ? "disabled" : "")"
+                                  @onclick="@(() => isCurrent ? Task.CompletedTask : UpdateToVersion(version))"
+                                  title="@(isCurrent ? "Current version" : IsBusy ? "A Doctor operation is already in progress" : "Click to update")">
                                 @version @(isCurrent ? "✓" : "")
                             </span>
                         }
@@ -379,14 +379,14 @@
                                 {
                                     <button class="btn btn-sm btn-fix"
                                             @onclick="DownloadMicrosoftOpenJdk"
-                                            disabled="@isLoading">
+                                            disabled="@IsBusy">
                                         <i class="fas fa-download"></i>
                                         Download Microsoft OpenJDK
                                     </button>
                                 }
                                 else if (dep.IsFixable)
                                 {
-                                    <button class="btn btn-sm btn-fix" @onclick="@(() => FixDependency(dep))" disabled="@isLoading">
+                                    <button class="btn btn-sm btn-fix" @onclick="@(() => FixDependency(dep))" disabled="@IsBusy">
                                         @GetDependencyActionLabel(dep)
                                     </button>
                                 }
@@ -756,6 +756,8 @@ else
 @code {
     private DoctorReport? report;
     private bool isLoading = false;
+    private bool isFixInProgress;
+    private bool IsBusy => isLoading || isFixInProgress;
     private string errorMessage = "";
     private string progressMessage = "";
 
@@ -789,17 +791,19 @@ else
             switch (actionId)
             {
                 case "refresh":
-                    ToolbarService.SetItemEnabled("refresh", false);
-                    try { await RunDoctor(); } finally { ToolbarService.SetItemEnabled("refresh", true); }
+                    await RunDoctor();
                     break;
             }
             StateHasChanged();
         });
     }
 
-    private async Task RunDoctor()
+    private Task RunDoctor() => IsBusy ? Task.CompletedTask : RunDoctorCoreAsync();
+
+    private async Task RunDoctorCoreAsync()
     {
         isLoading = true;
+        ToolbarService.SetItemEnabled("refresh", false);
         errorMessage = "";
         progressMessage = "";
         StateHasChanged();
@@ -826,12 +830,15 @@ else
         finally
         {
             isLoading = false;
+            ToolbarService.SetItemEnabled("refresh", !IsBusy);
             progressMessage = "";
             await InvokeAsync(StateHasChanged);
         }
     }
 
-    private async Task FixAll()
+    private Task FixAll() => RunFixAsync("Fixing all issues...", FixAllCoreAsync);
+
+    private async Task FixAllCoreAsync()
     {
         if (report == null) return;
 
@@ -884,33 +891,47 @@ else
         if (result.Completed > 0)
         {
             // Re-run doctor to update status
-            await RunDoctor();
+            await RunDoctorCoreAsync();
         }
     }
 
-    private async Task FixDependency(DependencyStatus dep)
-    {
-        // Some fix paths (e.g. resolving available workload set versions) can take many
-        // seconds in a slow/contended dotnet environment. Without disabling the buttons and
-        // giving feedback here, a user who thinks their click didn't register can click again,
-        // which races a second ShowProcessAsync call against the still-in-flight first one and
-        // throws "A process modal is already being shown" as an unobserved exception -- i.e.
-        // the fix silently appears to do nothing.
-        if (isLoading)
-            return;
+    private Task FixDependency(DependencyStatus dep) =>
+        RunFixAsync($"Fixing: {dep.Name}...", () => FixDependencyCoreAsync(dep));
 
-        isLoading = true;
-        progressMessage = $"Fixing: {dep.Name}...";
+    private async Task RunFixAsync(string description, Func<Task> fix)
+    {
+        if (IsBusy)
+        {
+            await AlertService.ShowToastAsync("A Doctor operation is already in progress. Please wait for it to finish.");
+            return;
+        }
+
+        isFixInProgress = true;
+        errorMessage = "";
+        progressMessage = description;
+        ToolbarService.SetItemEnabled("refresh", false);
         StateHasChanged();
 
         try
         {
-            await FixDependencyCoreAsync(dep);
+            await fix();
+        }
+        catch (ProcessModalBusyException ex)
+        {
+            Logger.LogWarning(ex, "Doctor fix rejected because a process modal is already open");
+            await AlertService.ShowToastAsync("A process window is already open. Close it before starting another fix.");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Doctor fix failed: {Description}", description);
+            errorMessage = $"Fix failed: {ex.Message}";
+            await AlertService.ShowAlertAsync("Fix Failed", ex.Message);
         }
         finally
         {
-            isLoading = false;
+            isFixInProgress = false;
             progressMessage = "";
+            ToolbarService.SetItemEnabled("refresh", !IsBusy);
             StateHasChanged();
         }
     }
@@ -987,32 +1008,15 @@ else
         if (request == null)
         {
             // Fall back to old behavior for non-command fixes
-            isLoading = true;
-            progressMessage = $"Fixing: {dep.Name}...";
-            StateHasChanged();
-
-            try
+            var success = await DoctorService.FixDependencyAsync(dep);
+            if (success)
             {
-                var success = await DoctorService.FixDependencyAsync(dep);
-                if (success)
-                {
-                    await AlertService.ShowToastAsync($"Fixed: {dep.Name}");
-                    await RunDoctor();
-                }
-                else
-                {
-                    await AlertService.ShowToastAsync($"Fix failed: {dep.Name}");
-                }
+                await AlertService.ShowToastAsync($"Fixed: {dep.Name}");
+                await RunDoctorCoreAsync();
             }
-            catch (Exception ex)
+            else
             {
-                await AlertService.ShowToastAsync($"Fix error: {ex.Message}");
-            }
-            finally
-            {
-                isLoading = false;
-                progressMessage = "";
-                StateHasChanged();
+                await AlertService.ShowToastAsync($"Fix failed: {dep.Name}");
             }
             return;
         }
@@ -1022,7 +1026,7 @@ else
         if (result?.Success == true)
         {
             await AlertService.ShowToastAsync($"Fixed: {dep.Name}");
-            await RunDoctor();
+            await RunDoctorCoreAsync();
         }
         else if (result != null && !result.WasCancelled && !result.WasKilled)
         {
@@ -1061,7 +1065,7 @@ else
         if (result.Success)
         {
             await AlertService.ShowToastAsync($"Fixed: {dep.Name}");
-            await RunDoctor();
+            await RunDoctorCoreAsync();
         }
         else if (result.FinalState != OperationState.Cancelled)
         {
@@ -1078,70 +1082,51 @@ else
             return;
         }
 
-        await UpdateToVersion(targetVersion);
+        await UpdateToVersionCoreAsync(targetVersion);
     }
 
-    private async Task UpdateToVersion(string version)
+    private Task UpdateToVersion(string version) =>
+        version == report?.InstalledWorkloadSetVersion
+            ? Task.CompletedTask
+            : RunFixAsync($"Preparing workload update to {version}...", () => UpdateToVersionCoreAsync(version));
+
+    private async Task UpdateToVersionCoreAsync(string version)
     {
         if (version == report?.InstalledWorkloadSetVersion) return;
 
-        // May be called both from FixDependency (which already guards/sets isLoading) and
-        // directly from the version-tag click handlers below (which guard it themselves), so
-        // this only needs to (re-)apply the loading/progress state here, not gate re-entrancy.
-        isLoading = true;
         progressMessage = $"Preparing workload update to {version}...";
         StateHasChanged();
 
-        try
+        var featureBand = report?.Context.EffectiveFeatureBand;
+        var request = featureBand == null
+            ? null
+            : await DoctorService.GetWorkloadUpdateRequestAsync(
+                featureBand,
+                report!.Context.WorkingDirectory,
+                version,
+                report.Context.DotNetSdkPath,
+                report.Context.DotNetArchitecture,
+                report.Context.ActiveSdkVersion);
+        request ??= new ProcessRequest(
+            Command: DoctorService.GetDotNetExecutablePath(),
+            Arguments: new[] { "workload", "update", "--version", version },
+            RequiresElevation: true,
+            ElevationPrompt: "Install .NET Workloads",
+            Title: "Update Workloads",
+            Description: $"Update .NET workloads to version {version}");
+
+        var result = await ProcessModal.ShowProcessAsync(request);
+
+        if (result?.Success == true)
         {
-            var featureBand = report?.Context.EffectiveFeatureBand;
-            var request = featureBand == null
-                ? null
-                : await DoctorService.GetWorkloadUpdateRequestAsync(
-                    featureBand,
-                    report!.Context.WorkingDirectory,
-                    version,
-                    report.Context.DotNetSdkPath,
-                    report.Context.DotNetArchitecture,
-                    report.Context.ActiveSdkVersion);
-            request ??= new ProcessRequest(
-                Command: DoctorService.GetDotNetExecutablePath(),
-                Arguments: new[] { "workload", "update", "--version", version },
-                RequiresElevation: true,
-                ElevationPrompt: "Install .NET Workloads",
-                Title: "Update Workloads",
-                Description: $"Update .NET workloads to version {version}");
-
-            ProcessResult? result;
-            try
-            {
-                result = await ProcessModal.ShowProcessAsync(request);
-            }
-            catch (InvalidOperationException)
-            {
-                // A process modal was already open (e.g. a previous click that is still in
-                // flight). Surface this instead of letting it become an unobserved exception.
-                await AlertService.ShowToastAsync("A fix is already in progress. Please wait for it to finish.");
-                return;
-            }
-
-            if (result?.Success == true)
-            {
-                // ProcessModal already shows completion status, no need for redundant toast
-                await RunDoctor();
-                return;
-            }
-
-            if (result != null && !result.WasCancelled && !result.WasKilled)
-            {
-                await AlertService.ShowAlertAsync("Update Failed", "Workload update failed. Check the output for details.");
-            }
+            // ProcessModal already shows completion status, no need for redundant toast
+            await RunDoctorCoreAsync();
+            return;
         }
-        finally
+
+        if (result != null && !result.WasCancelled && !result.WasKilled)
         {
-            isLoading = false;
-            progressMessage = "";
-            StateHasChanged();
+            await AlertService.ShowAlertAsync("Update Failed", "Workload update failed. Check the output for details.");
         }
     }
 
@@ -1176,7 +1161,7 @@ else
         if (installed)
         {
             await AlertService.ShowToastAsync("dotnetup installed");
-            await RunDoctor();
+            await RunDoctorCoreAsync();
         }
     }
 
@@ -1198,7 +1183,7 @@ else
         if (result?.Success == true)
         {
             await AlertService.ShowToastAsync($"Installed .NET SDK ({channel ?? "latest"})");
-            await RunDoctor();
+            await RunDoctorCoreAsync();
         }
         else if (result != null && !result.WasCancelled && !result.WasKilled)
         {
@@ -1302,6 +1287,9 @@ else
     // Copilot Method - uses global overlay
     private void FixWithCopilot()
     {
+        if (IsBusy)
+            return;
+
         // Build context from current report
         var issues = new List<(string Category, string Message, bool IsError)>();
         
