@@ -35,7 +35,9 @@ public class XcodeDownloadAuthPage : WizardFormPage<bool>
     private bool _isWebSignInActive;
     private bool _isEvaluatingCookies;
     private readonly Dictionary<string, int> _triedMyAcInfoAttempts = new(StringComparer.Ordinal);
+#endif
 
+    // In inactive #if blocks, CSS selectors starting with '#' are parsed as directives.
     private const string CleanSignInLayoutScript = """
         (function() {
             var style = document.createElement('style');
@@ -68,7 +70,6 @@ public class XcodeDownloadAuthPage : WizardFormPage<bool>
             (document.head || document.documentElement).appendChild(style);
         })();
         """;
-#endif
 
     public XcodeDownloadAuthPage(HybridFormBridgeHolder bridgeHolder)
         : base(bridgeHolder)
