@@ -339,6 +339,8 @@ public class BlazorContentPage : ContentPage
         {
             var page = new MauiSherpa.Pages.Forms.SettingsPage(_bridgeHolder);
             await _formModalService.ShowViewAsync(page, async () => await page.ShowAsync());
+            _cachedGoogleIdentities = null;
+            UpdateToolbarVisibility();
         });
     }
 
