@@ -63,6 +63,11 @@ no dotnetup workload target and downgrades Doctor to a NuGet-only workload path.
 
 #### Checks and fixes
 
+Doctor runs one check or fix at a time, including command preparation and the refresh after
+a successful fix. Conflicting fixes are not queued. If another process window is already
+open, Doctor asks you to close it before retrying; a completed command still owns that window
+until you close it.
+
 - The `.NET SDK` "Update available" check is **fixable**. When the managed root is in use, Doctor
   reuses dotnetup's own tracked-channel update preview — the same data the SDK Manager shows — and
   emits `FixAction: dotnetup-update-sdk:<channel>` (e.g. `11.0.1xx`). Specific channels are preferred

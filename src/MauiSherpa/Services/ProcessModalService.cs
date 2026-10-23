@@ -39,7 +39,7 @@ public class ProcessModalService : IProcessModalService
     {
         if (IsVisible)
         {
-            throw new InvalidOperationException("A process modal is already being shown");
+            throw new ProcessModalBusyException();
         }
 
         CurrentRequest = request;

@@ -2267,6 +2267,9 @@ public interface IProcessExecutionService
     string GetFullOutput();
 }
 
+public sealed class ProcessModalBusyException()
+    : InvalidOperationException("A process modal is already being shown");
+
 /// <summary>
 /// Service for displaying process execution in a modal dialog
 /// </summary>
@@ -2278,6 +2281,7 @@ public interface IProcessModalService
     /// <param name="request">The process request</param>
     /// <param name="requireConfirmation">Whether to show confirmation before executing</param>
     /// <returns>The process result, or null if cancelled before execution</returns>
+    /// <exception cref="ProcessModalBusyException">An existing process modal has not been closed.</exception>
     Task<ProcessResult?> ShowProcessAsync(ProcessRequest request, bool requireConfirmation = true);
     
     /// <summary>
