@@ -1,6 +1,8 @@
 @page "/modal/update-available"
 @using MauiSherpa.Core.Interfaces
 @using Markdig
+@using Microsoft.Maui.ApplicationModel
+@using Microsoft.Maui.Storage
 @inject MauiSherpa.Pages.Forms.ModalParameterService ModalParams
 @inject IUpdateService UpdateService
 @inject IAlertService AlertService
@@ -25,6 +27,26 @@
                     <span class="version">@(updateResult.LatestRelease.TagName)</span>
                 </div>
             </div>
+
+            @if (appInstallerPath != null)
+            {
+                <p class="installer-info">
+                    @if (supportsEmbeddedAppInstallerUpdates)
+                    {
+                        <text>
+                            Windows manages background updates for this installation.
+                            Open App Installer to check for and install an update now.
+                        </text>
+                    }
+                    else
+                    {
+                        <text>
+                            This Windows version does not support embedded background updates.
+                            Open App Installer to check for and install this update manually.
+                        </text>
+                    }
+                </p>
+            }
 
             <div class="release-notes">
                 <div class="release-notes-header">
@@ -59,7 +81,7 @@
                 <button class="btn btn-secondary" @onclick="OpenInBrowser">
                     <i class="fas fa-external-link-alt"></i> Open Release Page
                 </button>
-                <button class="btn btn-primary" @onclick="AutoUpdate">
+                <button class="btn btn-primary" @onclick="RetryAsync">
                     <i class="fas fa-redo"></i> Retry
                 </button>
             }
@@ -71,7 +93,13 @@
                 <button class="btn btn-secondary" @onclick="OpenInBrowser">
                     <i class="fas fa-external-link-alt"></i> Manual Download
                 </button>
-                @if (OperatingSystem.IsMacCatalyst() || OperatingSystem.IsMacOS())
+                @if (appInstallerPath != null)
+                {
+                    <button class="btn btn-primary" @onclick="OpenAppInstallerAsync">
+                        <i class="fas fa-download"></i> Open App Installer
+                    </button>
+                }
+                else if (OperatingSystem.IsMacCatalyst() || OperatingSystem.IsMacOS())
                 {
                     <button class="btn btn-primary" @onclick="AutoUpdate">
                         <i class="fas fa-download"></i> Download &amp; Install
@@ -88,10 +116,19 @@
     private double progressPercent;
     private string progressMessage = "";
     private string? updateError;
+    private string? appInstallerPath;
+    private Func<Task>? retryAction;
+    private bool supportsEmbeddedAppInstallerUpdates;
 
     protected override void OnInitialized()
     {
         updateResult = ModalParams.Get<UpdateCheckResult>("UpdateResult");
+#if WINDOWS
+        supportsEmbeddedAppInstallerUpdates = OperatingSystem.IsWindowsVersionAtLeast(10, 0, 21300);
+        var installerPath = Path.Combine(AppContext.BaseDirectory, "install.appinstaller");
+        if (File.Exists(installerPath))
+            appInstallerPath = installerPath;
+#endif
     }
 
     private void Cancel()
@@ -103,6 +140,9 @@
 
     private async Task OpenInBrowser()
     {
+        retryAction = OpenInBrowser;
+        updateError = null;
+
         if (updateResult?.LatestRelease?.HtmlUrl is not { Length: > 0 } url)
         {
             updateError = "The GitHub release page is unavailable.";
@@ -125,10 +165,42 @@
         }
     }
 
+    private async Task OpenAppInstallerAsync()
+    {
+        retryAction = OpenAppInstallerAsync;
+        updateError = null;
+
+        if (appInstallerPath == null || !File.Exists(appInstallerPath))
+        {
+            updateError = "The App Installer file is unavailable.";
+            return;
+        }
+
+        try
+        {
+            if (!await AppLauncher.OpenAsync(new OpenFileRequest(
+                "Update MAUI Sherpa", new ReadOnlyFile(appInstallerPath))))
+            {
+                updateError = "Could not open App Installer. Make sure it is installed and try again.";
+                return;
+            }
+
+            // Windows owns installation; opening the file is not an update success result.
+            ModalParams.Complete(null);
+        }
+        catch (Exception ex)
+        {
+            updateError = $"Could not open App Installer: {ex.Message}";
+        }
+    }
+
+    private Task RetryAsync() => retryAction?.Invoke() ?? Task.CompletedTask;
+
     private async Task AutoUpdate()
     {
         if (updateResult?.LatestRelease == null) return;
 
+        retryAction = AutoUpdate;
         isUpdating = true;
         updateError = null;
         progressPercent = 0;
@@ -274,6 +346,12 @@
 
     .release-notes {
         margin-top: 0.75rem;
+    }
+
+    .installer-info {
+        color: var(--text-secondary);
+        font-size: 0.875rem;
+        line-height: 1.5;
     }
 
     .release-notes-header {

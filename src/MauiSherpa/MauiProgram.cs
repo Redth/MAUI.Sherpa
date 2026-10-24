@@ -27,6 +27,9 @@ public static class MauiProgram
 {
     public static MauiApp CreateMauiApp()
     {
+#if WINDOWS
+        WindowsLegacyStorageMigration.TryMigrate();
+#endif
         // Migrate data from old ~/.maui-sherpa/ to ~/Library/Application Support/MauiSherpa/
         MigrateAppData();
 
@@ -253,9 +256,23 @@ public static class MauiProgram
             var httpClient = new HttpClient();
             httpClient.DefaultRequestHeaders.Add("User-Agent", "MauiSherpa");
             var logger = sp.GetRequiredService<ILoggingService>();
-            var version = typeof(MauiProgram).Assembly
+            var assembly = typeof(MauiProgram).Assembly;
+            var version = assembly
                 .GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>()
                 ?.InformationalVersion ?? AppInfo.VersionString;
+            var repository = assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
+                .FirstOrDefault(a => a.Key == "SherpaReleaseRepository")?.Value?.Split('/');
+            if (repository is [var owner, var name] &&
+                owner.Length is > 0 and <= 39 &&
+                char.IsAsciiLetterOrDigit(owner[0]) && char.IsAsciiLetterOrDigit(owner[^1]) &&
+                owner.All(c => char.IsAsciiLetterOrDigit(c) || c == '-') &&
+                !owner.Contains("--", StringComparison.Ordinal) &&
+                name.Length is > 0 and <= 100 && name is not "." and not ".." &&
+                name.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '_' or '-'))
+            {
+                return new UpdateService(httpClient, logger, version, owner, name);
+            }
+
             return new UpdateService(httpClient, logger, version);
         });
 

@@ -15,7 +15,8 @@
     <Nullable>enable</Nullable>
     <EnableDefaultCssItems>false</EnableDefaultCssItems>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
-    <WindowsPackageType>None</WindowsPackageType>
+    <SherpaMsixBuild Condition="'$(SherpaMsixBuild)' == ''">false</SherpaMsixBuild>
+    <WindowsPackageType Condition="'$(SherpaMsixBuild)' != 'true'">None</WindowsPackageType>
     
     <ApplicationTitle>MAUI Sherpa</ApplicationTitle>
     <ApplicationId>codes.redth.mauisherpa</ApplicationId>
@@ -26,8 +27,24 @@
     <TargetPlatformMinVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</TargetPlatformMinVersion>
   </PropertyGroup>
 
+  <PropertyGroup Condition="'$(SherpaMsixBuild)' == 'true'">
+    <WindowsPackageType>MSIX</WindowsPackageType>
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <GenerateAppxPackageOnBuild>true</GenerateAppxPackageOnBuild>
+    <AppxPackageSigningEnabled>false</AppxPackageSigningEnabled>
+    <AppxBundle>Never</AppxBundle>
+    <AppxSymbolPackageEnabled>false</AppxSymbolPackageEnabled>
+    <UapAppxPackageBuildMode>SideloadOnly</UapAppxPackageBuildMode>
+    <SelfContained>true</SelfContained>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <PublishSingleFile>false</PublishSingleFile>
+    <PublishTrimmed>false</PublishTrimmed>
+    <PublishAot>false</PublishAot>
+    <SherpaReleaseRepository Condition="'$(SherpaReleaseRepository)' == ''">Redth/MAUI.Sherpa</SherpaReleaseRepository>
+  </PropertyGroup>
+
   <!-- Workaround for WindowsAppSDK Issue #3337 -->
-  <PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows' and '$(RuntimeIdentifierOverride)' != ''">
+  <PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows' and '$(RuntimeIdentifierOverride)' != '' and '$(SherpaMsixBuild)' != 'true'">
     <RuntimeIdentifier>$(RuntimeIdentifierOverride)</RuntimeIdentifier>
     <SelfContained>true</SelfContained>
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
@@ -77,6 +94,27 @@
   <Import Project="..\..\build\BundleUnxip.targets" />
 
   <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk.Razor" />
+
+  <ItemGroup Condition="'$(SherpaMsixBuild)' == 'true'">
+    <AppxManifest Remove="@(AppxManifest)" />
+    <AppxManifest Include="$(SherpaMsixManifest)" />
+    <Content Include="$(SherpaAppInstaller)" Link="install.appinstaller"
+             TargetPath="install.appinstaller" CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+    <AssemblyMetadata Include="SherpaReleaseRepository" Value="$(SherpaReleaseRepository)" />
+  </ItemGroup>
+
+  <Target Name="ValidateSherpaMsixInputs" BeforeTargets="PrepareForBuild"
+          Condition="'$(SherpaMsixBuild)' == 'true'">
+    <Error Condition="!$([MSBuild]::IsOSPlatform('windows'))"
+           Text="MSIX packaging requires Windows. Use build/windows/Build-Msix.ps1 on a Windows machine." />
+    <Error Condition="'$(SherpaMsixManifest)' == '' or !Exists('$(SherpaMsixManifest)')"
+           Text="Generate the MSIX manifest with build/windows/Build-Msix.ps1." />
+    <Error Condition="'$(SherpaAppInstaller)' == '' or !Exists('$(SherpaAppInstaller)')"
+           Text="Generate the App Installer metadata with build/windows/Build-Msix.ps1." />
+    <Error Condition="'$(PublishSingleFile)' == 'true' or '$(PublishAot)' == 'true' or '$(PublishTrimmed)' == 'true'"
+           Text="Sherpa MSIX builds must not enable single-file publishing, NativeAOT, or trimming." />
+  </Target>
 
   <!-- Keep the Windows head as a no-op elsewhere without replacing the real SDK targets on
        Windows. A conditional import prevents the no-op target declarations from being evaluated. -->
