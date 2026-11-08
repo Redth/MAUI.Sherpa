@@ -2,7 +2,9 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.Net;
+using System.Security.Cryptography;
 using MauiSherpa.Core.Interfaces;
+using QRCoder;
 
 namespace MauiSherpa.Core.Services;
 
@@ -35,6 +37,52 @@ public sealed class AndroidWirelessPairingService : IAndroidWirelessPairingServi
         _run = run;
     }
 
+    public AndroidWirelessQrSession CreateQrPairingSession()
+    {
+        var serviceName = "studio-sherpa-" + RandomNumberGenerator.GetHexString(20, lowercase: true);
+        var password = RandomNumberGenerator.GetHexString(32, lowercase: true);
+        // Android's Wireless debugging scanner expects ADB's Wi-Fi payload, not a Wi-Fi network login.
+        var payload = $"WIFI:T:ADB;S:{serviceName};P:{password};;";
+        var png = PngByteQRCodeHelper.GetQRCode(payload, QRCodeGenerator.ECCLevel.Q, 8);
+        return new(serviceName, password, "data:image/png;base64," + Convert.ToBase64String(png),
+            DateTimeOffset.UtcNow.AddMinutes(3));
+    }
+
+    public async Task<AndroidWirelessOperationResult> PairQrAsync(AndroidWirelessQrSession session, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        ct.ThrowIfCancellationRequested();
+        var remaining = session.ExpiresAt - DateTimeOffset.UtcNow;
+        if (remaining <= TimeSpan.Zero || !session.TryStart())
+            return Fail("This QR code has expired or was already used. Show a new QR code and scan it again.");
+
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        deadline.CancelAfter(remaining);
+        try
+        {
+            while (true)
+            {
+                deadline.Token.ThrowIfCancellationRequested();
+                var discovery = await DiscoverAsync(deadline.Token);
+                if (!discovery.Success)
+                    return Fail("QR pairing needs network discovery. Use pairing by code if discovery is unavailable.\n" +
+                        discovery.Message?.Replace(session.Password, "[redacted]", StringComparison.Ordinal));
+
+                var service = discovery.Services.FirstOrDefault(s =>
+                    s.IsPairing && string.Equals(s.Name, session.ServiceName, StringComparison.Ordinal));
+                if (service != null)
+                    return await PairEndpointAsync(service.Endpoint, session.Password, deadline.Token,
+                        "QR pairing failed. Show a new QR code and keep the device's Wireless debugging QR scanner open until pairing finishes.");
+
+                await Task.Delay(1000, deadline.Token);
+            }
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            return Fail("The QR code expired before pairing finished. Show a new code, keep the device's QR scanner open, and check that both devices are on the same Wi-Fi network. You can also pair by code.");
+        }
+    }
+
     public async Task<AndroidWirelessOperationResult> PairAsync(string endpoint, string pairingCode, CancellationToken ct = default)
     {
         if (!TryNormalizeEndpoint(endpoint, out var address))
@@ -44,6 +92,12 @@ public sealed class AndroidWirelessPairingService : IAndroidWirelessPairingServi
         if (code.Length != 6 || code.Any(c => c is < '0' or > '9'))
             return Fail("Enter the six-digit pairing code shown on your device.");
 
+        return await PairEndpointAsync(address, code, ct);
+    }
+
+    private async Task<AndroidWirelessOperationResult> PairEndpointAsync(string address, string code, CancellationToken ct,
+        string failureMessage = "Pairing failed. Keep the pairing-code screen open and use its current address and code.")
+    {
         try
         {
             // Send the code through stdin, never through command arguments or the shared command/output logger.
@@ -58,7 +112,7 @@ public sealed class AndroidWirelessPairingService : IAndroidWirelessPairingServi
                     "Paired successfully. Pairing does not guarantee a debugging connection. Use the connection address from the main Wireless debugging screen if the device is not connected automatically.");
             }
 
-            return Fail(DescribeFailure(result, "Pairing failed. Keep the pairing-code screen open and use its current address and code.", code));
+            return Fail(DescribeFailure(result, failureMessage, code));
         }
         catch (Exception ex) when (ex is Win32Exception or IOException or InvalidOperationException or TimeoutException)
         {

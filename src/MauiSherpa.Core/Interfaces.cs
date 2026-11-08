@@ -253,6 +253,8 @@ public interface IAdbDeviceWatcherService : IDisposable
 
 public interface IAndroidWirelessPairingService
 {
+    AndroidWirelessQrSession CreateQrPairingSession();
+    Task<AndroidWirelessOperationResult> PairQrAsync(AndroidWirelessQrSession session, CancellationToken ct = default);
     Task<AndroidWirelessOperationResult> PairAsync(string endpoint, string pairingCode, CancellationToken ct = default);
     Task<AndroidWirelessOperationResult> ConnectAsync(string endpoint, CancellationToken ct = default);
     Task<AndroidWirelessDiscoveryResult> DiscoverAsync(CancellationToken ct = default);
@@ -275,6 +277,25 @@ public record AndroidWirelessService(string Name, string Endpoint, bool IsPairin
 
 public record AndroidWirelessDiscoveryResult(
     bool Success, IReadOnlyList<AndroidWirelessService> Services, string? Message = null);
+
+public sealed class AndroidWirelessQrSession
+{
+    private int started;
+
+    internal AndroidWirelessQrSession(string serviceName, string password, string imageDataUrl, DateTimeOffset expiresAt)
+    {
+        ServiceName = serviceName;
+        Password = password;
+        ImageDataUrl = imageDataUrl;
+        ExpiresAt = expiresAt;
+    }
+
+    public string ImageDataUrl { get; }
+    internal string ServiceName { get; }
+    internal string Password { get; }
+    internal DateTimeOffset ExpiresAt { get; }
+    internal bool TryStart() => Interlocked.Exchange(ref started, 1) == 0;
+}
 
 // ============================================================================
 // DEVICE MONITOR SERVICE — Centralized device/simulator/emulator monitoring

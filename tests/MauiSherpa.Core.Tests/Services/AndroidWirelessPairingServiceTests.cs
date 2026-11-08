@@ -262,6 +262,185 @@ public class AndroidWirelessPairingServiceTests
     }
 
     [Fact]
+    public void CreateQrPairingSession_GeneratesFreshPrivateCredentialsAndPortablePng()
+    {
+        var service = CreateService();
+        var first = service.CreateQrPairingSession();
+        var second = service.CreateQrPairingSession();
+
+        first.ServiceName.Should().MatchRegex("^studio-sherpa-[a-f0-9]{20}$").And.NotBe(second.ServiceName);
+        first.Password.Should().MatchRegex("^[a-f0-9]{32}$").And.NotBe(second.Password);
+        first.ImageDataUrl.Should().StartWith("data:image/png;base64,").And.NotBe(second.ImageDataUrl);
+        var png = Convert.FromBase64String(first.ImageDataUrl["data:image/png;base64,".Length..]);
+        png.Take(8).Should().Equal(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 });
+        first.ExpiresAt.Should().BeCloseTo(DateTimeOffset.UtcNow.AddMinutes(3), TimeSpan.FromSeconds(2));
+        first.ToString().Should().NotContain(first.Password).And.NotContain(first.ImageDataUrl);
+        requests.Should().BeEmpty();
+        logger.Invocations.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task PairQrAsync_PairsOnlyTheMatchingQrServiceThroughStdin()
+    {
+        var service = CreateService();
+        var session = service.CreateQrPairingSession();
+        results.Enqueue(new(0, $"""
+            List of discovered mdns services
+            studio-another-device _adb-tls-pairing._tcp 192.168.1.21:11111
+            {session.ServiceName} _adb-tls-connect._tcp 192.168.1.20:40555
+            {session.ServiceName} _adb-tls-pairing._tcp. 192.168.1.20:37123
+            """));
+        results.Enqueue(new(0, "Enter pairing code: Successfully paired to 192.168.1.20:37123 [guid=adb-device]\n"));
+
+        var result = await service.PairQrAsync(session);
+
+        result.State.Should().Be(AndroidWirelessOperationState.Paired);
+        requests.Should().HaveCount(2);
+        requests[0].Start.ArgumentList.Should().Equal("mdns", "services");
+        requests[1].Start.ArgumentList.Should().Equal("pair", "192.168.1.20:37123");
+        requests[1].Input.Should().Be(session.Password);
+        requests[1].Start.ArgumentList.Should().NotContain(session.Password);
+        result.Message.Should().NotContain(session.Password);
+        logger.Invocations.SelectMany(i => i.Arguments).OfType<string>()
+            .Should().NotContain(s => s.Contains(session.Password, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task PairQrAsync_PollsUntilTheDeviceAdvertisesTheQrService()
+    {
+        var service = CreateService();
+        var session = service.CreateQrPairingSession();
+        results.Enqueue(new(0, "List of discovered mdns services\n"));
+        results.Enqueue(new(0, $"List of discovered mdns services\n{session.ServiceName} _adb-tls-pairing._tcp 192.168.1.20:37123"));
+        results.Enqueue(new(0, "Successfully paired to 192.168.1.20:37123"));
+
+        var result = await service.PairQrAsync(session);
+
+        result.State.Should().Be(AndroidWirelessOperationState.Paired);
+        requests.Should().HaveCount(3);
+        requests.Take(2).Should().OnlyContain(r => r.Input == null);
+    }
+
+    [Fact]
+    public async Task PairQrAsync_RedactsQrPasswordsFromPairingFailures()
+    {
+        var service = CreateService();
+        var session = service.CreateQrPairingSession();
+        results.Enqueue(new(0, $"List of discovered mdns services\n{session.ServiceName} _adb-tls-pairing._tcp 192.168.1.20:37123"));
+        results.Enqueue(new(1, $"Pairing password {session.Password} was rejected", session.Password));
+
+        var result = await service.PairQrAsync(session);
+
+        result.State.Should().Be(AndroidWirelessOperationState.Failed);
+        result.Message.Should().NotContain(session.Password).And.Contain("[redacted]")
+            .And.Contain("QR scanner").And.NotContain("pairing-code screen");
+    }
+
+    [Fact]
+    public async Task PairQrAsync_DiscoveryFailureOffersPairingCodeFallbackWithoutLeakingPassword()
+    {
+        var service = CreateService();
+        var session = service.CreateQrPairingSession();
+        results.Enqueue(new(1, $"Discovery failed {session.Password}"));
+
+        var result = await service.PairQrAsync(session);
+
+        result.State.Should().Be(AndroidWirelessOperationState.Failed);
+        result.Message.Should().Contain("pairing by code").And.NotContain(session.Password);
+        requests.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task PairQrAsync_DoesNotReuseACompletedQrSession()
+    {
+        var service = CreateService();
+        var session = service.CreateQrPairingSession();
+        results.Enqueue(new(0, $"List of discovered mdns services\n{session.ServiceName} _adb-tls-pairing._tcp 192.168.1.20:37123"));
+        results.Enqueue(new(0, "Successfully paired to 192.168.1.20:37123"));
+        (await service.PairQrAsync(session)).Success.Should().BeTrue();
+
+        var result = await service.PairQrAsync(session);
+
+        result.Success.Should().BeFalse();
+        result.Message.Should().Contain("already used");
+        requests.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task PairQrAsync_ExpiredSessionDoesNotStartAdb()
+    {
+        var session = new AndroidWirelessQrSession("studio-test", "secret", "", DateTimeOffset.UtcNow.AddSeconds(-1));
+
+        var result = await CreateService().PairQrAsync(session);
+
+        result.Success.Should().BeFalse();
+        result.Message.Should().Contain("expired");
+        requests.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task PairQrAsync_ExpiresWhileWaitingInsteadOfPairingAnUnrelatedDevice()
+    {
+        var session = new AndroidWirelessQrSession("studio-test", "secret", "", DateTimeOffset.UtcNow.AddMilliseconds(100));
+        results.Enqueue(new(0, "List of discovered mdns services\nstudio-someone-else _adb-tls-pairing._tcp 192.168.1.21:11111"));
+
+        var result = await CreateService().PairQrAsync(session);
+
+        result.Success.Should().BeFalse();
+        result.Message.Should().Contain("expired").And.Contain("pair by code");
+        requests.Should().ContainSingle().Which.Input.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task PairQrAsync_CancelledSessionDoesNotStartAdb()
+    {
+        var service = CreateService();
+        var session = service.CreateQrPairingSession();
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        var action = () => service.PairQrAsync(session, cts.Token);
+
+        await action.Should().ThrowAsync<OperationCanceledException>();
+        requests.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task PairQrAsync_CancellationWhilePollingStopsAndInvalidatesTheOldCode()
+    {
+        var service = CreateService();
+        var session = service.CreateQrPairingSession();
+        results.Enqueue(new(0, "List of discovered mdns services\n"));
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
+
+        var action = () => service.PairQrAsync(session, cts.Token);
+
+        await action.Should().ThrowAsync<OperationCanceledException>();
+        (await service.PairQrAsync(session)).Success.Should().BeFalse();
+        requests.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task PairQrAsync_CancellationDuringPairingPropagates()
+    {
+        using var cts = new CancellationTokenSource();
+        AndroidWirelessQrSession? session = null;
+        var service = new AndroidWirelessPairingService(logger.Object, () => "/sdk/adb", (start, input, ct) =>
+        {
+            if (input == null)
+                return Task.FromResult(new AdbCommandResult(0,
+                    $"List of discovered mdns services\n{session!.ServiceName} _adb-tls-pairing._tcp 192.168.1.20:37123"));
+            cts.Cancel();
+            return Task.FromCanceled<AdbCommandResult>(ct);
+        });
+        session = service.CreateQrPairingSession();
+
+        var action = () => service.PairQrAsync(session, cts.Token);
+
+        await action.Should().ThrowAsync<OperationCanceledException>();
+    }
+
+    [Fact]
     public async Task RunProcessAsync_WritesCodeToStdinAndCapturesPromptWithoutNewline()
     {
         if (OperatingSystem.IsWindows())
