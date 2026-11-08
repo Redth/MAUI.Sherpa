@@ -27,6 +27,9 @@
     <button class="btn btn-primary" @onclick="() => RefreshDevices(forceRefresh: true)" disabled="@isLoading">
         <i class="fas @(isLoading ? "fa-spinner fa-spin" : "fa-sync-alt")"></i> Refresh
     </button>
+    <button class="btn btn-secondary" @onclick="OpenWirelessPairing">
+        <i class="fas fa-wifi"></i> Pair over Wi-Fi
+    </button>
 </div>
 }
 
@@ -46,7 +49,10 @@
         <div class="empty-state">
             <div class="empty-icon"><i class="fas fa-mobile-alt"></i></div>
             <div class="empty-title">No devices connected</div>
-            <div class="empty-description">Connect an Android device via USB or start an emulator</div>
+            <div class="empty-description">Connect an Android device via USB, pair over Wi-Fi, or start an emulator</div>
+            <button class="btn btn-primary empty-pair-button" @onclick="OpenWirelessPairing">
+                <i class="fas fa-wifi"></i> Pair over Wi-Fi
+            </button>
         </div>
     }
     else
@@ -95,6 +101,9 @@
     }
 </div>
 
+<AndroidWirelessPairingDialog IsOpen="@showWirelessPairing" OnClose="CloseWirelessPairing"
+                             OnDevicesMayHaveChanged="() => RefreshDevices(forceRefresh: true)" />
+
 <style>
     h1 {
         margin-bottom: 1.25rem;
@@ -131,6 +140,9 @@
 
     .toolbar {
         margin-bottom: 1.25rem;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
     }
 
     .btn i { font-size: 0.75rem; }
@@ -285,16 +297,20 @@
         color: var(--text-muted);
         font-size: 0.875rem;
     }
+
+    .empty-pair-button { margin-top: 1.25rem; }
 </style>
 
 @code {
     private List<DeviceInfo> devices = new();
     private bool isLoading = false;
     private bool demoMode = false;
+    private bool showWirelessPairing;
 
     protected override async Task OnInitializedAsync()
     {
         ToolbarService.SetItems(
+            new ToolbarAction("pair-wireless", "Pair over Wi-Fi", "wifi"),
             new ToolbarAction("refresh", "Refresh", "arrow.clockwise")
         );
         ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
@@ -392,6 +408,9 @@
         await AlertService.ShowToastAsync("Copied to clipboard");
     }
 
+    private void OpenWirelessPairing() => showWirelessPairing = true;
+    private void CloseWirelessPairing() => showWirelessPairing = false;
+
     public void Dispose()
     {
         ToolbarService.ToolbarItemClicked -= OnToolbarItemClicked;
@@ -405,6 +424,9 @@
         {
             switch (actionId)
             {
+                case "pair-wireless":
+                    OpenWirelessPairing();
+                    break;
                 case "refresh":
                     ToolbarService.SetItemEnabled("refresh", false);
                     try { await RefreshDevices(forceRefresh: true); } finally { ToolbarService.SetItemEnabled("refresh", true); }

@@ -1,0 +1,300 @@
+using System.Diagnostics;
+using FluentAssertions;
+using MauiSherpa.Core.Interfaces;
+using MauiSherpa.Core.Services;
+using Moq;
+using static MauiSherpa.Core.Services.AndroidWirelessPairingService;
+
+namespace MauiSherpa.Core.Tests.Services;
+
+public class AndroidWirelessPairingServiceTests
+{
+    private readonly Mock<ILoggingService> logger = new();
+    private readonly List<(ProcessStartInfo Start, string? Input)> requests = [];
+    private readonly Queue<AdbCommandResult> results = new();
+
+    private AndroidWirelessPairingService CreateService(string? adbPath = "/sdk/platform-tools/adb") =>
+        new(logger.Object, () => adbPath, (start, input, ct) =>
+        {
+            ct.ThrowIfCancellationRequested();
+            requests.Add((start, input));
+            return Task.FromResult(results.Dequeue());
+        });
+
+    [Theory]
+    [InlineData("192.168.1.20:37123", "192.168.1.20:37123")]
+    [InlineData(" 192.168.1.20:037123 ", "192.168.1.20:37123")]
+    [InlineData("device.local:1", "device.local:1")]
+    [InlineData("[fe80::1234%en0]:65535", "[fe80::1234%en0]:65535")]
+    [InlineData("[::1]:5555", "[::1]:5555")]
+    public void TryNormalizeEndpoint_AcceptsExplicitHostAndValidPort(string input, string expected)
+    {
+        TryNormalizeEndpoint(input, out var endpoint).Should().BeTrue();
+        endpoint.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("192.168.1.20")]
+    [InlineData("192.168.1.20:0")]
+    [InlineData("192.168.1.20:65536")]
+    [InlineData("192.168.1.20:-1")]
+    [InlineData("192.168.1.20:+5555")]
+    [InlineData("192.168.1.20: 5555")]
+    [InlineData("192.168.1.20:5555;touch file")]
+    [InlineData("--help:5555")]
+    [InlineData("http://device.local:5555")]
+    [InlineData("host with spaces:5555")]
+    [InlineData("fe80::1234:5555")]
+    [InlineData("[device.local]:5555")]
+    public void TryNormalizeEndpoint_RejectsMissingOrInvalidAddress(string? input)
+    {
+        TryNormalizeEndpoint(input, out _).Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("12345")]
+    [InlineData("1234567")]
+    [InlineData("12a456")]
+    [InlineData("１２３４５６")]
+    public async Task PairAsync_RejectsInvalidCodeWithoutRunningAdb(string code)
+    {
+        var result = await CreateService().PairAsync("192.168.1.20:37123", code);
+
+        result.State.Should().Be(AndroidWirelessOperationState.Failed);
+        result.Message.Should().Contain("six-digit");
+        requests.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task PairAsync_UsesStdinAndDoesNotTreatPairingAsConnected()
+    {
+        results.Enqueue(new(0, "Enter pairing code: Successfully paired to 192.168.1.20:37123 [guid=adb-device]\n"));
+
+        var result = await CreateService().PairAsync("192.168.1.20:37123", "123456");
+
+        result.Success.Should().BeTrue();
+        result.State.Should().Be(AndroidWirelessOperationState.Paired);
+        var request = requests.Should().ContainSingle().Which;
+        request.Start.FileName.Should().Be("/sdk/platform-tools/adb");
+        request.Start.UseShellExecute.Should().BeFalse();
+        request.Start.ArgumentList.Should().Equal("pair", "192.168.1.20:37123");
+        request.Input.Should().Be("123456");
+        request.Start.Arguments.Should().NotContain("123456");
+        logger.Invocations.SelectMany(i => i.Arguments).OfType<string>()
+            .Should().NotContain(s => s.Contains("123456", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task PairAsync_RedactsTheCodeFromAdbFailureOutputAndLogs()
+    {
+        results.Enqueue(new(1, "Code 123456 was rejected", "Failed with code 123456"));
+
+        var result = await CreateService().PairAsync("192.168.1.20:37123", "123456");
+
+        result.Success.Should().BeFalse();
+        result.Message.Should().NotContain("123456").And.Contain("[redacted]");
+        logger.Invocations.SelectMany(i => i.Arguments).OfType<string>()
+            .Should().NotContain(s => s.Contains("123456", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task PairAsync_DoesNotTrustExitCodeAlone()
+    {
+        results.Enqueue(new(0, "Failed: wrong password"));
+        var result = await CreateService().PairAsync("192.168.1.20:37123", "123456");
+        result.Success.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task MissingAdb_ProvidesInstallationGuidance()
+    {
+        var result = await CreateService(null).PairAsync("192.168.1.20:37123", "123456");
+        result.Message.Should().Contain("platform-tools").And.Contain("Settings");
+        result.Success.Should().BeFalse();
+        requests.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task ConnectAsync_UsesDebuggingPortAndVerifiesDeviceIsOnline()
+    {
+        results.Enqueue(new(0, "connected to 192.168.1.20:40555"));
+        results.Enqueue(new(0, "device\n"));
+
+        var result = await CreateService().ConnectAsync("192.168.1.20:40555");
+
+        result.State.Should().Be(AndroidWirelessOperationState.Connected);
+        requests[0].Start.ArgumentList.Should().Equal("connect", "192.168.1.20:40555");
+        requests[1].Start.ArgumentList.Should().Equal("-s", "192.168.1.20:40555", "get-state");
+        requests.Should().OnlyContain(r => r.Input == null);
+    }
+
+    [Fact]
+    public async Task ConnectAsync_RecognizesAnAlreadyConnectedDevice()
+    {
+        results.Enqueue(new(0, "already connected to 192.168.1.20:40555"));
+        results.Enqueue(new(0, "device"));
+        (await CreateService().ConnectAsync("192.168.1.20:40555")).Success.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ConnectAsync_DoesNotReportOfflineDeviceAsConnected()
+    {
+        results.Enqueue(new(0, "connected to 192.168.1.20:40555"));
+        results.Enqueue(new(0, "offline"));
+        results.Enqueue(new(0, "unauthorized"));
+        results.Enqueue(new(1, "", "error: device not found"));
+
+        var result = await CreateService().ConnectAsync("192.168.1.20:40555");
+
+        result.State.Should().Be(AndroidWirelessOperationState.ConnectionPending);
+        result.Success.Should().BeFalse();
+        requests.Should().HaveCount(4);
+    }
+
+    [Fact]
+    public async Task ConnectAsync_DoesNotTrustZeroExitCodeForARefusedConnection()
+    {
+        results.Enqueue(new(0, "failed to connect to 192.168.1.20:40555: Connection refused"));
+
+        var result = await CreateService().ConnectAsync("192.168.1.20:40555");
+
+        result.State.Should().Be(AndroidWirelessOperationState.Failed);
+        result.Message.Should().Contain("Connection refused");
+        requests.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task DiscoverAsync_SeparatesPairingAndConnectionPortsAndIgnoresLegacyAdb()
+    {
+        results.Enqueue(new(0, """
+            List of discovered mdns services
+            adb-device    _adb-tls-pairing._tcp    192.168.1.20:37123
+            adb-device-connect    _adb-tls-connect._tcp.    192.168.1.20:40555
+            adb-other    _adb-tls-connect._tcp    [fe80::1234%en0]:44444
+            old-device    _adb._tcp    192.168.1.30:5555
+            adb-device    _adb-tls-pairing._tcp    192.168.1.20:37123
+            """));
+
+        var result = await CreateService().DiscoverAsync();
+
+        result.Success.Should().BeTrue();
+        result.Services.Should().HaveCount(3);
+        result.Services.Where(s => s.IsPairing).Should().ContainSingle()
+            .Which.Endpoint.Should().Be("192.168.1.20:37123");
+        result.Services.Where(s => !s.IsPairing).Select(s => s.Endpoint)
+            .Should().Equal("192.168.1.20:40555", "[fe80::1234%en0]:44444");
+        requests.Should().ContainSingle().Which.Start.ArgumentList.Should().Equal("mdns", "services");
+    }
+
+    [Fact]
+    public async Task DiscoverAsync_ReportsNoDevicesWithoutInventingAnAddress()
+    {
+        results.Enqueue(new(0, "List of discovered mdns services\n"));
+        var result = await CreateService().DiscoverAsync();
+        result.Success.Should().BeTrue();
+        result.Services.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData(1, "adb: unknown command mdns")]
+    [InlineData(0, "ERROR: mdns unavailable")]
+    [InlineData(0, "unrecognized output")]
+    [InlineData(0, "adb-device _adb-tls-pairing._tcp bad-address")]
+    public async Task DiscoverAsync_ProvidesManualFallbackForFailures(int exitCode, string output)
+    {
+        results.Enqueue(new(exitCode, output));
+        var result = await CreateService().DiscoverAsync();
+        result.Success.Should().BeFalse();
+        result.Services.Should().BeEmpty();
+        result.Message.Should().Contain("manually");
+    }
+
+    [Fact]
+    public async Task CancelledOperation_DoesNotStartAdb()
+    {
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        var action = () => CreateService().PairAsync("192.168.1.20:37123", "123456", cts.Token);
+        await action.Should().ThrowAsync<OperationCanceledException>();
+        requests.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task CommandTimeout_ReturnsActionableFailure()
+    {
+        var service = new AndroidWirelessPairingService(logger.Object, () => "/sdk/adb",
+            (_, _, _) => throw new OperationCanceledException());
+
+        var result = await service.PairAsync("192.168.1.20:37123", "123456");
+
+        result.State.Should().Be(AndroidWirelessOperationState.Failed);
+        result.Message.Should().Contain("30 seconds");
+    }
+
+    [Fact]
+    public async Task CancellationDuringCommand_PropagatesInsteadOfReportingFailure()
+    {
+        using var cts = new CancellationTokenSource();
+        var service = new AndroidWirelessPairingService(logger.Object, () => "/sdk/adb",
+            (_, _, ct) =>
+            {
+                cts.Cancel();
+                return Task.FromCanceled<AdbCommandResult>(ct);
+            });
+
+        var action = () => service.PairAsync("192.168.1.20:37123", "123456", cts.Token);
+        await action.Should().ThrowAsync<OperationCanceledException>();
+    }
+
+    [Fact]
+    public async Task ProcessFailure_IsReportedWithoutEchoingSensitiveInput()
+    {
+        var service = new AndroidWirelessPairingService(logger.Object, () => "/sdk/adb",
+            (_, _, _) => throw new System.ComponentModel.Win32Exception("Cannot launch adb"));
+
+        var result = await service.PairAsync("192.168.1.20:37123", "123456");
+
+        result.State.Should().Be(AndroidWirelessOperationState.Failed);
+        result.Message.Should().Contain("Could not run ADB").And.NotContain("123456");
+    }
+
+    [Fact]
+    public async Task RunProcessAsync_WritesCodeToStdinAndCapturesPromptWithoutNewline()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+        var start = CreateShell("read code; printf 'Enter pairing code: Successfully paired to device:1234 [%s]' \"$code\"");
+        var result = await RunProcessAsync(start, "123456", CancellationToken.None);
+        result.ExitCode.Should().Be(0);
+        result.Output.Should().Be("Enter pairing code: Successfully paired to device:1234 [123456]");
+        start.ArgumentList.Should().NotContain("123456");
+    }
+
+    [Fact]
+    public async Task RunProcessAsync_CancellationTerminatesOnlyItsOwnedProcess()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
+        var action = () => RunProcessAsync(CreateShell("sleep 30"), null, cts.Token);
+        await action.Should().ThrowAsync<OperationCanceledException>();
+    }
+
+    private static ProcessStartInfo CreateShell(string command)
+    {
+        var start = new ProcessStartInfo("/bin/sh")
+        {
+            UseShellExecute = false,
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true
+        };
+        start.ArgumentList.Add("-c");
+        start.ArgumentList.Add(command);
+        return start;
+    }
+}

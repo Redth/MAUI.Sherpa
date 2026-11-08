@@ -251,6 +251,31 @@ public interface IAdbDeviceWatcherService : IDisposable
     event Action<IReadOnlyList<DeviceInfo>>? DevicesChanged;
 }
 
+public interface IAndroidWirelessPairingService
+{
+    Task<AndroidWirelessOperationResult> PairAsync(string endpoint, string pairingCode, CancellationToken ct = default);
+    Task<AndroidWirelessOperationResult> ConnectAsync(string endpoint, CancellationToken ct = default);
+    Task<AndroidWirelessDiscoveryResult> DiscoverAsync(CancellationToken ct = default);
+}
+
+public enum AndroidWirelessOperationState
+{
+    Failed,
+    Paired,
+    ConnectionPending,
+    Connected
+}
+
+public record AndroidWirelessOperationResult(AndroidWirelessOperationState State, string Message)
+{
+    public bool Success => State is AndroidWirelessOperationState.Paired or AndroidWirelessOperationState.Connected;
+}
+
+public record AndroidWirelessService(string Name, string Endpoint, bool IsPairing);
+
+public record AndroidWirelessDiscoveryResult(
+    bool Success, IReadOnlyList<AndroidWirelessService> Services, string? Message = null);
+
 // ============================================================================
 // DEVICE MONITOR SERVICE — Centralized device/simulator/emulator monitoring
 // ============================================================================

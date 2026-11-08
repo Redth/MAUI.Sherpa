@@ -145,6 +145,7 @@ public static class MauiProgram
         builder.Services.AddSingleton<IKeystoreSyncService, KeystoreSyncService>();
         builder.Services.AddSingleton<ILogcatService, LogcatService>();
         builder.Services.AddSingleton<IAdbDeviceWatcherService, AdbDeviceWatcherService>();
+        builder.Services.AddSingleton<IAndroidWirelessPairingService, AndroidWirelessPairingService>();
         builder.Services.AddSingleton<IDeviceMonitorService, DeviceMonitorService>();
         builder.Services.AddSingleton<IDeviceFileService, DeviceFileService>();
         builder.Services.AddSingleton<IDeviceShellService, DeviceShellService>();

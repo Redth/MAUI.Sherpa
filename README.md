@@ -39,6 +39,14 @@ MAUI Sherpa is a desktop application for **macOS**, **Windows**, and **Linux** t
 - Create snapshots for quick boot
 - View emulator details and configuration
 
+### Android Wireless Devices
+- Pair a device without Android Studio from **Android Devices > Pair over Wi-Fi**
+- Enable **Developer options > Wireless debugging** on an Android 11+ phone or Android 13+ TV/Wear OS device, then choose **Pair device with pairing code**
+- Enter the pairing screen's IP address, port, and six-digit code in Sherpa; codes are not saved or logged
+- If Android does not connect automatically, use the separate debugging IP address and port from the main Wireless debugging screen in **Connect for debugging**
+- **Find nearby devices** discovers pairing and debugging addresses with ADB mDNS; manual entry still works when discovery is blocked by the network
+- Requires current Android SDK platform-tools and the same Wi-Fi network. QR-code pairing is not included.
+
 ### 🔑 Android Keystores
 - Create and manage Android signing keystores
 - View certificate signatures and details
