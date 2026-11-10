@@ -7,7 +7,7 @@ namespace MauiSherpa.Core.Services;
 
 public sealed class CertificateItemAdapter : ISecretItemAdapter
 {
-    private const string KeyPrefix = "CERT_";
+    private const string KeyPrefix = CertificateSecretKeys.Prefix;
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true
@@ -31,6 +31,7 @@ public sealed class CertificateItemAdapter : ISecretItemAdapter
     {
         cancellationToken.ThrowIfCancellationRequested();
         var identities = await _localCertificateService.GetSigningIdentitiesAsync();
+        cancellationToken.ThrowIfCancellationRequested();
         return identities
             .Where(x => x.IsValid && !string.IsNullOrWhiteSpace(x.SerialNumber))
             .Select(x => (
@@ -47,15 +48,15 @@ public sealed class CertificateItemAdapter : ISecretItemAdapter
         string providerId,
         CancellationToken cancellationToken = default)
     {
-        var provider = await SecretItemAdapterHelper.GetProviderAsync(_providerRegistry, providerId);
-        if (provider is null)
-            return Array.Empty<SecretItemRef>();
+        var provider = await SecretItemAdapterHelper.GetProviderAsync(_providerRegistry, providerId)
+            ?? throw new InvalidOperationException($"Secrets provider '{providerId}' is unavailable.");
 
         var items = new Dictionary<string, SecretItemRef>(StringComparer.Ordinal);
-        var keys = await provider.ListSecretsAsync(KeyPrefix, cancellationToken);
+        var keys = await provider.ListSecretsStrictAsync(KeyPrefix, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
         foreach (var key in keys)
         {
-            if (!SecretItemAdapterHelper.TryExtractAffixedId(key, KeyPrefix, "_P12", out var serial))
+            if (!CertificateSecretKeys.TryExtractSerial(key, CertificateSecretKeys.P12Suffix, out var serial))
                 continue;
 
             var itemId = SecretItemAdapterHelper.SanitizeSerialNumber(serial);
@@ -65,16 +66,21 @@ public sealed class CertificateItemAdapter : ISecretItemAdapter
 
         foreach (var key in keys)
         {
-            if (!SecretItemAdapterHelper.TryExtractAffixedId(key, KeyPrefix, "_META", out _))
+            if (!CertificateSecretKeys.TryExtractSerial(key, CertificateSecretKeys.MetadataSuffix, out var serial))
+                continue;
+
+            var itemId = SecretItemAdapterHelper.SanitizeSerialNumber(serial);
+            if (!items.TryGetValue(itemId, out var item))
                 continue;
 
             var metadata = DeserializeMetadata(await provider.GetSecretAsync(key, cancellationToken));
-            if (metadata is null)
-                continue;
-
-            var itemId = SecretItemAdapterHelper.SanitizeSerialNumber(metadata.SerialNumber);
-            if (itemId.Length > 0)
-                items[itemId] = new SecretItemRef(Kind, itemId, metadata.CommonName);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (metadata is not null &&
+                SecretItemAdapterHelper.SanitizeSerialNumber(metadata.SerialNumber ?? string.Empty) == itemId &&
+                !string.IsNullOrWhiteSpace(metadata.CommonName))
+            {
+                items[itemId] = item with { DisplayName = metadata.CommonName };
+            }
         }
 
         return items.Values
@@ -91,9 +97,10 @@ public sealed class CertificateItemAdapter : ISecretItemAdapter
         if (provider is null)
             return itemIds;
 
-        var keys = await provider.ListSecretsAsync(
+        var keys = await provider.ListSecretsStrictAsync(
             prefix: null,
             cancellationToken: cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
         return ExtractProviderItemIds(keys);
     }
 
@@ -102,10 +109,9 @@ public sealed class CertificateItemAdapter : ISecretItemAdapter
         var itemIds = new HashSet<string>(StringComparer.Ordinal);
         foreach (var key in providerKeys)
         {
-            if (!SecretItemAdapterHelper.TryExtractAffixedId(
+            if (!CertificateSecretKeys.TryExtractSerial(
                     key,
-                    KeyPrefix,
-                    "_P12",
+                    CertificateSecretKeys.P12Suffix,
                     out var serial))
             {
                 continue;
@@ -127,6 +133,7 @@ public sealed class CertificateItemAdapter : ISecretItemAdapter
             return null;
 
         var identities = await _localCertificateService.GetSigningIdentitiesAsync();
+        cancellationToken.ThrowIfCancellationRequested();
         var identity = identities.FirstOrDefault(x =>
             x.IsValid &&
             SecretItemAdapterHelper.SanitizeSerialNumber(x.SerialNumber ?? string.Empty) == item.Id);
@@ -173,28 +180,52 @@ public sealed class CertificateItemAdapter : ISecretItemAdapter
         if (provider is null)
             return null;
 
-        var p12Artifact = await SecretItemAdapterHelper.ReadArtifactAsync(
-            provider,
-            GetKey(item.Id, "P12"),
-            cancellationToken);
+        var p12Key = GetKey(item.Id, "P12");
+        var p12Artifact = await SecretItemAdapterHelper.ReadArtifactAsync(provider, p12Key, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (p12Artifact is null)
+        {
+            var keys = await provider.ListSecretsStrictAsync(KeyPrefix, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            foreach (var key in keys)
+            {
+                if (!CertificateSecretKeys.TryExtractSerial(key, CertificateSecretKeys.P12Suffix, out var serial) ||
+                    SecretItemAdapterHelper.SanitizeSerialNumber(serial) != item.Id)
+                {
+                    continue;
+                }
+
+                p12Artifact = await SecretItemAdapterHelper.ReadArtifactAsync(provider, key, cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
+                if (p12Artifact is not null)
+                {
+                    p12Key = key;
+                    break;
+                }
+            }
+        }
+
         if (p12Artifact is null)
             return null;
 
-        var artifacts = new List<SecretArtifact> { p12Artifact };
+        var artifacts = new List<SecretArtifact> { p12Artifact with { Key = GetKey(item.Id, "P12") } };
         var passwordArtifact = await SecretItemAdapterHelper.ReadArtifactAsync(
             provider,
-            GetKey(item.Id, "PWD"),
+            p12Key[..^3] + "PWD",
             cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
         if (passwordArtifact is not null)
-            artifacts.Add(passwordArtifact);
+            artifacts.Add(passwordArtifact with { Key = GetKey(item.Id, "PWD") });
 
         var metadataKey = GetKey(item.Id, "META");
         var metadataArtifact = await SecretItemAdapterHelper.ReadArtifactAsync(
             provider,
-            metadataKey,
+            p12Key[..^3] + "META",
             cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
         var metadata = DeserializeMetadata(metadataArtifact?.Value);
-        if (metadataArtifact is null)
+        if (metadata is null ||
+            SecretItemAdapterHelper.SanitizeSerialNumber(metadata.SerialNumber ?? string.Empty) != item.Id)
         {
             metadata = new CertificateSecretMetadata(
                 string.Empty,
@@ -208,18 +239,20 @@ public sealed class CertificateItemAdapter : ISecretItemAdapter
                 metadataKey,
                 Encoding.UTF8.GetBytes(JsonSerializer.Serialize(metadata)));
         }
+        else
+        {
+            metadataArtifact = metadataArtifact! with { Key = metadataKey };
+        }
         artifacts.Add(metadataArtifact);
 
-        var itemId = SecretItemAdapterHelper.SanitizeSerialNumber(
-            metadata?.SerialNumber ?? item.Id);
         return SecretItemAdapterHelper.CreatePayload(
             new SecretItemRef(
                 Kind,
-                itemId,
-                string.IsNullOrWhiteSpace(metadata?.CommonName)
+                item.Id,
+                string.IsNullOrWhiteSpace(metadata.CommonName)
                     ? item.DisplayName
                     : metadata.CommonName),
-            SecretItemAdapterHelper.GetUtcRevision(metadata?.CreatedAt ?? default),
+            SecretItemAdapterHelper.GetUtcRevision(metadata.CreatedAt),
             artifacts);
     }
 
@@ -244,20 +277,42 @@ public sealed class CertificateItemAdapter : ISecretItemAdapter
         string providerId,
         CancellationToken cancellationToken = default)
     {
-        if (item.Kind != Kind)
+        var itemId = SecretItemAdapterHelper.SanitizeSerialNumber(item.Id);
+        if (item.Kind != Kind || itemId.Length == 0)
             return false;
 
         var provider = await SecretItemAdapterHelper.GetProviderAsync(_providerRegistry, providerId);
-        return provider is not null &&
-            await SecretItemAdapterHelper.DeleteArtifactsAsync(
-                provider,
-                new[]
-                {
-                    GetKey(item.Id, "P12"),
-                    GetKey(item.Id, "PWD"),
-                    GetKey(item.Id, "META")
-                },
-                cancellationToken);
+        if (provider is null)
+            return false;
+
+        var keys = await provider.ListSecretsStrictAsync(KeyPrefix, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        var matchingKeys = keys.Where(key =>
+            (CertificateSecretKeys.TryExtractSerial(key, CertificateSecretKeys.P12Suffix, out var serial) ||
+             CertificateSecretKeys.TryExtractSerial(key, CertificateSecretKeys.PasswordSuffix, out serial) ||
+             CertificateSecretKeys.TryExtractSerial(key, CertificateSecretKeys.MetadataSuffix, out serial)) &&
+            SecretItemAdapterHelper.SanitizeSerialNumber(serial) == itemId);
+
+        var succeeded = true;
+        var errors = new List<Exception>();
+        foreach (var key in matchingKeys.Distinct(StringComparer.Ordinal).OrderBy(key => key, StringComparer.Ordinal))
+        {
+            try
+            {
+                var deleted = await provider.DeleteSecretAsync(key, cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
+                succeeded &= deleted;
+            }
+            catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+            {
+                errors.Add(ex);
+            }
+        }
+
+        if (errors.Count > 0)
+            throw new AggregateException("One or more certificate artifacts could not be deleted.", errors);
+
+        return succeeded;
     }
 
     private static string GetKey(string serialNumber, string suffix) =>

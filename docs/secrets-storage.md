@@ -141,7 +141,9 @@ The existing `BackupService` continues to export password-protected settings sna
 - Settings are read from the `settings` vault scope.
 - Provider metadata and non-secret provider settings are read from the `cloud-provider` vault scope through `CloudSecretsService`.
 - Provider secret settings, publisher config, identity private keys, Firebase credentials, and keystore passwords are read through vault-backed `ISecureStorageService`.
-- Local-provider secrets remain available through `ICloudSecretsService` and can be included by feature-specific export flows without opening a separate database.
+- Signing certificates can be included from Local Vault or the macOS Keychain with their private keys. The export dialog reports unavailable certificate sources, and export fails if a selected certificate is no longer available or has no usable private key.
+- Restored certificates are written to Local Vault without changing the active provider. Certificate installation and publishing can also read copies from the other configured providers.
+- Azure DevOps redacts existing secret values, so Sherpa cannot safely replace a stored certificate there and reports an upload failure rather than risking the existing private key.
 
 A future raw vault package can export selected `scope/path/key` records directly for advanced backup or migration scenarios, but the user-facing backup path does not need a schema-specific database migration to pick up the vault-backed adapters added here.
 

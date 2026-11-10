@@ -29,17 +29,23 @@ public class WindowsCertificateService : ILocalCertificateService
         _logger.LogInformation("Windows certificate cache invalidated");
     }
 
-    public Task<IReadOnlyList<LocalSigningIdentity>> GetSigningIdentitiesAsync()
+    public async Task<IReadOnlyList<LocalSigningIdentity>> GetSigningIdentitiesAsync() =>
+        (await GetSigningIdentityDiscoveryAsync()).Identities;
+
+    public Task<LocalSigningIdentityDiscoveryResult> GetSigningIdentityDiscoveryAsync()
     {
         if (!IsSupported)
-            return Task.FromResult<IReadOnlyList<LocalSigningIdentity>>(Array.Empty<LocalSigningIdentity>());
+            return Task.FromResult(new LocalSigningIdentityDiscoveryResult(
+                Array.Empty<LocalSigningIdentity>(), Array.Empty<string>()));
 
         if (_cachedIdentities != null && DateTime.UtcNow < _cacheExpiry)
-            return Task.FromResult<IReadOnlyList<LocalSigningIdentity>>(_cachedIdentities);
+            return Task.FromResult(new LocalSigningIdentityDiscoveryResult(
+                _cachedIdentities, Array.Empty<string>()));
 
-        return Task.Run<IReadOnlyList<LocalSigningIdentity>>(() =>
+        return Task.Run(() =>
         {
             var identities = new List<LocalSigningIdentity>();
+            var errors = new List<string>();
 
             try
             {
@@ -57,6 +63,9 @@ public class WindowsCertificateService : ILocalCertificateService
                         var commonName = GetCommonName(cert);
                         var teamId = ExtractTeamId(cert);
                         var serial = NormalizeSerial(cert.SerialNumber);
+                        var isValid = cert.HasPrivateKey && cert.NotAfter > DateTime.UtcNow;
+                        if (isValid && string.IsNullOrWhiteSpace(serial))
+                            errors.Add($"Could not read the serial number for '{commonName}'.");
 
                         identities.Add(new LocalSigningIdentity(
                             Identity: identity,
@@ -64,7 +73,7 @@ public class WindowsCertificateService : ILocalCertificateService
                             TeamId: teamId,
                             SerialNumber: serial,
                             ExpirationDate: cert.NotAfter,
-                            IsValid: cert.HasPrivateKey && cert.NotAfter > DateTime.UtcNow,
+                            IsValid: isValid,
                             Hash: cert.Thumbprint
                         ));
                     }
@@ -74,16 +83,20 @@ public class WindowsCertificateService : ILocalCertificateService
                     }
                 }
 
-                _cachedIdentities = identities;
-                _cacheExpiry = DateTime.UtcNow + CacheDuration;
+                if (errors.Count == 0)
+                {
+                    _cachedIdentities = identities;
+                    _cacheExpiry = DateTime.UtcNow + CacheDuration;
+                }
                 _logger.LogInformation($"Found {identities.Count} Apple certificate(s) in Windows store");
             }
             catch (Exception ex)
             {
                 _logger.LogError($"Failed to enumerate Windows certificate store: {ex.Message}", ex);
+                errors.Add($"Could not query the Windows certificate store: {ex.Message}");
             }
 
-            return identities;
+            return new LocalSigningIdentityDiscoveryResult(identities.AsReadOnly(), errors.AsReadOnly());
         });
     }
 

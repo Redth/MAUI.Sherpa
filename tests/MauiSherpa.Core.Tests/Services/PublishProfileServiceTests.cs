@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Text;
 using System.Text.Json;
 using FluentAssertions;
 using MauiSherpa.Core.Interfaces;
@@ -153,6 +154,109 @@ public class PublishProfileServiceTests
         secrets.Should().Contain("APPLE_IOS_APPSTORE_CERTIFICATE_P12", Convert.ToBase64String(new byte[] { 0x01, 0x02, 0x03 }));
         secrets.Should().Contain("APPLE_IOS_APPSTORE_CERTIFICATE_PASSWORD", "cert-pwd");
         _certSync.Verify(x => x.GetCertificateSecretsAsync("ABC123", It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task ResolveSecretsAsync_AfterBackupRestore_FindsCertificateInLocalVaultWithRemoteActive()
+    {
+        const string certificatePassword = "vault-password";
+        var p12 = CreateTestP12("Restored Certificate", certificatePassword);
+        using var certificate = X509CertificateLoader.LoadPkcs12(p12, certificatePassword);
+        var serial = SecretItemAdapterHelper.SanitizeSerialNumber(certificate.SerialNumber);
+        var metadata = new CertificateSecretMetadata(
+            "", serial, "Restored Certificate", "Development", DateTime.UtcNow.AddDays(1), "machine", DateTime.UtcNow);
+        var localSecrets = new Dictionary<string, byte[]>
+        {
+            [$"CERT_{serial}_P12"] = p12,
+            [$"CERT_{serial}_PWD"] = Encoding.UTF8.GetBytes(certificatePassword),
+            [$"CERT_{serial}_META"] = JsonSerializer.SerializeToUtf8Bytes(metadata)
+        };
+        var localConfig = new CloudSecretsProviderConfig(
+            CloudSecretsService.DefaultLocalProviderId, "Local Vault", CloudSecretsProviderType.Local, new());
+        var remoteConfig = new CloudSecretsProviderConfig(
+            "remote", "Remote", CloudSecretsProviderType.AzureKeyVault, new());
+        _cloudService.SetupGet(x => x.ActiveProvider).Returns(remoteConfig);
+        _cloudService.Setup(x => x.GetProvidersAsync()).ReturnsAsync(new[] { remoteConfig, localConfig });
+
+        var localProvider = new Mock<ICloudSecretsProvider>();
+        localProvider.SetupGet(x => x.ProviderType).Returns(CloudSecretsProviderType.Local);
+        localProvider.Setup(x => x.ListSecretsStrictAsync(It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string? prefix, CancellationToken _) =>
+                localSecrets.Keys.Where(key => prefix is null || key.StartsWith(prefix, StringComparison.Ordinal)).ToList());
+        localProvider.Setup(x => x.GetSecretAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string key, CancellationToken _) =>
+                localSecrets.TryGetValue(key, out var value) ? value : null);
+        localProvider.Setup(x => x.StoreSecretAsync(
+                It.IsAny<string>(), It.IsAny<byte[]>(), It.IsAny<Dictionary<string, string>?>(), It.IsAny<CancellationToken>()))
+            .Callback((string key, byte[] value, Dictionary<string, string>? _, CancellationToken _) => localSecrets[key] = value)
+            .ReturnsAsync(true);
+        var remoteProvider = new Mock<ICloudSecretsProvider>();
+        remoteProvider.Setup(x => x.GetSecretAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((byte[]?)null);
+        remoteProvider.Setup(x => x.ListSecretsStrictAsync(It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<string>());
+        var registry = new Mock<ISecretsProviderRegistry>();
+        registry.Setup(x => x.GetProvidersAsync()).ReturnsAsync(new[] { remoteConfig, localConfig });
+        registry.Setup(x => x.GetProviderAsync(localConfig.Id)).ReturnsAsync(localProvider.Object);
+        registry.Setup(x => x.GetProviderAsync(remoteConfig.Id)).ReturnsAsync(remoteProvider.Object);
+        var localCertificates = new Mock<ILocalCertificateService>();
+        localCertificates.Setup(x => x.GetSigningIdentityDiscoveryAsync())
+            .ReturnsAsync(new LocalSigningIdentityDiscoveryResult(
+                Array.Empty<LocalSigningIdentity>(), Array.Empty<string>()));
+        var settings = new Mock<IEncryptedSettingsService>();
+        settings.Setup(x => x.GetSettingsAsync()).ReturnsAsync(new MauiSherpaSettings());
+        var adapter = new CertificateItemAdapter(registry.Object, localCertificates.Object);
+        var backup = new BackupService(
+            settings.Object,
+            cloudSecretsService: _cloudService.Object,
+            providerRegistry: registry.Object,
+            secretItemAdapters: new[] { adapter },
+            localCertificateService: localCertificates.Object);
+
+        var encrypted = await backup.ExportSettingsAsync("backup-password", new BackupExportSelection
+        {
+            CertificateIds = new List<string> { serial }
+        });
+        var imported = await backup.ImportBackupAsync(encrypted, "backup-password");
+        localSecrets.Clear();
+        var restored = await backup.RestoreStoredItemsAsync(imported);
+        var sync = new CertificateSyncService(
+            _cloudService.Object, localCertificates.Object, _logger.Object, registry.Object);
+        var publishService = new PublishProfileService(
+            _cloudService.Object, sync, _keystoreService.Object, _secureStorage.Object, _managedSecrets.Object,
+            _appleConnect.Object, _appleIdentity.Object, _identityState.Object, _googleIdentity.Object, _logger.Object);
+        var profile = CreateProfile() with
+        {
+            AppleConfigs = new List<PublishProfileAppleConfig>
+            {
+                new(
+                    Label: "iOS App Store",
+                    IdentityId: null,
+                    Platform: ApplePlatformType.iOS,
+                    DistributionType: AppleDistributionType.AppStore,
+                    CertificateSerialNumber: serial,
+                    InstallerCertSerialNumber: null,
+                    ProfileId: null,
+                    ProfileUuid: null,
+                    IncludeNotarization: false,
+                    NotarizationAppleIdSecretKey: null,
+                    NotarizationPasswordSecretKey: null,
+                    NotarizationTeamIdSecretKey: null,
+                    NotarizationAppleIdManualValue: null,
+                    NotarizationPasswordManualValue: null,
+                    NotarizationTeamIdManualValue: null,
+                    KeyMappings: new Dictionary<string, List<string>>())
+            }
+        };
+
+        var resolved = await publishService.ResolveSecretsAsync(profile);
+
+        restored.CertificatesRestored.Should().Be(1);
+        restored.Failures.Should().BeEmpty();
+        resolved.Should().Contain("APPLE_IOS_APPSTORE_CERTIFICATE_P12", Convert.ToBase64String(p12));
+        resolved.Should().Contain("APPLE_IOS_APPSTORE_CERTIFICATE_PASSWORD", certificatePassword);
+        _cloudService.Object.ActiveProvider.Should().Be(remoteConfig);
+        _cloudService.Verify(x => x.EnableDefaultLocalProviderAsync(false), Times.Once);
     }
 
     [Fact]

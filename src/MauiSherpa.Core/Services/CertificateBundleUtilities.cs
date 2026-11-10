@@ -69,12 +69,13 @@ internal static class CertificateBundleUtilities
     }
 
     /// <summary>
-    /// Returns true when the P12 opens with the given password and holds at least one
+    /// Returns true when the P12 opens with the given password and holds the requested
     /// certificate together with its private key.
     /// </summary>
-    public static bool ContainsPrivateKey(byte[]? p12, string? password)
+    public static bool ContainsPrivateKey(byte[]? p12, string? password, string serialNumber)
     {
-        if (p12 is null || p12.Length == 0)
+        var wantedSerial = SecretItemAdapterHelper.SanitizeSerialNumber(serialNumber);
+        if (p12 is null || p12.Length == 0 || wantedSerial.Length == 0)
             return false;
 
         X509Certificate2Collection imported;
@@ -92,7 +93,9 @@ internal static class CertificateBundleUtilities
 
         try
         {
-            return imported.Cast<X509Certificate2>().Any(certificate => certificate.HasPrivateKey);
+            return imported.Cast<X509Certificate2>().Any(certificate =>
+                certificate.HasPrivateKey &&
+                SecretItemAdapterHelper.SanitizeSerialNumber(certificate.SerialNumber) == wantedSerial);
         }
         finally
         {
