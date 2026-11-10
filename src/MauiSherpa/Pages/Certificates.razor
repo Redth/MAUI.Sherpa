@@ -26,6 +26,9 @@
 @inject IPreferences AppPreferences
 @inject ILocalVaultAccessService LocalVaultAccess
 @inject ISecretSyncCoordinator SecretSyncCoordinator
+@inject ICertificateRenewalService RenewalService
+@inject IPublishProfileService PublishProfileService
+@inject IPublishProfileHealthService PublishProfileHealth
 
 <h1><i class="fas fa-certificate"></i> Certificates</h1>
 
@@ -256,6 +259,11 @@
                         }
                         @if (!cert.IsLocalOnly)
                         {
+                            <button class="btn btn-secondary btn-icon" @onclick="@(() => RenewCertificate(cert))"
+                                    disabled="@isLoading" title="Renew… (replace this certificate and move its provisioning profiles)"
+                                    aria-label="@($"Renew {cert.Name}")">
+                                <i class="fas fa-rotate"></i>
+                            </button>
                             <button class="btn btn-danger btn-icon" @onclick="@(() => RevokeCertificate(cert))"
                                     disabled="@isLoading" title="Revoke">
                                 <i class="fas fa-ban"></i>
@@ -914,29 +922,57 @@
         var request = await FormModalService.ShowAsync<CreateCertificateFormResult>(page);
         if (request == null) return;
 
+        var created = await CreateCertificateCoreAsync(
+            "Create Certificate",
+            request.CertificateType,
+            request.SaveToDisk,
+            request.Passphrase);
+        if (created == null) return;
+
+        var toast = !string.IsNullOrWhiteSpace(created.SavePath)
+            ? $"Certificate created and saved to {Path.GetFileName(created.SavePath)}"
+            : created.ImportedLocally
+                ? "Certificate created and installed locally"
+                : "Certificate created";
+        await AlertService.ShowToastAsync(toast);
+    }
+
+    private sealed record CreatedCertificate(AppleCertificate Certificate, bool ImportedLocally, string? SavePath);
+
+    /// <summary>
+    /// Creates a certificate with Apple, installs its private key locally (or saves a copy),
+    /// refreshes the list and assigns the default secrets providers. Returns null when the
+    /// user cancels or Apple's request fails.
+    /// </summary>
+    private async Task<CreatedCertificate?> CreateCertificateCoreAsync(
+        string title,
+        string certificateType,
+        bool saveToDisk,
+        string? passphrase)
+    {
         string? savePath = null;
-        if (request.SaveToDisk)
+        if (saveToDisk)
         {
-            var typeName = request.CertificateType.ToLowerInvariant().Replace('_', '-');
+            var typeName = certificateType.ToLowerInvariant().Replace('_', '-');
             savePath = await DialogService.PickSaveFileAsync(
                 "Save Certificate",
                 $"{typeName}-{DateTime.Now:yyyyMMdd-HHmmss}.p12",
                 "p12");
-            if (string.IsNullOrWhiteSpace(savePath)) return;
+            if (string.IsNullOrWhiteSpace(savePath)) return null;
         }
 
         AppleCertificateCreateResult? certResult = null;
         var importedLocally = false;
         var operation = await OperationModal.RunAsync(
-            "Create Certificate",
-            $"Creating {request.CertificateType.Replace('_', ' ')} certificate...",
+            title,
+            $"Creating {certificateType.Replace('_', ' ')} certificate...",
             async ctx =>
             {
                 ctx.SetStatus("Submitting certificate request to Apple...");
                 certResult = await AppleService.CreateCertificateAsync(
-                    request.CertificateType,
+                    certificateType,
                     commonName: null,
-                    passphrase: request.Passphrase);
+                    passphrase: passphrase);
                 ctx.LogSuccess("Apple issued the certificate");
 
                 if (LocalCertificateService.IsSupported)
@@ -962,7 +998,7 @@
                 return true;
             },
             canCancel: false);
-        if (!operation.Success || certResult == null) return;
+        if (!operation.Success || certResult == null) return null;
 
         if (LocalCertificateService.IsSupported && !importedLocally && string.IsNullOrWhiteSpace(savePath))
         {
@@ -971,7 +1007,7 @@
                 "Apple issued the certificate, but its private key could not be installed locally. Choose a location to save a recovery copy.");
             savePath = await DialogService.PickSaveFileAsync(
                 "Save Certificate Recovery Copy",
-                $"{request.CertificateType.ToLowerInvariant().Replace('_', '-')}-{DateTime.Now:yyyyMMdd-HHmmss}.p12",
+                $"{certificateType.ToLowerInvariant().Replace('_', '-')}-{DateTime.Now:yyyyMMdd-HHmmss}.p12",
                 "p12");
             if (!string.IsNullOrWhiteSpace(savePath))
             {
@@ -983,7 +1019,7 @@
         var createdCertificate = certificates.FirstOrDefault(certificate =>
             string.Equals(certificate.Id, certResult.CertificateId, StringComparison.Ordinal));
         var serialNumber = createdCertificate?.SerialNumber ?? certResult.SerialNumber;
-        var certificateName = createdCertificate?.Name ?? certResult.CommonName ?? request.CertificateType;
+        var certificateName = createdCertificate?.Name ?? certResult.CommonName ?? certificateType;
         if (importedLocally &&
             !string.IsNullOrWhiteSpace(serialNumber))
         {
@@ -994,12 +1030,14 @@
                     certificateName));
         }
 
-        var toast = !string.IsNullOrWhiteSpace(savePath)
-            ? $"Certificate created and saved to {Path.GetFileName(savePath)}"
-            : importedLocally
-                ? "Certificate created and installed locally"
-                : "Certificate created";
-        await AlertService.ShowToastAsync(toast);
+        createdCertificate ??= new AppleCertificate(
+            certResult.CertificateId,
+            certificateName,
+            certResult.CertificateType ?? certificateType,
+            "",
+            certResult.ExpirationDate,
+            serialNumber ?? "");
+        return new CreatedCertificate(createdCertificate, importedLocally, savePath);
     }
 
     private async Task ShowExportDialog(AppleCertificate cert)
@@ -1261,9 +1299,14 @@
         var confirmed = await AlertService.ShowConfirmAsync(
             "Revoke Certificate",
             $"Are you sure you want to revoke '{cert.Name}'? This action cannot be undone and will invalidate any apps signed with this certificate.");
-        
+
         if (!confirmed) return;
 
+        await RevokeCertificateCoreAsync(cert);
+    }
+
+    private async Task<bool> RevokeCertificateCoreAsync(AppleCertificate cert)
+    {
         var result = await OperationModal.RunAsync(
             "Revoke Certificate",
             $"Revoking '{cert.Name}'...",
@@ -1272,7 +1315,7 @@
                 ctx.SetStatus("Revoking certificate...");
                 ctx.LogInfo($"Certificate: {cert.Name}");
                 ctx.LogInfo($"Serial: {cert.SerialNumber}");
-                
+
                 await AppleService.RevokeCertificateAsync(cert.Id);
                 ctx.LogSuccess("Certificate revoked successfully");
                 return true;
@@ -1283,8 +1326,324 @@
         {
             await RefreshData(forceRefresh: true);
         }
+
+        return result.Success;
     }
-    
+
+    // ------------------------------------------------------------------
+    // Renewal: replace a certificate and move its provisioning profiles
+    // ------------------------------------------------------------------
+
+    private const string RemoveOldCopyOptionId = "remove-old-installed-copy";
+
+    private async Task RenewCertificate(AppleCertificate oldCert)
+    {
+        var identity = IdentityState.SelectedIdentity;
+        if (identity == null || oldCert.IsLocalOnly)
+            return;
+
+        // Profiles are deleted and recreated from this list, so never work from a stale cache.
+        List<AppleProfile> profiles;
+        var loadingToast = ToastService.Show("Finding provisioning profiles that use this certificate...", ToastType.Info);
+        try
+        {
+            await Mediator.FlushStores($"apple:profiles:{identity.Id}");
+            var (_, result) = await Mediator.Request(new GetProfilesRequest(identity.Id));
+            profiles = result.ToList();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError($"Failed to load provisioning profiles for renewal: {ex.Message}", ex);
+            await AlertService.ShowAlertAsync("Renew Certificate", $"Provisioning profiles couldn't be loaded: {ex.Message}");
+            return;
+        }
+        finally
+        {
+            ToastService.Dismiss(loadingToast);
+        }
+
+        var affected = RenewalService.FindProfilesUsingCertificate(profiles, oldCert.Id);
+        var candidates = RenewalService.FindReplacementCandidates(certificates, oldCert);
+        var typeLabel = FormatCertTypeExact(oldCert.CertificateType);
+
+        // Step 1: choose the replacement.
+        var form = await FormModalService.ShowAsync<RenewCertificateFormResult>(new RenewCertificatePage(
+            oldCert,
+            typeLabel,
+            candidates,
+            affected.Count,
+            requireDiskExport: !LocalCertificateService.IsSupported));
+        if (form == null)
+            return;
+
+        var existing = form.ExistingCertificateId is null
+            ? null
+            : candidates.FirstOrDefault(candidate => candidate.Id == form.ExistingCertificateId);
+
+        var confirmed = await AlertService.ShowConfirmAsync(
+            "Renew Certificate",
+            BuildRenewalConfirmation(oldCert, existing, typeLabel, affected.Count),
+            existing is null ? "Create Certificate" : "Continue",
+            "Cancel");
+        if (!confirmed)
+            return;
+
+        var newCert = existing;
+        if (newCert is null)
+        {
+            var created = await CreateCertificateCoreAsync(
+                "Renew Certificate",
+                oldCert.CertificateType,
+                form.SaveToDisk,
+                form.Passphrase);
+            if (created is null)
+                return;
+            newCert = created.Certificate;
+        }
+
+        // Steps 2-4: choose profiles, recreate them with the new certificate, install them.
+        var renewed = new List<ProfileRenewalResult>();
+        if (affected.Count > 0)
+        {
+            renewed = await RepointProfilesAsync(oldCert, newCert, affected);
+            await Mediator.FlushStores($"apple:profiles:{identity.Id}");
+        }
+
+        await OfferPublishProfileUpdatesAsync(oldCert, newCert, renewed);
+        await OfferRevokeAfterRenewalAsync(oldCert, newCert);
+    }
+
+    private string BuildRenewalConfirmation(
+        AppleCertificate oldCert,
+        AppleCertificate? existing,
+        string typeLabel,
+        int affectedCount)
+    {
+        var lines = new List<string>
+        {
+            existing is null
+                ? $"• A new {typeLabel} certificate is created with Apple now and installed in the {PlatformInfo.PlatformName} certificate store."
+                : $"• '{existing.Name}' (expires {existing.ExpirationDate:MMM d, yyyy}) replaces '{oldCert.Name}'.",
+            affectedCount == 0
+                ? "• No provisioning profiles use the old certificate, so none are changed."
+                : $"• {affectedCount} provisioning profile(s) use the old certificate. Next you choose which to move. " +
+                  "Each one you keep selected is DELETED in Apple Developer and recreated with the same name, type, bundle ID and devices, " +
+                  "using the new certificate instead of the old one. It gets a new UUID and is installed on this machine. " +
+                  "Nothing is deleted until you press Start on the next screen.",
+            "• The old certificate is not revoked. You'll be asked about that separately at the end."
+        };
+        return string.Join("\n\n", lines);
+    }
+
+    private async Task<List<ProfileRenewalResult>> RepointProfilesAsync(
+        AppleCertificate oldCert,
+        AppleCertificate newCert,
+        IReadOnlyList<AppleProfile> affected)
+    {
+        var results = new List<ProfileRenewalResult>();
+        var operations = affected.Select(profile => new OperationItem(
+            Id: profile.Id,
+            Name: profile.Name,
+            Description: string.Join(" · ", new[]
+            {
+                FormatProfileType(profile.ProfileType),
+                profile.BundleId,
+                $"expires {profile.ExpirationDate:MMM d, yyyy}"
+            }.Where(part => !string.IsNullOrWhiteSpace(part))),
+            Execute: async ctx =>
+            {
+                var result = await RenewalService.RepointProfileAsync(
+                    profile,
+                    oldCert.Id,
+                    newCert.Id,
+                    ctx.IsSecondaryOptionEnabled(RemoveOldCopyOptionId),
+                    new ActionProgress(ctx.LogInfo),
+                    ctx.CancellationToken);
+                lock (results)
+                    results.Add(result);
+
+                ctx.LogSuccess($"Recreated '{result.RegeneratedProfile.Name}' with the new certificate (UUID {result.RegeneratedProfile.Uuid})");
+                foreach (var device in result.DroppedDevices)
+                    ctx.LogWarning($"Left out disabled device '{device.Name}'");
+
+                if (!result.Installed)
+                {
+                    ctx.LogError($"The profile was recreated in Apple Developer but couldn't be installed: {result.InstallError}. Install it from Provisioning Profiles.");
+                    return false;
+                }
+
+                ctx.LogSuccess($"Installed {Path.GetFileName(result.InstalledPath)}");
+                if (result.RemovedInstalledPaths.Count > 0)
+                    ctx.LogInfo($"Removed {result.RemovedInstalledPaths.Count} old installed copy(ies)");
+                return true;
+            },
+            IsEnabled: true,
+            CanDisable: true,
+            SecondaryOptions: string.IsNullOrWhiteSpace(profile.Uuid)
+                ? null
+                : [new OperationSecondaryOption(RemoveOldCopyOptionId, "Remove the old installed copy from this machine", DefaultEnabled: true)]
+        )).ToList();
+
+        var description =
+            $"Each selected profile is deleted in Apple Developer and recreated with the same name, type, bundle ID and devices, " +
+            $"using '{newCert.Name}' (expires {newCert.ExpirationDate:MMM d, yyyy}) instead of '{oldCert.Name}'. " +
+            "Other certificates on the profile are kept and disabled devices are left out. Each recreated profile gets a new UUID " +
+            "and is installed on this machine. Deselect any profile you want to leave unchanged.";
+
+        var outcome = await MultiOpModal.RunAsync("Move Provisioning Profiles", description, operations);
+        if (outcome.Failed > 0)
+        {
+            await AlertService.ShowAlertAsync(
+                "Some Profiles Need Attention",
+                $"{outcome.Completed} profile(s) moved to the new certificate; {outcome.Failed} failed. " +
+                "A profile that failed before it was deleted is unchanged. Check the progress log of each failed profile for details.");
+        }
+
+        return results;
+    }
+
+    private async Task OfferPublishProfileUpdatesAsync(
+        AppleCertificate oldCert,
+        AppleCertificate newCert,
+        IReadOnlyList<ProfileRenewalResult> renewed)
+    {
+        PublishProfileHealth.Invalidate();
+        if (CloudSecretsService.ActiveProvider is null)
+            return;
+
+        IReadOnlyList<PublishProfile> publishProfiles;
+        try
+        {
+            publishProfiles = await PublishProfileService.GetProfilesAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning($"Could not load publish profiles after renewal: {ex.Message}");
+            return;
+        }
+
+        var certificateMap = new Dictionary<string, AppleCertificate>();
+        if (!string.IsNullOrWhiteSpace(oldCert.SerialNumber) && !string.IsNullOrWhiteSpace(newCert.SerialNumber))
+            certificateMap[oldCert.SerialNumber] = newCert;
+        var profileMap = renewed
+            .GroupBy(result => result.OriginalProfile.Id)
+            .ToDictionary(group => group.Key, group => group.Last().RegeneratedProfile);
+
+        var updates = publishProfiles
+            .Select(profile => (Original: profile, Updated: PublishProfileHealth.Repoint(profile, certificateMap, profileMap)))
+            .Where(pair => !ReferenceEquals(pair.Original, pair.Updated))
+            .ToList();
+        if (updates.Count == 0)
+            return;
+
+        var names = string.Join(", ", updates.Take(5).Select(pair => $"'{pair.Original.Name}'"));
+        if (updates.Count > 5)
+            names += $" and {updates.Count - 5} more";
+
+        var confirmed = await AlertService.ShowConfirmAsync(
+            "Update Publish Profiles",
+            $"{updates.Count} publish profile(s) use the old certificate or a recreated provisioning profile: {names}.\n\n" +
+            $"Update them to use '{newCert.Name}' and the recreated provisioning profiles? " +
+            "If you skip this, they show an \"updated\" badge on the Publish Profiles page with a one-click fix.",
+            "Update",
+            "Not Now");
+        if (!confirmed)
+            return;
+
+        var saved = 0;
+        var failures = new List<string>();
+        foreach (var (original, updated) in updates)
+        {
+            try
+            {
+                await PublishProfileService.SaveProfileAsync(updated);
+                if (CloudSecretsService.ActiveProvider is { } provider)
+                {
+                    await SecretSyncCoordinator.ResolveConflictAsync(
+                        new SecretItemRef(SecretItemKind.PublishProfile, updated.Id, updated.Name),
+                        provider.Id);
+                }
+                saved++;
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError($"Failed to update publish profile '{original.Name}': {ex.Message}", ex);
+                failures.Add($"'{original.Name}': {ex.Message}");
+            }
+        }
+
+        if (failures.Count > 0)
+        {
+            await AlertService.ShowAlertAsync(
+                "Publish Profiles",
+                $"Updated {saved} publish profile(s). These couldn't be saved:\n{string.Join("\n", failures)}");
+        }
+        else
+        {
+            await AlertService.ShowToastAsync($"Updated {saved} publish profile(s)");
+        }
+    }
+
+    private async Task OfferRevokeAfterRenewalAsync(AppleCertificate oldCert, AppleCertificate newCert)
+    {
+        var revoke = await AlertService.ShowConfirmAsync(
+            "Revoke Old Certificate?",
+            $"'{oldCert.Name}' (serial {oldCert.SerialNumber}) has been replaced by '{newCert.Name}'. " +
+            "You can revoke it now or keep it until it expires.\n\n" +
+            "Revoking can't be undone. Any provisioning profile, machine or CI pipeline still signing with it stops working.",
+            "Revoke",
+            "Keep Certificate");
+        if (!revoke)
+        {
+            await AlertService.ShowToastAsync("Certificate renewed");
+            return;
+        }
+
+        if (await RevokeCertificateCoreAsync(oldCert))
+            await AlertService.ShowToastAsync("Certificate renewed and the old one revoked");
+    }
+
+    private static string FormatCertTypeExact(string? certificateType) => certificateType?.ToUpperInvariant() switch
+    {
+        "DEVELOPMENT" => "Apple Development",
+        "DISTRIBUTION" => "Apple Distribution",
+        "IOS_DEVELOPMENT" => "iOS App Development",
+        "IOS_DISTRIBUTION" => "iOS Distribution",
+        "MAC_APP_DEVELOPMENT" => "Mac Development",
+        "MAC_APP_DISTRIBUTION" => "Mac App Distribution",
+        "MAC_INSTALLER_DISTRIBUTION" => "Mac Installer Distribution",
+        "DEVELOPER_ID_APPLICATION" => "Developer ID Application",
+        "DEVELOPER_ID_KEXT" => "Developer ID Kernel Extension",
+        "PASS_TYPE_ID" => "Pass Type ID",
+        "PASS_TYPE_ID_WITH_NFC" => "Pass Type ID with NFC",
+        null or "" => "Unknown",
+        _ => certificateType!.Replace("_", " ")
+    };
+
+    private static string FormatProfileType(string profileType) => profileType switch
+    {
+        "IOS_APP_DEVELOPMENT" => "iOS Development",
+        "IOS_APP_ADHOC" => "iOS Ad Hoc",
+        "IOS_APP_STORE" => "iOS App Store",
+        "IOS_APP_INHOUSE" => "iOS In House",
+        "MAC_APP_DEVELOPMENT" => "macOS Development",
+        "MAC_APP_STORE" => "Mac App Store",
+        "MAC_APP_DIRECT" => "macOS Direct Distribution",
+        "MAC_CATALYST_APP_DEVELOPMENT" => "Mac Catalyst Development",
+        "MAC_CATALYST_APP_STORE" => "Mac Catalyst App Store",
+        "MAC_CATALYST_APP_DIRECT" => "Mac Catalyst Direct",
+        "TVOS_APP_DEVELOPMENT" => "tvOS Development",
+        "TVOS_APP_ADHOC" => "tvOS Ad Hoc",
+        "TVOS_APP_STORE" => "tvOS App Store",
+        _ => profileType.Replace("_", " ")
+    };
+
+    /// <summary>Reports progress synchronously so log lines stay in order.</summary>
+    private sealed class ActionProgress(Action<string> report) : IProgress<string>
+    {
+        public void Report(string value) => report(value);
+    }
+
     private async Task DeleteLocalCertificate(AppleCertificate cert)
     {
         openSyncMenuCertId = null;
