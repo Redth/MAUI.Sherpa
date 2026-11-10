@@ -199,6 +199,101 @@ public class DotnetWorkloadServiceTests
         }
     }
 
+    [Fact]
+    public async Task RepairRestoresMissingRecordedSetOnlyAfterExecutionStarts()
+    {
+        var root = CreateEmptyRoot();
+        try
+        {
+            var target = TargetForRoot(root, "10.0.399");
+            WriteInstallState(root, """{"workloadVersion":"10.0.398"}""");
+            var statePath = InstallStatePath(root);
+
+            var request = _service.CreateRepairRequest(target);
+
+            request.Arguments.Should().Equal("workload", "update", "--version", "10.0.398");
+            request.ConfirmationDetails.Should().Contain("10.0.398");
+            request.ConfirmationButtonText.Should().Be("Restore");
+            File.ReadAllText(statePath).Should().Contain("10.0.398");
+
+            await request.BeforeExecuteAsync!(CancellationToken.None);
+
+            File.ReadAllText(statePath).Should().NotContain("10.0.398");
+            File.Exists($"{statePath}.bak-missing-10.0.398").Should().BeTrue();
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void RepairUsesCliWhenRecordedSetExists()
+    {
+        var root = CreateEmptyRoot();
+        try
+        {
+            var target = TargetForRoot(root, "10.0.399");
+            WriteInstallState(root, """{"workloadVersion":"10.0.398"}""");
+            var workloadSet = Path.Combine(
+                root,
+                "sdk-manifests",
+                "10.0.300",
+                "workloadsets",
+                "10.0.398",
+                "microsoft.net.workloads.workloadset.json");
+            Directory.CreateDirectory(Path.GetDirectoryName(workloadSet)!);
+            File.WriteAllText(workloadSet, "{}");
+
+            var request = _service.CreateRepairRequest(target);
+
+            request.Arguments.Should().Equal("workload", "repair");
+            request.BeforeExecuteAsync.Should().BeNull();
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void RepairDoesNotEditStateThatRequiresElevation()
+    {
+        var root = CreateEmptyRoot();
+        try
+        {
+            var target = TargetForRoot(root, "10.0.399") with { CanWrite = false };
+            WriteInstallState(root, """{"workloadVersion":"10.0.398"}""");
+
+            var request = _service.CreateRepairRequest(target);
+
+            request.Arguments.Should().Equal("workload", "repair");
+            request.BeforeExecuteAsync.Should().BeNull();
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static string CreateEmptyRoot()
+    {
+        var root = Path.Combine(
+            Path.GetTempPath(),
+            $"maui-sherpa-workload-service-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        return root;
+    }
+
+    private static string InstallStatePath(string root) => Path.Combine(
+        root,
+        "metadata",
+        "workloads",
+        "Arm64",
+        "10.0.300",
+        "InstallState",
+        "default.json");
+
     private static string CreateFailingDotnetRoot()
     {
         if (OperatingSystem.IsWindows())

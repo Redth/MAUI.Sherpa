@@ -133,7 +133,7 @@ public static class WorkloadInstallStateReader
             .ToList();
     }
 
-    private static string GetPath(DotnetWorkloadTarget target) =>
+    internal static string GetPath(DotnetWorkloadTarget target) =>
         Path.Combine(
             target.InstallRoot,
             "metadata",

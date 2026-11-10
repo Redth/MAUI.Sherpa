@@ -522,9 +522,10 @@
 
     private async Task RepairWorkloads(DotnetWorkloadInventory inventory)
         {
-            var request = Workloads.CreateRepairRequest(inventory.Target) with
+            var request = Workloads.CreateRepairRequest(inventory.Target);
+            request = request with
             {
-                ConfirmationDetails =
+                ConfirmationDetails = request.ConfirmationDetails ??
                     $"SDK feature band: {inventory.Target.FeatureBand}\n" +
                     $"Recorded workload IDs: {inventory.InstalledWorkloads.Count}\n" +
                     "The .NET SDK will reinstall packs referenced by these workloads."

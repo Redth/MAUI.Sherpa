@@ -2160,7 +2160,8 @@ public record ProcessRequest(
     bool UsePseudoTerminal = false,
     string? ConfirmationDetails = null,
     string? ConfirmationButtonText = null,
-    bool AcceptsStandardInput = false
+    bool AcceptsStandardInput = false,
+    Func<CancellationToken, Task>? BeforeExecuteAsync = null
 )
 {
     /// <summary>
