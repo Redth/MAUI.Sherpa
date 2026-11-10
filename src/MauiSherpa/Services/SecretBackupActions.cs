@@ -28,12 +28,22 @@ public static class SecretBackupActions
         if (providers.Count == 1)
             return providers[0];
 
-        var choice = await alertService.ShowActionSheetAsync(
-            title,
-            "Cancel",
-            null,
-            providers.Select(p => p.Name).ToArray());
-        return providers.FirstOrDefault(p => p.Name == choice);
+        // Provider names aren't unique (and could even be "Cancel"), so give every choice a
+        // distinct label and map it back to its provider by position.
+        const string cancel = "Cancel";
+        var labels = new List<string>();
+        foreach (var provider in providers)
+        {
+            var label = $"{provider.Name} ({provider.ProviderType})";
+            var candidate = label;
+            for (var n = 2; candidate == cancel || labels.Contains(candidate); n++)
+                candidate = $"{label} #{n}";
+            labels.Add(candidate);
+        }
+
+        var choice = await alertService.ShowActionSheetAsync(title, cancel, null, labels.ToArray());
+        var index = choice is null ? -1 : labels.IndexOf(choice);
+        return index >= 0 ? providers[index] : null;
     }
 
     /// <summary>

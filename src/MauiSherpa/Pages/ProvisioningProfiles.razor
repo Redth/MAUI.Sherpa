@@ -177,6 +177,7 @@
                     {
                         <label class="profile-select">
                             <input type="checkbox"
+                                   aria-label="@($"Select {profile.Name}")"
                                    checked="@selectedProfileIds.Contains(profile.Id)"
                                    @onchange="@(e => ToggleProfileSelection(profile.Id, e.Value is bool selected && selected))" />
                         </label>
@@ -615,12 +616,6 @@
     protected override async Task OnInitializedAsync()
     {
         ConfigureToolbarItems();
-        ToolbarService.SetSearch("Search profiles...");
-        ToolbarService.SetFilters(
-            new ToolbarFilter("state", "State", ["All States", "Active", "Invalid"]),
-            new ToolbarFilter("type", "Type", ["All Types", "Development", "Ad Hoc", "App Store"]),
-            new ToolbarFilter("platform", "Platform", ["All Platforms", "iOS", "macOS"])
-        );
         ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
         ToolbarService.SearchTextChanged += OnSearchTextChanged;
         ToolbarService.FilterChanged += OnFilterChanged;
@@ -978,6 +973,19 @@
                 new ToolbarAction("cleanup", "Clean Up", "trash"),
                 new ToolbarAction("select", "Select", "checkmark.circle"));
         }
+
+        // SetItems resets the native search field and filters; put them back with the
+        // page's current values so switching modes doesn't strand active filters.
+        ToolbarService.SetSearch("Search profiles...");
+        if (!string.IsNullOrEmpty(searchQuery))
+            ToolbarService.NotifySearchTextChanged(searchQuery);
+        ToolbarService.SetFilters(
+            new ToolbarFilter("state", "State", ["All States", "Active", "Invalid"],
+                filterState switch { "ACTIVE" => 1, "INVALID" => 2, _ => 0 }),
+            new ToolbarFilter("type", "Type", ["All Types", "Development", "Ad Hoc", "App Store"],
+                filterType switch { "DEVELOPMENT" => 1, "ADHOC" => 2, "APPSTORE" => 3, _ => 0 }),
+            new ToolbarFilter("platform", "Platform", ["All Platforms", "iOS", "macOS"],
+                filterPlatform switch { "IOS" => 1, "MAC_OS" => 2, _ => 0 }));
     }
 
     private bool AllVisibleSelected

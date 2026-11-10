@@ -179,6 +179,7 @@
                     {
                         <label class="cert-select" title="@GetSelectionHint(cert, syncStatus)">
                             <input type="checkbox"
+                                   aria-label="@($"Select {cert.Name}")"
                                    checked="@selectedCertificateIds.Contains(cert.Id)"
                                    @onchange="@(e => ToggleCertificateSelection(cert.Id, e.Value is bool selected && selected))" />
                         </label>
@@ -1031,11 +1032,17 @@
                 new ToolbarAction("select", "Select", "checkmark.circle"));
         }
 
+        // SetItems resets the native search field and filters; restore the current values.
         ToolbarService.SetSearch("Search certificates...");
+        if (!string.IsNullOrEmpty(searchQuery))
+            ToolbarService.NotifySearchTextChanged(searchQuery);
         ToolbarService.SetFilters(
-            new ToolbarFilter("type", "Type", ["All Types", "Development", "Distribution", "Developer ID", "Developer ID Installer"]),
-            new ToolbarFilter("platform", "Platform", ["All Platforms", "iOS", "macOS"]),
-            new ToolbarFilter("status", "Status", ["All Statuses", "Valid", "Expiring Soon", "Expired"]));
+            new ToolbarFilter("type", "Type", ["All Types", "Development", "Distribution", "Developer ID", "Developer ID Installer"],
+                filterType switch { "DEVELOPMENT" => 1, "DISTRIBUTION" => 2, "DEVELOPER_ID" => 3, "DEVELOPER_ID_INSTALLER" => 4, _ => 0 }),
+            new ToolbarFilter("platform", "Platform", ["All Platforms", "iOS", "macOS"],
+                filterPlatform switch { "IOS" => 1, "MAC" => 2, _ => 0 }),
+            new ToolbarFilter("status", "Status", ["All Statuses", "Valid", "Expiring Soon", "Expired"],
+                filterStatus switch { "valid" => 1, "expiring" => 2, "expired" => 3, _ => 0 }));
     }
 
     private async Task BeginSelectionModeAsync()
