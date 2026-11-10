@@ -159,6 +159,54 @@ public class PublishProfileHealthServiceTests
     }
 
     [Fact]
+    public void Evaluate_DoesNotFlagAValidCertificateJustBecauseAnotherOfTheSameTypeIsNewer()
+    {
+        // e.g. two team members' Apple Development certificates.
+        var mine = Certificate("c5", "Apple Development: Alice", "DEVELOPMENT", Now.AddDays(200), "ALICE1");
+        var theirs = Certificate("c6", "Apple Development: Bob", "DEVELOPMENT", Now.AddDays(300), "BOB1");
+        var profile = Profile(apple: [AppleConfig(certificates: [Selection(mine)])]);
+
+        _sut.Evaluate(profile, Snapshot(certificates: [mine, theirs])).IsHealthy.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Evaluate_ReportsCertificateReplacedForANewerCertificateWithTheSameName()
+    {
+        var older = Certificate("c3", DistCert.Name, "DISTRIBUTION", Now.AddDays(200), "OLDER1");
+        var profile = Profile(apple: [AppleConfig(certificates: [Selection(older)])]);
+
+        var issue = _sut.Evaluate(profile, Snapshot(certificates: [older, DistCert])).Issues.Should().ContainSingle().Subject;
+
+        issue.Kind.Should().Be(PublishProfileHealthIssueKind.CertificateReplaced);
+        issue.ReplacementReference.Should().Be(DistCert.SerialNumber);
+    }
+
+    [Fact]
+    public void Evaluate_ReportsCertificateReplacedForARecordedRenewal()
+    {
+        var older = Certificate("c3", "Renamed locally", "DISTRIBUTION", Now.AddDays(200), "OLDER1");
+        var profile = Profile(apple: [AppleConfig(certificates: [Selection(older)])]);
+        _sut.RecordCertificateReplacement("old:er:1", DistCert.SerialNumber);
+
+        var issue = _sut.Evaluate(profile, Snapshot(certificates: [older, DistCert])).Issues.Should().ContainSingle().Subject;
+
+        issue.Kind.Should().Be(PublishProfileHealthIssueKind.CertificateReplaced);
+        issue.ReplacementReference.Should().Be(DistCert.SerialNumber);
+    }
+
+    [Fact]
+    public void Evaluate_OffersARecordedReplacementForARevokedCertificate()
+    {
+        var profile = Profile(apple: [AppleConfig(certificates: [new PublishProfileCertificateSelection("REVOKED", "Different name")])]);
+        _sut.RecordCertificateReplacement("REVOKED", DistCert.SerialNumber);
+
+        var issue = _sut.Evaluate(profile, Snapshot()).Issues.Should().ContainSingle().Subject;
+
+        issue.Kind.Should().Be(PublishProfileHealthIssueKind.MissingCertificate);
+        issue.ReplacementReference.Should().Be(DistCert.SerialNumber);
+    }
+
+    [Fact]
     public void Evaluate_DoesNotFlagAnOlderCertificateWhenTheNewerOneIsAlsoSelected()
     {
         var older = Certificate("c3", "Dist 2025", "DISTRIBUTION", Now.AddDays(20), "OLDER1");

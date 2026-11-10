@@ -1401,6 +1401,10 @@
             newCert = created.Certificate;
         }
 
+        // Publish profiles still on the old certificate get the "replaced" fix even if they
+        // aren't updated below and the old certificate is still valid.
+        PublishProfileHealth.RecordCertificateReplacement(oldCert.SerialNumber, newCert.SerialNumber);
+
         // Steps 2-4: choose profiles, recreate them with the new certificate, install them.
         var renewed = new List<ProfileRenewalResult>();
         if (affected.Count > 0)
