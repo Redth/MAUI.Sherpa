@@ -839,6 +839,193 @@ public class AppleConnectService : IAppleConnectService
         };
     }
 
+    // App Store Connect caps limit[certificates] and limit[devices] at 50 on /v1/profiles.
+    const int ProfileRelationshipLimit = 50;
+    // ...and limit at 200 on /v1/devices.
+    const int DeviceListLimit = 200;
+
+    public async Task<AppleProfileDetails> GetProfileDetailsAsync(string profileId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(profileId);
+        _logger.LogInformation($"Reading profile details: {profileId}");
+
+        var client = await GetClientAsync();
+        var response = await client.ListProfilesAsync(
+            filterId: new[] { profileId }, filterName: null,
+            filterProfileState: null, filterProfileType: null,
+            include: "bundleId,certificates,devices", sort: null, limit: 1,
+            limitCertificates: ProfileRelationshipLimit, limitDevices: ProfileRelationshipLimit,
+            fieldsProfiles: null, fieldsBundleIds: null,
+            fieldsCertificates: null, fieldsDevices: null,
+            cancellationToken: default);
+
+        var p = response.Data.FirstOrDefault()
+            ?? throw new InvalidOperationException($"Provisioning profile '{profileId}' was not found in App Store Connect.");
+
+        Relationship? GetRelationship(string name) =>
+            p.Relationships?.TryGetValue(name, out var relationship) == true ? relationship : null;
+
+        var bundleRelationship = GetRelationship("bundleId");
+        var bundleIdResourceId = bundleRelationship?.Data?.FirstOrDefault()?.Id;
+        var bundleIdentifier = bundleIdResourceId is null
+            ? null
+            : (response.IncludedBundleIds ?? []).FirstOrDefault(b => b.Id == bundleIdResourceId)?.Attributes?.Identifier;
+
+        var certificateRelationship = GetRelationship("certificates");
+        var certificateIds = (certificateRelationship?.Data ?? [])
+            .Select(data => data.Id)
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .ToList();
+        EnsureRelationshipComplete(
+            "certificates",
+            certificateIds.Count,
+            certificateRelationship?.Meta?.Paging?.Total,
+            p.Attributes?.Name ?? profileId);
+
+        var deviceRelationship = GetRelationship("devices");
+        var relationshipDeviceIds = (deviceRelationship?.Data ?? [])
+            .Select(data => data.Id)
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .ToList();
+        var includedDevices = (response.IncludedDevices ?? [])
+            .Select(ToAppleDevice)
+            .GroupBy(device => device.Id)
+            .ToDictionary(group => group.Key, group => group.First());
+        var deviceTotal = deviceRelationship?.Meta?.Paging?.Total;
+
+        IReadOnlyList<string>? provisionedUdids = null;
+        IReadOnlyList<AppleDevice>? allDevices = null;
+        if (deviceTotal is { } total && total > relationshipDeviceIds.Count)
+        {
+            // The relationship was truncated. The signed profile content lists every
+            // provisioned UDID, so map those back to device resources instead.
+            _logger.LogInformation(
+                $"Profile '{p.Attributes?.Name}' has {total} devices; resolving them from the profile content");
+            if (!string.IsNullOrEmpty(p.Attributes?.ProfileContent))
+            {
+                var parsed = await ProvisioningProfiles.ParseAsync(
+                    Convert.FromBase64String(p.Attributes.ProfileContent)).ConfigureAwait(false);
+                provisionedUdids = parsed.ProvisionedDevices ?? [];
+            }
+
+            var devicesResponse = await client.ListDevicesAsync(
+                filterId: null, filterIdentifier: null, filterName: null,
+                filterPlatform: null, filterStatus: null, filterUdid: null,
+                include: null, sort: null, limit: DeviceListLimit,
+                limitProfiles: null, limitBundleIdCapabilities: null,
+                fieldsDevices: null,
+                cancellationToken: default);
+            allDevices = devicesResponse.Data.Select(ToAppleDevice).ToList();
+        }
+
+        var devices = ResolveProfileDevices(
+            p.Attributes?.Name ?? profileId,
+            relationshipDeviceIds,
+            deviceTotal,
+            includedDevices,
+            provisionedUdids,
+            allDevices);
+
+        if (string.IsNullOrWhiteSpace(bundleIdResourceId))
+        {
+            throw new InvalidOperationException(
+                $"The bundle ID of provisioning profile '{p.Attributes?.Name ?? profileId}' could not be read.");
+        }
+
+        var profile = new AppleProfile(
+            p.Id,
+            p.Attributes?.Name ?? "",
+            p.Attributes?.ProfileType.ToString() ?? "IOS_APP_DEVELOPMENT",
+            p.Attributes?.Platform.ToString() ?? "IOS",
+            p.Attributes?.ProfileState.ToString() ?? "ACTIVE",
+            p.Attributes?.ExpirationDate?.DateTime ?? DateTime.UtcNow.AddYears(1),
+            bundleIdentifier,
+            p.Attributes?.Uuid ?? "",
+            certificateIds);
+
+        return new AppleProfileDetails(profile, bundleIdResourceId, certificateIds, devices);
+    }
+
+    static AppleDevice ToAppleDevice(AppleAppStoreConnect.Device d) => new(
+        d.Id,
+        d.Attributes?.Udid ?? "",
+        d.Attributes?.Name ?? "",
+        d.Attributes?.Platform.ToString() ?? "IOS",
+        d.Attributes?.DeviceClass ?? "IPHONE",
+        d.Attributes?.Status.ToString() ?? "ENABLED",
+        d.Attributes?.Model);
+
+    internal static void EnsureRelationshipComplete(
+        string relationshipName,
+        int returnedCount,
+        uint? total,
+        string profileName)
+    {
+        if (total is { } value && value > returnedCount)
+        {
+            throw new InvalidOperationException(
+                $"App Store Connect only returned {returnedCount} of {value} {relationshipName} for '{profileName}', " +
+                "so it can't be recreated safely.");
+        }
+    }
+
+    /// <summary>
+    /// Returns every device a profile provisions. Uses the relationship data when it is
+    /// complete; otherwise maps the UDIDs in the signed profile content to device resources.
+    /// Throws when any device can't be resolved so nothing is recreated with fewer devices.
+    /// </summary>
+    internal static IReadOnlyList<AppleDevice> ResolveProfileDevices(
+        string profileName,
+        IReadOnlyList<string> relationshipDeviceIds,
+        uint? relationshipTotal,
+        IReadOnlyDictionary<string, AppleDevice> includedDevices,
+        IReadOnlyList<string>? provisionedUdids,
+        IReadOnlyList<AppleDevice>? allDevices)
+    {
+        var isTruncated = relationshipTotal is { } total && total > relationshipDeviceIds.Count;
+        if (!isTruncated)
+        {
+            return relationshipDeviceIds
+                .Distinct(StringComparer.Ordinal)
+                .Select(id => includedDevices.TryGetValue(id, out var device)
+                    ? device
+                    : new AppleDevice(id, "", id, "", "", "ENABLED", null))
+                .ToList();
+        }
+
+        if (provisionedUdids is null || allDevices is null)
+        {
+            throw new InvalidOperationException(
+                $"'{profileName}' provisions more devices than App Store Connect returns at once, and its device list could not be read.");
+        }
+
+        var byUdid = allDevices
+            .Where(device => !string.IsNullOrWhiteSpace(device.Udid))
+            .GroupBy(device => device.Udid, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+        var unresolved = provisionedUdids
+            .Where(udid => !byUdid.ContainsKey(udid))
+            .ToList();
+        if (unresolved.Count > 0)
+        {
+            throw new InvalidOperationException(
+                $"{unresolved.Count} device(s) in '{profileName}' are not registered in App Store Connect, " +
+                "so it can't be recreated without losing them.");
+        }
+
+        if (relationshipTotal is { } expected && provisionedUdids.Count < expected)
+        {
+            throw new InvalidOperationException(
+                $"'{profileName}' lists {provisionedUdids.Count} devices but App Store Connect reports {expected}, " +
+                "so it can't be recreated safely.");
+        }
+
+        return provisionedUdids
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Select(udid => byUdid[udid])
+            .ToList();
+    }
+
     public Task<byte[]> DownloadProfileAsync(string id) =>
         DownloadProfileCoreAsync(id, identityId: null);
 
