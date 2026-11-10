@@ -337,4 +337,22 @@ public class CertificateSyncServiceTests
         Assert.Equal(SecretLocation.CloudOnly, status.Location);
         Assert.Equal("remote", status.CloudProviderId);
     }
+
+    [Fact]
+    public async Task GetCertificateSecretsAsync_FallsBackToLocalVaultWhenActiveProviderLacksCertificate()
+    {
+        var local = new CloudSecretsProviderConfig(CloudSecretsService.DefaultLocalProviderId, "Local", CloudSecretsProviderType.Local, new());
+        var remote = new CloudSecretsProviderConfig("remote", "Remote Vault", CloudSecretsProviderType.AzureKeyVault, new());
+        _cloudSecretsService.Setup(x => x.ActiveProvider).Returns(remote);
+        _cloudSecretsService.Setup(x => x.ListSecretsAsync(It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<string>());
+        var sut = CreateWithProviders(
+            (local, CertificateSecrets(KeyedP12)),
+            (remote, new Dictionary<string, byte[]>()));
+
+        var (p12, password) = await sut.GetCertificateSecretsAsync("ABC123", autoUploadFromKeychain: false);
+
+        Assert.Equal(KeyedP12, p12);
+        Assert.Equal("password", password);
+    }
 }

@@ -273,6 +273,11 @@ public class CertificateSyncService : ICertificateSyncService
             _logger.LogWarning($"No active cloud secrets provider while resolving certificate {serialNumber}");
         }
 
+        // 1b) The other configured providers, Local Vault first, without changing the active one.
+        var fromOtherProvider = await FindInOtherProvidersAsync(serialNumber, cancellationToken);
+        if (fromOtherProvider.P12 is not null)
+            return fromOtherProvider;
+
         // 2) Local macOS keychain fallback — export the private key directly.
         if (_localCertificateService.IsSupported)
         {
@@ -338,9 +343,55 @@ public class CertificateSyncService : ICertificateSyncService
     /// Finds the raw serial segment of a stored CERT_&lt;serial&gt;_P12 secret whose serial
     /// fuzzy-matches the requested one (tolerant of leading-zero / non-alphanumeric differences).
     /// </summary>
+    private async Task<(byte[]? P12, string? Password)> FindInOtherProvidersAsync(
+        string serialNumber,
+        CancellationToken cancellationToken)
+    {
+        if (_providerRegistry is null)
+            return (null, null);
+
+        var activeId = _cloudSecretsService.ActiveProvider?.Id;
+        foreach (var source in await GetProviderSourcesAsync())
+        {
+            if (source.Id == activeId)
+                continue;
+
+            try
+            {
+                var storedSerial = SanitizeSerialNumber(serialNumber);
+                var p12 = await source.GetAsync(GetCertificateSecretKey(serialNumber), cancellationToken);
+                if (p12 is not { Length: > 0 })
+                {
+                    var keys = await source.ListAsync($"{SecretPrefix}_", cancellationToken);
+                    storedSerial = FindFuzzySerial(keys, serialNumber);
+                    if (storedSerial is null)
+                        continue;
+                    p12 = await source.GetAsync($"{SecretPrefix}_{storedSerial}_P12", cancellationToken);
+                    if (p12 is not { Length: > 0 })
+                        continue;
+                }
+
+                var pwd = await source.GetAsync($"{SecretPrefix}_{storedSerial}_PWD", cancellationToken);
+                _logger.LogInformation($"Resolved certificate {serialNumber} from provider '{source.Name}'");
+                return (p12, pwd is not null ? Encoding.UTF8.GetString(pwd) : null);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($"Lookup for certificate {serialNumber} in '{source.Name}' failed: {ex.Message}");
+            }
+        }
+
+        return (null, null);
+    }
+
     private async Task<string?> FindStoredCertSerialAsync(string serialNumber, CancellationToken cancellationToken)
     {
         var keys = await _cloudSecretsService.ListSecretsAsync($"{SecretPrefix}_", cancellationToken);
+        return FindFuzzySerial(keys, serialNumber);
+    }
+
+    private static string? FindFuzzySerial(IEnumerable<string> keys, string serialNumber)
+    {
         foreach (var key in keys)
         {
             if (!key.EndsWith("_P12", StringComparison.OrdinalIgnoreCase))

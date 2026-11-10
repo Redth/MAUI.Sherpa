@@ -776,4 +776,40 @@ public class BackupServiceTests
                 certificate.Dispose();
         }
     }
+
+    [Fact]
+    public async Task ExportSettingsAsync_FailsWhenSelectedCertificateIsNoLongerAvailable()
+    {
+        var (service, _, _) = CreateCertificateBackupService(Array.Empty<SecretItemRef>(), _ => null);
+
+        var act = () => service.ExportSettingsAsync("password123", new BackupExportSelection
+        {
+            IncludePreferences = true,
+            CertificateIds = new List<string> { "GONE123" }
+        });
+
+        (await act.Should().ThrowAsync<InvalidOperationException>())
+            .WithMessage("*no longer available*");
+    }
+
+    [Fact]
+    public async Task RestoreStoredItemsAsync_ReportsFailuresWhenLocalVaultCannotBeEnabled()
+    {
+        var (p12, serial) = CreateP12("pw", includePrivateKey: true);
+        var id = SecretItemAdapterHelper.SanitizeSerialNumber(serial);
+        _mockCloudSecretsService
+            .Setup(x => x.EnableDefaultLocalProviderAsync(false))
+            .ThrowsAsync(new InvalidOperationException("vault locked"));
+        var (service, _, written) = CreateCertificateBackupService(Array.Empty<SecretItemRef>(), _ => null);
+        var importResult = new BackupImportResult(
+            new MauiSherpaSettings(),
+            new BackupExportSelection { CertificateIds = new List<string> { id } },
+            new[] { CreateCertificatePayload(id, p12, "pw") });
+
+        var result = await service.RestoreStoredItemsAsync(importResult);
+
+        result.CertificatesRestored.Should().Be(0);
+        result.Failures.Should().ContainSingle(f => f.Contains("vault locked"));
+        written.Should().BeEmpty();
+    }
 }

@@ -70,6 +70,21 @@ public class BackupService : IBackupService
 
         var settings = await BuildCurrentSettingsSnapshotAsync();
         var availableCertificates = await GetBackupCertificatesAsync();
+
+        // Other selections are trimmed to what still exists, but a certificate that vanished
+        // since it was picked (e.g. the Local Vault locked) must not silently drop out.
+        if (selection?.CertificateIds is { Count: > 0 } requestedCertificateIds)
+        {
+            var availableIds = availableCertificates.Select(c => c.Item.Id).ToHashSet(StringComparer.Ordinal);
+            var missing = requestedCertificateIds.Where(id => !availableIds.Contains(id)).Distinct().ToList();
+            if (missing.Count > 0)
+            {
+                throw new InvalidOperationException(
+                    $"{missing.Count} selected certificate(s) are no longer available from the Local Vault or Keychain. " +
+                    "Unlock the Local Vault or reopen the export dialog and try again.");
+            }
+        }
+
         var resolvedSelection = ResolveSelection(
             selection,
             settings,
@@ -275,7 +290,18 @@ public class BackupService : IBackupService
         // Restored items always land in the built-in Local Vault so they are available even
         // when the remote providers they originally came from are unreachable.
         if (_cloudSecretsService is not null)
-            await _cloudSecretsService.EnableDefaultLocalProviderAsync(setActiveProvider: false);
+        {
+            try
+            {
+                await _cloudSecretsService.EnableDefaultLocalProviderAsync(setActiveProvider: false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                failures.AddRange(profiles.Select(p => $"Publish profile '{p.Name}' (Local Vault unavailable: {ex.Message})"));
+                failures.AddRange(certificates.Select(c => $"Certificate '{c.Item.DisplayName}' (Local Vault unavailable: {ex.Message})"));
+                return new BackupRestoreResult(0, 0, failures);
+            }
+        }
 
         var profilesRestored = 0;
         var profileAdapter = GetAdapter(SecretItemKind.PublishProfile);
