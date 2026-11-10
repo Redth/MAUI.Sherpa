@@ -158,6 +158,27 @@
                         </div>
                     }
                 </div>
+
+                <div class="backup-selection-group">
+                    <label class="backup-selection-item">
+                        <input type="checkbox" @bind="exportIncludeCertificates" />
+                        <span>Local Vault Certificates (@selectedCertificateIds.Count/@certificates.Count)</span>
+                    </label>
+                    @if (exportIncludeCertificates && certificates.Count > 0)
+                    {
+                        <div class="backup-selection-children">
+                            @foreach (var certificate in certificates)
+                            {
+                                <label class="backup-selection-item child">
+                                    <input type="checkbox"
+                                           checked="@selectedCertificateIds.Contains(certificate.Id)"
+                                           @onchange="e => ToggleSelection(selectedCertificateIds, certificate.Id, e.Value is bool c && c)" />
+                                    <span>@certificate.DisplayName</span>
+                                </label>
+                            }
+                        </div>
+                    }
+                </div>
             </div>
             @if (!CanExportSelection)
             {
@@ -184,6 +205,7 @@
     private List<SecretsPublisherConfig> secretsPublishers = new();
     private List<PushProject> pushProjects = new();
     private List<PublishProfile> publishProfiles = new();
+    private List<SecretItemRef> certificates = new();
 
     private string exportPassword = "";
     private string exportPasswordConfirm = "";
@@ -196,6 +218,7 @@
     private bool exportIncludeGoogleIdentities = true;
     private bool exportIncludePushProjects = true;
     private bool exportIncludePublishProfiles = true;
+    private bool exportIncludeCertificates = true;
 
     private HashSet<string> selectedAppleIds = new(StringComparer.Ordinal);
     private HashSet<string> selectedProviderIds = new(StringComparer.Ordinal);
@@ -203,6 +226,7 @@
     private HashSet<string> selectedGoogleIds = new(StringComparer.Ordinal);
     private HashSet<string> selectedPushProjectIds = new(StringComparer.Ordinal);
     private HashSet<string> selectedProfileIds = new(StringComparer.Ordinal);
+    private HashSet<string> selectedCertificateIds = new(StringComparer.Ordinal);
 
     private bool CanExportSelection =>
         exportIncludePreferences ||
@@ -211,7 +235,8 @@
         (exportIncludeSecretsPublishers && selectedPublisherIds.Count > 0) ||
         (exportIncludeGoogleIdentities && selectedGoogleIds.Count > 0) ||
         (exportIncludePushProjects && selectedPushProjectIds.Count > 0) ||
-        (exportIncludePublishProfiles && selectedProfileIds.Count > 0);
+        (exportIncludePublishProfiles && selectedProfileIds.Count > 0) ||
+        (exportIncludeCertificates && selectedCertificateIds.Count > 0);
 
     private bool CanExport =>
         !isExporting &&
@@ -227,6 +252,7 @@
         try { secretsPublishers = (await SecretsPublisherService.GetPublishersAsync()).ToList(); } catch { }
         try { pushProjects = (await PushProjectService.GetProjectsAsync()).ToList(); } catch { }
         try { publishProfiles = (await PublishProfileService.GetProfilesAsync()).ToList(); } catch { }
+        try { certificates = (await BackupService.GetBackupCertificatesAsync()).ToList(); } catch { }
 
         exportIncludeAppleIdentities = appleIdentities.Count > 0;
         exportIncludeCloudProviders = cloudProviders.Count > 0;
@@ -234,6 +260,7 @@
         exportIncludeGoogleIdentities = googleIdentities.Count > 0;
         exportIncludePushProjects = pushProjects.Count > 0;
         exportIncludePublishProfiles = publishProfiles.Count > 0;
+        exportIncludeCertificates = certificates.Count > 0;
 
         selectedAppleIds = appleIdentities.Select(i => i.Id).ToHashSet(StringComparer.Ordinal);
         selectedProviderIds = cloudProviders.Select(p => p.Id).ToHashSet(StringComparer.Ordinal);
@@ -241,6 +268,7 @@
         selectedGoogleIds = googleIdentities.Select(i => i.Id).ToHashSet(StringComparer.Ordinal);
         selectedPushProjectIds = pushProjects.Select(p => p.Id).ToHashSet(StringComparer.Ordinal);
         selectedProfileIds = publishProfiles.Select(p => p.Id).ToHashSet(StringComparer.Ordinal);
+        selectedCertificateIds = certificates.Select(c => c.Id).ToHashSet(StringComparer.Ordinal);
     }
 
     private void Cancel() => ModalParams.Cancel();
@@ -282,7 +310,8 @@
                 SecretsPublisherIds = exportIncludeSecretsPublishers ? selectedPublisherIds.ToList() : new List<string>(),
                 GoogleIdentityIds = exportIncludeGoogleIdentities ? selectedGoogleIds.ToList() : new List<string>(),
                 PushProjectIds = exportIncludePushProjects ? selectedPushProjectIds.ToList() : new List<string>(),
-                PublishProfileIds = exportIncludePublishProfiles ? selectedProfileIds.ToList() : new List<string>()
+                PublishProfileIds = exportIncludePublishProfiles ? selectedProfileIds.ToList() : new List<string>(),
+                CertificateIds = exportIncludeCertificates ? selectedCertificateIds.ToList() : new List<string>()
             };
             var encrypted = await BackupService.ExportSettingsAsync(exportPassword, selection);
             var timestamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");

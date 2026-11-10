@@ -573,4 +573,70 @@ public class BackupServiceTests
         importResult.Selection.GoogleIdentityIds.Should().BeEquivalentTo(new[] { "gi1", "gi2" });
         importResult.Settings.GoogleIdentities.Should().HaveCount(2);
     }
+
+    [Fact]
+    public async Task Backup_RoundTrip_RestoresPublishProfilesAndCertificatesToLocalVault()
+    {
+        const string localId = CloudSecretsService.DefaultLocalProviderId;
+        var certificate = new SecretItemRef(SecretItemKind.Certificate, "ABC123", "Apple Distribution: Test");
+        var certificatePayload = new SecretItemPayload(
+            certificate,
+            1,
+            "hash",
+            new[] { new SecretArtifact("CERT_ABC123_P12", new byte[] { 1, 2, 3 }) });
+
+        var registry = new Mock<ISecretsProviderRegistry>();
+        var certificateAdapter = new Mock<ISecretItemAdapter>();
+        certificateAdapter.SetupGet(x => x.Kind).Returns(SecretItemKind.Certificate);
+        certificateAdapter
+            .Setup(x => x.ListProviderItemsAsync(localId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { certificate });
+        certificateAdapter
+            .Setup(x => x.ReadProviderAsync(certificate, localId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(certificatePayload);
+        SecretItemPayload? writtenCertificate = null;
+        certificateAdapter
+            .Setup(x => x.WriteProviderAsync(It.IsAny<SecretItemPayload>(), localId, It.IsAny<CancellationToken>()))
+            .Callback<SecretItemPayload, string, CancellationToken>((payload, _, _) => writtenCertificate = payload)
+            .ReturnsAsync(true);
+
+        var profileAdapter = new Mock<ISecretItemAdapter>();
+        profileAdapter.SetupGet(x => x.Kind).Returns(SecretItemKind.PublishProfile);
+        SecretItemPayload? writtenProfile = null;
+        profileAdapter
+            .Setup(x => x.WriteProviderAsync(It.IsAny<SecretItemPayload>(), localId, It.IsAny<CancellationToken>()))
+            .Callback<SecretItemPayload, string, CancellationToken>((payload, _, _) => writtenProfile = payload)
+            .ReturnsAsync(true);
+
+        var profileService = new Mock<IPublishProfileService>();
+        profileService.Setup(x => x.GetProfilesAsync()).ReturnsAsync(new[]
+        {
+            new PublishProfile("profile-1", "Release", null, null, null, null,
+                new List<PublishProfileAppleConfig>(), new List<PublishProfileAndroidConfig>(),
+                new List<PublishProfileSecretMapping>(), DateTime.UtcNow, DateTime.UtcNow)
+        });
+        _mockSettingsService.Setup(x => x.GetSettingsAsync()).ReturnsAsync(new MauiSherpaSettings());
+
+        var service = new BackupService(
+            _mockSettingsService.Object,
+            _mockAppleIdentityService.Object,
+            _mockCloudSecretsService.Object,
+            _mockSecretsPublisherService.Object,
+            _mockGoogleIdentityService.Object,
+            publishProfileService: profileService.Object,
+            providerRegistry: registry.Object,
+            secretItemAdapters: new[] { certificateAdapter.Object, profileAdapter.Object });
+
+        var encrypted = await service.ExportSettingsAsync("password123");
+        var imported = await service.ImportBackupAsync(encrypted, "password123");
+        var result = await service.RestoreStoredItemsAsync(imported);
+
+        result.PublishProfilesRestored.Should().Be(1);
+        result.CertificatesRestored.Should().Be(1);
+        result.Failures.Should().BeEmpty();
+        writtenProfile!.Artifacts.Single().Key.Should().Be("sherpa-publish-profiles/profile-1");
+        writtenCertificate!.Item.Id.Should().Be("ABC123");
+        writtenCertificate.Artifacts.Single().Value.Should().Equal(1, 2, 3);
+        _mockCloudSecretsService.Verify(x => x.EnableDefaultLocalProviderAsync(false), Times.Once);
+    }
 }

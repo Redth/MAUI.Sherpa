@@ -4230,6 +4230,8 @@ public record PublishProfileData(
     public List<PublishProfilePublisher> Publishers { get; init; } = new();
     public List<PublishProfileAppleIdentity> AppleIdentities { get; init; } = new();
     public List<PublishProfileGoogleIdentity> GoogleIdentities { get; init; } = new();
+    public DateTime? CreatedAt { get; init; }
+    public DateTime? UpdatedAt { get; init; }
 }
 
 public record AppPreferences
@@ -4320,6 +4322,16 @@ public interface IBackupService
     Task<BackupImportResult> ImportBackupAsync(byte[] encryptedData, string password);
     Task<MauiSherpaSettings> ImportSettingsAsync(byte[] encryptedData, string password);
     Task<bool> ValidateBackupAsync(byte[] data);
+
+    /// <summary>
+    /// Lists the certificates stored in the Local Vault that can be included in a backup.
+    /// </summary>
+    Task<IReadOnlyList<SecretItemRef>> GetBackupCertificatesAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Writes the publish profiles and certificates from an imported backup into the Local Vault.
+    /// </summary>
+    Task<BackupRestoreResult> RestoreStoredItemsAsync(BackupImportResult importResult, CancellationToken cancellationToken = default);
 }
 
 public record BackupExportSelection
@@ -4331,11 +4343,19 @@ public record BackupExportSelection
     public List<string> GoogleIdentityIds { get; init; } = new();
     public List<string> PushProjectIds { get; init; } = new();
     public List<string> PublishProfileIds { get; init; } = new();
+    public List<string> CertificateIds { get; init; } = new();
 }
 
 public record BackupImportResult(
     MauiSherpaSettings Settings,
-    BackupExportSelection Selection
+    BackupExportSelection Selection,
+    IReadOnlyList<SecretItemPayload>? Certificates = null
+);
+
+public record BackupRestoreResult(
+    int PublishProfilesRestored,
+    int CertificatesRestored,
+    IReadOnlyList<string> Failures
 );
 
 /// <summary>

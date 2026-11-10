@@ -26,11 +26,16 @@ public class BackupService : IBackupService
     private readonly IGoogleIdentityService? _googleIdentityService;
     private readonly IPushProjectService? _pushProjectService;
     private readonly IPublishProfileService? _publishProfileService;
+    private readonly ISecretsProviderRegistry? _providerRegistry;
+    private readonly IReadOnlyList<ISecretItemAdapter> _secretItemAdapters;
+
+    private static readonly JsonSerializerOptions PublishProfileJsonOptions = new(JsonSerializerDefaults.Web);
 
     private record BackupPayload(
         int Version,
         MauiSherpaSettings Settings,
-        BackupExportSelection Selection
+        BackupExportSelection Selection,
+        List<SecretItemPayload>? Certificates = null
     );
 
     public BackupService(
@@ -40,7 +45,9 @@ public class BackupService : IBackupService
         ISecretsPublisherService? secretsPublisherService = null,
         IGoogleIdentityService? googleIdentityService = null,
         IPushProjectService? pushProjectService = null,
-        IPublishProfileService? publishProfileService = null)
+        IPublishProfileService? publishProfileService = null,
+        ISecretsProviderRegistry? providerRegistry = null,
+        IEnumerable<ISecretItemAdapter>? secretItemAdapters = null)
     {
         _settingsService = settingsService;
         _appleIdentityService = appleIdentityService;
@@ -49,6 +56,8 @@ public class BackupService : IBackupService
         _googleIdentityService = googleIdentityService;
         _pushProjectService = pushProjectService;
         _publishProfileService = publishProfileService;
+        _providerRegistry = providerRegistry;
+        _secretItemAdapters = secretItemAdapters?.ToList() ?? new List<ISecretItemAdapter>();
     }
 
     public async Task<byte[]> ExportSettingsAsync(string password, BackupExportSelection? selection = null)
@@ -57,23 +66,31 @@ public class BackupService : IBackupService
             throw new ArgumentException("Password is required", nameof(password));
 
         var settings = await BuildCurrentSettingsSnapshotAsync();
-        var resolvedSelection = ResolveSelection(selection, settings);
+        var availableCertificates = await GetBackupCertificatesAsync();
+        var resolvedSelection = ResolveSelection(
+            selection,
+            settings,
+            availableCertificates.Select(c => c.Id).ToList());
         if (!resolvedSelection.IncludePreferences &&
             resolvedSelection.AppleIdentityIds.Count == 0 &&
             resolvedSelection.CloudProviderIds.Count == 0 &&
             resolvedSelection.SecretsPublisherIds.Count == 0 &&
             resolvedSelection.GoogleIdentityIds.Count == 0 &&
             resolvedSelection.PushProjectIds.Count == 0 &&
-            resolvedSelection.PublishProfileIds.Count == 0)
+            resolvedSelection.PublishProfileIds.Count == 0 &&
+            resolvedSelection.CertificateIds.Count == 0)
         {
             throw new InvalidOperationException("At least one setting item must be selected for export.");
         }
 
         var selectedSettings = ApplySelection(settings, resolvedSelection);
+        var certificates = await ReadLocalVaultCertificatesAsync(
+            availableCertificates.Where(c => resolvedSelection.CertificateIds.Contains(c.Id)));
         var payload = new BackupPayload(
             Version: BackupPayloadVersion,
             Settings: selectedSettings,
-            Selection: resolvedSelection);
+            Selection: resolvedSelection,
+            Certificates: certificates);
 
         var json = JsonSerializer.Serialize(payload);
         var plaintext = Encoding.UTF8.GetBytes(json);
@@ -151,9 +168,16 @@ public class BackupService : IBackupService
         var payload = JsonSerializer.Deserialize<BackupPayload>(json);
         if (payload?.Settings != null && payload.Selection != null)
         {
-            var resolvedSelection = ResolveSelection(payload.Selection, payload.Settings);
+            var certificates = payload.Certificates ?? new List<SecretItemPayload>();
+            var resolvedSelection = ResolveSelection(
+                payload.Selection,
+                payload.Settings,
+                certificates.Select(c => c.Item.Id).ToList());
             var selectedSettings = ApplySelection(payload.Settings, resolvedSelection);
-            return new BackupImportResult(selectedSettings, resolvedSelection);
+            var selectedCertificates = certificates
+                .Where(c => resolvedSelection.CertificateIds.Contains(c.Item.Id))
+                .ToList();
+            return new BackupImportResult(selectedSettings, resolvedSelection, selectedCertificates);
         }
 
         var settings = JsonSerializer.Deserialize<MauiSherpaSettings>(json) 
@@ -189,6 +213,143 @@ public class BackupService : IBackupService
         }
 
         return Task.FromResult(true);
+    }
+
+    public async Task<IReadOnlyList<SecretItemRef>> GetBackupCertificatesAsync(CancellationToken cancellationToken = default)
+    {
+        var adapter = GetAdapter(SecretItemKind.Certificate);
+        if (adapter is null)
+            return Array.Empty<SecretItemRef>();
+
+        try
+        {
+            return await adapter.ListProviderItemsAsync(CloudSecretsService.DefaultLocalProviderId, cancellationToken);
+        }
+        catch (Exception)
+        {
+            // A locked or unavailable Local Vault simply has nothing to back up.
+            return Array.Empty<SecretItemRef>();
+        }
+    }
+
+    public async Task<BackupRestoreResult> RestoreStoredItemsAsync(
+        BackupImportResult importResult,
+        CancellationToken cancellationToken = default)
+    {
+        var failures = new List<string>();
+        var profiles = importResult.Settings.PublishProfiles;
+        var certificates = importResult.Certificates ?? Array.Empty<SecretItemPayload>();
+        if (profiles.Count == 0 && certificates.Count == 0)
+            return new BackupRestoreResult(0, 0, failures);
+
+        // Restored items always land in the built-in Local Vault so they are available even
+        // when the remote providers they originally came from are unreachable.
+        if (_cloudSecretsService is not null)
+            await _cloudSecretsService.EnableDefaultLocalProviderAsync(setActiveProvider: false);
+
+        var profilesRestored = 0;
+        var profileAdapter = GetAdapter(SecretItemKind.PublishProfile);
+        foreach (var profile in profiles)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (profileAdapter is not null &&
+                await TryWriteLocalAsync(profileAdapter, CreatePublishProfilePayload(profile), cancellationToken))
+            {
+                profilesRestored++;
+            }
+            else
+            {
+                failures.Add($"Publish profile '{profile.Name}'");
+            }
+        }
+
+        var certificatesRestored = 0;
+        var certificateAdapter = GetAdapter(SecretItemKind.Certificate);
+        foreach (var certificate in certificates)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (certificateAdapter is not null &&
+                await TryWriteLocalAsync(certificateAdapter, certificate, cancellationToken))
+            {
+                certificatesRestored++;
+            }
+            else
+            {
+                failures.Add($"Certificate '{certificate.Item.DisplayName}'");
+            }
+        }
+
+        return new BackupRestoreResult(profilesRestored, certificatesRestored, failures);
+    }
+
+    private ISecretItemAdapter? GetAdapter(SecretItemKind kind) =>
+        _providerRegistry is null
+            ? null
+            : _secretItemAdapters.FirstOrDefault(adapter => adapter.Kind == kind);
+
+    private static async Task<bool> TryWriteLocalAsync(
+        ISecretItemAdapter adapter,
+        SecretItemPayload payload,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await adapter.WriteProviderAsync(
+                payload,
+                CloudSecretsService.DefaultLocalProviderId,
+                cancellationToken);
+        }
+        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            return false;
+        }
+    }
+
+    private async Task<List<SecretItemPayload>> ReadLocalVaultCertificatesAsync(IEnumerable<SecretItemRef> certificates)
+    {
+        var payloads = new List<SecretItemPayload>();
+        var adapter = GetAdapter(SecretItemKind.Certificate);
+        if (adapter is null)
+            return payloads;
+
+        foreach (var certificate in certificates)
+        {
+            var payload = await adapter.ReadProviderAsync(certificate, CloudSecretsService.DefaultLocalProviderId);
+            if (payload is not null)
+                payloads.Add(payload);
+        }
+
+        return payloads;
+    }
+
+    private static SecretItemPayload CreatePublishProfilePayload(PublishProfileData data)
+    {
+        var updatedAt = data.UpdatedAt ?? DateTime.UtcNow;
+        var profile = new PublishProfile(
+            Id: data.Id,
+            Name: data.Name,
+            Description: data.Description,
+            PublisherId: data.PublisherId,
+            RepositoryId: data.RepositoryId,
+            RepositoryFullName: data.RepositoryFullName,
+            AppleConfigs: data.AppleConfigs,
+            AndroidConfigs: data.AndroidConfigs,
+            SecretMappings: data.SecretMappings,
+            CreatedAt: data.CreatedAt ?? updatedAt,
+            UpdatedAt: updatedAt)
+        {
+            Publishers = data.Publishers,
+            AppleIdentities = data.AppleIdentities,
+            GoogleIdentities = data.GoogleIdentities
+        };
+
+        var artifact = new SecretArtifact(
+            PublishProfileItemAdapter.KeyPrefix + profile.Id,
+            JsonSerializer.SerializeToUtf8Bytes(profile, PublishProfileJsonOptions));
+        return SecretItemAdapterHelper.CreatePayload(
+            new SecretItemRef(SecretItemKind.PublishProfile, profile.Id, profile.Name),
+            SecretItemAdapterHelper.GetUtcRevision(updatedAt),
+            new[] { artifact });
     }
 
     private static byte[] DeriveKey(string password, byte[] salt)
@@ -238,7 +399,9 @@ public class BackupService : IBackupService
                 {
                     Publishers = p.Publishers,
                     AppleIdentities = p.AppleIdentities,
-                    GoogleIdentities = p.GoogleIdentities
+                    GoogleIdentities = p.GoogleIdentities,
+                    CreatedAt = p.CreatedAt,
+                    UpdatedAt = p.UpdatedAt
                 })
                 .ToList()
         };
@@ -360,7 +523,10 @@ public class BackupService : IBackupService
         };
     }
 
-    private static BackupExportSelection ResolveSelection(BackupExportSelection? selection, MauiSherpaSettings settings)
+    private static BackupExportSelection ResolveSelection(
+        BackupExportSelection? selection,
+        MauiSherpaSettings settings,
+        IReadOnlyCollection<string> availableCertificateIds)
     {
         var availableIdentityIds = settings.AppleIdentities.Select(i => i.Id).ToHashSet(StringComparer.Ordinal);
         var availableProviderIds = settings.CloudProviders.Select(p => p.Id).ToHashSet(StringComparer.Ordinal);
@@ -368,6 +534,7 @@ public class BackupService : IBackupService
         var availableGoogleIds = settings.GoogleIdentities.Select(g => g.Id).ToHashSet(StringComparer.Ordinal);
         var availablePushProjectIds = settings.PushProjects.Select(p => p.Id).ToHashSet(StringComparer.Ordinal);
         var availableProfileIds = settings.PublishProfiles.Select(p => p.Id).ToHashSet(StringComparer.Ordinal);
+        var availableCertIds = availableCertificateIds.ToHashSet(StringComparer.Ordinal);
 
         if (selection is null)
         {
@@ -379,7 +546,8 @@ public class BackupService : IBackupService
                 SecretsPublisherIds = availablePublisherIds.ToList(),
                 GoogleIdentityIds = availableGoogleIds.ToList(),
                 PushProjectIds = availablePushProjectIds.ToList(),
-                PublishProfileIds = availableProfileIds.ToList()
+                PublishProfileIds = availableProfileIds.ToList(),
+                CertificateIds = availableCertIds.ToList()
             };
         }
 
@@ -389,6 +557,7 @@ public class BackupService : IBackupService
         var selectedGoogleIds = selection.GoogleIdentityIds ?? new List<string>();
         var selectedPushProjectIds = selection.PushProjectIds ?? new List<string>();
         var selectedProfileIds = selection.PublishProfileIds ?? new List<string>();
+        var selectedCertIds = selection.CertificateIds ?? new List<string>();
 
         return new BackupExportSelection
         {
@@ -415,6 +584,10 @@ public class BackupService : IBackupService
                 .ToList(),
             PublishProfileIds = selectedProfileIds
                 .Where(id => availableProfileIds.Contains(id))
+                .Distinct(StringComparer.Ordinal)
+                .ToList(),
+            CertificateIds = selectedCertIds
+                .Where(id => availableCertIds.Contains(id))
                 .Distinct(StringComparer.Ordinal)
                 .ToList()
         };
