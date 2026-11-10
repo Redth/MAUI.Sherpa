@@ -4364,6 +4364,13 @@ public interface IPublishProfileHealthService
     /// <summary>Drops the cached snapshot so the next evaluation re-reads every source.</summary>
     void Invalidate();
 
+    /// <summary>
+    /// Records that <paramref name="newSerialNumber"/> replaces <paramref name="oldSerialNumber"/>
+    /// (e.g. after a renewal), so publish profiles still on the old one are offered the fix
+    /// even while it is valid. Kept for the lifetime of the app.
+    /// </summary>
+    void RecordCertificateReplacement(string oldSerialNumber, string newSerialNumber);
+
     /// <summary>Applies the fixable issues and saves the profile. Returns the saved profile, or null when nothing changed.</summary>
     Task<PublishProfile?> ApplyFixesAsync(
         PublishProfile profile,

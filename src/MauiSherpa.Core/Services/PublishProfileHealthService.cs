@@ -72,9 +72,22 @@ public class PublishProfileHealthService : IPublishProfileHealthService
     // Snapshot
     // ------------------------------------------------------------------
 
+    readonly ConcurrentDictionary<string, string> _recordedReplacements = new(StringComparer.Ordinal);
+
     public void Invalidate()
     {
         _snapshot = null;
+    }
+
+    public void RecordCertificateReplacement(string oldSerialNumber, string newSerialNumber)
+    {
+        var oldSerial = NormalizeSerial(oldSerialNumber);
+        var newSerial = NormalizeSerial(newSerialNumber);
+        if (oldSerial.Length == 0 || newSerial.Length == 0 || oldSerial == newSerial)
+            return;
+
+        _recordedReplacements[oldSerial] = newSerial;
+        Invalidate();
     }
 
     public async Task<PublishProfileHealthSnapshot> LoadSnapshotAsync(CancellationToken cancellationToken = default)
@@ -393,7 +406,11 @@ public class PublishProfileHealthService : IPublishProfileHealthService
             .ToList();
     }
 
-    static void EvaluateCertificates(
+    // A certificate this close to expiry is treated as due for renewal, matching the
+    // "Expiring Soon" window on the Certificates page.
+    static readonly TimeSpan RenewalWindow = TimeSpan.FromDays(30);
+
+    void EvaluateCertificates(
         PublishProfileAppleConfig apple,
         int index,
         IReadOnlyList<CertificateReference> references,
@@ -405,6 +422,15 @@ public class PublishProfileHealthService : IPublishProfileHealthService
             .Select(reference => NormalizeSerial(reference.SerialNumber))
             .ToHashSet(StringComparer.Ordinal);
 
+        bool IsUsable(AppleCertificate item) =>
+            item.ExpirationDate > snapshot.Now &&
+            !referencedSerials.Contains(NormalizeSerial(item.SerialNumber));
+
+        AppleCertificate? Recorded(string serialNumber) =>
+            _recordedReplacements.TryGetValue(NormalizeSerial(serialNumber), out var replacementSerial)
+                ? certificates.FirstOrDefault(item => NormalizeSerial(item.SerialNumber) == replacementSerial && IsUsable(item))
+                : null;
+
         foreach (var reference in references)
         {
             var normalized = NormalizeSerial(reference.SerialNumber);
@@ -413,16 +439,16 @@ public class PublishProfileHealthService : IPublishProfileHealthService
 
             if (certificate is null)
             {
-                // A revoked certificate disappears from App Store Connect. Its renewal
-                // normally carries the same common name.
-                var replacement = HasRealName(reference)
-                    ? certificates
-                        .Where(item => string.Equals(item.Name, reference.Name, StringComparison.OrdinalIgnoreCase))
-                        .Where(item => item.ExpirationDate > snapshot.Now)
-                        .Where(item => !referencedSerials.Contains(NormalizeSerial(item.SerialNumber)))
-                        .OrderByDescending(item => item.ExpirationDate)
-                        .FirstOrDefault()
-                    : null;
+                // A revoked certificate disappears from App Store Connect. Its renewal is
+                // either recorded by the renewal flow or carries the same common name.
+                var replacement = Recorded(reference.SerialNumber)
+                    ?? (HasRealName(reference)
+                        ? certificates
+                            .Where(item => string.Equals(item.Name, reference.Name, StringComparison.OrdinalIgnoreCase))
+                            .Where(IsUsable)
+                            .OrderByDescending(item => item.ExpirationDate)
+                            .FirstOrDefault()
+                        : null);
                 var where = reference.IsInstaller
                     ? "isn't in App Store Connect or this Mac's Keychain"
                     : "no longer exists in App Store Connect";
@@ -440,40 +466,53 @@ public class PublishProfileHealthService : IPublishProfileHealthService
                 continue;
             }
 
-            var newer = certificates
+            var sameType = certificates
                 .Where(item => !ReferenceEquals(item, certificate))
                 .Where(item => string.Equals(item.CertificateType, certificate.CertificateType, StringComparison.OrdinalIgnoreCase))
                 .Where(item => item.IsLocalOnly == certificate.IsLocalOnly)
-                .Where(item => item.ExpirationDate > snapshot.Now && item.ExpirationDate > certificate.ExpirationDate)
-                .Where(item => !referencedSerials.Contains(NormalizeSerial(item.SerialNumber)))
+                .Where(item => item.ExpirationDate > certificate.ExpirationDate)
+                .Where(IsUsable)
                 .OrderByDescending(item => item.ExpirationDate)
-                .FirstOrDefault();
+                .ToList();
+            var sameName = sameType.FirstOrDefault(item =>
+                string.Equals(item.Name, certificate.Name, StringComparison.OrdinalIgnoreCase));
+            var recorded = Recorded(certificate.SerialNumber);
 
             if (certificate.ExpirationDate <= snapshot.Now)
             {
+                var newer = recorded ?? sameName ?? sameType.FirstOrDefault();
                 issues.Add(new PublishProfileHealthIssue(
                     PublishProfileHealthIssueKind.ExpiredCertificate,
                     newer is null
                         ? $"{CertificateNoun(reference)} '{certificate.Name}' expired on {certificate.ExpirationDate:MMM d, yyyy}"
-                        : $"{CertificateNoun(reference)} '{certificate.Name}' expired on {certificate.ExpirationDate:MMM d, yyyy}; a newer one expires {newer.ExpirationDate:MMM d, yyyy}",
+                        : $"{CertificateNoun(reference)} '{certificate.Name}' expired on {certificate.ExpirationDate:MMM d, yyyy}; '{newer.Name}' expires {newer.ExpirationDate:MMM d, yyyy}",
                     PublishProfileConfigKind.Apple,
                     index,
                     apple.Label,
                     reference.SerialNumber,
                     newer?.SerialNumber,
                     newer?.Name));
+                continue;
             }
-            else if (newer is not null)
+
+            // Teams often hold several valid certificates of one type (development
+            // certificates are per person), so a newer one alone isn't a replacement.
+            // It is when the renewal flow recorded it, it shares the common name, or the
+            // referenced certificate is about to expire.
+            var replacedBy = recorded
+                ?? sameName
+                ?? (certificate.ExpirationDate - snapshot.Now <= RenewalWindow ? sameType.FirstOrDefault() : null);
+            if (replacedBy is not null)
             {
                 issues.Add(new PublishProfileHealthIssue(
                     PublishProfileHealthIssueKind.CertificateReplaced,
-                    $"A newer {CertificateNoun(reference).ToLowerInvariant()} of the same type exists (expires {newer.ExpirationDate:MMM d, yyyy}); '{certificate.Name}' expires {certificate.ExpirationDate:MMM d, yyyy}",
+                    $"'{certificate.Name}' (expires {certificate.ExpirationDate:MMM d, yyyy}) has a newer {CertificateNoun(reference).ToLowerInvariant()} of the same type: '{replacedBy.Name}' (expires {replacedBy.ExpirationDate:MMM d, yyyy})",
                     PublishProfileConfigKind.Apple,
                     index,
                     apple.Label,
                     reference.SerialNumber,
-                    newer.SerialNumber,
-                    newer.Name));
+                    replacedBy.SerialNumber,
+                    replacedBy.Name));
             }
         }
     }
