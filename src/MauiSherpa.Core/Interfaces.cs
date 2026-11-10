@@ -1722,6 +1722,20 @@ public interface ILocalCertificateService
     /// <param name="password">Password protecting the P12 file</param>
     /// <returns>True if import succeeded</returns>
     Task<bool> ImportP12Async(byte[] p12Data, string password, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Checks whether a certificate with this serial is installed together with its private
+    /// key, including identities the OS doesn't trust yet (e.g. a missing intermediate).
+    /// </summary>
+    async Task<bool> HasInstalledIdentityAsync(string serialNumber)
+    {
+        static string Normalize(string? value) =>
+            new string((value ?? string.Empty).Where(char.IsLetterOrDigit).Select(char.ToUpperInvariant).ToArray()).TrimStart('0');
+
+        var wanted = Normalize(serialNumber);
+        return wanted.Length > 0 &&
+               (await GetSigningIdentitiesAsync()).Any(identity => Normalize(identity.SerialNumber) == wanted);
+    }
     
     /// <summary>
     /// Invalidates the cached list of signing identities, forcing a refresh on next query

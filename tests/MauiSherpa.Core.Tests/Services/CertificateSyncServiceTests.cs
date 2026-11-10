@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.Json;
 using MauiSherpa.Core.Interfaces;
@@ -12,6 +14,20 @@ public class CertificateSyncServiceTests
     readonly Mock<ILocalCertificateService> _localCertificateService = new();
     readonly Mock<ILoggingService> _logger = new();
     readonly CertificateSyncService _sut;
+    static readonly byte[] KeyedP12 = CreateP12("password", includePrivateKey: true);
+    static readonly byte[] PublicOnlyP12 = CreateP12("password", includePrivateKey: false);
+
+    static byte[] CreateP12(string password, bool includePrivateKey)
+    {
+        using var rsa = RSA.Create(2048);
+        var request = new CertificateRequest("CN=Apple Development: Test", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        using var certificate = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddYears(1));
+        if (includePrivateKey)
+            return certificate.Export(X509ContentType.Pfx, password);
+
+        using var publicOnly = X509CertificateLoader.LoadCertificate(certificate.RawData);
+        return publicOnly.Export(X509ContentType.Pfx, password);
+    }
 
     public CertificateSyncServiceTests()
     {
@@ -48,11 +64,11 @@ public class CertificateSyncServiceTests
         _cloudSecretsService.Setup(x => x.GetSecretAsync("CERT_ABC123_META", It.IsAny<CancellationToken>()))
             .ReturnsAsync(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(metadata)));
         _cloudSecretsService.Setup(x => x.GetSecretAsync("CERT_ABC123_P12", It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new byte[] { 0x01, 0x02, 0x03 });
+            .ReturnsAsync(KeyedP12);
         _cloudSecretsService.Setup(x => x.GetSecretAsync("CERT_ABC123_PWD", It.IsAny<CancellationToken>()))
             .ReturnsAsync(Encoding.UTF8.GetBytes("password"));
         _localCertificateService.Setup(x => x.ImportP12Async(
-                It.Is<byte[]>(data => data.SequenceEqual(new byte[] { 0x01, 0x02, 0x03 })),
+                It.Is<byte[]>(data => data.SequenceEqual(KeyedP12)),
                 "password",
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
@@ -63,7 +79,7 @@ public class CertificateSyncServiceTests
         _cloudSecretsService.Verify(x => x.GetSecretAsync("CERT_ABC123_P12", It.IsAny<CancellationToken>()), Times.Once);
         _cloudSecretsService.Verify(x => x.GetSecretAsync("CERT_ABC123_PWD", It.IsAny<CancellationToken>()), Times.Once);
         _localCertificateService.Verify(x => x.ImportP12Async(
-            It.Is<byte[]>(data => data.SequenceEqual(new byte[] { 0x01, 0x02, 0x03 })),
+            It.Is<byte[]>(data => data.SequenceEqual(KeyedP12)),
             "password",
             It.IsAny<CancellationToken>()), Times.Once);
     }
@@ -101,11 +117,11 @@ public class CertificateSyncServiceTests
         var provider = new CloudSecretsProviderConfig("provider-1", "Provider", CloudSecretsProviderType.OnePassword, new());
         _cloudSecretsService.Setup(x => x.ActiveProvider).Returns(provider);
         _cloudSecretsService.Setup(x => x.GetSecretAsync("CERT_ABC123_P12", It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new byte[] { 0x01, 0x02, 0x03 });
+            .ReturnsAsync(KeyedP12);
         _cloudSecretsService.Setup(x => x.GetSecretAsync("CERT_ABC123_PWD", It.IsAny<CancellationToken>()))
             .ReturnsAsync(Encoding.UTF8.GetBytes("password"));
         _localCertificateService.Setup(x => x.ImportP12Async(
-                It.Is<byte[]>(data => data.SequenceEqual(new byte[] { 0x01, 0x02, 0x03 })),
+                It.Is<byte[]>(data => data.SequenceEqual(KeyedP12)),
                 "password",
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
@@ -114,7 +130,7 @@ public class CertificateSyncServiceTests
 
         Assert.True(result);
         _localCertificateService.Verify(x => x.ImportP12Async(
-            It.Is<byte[]>(data => data.SequenceEqual(new byte[] { 0x01, 0x02, 0x03 })),
+            It.Is<byte[]>(data => data.SequenceEqual(KeyedP12)),
             "password",
             It.IsAny<CancellationToken>()), Times.Once);
     }
@@ -210,5 +226,115 @@ public class CertificateSyncServiceTests
 
         Assert.Null(p12);
         Assert.Null(password);
+    }
+
+    CertificateSyncService CreateWithProviders(params (CloudSecretsProviderConfig Config, Dictionary<string, byte[]> Secrets)[] providers)
+    {
+        var registry = new Mock<ISecretsProviderRegistry>();
+        registry.Setup(x => x.GetProvidersAsync()).ReturnsAsync(providers.Select(p => p.Config).ToList());
+        foreach (var (config, secrets) in providers)
+        {
+            var provider = new Mock<ICloudSecretsProvider>();
+            provider.Setup(x => x.GetSecretAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync((string key, CancellationToken _) => secrets.TryGetValue(key, out var value) ? value : null);
+            provider.Setup(x => x.ListSecretsAsync(It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync((string? prefix, CancellationToken _) =>
+                    secrets.Keys.Where(k => prefix is null || k.StartsWith(prefix, StringComparison.Ordinal)).ToList());
+            registry.Setup(x => x.GetProviderAsync(config.Id)).ReturnsAsync(provider.Object);
+        }
+
+        return new CertificateSyncService(
+            _cloudSecretsService.Object,
+            _localCertificateService.Object,
+            _logger.Object,
+            registry.Object);
+    }
+
+    static Dictionary<string, byte[]> CertificateSecrets(byte[] p12) => new()
+    {
+        ["CERT_ABC123_P12"] = p12,
+        ["CERT_ABC123_PWD"] = Encoding.UTF8.GetBytes("password")
+    };
+
+    [Fact]
+    public async Task DownloadAndInstallBySerialAsync_SkipsCopyWithoutPrivateKey_AndUsesNextProvider()
+    {
+        var local = new CloudSecretsProviderConfig(CloudSecretsService.DefaultLocalProviderId, "Local", CloudSecretsProviderType.Local, new());
+        var remote = new CloudSecretsProviderConfig("remote", "Remote Vault", CloudSecretsProviderType.AzureKeyVault, new());
+        var sut = CreateWithProviders(
+            (local, CertificateSecrets(PublicOnlyP12)),
+            (remote, CertificateSecrets(KeyedP12)));
+        _localCertificateService.Setup(x => x.ImportP12Async(It.IsAny<byte[]>(), "password", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var result = await sut.DownloadAndInstallBySerialAsync("ABC123");
+
+        Assert.True(result);
+        _localCertificateService.Verify(x => x.ImportP12Async(
+            It.Is<byte[]>(data => data.SequenceEqual(KeyedP12)), "password", It.IsAny<CancellationToken>()), Times.Once);
+        _localCertificateService.Verify(x => x.ImportP12Async(
+            It.Is<byte[]>(data => data.SequenceEqual(PublicOnlyP12)), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task DownloadAndInstallBySerialAsync_NoCopyWithPrivateKey_DoesNotImport()
+    {
+        var local = new CloudSecretsProviderConfig(CloudSecretsService.DefaultLocalProviderId, "Local", CloudSecretsProviderType.Local, new());
+        var sut = CreateWithProviders((local, CertificateSecrets(PublicOnlyP12)));
+
+        var result = await sut.DownloadAndInstallBySerialAsync("ABC123");
+
+        Assert.False(result);
+        _localCertificateService.Verify(x => x.ImportP12Async(
+            It.IsAny<byte[]>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task DownloadAndInstallBySerialAsync_ImportWithoutResultingIdentity_ReturnsFalse()
+    {
+        var local = new CloudSecretsProviderConfig(CloudSecretsService.DefaultLocalProviderId, "Local", CloudSecretsProviderType.Local, new());
+        var sut = CreateWithProviders((local, CertificateSecrets(KeyedP12)));
+        _localCertificateService.SetupGet(x => x.IsSupported).Returns(true);
+        _localCertificateService.Setup(x => x.ImportP12Async(It.IsAny<byte[]>(), "password", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        _localCertificateService.Setup(x => x.HasInstalledIdentityAsync("ABC123")).ReturnsAsync(false);
+
+        var result = await sut.DownloadAndInstallBySerialAsync("ABC123");
+
+        Assert.False(result);
+    }
+
+    [Fact]
+    public async Task DownloadAndInstallBySerialAsync_UntrustedButInstalledIdentity_ReturnsTrue()
+    {
+        var local = new CloudSecretsProviderConfig(CloudSecretsService.DefaultLocalProviderId, "Local", CloudSecretsProviderType.Local, new());
+        var sut = CreateWithProviders((local, CertificateSecrets(KeyedP12)));
+        _localCertificateService.SetupGet(x => x.IsSupported).Returns(true);
+        _localCertificateService.Setup(x => x.ImportP12Async(It.IsAny<byte[]>(), "password", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        _localCertificateService.Setup(x => x.HasInstalledIdentityAsync("ABC123")).ReturnsAsync(true);
+        _localCertificateService.Setup(x => x.GetSigningIdentitiesAsync())
+            .ReturnsAsync(Array.Empty<LocalSigningIdentity>());
+
+        var result = await sut.DownloadAndInstallBySerialAsync("ABC123");
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public async Task GetCertificateStatusesAsync_ReportsCopyInNonActiveProvider()
+    {
+        var local = new CloudSecretsProviderConfig(CloudSecretsService.DefaultLocalProviderId, "Local", CloudSecretsProviderType.Local, new());
+        var remote = new CloudSecretsProviderConfig("remote", "Remote Vault", CloudSecretsProviderType.AzureKeyVault, new());
+        _cloudSecretsService.Setup(x => x.ActiveProvider).Returns(local);
+        var sut = CreateWithProviders(
+            (local, new Dictionary<string, byte[]>()),
+            (remote, CertificateSecrets(KeyedP12)));
+        var certificate = new AppleCertificate("cert-1", "Apple Development: Test", "DEVELOPMENT", "IOS", DateTime.UtcNow.AddYears(1), "ABC123");
+
+        var status = (await sut.GetCertificateStatusesAsync(new[] { certificate })).Single();
+
+        Assert.Equal(SecretLocation.CloudOnly, status.Location);
+        Assert.Equal("remote", status.CloudProviderId);
     }
 }

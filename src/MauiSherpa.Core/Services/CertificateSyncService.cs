@@ -12,17 +12,81 @@ public class CertificateSyncService : ICertificateSyncService
     private readonly ICloudSecretsService _cloudSecretsService;
     private readonly ILocalCertificateService _localCertificateService;
     private readonly ILoggingService _logger;
+    private readonly ISecretsProviderRegistry? _providerRegistry;
     
     private const string SecretPrefix = "CERT";
 
     public CertificateSyncService(
         ICloudSecretsService cloudSecretsService,
         ILocalCertificateService localCertificateService,
-        ILoggingService logger)
+        ILoggingService logger,
+        ISecretsProviderRegistry? providerRegistry = null)
     {
         _cloudSecretsService = cloudSecretsService;
         _localCertificateService = localCertificateService;
         _logger = logger;
+        _providerRegistry = providerRegistry;
+    }
+
+    /// <summary>
+    /// A secrets provider that may hold certificate copies.
+    /// </summary>
+    private sealed record ProviderSource(
+        string? Id,
+        string Name,
+        Func<string, CancellationToken, Task<IReadOnlyList<string>>> ListAsync,
+        Func<string, CancellationToken, Task<byte[]?>> GetAsync);
+
+    /// <summary>
+    /// Every configured provider in read order: Local Vault first, then the active provider,
+    /// then the rest. Without a registry only the active provider is available.
+    /// </summary>
+    private async Task<IReadOnlyList<ProviderSource>> GetProviderSourcesAsync()
+    {
+        if (_providerRegistry is null)
+        {
+            var active = _cloudSecretsService.ActiveProvider;
+            return active is null
+                ? Array.Empty<ProviderSource>()
+                : new[]
+                {
+                    new ProviderSource(
+                        active.Id,
+                        active.Name,
+                        (prefix, ct) => _cloudSecretsService.ListSecretsAsync(prefix, ct),
+                        (key, ct) => _cloudSecretsService.GetSecretAsync(key, ct))
+                };
+        }
+
+        var activeId = _cloudSecretsService.ActiveProvider?.Id;
+        var configs = (await _providerRegistry.GetProvidersAsync())
+            .OrderBy(config =>
+                config.Id == CloudSecretsService.DefaultLocalProviderId ? 0 :
+                config.Id == activeId ? 1 : 2)
+            .ThenBy(config => config.Name, StringComparer.OrdinalIgnoreCase);
+
+        var sources = new List<ProviderSource>();
+        foreach (var config in configs)
+        {
+            var providerId = config.Id;
+            sources.Add(new ProviderSource(
+                providerId,
+                config.Name,
+                async (prefix, ct) =>
+                {
+                    var provider = await _providerRegistry.GetProviderAsync(providerId);
+                    return provider is null
+                        ? Array.Empty<string>()
+                        : await provider.ListSecretsAsync(prefix, ct);
+                },
+                async (key, ct) =>
+                {
+                    var provider = await _providerRegistry.GetProviderAsync(providerId);
+                    return provider is null ? null : await provider.GetSecretAsync(key, ct);
+                }));
+        }
+
+        return sources;
     }
 
     public string GetCertificateSecretKey(string serialNumber)
@@ -53,26 +117,26 @@ public class CertificateSyncService : ICertificateSyncService
             .Where(s => !string.IsNullOrEmpty(s))
             .ToHashSet();
 
-        // Check cloud storage if a provider is configured
-        var cloudSecrets = new HashSet<string>();
-        if (_cloudSecretsService.ActiveProvider != null)
+        // Check every configured provider; the first one holding a copy is reported.
+        var cloudSecrets = new Dictionary<string, string?>(StringComparer.Ordinal);
+        foreach (var source in await GetProviderSourcesAsync())
         {
             try
             {
-                var secrets = await _cloudSecretsService.ListSecretsAsync($"{SecretPrefix}_", cancellationToken);
+                var secrets = await source.ListAsync($"{SecretPrefix}_", cancellationToken);
                 foreach (var secret in secrets)
                 {
                     // Extract serial number from key like "CERT_XXXX_P12"
                     var parts = secret.Split('_');
                     if (parts.Length >= 2)
                     {
-                        cloudSecrets.Add(parts[1].ToUpperInvariant());
+                        cloudSecrets.TryAdd(parts[1].ToUpperInvariant(), source.Id);
                     }
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogWarning($"Could not check cloud storage: {ex.Message}");
+                _logger.LogWarning($"Could not check certificate copies in '{source.Name}': {ex.Message}");
             }
         }
 
@@ -82,7 +146,7 @@ public class CertificateSyncService : ICertificateSyncService
             var sanitizedSerial = SanitizeSerialNumber(serialUpper);
             
             var hasLocal = localSerials.Contains(sanitizedSerial);
-            var hasCloud = cloudSecrets.Contains(sanitizedSerial);
+            var hasCloud = cloudSecrets.TryGetValue(sanitizedSerial, out var cloudProviderId);
 
             var location = (hasLocal, hasCloud) switch
             {
@@ -96,7 +160,7 @@ public class CertificateSyncService : ICertificateSyncService
                 cert.Id ?? "",
                 cert.SerialNumber ?? "",
                 location,
-                hasCloud ? _cloudSecretsService.ActiveProvider?.Id : null,
+                hasCloud ? cloudProviderId : null,
                 hasCloud ? GetCertificateSecretKey(cert.SerialNumber ?? "") : null,
                 null // Would need to track last sync time separately
             ));
@@ -350,57 +414,97 @@ public class CertificateSyncService : ICertificateSyncService
         string serialNumber,
         CancellationToken cancellationToken = default)
     {
-        if (_cloudSecretsService.ActiveProvider == null)
+        var p12Key = GetCertificateSecretKey(serialNumber);
+        var pwdKey = GetCertificatePasswordKey(serialNumber);
+        var sources = await GetProviderSourcesAsync();
+        if (sources.Count == 0)
         {
-            _logger.LogWarning("No active cloud secrets provider configured");
+            _logger.LogWarning("No secrets provider configured");
             return false;
         }
 
-        try
+        // Use the first provider copy that actually carries the private key, so an install
+        // never leaves a certificate in the Keychain that can't sign.
+        foreach (var source in sources)
         {
-            Console.WriteLine($"DownloadAndInstallBySerialAsync starting for serial: {serialNumber}");
-            _logger.LogInformation($"DownloadAndInstallBySerialAsync starting for serial: {serialNumber}");
-            
-            // Get P12 data
-            var p12Key = GetCertificateSecretKey(serialNumber);
-            Console.WriteLine($"Looking for P12 with key: {p12Key}");
-            _logger.LogInformation($"Looking for P12 with key: {p12Key}");
-            var p12Data = await _cloudSecretsService.GetSecretAsync(p12Key, cancellationToken);
-            if (p12Data == null)
+            cancellationToken.ThrowIfCancellationRequested();
+            byte[]? p12Data;
+            byte[]? pwdData;
+            try
             {
-                Console.WriteLine($"P12 data not found in cloud for serial {serialNumber} (key: {p12Key})");
-                _logger.LogError($"P12 data not found in cloud for serial {serialNumber} (key: {p12Key})");
-                return false;
+                p12Data = await source.GetAsync(p12Key, cancellationToken);
+                if (p12Data is null)
+                    continue;
+                pwdData = await source.GetAsync(pwdKey, cancellationToken);
             }
-            Console.WriteLine($"Got P12 data: {p12Data.Length} bytes");
-            _logger.LogInformation($"Got P12 data: {p12Data.Length} bytes");
+            catch (Exception ex)
+            {
+                _logger.LogWarning($"Could not read certificate {serialNumber} from '{source.Name}': {ex.Message}");
+                continue;
+            }
 
-            // Get password
-            var pwdKey = GetCertificatePasswordKey(serialNumber);
-            Console.WriteLine($"Looking for password with key: {pwdKey}");
-            _logger.LogInformation($"Looking for password with key: {pwdKey}");
-            var pwdData = await _cloudSecretsService.GetSecretAsync(pwdKey, cancellationToken);
-            if (pwdData == null)
+            if (pwdData is null)
             {
-                Console.WriteLine($"Password not found in cloud for serial {serialNumber} (key: {pwdKey})");
-                _logger.LogError($"Password not found in cloud for serial {serialNumber} (key: {pwdKey})");
-                return false;
+                _logger.LogWarning($"Certificate {serialNumber} in '{source.Name}' has no stored password");
+                continue;
             }
+
             var password = Encoding.UTF8.GetString(pwdData);
-            Console.WriteLine($"Got password: {password.Length} chars");
-            _logger.LogInformation($"Got password: {password.Length} chars");
+            if (!CertificateBundleUtilities.ContainsPrivateKey(p12Data, password))
+            {
+                _logger.LogWarning($"Certificate {serialNumber} in '{source.Name}' has no private key; not installing that copy");
+                continue;
+            }
 
-            // Import into the local platform-backed certificate store.
-            Console.WriteLine("Importing P12 into local certificate store...");
-            _logger.LogInformation("Importing P12 into local certificate store...");
-            return await ImportP12LocallyAsync(p12Data, password, cancellationToken);
+            _logger.LogInformation($"Installing certificate {serialNumber} from '{source.Name}'");
+            try
+            {
+                if (!await ImportP12LocallyAsync(p12Data, password, cancellationToken))
+                {
+                    _logger.LogError($"Importing certificate {serialNumber} from '{source.Name}' failed");
+                    return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Failed to install certificate {serialNumber}: {ex.Message}", ex);
+                return false;
+            }
+
+            return await VerifySigningIdentityInstalledAsync(serialNumber);
         }
-        catch (Exception ex)
+
+        _logger.LogError($"No provider holds certificate {serialNumber} with its private key");
+        return false;
+    }
+
+    /// <summary>
+    /// Confirms the Keychain now has a signing identity (certificate + private key) for the
+    /// serial. Only checked where the local certificate service can enumerate identities.
+    /// </summary>
+    private async Task<bool> VerifySigningIdentityInstalledAsync(string serialNumber)
+    {
+        if (!_localCertificateService.IsSupported)
+            return true;
+
+        _localCertificateService.InvalidateCache();
+        if (!await _localCertificateService.HasInstalledIdentityAsync(serialNumber))
         {
-            Console.WriteLine($"Failed to download and install certificate: {ex}");
-            _logger.LogError($"Failed to download and install certificate: {ex.Message}", ex);
+            _logger.LogError($"Certificate {serialNumber} was imported but no signing identity with its private key appeared in the Keychain");
             return false;
         }
+
+        var wanted = SanitizeSerialNumber(serialNumber).TrimStart('0');
+        var trusted = (await _localCertificateService.GetSigningIdentitiesAsync())
+            .Any(candidate => SanitizeSerialNumber(candidate.SerialNumber ?? "").TrimStart('0') == wanted);
+        if (!trusted)
+        {
+            // Usually a missing Apple WWDR intermediate; the key itself is installed.
+            _logger.LogWarning($"Signing identity for {serialNumber} is installed but not trusted yet (check the Apple intermediate certificates)");
+        }
+
+        _logger.LogInformation($"Signing identity for {serialNumber} is installed");
+        return true;
     }
 
     /// <summary>
