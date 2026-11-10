@@ -42,7 +42,15 @@ public class AzureKeyVaultProvider : ICloudSecretsProvider
             return _client;
 
         var credential = new ClientSecretCredential(TenantId, ClientId, ClientSecretValue);
-        _client = new SecretClient(new Uri(VaultUrl), credential);
+
+        // The SDK default (3 exponential retries) turns an unreachable or deleted vault into
+        // ~25s of blocking per call, which stalls every multi-provider listing behind it.
+        var options = new SecretClientOptions();
+        options.Retry.MaxRetries = 1;
+        options.Retry.Delay = TimeSpan.FromMilliseconds(500);
+        options.Retry.MaxDelay = TimeSpan.FromSeconds(2);
+        options.Retry.NetworkTimeout = TimeSpan.FromSeconds(15);
+        _client = new SecretClient(new Uri(VaultUrl), credential, options);
         return _client;
     }
 

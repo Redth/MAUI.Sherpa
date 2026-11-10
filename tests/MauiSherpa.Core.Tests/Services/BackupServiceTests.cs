@@ -1,6 +1,8 @@
 using FluentAssertions;
 using MauiSherpa.Core.Interfaces;
 using MauiSherpa.Core.Services;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using Moq;
 using Xunit;
 
@@ -572,5 +574,242 @@ public class BackupServiceTests
 
         importResult.Selection.GoogleIdentityIds.Should().BeEquivalentTo(new[] { "gi1", "gi2" });
         importResult.Settings.GoogleIdentities.Should().HaveCount(2);
+    }
+
+    private const string LocalId = CloudSecretsService.DefaultLocalProviderId;
+
+    private static (byte[] P12, string Serial) CreateP12(string password, bool includePrivateKey)
+    {
+        using var rsa = RSA.Create(2048);
+        var request = new CertificateRequest(
+            "CN=Apple Distribution: Test",
+            rsa,
+            HashAlgorithmName.SHA256,
+            RSASignaturePadding.Pkcs1);
+        using var certificate = request.CreateSelfSigned(
+            DateTimeOffset.UtcNow.AddDays(-1),
+            DateTimeOffset.UtcNow.AddYears(1));
+        if (includePrivateKey)
+            return (certificate.Export(X509ContentType.Pfx, password), certificate.SerialNumber);
+
+        using var publicOnly = X509CertificateLoader.LoadCertificate(certificate.RawData);
+        return (publicOnly.Export(X509ContentType.Pfx, password), certificate.SerialNumber);
+    }
+
+    private static SecretItemPayload CreateCertificatePayload(string id, byte[] p12, string password) =>
+        new(
+            new SecretItemRef(SecretItemKind.Certificate, id, "Apple Distribution: Test"),
+            1,
+            "hash",
+            new[]
+            {
+                new SecretArtifact($"CERT_{id}_P12", p12),
+                new SecretArtifact($"CERT_{id}_PWD", System.Text.Encoding.UTF8.GetBytes(password))
+            });
+
+    private (BackupService Service, Mock<ISecretItemAdapter> CertificateAdapter, List<SecretItemPayload> Written) CreateCertificateBackupService(
+        IReadOnlyList<SecretItemRef> vaultCertificates,
+        Func<SecretItemRef, SecretItemPayload?> readVault,
+        ILocalCertificateService? localCertificateService = null,
+        IPublishProfileService? publishProfileService = null,
+        ISecretItemAdapter? profileAdapter = null)
+    {
+        var written = new List<SecretItemPayload>();
+        var certificateAdapter = new Mock<ISecretItemAdapter>();
+        certificateAdapter.SetupGet(x => x.Kind).Returns(SecretItemKind.Certificate);
+        certificateAdapter
+            .Setup(x => x.ListProviderItemsAsync(LocalId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(vaultCertificates);
+        certificateAdapter
+            .Setup(x => x.ReadProviderAsync(It.IsAny<SecretItemRef>(), LocalId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((SecretItemRef item, string _, CancellationToken _) => readVault(item));
+        certificateAdapter
+            .Setup(x => x.WriteProviderAsync(It.IsAny<SecretItemPayload>(), LocalId, It.IsAny<CancellationToken>()))
+            .Callback<SecretItemPayload, string, CancellationToken>((payload, _, _) => written.Add(payload))
+            .ReturnsAsync(true);
+        _mockSettingsService.Setup(x => x.GetSettingsAsync()).ReturnsAsync(new MauiSherpaSettings());
+
+        var adapters = new List<ISecretItemAdapter> { certificateAdapter.Object };
+        if (profileAdapter is not null)
+            adapters.Add(profileAdapter);
+
+        var service = new BackupService(
+            _mockSettingsService.Object,
+            _mockAppleIdentityService.Object,
+            _mockCloudSecretsService.Object,
+            _mockSecretsPublisherService.Object,
+            _mockGoogleIdentityService.Object,
+            publishProfileService: publishProfileService,
+            providerRegistry: new Mock<ISecretsProviderRegistry>().Object,
+            secretItemAdapters: adapters,
+            localCertificateService: localCertificateService);
+        return (service, certificateAdapter, written);
+    }
+
+    [Fact]
+    public async Task Backup_RoundTrip_RestoresPublishProfilesAndCertificatesToLocalVault()
+    {
+        var (p12, serial) = CreateP12("vault-pw", includePrivateKey: true);
+        var id = SecretItemAdapterHelper.SanitizeSerialNumber(serial);
+        var certificate = new SecretItemRef(SecretItemKind.Certificate, id, "Apple Distribution: Test");
+
+        var profileAdapter = new Mock<ISecretItemAdapter>();
+        profileAdapter.SetupGet(x => x.Kind).Returns(SecretItemKind.PublishProfile);
+        SecretItemPayload? writtenProfile = null;
+        profileAdapter
+            .Setup(x => x.WriteProviderAsync(It.IsAny<SecretItemPayload>(), LocalId, It.IsAny<CancellationToken>()))
+            .Callback<SecretItemPayload, string, CancellationToken>((payload, _, _) => writtenProfile = payload)
+            .ReturnsAsync(true);
+
+        var profileService = new Mock<IPublishProfileService>();
+        profileService.Setup(x => x.GetProfilesAsync()).ReturnsAsync(new[]
+        {
+            new PublishProfile("profile-1", "Release", null, null, null, null,
+                new List<PublishProfileAppleConfig>(), new List<PublishProfileAndroidConfig>(),
+                new List<PublishProfileSecretMapping>(), DateTime.UtcNow, DateTime.UtcNow)
+        });
+
+        var (service, _, written) = CreateCertificateBackupService(
+            new[] { certificate },
+            _ => CreateCertificatePayload(id, p12, "vault-pw"),
+            publishProfileService: profileService.Object,
+            profileAdapter: profileAdapter.Object);
+
+        var encrypted = await service.ExportSettingsAsync("password123");
+        var imported = await service.ImportBackupAsync(encrypted, "password123");
+        var result = await service.RestoreStoredItemsAsync(imported);
+
+        result.PublishProfilesRestored.Should().Be(1);
+        result.CertificatesRestored.Should().Be(1);
+        result.Failures.Should().BeEmpty();
+        writtenProfile!.Artifacts.Single().Key.Should().Be("sherpa-publish-profiles/profile-1");
+        written.Single().Item.Id.Should().Be(id);
+        BackupService.HasPrivateKey(written.Single()).Should().BeTrue();
+        _mockCloudSecretsService.Verify(x => x.EnableDefaultLocalProviderAsync(false), Times.Once);
+    }
+
+    [Fact]
+    public async Task ExportSettingsAsync_FailsWhenCertificateHasNoPrivateKey()
+    {
+        var (p12, serial) = CreateP12("vault-pw", includePrivateKey: false);
+        var id = SecretItemAdapterHelper.SanitizeSerialNumber(serial);
+        var (service, _, _) = CreateCertificateBackupService(
+            new[] { new SecretItemRef(SecretItemKind.Certificate, id, "Apple Distribution: Test") },
+            _ => CreateCertificatePayload(id, p12, "vault-pw"));
+
+        var act = () => service.ExportSettingsAsync("password123");
+
+        (await act.Should().ThrowAsync<InvalidOperationException>())
+            .WithMessage("*private key could not be included*Apple Distribution: Test*");
+    }
+
+    [Fact]
+    public async Task ExportSettingsAsync_ExportsKeychainOnlyCertificateWithPrivateKey()
+    {
+        var (bundle, serial) = CreateP12("ignored", includePrivateKey: true);
+        var id = SecretItemAdapterHelper.SanitizeSerialNumber(serial);
+        var identity = new LocalSigningIdentity(
+            "Apple Distribution: Test (TEAM)", "Apple Distribution: Test", "TEAM", serial, DateTime.UtcNow.AddYears(1), true);
+
+        var localCertificates = new Mock<ILocalCertificateService>();
+        localCertificates.Setup(x => x.GetSigningIdentitiesAsync()).ReturnsAsync(new[] { identity });
+        string? bundlePassword = null;
+        localCertificates
+            .Setup(x => x.ExportP12Async(It.IsAny<IReadOnlyList<LocalSigningIdentity>>(), It.IsAny<string>()))
+            .ReturnsAsync((IReadOnlyList<LocalSigningIdentity> _, string password) =>
+            {
+                bundlePassword = password;
+                return CreateKeychainBundle(bundle, "ignored", password);
+            });
+
+        var (service, _, written) = CreateCertificateBackupService(
+            Array.Empty<SecretItemRef>(),
+            _ => null,
+            localCertificateService: localCertificates.Object);
+
+        var available = await service.GetBackupCertificatesAsync();
+        available.Should().ContainSingle(c => c.Item.Id == id && c.InKeychain && !c.InLocalVault);
+
+        var encrypted = await service.ExportSettingsAsync("password123");
+        var imported = await service.ImportBackupAsync(encrypted, "password123");
+        var result = await service.RestoreStoredItemsAsync(imported);
+
+        bundlePassword.Should().NotBeNull();
+        localCertificates.Verify(
+            x => x.ExportP12Async(It.IsAny<IReadOnlyList<LocalSigningIdentity>>(), It.IsAny<string>()),
+            Times.Once);
+        result.CertificatesRestored.Should().Be(1);
+        var restored = written.Single();
+        restored.Artifacts.Select(a => a.Key).Should().BeEquivalentTo(
+            new[] { $"CERT_{id}_P12", $"CERT_{id}_PWD", $"CERT_{id}_META" });
+        BackupService.HasPrivateKey(restored).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task RestoreStoredItemsAsync_RejectsCertificateWithoutPrivateKey()
+    {
+        var (p12, serial) = CreateP12("pw", includePrivateKey: false);
+        var id = SecretItemAdapterHelper.SanitizeSerialNumber(serial);
+        var (service, _, written) = CreateCertificateBackupService(Array.Empty<SecretItemRef>(), _ => null);
+        var importResult = new BackupImportResult(
+            new MauiSherpaSettings(),
+            new BackupExportSelection { CertificateIds = new List<string> { id } },
+            new[] { CreateCertificatePayload(id, p12, "pw") });
+
+        var result = await service.RestoreStoredItemsAsync(importResult);
+
+        result.CertificatesRestored.Should().Be(0);
+        result.Failures.Should().ContainSingle(f => f.Contains("no private key"));
+        written.Should().BeEmpty();
+    }
+
+    private static byte[] CreateKeychainBundle(byte[] p12, string sourcePassword, string password)
+    {
+        var collection = X509CertificateLoader.LoadPkcs12Collection(p12, sourcePassword, X509KeyStorageFlags.Exportable);
+        try
+        {
+            return collection.Export(X509ContentType.Pfx, password)!;
+        }
+        finally
+        {
+            foreach (var certificate in collection)
+                certificate.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task ExportSettingsAsync_FailsWhenSelectedCertificateIsNoLongerAvailable()
+    {
+        var (service, _, _) = CreateCertificateBackupService(Array.Empty<SecretItemRef>(), _ => null);
+
+        var act = () => service.ExportSettingsAsync("password123", new BackupExportSelection
+        {
+            IncludePreferences = true,
+            CertificateIds = new List<string> { "GONE123" }
+        });
+
+        (await act.Should().ThrowAsync<InvalidOperationException>())
+            .WithMessage("*no longer available*");
+    }
+
+    [Fact]
+    public async Task RestoreStoredItemsAsync_ReportsFailuresWhenLocalVaultCannotBeEnabled()
+    {
+        var (p12, serial) = CreateP12("pw", includePrivateKey: true);
+        var id = SecretItemAdapterHelper.SanitizeSerialNumber(serial);
+        _mockCloudSecretsService
+            .Setup(x => x.EnableDefaultLocalProviderAsync(false))
+            .ThrowsAsync(new InvalidOperationException("vault locked"));
+        var (service, _, written) = CreateCertificateBackupService(Array.Empty<SecretItemRef>(), _ => null);
+        var importResult = new BackupImportResult(
+            new MauiSherpaSettings(),
+            new BackupExportSelection { CertificateIds = new List<string> { id } },
+            new[] { CreateCertificatePayload(id, p12, "pw") });
+
+        var result = await service.RestoreStoredItemsAsync(importResult);
+
+        result.CertificatesRestored.Should().Be(0);
+        result.Failures.Should().ContainSingle(f => f.Contains("vault locked"));
+        written.Should().BeEmpty();
     }
 }

@@ -21,6 +21,8 @@
 @inject ICloudSecretsProviderFactory CloudSecretsProviderFactory
 @inject ISecretsPublisherService SecretsPublisherService
 @inject IPushProjectService PushProjectService
+@inject IPublishProfileService PublishProfileService
+@inject IBackupService BackupService
 @inject IEncryptedSettingsService EncryptedSettings
 @inject IUpdateService UpdateService
 @implements IDisposable
@@ -2465,20 +2467,29 @@
     
     private async Task DeleteProvider(CloudSecretsProviderConfig provider)
     {
-        var confirm = await AlertService.ShowConfirmAsync(
-            "Disconnect Provider",
-            $"Disconnect '{provider.Name}' from MAUI Sherpa? Remote secrets will not be deleted, and existing items that reference this provider will show it as unavailable.");
-        
-        if (!confirm) return;
-        
-        await CloudSecretsService.DeleteProviderAsync(provider.Id);
-        
-        // Immediately remove from list for responsive UI
-        cloudProviders.Remove(provider);
-        StateHasChanged();
-        
-        await AlertService.ShowToastAsync("Provider disconnected");
-        await LoadCloudProviders();
+        Logger.LogInformation($"Disconnect requested for secrets provider '{provider.Name}' ({provider.Id})");
+        try
+        {
+            var confirm = await AlertService.ShowConfirmAsync(
+                "Disconnect Provider",
+                $"Disconnect '{provider.Name}' from MAUI Sherpa? Remote secrets will not be deleted, and existing items that reference this provider will show it as unavailable.");
+
+            if (!confirm) return;
+
+            await CloudSecretsService.DeleteProviderAsync(provider.Id);
+
+            // Immediately remove from list for responsive UI
+            cloudProviders.Remove(provider);
+            StateHasChanged();
+
+            await AlertService.ShowToastAsync("Provider disconnected");
+            await LoadCloudProviders();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError($"Failed to disconnect secrets provider '{provider.Name}': {ex.Message}", ex);
+            await AlertService.ShowAlertAsync("Disconnect Failed", ex.Message);
+        }
     }
     
     private async Task TestProvider(CloudSecretsProviderConfig provider)
@@ -2657,15 +2668,30 @@
 
             if (result is BackupImportResult importResult)
             {
-                await ApplyImportedBackupAsync(importResult);
+                var restoreResult = await ApplyImportedBackupAsync(importResult);
 
                 await LoadAppleIdentities();
                 await LoadGoogleIdentities();
                 await LoadCloudProviders();
                 await LoadSecretsPublishers();
 
-                await AlertService.ShowToastAsync("Settings imported successfully!");
+                if (restoreResult.Failures.Count > 0)
+                {
+                    await AlertService.ShowAlertAsync(
+                        "Import Incomplete",
+                        "Settings were imported, but these items could not be restored to the Local Vault:\n\n" +
+                        string.Join("\n", restoreResult.Failures));
+                }
+                else
+                {
+                    await AlertService.ShowToastAsync("Settings imported successfully!");
+                }
             }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError($"Settings import failed: {ex.Message}", ex);
+            await AlertService.ShowAlertAsync("Import Failed", ex.Message);
         }
         finally
         {
@@ -2674,7 +2700,7 @@
         }
     }
 
-    private async Task ApplyImportedBackupAsync(BackupImportResult importResult)
+    private async Task<BackupRestoreResult> ApplyImportedBackupAsync(BackupImportResult importResult)
     {
         var settings = importResult.Settings;
         var selection = importResult.Selection;
@@ -2760,7 +2786,18 @@
             await PushProjectService.SaveProjectAsync(pushProject);
         }
 
+        // Publish profiles and certificates live in secret providers, not settings, so they
+        // are written straight into the Local Vault.
+        var restoreResult = await BackupService.RestoreStoredItemsAsync(importResult);
+        if (restoreResult.PublishProfilesRestored > 0)
+            await PublishProfileService.RefreshProfilesAsync();
+        Logger.LogInformation(
+            $"Backup restore: {restoreResult.PublishProfilesRestored} publish profile(s), " +
+            $"{restoreResult.CertificatesRestored} certificate(s) restored to Local Vault; " +
+            $"{restoreResult.Failures.Count} failure(s)");
+
         await LoadGoogleIdentities();
+        return restoreResult;
     }
 
     // === Update Dialog ===

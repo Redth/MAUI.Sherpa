@@ -208,29 +208,40 @@ public class CloudSecretsService : ICloudSecretsService, ISecretsProviderRegistr
 
         await LoadMetadataAsync();
 
-        // Remove from secure storage
-        await TryRemoveSecureStorageAsync(SecureKeyPrefix + providerId);
-        
-        // Remove non-secret settings file
-        var nonSecretPath = GetNonSecretSettingsPath(providerId);
-        if (await _fileSystem.FileExistsAsync(nonSecretPath))
-            await _fileSystem.DeleteFileAsync(nonSecretPath);
-        if (CanUseLocalVault())
-            await _vaultStore!.RemoveAsync(LocalVaultScopes.CloudProvider, ProviderSettingsVaultPath, GetProviderSettingsVaultKey(providerId));
-
+        // Drop the provider from metadata first so a failure cleaning up its stored
+        // settings can never leave it listed.
         int removed;
         lock (_metadataLock)
             removed = _providerMetadata.RemoveAll(m => m.Id == providerId);
+        _providerInstances.TryRemove(providerId, out _);
+        if (removed > 0)
+            await PersistMetadataAsync();
+
+        // Remove from secure storage
+        await TryRemoveSecureStorageAsync(SecureKeyPrefix + providerId);
+
+        // Remove non-secret settings
+        try
+        {
+            var nonSecretPath = GetNonSecretSettingsPath(providerId);
+            if (await _fileSystem.FileExistsAsync(nonSecretPath))
+                await _fileSystem.DeleteFileAsync(nonSecretPath);
+            if (CanUseLocalVault())
+                await _vaultStore!.RemoveAsync(LocalVaultScopes.CloudProvider, ProviderSettingsVaultPath, GetProviderSettingsVaultKey(providerId));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning($"Failed to remove stored settings for provider {providerId}: {ex.Message}");
+        }
+
         if (removed > 0)
         {
-            _providerInstances.TryRemove(providerId, out _);
-            await PersistMetadataAsync();
             _logger.LogInformation($"Deleted cloud secrets provider: {providerId}");
-            
-            // Clear active provider if deleted
+
+            // Fall back to the Local provider if the active one was deleted
             if (_activeProviderId == providerId)
             {
-                await SetActiveProviderAsync(null);
+                await SetActiveProviderAsync(CanUseLocalVault() ? DefaultLocalProviderId : null);
             }
 
             ProvidersChanged?.Invoke();

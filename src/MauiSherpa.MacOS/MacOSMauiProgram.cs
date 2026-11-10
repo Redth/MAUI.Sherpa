@@ -76,7 +76,7 @@ public static class MacOSMauiProgram
 
         // Platform services
         builder.Services.AddSingleton<BlazorToastService>();
-        builder.Services.AddSingleton<IAlertService, AlertService>();
+        builder.Services.AddSingleton<IAlertService, MacOSAlertService>();
         builder.Services.AddSingleton<ILoggingService, LoggingService>();
         builder.Services.AddSingleton<IPlatformService, MacOSPlatformService>();
         builder.Services.AddScoped<INavigationService, NavigationService>();

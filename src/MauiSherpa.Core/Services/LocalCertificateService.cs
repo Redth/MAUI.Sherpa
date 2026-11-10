@@ -423,6 +423,38 @@ public partial class LocalCertificateService : ILocalCertificateService
         return byName;
     }
 
+    public async Task<bool> HasInstalledIdentityAsync(string serialNumber)
+    {
+        if (!IsSupported || string.IsNullOrWhiteSpace(serialNumber))
+            return false;
+
+        static string Normalize(string? value) =>
+            new string((value ?? string.Empty).Where(char.IsLetterOrDigit).Select(char.ToUpperInvariant).ToArray()).TrimStart('0');
+
+        var wanted = Normalize(serialNumber);
+
+        // Without -v, find-identity also lists identities whose certificate isn't trusted
+        // yet, which still have their private key installed.
+        foreach (var policy in new[] { "codesigning", "basic" })
+        {
+            var result = await RunSecurityCommandAsync("find-identity", "-p", policy);
+            if (result.ExitCode != 0)
+                continue;
+
+            foreach (var line in result.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+            {
+                var identity = ParseIdentityLine(line);
+                if (identity?.Hash is not { Length: > 0 } hash)
+                    continue;
+
+                if (Normalize(await GetCertificateSerialNumberAsync(hash)) == wanted)
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
     private LocalSigningIdentity? ParseIdentityLine(string line)
     {
         // Example lines:

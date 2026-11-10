@@ -1722,6 +1722,20 @@ public interface ILocalCertificateService
     /// <param name="password">Password protecting the P12 file</param>
     /// <returns>True if import succeeded</returns>
     Task<bool> ImportP12Async(byte[] p12Data, string password, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Checks whether a certificate with this serial is installed together with its private
+    /// key, including identities the OS doesn't trust yet (e.g. a missing intermediate).
+    /// </summary>
+    async Task<bool> HasInstalledIdentityAsync(string serialNumber)
+    {
+        static string Normalize(string? value) =>
+            new string((value ?? string.Empty).Where(char.IsLetterOrDigit).Select(char.ToUpperInvariant).ToArray()).TrimStart('0');
+
+        var wanted = Normalize(serialNumber);
+        return wanted.Length > 0 &&
+               (await GetSigningIdentitiesAsync()).Any(identity => Normalize(identity.SerialNumber) == wanted);
+    }
     
     /// <summary>
     /// Invalidates the cached list of signing identities, forcing a refresh on next query
@@ -4230,6 +4244,8 @@ public record PublishProfileData(
     public List<PublishProfilePublisher> Publishers { get; init; } = new();
     public List<PublishProfileAppleIdentity> AppleIdentities { get; init; } = new();
     public List<PublishProfileGoogleIdentity> GoogleIdentities { get; init; } = new();
+    public DateTime? CreatedAt { get; init; }
+    public DateTime? UpdatedAt { get; init; }
 }
 
 public record AppPreferences
@@ -4320,6 +4336,16 @@ public interface IBackupService
     Task<BackupImportResult> ImportBackupAsync(byte[] encryptedData, string password);
     Task<MauiSherpaSettings> ImportSettingsAsync(byte[] encryptedData, string password);
     Task<bool> ValidateBackupAsync(byte[] data);
+
+    /// <summary>
+    /// Lists the signing certificates (Local Vault and Keychain) that can be included in a backup.
+    /// </summary>
+    Task<IReadOnlyList<BackupCertificateInfo>> GetBackupCertificatesAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Writes the publish profiles and certificates from an imported backup into the Local Vault.
+    /// </summary>
+    Task<BackupRestoreResult> RestoreStoredItemsAsync(BackupImportResult importResult, CancellationToken cancellationToken = default);
 }
 
 public record BackupExportSelection
@@ -4331,11 +4357,28 @@ public record BackupExportSelection
     public List<string> GoogleIdentityIds { get; init; } = new();
     public List<string> PushProjectIds { get; init; } = new();
     public List<string> PublishProfileIds { get; init; } = new();
+    public List<string> CertificateIds { get; init; } = new();
 }
 
 public record BackupImportResult(
     MauiSherpaSettings Settings,
-    BackupExportSelection Selection
+    BackupExportSelection Selection,
+    IReadOnlyList<SecretItemPayload>? Certificates = null
+);
+
+/// <summary>
+/// A signing certificate that can be backed up, and where its private key is available.
+/// </summary>
+public record BackupCertificateInfo(
+    SecretItemRef Item,
+    bool InLocalVault,
+    bool InKeychain
+);
+
+public record BackupRestoreResult(
+    int PublishProfilesRestored,
+    int CertificatesRestored,
+    IReadOnlyList<string> Failures
 );
 
 /// <summary>
