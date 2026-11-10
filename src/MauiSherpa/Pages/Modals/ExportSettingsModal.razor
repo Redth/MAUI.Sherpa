@@ -162,7 +162,7 @@
                 <div class="backup-selection-group">
                     <label class="backup-selection-item">
                         <input type="checkbox" @bind="exportIncludeCertificates" />
-                        <span>Local Vault Certificates (@selectedCertificateIds.Count/@certificates.Count)</span>
+                        <span>Signing Certificates (@selectedCertificateIds.Count/@certificates.Count)</span>
                     </label>
                     @if (exportIncludeCertificates && certificates.Count > 0)
                     {
@@ -171,12 +171,14 @@
                             {
                                 <label class="backup-selection-item child">
                                     <input type="checkbox"
-                                           checked="@selectedCertificateIds.Contains(certificate.Id)"
-                                           @onchange="e => ToggleSelection(selectedCertificateIds, certificate.Id, e.Value is bool c && c)" />
-                                    <span>@certificate.DisplayName</span>
+                                           checked="@selectedCertificateIds.Contains(certificate.Item.Id)"
+                                           @onchange="e => ToggleSelection(selectedCertificateIds, certificate.Item.Id, e.Value is bool c && c)" />
+                                    <span>@certificate.Item.DisplayName</span>
+                                    <span class="backup-item-source">@GetCertificateSource(certificate)</span>
                                 </label>
                             }
                         </div>
+                        <div class="help-text">Certificates are exported with their private keys. Keychain certificates may prompt for Keychain access.</div>
                     }
                 </div>
             </div>
@@ -205,7 +207,7 @@
     private List<SecretsPublisherConfig> secretsPublishers = new();
     private List<PushProject> pushProjects = new();
     private List<PublishProfile> publishProfiles = new();
-    private List<SecretItemRef> certificates = new();
+    private List<BackupCertificateInfo> certificates = new();
 
     private string exportPassword = "";
     private string exportPasswordConfirm = "";
@@ -268,10 +270,15 @@
         selectedGoogleIds = googleIdentities.Select(i => i.Id).ToHashSet(StringComparer.Ordinal);
         selectedPushProjectIds = pushProjects.Select(p => p.Id).ToHashSet(StringComparer.Ordinal);
         selectedProfileIds = publishProfiles.Select(p => p.Id).ToHashSet(StringComparer.Ordinal);
-        selectedCertificateIds = certificates.Select(c => c.Id).ToHashSet(StringComparer.Ordinal);
+        selectedCertificateIds = certificates.Select(c => c.Item.Id).ToHashSet(StringComparer.Ordinal);
     }
 
     private void Cancel() => ModalParams.Cancel();
+
+    private static string GetCertificateSource(BackupCertificateInfo certificate) =>
+        certificate.InLocalVault && certificate.InKeychain ? "Local Vault + Keychain"
+        : certificate.InLocalVault ? "Local Vault"
+        : "Keychain";
 
     private static void ToggleSelection(HashSet<string> set, string id, bool isSelected)
     {
@@ -363,6 +370,7 @@
     .backup-selection-children { margin-left: 1.5rem; display: flex; flex-direction: column; gap: 0.25rem; }
     .backup-selection-item { display: flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; color: var(--text-primary); }
     .backup-selection-item.child { font-size: 0.8125rem; color: var(--text-secondary); }
+    .backup-item-source { margin-left: auto; font-size: 0.6875rem; color: var(--text-muted); white-space: nowrap; }
     .backup-selection-item input[type="checkbox"] { width: 1rem; height: 1rem; margin: 0; }
 
     .error-message { background: rgba(245, 101, 101, 0.1); border: 1px solid rgba(245, 101, 101, 0.3); color: #c53030; padding: 0.625rem 0.875rem; border-radius: 0.75rem; font-size: 0.8125rem; }

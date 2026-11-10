@@ -4324,9 +4324,9 @@ public interface IBackupService
     Task<bool> ValidateBackupAsync(byte[] data);
 
     /// <summary>
-    /// Lists the certificates stored in the Local Vault that can be included in a backup.
+    /// Lists the signing certificates (Local Vault and Keychain) that can be included in a backup.
     /// </summary>
-    Task<IReadOnlyList<SecretItemRef>> GetBackupCertificatesAsync(CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<BackupCertificateInfo>> GetBackupCertificatesAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Writes the publish profiles and certificates from an imported backup into the Local Vault.
@@ -4350,6 +4350,15 @@ public record BackupImportResult(
     MauiSherpaSettings Settings,
     BackupExportSelection Selection,
     IReadOnlyList<SecretItemPayload>? Certificates = null
+);
+
+/// <summary>
+/// A signing certificate that can be backed up, and where its private key is available.
+/// </summary>
+public record BackupCertificateInfo(
+    SecretItemRef Item,
+    bool InLocalVault,
+    bool InKeychain
 );
 
 public record BackupRestoreResult(

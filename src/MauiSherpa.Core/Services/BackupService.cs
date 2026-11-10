@@ -28,6 +28,7 @@ public class BackupService : IBackupService
     private readonly IPublishProfileService? _publishProfileService;
     private readonly ISecretsProviderRegistry? _providerRegistry;
     private readonly IReadOnlyList<ISecretItemAdapter> _secretItemAdapters;
+    private readonly ILocalCertificateService? _localCertificateService;
 
     private static readonly JsonSerializerOptions PublishProfileJsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -47,7 +48,8 @@ public class BackupService : IBackupService
         IPushProjectService? pushProjectService = null,
         IPublishProfileService? publishProfileService = null,
         ISecretsProviderRegistry? providerRegistry = null,
-        IEnumerable<ISecretItemAdapter>? secretItemAdapters = null)
+        IEnumerable<ISecretItemAdapter>? secretItemAdapters = null,
+        ILocalCertificateService? localCertificateService = null)
     {
         _settingsService = settingsService;
         _appleIdentityService = appleIdentityService;
@@ -58,6 +60,7 @@ public class BackupService : IBackupService
         _publishProfileService = publishProfileService;
         _providerRegistry = providerRegistry;
         _secretItemAdapters = secretItemAdapters?.ToList() ?? new List<ISecretItemAdapter>();
+        _localCertificateService = localCertificateService;
     }
 
     public async Task<byte[]> ExportSettingsAsync(string password, BackupExportSelection? selection = null)
@@ -70,7 +73,7 @@ public class BackupService : IBackupService
         var resolvedSelection = ResolveSelection(
             selection,
             settings,
-            availableCertificates.Select(c => c.Id).ToList());
+            availableCertificates.Select(c => c.Item.Id).ToList());
         if (!resolvedSelection.IncludePreferences &&
             resolvedSelection.AppleIdentityIds.Count == 0 &&
             resolvedSelection.CloudProviderIds.Count == 0 &&
@@ -84,8 +87,8 @@ public class BackupService : IBackupService
         }
 
         var selectedSettings = ApplySelection(settings, resolvedSelection);
-        var certificates = await ReadLocalVaultCertificatesAsync(
-            availableCertificates.Where(c => resolvedSelection.CertificateIds.Contains(c.Id)));
+        var certificates = await ReadCertificatesWithPrivateKeysAsync(
+            availableCertificates.Where(c => resolvedSelection.CertificateIds.Contains(c.Item.Id)).ToList());
         var payload = new BackupPayload(
             Version: BackupPayloadVersion,
             Settings: selectedSettings,
@@ -215,21 +218,48 @@ public class BackupService : IBackupService
         return Task.FromResult(true);
     }
 
-    public async Task<IReadOnlyList<SecretItemRef>> GetBackupCertificatesAsync(CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<BackupCertificateInfo>> GetBackupCertificatesAsync(CancellationToken cancellationToken = default)
     {
+        var vaultItems = new List<SecretItemRef>();
         var adapter = GetAdapter(SecretItemKind.Certificate);
-        if (adapter is null)
-            return Array.Empty<SecretItemRef>();
+        if (adapter is not null)
+        {
+            try
+            {
+                vaultItems.AddRange(await adapter.ListProviderItemsAsync(
+                    CloudSecretsService.DefaultLocalProviderId,
+                    cancellationToken));
+            }
+            catch (Exception)
+            {
+                // A locked or unavailable Local Vault simply contributes nothing.
+            }
+        }
 
-        try
+        var keychainItems = new List<SecretItemRef>();
+        foreach (var identity in await GetKeychainIdentitiesAsync())
         {
-            return await adapter.ListProviderItemsAsync(CloudSecretsService.DefaultLocalProviderId, cancellationToken);
+            keychainItems.Add(new SecretItemRef(
+                SecretItemKind.Certificate,
+                SecretItemAdapterHelper.SanitizeSerialNumber(identity.SerialNumber!),
+                identity.CommonName));
         }
-        catch (Exception)
-        {
-            // A locked or unavailable Local Vault simply has nothing to back up.
-            return Array.Empty<SecretItemRef>();
-        }
+
+        var vaultIds = vaultItems.Select(i => i.Id).ToHashSet(StringComparer.Ordinal);
+        var keychainById = keychainItems
+            .GroupBy(i => i.Id, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+
+        return vaultItems
+            .Select(item => keychainById.TryGetValue(item.Id, out var keychainItem)
+                // Keychain names are the friendly common name; vault names may be bare serials.
+                ? new BackupCertificateInfo(item with { DisplayName = keychainItem.DisplayName }, true, true)
+                : new BackupCertificateInfo(item, true, false))
+            .Concat(keychainById.Values
+                .Where(item => !vaultIds.Contains(item.Id))
+                .Select(item => new BackupCertificateInfo(item, false, true)))
+            .OrderBy(info => info.Item.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 
     public async Task<BackupRestoreResult> RestoreStoredItemsAsync(
@@ -268,6 +298,12 @@ public class BackupService : IBackupService
         foreach (var certificate in certificates)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (!HasPrivateKey(certificate))
+            {
+                failures.Add($"Certificate '{certificate.Item.DisplayName}' (backup has no private key)");
+                continue;
+            }
+
             if (certificateAdapter is not null &&
                 await TryWriteLocalAsync(certificateAdapter, certificate, cancellationToken))
             {
@@ -305,21 +341,172 @@ public class BackupService : IBackupService
         }
     }
 
-    private async Task<List<SecretItemPayload>> ReadLocalVaultCertificatesAsync(IEnumerable<SecretItemRef> certificates)
+    /// <summary>
+    /// Reads each selected certificate as a complete P12 (certificate + private key + password).
+    /// The Local Vault copy is used when it holds a private key; otherwise the identity is
+    /// exported from the Keychain. Export fails rather than silently writing a backup that
+    /// could not restore a working signing identity.
+    /// </summary>
+    private async Task<List<SecretItemPayload>> ReadCertificatesWithPrivateKeysAsync(
+        IReadOnlyList<BackupCertificateInfo> certificates)
     {
         var payloads = new List<SecretItemPayload>();
+        var needKeychain = new List<BackupCertificateInfo>();
+        var failures = new List<string>();
         var adapter = GetAdapter(SecretItemKind.Certificate);
-        if (adapter is null)
-            return payloads;
 
         foreach (var certificate in certificates)
         {
-            var payload = await adapter.ReadProviderAsync(certificate, CloudSecretsService.DefaultLocalProviderId);
-            if (payload is not null)
+            SecretItemPayload? payload = null;
+            if (certificate.InLocalVault && adapter is not null)
+            {
+                try
+                {
+                    payload = await adapter.ReadProviderAsync(
+                        certificate.Item,
+                        CloudSecretsService.DefaultLocalProviderId);
+                }
+                catch (Exception)
+                {
+                    payload = null;
+                }
+            }
+
+            if (payload is not null && HasPrivateKey(payload))
                 payloads.Add(payload);
+            else if (certificate.InKeychain)
+                needKeychain.Add(certificate);
+            else
+                failures.Add(certificate.Item.DisplayName);
+        }
+
+        if (needKeychain.Count > 0)
+            payloads.AddRange(await ExportKeychainCertificatesAsync(needKeychain, failures));
+
+        if (failures.Count > 0)
+        {
+            throw new InvalidOperationException(
+                "The private key could not be included for: " + string.Join(", ", failures) +
+                ". Install these certificates with their private keys in the Keychain or Local Vault, or deselect them.");
         }
 
         return payloads;
+    }
+
+    private async Task<List<SecretItemPayload>> ExportKeychainCertificatesAsync(
+        IReadOnlyList<BackupCertificateInfo> certificates,
+        List<string> failures)
+    {
+        var payloads = new List<SecretItemPayload>();
+        var identitiesById = (await GetKeychainIdentitiesAsync())
+            .GroupBy(identity => SecretItemAdapterHelper.SanitizeSerialNumber(identity.SerialNumber!), StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+
+        var selected = new List<(BackupCertificateInfo Certificate, LocalSigningIdentity Identity)>();
+        foreach (var certificate in certificates)
+        {
+            if (identitiesById.TryGetValue(certificate.Item.Id, out var identity))
+                selected.Add((certificate, identity));
+            else
+                failures.Add(certificate.Item.DisplayName);
+        }
+
+        if (selected.Count == 0)
+            return payloads;
+
+        // One Keychain export for every identity, so macOS asks for access once rather than
+        // once per certificate, then split it into a P12 per certificate.
+        byte[] bundle;
+        var bundlePassword = Convert.ToBase64String(RandomNumberGenerator.GetBytes(18));
+        try
+        {
+            bundle = await _localCertificateService!.ExportP12Async(
+                selected.Select(s => s.Identity).ToList(),
+                bundlePassword);
+        }
+        catch (Exception ex)
+        {
+            failures.AddRange(selected.Select(s => $"{s.Certificate.Item.DisplayName} ({ex.Message})"));
+            return payloads;
+        }
+
+        foreach (var (certificate, identity) in selected)
+        {
+            try
+            {
+                var password = Convert.ToBase64String(RandomNumberGenerator.GetBytes(18));
+                var p12 = CertificateBundleUtilities.ExportSelectedIdentities(
+                    bundle,
+                    bundlePassword,
+                    new[] { identity },
+                    password);
+                payloads.Add(CreateCertificatePayload(identity, p12, password));
+            }
+            catch (Exception ex)
+            {
+                failures.Add($"{certificate.Item.DisplayName} ({ex.Message})");
+            }
+        }
+
+        return payloads;
+    }
+
+    private async Task<IReadOnlyList<LocalSigningIdentity>> GetKeychainIdentitiesAsync()
+    {
+        if (_localCertificateService is null)
+            return Array.Empty<LocalSigningIdentity>();
+
+        try
+        {
+            return (await _localCertificateService.GetSigningIdentitiesAsync())
+                .Where(identity => identity.IsValid && !string.IsNullOrWhiteSpace(identity.SerialNumber))
+                .Where(identity => SecretItemAdapterHelper.SanitizeSerialNumber(identity.SerialNumber!).Length > 0)
+                .ToList();
+        }
+        catch (Exception)
+        {
+            // Not macOS, or the Keychain could not be read.
+            return Array.Empty<LocalSigningIdentity>();
+        }
+    }
+
+    private static SecretItemPayload CreateCertificatePayload(LocalSigningIdentity identity, byte[] p12, string password)
+    {
+        var id = SecretItemAdapterHelper.SanitizeSerialNumber(identity.SerialNumber!);
+        var separator = identity.CommonName.IndexOf(':');
+        var metadata = new CertificateSecretMetadata(
+            string.Empty,
+            identity.SerialNumber!,
+            identity.CommonName,
+            separator > 0 ? identity.CommonName[..separator].Trim() : string.Empty,
+            identity.ExpirationDate ?? DateTime.MinValue,
+            Environment.MachineName,
+            DateTime.UtcNow);
+
+        // Same artifact layout CertificateItemAdapter uses, so the restored copy is a normal
+        // Local Vault certificate.
+        return SecretItemAdapterHelper.CreatePayload(
+            new SecretItemRef(SecretItemKind.Certificate, id, identity.CommonName),
+            0,
+            new[]
+            {
+                new SecretArtifact($"CERT_{id}_P12", p12),
+                new SecretArtifact($"CERT_{id}_PWD", Encoding.UTF8.GetBytes(password)),
+                new SecretArtifact($"CERT_{id}_META", Encoding.UTF8.GetBytes(JsonSerializer.Serialize(metadata)))
+            });
+    }
+
+    /// <summary>
+    /// True when a certificate payload carries a P12 that opens with its stored password and
+    /// includes the private key.
+    /// </summary>
+    internal static bool HasPrivateKey(SecretItemPayload payload)
+    {
+        var p12 = payload.Artifacts.FirstOrDefault(a => a.Key.EndsWith("_P12", StringComparison.OrdinalIgnoreCase));
+        var password = payload.Artifacts.FirstOrDefault(a => a.Key.EndsWith("_PWD", StringComparison.OrdinalIgnoreCase));
+        return CertificateBundleUtilities.ContainsPrivateKey(
+            p12?.Value,
+            password is null ? string.Empty : Encoding.UTF8.GetString(password.Value));
     }
 
     private static SecretItemPayload CreatePublishProfilePayload(PublishProfileData data)

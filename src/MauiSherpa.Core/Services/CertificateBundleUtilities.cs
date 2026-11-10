@@ -68,6 +68,39 @@ internal static class CertificateBundleUtilities
         }
     }
 
+    /// <summary>
+    /// Returns true when the P12 opens with the given password and holds at least one
+    /// certificate together with its private key.
+    /// </summary>
+    public static bool ContainsPrivateKey(byte[]? p12, string? password)
+    {
+        if (p12 is null || p12.Length == 0)
+            return false;
+
+        X509Certificate2Collection imported;
+        try
+        {
+            imported = X509CertificateLoader.LoadPkcs12Collection(
+                p12,
+                password,
+                X509KeyStorageFlags.Exportable);
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+
+        try
+        {
+            return imported.Cast<X509Certificate2>().Any(certificate => certificate.HasPrivateKey);
+        }
+        finally
+        {
+            foreach (var certificate in imported)
+                certificate.Dispose();
+        }
+    }
+
     private static string NormalizeHex(string? value) =>
         new((value ?? string.Empty)
             .Where(char.IsLetterOrDigit)
