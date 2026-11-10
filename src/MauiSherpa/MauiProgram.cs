@@ -241,6 +241,8 @@ public static class MauiProgram
 
         // Publish Profiles
         builder.Services.AddSingleton<IPublishProfileService, PublishProfileService>();
+        builder.Services.AddSingleton<IPublishProfileHealthService, PublishProfileHealthService>();
+        builder.Services.AddSingleton<ICertificateRenewalService, CertificateRenewalService>();
 
         // Encrypted Settings services
         builder.Services.AddSingleton<IEncryptedSettingsService, EncryptedSettingsService>();
