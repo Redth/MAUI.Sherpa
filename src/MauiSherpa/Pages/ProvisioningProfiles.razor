@@ -19,6 +19,7 @@
 @inject IPlatformService PlatformInfo
 @inject ILocalVaultAccessService LocalVaultAccess
 @inject ISecretSyncCoordinator SecretSyncCoordinator
+@inject ICloudSecretsService CloudSecretsService
 @implements IDisposable
 
 <h1><i class="fas fa-id-card"></i> Provisioning Profiles</h1>
@@ -30,6 +31,23 @@
     @if (!PlatformInfo.HasNativeToolbar)
     {
     <div class="toolbar">
+        @if (isSelectionMode)
+        {
+        <button class="btn btn-primary" @onclick="BackUpSelectedAsync" disabled="@(selectedProfileIds.Count == 0)">
+            <i class="fas fa-cloud-arrow-up"></i> Back Up
+        </button>
+        <button class="btn btn-secondary" @onclick="InstallSelectedAsync" disabled="@(selectedProfileIds.Count == 0)">
+            <i class="fas fa-download"></i> Install
+        </button>
+        <button class="btn btn-secondary" @onclick="ExportSelectedAsync" disabled="@(selectedProfileIds.Count == 0)">
+            <i class="fas fa-file-export"></i> Export
+        </button>
+        <button class="btn btn-secondary" @onclick="CancelSelectionMode">
+            <i class="fas fa-times"></i> Cancel
+        </button>
+        }
+        else
+        {
         <button class="btn btn-purple" @onclick="ShowCreateDialog" disabled="@isLoading">
             <i class="fas fa-plus"></i> Create Profile
         </button>
@@ -47,6 +65,10 @@
             <button class="btn btn-success" @onclick="InstallAllProfiles" disabled="@isLoading">
                 <i class="fas fa-download"></i> Install All (@GetInstallableProfiles().Count())
             </button>
+        }
+        <button class="btn btn-secondary" @onclick="BeginSelectionMode" disabled="@isLoading">
+            <i class="fas fa-check-square"></i> Select
+        </button>
         }
         <div class="toolbar-spacer"></div>
     </div>
@@ -98,6 +120,19 @@
         Showing @FilteredProfiles.Count() of @profiles.Count profiles
     </div>
 
+    @if (isSelectionMode)
+    {
+        <div class="selection-bar">
+            <label class="select-all-checkbox">
+                <input type="checkbox"
+                       checked="@AllVisibleSelected"
+                       @onchange="ToggleAllVisible" />
+                <span>Select all profiles shown</span>
+            </label>
+            <span class="selection-count">@selectedProfileIds.Count selected</span>
+        </div>
+    }
+
     <div class="profile-list">
         @if (isLoading && profiles.Count == 0)
         {
@@ -137,7 +172,15 @@
                 var isExpiringSoon = !isExpired && profile.ExpirationDate < DateTime.UtcNow.AddDays(30);
                 var isInvalid = profile.State != "ACTIVE";
                 
-                <div class="profile-card @(isExpired || isInvalid ? "invalid" : isExpiringSoon ? "expiring" : "")">
+                <div class="profile-card @(isExpired || isInvalid ? "invalid" : isExpiringSoon ? "expiring" : "") @(selectedProfileIds.Contains(profile.Id) ? "selected" : "")">
+                    @if (isSelectionMode)
+                    {
+                        <label class="profile-select">
+                            <input type="checkbox"
+                                   checked="@selectedProfileIds.Contains(profile.Id)"
+                                   @onchange="@(e => ToggleProfileSelection(profile.Id, e.Value is bool selected && selected))" />
+                        </label>
+                    }
                     <div class="profile-icon"><i class="fas fa-id-card"></i></div>
                     <div class="profile-details">
                         <div class="profile-name"><span>@profile.Name</span></div>
@@ -180,6 +223,8 @@
                             Expires: @profile.ExpirationDate.ToString("MMM dd, yyyy")
                         </div>
                     </div>
+                    @if (!isSelectionMode)
+                    {
                     <div class="profile-actions">
                         <MauiSherpa.Components.SecretProviderPickerHost
                             @key="@($"profile-sync-{profile.Id}")"
@@ -214,6 +259,7 @@
                             }
                         </div>
                     </div>
+                    }
                 </div>
             }
         }
@@ -392,6 +438,45 @@
     }
 
     .profile-card.invalid { border-left-color: #f56565; opacity: 0.7; }
+    .profile-card.selected { box-shadow: 0 0 0 2px var(--accent-primary); }
+
+    .profile-select {
+        display: flex;
+        align-items: center;
+        align-self: center;
+        cursor: pointer;
+    }
+    .profile-select input {
+        width: 18px;
+        height: 18px;
+        accent-color: var(--accent-primary);
+    }
+
+    .selection-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 0.75rem 1rem;
+        margin-bottom: 0.75rem;
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: var(--card-radius);
+    }
+    .select-all-checkbox {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        color: var(--text-secondary);
+        cursor: pointer;
+        font-size: 0.875rem;
+    }
+    .select-all-checkbox input { accent-color: var(--accent-primary); }
+    .selection-count {
+        color: var(--text-muted);
+        font-size: 0.8125rem;
+        white-space: nowrap;
+    }
     .profile-card.expiring { border-left-color: var(--accent-warning); }
 
     .profile-icon { font-size: 1.5rem; color: #6b46c1; }
@@ -460,6 +545,8 @@
     private bool demoMode = false;
     private string errorMessage = "";
     private string? openDropdown = null;
+    private bool isSelectionMode;
+    private readonly HashSet<string> selectedProfileIds = new(StringComparer.Ordinal);
     // Filter state
     private string searchQuery = "";
     private string filterState = "";
@@ -527,12 +614,7 @@
 
     protected override async Task OnInitializedAsync()
     {
-        ToolbarService.SetItems(
-            new ToolbarAction("refresh", "Refresh", "arrow.clockwise"),
-            new ToolbarAction("create", "Create Profile", "plus"),
-            new ToolbarAction("profiles-folder", "Profiles Folder", "folder"),
-            new ToolbarAction("cleanup", "Clean Up", "trash")
-        );
+        ConfigureToolbarItems();
         ToolbarService.SetSearch("Search profiles...");
         ToolbarService.SetFilters(
             new ToolbarFilter("state", "State", ["All States", "Active", "Invalid"]),
@@ -604,6 +686,11 @@
                 case "create": await ShowCreateDialog(); break;
                 case "profiles-folder": await RevealProfilesFolder(); break;
                 case "cleanup": await ShowCleanupDialog(); break;
+                case "select": BeginSelectionMode(); break;
+                case "backup-selected": await BackUpSelectedAsync(); break;
+                case "install-selected": await InstallSelectedAsync(); break;
+                case "export-selected": await ExportSelectedAsync(); break;
+                case "cancel-selection": CancelSelectionMode(); break;
             }
             StateHasChanged();
         });
@@ -707,10 +794,11 @@
         return string.Join("_", fileName.Split(invalid, StringSplitOptions.RemoveEmptyEntries));
     }
 
-    private async Task SaveDownloadedProfileAsync(
+    private async Task<string?> SaveDownloadedProfileAsync(
         AppleProfile profile,
         string folder,
-        string? locationName = null)
+        string? locationName = null,
+        bool showToast = true)
     {
         var content = await AppleService.DownloadProfileAsync(profile.Id);
         var extension = profile.Platform?.ToUpperInvariant() switch
@@ -737,7 +825,7 @@
                 "Replace",
                 "Cancel");
             if (!replaceConfirmedConflicts)
-                return;
+                return null;
         }
 
         var replacementCount = plan.AutomaticReplacementPaths.Count +
@@ -753,7 +841,9 @@
         var messagePrefix = replacementCount > 0
             ? $"Replaced {replacementCount} older downloaded {(replacementCount == 1 ? "copy" : "copies")}"
             : "Profile saved";
-        await AlertService.ShowToastAsync($"{messagePrefix} to {location}");
+        if (showToast)
+            await AlertService.ShowToastAsync($"{messagePrefix} to {location}");
+        return plan.TargetPath;
     }
 
     private async Task RevealProfilesFolder()
@@ -829,9 +919,14 @@
             return;
         }
 
+        await InstallProfilesAsync(installable, "Install All Profiles");
+    }
+
+    private async Task<bool> InstallProfilesAsync(IReadOnlyList<AppleProfile> installable, string title)
+    {
         var result = await OperationModal.RunAsync(
-            "Install All Profiles",
-            $"Installing {installable.Count} active profile(s) to system...",
+            title,
+            $"Installing {installable.Count} profile(s) to system...",
             async ctx =>
             {
                 ctx.SetStatus("Starting batch installation...");
@@ -860,6 +955,162 @@
                 ctx.LogInfo($"Installed {installed} of {installable.Count} profile(s)");
                 return installed == installable.Count;
             });
+        return result.Success;
+    }
+
+    private void ConfigureToolbarItems()
+    {
+        if (isSelectionMode)
+        {
+            ToolbarService.SetItems(
+                new ToolbarAction("backup-selected", "Back Up", "icloud.and.arrow.up"),
+                new ToolbarAction("install-selected", "Install", "square.and.arrow.down"),
+                new ToolbarAction("export-selected", "Export", "square.and.arrow.up"),
+                new ToolbarAction("cancel-selection", "Cancel", "xmark", IsPrimary: false));
+            UpdateSelectionToolbar();
+        }
+        else
+        {
+            ToolbarService.SetItems(
+                new ToolbarAction("refresh", "Refresh", "arrow.clockwise"),
+                new ToolbarAction("create", "Create Profile", "plus"),
+                new ToolbarAction("profiles-folder", "Profiles Folder", "folder"),
+                new ToolbarAction("cleanup", "Clean Up", "trash"),
+                new ToolbarAction("select", "Select", "checkmark.circle"));
+        }
+    }
+
+    private bool AllVisibleSelected
+    {
+        get
+        {
+            var visibleIds = FilteredProfiles.Select(profile => profile.Id).ToList();
+            return visibleIds.Count > 0 && visibleIds.All(selectedProfileIds.Contains);
+        }
+    }
+
+    private void BeginSelectionMode()
+    {
+        openDropdown = null;
+        isSelectionMode = true;
+        selectedProfileIds.Clear();
+        ConfigureToolbarItems();
+    }
+
+    private void CancelSelectionMode()
+    {
+        isSelectionMode = false;
+        selectedProfileIds.Clear();
+        ConfigureToolbarItems();
+    }
+
+    private void ToggleProfileSelection(string profileId, bool selected)
+    {
+        if (selected)
+            selectedProfileIds.Add(profileId);
+        else
+            selectedProfileIds.Remove(profileId);
+        UpdateSelectionToolbar();
+    }
+
+    private void ToggleAllVisible(ChangeEventArgs args)
+    {
+        var visibleIds = FilteredProfiles.Select(profile => profile.Id).ToList();
+        if (args.Value is bool selected && selected)
+            selectedProfileIds.UnionWith(visibleIds);
+        else
+            selectedProfileIds.ExceptWith(visibleIds);
+        UpdateSelectionToolbar();
+    }
+
+    private void UpdateSelectionToolbar()
+    {
+        var hasSelection = selectedProfileIds.Count > 0;
+        ToolbarService.SetItemEnabled("backup-selected", hasSelection);
+        ToolbarService.SetItemEnabled("install-selected", hasSelection);
+        ToolbarService.SetItemEnabled("export-selected", hasSelection);
+    }
+
+    private List<AppleProfile> GetSelectedProfiles() => profiles
+        .Where(profile => selectedProfileIds.Contains(profile.Id))
+        .ToList();
+
+    private async Task BackUpSelectedAsync()
+    {
+        var selected = GetSelectedProfiles();
+        if (selected.Count == 0)
+            return;
+
+        var provider = await SecretBackupActions.PickProviderAsync(
+            CloudSecretsService,
+            AlertService,
+            $"Back up {selected.Count} profile(s) to");
+        if (provider is null)
+            return;
+
+        var queued = await SecretBackupActions.QueueBackupAsync(
+            SecretSyncCoordinator,
+            selected.Select(profile => new SecretItemRef(SecretItemKind.ProvisioningProfile, profile.Id, profile.Name)),
+            provider.Id);
+
+        await AlertService.ShowToastAsync($"Backing up {queued} profile(s) to {provider.Name}");
+        CancelSelectionMode();
+    }
+
+    private async Task InstallSelectedAsync()
+    {
+        var selected = GetSelectedProfiles();
+        if (selected.Count == 0)
+            return;
+
+        if (await InstallProfilesAsync(selected, "Install Profiles"))
+            CancelSelectionMode();
+    }
+
+    private async Task ExportSelectedAsync()
+    {
+        var selected = GetSelectedProfiles();
+        if (selected.Count == 0)
+            return;
+
+        var folder = await DialogService.PickFolderAsync($"Export {selected.Count} Profile(s) To");
+        if (string.IsNullOrEmpty(folder))
+            return;
+
+        isLoading = true;
+        var saved = 0;
+        var failures = new List<string>();
+        try
+        {
+            foreach (var profile in selected)
+            {
+                try
+                {
+                    if (await SaveDownloadedProfileAsync(profile, folder, showToast: false) is not null)
+                        saved++;
+                }
+                catch (Exception ex)
+                {
+                    failures.Add($"{profile.Name}: {ex.Message}");
+                }
+            }
+        }
+        finally
+        {
+            isLoading = false;
+        }
+
+        if (failures.Count > 0)
+        {
+            await AlertService.ShowAlertAsync(
+                "Export Incomplete",
+                $"Exported {saved} of {selected.Count} profile(s). These failed:\n\n{string.Join("\n", failures)}");
+        }
+        else
+        {
+            await AlertService.ShowToastAsync($"Exported {saved} profile(s) to {Path.GetFileName(folder)}");
+            CancelSelectionMode();
+        }
     }
 
     private async Task DeleteProfile(AppleProfile profile)
