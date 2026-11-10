@@ -34,19 +34,28 @@ public class AppleConnectService : IAppleConnectService
         _logger = logger;
     }
 
-    private async Task<AppStoreConnectClient> GetClientAsync()
+    private async Task<AppStoreConnectClient> GetClientAsync(string? identityId = null)
     {
-        var selectedIdentity = _identityState.SelectedIdentity
-            ?? throw new InvalidOperationException("No Apple identity selected");
-
-        // Always rehydrate from persisted storage so we don't use stale in-memory state after imports/edits.
-        var identity = selectedIdentity;
-        if (!string.IsNullOrWhiteSpace(selectedIdentity.Id))
+        AppleIdentity identity;
+        if (identityId is not null)
         {
-            var latestIdentity = await _identityService.GetIdentityAsync(selectedIdentity.Id);
-            if (latestIdentity != null)
+            ArgumentException.ThrowIfNullOrWhiteSpace(identityId);
+            identity = await _identityService.GetIdentityAsync(identityId)
+                ?? throw new InvalidOperationException(
+                    $"Apple identity '{identityId}' is no longer available. Restore it in Settings or start the backup again from the correct Apple identity.");
+        }
+        else
+        {
+            var selectedIdentity = _identityState.SelectedIdentity
+                ?? throw new InvalidOperationException("No Apple identity selected");
+
+            // Rehydrate from persisted storage so imports and edits are reflected.
+            identity = selectedIdentity;
+            if (!string.IsNullOrWhiteSpace(selectedIdentity.Id))
             {
-                identity = latestIdentity;
+                var latestIdentity = await _identityService.GetIdentityAsync(selectedIdentity.Id);
+                if (latestIdentity != null)
+                    identity = latestIdentity;
             }
         }
         
@@ -69,7 +78,7 @@ public class AppleConnectService : IAppleConnectService
         if (string.IsNullOrEmpty(p8Content))
         {
             _logger.LogError($"P8 key content not available. Identity has P8KeyPath: {identity.P8KeyPath}");
-            throw new InvalidOperationException("P8 key content not available for selected identity. Please edit the identity and re-enter the P8 key.");
+            throw new InvalidOperationException("P8 key content not available for this Apple identity. Please edit the identity and re-enter the P8 key.");
         }
 
         // The configuration expects base64-encoded private key
@@ -576,12 +585,21 @@ public class AppleConnectService : IAppleConnectService
     }
 
     // Provisioning Profiles
-    public async Task<IReadOnlyList<AppleProfile>> GetProfilesAsync()
+    public Task<IReadOnlyList<AppleProfile>> GetProfilesAsync() =>
+        GetProfilesCoreAsync(identityId: null);
+
+    public Task<IReadOnlyList<AppleProfile>> GetProfilesForIdentityAsync(string identityId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(identityId);
+        return GetProfilesCoreAsync(identityId);
+    }
+
+    private async Task<IReadOnlyList<AppleProfile>> GetProfilesCoreAsync(string? identityId)
     {
         _logger.LogInformation("Fetching profiles from App Store Connect...");
         try
         {
-            var client = await GetClientAsync();
+            var client = await GetClientAsync(identityId);
             var response = await client.ListProfilesAsync(
                 filterId: null, filterName: null, 
                 filterProfileState: null, filterProfileType: null,
@@ -821,13 +839,22 @@ public class AppleConnectService : IAppleConnectService
         };
     }
 
-    public async Task<byte[]> DownloadProfileAsync(string id)
+    public Task<byte[]> DownloadProfileAsync(string id) =>
+        DownloadProfileCoreAsync(id, identityId: null);
+
+    public Task<byte[]> DownloadProfileForIdentityAsync(string id, string identityId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(identityId);
+        return DownloadProfileCoreAsync(id, identityId);
+    }
+
+    private async Task<byte[]> DownloadProfileCoreAsync(string id, string? identityId)
     {
         _logger.LogInformation($"Downloading profile: {id}");
         try
         {
             // The profile content is included in the list response
-            var client = await GetClientAsync();
+            var client = await GetClientAsync(identityId);
             var response = await client.ListProfilesAsync(
                 filterId: new[] { id }, filterName: null,
                 filterProfileState: null, filterProfileType: null,

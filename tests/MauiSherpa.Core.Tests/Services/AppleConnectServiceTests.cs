@@ -2,11 +2,39 @@ using AppleAppStoreConnect;
 using FluentAssertions;
 using MauiSherpa.Core.Interfaces;
 using MauiSherpa.Core.Services;
+using Moq;
 
 namespace MauiSherpa.Core.Tests.Services;
 
 public class AppleConnectServiceTests
 {
+    [Fact]
+    public async Task GetProfilesForIdentityAsync_MissingIdentityDoesNotUseSelectedAccount()
+    {
+        var selected = new AppleIdentity("identity-b", "Account B", "key", "issuer", null, null);
+        var state = new Mock<IAppleIdentityStateService>();
+        state.SetupGet(service => service.SelectedIdentity).Returns(selected);
+        var identities = new Mock<IAppleIdentityService>();
+        identities.Setup(service => service.GetIdentityAsync("identity-a"))
+            .ReturnsAsync((AppleIdentity?)null);
+        var storage = new Mock<ISecureStorageService>();
+        var service = new AppleConnectService(
+            state.Object,
+            identities.Object,
+            storage.Object,
+            Mock.Of<IEncryptedSettingsService>(),
+            Mock.Of<ILoggingService>());
+
+        var action = () => service.GetProfilesForIdentityAsync("identity-a");
+
+        await action.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*identity-a*no longer available*");
+        identities.Verify(instance => instance.GetIdentityAsync("identity-a"), Times.Once);
+        identities.Verify(instance => instance.GetIdentityAsync("identity-b"), Times.Never);
+        storage.VerifyNoOtherCalls();
+        state.Object.SelectedIdentity.Should().Be(selected);
+    }
+
     [Fact]
     public void ParseCertificateType_SupportsEveryKnownAppStoreConnectType()
     {

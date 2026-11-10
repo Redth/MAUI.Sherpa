@@ -229,7 +229,7 @@
                     <div class="profile-actions">
                         <MauiSherpa.Components.SecretProviderPickerHost
                             @key="@($"profile-sync-{profile.Id}")"
-                            Item="@(new SecretItemRef(SecretItemKind.ProvisioningProfile, profile.Id, profile.Name))" />
+                            Item="@(new SecretItemRef(SecretItemKind.ProvisioningProfile, profile.Id, profile.Name) { AppleIdentityId = profilesIdentityId })" />
                         <button class="btn btn-secondary btn-icon" @onclick="@(() => ShowEditDialog(profile))" disabled="@isLoading" title="Edit">
                             <i class="fas fa-edit"></i>
                         </button>
@@ -542,6 +542,8 @@
 
 @code {
     private List<AppleProfile> profiles = new();
+    private string? profilesIdentityId;
+    private int identitySelectionVersion;
     private bool isLoading = false;
     private bool demoMode = false;
     private string errorMessage = "";
@@ -573,15 +575,33 @@
 
     private async Task ShowCreateDialog()
     {
+        var identityId = IdentityState.SelectedIdentity?.Id;
+        if (string.IsNullOrWhiteSpace(identityId))
+        {
+            await AlertService.ShowAlertAsync("Create Profile", "Select an Apple identity first.");
+            return;
+        }
+
+        var identityVersion = Volatile.Read(ref identitySelectionVersion);
         var page = new MauiSherpa.Pages.Modals.CreateProfilePage(BridgeHolder);
         var result = await FormModalService.ShowAsync<AppleProfile>(page);
         if (result != null)
         {
-            await SecretSyncCoordinator.SetDefaultProvidersAsync(
-                new SecretItemRef(
-                    SecretItemKind.ProvisioningProfile,
-                    result.Id,
-                    result.Name));
+            if (identityVersion == Volatile.Read(ref identitySelectionVersion))
+            {
+                await SecretSyncCoordinator.SetDefaultProvidersAsync(
+                    new SecretItemRef(
+                        SecretItemKind.ProvisioningProfile,
+                        result.Id,
+                        result.Name) { AppleIdentityId = identityId });
+            }
+            else
+            {
+                await AlertService.ShowAlertAsync(
+                    "Profile Backup Not Started",
+                    "The Apple identity changed while the profile was being created. Select the identity used to create it and back up the profile manually.");
+            }
+
             await RefreshData(forceRefresh: true);
         }
     }
@@ -628,8 +648,16 @@
 
     private void OnIdentityChanged()
     {
+        Interlocked.Increment(ref identitySelectionVersion);
         InvokeAsync(async () =>
         {
+            profiles.Clear();
+            profilesIdentityId = null;
+            isLoading = false;
+            if (isSelectionMode)
+                CancelSelectionMode();
+
+            StateHasChanged();
             await RefreshData();
             StateHasChanged();
         });
@@ -693,11 +721,11 @@
 
     private async Task RefreshData(bool forceRefresh = false)
     {
-        if (IdentityState.SelectedIdentity == null || LocalVaultAccess.GetState().RequiresUserAction)
+        var identityId = IdentityState.SelectedIdentity?.Id;
+        if (string.IsNullOrWhiteSpace(identityId) || LocalVaultAccess.GetState().RequiresUserAction)
             return;
 
-        if (IdentityState.SelectedIdentity == null) return;
-
+        var identityVersion = Volatile.Read(ref identitySelectionVersion);
         isLoading = true;
         errorMessage = "";
         
@@ -712,24 +740,37 @@
             // If force refresh, invalidate the cache first
             if (forceRefresh)
             {
-                await Mediator.FlushStores($"apple:profiles:{IdentityState.SelectedIdentity.Id}");
+                await Mediator.FlushStores($"apple:profiles:{identityId}");
             }
             
-            var request = new GetProfilesRequest(IdentityState.SelectedIdentity.Id);
+            var request = new GetProfilesRequest(identityId);
             var (_, result) = await Mediator.Request(request);
+            if (!IsCurrentIdentity(identityId, identityVersion))
+                return;
+
             profiles = result.ToList();
+            profilesIdentityId = identityId;
+            selectedProfileIds.IntersectWith(profiles.Select(profile => profile.Id));
+            if (isSelectionMode)
+                UpdateSelectionToolbar();
         }
         catch (Exception ex)
         {
-            errorMessage = $"Failed to load profiles: {ex.Message}";
+            if (IsCurrentIdentity(identityId, identityVersion))
+                errorMessage = $"Failed to load profiles: {ex.Message}";
         }
         finally
         {
-            isLoading = false;
+            if (IsCurrentIdentity(identityId, identityVersion))
+                isLoading = false;
             if (toast != null) ToastService.Dismiss(toast);
             await InvokeAsync(StateHasChanged);
         }
     }
+
+    private bool IsCurrentIdentity(string identityId, int identityVersion) =>
+        identityVersion == Volatile.Read(ref identitySelectionVersion) &&
+        string.Equals(IdentityState.SelectedIdentity?.Id, identityId, StringComparison.Ordinal);
 
     private string FormatProfileType(string profileType)
     {
@@ -792,8 +833,7 @@
     private async Task<string?> SaveDownloadedProfileAsync(
         AppleProfile profile,
         string folder,
-        string? locationName = null,
-        bool showToast = true)
+        string? locationName = null)
     {
         var content = await AppleService.DownloadProfileAsync(profile.Id);
         var extension = profile.Platform?.ToUpperInvariant() switch
@@ -836,8 +876,7 @@
         var messagePrefix = replacementCount > 0
             ? $"Replaced {replacementCount} older downloaded {(replacementCount == 1 ? "copy" : "copies")}"
             : "Profile saved";
-        if (showToast)
-            await AlertService.ShowToastAsync($"{messagePrefix} to {location}");
+        await AlertService.ShowToastAsync($"{messagePrefix} to {location}");
         return plan.TargetPath;
     }
 
@@ -1049,6 +1088,21 @@
         if (selected.Count == 0)
             return;
 
+        var identityId = profilesIdentityId;
+        if (string.IsNullOrWhiteSpace(identityId) ||
+            !string.Equals(IdentityState.SelectedIdentity?.Id, identityId, StringComparison.Ordinal))
+        {
+            await AlertService.ShowAlertAsync(
+                "Back Up Profiles",
+                "The Apple identity changed. Wait for the profiles to reload and select them again.");
+            return;
+        }
+
+        var items = selected.Select(profile =>
+            new SecretItemRef(SecretItemKind.ProvisioningProfile, profile.Id, profile.Name)
+            {
+                AppleIdentityId = identityId
+            }).ToArray();
         var provider = await SecretBackupActions.PickProviderAsync(
             CloudSecretsService,
             AlertService,
@@ -1058,7 +1112,7 @@
 
         var queued = await SecretBackupActions.QueueBackupAsync(
             SecretSyncCoordinator,
-            selected.Select(profile => new SecretItemRef(SecretItemKind.ProvisioningProfile, profile.Id, profile.Name)),
+            items,
             provider.Id);
 
         await AlertService.ShowToastAsync($"Backing up {queued} profile(s) to {provider.Name}");
@@ -1081,6 +1135,16 @@
         if (selected.Count == 0)
             return;
 
+        var identityId = profilesIdentityId;
+        if (string.IsNullOrWhiteSpace(identityId) ||
+            !string.Equals(IdentityState.SelectedIdentity?.Id, identityId, StringComparison.Ordinal))
+        {
+            await AlertService.ShowAlertAsync(
+                "Export Profiles",
+                "The Apple identity changed. Wait for the profiles to reload and select them again.");
+            return;
+        }
+
         var folder = await DialogService.PickFolderAsync($"Export {selected.Count} Profile(s) To");
         if (string.IsNullOrEmpty(folder))
             return;
@@ -1094,8 +1158,9 @@
             {
                 try
                 {
-                    if (await SaveDownloadedProfileAsync(profile, folder, showToast: false) is not null)
-                        saved++;
+                    var content = await AppleService.DownloadProfileForIdentityAsync(profile.Id, identityId);
+                    await ProvisioningProfileExportService.SaveAsync(folder, profile, content);
+                    saved++;
                 }
                 catch (Exception ex)
                 {

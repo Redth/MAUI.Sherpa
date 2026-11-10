@@ -402,6 +402,12 @@ public sealed class SecretSyncCoordinator : ISecretSyncCoordinator, IBackgroundT
             .FirstOrDefault();
         if (latestPending is not null)
         {
+            if (latestPending.Request.Parameters.TryGetValue("appleIdentityId", out var pendingIdentityId) &&
+                !string.IsNullOrWhiteSpace(pendingIdentityId))
+            {
+                item = item with { AppleIdentityId = pendingIdentityId };
+            }
+
             var previousChanges = ParseProviderSelectionChanges(latestPending.Request.Parameters);
             foreach (var (providerId, desired) in previousChanges)
                 normalizedChanges.TryAdd(providerId, desired);
@@ -949,6 +955,8 @@ public sealed class SecretSyncCoordinator : ISecretSyncCoordinator, IBackgroundT
             ["displayName"] = item.DisplayName,
             ["desiredProviderIds"] = JsonSerializer.Serialize(desiredProviderIds, _jsonOptions)
         };
+        if (!string.IsNullOrWhiteSpace(item.AppleIdentityId))
+            parameters["appleIdentityId"] = item.AppleIdentityId;
         if (!string.IsNullOrWhiteSpace(sourceProviderId))
             parameters["sourceProviderId"] = sourceProviderId;
         if (previousItem is not null)
@@ -978,6 +986,8 @@ public sealed class SecretSyncCoordinator : ISecretSyncCoordinator, IBackgroundT
             ["displayName"] = item.DisplayName,
             ["providerSelectionChanges"] = JsonSerializer.Serialize(changes, _jsonOptions)
         };
+        if (!string.IsNullOrWhiteSpace(item.AppleIdentityId))
+            parameters["appleIdentityId"] = item.AppleIdentityId;
         return new BackgroundTaskRequest(
             TaskType,
             $"Sync {item.DisplayName}",
@@ -1386,7 +1396,8 @@ public sealed class SecretSyncCoordinator : ISecretSyncCoordinator, IBackgroundT
             throw new InvalidOperationException("The sync task is missing its item identity.");
         }
 
-        return new SecretItemRef(kind, itemId, displayName);
+        parameters.TryGetValue("appleIdentityId", out var appleIdentityId);
+        return new SecretItemRef(kind, itemId, displayName) { AppleIdentityId = appleIdentityId };
     }
 
     private static bool TryParsePreviousItem(
