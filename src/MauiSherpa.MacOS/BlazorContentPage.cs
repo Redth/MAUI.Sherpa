@@ -1032,6 +1032,8 @@ public class BlazorContentPage : ContentPage
                 ("export", "Export", "square.and.arrow.up"),
                 ("export-selected", "Export Selected", "square.and.arrow.up"),
                 ("select", "Select", "checkmark.circle"),
+                ("backup-selected", "Back Up", "icloud.and.arrow.up"),
+                ("install-selected", "Install", "square.and.arrow.down"),
                 ("publish-selected", "Publish Selected", "square.and.arrow.up"),
                 ("cancel-selection", "Cancel", "xmark"),
                 ("create-folder", "New Folder", "folder.badge.plus"),

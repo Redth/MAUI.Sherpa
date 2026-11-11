@@ -24,6 +24,6 @@ public partial class GetProfilesHandler : IRequestHandler<GetProfilesRequest, IR
         IMediatorContext context,
         CancellationToken ct)
     {
-        return await _appleService.GetProfilesAsync();
+        return await _appleService.GetProfilesForIdentityAsync(request.IdentityId);
     }
 }

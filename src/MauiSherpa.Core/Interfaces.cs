@@ -883,9 +883,11 @@ public interface IAppleConnectService
     
     // Provisioning Profiles
     Task<IReadOnlyList<AppleProfile>> GetProfilesAsync();
+    Task<IReadOnlyList<AppleProfile>> GetProfilesForIdentityAsync(string identityId);
     Task<AppleProfile> CreateProfileAsync(AppleProfileCreateRequest request);
     Task<AppleProfile> RegenerateProfileAsync(string existingProfileId, AppleProfileCreateRequest request);
     Task<byte[]> DownloadProfileAsync(string id);
+    Task<byte[]> DownloadProfileForIdentityAsync(string id, string identityId);
     Task DeleteProfileAsync(string id);
     Task<string> InstallProfileAsync(string id);
     Task<int> InstallProfilesAsync(IEnumerable<string> ids, IProgress<string>? progress = null);
@@ -3322,7 +3324,10 @@ public record SecretItemRef(
     SecretItemKind Kind,
     string Id,
     string DisplayName
-);
+)
+{
+    public string? AppleIdentityId { get; init; }
+}
 
 public record SecretArtifact(
     string Key,

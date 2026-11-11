@@ -74,6 +74,40 @@ public class BackgroundTaskServiceTests
     }
 
     [Fact]
+    public async Task RetryAsync_AfterRestore_PreservesProfileIdentity()
+    {
+        var vault = new InMemoryVaultStore();
+        string taskId;
+        using (var services = CreateServices(
+            new FailingHandler(),
+            vault,
+            new AvailableVaultAccessService()))
+        {
+            var service = services.GetRequiredService<IBackgroundTaskService>();
+            var request = CreateRequest() with
+            {
+                Parameters = new Dictionary<string, string> { ["appleIdentityId"] = "identity-a" }
+            };
+            taskId = await service.EnqueueAsync(request);
+            await WaitForTerminalStateAsync(service, taskId);
+        }
+
+        using var restoredServices = CreateServices(
+            new FailingHandler(),
+            vault,
+            new AvailableVaultAccessService());
+        var restored = restoredServices.GetRequiredService<IBackgroundTaskService>();
+        await restored.InitializeAsync();
+        restored.Tasks.Single(task => task.Id == taskId).Request.Parameters["appleIdentityId"]
+            .Should().Be("identity-a");
+
+        await restored.RetryAsync(taskId);
+        var retried = await WaitForTerminalStateAsync(restored, taskId, minimumAttempt: 2);
+
+        retried.Request.Parameters["appleIdentityId"].Should().Be("identity-a");
+    }
+
+    [Fact]
     public async Task UnlockingVault_AfterMemoryOnlyStart_MergesPersistedHistory()
     {
         var vault = new InMemoryVaultStore();

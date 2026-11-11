@@ -31,7 +31,7 @@ public class GetProfilesHandlerTests
             new AppleProfile("profile2", "Distribution Profile", "APP_STORE", "IOS", "ACTIVE", 
                 DateTime.UtcNow.AddMonths(6), "com.example.app", "uuid-2")
         };
-        _mockAppleService.Setup(s => s.GetProfilesAsync())
+        _mockAppleService.Setup(s => s.GetProfilesForIdentityAsync("identity1"))
             .ReturnsAsync(expectedProfiles);
 
         var request = new GetProfilesRequest("identity1");
@@ -41,14 +41,15 @@ public class GetProfilesHandlerTests
 
         // Assert
         result.Should().BeEquivalentTo(expectedProfiles);
-        _mockAppleService.Verify(s => s.GetProfilesAsync(), Times.Once);
+        _mockAppleService.Verify(s => s.GetProfilesForIdentityAsync("identity1"), Times.Once);
+        _mockAppleService.Verify(s => s.GetProfilesAsync(), Times.Never);
     }
 
     [Fact]
     public async Task Handle_ReturnsEmptyList_WhenNoProfiles()
     {
         // Arrange
-        _mockAppleService.Setup(s => s.GetProfilesAsync())
+        _mockAppleService.Setup(s => s.GetProfilesForIdentityAsync("identity1"))
             .ReturnsAsync(new List<AppleProfile>());
 
         var request = new GetProfilesRequest("identity1");

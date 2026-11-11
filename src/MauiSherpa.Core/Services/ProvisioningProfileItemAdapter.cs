@@ -10,13 +10,16 @@ public sealed class ProvisioningProfileItemAdapter : ISecretItemAdapter
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly ISecretsProviderRegistry _providerRegistry;
     private readonly IAppleConnectService _appleConnectService;
+    private readonly IAppleIdentityStateService _identityState;
 
     public ProvisioningProfileItemAdapter(
         ISecretsProviderRegistry providerRegistry,
-        IAppleConnectService appleConnectService)
+        IAppleConnectService appleConnectService,
+        IAppleIdentityStateService identityState)
     {
         _providerRegistry = providerRegistry;
         _appleConnectService = appleConnectService;
+        _identityState = identityState;
     }
 
     public SecretItemKind Kind => SecretItemKind.ProvisioningProfile;
@@ -26,11 +29,18 @@ public sealed class ProvisioningProfileItemAdapter : ISecretItemAdapter
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var profiles = await _appleConnectService.GetProfilesAsync();
+        var identityId = _identityState.SelectedIdentity?.Id;
+        if (string.IsNullOrWhiteSpace(identityId))
+            throw new InvalidOperationException("Select an Apple identity to list provisioning profiles.");
+
+        var profiles = await _appleConnectService.GetProfilesForIdentityAsync(identityId);
         return profiles
             .Where(x => !string.IsNullOrWhiteSpace(x.Id))
             .GroupBy(x => x.Id, StringComparer.Ordinal)
-            .Select(x => new SecretItemRef(Kind, x.Key, x.First().Name))
+            .Select(x => new SecretItemRef(Kind, x.Key, x.First().Name)
+            {
+                AppleIdentityId = identityId
+            })
             .OrderBy(x => x.DisplayName, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
@@ -101,16 +111,28 @@ public sealed class ProvisioningProfileItemAdapter : ISecretItemAdapter
         if (item.Kind != Kind)
             return null;
 
+        if (string.IsNullOrWhiteSpace(item.AppleIdentityId))
+        {
+            throw new InvalidOperationException(
+                "This profile backup has no Apple identity. Select the correct Apple identity and start the backup again.");
+        }
+
         cancellationToken.ThrowIfCancellationRequested();
-        var profiles = await _appleConnectService.GetProfilesAsync();
+        var profiles = await _appleConnectService.GetProfilesForIdentityAsync(item.AppleIdentityId);
         var profile = profiles.FirstOrDefault(x =>
             string.Equals(x.Id, item.Id, StringComparison.Ordinal));
         if (profile is null)
             return null;
 
         cancellationToken.ThrowIfCancellationRequested();
-        var data = await _appleConnectService.DownloadProfileAsync(profile.Id);
+        var data = await _appleConnectService.DownloadProfileForIdentityAsync(profile.Id, item.AppleIdentityId);
         cancellationToken.ThrowIfCancellationRequested();
+        if (data.Length == 0)
+        {
+            throw new InvalidOperationException(
+                $"Apple returned no data for '{profile.Name}'. Refresh the profiles list and try the backup again.");
+        }
+
         var artifacts = new[]
         {
             new SecretArtifact(GetDataKey(profile.Id), data),
@@ -120,7 +142,7 @@ public sealed class ProvisioningProfileItemAdapter : ISecretItemAdapter
         };
 
         return SecretItemAdapterHelper.CreatePayload(
-            new SecretItemRef(Kind, profile.Id, profile.Name),
+            item with { Id = profile.Id, DisplayName = profile.Name },
             0,
             artifacts);
     }

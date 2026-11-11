@@ -241,10 +241,141 @@ public class SecretSyncCoordinatorTests
             .Should().Be(2);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ProfileBackup_PersistsIdentityThroughQueueAndExecution(bool selectionChange)
+    {
+        var registry = CreateRegistry();
+        var tasks = new RecordingBackgroundTasks();
+        var item = CreateProfileItem("identity-a");
+        var adapter = new FakeAdapter
+        {
+            Kind = SecretItemKind.ProvisioningProfile,
+            IsProviderOwned = false,
+            LocalPayload = CreateProfilePayload(item)
+        };
+        var sut = CreateCoordinator(registry, tasks, adapter);
+        if (selectionChange)
+            await sut.UpdateDesiredProvidersAsync(item, new Dictionary<string, bool>
+            {
+                ["local"] = true,
+                ["remote"] = true
+            });
+        else
+            await sut.SetDesiredProvidersAsync(item, ["local", "remote"]);
+
+        var queued = tasks.Tasks.Should().ContainSingle().Subject.Request;
+        queued.Parameters["appleIdentityId"].Should().Be("identity-a");
+        var restored = JsonSerializer.Deserialize<BackgroundTaskRequest>(
+            JsonSerializer.Serialize(queued))!;
+
+        await sut.ExecuteAsync(restored, new RecordingTaskContext());
+        await sut.ExecuteAsync(restored, new RecordingTaskContext());
+
+        adapter.LocalReads.Should().HaveCount(2)
+            .And.OnlyContain(read => read.AppleIdentityId == "identity-a");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task UpdateDesiredProvidersAsync_RetainsPendingProfileIdentity(bool fullSelection)
+    {
+        var tasks = new RecordingBackgroundTasks();
+        var sut = CreateCoordinator(
+            CreateRegistry(),
+            tasks,
+            new FakeAdapter { Kind = SecretItemKind.ProvisioningProfile });
+        var original = CreateProfileItem("identity-a");
+        if (fullSelection)
+            await sut.SetDesiredProvidersAsync(original, ["local"]);
+        else
+            await sut.UpdateDesiredProvidersAsync(original, new Dictionary<string, bool> { ["local"] = true });
+
+        await sut.UpdateDesiredProvidersAsync(
+            CreateProfileItem("identity-b"),
+            new Dictionary<string, bool> { ["remote"] = true });
+
+        var latest = tasks.Tasks.Last().Request;
+        latest.Parameters["appleIdentityId"].Should().Be("identity-a");
+        if (fullSelection)
+        {
+            JsonSerializer.Deserialize<List<string>>(latest.Parameters["desiredProviderIds"])
+                .Should().BeEquivalentTo("local", "remote");
+        }
+        else
+        {
+            JsonSerializer.Deserialize<Dictionary<string, bool>>(latest.Parameters["providerSelectionChanges"])
+                .Should().Contain("local", true).And.Contain("remote", true);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task UpdateDesiredProvidersAsync_AddsIdentityToLegacyPendingRequest(bool fullSelection)
+    {
+        var tasks = new RecordingBackgroundTasks();
+        var sut = CreateCoordinator(
+            CreateRegistry(),
+            tasks,
+            new FakeAdapter { Kind = SecretItemKind.ProvisioningProfile });
+        var legacy = CreateProfileItem(null);
+        if (fullSelection)
+            await sut.SetDesiredProvidersAsync(legacy, ["local"]);
+        else
+            await sut.UpdateDesiredProvidersAsync(legacy, new Dictionary<string, bool> { ["local"] = true });
+
+        await sut.UpdateDesiredProvidersAsync(
+            CreateProfileItem("identity-a"),
+            new Dictionary<string, bool> { ["remote"] = true });
+
+        tasks.Tasks.Last().Request.Parameters["appleIdentityId"].Should().Be("identity-a");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_LegacyProfileBackupWithoutIdentityFailsClearly()
+    {
+        var apple = new Mock<IAppleConnectService>();
+        var adapter = new ProvisioningProfileItemAdapter(
+            Mock.Of<ISecretsProviderRegistry>(),
+            apple.Object,
+            Mock.Of<IAppleIdentityStateService>());
+        var sut = CreateCoordinator(CreateRegistry(), new RecordingBackgroundTasks(), adapter);
+        var request = CreateSyncRequest(CreateProfileItem(null), ["remote"]);
+
+        var action = () => sut.ExecuteAsync(request, new RecordingTaskContext());
+
+        await action.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*no Apple identity*start the backup again*");
+        apple.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_LegacyProfileCanUseAnExplicitProviderSource()
+    {
+        var item = CreateProfileItem(null);
+        var adapter = new FakeAdapter
+        {
+            Kind = SecretItemKind.ProvisioningProfile,
+            IsProviderOwned = false
+        };
+        adapter.ProviderPayloads["local"] = CreateProfilePayload(item);
+        var sut = CreateCoordinator(CreateRegistry(), new RecordingBackgroundTasks(), adapter);
+        var request = CreateSyncRequest(item, ["remote"]);
+        request.Parameters["sourceProviderId"] = "local";
+
+        await sut.ExecuteAsync(request, new RecordingTaskContext());
+
+        adapter.LocalReads.Should().BeEmpty();
+        adapter.ProviderPayloads.Should().ContainKey("remote");
+    }
+
     private static SecretSyncCoordinator CreateCoordinator(
         FakeProviderRegistry registry,
         RecordingBackgroundTasks tasks,
-        FakeAdapter adapter,
+        ISecretItemAdapter adapter,
         Mock<IMediator>? mediator = null) =>
         new(
             registry,
@@ -290,6 +421,15 @@ public class SecretSyncCoordinatorTests
             Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes)),
             [new SecretArtifact("sherpa-secrets/api-key", bytes)]);
     }
+
+    private static SecretItemRef CreateProfileItem(string? identityId) =>
+        new(SecretItemKind.ProvisioningProfile, "profile-id", "Profile")
+        {
+            AppleIdentityId = identityId
+        };
+
+    private static SecretItemPayload CreateProfilePayload(SecretItemRef item) =>
+        new(item, 0, "profile-hash", [new SecretArtifact("profile/data", [1, 2, 3])]);
 
     private static BackgroundTaskRequest CreateSyncRequest(
         SecretItemRef item,
@@ -411,9 +551,10 @@ public class SecretSyncCoordinatorTests
 
     private sealed class FakeAdapter : ISecretItemAdapter
     {
-        public SecretItemKind Kind => SecretItemKind.ManagedSecret;
-        public bool IsProviderOwned => true;
+        public SecretItemKind Kind { get; init; } = SecretItemKind.ManagedSecret;
+        public bool IsProviderOwned { get; init; } = true;
         public SecretItemPayload? LocalPayload { get; set; }
+        public List<SecretItemRef> LocalReads { get; } = [];
         public Dictionary<string, SecretItemPayload> ProviderPayloads { get; } = new(StringComparer.Ordinal);
         public List<string> WriteOrder { get; } = [];
         public List<string> DeleteOrder { get; } = [];
@@ -452,8 +593,11 @@ public class SecretSyncCoordinatorTests
 
         public Task<SecretItemPayload?> ReadLocalAsync(
             SecretItemRef item,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult(LocalPayload);
+            CancellationToken cancellationToken = default)
+        {
+            LocalReads.Add(item);
+            return Task.FromResult(LocalPayload);
+        }
 
         public Task<SecretItemPayload?> ReadProviderAsync(
             SecretItemRef item,

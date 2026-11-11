@@ -43,8 +43,14 @@
     <div class="toolbar">
         @if (isSelectionMode)
         {
-            <button class="btn btn-primary" @onclick="ExportSelectedAsync" disabled="@(selectedCertificateIds.Count == 0)">
-                <i class="fas fa-file-export"></i> Export Selected
+            <button class="btn btn-primary" @onclick="BackUpSelectedAsync" disabled="@(selectedCertificateIds.Count == 0)">
+                <i class="fas fa-cloud-arrow-up"></i> Back Up
+            </button>
+            <button class="btn btn-secondary" @onclick="InstallSelectedAsync" disabled="@(selectedCertificateIds.Count == 0)">
+                <i class="fas fa-download"></i> Install
+            </button>
+            <button class="btn btn-secondary" @onclick="ExportSelectedAsync" disabled="@(selectedCertificateIds.Count == 0)">
+                <i class="fas fa-file-export"></i> Export P12
             </button>
             <button class="btn btn-secondary" @onclick="CancelSelectionMode">
                 <i class="fas fa-times"></i> Cancel
@@ -59,7 +65,7 @@
                 <i class="fas fa-plus"></i> Create Certificate
             </button>
             <button class="btn btn-secondary" @onclick="BeginSelectionModeAsync" disabled="@isLoading">
-                <i class="fas fa-file-export"></i> Export
+                <i class="fas fa-check-square"></i> Select
             </button>
         }
     </div>
@@ -133,9 +139,9 @@
         <div class="selection-bar">
             <label class="select-all-checkbox">
                 <input type="checkbox"
-                       checked="@AllVisibleExportableSelected"
+                       checked="@AllVisibleSelected"
                        @onchange="ToggleAllVisible" />
-                <span>Select all exportable certificates shown</span>
+                <span>Select all certificates shown</span>
             </label>
             <span class="selection-count">@selectedCertificateIds.Count selected</span>
         </div>
@@ -168,15 +174,13 @@
                 var isExpiringSoon = !isExpired && cert.ExpirationDate < DateTime.UtcNow.AddDays(30);
                 var syncStatus = GetSyncStatus(cert);
                 
-                var canExportP12 = HasLocalIdentity(cert);
-
-                <div class="cert-card @(isExpired ? "expired" : isExpiringSoon ? "expiring" : "") @(selectedCertificateIds.Contains(cert.Id) ? "selected" : "") @((isSelectionMode && !canExportP12) ? "not-exportable" : "")">
+                <div class="cert-card @(isExpired ? "expired" : isExpiringSoon ? "expiring" : "") @(selectedCertificateIds.Contains(cert.Id) ? "selected" : "")">
                     @if (isSelectionMode)
                     {
-                        <label class="cert-select" title="@(canExportP12 ? "Include in P12 bundle" : "No local private key available")">
+                        <label class="cert-select" title="@GetSelectionHint(cert, syncStatus)">
                             <input type="checkbox"
+                                   aria-label="@($"Select {cert.Name}")"
                                    checked="@selectedCertificateIds.Contains(cert.Id)"
-                                   disabled="@(!canExportP12)"
                                    @onchange="@(e => ToggleCertificateSelection(cert.Id, e.Value is bool selected && selected))" />
                         </label>
                     }
@@ -455,7 +459,6 @@
     .cert-card.expired { border-left-color: #f56565; opacity: 0.7; }
     .cert-card.expiring { border-left-color: var(--accent-warning); }
     .cert-card.selected { box-shadow: 0 0 0 2px var(--accent-primary); }
-    .cert-card.not-exportable { opacity: 0.55; }
 
     .cert-icon { font-size: 1.5rem; color: #6b46c1; }
     .cert-icon i { font-size: 1.25rem; }
@@ -617,16 +620,12 @@
         .OrderByDescending(c => c.ExpirationDate > DateTime.UtcNow) // Valid first
         .ThenBy(c => c.ExpirationDate);
 
-    private bool AllVisibleExportableSelected
+    private bool AllVisibleSelected
     {
         get
         {
-            var exportableIds = FilteredCertificates
-                .Where(HasLocalIdentity)
-                .Select(certificate => certificate.Id)
-                .ToList();
-            return exportableIds.Count > 0 &&
-                   exportableIds.All(selectedCertificateIds.Contains);
+            var visibleIds = FilteredCertificates.Select(certificate => certificate.Id).ToList();
+            return visibleIds.Count > 0 && visibleIds.All(selectedCertificateIds.Contains);
         }
     }
 
@@ -772,7 +771,9 @@
                     try { await RefreshData(forceRefresh: true); } finally { ToolbarService.SetItemEnabled("refresh", true); }
                     break;
                 case "create": await ShowCreateDialog(); break;
-                case "export": await BeginSelectionModeAsync(); break;
+                case "select": await BeginSelectionModeAsync(); break;
+                case "backup-selected": await BackUpSelectedAsync(); break;
+                case "install-selected": await InstallSelectedAsync(); break;
                 case "export-selected": await ExportSelectedAsync(); break;
                 case "cancel-selection": CancelSelectionMode(); break;
             }
@@ -1017,43 +1018,37 @@
         if (isSelectionMode)
         {
             ToolbarService.SetItems(
-                new ToolbarAction("export-selected", "Export Selected", "square.and.arrow.up"),
+                new ToolbarAction("backup-selected", "Back Up", "icloud.and.arrow.up"),
+                new ToolbarAction("install-selected", "Install", "square.and.arrow.down"),
+                new ToolbarAction("export-selected", "Export P12", "square.and.arrow.up"),
                 new ToolbarAction("cancel-selection", "Cancel", "xmark", IsPrimary: false));
-            ToolbarService.SetItemEnabled("export-selected", selectedCertificateIds.Count > 0);
+            UpdateSelectionToolbar();
         }
         else
         {
             ToolbarService.SetItems(
                 new ToolbarAction("refresh", "Refresh", "arrow.clockwise"),
                 new ToolbarAction("create", "Create Certificate", "plus"),
-                new ToolbarAction("export", "Export", "square.and.arrow.up"));
+                new ToolbarAction("select", "Select", "checkmark.circle"));
         }
 
+        // SetItems resets the native search field and filters; restore the current values.
         ToolbarService.SetSearch("Search certificates...");
+        if (!string.IsNullOrEmpty(searchQuery))
+            ToolbarService.NotifySearchTextChanged(searchQuery);
         ToolbarService.SetFilters(
-            new ToolbarFilter("type", "Type", ["All Types", "Development", "Distribution", "Developer ID", "Developer ID Installer"]),
-            new ToolbarFilter("platform", "Platform", ["All Platforms", "iOS", "macOS"]),
-            new ToolbarFilter("status", "Status", ["All Statuses", "Valid", "Expiring Soon", "Expired"]));
+            new ToolbarFilter("type", "Type", ["All Types", "Development", "Distribution", "Developer ID", "Developer ID Installer"],
+                filterType switch { "DEVELOPMENT" => 1, "DISTRIBUTION" => 2, "DEVELOPER_ID" => 3, "DEVELOPER_ID_INSTALLER" => 4, _ => 0 }),
+            new ToolbarFilter("platform", "Platform", ["All Platforms", "iOS", "macOS"],
+                filterPlatform switch { "IOS" => 1, "MAC" => 2, _ => 0 }),
+            new ToolbarFilter("status", "Status", ["All Statuses", "Valid", "Expiring Soon", "Expired"],
+                filterStatus switch { "valid" => 1, "expiring" => 2, "expired" => 3, _ => 0 }));
     }
 
     private async Task BeginSelectionModeAsync()
     {
-        if (!LocalCertificateService.IsSupported)
-        {
-            await AlertService.ShowAlertAsync(
-                "Not Supported",
-                $"Certificate bundle export is not supported on {PlatformInfo.PlatformName}.");
-            return;
-        }
-
-        localIdentities = await LocalCertificateService.GetSigningIdentitiesAsync();
-        if (!certificates.Any(HasLocalIdentity))
-        {
-            await AlertService.ShowAlertAsync(
-                "No Exportable Certificates",
-                "No certificates with local private keys are available to export.");
-            return;
-        }
+        if (LocalCertificateService.IsSupported)
+            localIdentities = await LocalCertificateService.GetSigningIdentitiesAsync();
 
         isSelectionMode = true;
         selectedCertificateIds.Clear();
@@ -1073,29 +1068,184 @@
             selectedCertificateIds.Add(certificateId);
         else
             selectedCertificateIds.Remove(certificateId);
-        ToolbarService.SetItemEnabled("export-selected", selectedCertificateIds.Count > 0);
+        UpdateSelectionToolbar();
     }
 
     private void ToggleAllVisible(ChangeEventArgs args)
     {
-        var exportableIds = FilteredCertificates
-            .Where(HasLocalIdentity)
-            .Select(certificate => certificate.Id)
-            .ToList();
+        var visibleIds = FilteredCertificates.Select(certificate => certificate.Id).ToList();
         if (args.Value is bool selected && selected)
-            selectedCertificateIds.UnionWith(exportableIds);
+            selectedCertificateIds.UnionWith(visibleIds);
         else
-            selectedCertificateIds.ExceptWith(exportableIds);
-        ToolbarService.SetItemEnabled("export-selected", selectedCertificateIds.Count > 0);
+            selectedCertificateIds.ExceptWith(visibleIds);
+        UpdateSelectionToolbar();
+    }
+
+    private void UpdateSelectionToolbar()
+    {
+        var hasSelection = selectedCertificateIds.Count > 0;
+        ToolbarService.SetItemEnabled("backup-selected", hasSelection);
+        ToolbarService.SetItemEnabled("install-selected", hasSelection);
+        ToolbarService.SetItemEnabled("export-selected", hasSelection);
+    }
+
+    private List<AppleCertificate> GetSelectedCertificates() => certificates
+        .Where(certificate => selectedCertificateIds.Contains(certificate.Id))
+        .ToList();
+
+    private string GetSelectionHint(AppleCertificate cert, SecretLocation syncStatus) => syncStatus switch
+    {
+        SecretLocation.Both => "Private key in Keychain and a secrets provider",
+        SecretLocation.LocalOnly => "Private key in Keychain",
+        SecretLocation.CloudOnly => "Private key in a secrets provider",
+        _ => HasLocalIdentity(cert) ? "Private key in Keychain" : "No private key available"
+    };
+
+    private async Task BackUpSelectedAsync()
+    {
+        var selected = GetSelectedCertificates();
+        if (selected.Count == 0)
+            return;
+
+        // A backup needs a private key source: the Keychain or an existing provider copy.
+        var eligible = selected
+            .Where(cert => !string.IsNullOrWhiteSpace(cert.SerialNumber) &&
+                           (GetSyncStatus(cert) != SecretLocation.None || HasLocalIdentity(cert)))
+            .ToList();
+        var skipped = selected.Count - eligible.Count;
+        if (eligible.Count == 0)
+        {
+            await AlertService.ShowAlertAsync(
+                "Nothing to Back Up",
+                "None of the selected certificates have a private key in the Keychain or a secrets provider.");
+            return;
+        }
+
+        var provider = await SecretBackupActions.PickProviderAsync(
+            CloudSecretsService,
+            AlertService,
+            $"Back up {eligible.Count} certificate(s) to");
+        if (provider is null)
+            return;
+
+        var queued = await SecretBackupActions.QueueBackupAsync(
+            SecretSyncCoordinator,
+            eligible.Select(cert => new SecretItemRef(
+                SecretItemKind.Certificate,
+                GetCertificateSyncItemId(cert.SerialNumber),
+                cert.Name)),
+            provider.Id);
+
+        var message = $"Backing up {queued} certificate(s) to {provider.Name}";
+        if (skipped > 0)
+            message += $"; skipped {skipped} without a private key";
+        await AlertService.ShowToastAsync(message);
+        CancelSelectionMode();
+    }
+
+    private async Task InstallSelectedAsync()
+    {
+        var selected = GetSelectedCertificates();
+        if (selected.Count == 0)
+            return;
+
+        if (!LocalCertificateService.IsSupported)
+        {
+            await AlertService.ShowAlertAsync("Not Supported", "Certificate installation is only supported on macOS.");
+            return;
+        }
+
+        var installable = selected.Where(cert => GetSyncStatus(cert) == SecretLocation.CloudOnly).ToList();
+        var alreadyInstalled = selected.Count(cert => GetSyncStatus(cert) is SecretLocation.LocalOnly or SecretLocation.Both);
+        var unavailable = selected.Count - installable.Count - alreadyInstalled;
+        if (installable.Count == 0)
+        {
+            await AlertService.ShowAlertAsync(
+                "Nothing to Install",
+                alreadyInstalled > 0 && unavailable == 0
+                    ? "The selected certificates are already installed in the Keychain."
+                    : "None of the selected certificates have a private key stored in a secrets provider.");
+            return;
+        }
+
+        var skippedNote = alreadyInstalled + unavailable > 0
+            ? $" {alreadyInstalled + unavailable} selected certificate(s) are skipped (already installed or no provider copy)."
+            : "";
+        var operations = installable.Select(cert => new OperationItem(
+            Id: cert.Id,
+            Name: cert.Name,
+            Description: $"{FormatCertType(cert.CertificateType ?? "Unknown")} - {cert.SerialNumber}",
+            Execute: async ctx =>
+            {
+                ctx.LogInfo($"Installing {cert.Name}...");
+                if (await InstallCertificateFromProviderAsync(cert))
+                {
+                    ctx.LogSuccess($"Installed {cert.Name} to the Keychain");
+                    return true;
+                }
+
+                ctx.LogError($"Failed to install {cert.Name}");
+                return false;
+            },
+            IsEnabled: true,
+            CanDisable: true
+        )).ToList();
+
+        var result = await MultiOpModal.RunAsync(
+            "Install Certificates",
+            $"The following {installable.Count} certificate(s) will be installed to your Keychain.{skippedNote}",
+            operations);
+
+        if (result.Completed > 0)
+        {
+            LocalCertificateService.InvalidateCache();
+            await LoadSyncStatuses();
+            CancelSelectionMode();
+            StateHasChanged();
+        }
+    }
+
+    private async Task<bool> InstallCertificateFromProviderAsync(AppleCertificate cert)
+    {
+        if (CertificateSyncService is MauiSherpa.Core.Services.CertificateSyncService syncService &&
+            !string.IsNullOrWhiteSpace(cert.SerialNumber))
+        {
+            return await syncService.DownloadAndInstallBySerialAsync(cert.SerialNumber);
+        }
+
+        return await CertificateSyncService.DownloadAndInstallAsync(cert.Id);
     }
 
     private async Task ExportSelectedAsync()
     {
-        var selectedCertificates = certificates
-            .Where(certificate => selectedCertificateIds.Contains(certificate.Id))
-            .ToList();
-        if (selectedCertificates.Count == 0)
+        var selected = GetSelectedCertificates();
+        if (selected.Count == 0)
             return;
+
+        if (!LocalCertificateService.IsSupported)
+        {
+            await AlertService.ShowAlertAsync(
+                "Not Supported",
+                $"Certificate bundle export is not supported on {PlatformInfo.PlatformName}.");
+            return;
+        }
+
+        // P12 export reads private keys from the Keychain.
+        localIdentities = await LocalCertificateService.GetSigningIdentitiesAsync();
+        var selectedCertificates = selected.Where(HasLocalIdentity).ToList();
+        if (selectedCertificates.Count == 0)
+        {
+            await AlertService.ShowAlertAsync(
+                "No Exportable Certificates",
+                "None of the selected certificates have a private key in the Keychain. Install them first to export a P12.");
+            return;
+        }
+
+        if (selectedCertificates.Count < selected.Count)
+        {
+            await AlertService.ShowToastAsync(
+                $"{selected.Count - selectedCertificates.Count} selected certificate(s) have no Keychain private key and are left out of the P12");
+        }
 
         var page = new ExportCertificatePage(BridgeHolder, selectedCertificates, localIdentities);
         var exported = await FormModalService.ShowAsync<bool>(page);
