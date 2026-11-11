@@ -260,6 +260,8 @@ public interface IAndroidWirelessPairingService
     Task<AndroidWirelessDiscoveryResult> DiscoverAsync(CancellationToken ct = default);
     /// <summary>Stops the private discovery-only adb server used by <see cref="DiscoverAsync"/>, if one was started.</summary>
     Task StopDiscoveryAsync();
+    /// <summary>Restarts the user's ADB server so that it is launched by Sherpa. Disconnects all devices briefly.</summary>
+    Task<bool> RestartAdbServerAsync(CancellationToken ct = default);
 }
 
 public enum AndroidWirelessOperationState
@@ -273,6 +275,9 @@ public enum AndroidWirelessOperationState
 public record AndroidWirelessOperationResult(AndroidWirelessOperationState State, string Message)
 {
     public bool Success => State is AndroidWirelessOperationState.Paired or AndroidWirelessOperationState.Connected;
+
+    /// <summary>The ADB server can't reach the local network (macOS Local Network privacy); restarting ADB from Sherpa fixes it.</summary>
+    public bool LocalNetworkBlocked { get; init; }
 }
 
 public record AndroidWirelessService(string Name, string Endpoint, bool IsPairing);

@@ -9,6 +9,7 @@
 @inject IMediator Mediator
 @inject HybridFormBridgeHolder BridgeHolder
 @inject ILoggingService Logger
+@inject IPlatformService Platform
 @inject IJSRuntime JS
 @implements IAsyncDisposable
 
@@ -28,6 +29,8 @@ connection. Addresses and ports stay out of the way unless the network forces a 
                 <i class="fa-solid fa-rotate @(loading ? "fa-spin" : "")" aria-hidden="true"></i>
             </button>
         </div>
+
+        @AdbNotice()
 
         @if (banner is { } b)
         {
@@ -60,6 +63,10 @@ connection. Addresses and ports stay out of the way unless the network forces a 
                         <div class="ad-text">
                             <span class="ad-name">Turn on Wireless debugging on your device</span>
                             <span class="ad-meta">Open Pair device with pairing code and it will appear here. Sherpa checks every few seconds.</span>
+                            @if (Platform.IsMacOS)
+                            {
+                                <span class="ad-meta">Not listed? Allow MAUI Sherpa in System Settings › Privacy &amp; Security › Local Network.</span>
+                            }
                         </div>
                     </li>
                 }
@@ -166,6 +173,8 @@ connection. Addresses and ports stay out of the way unless the network forces a 
             </li>
         </ol>
 
+        @AdbNotice()
+
         @if (!busy && qrResult != null)
         {
             @if (qrStopped)
@@ -265,6 +274,7 @@ connection. Addresses and ports stay out of the way unless the network forces a 
     .ad-banner.is-ok > i { color: var(--ad-live); }
     .ad-banner.is-error > i, .ad-banner.is-error strong { color: var(--ad-danger); }
     .ad-banner.is-inline { margin-bottom: 8px; }
+    .ad-banner .ad-btn { align-self: flex-start; margin-top: 6px; }
 
     .ad-manual { margin-top: 20px; }
     .ad-manual summary { display: inline-flex; align-items: center; gap: 7px; margin-left: -4px; padding: 3px 4px; border-radius: 6px; color: var(--text-secondary); font-size: 12px; font-weight: 500; list-style: none; cursor: pointer; }
@@ -324,6 +334,8 @@ connection. Addresses and ports stay out of the way unless the network forces a 
     private string? discoveryError, status, activeKey, codeKey, highlightKey;
     private string busyLabel = "", code = "", manualPairAddress = "", manualCode = "", manualConnectAddress = "";
     private bool initialized, initialLoad = true, qrView, qrStopped, focusCode, busy, loading, closing, stopping, disposed;
+    private bool adbBlocked, restartingAdb;
+    private string? adbNotice;
     private ElementReference codeInput;
 
     private List<AndroidWirelessService> AvailableServices => services
@@ -338,6 +350,30 @@ connection. Addresses and ports stay out of the way unless the network forces a 
     private bool CanManualPair => AndroidWirelessPairingService.TryNormalizeEndpoint(manualPairAddress, out _) &&
         manualCode.Length == 6 && manualCode.All(char.IsAsciiDigit);
     private bool CanManualConnect => AndroidWirelessPairingService.TryNormalizeEndpoint(manualConnectAddress, out _);
+
+    private RenderFragment AdbNotice() =>
+        @<text>
+            @if (adbBlocked)
+            {
+                <div class="ad-banner is-error" role="alert">
+                    <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+                    <div>
+                        <strong>macOS is blocking ADB from your network</strong>
+                        <span>ADB was started by an app without Local Network access, so it can't reach Wi-Fi devices. Restarting it from Sherpa briefly disconnects all Android devices.</span>
+                        <button type="button" class="ad-btn is-primary" @onclick="RestartAdbAsync" disabled="@busy">
+                            @(restartingAdb ? "Restarting…" : "Restart ADB")
+                        </button>
+                    </div>
+                </div>
+            }
+            else if (adbNotice != null)
+            {
+                <div class="ad-banner" role="status">
+                    <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
+                    <div><strong>ADB restarted</strong><span>@adbNotice</span></div>
+                </div>
+            }
+        </text>;
 
     private RenderFragment ServiceRow(AndroidWirelessService s)
     {
@@ -506,7 +542,7 @@ connection. Addresses and ports stay out of the way unless the network forces a 
             var discovery = await PairingService.DiscoverAsync(lifetime.Token);
             services = discovery.Success ? discovery.Services : [];
             discoveryError = discovery.Success ? null : discovery.Message;
-            devices = await LoadDevicesAsync(force: !silent);
+            devices = await LoadDevicesAsync();
         }
         catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
         catch (Exception ex)
@@ -522,12 +558,10 @@ connection. Addresses and ports stay out of the way unless the network forces a 
         }
     }
 
-    private async Task<IReadOnlyList<DeviceInfo>> LoadDevicesAsync(bool force)
+    // Ask ADB directly on every refresh: the live watcher only speeds up updates and can lag behind an ADB restart.
+    private async Task<IReadOnlyList<DeviceInfo>> LoadDevicesAsync()
     {
-        if (DeviceWatcher.IsWatching)
-            return DeviceWatcher.Devices;
-        if (force)
-            await Mediator.FlushStores("android:devices");
+        await Mediator.FlushStores("android:devices");
         var (_, result) = await Mediator.Request(new GetAndroidDevicesRequest(), lifetime.Token);
         return result ?? [];
     }
@@ -640,7 +674,8 @@ connection. Addresses and ports stay out of the way unless the network forces a 
         UpdateActions();
     }
 
-    private Task SubmitAsync() => InvokeAsync(StartQrAsync);
+    // The native footer isn't a Blazor event, so nothing re-renders for us; and it must not wait for the whole attempt.
+    private Task SubmitAsync() => InvokeAsync(() => { _ = StartQrAsync(); });
 
     private Task StartQrAsync()
     {
@@ -652,6 +687,8 @@ connection. Addresses and ports stay out of the way unless the network forces a 
         {
             var session = PairingService.CreateQrPairingSession();
             qrSession = session;
+            adbNotice = null;
+            StateHasChanged();
             return PairingService.PairQrAsync(session, ct);
         }, "Waiting for your device to scan the code…", result =>
         {
@@ -706,8 +743,14 @@ connection. Addresses and ports stay out of the way unless the network forces a 
             {
                 if (result.Success && bridge != null) bridge.Result = true;
                 qrStopped = stopped;
+                if (result.LocalNetworkBlocked)
+                {
+                    // One actionable notice replaces adb's raw "protocol fault" output.
+                    adbBlocked = true;
+                    adbNotice = null;
+                }
                 // Stopping is the user's choice, not a failure: only the QR view acknowledges it.
-                if (!stopped || qrView)
+                else if (!stopped || qrView)
                     onResult(result);
                 if (!lifetime.IsCancellationRequested)
                 {
@@ -727,6 +770,30 @@ connection. Addresses and ports stay out of the way unless the network forces a 
             UpdateActions();
             if (!disposed) StateHasChanged();
         }
+    }
+
+    private async Task RestartAdbAsync()
+    {
+        if (busy || closing) return;
+        busy = restartingAdb = true;
+        UpdateActions();
+        StateHasChanged();
+        var restarted = false;
+        try
+        {
+            restarted = await PairingService.RestartAdbServerAsync(lifetime.Token);
+        }
+        catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
+        busy = restartingAdb = stopping = false;
+        if (disposed || closing) return;
+        adbBlocked = !restarted;
+        adbNotice = restarted
+            ? "If macOS asks, allow MAUI Sherpa to find devices on your local network. Then pair again."
+            : null;
+        if (!restarted)
+            banner = ("Couldn't restart ADB", new(AndroidWirelessOperationState.Failed, "Quit other Android tools that use ADB, then try again."));
+        UpdateActions();
+        await RefreshAsync();
     }
 
     private async Task CancelOperationAsync()
@@ -823,9 +890,7 @@ connection. Addresses and ports stay out of the way unless the network forces a 
         return services.FirstOrDefault(s => !s.IsPairing && d.Serial.StartsWith(s.Name + ".", StringComparison.Ordinal))?.Endpoint;
     }
 
-    private static bool IsWireless(DeviceInfo d) =>
-        d.Serial.Contains("._adb-tls-connect.", StringComparison.Ordinal) ||
-        (d.Serial.Contains(':') && AndroidWirelessPairingService.TryNormalizeEndpoint(d.Serial, out _));
+    private static bool IsWireless(DeviceInfo d) => AndroidWirelessPairingService.IsWirelessSerial(d.Serial);
 
     private static bool IsSixDigits(string value) => value.Length == 6 && value.All(char.IsAsciiDigit);
     private static string ServiceKey(AndroidWirelessService s) => $"{(s.IsPairing ? "pair" : "connect")}|{s.Endpoint}";

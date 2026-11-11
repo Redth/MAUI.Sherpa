@@ -46,6 +46,8 @@ MAUI Sherpa is a desktop application for **macOS**, **Windows**, and **Linux** t
 - For code pairing, choose **Pair device with pairing code** on the device, then **Pair** on its row under Available Devices and enter the six-digit code; codes are never saved or logged
 - If Android does not connect automatically, use **Connect** on its row, or **Reconnect** for an offline Wi-Fi device under My Devices
 - When the network blocks discovery (guest Wi-Fi, VPNs, isolation), open **Enter an address manually** to pair or connect by IP address and port; the pairing and debugging ports differ
+- On macOS, allow MAUI Sherpa under **System Settings › Privacy & Security › Local Network**. If the ADB server was started by an app without that access, Sherpa shows **Restart ADB**, which relaunches it from Sherpa (briefly disconnecting all Android devices)
+- Sherpa also discovers devices with a private, discovery-only ADB server, because a long-running ADB server often misses devices announced after it starts; after pairing, Sherpa connects the device for debugging
 - Requires current Android SDK platform-tools and the same Wi-Fi network. QR pairing needs ADB mDNS discovery.
 
 ### 🔑 Android Keystores

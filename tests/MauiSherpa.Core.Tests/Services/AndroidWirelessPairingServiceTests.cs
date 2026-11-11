@@ -34,6 +34,17 @@ public class AndroidWirelessPairingServiceTests
     }
 
     [Theory]
+    [InlineData("192.168.2.169:46167", true)]
+    [InlineData("adb-38020DLJG004ZG-6tWvZf._adb-tls-connect._tcp", true)]
+    [InlineData("adb-starkb590._adb._tcp", true)]
+    [InlineData("38020DLJG004ZG", false)]
+    [InlineData("emulator-5554", false)]
+    public void IsWirelessSerial_DistinguishesWiFiFromUsb(string serial, bool wireless)
+    {
+        IsWirelessSerial(serial).Should().Be(wireless);
+    }
+
+    [Theory]
     [InlineData(null)]
     [InlineData("")]
     [InlineData("192.168.1.20")]
@@ -467,6 +478,10 @@ public class AndroidWirelessPairingServiceTests
         requests[1].Start.Environment["ADB_USB"].Should().Be("0");
         requests[1].Start.Environment["ADB_EMU"].Should().Be("0");
         requests[1].Start.Environment["ADB_MDNS_AUTO_CONNECT"].Should().Be("0");
+        if (OperatingSystem.IsMacOS())
+            requests[1].Start.Environment["ADB_MDNS_OPENSCREEN"].Should().Be("0");
+        else
+            requests[1].Start.Environment.Should().NotContainKey("ADB_MDNS_OPENSCREEN");
     }
 
     [Fact]
@@ -559,6 +574,60 @@ public class AndroidWirelessPairingServiceTests
         result.State.Should().Be(AndroidWirelessOperationState.Paired);
         result.Message.Should().Contain("does not guarantee");
         requests.Should().HaveCount(4);
+    }
+
+    private AndroidWirelessPairingService CreateReachabilityService(bool sherpaCanReach) =>
+        new(logger.Object, () => "/sdk/platform-tools/adb", (start, input, ct) =>
+        {
+            requests.Add((start, input));
+            return Task.FromResult(results.Dequeue());
+        }, canReach: (_, _) => Task.FromResult(sherpaCanReach));
+
+    [Fact]
+    public async Task PairAsync_ExplainsAnAdbServerBlockedFromTheLocalNetwork()
+    {
+        results.Enqueue(new(1, "Enter pairing code: ", "error: protocol fault (couldn't read status message): Undefined error: 0"));
+
+        var result = await CreateReachabilityService(sherpaCanReach: true).PairAsync("192.168.2.169:45545", "123456");
+
+        result.State.Should().Be(AndroidWirelessOperationState.Failed);
+        result.LocalNetworkBlocked.Should().Be(OperatingSystem.IsMacOS());
+        if (OperatingSystem.IsMacOS())
+            result.Message.Should().Contain("Local Network").And.Contain("Restart ADB").And.NotContain("protocol fault");
+    }
+
+    [Fact]
+    public async Task PairAsync_DoesNotBlameMacOSWhenTheDeviceIsUnreachable()
+    {
+        results.Enqueue(new(1, "", "error: protocol fault (couldn't read status message): Undefined error: 0"));
+
+        var result = await CreateReachabilityService(sherpaCanReach: false).PairAsync("192.168.2.169:45545", "123456");
+
+        result.LocalNetworkBlocked.Should().BeFalse();
+        result.Message.Should().Contain("Pairing failed");
+    }
+
+    [Fact]
+    public async Task ConnectAsync_ExplainsNoRouteToHostAsALocalNetworkBlock()
+    {
+        results.Enqueue(new(1, "failed to connect to '192.168.2.169:46167': No route to host"));
+
+        var result = await CreateService().ConnectAsync("192.168.2.169:46167");
+
+        result.Success.Should().BeFalse();
+        result.LocalNetworkBlocked.Should().Be(OperatingSystem.IsMacOS());
+    }
+
+    [Fact]
+    public async Task RestartAdbServerAsync_RestartsTheMainServer()
+    {
+        results.Enqueue(new(0, ""));
+        results.Enqueue(new(0, "* daemon started successfully"));
+
+        (await CreateService().RestartAdbServerAsync()).Should().BeTrue();
+
+        requests.Select(r => string.Join(' ', r.Start.ArgumentList)).Should().Equal("kill-server", "start-server");
+        requests.Should().OnlyContain(r => !r.Start.Environment.ContainsKey("ADB_USB"));
     }
 
     [Fact]

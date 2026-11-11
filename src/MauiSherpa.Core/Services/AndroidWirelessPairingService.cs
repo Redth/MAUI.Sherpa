@@ -16,13 +16,14 @@ public sealed class AndroidWirelessPairingService : IAndroidWirelessPairingServi
     private readonly Func<ProcessStartInfo, string?, CancellationToken, Task<AdbCommandResult>> _run;
     private readonly int? _discoveryPort;
     private readonly TimeSpan _connectAfterPair;
+    private readonly Func<string, CancellationToken, Task<bool>>? _canReach;
     private int _discoveryServerStarted;
     private static readonly TimeSpan CommandTimeout = TimeSpan.FromSeconds(30);
     private static readonly Regex PairedGuid = new(@"\[guid=([^\]\s]+)\]", RegexOptions.CultureInvariant);
 
-    // A long-running adb server reads the network interfaces once at startup, so after a Wi-Fi change its mDNS
-    // discovery goes quiet. Sherpa also asks a private, discovery-only adb server (no USB, no emulators, no
-    // auto-connect) that starts fresh for each pairing session.
+    // The user's adb server often misses wireless devices: its default mDNS browser reads network interfaces once at
+    // startup and can miss services announced later. Sherpa also asks a private, discovery-only adb server (no USB,
+    // no emulators, no auto-connect) that starts fresh for each pairing session.
     internal const int DiscoveryServerPort = 15037;
 
     public AndroidWirelessPairingService(IAndroidSdkService sdk, ILoggingService logger)
@@ -33,7 +34,7 @@ public sealed class AndroidWirelessPairingService : IAndroidWirelessPairingServi
                 return null;
             var path = Path.Combine(sdkPath, "platform-tools", OperatingSystem.IsWindows() ? "adb.exe" : "adb");
             return File.Exists(path) ? path : null;
-        }, RunProcessAsync, DiscoveryServerPort, TimeSpan.FromSeconds(10))
+        }, RunProcessAsync, DiscoveryServerPort, TimeSpan.FromSeconds(10), CanReachAsync)
     {
     }
 
@@ -42,13 +43,15 @@ public sealed class AndroidWirelessPairingService : IAndroidWirelessPairingServi
         Func<string?> resolveAdb,
         Func<ProcessStartInfo, string?, CancellationToken, Task<AdbCommandResult>> run,
         int? discoveryPort = null,
-        TimeSpan? connectAfterPair = null)
+        TimeSpan? connectAfterPair = null,
+        Func<string, CancellationToken, Task<bool>>? canReach = null)
     {
         _logger = logger;
         _resolveAdb = resolveAdb;
         _run = run;
         _discoveryPort = discoveryPort;
         _connectAfterPair = connectAfterPair ?? TimeSpan.Zero;
+        _canReach = canReach;
     }
 
     public AndroidWirelessQrSession CreateQrPairingSession()
@@ -130,6 +133,11 @@ public sealed class AndroidWirelessPairingService : IAndroidWirelessPairingServi
                     "Paired successfully. Pairing does not guarantee a debugging connection. Use the connection address from the main Wireless debugging screen if the device is not connected automatically.");
             }
 
+            // adb only reports "protocol fault" when its server can't open the pairing connection. If Sherpa itself can
+            // reach the device, the server process is the one being blocked (macOS Local Network privacy).
+            if (IsUnreachable(result) ||
+                (Mentions(result, "protocol fault") && _canReach != null && await _canReach(address, ct)))
+                return LocalNetworkBlocked() ?? Fail(DescribeFailure(result, failureMessage, code));
             return Fail(DescribeFailure(result, failureMessage, code));
         }
         catch (Exception ex) when (ex is Win32Exception or IOException or InvalidOperationException or TimeoutException)
@@ -189,7 +197,11 @@ public sealed class AndroidWirelessPairingService : IAndroidWirelessPairingServi
             if (result.ExitCode != 0 ||
                 !(output.StartsWith("connected to ", StringComparison.OrdinalIgnoreCase) ||
                   output.StartsWith("already connected to ", StringComparison.OrdinalIgnoreCase)))
+            {
+                if (IsUnreachable(result) && LocalNetworkBlocked() is { } blocked)
+                    return blocked;
                 return Fail(DescribeFailure(result, "Connection failed. Check the debugging port, enable Wireless debugging, and make sure both devices are on the same network."));
+            }
 
             for (var attempt = 0; attempt < 3; attempt++)
             {
@@ -289,6 +301,12 @@ public sealed class AndroidWirelessPairingService : IAndroidWirelessPairingServi
             _logger.LogDebug("Private Android discovery server did not answer.");
     }
 
+    /// <summary>True for adb serials of Wi-Fi transports: mDNS service names or an explicit host:port.</summary>
+    public static bool IsWirelessSerial(string serial) =>
+        serial.Contains("._adb-tls-connect.", StringComparison.Ordinal) ||
+        serial.Contains("._adb._tcp", StringComparison.Ordinal) ||
+        (serial.Contains(':') && TryNormalizeEndpoint(serial, out _));
+
     public static bool TryNormalizeEndpoint(string? input, out string endpoint)
     {
         endpoint = "";
@@ -339,6 +357,10 @@ public sealed class AndroidWirelessPairingService : IAndroidWirelessPairingServi
             startInfo.Environment["ADB_USB"] = "0";
             startInfo.Environment["ADB_EMU"] = "0";
             startInfo.Environment["ADB_MDNS_AUTO_CONNECT"] = "0";
+            // adb's built-in (Openscreen) browser misses services announced after it starts, such as the one a phone
+            // advertises right after scanning a QR code. macOS always runs mDNSResponder, so use it for live results.
+            if (OperatingSystem.IsMacOS())
+                startInfo.Environment["ADB_MDNS_OPENSCREEN"] = "0";
         }
         foreach (var argument in arguments)
             startInfo.ArgumentList.Add(argument);
@@ -374,6 +396,64 @@ public sealed class AndroidWirelessPairingService : IAndroidWirelessPairingServi
                 process.Kill(entireProcessTree: true);
             await process.WaitForExitAsync(CancellationToken.None);
             await Task.WhenAll(output, error);
+        }
+    }
+
+    public async Task<bool> RestartAdbServerAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            await ExecuteAsync(["kill-server"], null, ct);
+            var start = await ExecuteAsync(["start-server"], null, ct);
+            if (start.ExitCode == 0)
+            {
+                _logger.LogInformation("Restarted the ADB server from Sherpa.");
+                return true;
+            }
+        }
+        catch (Exception ex) when (ex is Win32Exception or IOException or InvalidOperationException or TimeoutException)
+        {
+        }
+        _logger.LogWarning("Restarting the ADB server failed.");
+        return false;
+    }
+
+    private static bool Mentions(AdbCommandResult result, string text) =>
+        result.Output.Contains(text, StringComparison.OrdinalIgnoreCase) || result.Error.Contains(text, StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsUnreachable(AdbCommandResult result) => Mentions(result, "No route to host");
+
+    // On macOS, "No route to host" from a reachable LAN device means the process that launched the adb server
+    // was denied Local Network access. Restarting adb from Sherpa makes Sherpa responsible for the new server.
+    private AndroidWirelessOperationResult? LocalNetworkBlocked()
+    {
+        if (!OperatingSystem.IsMacOS())
+            return null;
+        _logger.LogWarning("macOS blocked the ADB server from reaching the local network.");
+        return new(AndroidWirelessOperationState.Failed,
+            "macOS blocked ADB from reaching this device on your local network. This happens when ADB was started by an app without Local Network access. Restart ADB from Sherpa, allow local network access if macOS asks, then try again.")
+        {
+            LocalNetworkBlocked = true
+        };
+    }
+
+    internal static async Task<bool> CanReachAsync(string endpoint, CancellationToken ct)
+    {
+        var separator = endpoint.LastIndexOf(':');
+        if (separator <= 0 || !int.TryParse(endpoint.AsSpan(separator + 1), out var port))
+            return false;
+        var host = endpoint[..separator].Trim('[', ']');
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(TimeSpan.FromSeconds(3));
+        try
+        {
+            using var client = new System.Net.Sockets.TcpClient();
+            await client.ConnectAsync(host, port, timeout.Token);
+            return true;
+        }
+        catch (Exception ex) when (ex is System.Net.Sockets.SocketException or OperationCanceledException && !ct.IsCancellationRequested)
+        {
+            return false;
         }
     }
 
