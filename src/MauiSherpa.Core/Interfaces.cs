@@ -1039,6 +1039,51 @@ public record ProfileRenewalResult(
 }
 
 /// <summary>
+/// Adds a registered device to existing provisioning profiles. App Store Connect can't edit a
+/// profile's devices, so each profile is deleted and recreated with the same name, type,
+/// bundle ID and certificates, plus the device.
+/// </summary>
+public interface IProfileDeviceService
+{
+    /// <summary>
+    /// Active profiles whose type carries devices of <paramref name="device"/>'s kind
+    /// (development and ad hoc for iOS and tvOS; development for macOS and Mac Catalyst).
+    /// The profile list doesn't say which devices a profile has, so some may already include it.
+    /// </summary>
+    IReadOnlyList<AppleProfile> FindProfilesForDevice(
+        IEnumerable<AppleProfile> profiles,
+        AppleDevice device);
+
+    /// <summary>
+    /// Recreates <paramref name="profile"/> with <paramref name="device"/> added, then installs it.
+    /// Leaves the profile untouched when it already includes the device.
+    /// </summary>
+    Task<ProfileDeviceResult> AddDeviceToProfileAsync(
+        AppleProfile profile,
+        AppleDevice device,
+        bool removeOldInstalledCopies,
+        IProgress<string>? progress = null,
+        CancellationToken cancellationToken = default);
+}
+
+/// <summary>
+/// Outcome of adding a device to one provisioning profile. <see cref="RegeneratedProfile"/>
+/// is null when the profile already included the device and was left unchanged.
+/// </summary>
+public record ProfileDeviceResult(
+    AppleProfile OriginalProfile,
+    AppleProfile? RegeneratedProfile,
+    string? InstalledPath,
+    string? InstallError,
+    IReadOnlyList<string> RemovedInstalledPaths,
+    IReadOnlyList<AppleDevice> DroppedDevices
+)
+{
+    public bool AlreadyIncluded => RegeneratedProfile is null;
+    public bool Installed => InstallError is null && InstalledPath is not null;
+}
+
+/// <summary>
 /// Request to create a new Apple provisioning profile
 /// </summary>
 public record AppleProfileCreateRequest(

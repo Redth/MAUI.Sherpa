@@ -224,6 +224,7 @@ public static class MacOSMauiProgram
         builder.Services.AddSingleton<IPublishProfileService, PublishProfileService>();
         builder.Services.AddSingleton<IPublishProfileHealthService, PublishProfileHealthService>();
         builder.Services.AddSingleton<ICertificateRenewalService, CertificateRenewalService>();
+        builder.Services.AddSingleton<IProfileDeviceService, ProfileDeviceService>();
 
         // Encrypted Settings services
         builder.Services.AddSingleton<IEncryptedSettingsService, EncryptedSettingsService>();

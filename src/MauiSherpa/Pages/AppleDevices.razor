@@ -15,6 +15,13 @@
 @inject IToolbarService ToolbarService
 @inject IPlatformService PlatformInfo
 @inject ILocalVaultAccessService LocalVaultAccess
+@inject ILoggingService Logger
+@inject MultiOperationModalService MultiOpModal
+@inject IProfileDeviceService ProfileDeviceService
+@inject IPublishProfileService PublishProfileService
+@inject IPublishProfileHealthService PublishProfileHealth
+@inject ICloudSecretsService CloudSecretsService
+@inject ISecretSyncCoordinator SecretSyncCoordinator
 
 <h1><i class="fas fa-mobile-alt"></i> Registered Devices</h1>
 
@@ -119,6 +126,9 @@
                     <div class="device-actions">
                         @if (isEnabled)
                         {
+                            <button class="btn btn-secondary btn-icon" @onclick="@(() => AddDeviceToProfilesAsync(device))" disabled="@isLoading" title="Add to Provisioning Profiles">
+                                <i class="fas fa-id-card"></i>
+                            </button>
                             <button class="btn btn-warning btn-icon" @onclick="@(() => ToggleDevice(device, false))" disabled="@isLoading" title="Disable">
                                 <i class="fas fa-ban"></i>
                             </button>
@@ -288,6 +298,7 @@
         color: #888;
     }
     .device-details { flex: 1; }
+    .device-actions { display: flex; gap: 0.5rem; }
     .device-name { font-weight: 600; font-size: 1rem; color: var(--text-primary); }
     .device-udid { font-family: monospace; font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem; }
     .device-badges { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; }
@@ -467,11 +478,230 @@
 
     private async Task ShowRegisterDialog()
     {
-        var result = await FormModalService.ShowAsync<AppleDevice>(new RegisterDevicePage(AppleService));
+        var result = await FormModalService.ShowAsync<RegisterDeviceFormResult>(new RegisterDevicePage(AppleService));
         if (result == null) return;
 
-        await AlertService.ShowToastAsync($"Device '{result.Name}' registered!");
+        await AlertService.ShowToastAsync($"Device '{result.Device.Name}' registered!");
         await RefreshData(forceRefresh: true);
+
+        if (result.AddToProfiles)
+            await AddDeviceToProfilesAsync(result.Device);
+    }
+
+    // ------------------------------------------------------------------
+    // Adding a device to provisioning profiles
+    // ------------------------------------------------------------------
+
+    private const string RemoveOldCopyOptionId = "remove-old-installed-copy";
+
+    private async Task AddDeviceToProfilesAsync(AppleDevice device)
+    {
+        var identity = IdentityState.SelectedIdentity;
+        if (identity == null)
+            return;
+
+        // Profiles are deleted and recreated from this list, so never work from a stale cache.
+        List<AppleProfile> profiles;
+        var loadingToast = ToastService.Show("Finding provisioning profiles for this device...", ToastType.Info);
+        try
+        {
+            await Mediator.FlushStores($"apple:profiles:{identity.Id}");
+            var (_, result) = await Mediator.Request(new GetProfilesRequest(identity.Id));
+            profiles = result.ToList();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError($"Failed to load provisioning profiles for device '{device.Name}': {ex.Message}", ex);
+            await AlertService.ShowAlertAsync("Add to Provisioning Profiles", $"Provisioning profiles couldn't be loaded: {ex.Message}");
+            return;
+        }
+        finally
+        {
+            ToastService.Dismiss(loadingToast);
+        }
+
+        var candidates = ProfileDeviceService.FindProfilesForDevice(profiles, device);
+        if (candidates.Count == 0)
+        {
+            await AlertService.ShowAlertAsync(
+                "Add to Provisioning Profiles",
+                $"There are no active development or ad hoc provisioning profiles that '{device.Name}' can be added to.");
+            return;
+        }
+
+        var results = new List<ProfileDeviceResult>();
+        var operations = candidates.Select(profile => new OperationItem(
+            Id: profile.Id,
+            Name: profile.Name,
+            Description: string.Join(" · ", new[]
+            {
+                FormatProfileType(profile.ProfileType),
+                profile.BundleId,
+                $"expires {profile.ExpirationDate:MMM d, yyyy}"
+            }.Where(part => !string.IsNullOrWhiteSpace(part))),
+            Execute: async ctx =>
+            {
+                var result = await ProfileDeviceService.AddDeviceToProfileAsync(
+                    profile,
+                    device,
+                    ctx.IsSecondaryOptionEnabled(RemoveOldCopyOptionId),
+                    new ActionProgress(ctx.LogInfo),
+                    ctx.CancellationToken);
+                lock (results)
+                    results.Add(result);
+
+                if (result.RegeneratedProfile is not { } regenerated)
+                {
+                    ctx.LogSuccess($"Already includes '{device.Name}', left unchanged");
+                    return true;
+                }
+
+                ctx.LogSuccess($"Recreated '{regenerated.Name}' with '{device.Name}' (UUID {regenerated.Uuid})");
+                foreach (var dropped in result.DroppedDevices)
+                    ctx.LogWarning($"Left out disabled device '{dropped.Name}'");
+
+                if (!result.Installed)
+                {
+                    ctx.LogError($"The profile was recreated in Apple Developer but couldn't be installed: {result.InstallError}. Install it from Provisioning Profiles.");
+                    return false;
+                }
+
+                ctx.LogSuccess($"Installed {Path.GetFileName(result.InstalledPath)}");
+                if (result.RemovedInstalledPaths.Count > 0)
+                    ctx.LogInfo($"Removed {result.RemovedInstalledPaths.Count} old installed copy(ies)");
+                return true;
+            },
+            IsEnabled: true,
+            CanDisable: true,
+            SecondaryOptions: string.IsNullOrWhiteSpace(profile.Uuid)
+                ? null
+                : [new OperationSecondaryOption(RemoveOldCopyOptionId, "Remove the old installed copy from this machine", DefaultEnabled: true)]
+        )).ToList();
+
+        var description =
+            $"Each selected profile is deleted in Apple Developer and recreated with the same name, type, bundle ID, certificates " +
+            $"and devices, plus '{device.Name}'. Disabled devices are left out and profiles that already include the device are " +
+            "left unchanged. Each recreated profile gets a new UUID and is installed on this machine. " +
+            "Deselect any profile you want to leave unchanged.";
+        if (profiles.Count >= IAppleConnectService.ProfileListLimit)
+        {
+            description += $" This team has at least {IAppleConnectService.ProfileListLimit} provisioning profiles, " +
+                "more than Sherpa can read in one request, so some profiles may be missing from this list.";
+        }
+
+        var outcome = await MultiOpModal.RunAsync("Add Device to Provisioning Profiles", description, operations);
+
+        var regeneratedResults = results.Where(result => !result.AlreadyIncluded).ToList();
+        foreach (var result in regeneratedResults)
+            PublishProfileHealth.RecordProvisioningProfileReplacement(result.OriginalProfile.Id, result.RegeneratedProfile!.Id);
+        if (regeneratedResults.Count > 0)
+            await Mediator.FlushStores($"apple:profiles:{identity.Id}");
+
+        if (outcome.Failed > 0)
+        {
+            await AlertService.ShowAlertAsync(
+                "Some Profiles Need Attention",
+                $"{outcome.Completed} profile(s) updated; {outcome.Failed} failed. " +
+                "A profile that failed before it was deleted is unchanged. Check the progress log of each failed profile for details.");
+        }
+
+        await OfferPublishProfileUpdatesAsync(regeneratedResults, profiles);
+    }
+
+    private async Task OfferPublishProfileUpdatesAsync(
+        IReadOnlyList<ProfileDeviceResult> regenerated,
+        IReadOnlyList<AppleProfile> profilesBefore)
+    {
+        PublishProfileHealth.Invalidate();
+        if (regenerated.Count == 0 || CloudSecretsService.ActiveProvider is null)
+            return;
+
+        IReadOnlyList<PublishProfile> publishProfiles;
+        try
+        {
+            publishProfiles = await PublishProfileService.GetProfilesAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning($"Could not load publish profiles after adding a device: {ex.Message}");
+            return;
+        }
+
+        var profileMap = regenerated
+            .GroupBy(result => result.OriginalProfile.Id)
+            .ToDictionary(group => group.Key, group => group.Last().RegeneratedProfile!);
+
+        var updates = publishProfiles
+            .Select(profile => (Original: profile, Updated: PublishProfileHealth.Repoint(
+                profile, new Dictionary<string, AppleCertificate>(), profileMap, profilesBefore, [])))
+            .Where(pair => !ReferenceEquals(pair.Original, pair.Updated))
+            .ToList();
+        if (updates.Count == 0)
+            return;
+
+        var names = string.Join(", ", updates.Take(5).Select(pair => $"'{pair.Original.Name}'"));
+        if (updates.Count > 5)
+            names += $" and {updates.Count - 5} more";
+
+        var confirmed = await AlertService.ShowConfirmAsync(
+            "Update Publish Profiles",
+            $"{updates.Count} publish profile(s) use a recreated provisioning profile: {names}.\n\n" +
+            "Update them to use the recreated provisioning profiles? " +
+            "If you skip this, they show an \"updated\" badge on the Publish Profiles page with a one-click fix.",
+            "Update",
+            "Not Now");
+        if (!confirmed)
+            return;
+
+        var saved = 0;
+        var failures = new List<string>();
+        foreach (var (original, updated) in updates)
+        {
+            try
+            {
+                await PublishProfileService.SaveProfileAsync(updated);
+                if (CloudSecretsService.ActiveProvider is { } provider)
+                {
+                    await SecretSyncCoordinator.ResolveConflictAsync(
+                        new SecretItemRef(SecretItemKind.PublishProfile, updated.Id, updated.Name),
+                        provider.Id);
+                }
+                saved++;
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError($"Failed to update publish profile '{original.Name}': {ex.Message}", ex);
+                failures.Add($"'{original.Name}': {ex.Message}");
+            }
+        }
+
+        if (failures.Count > 0)
+        {
+            await AlertService.ShowAlertAsync(
+                "Publish Profiles",
+                $"Updated {saved} publish profile(s). These couldn't be saved:\n{string.Join("\n", failures)}");
+        }
+        else
+        {
+            await AlertService.ShowToastAsync($"Updated {saved} publish profile(s)");
+        }
+    }
+
+    private static string FormatProfileType(string profileType) => profileType switch
+    {
+        "IOS_APP_DEVELOPMENT" => "iOS Development",
+        "IOS_APP_ADHOC" => "iOS Ad Hoc",
+        "MAC_APP_DEVELOPMENT" => "macOS Development",
+        "MAC_CATALYST_APP_DEVELOPMENT" => "Mac Catalyst Development",
+        "TVOS_APP_DEVELOPMENT" => "tvOS Development",
+        "TVOS_APP_ADHOC" => "tvOS Ad Hoc",
+        _ => profileType.Replace("_", " ")
+    };
+
+    /// <summary>Reports progress synchronously so log lines stay in order.</summary>
+    private sealed class ActionProgress(Action<string> report) : IProgress<string>
+    {
+        public void Report(string value) => report(value);
     }
 
     private async Task ToggleDevice(AppleDevice device, bool enable)
