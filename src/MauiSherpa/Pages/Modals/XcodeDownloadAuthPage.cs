@@ -36,11 +36,12 @@ public class XcodeDownloadAuthPage : WizardFormPage<bool>
     private bool _isEvaluatingCookies;
     private readonly Dictionary<string, int> _triedMyAcInfoAttempts = new(StringComparer.Ordinal);
 
+    // Prefix ID selectors with * so excluded raw-string lines aren't parsed as C# directives.
     private const string CleanSignInLayoutScript = """
         (function() {
             var style = document.createElement('style');
             style.textContent = `
-                #ac-globalfooter, footer { display: none !important; }
+                *#ac-globalfooter, footer { display: none !important; }
                 html, body {
                     overflow-x: hidden !important;
                     margin: 0 !important;
@@ -58,7 +59,7 @@ public class XcodeDownloadAuthPage : WizardFormPage<bool>
                     padding: 0 !important;
                     overflow: hidden !important;
                 }
-                #auth-container iframe, #aid-auth-widget-iFrame {
+                *#auth-container iframe, #aid-auth-widget-iFrame {
                     height: 100% !important;
                     min-height: 100% !important;
                     max-height: 100% !important;

@@ -55,6 +55,15 @@ jobs:
           dotnet build tests/MauiSherpa.Workloads.Tests --configuration Release
           dotnet build tests/MauiSherpa.AppInspector.Cli.Tests --configuration Release
 
+      - name: Build Linux app
+        run: |
+          dotnet build src/MauiSherpa.LinuxGtk/MauiSherpa.LinuxGtk.csproj \
+            --configuration Release \
+            --runtime linux-x64 \
+            -p:CreateAppImage=false \
+            -p:CreateDeb=false \
+            -p:CreateFlatpak=false
+
       - name: Run tests
         run: |
           dotnet test tests/MauiSherpa.Core.Tests --configuration Release --no-build --verbosity normal --logger "trx;LogFileName=test-results.trx"
