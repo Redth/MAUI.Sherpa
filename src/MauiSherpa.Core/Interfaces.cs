@@ -231,6 +231,13 @@ public interface IAndroidSdkService
     event Action? SdkPathChanged;
 }
 
+public interface IAndroidAdbService
+{
+    Task<AndroidAdbSnapshot> GetSnapshotAsync(CancellationToken ct = default);
+    Task PairAsync(string endpoint, string pairingCode, CancellationToken ct = default);
+    Task ConnectAsync(string endpoint, CancellationToken ct = default);
+}
+
 public interface ILogcatService : IDisposable
 {
     bool IsRunning { get; }
@@ -563,7 +570,17 @@ public record DeviceInfo(
     string State,
     string? Model,
     bool IsEmulator
-);
+)
+{
+    public bool IsWireless => !IsEmulator &&
+        (Serial.Contains(':') || Serial.Contains("._adb-tls-connect.", StringComparison.OrdinalIgnoreCase));
+}
+
+public record RunningAndroidEmulator(string Serial, string? AvdName);
+
+public record AndroidAdbSnapshot(
+    IReadOnlyList<DeviceInfo> Devices,
+    IReadOnlyList<RunningAndroidEmulator> Emulators);
 
 public record AvdInfo(
     string Name,
@@ -1629,6 +1646,8 @@ public record PhysicalDevice(
     public bool IsPaired => PairingState == "paired";
     public bool IsConnected => ConnectionState == "connected";
     public bool IsWired => TransportType is "wired" or "usb";
+    public bool IsWireless => TransportType is "localNetwork" or "wifi" or "wireless";
+    public string TransportLabel => IsWired ? "USB" : IsWireless ? "Wi-Fi" : "Unknown connection";
 }
 
 public enum ApplePairingState

@@ -551,7 +551,22 @@ public class AndroidSdkService : IAndroidSdkService
 
             try
             {
+                var matches = _sdkManager.AvdManager.ListAvds()
+                    .Where(avd => avd.Name == name).Take(2).ToList();
+                if (matches.Count != 1 || string.IsNullOrWhiteSpace(matches[0].Path))
+                {
+                    _logger.LogError($"Cannot verify AVD before deletion: {name}");
+                    return false;
+                }
+
+                var avdPath = matches[0].Path;
                 _sdkManager.AvdManager.Delete(name);
+                if (Directory.Exists(avdPath) || _sdkManager.AvdManager.ListAvds().Any(avd => avd.Name == name))
+                {
+                    _logger.LogError($"AVD deletion did not remove the emulator completely: {name}");
+                    return false;
+                }
+
                 _logger.LogInformation($"Deleted AVD: {name}");
                 return true;
             }

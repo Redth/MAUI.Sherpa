@@ -33,11 +33,11 @@ MAUI Sherpa is a desktop application for **macOS**, **Windows**, and **Linux** t
 - Search and filter packages
 - Track installed vs available packages
 
-### 📱 Android Emulators
-- Create, edit, and delete emulators
-- Start and stop emulators
-- Create snapshots for quick boot
-- View emulator details and configuration
+### 📱 Android Devices and Emulators
+- View USB and Wi-Fi devices alongside Android emulators
+- Pair and connect devices using wireless debugging
+- Create, start, stop, and delete emulators, including bulk deletion
+- Search and filter emulators by state, device type, and Android version
 
 ### Android Wireless Devices
 - Pair a device without Android Studio from **Android Devices > Pair over Wi-Fi**; the sheet lists **Available Devices** (found on your network, refreshed every few seconds) and **My Devices** (connected to adb, with live status)
@@ -106,15 +106,11 @@ MAUI Sherpa is a desktop application for **macOS**, **Windows**, and **Linux** t
 </details>
 
 <details>
-<summary><strong>📱 Android Emulators</strong></summary>
+<summary><strong>📱 Android Devices and Emulators</strong></summary>
+
+These screenshots show the earlier separate views; devices and emulators are now combined on one page.
 
 ![Emulators](website/images/screenshots/Android-Emulators-List.png)
-
-</details>
-
-<details>
-<summary><strong>📲 Android Devices</strong></summary>
-
 ![Android Devices](website/images/screenshots/Android-Devices-List.png)
 
 </details>

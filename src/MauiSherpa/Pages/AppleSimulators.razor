@@ -1,6 +1,7 @@
 @page "/apple-simulators"
 @using MauiSherpa.Core.Interfaces
 @using MauiSherpa.Core.Requests.Apple
+@using MauiSherpa.Core.Services
 @using MauiSherpa.Services
 @using Shiny.Mediator
 @inject IMediator Mediator
@@ -9,6 +10,7 @@
 @inject IDialogService DialogService
 @inject IFileSystemService FileSystem
 @inject OperationModalService OperationModal
+@inject IMultiOperationModalService MultiOperationModal
 @inject BlazorToastService ToastService
 @inject SimInspectorService SimInspector
 @inject IPhysicalDeviceService PhysicalDeviceService
@@ -20,7 +22,7 @@
 @inject MauiSherpa.Pages.Forms.HybridFormBridgeHolder BridgeHolder
 @implements IDisposable
 
-<h1><i class="fas fa-tablet-screen-button"></i> Apple Devices</h1>
+<h1 class="visually-hidden">Apple Devices &amp; Simulators</h1>
 
 @if (!SimulatorService.IsSupported)
 {
@@ -33,11 +35,8 @@
 else
 {
 <!-- Physical Devices Section -->
-<div class="physical-device-heading">
-    <div class="section-label"><i class="fas fa-mobile-alt"></i> Physical Devices</div>
-    <button class="btn btn-primary" @ref="pairButton" @onclick="() => ShowPairing()" disabled="@(!PairingService.IsSupported)">
-        <i class="fas fa-link"></i> Pair Device
-    </button>
+<div class="device-section-heading">
+    <h2 class="device-section-label"><i class="fas fa-mobile-alt" aria-hidden="true"></i> Physical Devices</h2>
 </div>
 @if (physicalDevicesError != null)
 {
@@ -79,9 +78,12 @@ else
                     <div class="simulator-badges">
                         <span class="badge @(device.IsConnected ? "badge-success" : "badge-shutdown")">@(device.IsConnected ? "Connected" : "Offline / not verified")</span>
                         <span class="badge @(device.IsPaired ? "badge-success" : "badge-warning")">@(device.IsPaired ? "Paired" : device.PairingState == "unpaired" ? "Not paired" : "Pairing unknown")</span>
-                        <span class="badge badge-transport">
-                            <i class="@(device.IsWired ? "fab fa-usb" : "fas fa-wifi")"></i> @device.TransportType
-                        </span>
+                        @if (device.IsConnected)
+                        {
+                            <span class="badge badge-transport">
+                                <i class="@(device.IsWired ? "fab fa-usb" : device.IsWireless ? "fas fa-wifi" : "fas fa-question-circle")" aria-hidden="true"></i> @device.TransportLabel
+                            </span>
+                        }
                         @if (device.DeveloperModeStatus == "disabled")
                         {
                             <span class="badge badge-warning">Developer Mode off</span>
@@ -89,7 +91,7 @@ else
                     </div>
                 </div>
                 <div class="simulator-actions">
-                    <button class="btn btn-secondary btn-icon" @onclick="() => ShowPairing(device.Identifier)" title="Pair or check connection" aria-label="@($"Pair or check connection for {device.Name}")">
+                    <button class="btn btn-secondary btn-icon" @onclick="() => ShowPairing(device.Identifier)" disabled="@isUnpairing" title="Pair or check connection" aria-label="@($"Pair or check connection for {device.Name}")">
                         <i class="fas fa-link"></i>
                     </button>
                     <button class="btn btn-info btn-icon" @onclick="@(() => SimInspector.Open(device.Identifier, device.Name, SimInspectorTab.Logs, isPhysicalDevice: true))" disabled="@(!device.IsPaired || !device.IsConnected)" title="Logs">
@@ -101,6 +103,12 @@ else
                     <button class="btn btn-secondary btn-icon" @onclick="@(() => InstallAppOnDevice(device))" disabled="@(!device.IsPaired || !device.IsConnected || device.DeveloperModeStatus == "disabled")" title="Install App">
                         <i class="fas fa-download"></i>
                     </button>
+                    @if (device.IsPaired)
+                    {
+                        <button class="btn btn-danger btn-icon" @onclick="() => UnpairDevice(device)" disabled="@(isUnpairing || showPairing)" title="Unpair device" aria-label="@($"Unpair {device.Name}")">
+                            <i class="fas fa-unlink"></i>
+                        </button>
+                    }
                 </div>
             </div>
         }
@@ -108,13 +116,24 @@ else
 }
 
 <!-- Simulators Section -->
-<div class="section-label"><i class="fas fa-desktop"></i> Simulators</div>
+<div class="device-section-heading device-section-heading-spaced">
+    <h2 class="device-section-label"><i class="fas fa-desktop" aria-hidden="true"></i> Simulators</h2>
+    @if (!isSelectionMode)
+    {
+        <button class="btn btn-secondary" @onclick="BeginSelectionMode" disabled="@(isLoading || isDeletingSimulator || simulators.Count == 0)">
+            <i class="fas fa-check-square"></i> Select
+        </button>
+    }
+</div>
 
 @if (!Platform.HasNativeToolbar)
 {
 <div class="toolbar">
     <button class="btn btn-primary" @onclick="RefreshAll" disabled="@(isLoading || isLoadingDevices)">
         <i class="fas @(isLoading ? "fa-spinner fa-spin" : "fa-sync-alt")"></i> Refresh
+    </button>
+    <button class="btn btn-primary" @ref="pairButton" @onclick="() => ShowPairing()" disabled="@(!PairingService.IsSupported || isUnpairing)">
+        <i class="fas fa-link"></i> Pair Device
     </button>
     <button class="btn btn-success" @onclick="ShowCreateDialog" disabled="@isLoading">
         <i class="fas fa-plus"></i> Create Simulator
@@ -163,6 +182,32 @@ else
     }
 }
 
+@if (isSelectionMode)
+{
+    <div class="simulator-selection-bar">
+        <label class="simulator-select-all">
+            <input type="checkbox" checked="@AllVisibleSimulatorsSelected"
+                   disabled="@(isLoading || isDeletingSimulator || !SelectableSimulators.Any())"
+                   @onchange="ToggleAllVisibleSimulators" />
+            <span>Select all shown</span>
+        </label>
+        <span class="simulator-selection-count" role="status">
+            @selectedSimulatorIds.Count selected
+            @if (HiddenSelectionCount > 0)
+            {
+                <span>(@HiddenSelectionCount hidden by filters)</span>
+            }
+        </span>
+        <div class="simulator-selection-actions">
+            <button class="btn btn-secondary" @onclick="CancelSelectionMode" disabled="@isDeletingSimulator">Cancel Selection</button>
+            <button class="btn btn-danger" @onclick="DeleteSelectedSimulators"
+                    disabled="@(isLoading || isDeletingSimulator || selectedSimulatorIds.Count == 0)">
+                <i class="fas fa-trash"></i> Delete Selected
+            </button>
+        </div>
+    </div>
+}
+
 <div class="simulator-list">
     @if (isLoading && simulators.Count == 0)
     {
@@ -196,7 +241,18 @@ else
         {
             var isBooted = sim.State == "Booted";
             var isBooting = bootingSimulators.Contains(sim.Udid);
-            <div class="simulator-card @(isBooted ? "running" : "") @(isBooting ? "starting" : "")">
+            <div @key="sim.Udid"
+                 class="simulator-card @(isBooted ? "running" : "") @(isBooting ? "starting" : "") @(selectedSimulatorIds.Contains(sim.Udid) ? "selected" : "") @(isSelectionMode && !isLoading && !isDeletingSimulator && !isBooting ? "selectable" : "")"
+                 @onclick="() => { if (isSelectionMode) ToggleSimulatorSelection(sim.Udid, !selectedSimulatorIds.Contains(sim.Udid)); }">
+                @if (isSelectionMode)
+                {
+                    <label class="simulator-select" @onclick:stopPropagation="true">
+                        <input type="checkbox" aria-label="@($"Select {sim.Name} ({sim.Runtime ?? sim.RuntimeIdentifier}, {sim.Udid})")"
+                               checked="@selectedSimulatorIds.Contains(sim.Udid)"
+                               disabled="@(isLoading || isDeletingSimulator || isBooting)"
+                               @onchange="e => ToggleSimulatorSelection(sim.Udid, e.Value is true)" />
+                    </label>
+                }
                 <div class="simulator-icon">
                     @if (isBooting)
                     {
@@ -222,7 +278,7 @@ else
                     </div>
                     <div class="simulator-udid">
                         <span class="@(demoMode ? "demo-blur" : "")">@sim.Udid</span>
-                        <button class="btn-copy" @onclick="@(() => CopyToClipboard(sim.Udid))" title="Copy UDID">
+                        <button class="btn-copy" @onclick="@(() => CopyToClipboard(sim.Udid))" @onclick:stopPropagation="true" title="Copy UDID">
                             <i class="fas fa-copy"></i>
                         </button>
                     </div>
@@ -245,6 +301,8 @@ else
                         }
                     </div>
                 </div>
+                @if (!isSelectionMode)
+                {
                 <div class="simulator-actions">
                     @if (isBooting)
                     {
@@ -266,10 +324,13 @@ else
                     }
                     else
                     {
-                        <button class="btn btn-success btn-icon" @onclick="@(() => BootSimulator(sim))" disabled="@isLoading" title="Boot">
+                        <button class="btn btn-success btn-icon" @onclick="@(() => BootSimulator(sim))" disabled="@(isLoading || isDeletingSimulator || !sim.IsAvailable)" title="Boot">
                             <i class="fas fa-play"></i>
                         </button>
                     }
+                    <button class="btn btn-danger btn-icon" @onclick="() => DeleteSimulator(sim)" disabled="@(isLoading || isDeletingSimulator || isBooting)" title="Delete simulator" aria-label="@($"Delete {sim.Name}")">
+                        <i class="fas fa-trash"></i>
+                    </button>
                     <div class="sim-dropdown">
                         <button class="btn btn-secondary btn-icon sim-dropdown-toggle" @onclick="@(() => ToggleDropdown(sim.Udid))" @onclick:stopPropagation="true" title="More actions">
                             <i class="fas fa-ellipsis-v"></i>
@@ -287,14 +348,11 @@ else
                                 <button class="sim-dropdown-item" @onclick="@(() => { CloseDropdown(); EraseSimulator(sim); })" disabled="@(isLoading || isBooted || isBooting)">
                                     <i class="fas fa-rotate-left"></i> Reset
                                 </button>
-                                <div class="sim-dropdown-divider"></div>
-                                <button class="sim-dropdown-item danger" @onclick="@(() => { CloseDropdown(); DeleteSimulator(sim); })" disabled="@(isLoading || isBooted || isBooting)">
-                                    <i class="fas fa-trash"></i> Delete
-                                </button>
                             </div>
                         }
                     </div>
                 </div>
+                }
             </div>
         }
     }
@@ -303,8 +361,14 @@ else
 } @* end else IsSupported *@
 
 <style>
-    .physical-device-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 0.75rem; }
-    .physical-device-heading .section-label { margin-bottom: 0; }
+    .simulator-selection-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 0.75rem; padding: 0.75rem; margin-bottom: 0.75rem; background: var(--card-bg); border-radius: var(--card-radius); color: var(--text-primary); }
+    .simulator-selection-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 0.75rem; }
+    .simulator-select-all { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; }
+    .simulator-selection-count { flex: 1; font-size: 0.875rem; color: var(--text-secondary); }
+    .simulator-select { display: flex; align-items: center; justify-content: center; padding: 0.5rem; cursor: pointer; }
+    .simulator-select input, .simulator-select-all input { width: 1rem; height: 1rem; accent-color: var(--accent-primary); cursor: pointer; }
+    .simulator-card.selectable { cursor: pointer; }
+    .simulator-card.selected { outline: 2px solid var(--accent-primary); outline-offset: -2px; }
     .physical-device-error { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.875rem; margin-bottom: 0.75rem; color: var(--accent-danger); background: var(--status-error-bg); border: 1px solid var(--accent-danger); border-radius: 0.5rem; }
     .not-supported {
         text-align: center;
@@ -318,12 +382,6 @@ else
     .not-supported .warning-icon i { font-size: 48px; }
     .not-supported h2 { color: var(--accent-danger); margin-bottom: 0.5rem; }
     .not-supported p { color: var(--text-muted); }
-
-    h1 {
-        margin-bottom: 1.25rem;
-        font-size: 1.75rem;
-        color: var(--text-primary);
-    }
 
     .toolbar {
         margin-bottom: 1.25rem;
@@ -477,6 +535,7 @@ else
 
     .simulator-badges {
         display: flex;
+        flex-wrap: wrap;
         gap: 0.5rem;
         margin-top: 0.5rem;
     }
@@ -581,15 +640,6 @@ else
         50% { opacity: 0.5; transform: scale(1.1); }
     }
 
-    /* Section labels */
-    .section-label {
-        font-size: 0.6875rem; font-weight: 600;
-        text-transform: uppercase; letter-spacing: 0.05em;
-        margin-top: 1.25rem; margin-bottom: 0.5rem;
-        display: flex; align-items: center; gap: 0.375rem;
-        color: var(--text-muted);
-    }
-    .section-label i { font-size: 0.6875rem; }
     .loading-indicator { color: var(--text-muted); font-size: 0.8125rem; padding: 0.75rem; display: flex; align-items: center; gap: 0.5rem; }
     .empty-hint {
         color: var(--text-muted); font-size: 0.8125rem; padding: 1rem;
@@ -618,6 +668,10 @@ else
     private HashSet<string> bootingSimulators = new();
     private bool isLoading = false;
     private bool isLoadingDevices = false;
+    private bool isUnpairing;
+    private bool isDeletingSimulator;
+    private bool isSelectionMode;
+    private readonly HashSet<string> selectedSimulatorIds = new(StringComparer.Ordinal);
     private bool showPairing;
     private string? physicalDevicesError;
     private ElementReference pairButton;
@@ -653,6 +707,85 @@ else
                     (s.Runtime?.Equals(filterRuntime, StringComparison.OrdinalIgnoreCase) ?? false))
         .OrderByDescending(s => s.State == "Booted")
         .ThenBy(s => s.Name);
+
+    private IEnumerable<SimulatorDevice> SelectableSimulators => FilteredSimulators
+        .Where(sim => !bootingSimulators.Contains(sim.Udid));
+
+    private bool AllVisibleSimulatorsSelected => SelectableSimulators.Any() &&
+        SelectableSimulators.All(sim => selectedSimulatorIds.Contains(sim.Udid));
+
+    private int HiddenSelectionCount => selectedSimulatorIds.Count -
+        FilteredSimulators.Count(sim => selectedSimulatorIds.Contains(sim.Udid));
+
+    private void BeginSelectionMode()
+    {
+        if (isLoading || isDeletingSimulator) return;
+        CloseDropdown();
+        selectedSimulatorIds.Clear();
+        isSelectionMode = true;
+    }
+
+    private void CancelSelectionMode()
+    {
+        if (isDeletingSimulator) return;
+        selectedSimulatorIds.Clear();
+        isSelectionMode = false;
+    }
+
+    private void ToggleSimulatorSelection(string udid, bool selected)
+    {
+        if (isLoading || isDeletingSimulator || bootingSimulators.Contains(udid)) return;
+        if (selected)
+            selectedSimulatorIds.Add(udid);
+        else
+            selectedSimulatorIds.Remove(udid);
+    }
+
+    private void ToggleAllVisibleSimulators(ChangeEventArgs args)
+    {
+        if (isLoading || isDeletingSimulator) return;
+        var visibleIds = SelectableSimulators.Select(sim => sim.Udid);
+        if (args.Value is true)
+            selectedSimulatorIds.UnionWith(visibleIds);
+        else
+            selectedSimulatorIds.ExceptWith(visibleIds);
+    }
+
+    private async Task DeleteSelectedSimulators()
+    {
+        if (isLoading || isDeletingSimulator) return;
+        var selected = simulators.Where(sim => selectedSimulatorIds.Contains(sim.Udid)).ToList();
+        if (selected.Count == 0) return;
+
+        isDeletingSimulator = true;
+        try
+        {
+            var operations = selected.Select(sim => new OperationItem(
+                sim.Udid,
+                sim.Name,
+                $"{sim.Runtime ?? sim.RuntimeIdentifier} - {sim.Udid}",
+                context => SimulatorDeletion.RunAsync(SimulatorService, sim, context))).ToList();
+
+            var result = await MultiOperationModal.RunAsync(
+                "Delete Simulators",
+                $"Delete {selected.Count} selected simulator{(selected.Count == 1 ? "" : "s")} and all of their apps and data? " +
+                "Running simulators will be shut down first. This cannot be undone. Uncheck any simulator you want to keep, then choose Run to confirm deletion.",
+                operations);
+
+            var deletedIds = result.OperationResults.Where(op => op.State == OperationItemState.Completed)
+                .Select(op => op.Id).ToHashSet(StringComparer.Ordinal);
+            simulators.RemoveAll(sim => deletedIds.Contains(sim.Udid));
+            selectedSimulatorIds.ExceptWith(deletedIds);
+            if (result.OperationResults.Any(op => op.State != OperationItemState.Pending))
+                await RefreshSimulators(forceRefresh: true);
+            if (selectedSimulatorIds.Count == 0)
+                isSelectionMode = false;
+        }
+        finally
+        {
+            isDeletingSimulator = false;
+        }
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -707,7 +840,8 @@ else
             await Task.WhenAll(simTask, dtTask, rtTask);
 
             var (_, simResult) = await simTask;
-            simulators = simResult?.Where(s => s.IsAvailable).ToList() ?? new();
+            simulators = simResult?.ToList() ?? new();
+            selectedSimulatorIds.IntersectWith(simulators.Select(sim => sim.Udid));
 
             var (_, dtResult) = await dtTask;
             availableDeviceTypes = dtResult?.ToList() ?? new();
@@ -845,41 +979,32 @@ else
 
     private async Task DeleteSimulator(SimulatorDevice sim)
     {
-        var confirm = await AlertService.ShowConfirmAsync(
-            "Delete Simulator",
-            $"Are you sure you want to delete '{sim.Name}'? This cannot be undone.");
-
-        if (!confirm) return;
-
-        var result = await OperationModal.RunAsync(
-            "Delete Simulator",
-            $"Deleting '{sim.Name}'...",
-            async ctx =>
-            {
-                ctx.LogInfo($"Simulator: {sim.Name}");
-                ctx.LogInfo($"UDID: {sim.Udid}");
-                ctx.SetStatus("Deleting simulator...");
-
-                var success = await SimulatorService.DeleteSimulatorAsync(sim.Udid,
-                    new Progress<string>(msg =>
-                    {
-                        ctx.LogInfo(msg);
-                        ctx.SetStatus(msg);
-                    }));
-
-                if (success)
-                {
-                    ctx.LogSuccess($"Simulator '{sim.Name}' deleted");
-                }
-                return success;
-            },
-            canCancel: false);
-
-        if (result.Success)
+        if (isDeletingSimulator || bootingSimulators.Contains(sim.Udid)) return;
+        isDeletingSimulator = true;
+        try
         {
-            simulators.RemoveAll(s => s.Udid == sim.Udid);
-            StateHasChanged();
-            await RefreshSimulators(forceRefresh: true);
+            var confirm = await AlertService.ShowConfirmAsync(
+                "Delete Simulator",
+                $"Delete '{sim.Name}' and all of its apps and data? If running, it will be shut down first. This cannot be undone.");
+
+            if (!confirm) return;
+
+            var result = await OperationModal.RunAsync(
+                "Delete Simulator",
+                $"Deleting '{sim.Name}'...",
+                ctx => SimulatorDeletion.RunAsync(SimulatorService, sim, ctx),
+                canCancel: false);
+
+            if (result.Success)
+            {
+                simulators.RemoveAll(s => s.Udid == sim.Udid);
+                StateHasChanged();
+                await RefreshSimulators(forceRefresh: true);
+            }
+        }
+        finally
+        {
+            isDeletingSimulator = false;
         }
     }
 
@@ -966,7 +1091,7 @@ else
     // Physical devices
     private async Task ShowPairing(string? identifier = null)
     {
-        if (showPairing) return;
+        if (showPairing || isUnpairing) return;
         showPairing = true;
         try
         {
@@ -980,12 +1105,48 @@ else
         finally
         {
             showPairing = false;
-            try { await pairButton.FocusAsync(); }
-            catch (Exception) { /* The page may have navigated away while the sheet was open. */ }
+            if (!Platform.HasNativeToolbar)
+            {
+                try { await pairButton.FocusAsync(); }
+                catch (Exception) { /* The page may have navigated away while the sheet was open. */ }
+            }
         }
     }
 
     private Task RefreshAll() => Task.WhenAll(RefreshSimulators(forceRefresh: true), RefreshPhysicalDevices());
+
+    private async Task UnpairDevice(PhysicalDevice device)
+    {
+        if (isUnpairing || showPairing) return;
+        isUnpairing = true;
+        try
+        {
+            if (!await AlertService.ShowConfirmAsync("Unpair Device",
+                $"Remove this Mac's pairing with '{device.Name}'? This does not erase the device. You will need to pair it again to use it for development."))
+                return;
+
+            await OperationModal.RunAsync(
+                "Unpair Device",
+                $"Unpairing '{device.Name}'...",
+                async ctx =>
+                {
+                    var result = await PairingService.UnpairAsync(device.Identifier);
+                    if (result.State == ApplePairingState.Unpaired)
+                    {
+                        ctx.LogSuccess(result.Message);
+                        return true;
+                    }
+                    ctx.LogError(result.Message);
+                    return false;
+                },
+                canCancel: false);
+            await RefreshPhysicalDevices();
+        }
+        finally
+        {
+            isUnpairing = false;
+        }
+    }
 
     private async Task RefreshPhysicalDevices()
     {
@@ -1066,6 +1227,7 @@ else
     {
         InvokeAsync(async () =>
         {
+            if (isDeletingSimulator) return;
             switch (actionId)
             {
                 case "refresh":

@@ -354,7 +354,7 @@ public class PhysicalDeviceService : IPhysicalDeviceService
         var cp = GetObject(properties, "connection", GetObject(device, "connectionProperties"));
         var platform = GetStr(hp, "osPlatform") ?? GetStr(hp, "platform") ?? "unknown";
         var transport = GetStr(cp, "transportType") ?? "unknown";
-        var fidelity = GetStr(hp, "fidelity") ?? "unknown";
+        var fidelity = GetStr(hp, "fidelity") ?? GetStr(hp, "reality") ?? "unknown";
 
         // JSON v6 includes simulators, sometimes with the same platform as a real phone.
         if (fidelity == "simulated" || transport == "sameMachine" ||
