@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Net;
 using System.Security.Cryptography;
+using System.Text.RegularExpressions;
 using MauiSherpa.Core.Interfaces;
 using QRCoder;
 
@@ -13,7 +14,16 @@ public sealed class AndroidWirelessPairingService : IAndroidWirelessPairingServi
     private readonly ILoggingService _logger;
     private readonly Func<string?> _resolveAdb;
     private readonly Func<ProcessStartInfo, string?, CancellationToken, Task<AdbCommandResult>> _run;
+    private readonly int? _discoveryPort;
+    private readonly TimeSpan _connectAfterPair;
+    private int _discoveryServerStarted;
     private static readonly TimeSpan CommandTimeout = TimeSpan.FromSeconds(30);
+    private static readonly Regex PairedGuid = new(@"\[guid=([^\]\s]+)\]", RegexOptions.CultureInvariant);
+
+    // A long-running adb server reads the network interfaces once at startup, so after a Wi-Fi change its mDNS
+    // discovery goes quiet. Sherpa also asks a private, discovery-only adb server (no USB, no emulators, no
+    // auto-connect) that starts fresh for each pairing session.
+    internal const int DiscoveryServerPort = 15037;
 
     public AndroidWirelessPairingService(IAndroidSdkService sdk, ILoggingService logger)
         : this(logger, () =>
@@ -23,18 +33,22 @@ public sealed class AndroidWirelessPairingService : IAndroidWirelessPairingServi
                 return null;
             var path = Path.Combine(sdkPath, "platform-tools", OperatingSystem.IsWindows() ? "adb.exe" : "adb");
             return File.Exists(path) ? path : null;
-        }, RunProcessAsync)
+        }, RunProcessAsync, DiscoveryServerPort, TimeSpan.FromSeconds(10))
     {
     }
 
     internal AndroidWirelessPairingService(
         ILoggingService logger,
         Func<string?> resolveAdb,
-        Func<ProcessStartInfo, string?, CancellationToken, Task<AdbCommandResult>> run)
+        Func<ProcessStartInfo, string?, CancellationToken, Task<AdbCommandResult>> run,
+        int? discoveryPort = null,
+        TimeSpan? connectAfterPair = null)
     {
         _logger = logger;
         _resolveAdb = resolveAdb;
         _run = run;
+        _discoveryPort = discoveryPort;
+        _connectAfterPair = connectAfterPair ?? TimeSpan.Zero;
     }
 
     public AndroidWirelessQrSession CreateQrPairingSession()
@@ -108,6 +122,10 @@ public sealed class AndroidWirelessPairingService : IAndroidWirelessPairingServi
             if (result.ExitCode == 0 && result.Output.Trim().StartsWith("Successfully paired to ", StringComparison.OrdinalIgnoreCase))
             {
                 _logger.LogInformation("Android wireless pairing succeeded.");
+                var guid = PairedGuid.Match(result.Output);
+                if (guid.Success && _connectAfterPair > TimeSpan.Zero &&
+                    await ConnectPairedDeviceAsync(guid.Groups[1].Value, ct) is { } connected)
+                    return connected;
                 return new(AndroidWirelessOperationState.Paired,
                     "Paired successfully. Pairing does not guarantee a debugging connection. Use the connection address from the main Wireless debugging screen if the device is not connected automatically.");
             }
@@ -117,6 +135,45 @@ public sealed class AndroidWirelessPairingService : IAndroidWirelessPairingServi
         catch (Exception ex) when (ex is Win32Exception or IOException or InvalidOperationException or TimeoutException)
         {
             return Fail(OperationError(ex));
+        }
+    }
+
+    // adb normally auto-connects a newly paired device through mDNS, but not when its discovery has gone stale.
+    // Returns null when the device's debugging service can't be found so the caller reports a plain pairing.
+    private async Task<AndroidWirelessOperationResult?> ConnectPairedDeviceAsync(string guid, CancellationToken ct)
+    {
+        var deadline = DateTimeOffset.UtcNow + _connectAfterPair;
+        try
+        {
+            while (true)
+            {
+                var devices = await ExecuteAsync(["devices"], null, ct);
+                if (devices.ExitCode == 0 && devices.Output.Split('\n').Any(line =>
+                        line.StartsWith(guid + ".", StringComparison.Ordinal) && line.TrimEnd().EndsWith("device", StringComparison.Ordinal)))
+                    return new(AndroidWirelessOperationState.Connected, "Paired and connected for debugging.");
+
+                var service = (await DiscoverAsync(ct)).Services.FirstOrDefault(s =>
+                    !s.IsPairing && string.Equals(s.Name, guid, StringComparison.Ordinal));
+                if (service != null)
+                {
+                    var connection = await ConnectAsync(service.Endpoint, ct);
+                    return connection.State switch
+                    {
+                        AndroidWirelessOperationState.Connected => new(AndroidWirelessOperationState.Connected, "Paired and connected for debugging."),
+                        AndroidWirelessOperationState.ConnectionPending => connection,
+                        _ => null
+                    };
+                }
+
+                if (DateTimeOffset.UtcNow >= deadline)
+                    return null;
+                await Task.Delay(1000, ct);
+            }
+        }
+        catch (Exception ex) when (ex is Win32Exception or IOException or InvalidOperationException or TimeoutException)
+        {
+            _logger.LogWarning("Android wireless pairing succeeded, but connecting afterwards failed.");
+            return null;
         }
     }
 
@@ -158,13 +215,42 @@ public sealed class AndroidWirelessPairingService : IAndroidWirelessPairingServi
 
     public async Task<AndroidWirelessDiscoveryResult> DiscoverAsync(CancellationToken ct = default)
     {
+        var main = await DiscoverWithAsync(null, ct);
+        if (_discoveryPort is not int port)
+            return main;
+
+        Interlocked.Exchange(ref _discoveryServerStarted, 1);
+        var fresh = await DiscoverWithAsync(port, ct);
+        if (!fresh.Success)
+            return main;
+        if (!main.Success)
+            return fresh;
+        return new(true, main.Services.Concat(fresh.Services).Distinct().ToArray());
+    }
+
+    public async Task StopDiscoveryAsync()
+    {
+        if (_discoveryPort is not int port || Interlocked.Exchange(ref _discoveryServerStarted, 0) == 0)
+            return;
         try
         {
-            var result = await ExecuteAsync(["mdns", "services"], null, ct);
+            await ExecuteAsync(["kill-server"], null, CancellationToken.None, port);
+        }
+        catch (Exception ex) when (ex is Win32Exception or IOException or InvalidOperationException or TimeoutException)
+        {
+            _logger.LogDebug("The private Android discovery server was already stopped.");
+        }
+    }
+
+    private async Task<AndroidWirelessDiscoveryResult> DiscoverWithAsync(int? serverPort, CancellationToken ct)
+    {
+        try
+        {
+            var result = await ExecuteAsync(["mdns", "services"], null, ct, serverPort);
             if (result.ExitCode != 0 || result.Output.Contains("unknown command", StringComparison.OrdinalIgnoreCase) ||
                 result.Output.Contains("ERROR:", StringComparison.OrdinalIgnoreCase))
             {
-                _logger.LogWarning("Android wireless discovery failed.");
+                LogDiscoveryFailure(serverPort);
                 return new(false, [], DescribeFailure(result,
                     "Network discovery is unavailable. Update Android SDK platform-tools or enter the device address manually."));
             }
@@ -190,9 +276,17 @@ public sealed class AndroidWirelessPairingService : IAndroidWirelessPairingServi
         }
         catch (Exception ex) when (ex is Win32Exception or IOException or InvalidOperationException or TimeoutException or FormatException)
         {
-            _logger.LogWarning("Android wireless discovery failed.");
+            LogDiscoveryFailure(serverPort);
             return new(false, [], OperationError(ex));
         }
+    }
+
+    private void LogDiscoveryFailure(int? serverPort)
+    {
+        if (serverPort == null)
+            _logger.LogWarning("Android wireless discovery failed.");
+        else
+            _logger.LogDebug("Private Android discovery server did not answer.");
     }
 
     public static bool TryNormalizeEndpoint(string? input, out string endpoint)
@@ -221,7 +315,8 @@ public sealed class AndroidWirelessPairingService : IAndroidWirelessPairingServi
         return true;
     }
 
-    private async Task<AdbCommandResult> ExecuteAsync(IReadOnlyList<string> arguments, string? input, CancellationToken ct)
+    private async Task<AdbCommandResult> ExecuteAsync(IReadOnlyList<string> arguments, string? input, CancellationToken ct,
+        int? discoveryServerPort = null)
     {
         ct.ThrowIfCancellationRequested();
         var path = _resolveAdb();
@@ -236,6 +331,15 @@ public sealed class AndroidWirelessPairingService : IAndroidWirelessPairingServi
             RedirectStandardError = true,
             CreateNoWindow = true
         };
+        if (discoveryServerPort is int port)
+        {
+            startInfo.ArgumentList.Add("-P");
+            startInfo.ArgumentList.Add(port.ToString(CultureInfo.InvariantCulture));
+            // Read by the server this command auto-starts: never claim USB devices, scan emulators, or connect anything.
+            startInfo.Environment["ADB_USB"] = "0";
+            startInfo.Environment["ADB_EMU"] = "0";
+            startInfo.Environment["ADB_MDNS_AUTO_CONNECT"] = "0";
+        }
         foreach (var argument in arguments)
             startInfo.ArgumentList.Add(argument);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);

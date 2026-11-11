@@ -658,7 +658,7 @@ connection. Addresses and ports stay out of the way unless the network forces a 
             if (result.Success)
             {
                 qrView = false;
-                banner = ("Paired", result);
+                banner = (Title(result, "Paired", "Couldn't pair"), result);
             }
             else
             {
@@ -800,6 +800,7 @@ connection. Addresses and ports stay out of the way unless the network forces a 
         await lifetime.CancelAsync();
         await CancelOperationAsync();
         if (pollTask != null) await pollTask;
+        await PairingService.StopDiscoveryAsync();
         if (initialized)
         {
             try { await JS.InvokeVoidAsync("modalInterop.dispose", contentId); }
@@ -841,6 +842,7 @@ connection. Addresses and ports stay out of the way unless the network forces a 
     private static string Title(AndroidWirelessOperationResult result, string success, string failure) => result.State switch
     {
         AndroidWirelessOperationState.ConnectionPending => "Not online yet",
+        AndroidWirelessOperationState.Connected when success == "Paired" => "Paired and connected",
         AndroidWirelessOperationState.Failed => failure,
         _ => success
     };

@@ -258,6 +258,8 @@ public interface IAndroidWirelessPairingService
     Task<AndroidWirelessOperationResult> PairAsync(string endpoint, string pairingCode, CancellationToken ct = default);
     Task<AndroidWirelessOperationResult> ConnectAsync(string endpoint, CancellationToken ct = default);
     Task<AndroidWirelessDiscoveryResult> DiscoverAsync(CancellationToken ct = default);
+    /// <summary>Stops the private discovery-only adb server used by <see cref="DiscoverAsync"/>, if one was started.</summary>
+    Task StopDiscoveryAsync();
 }
 
 public enum AndroidWirelessOperationState

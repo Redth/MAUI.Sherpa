@@ -440,6 +440,127 @@ public class AndroidWirelessPairingServiceTests
         await action.Should().ThrowAsync<OperationCanceledException>();
     }
 
+    private AndroidWirelessPairingService CreateFreshDiscoveryService(TimeSpan? connectAfterPair = null) =>
+        new(logger.Object, () => "/sdk/platform-tools/adb", (start, input, ct) =>
+        {
+            ct.ThrowIfCancellationRequested();
+            requests.Add((start, input));
+            return Task.FromResult(results.Dequeue());
+        }, DiscoveryServerPort, connectAfterPair);
+
+    private static bool UsesDiscoveryServer(ProcessStartInfo start) =>
+        start.ArgumentList.Take(2).SequenceEqual(["-P", DiscoveryServerPort.ToString()]);
+
+    [Fact]
+    public async Task DiscoverAsync_FindsDevicesTheStaleMainServerMisses()
+    {
+        results.Enqueue(new(0, "List of discovered mdns services\n"));
+        results.Enqueue(new(0, "List of discovered mdns services\nstudio-sherpa-1\t_adb-tls-pairing._tcp\t192.168.2.169:36811\n"));
+
+        var result = await CreateFreshDiscoveryService().DiscoverAsync();
+
+        result.Success.Should().BeTrue();
+        result.Services.Should().ContainSingle().Which.Should().Be(new AndroidWirelessService("studio-sherpa-1", "192.168.2.169:36811", true));
+        requests[0].Start.ArgumentList.Should().Equal("mdns", "services");
+        requests[0].Start.Environment.Should().NotContainKey("ADB_USB");
+        requests[1].Start.ArgumentList.Should().Equal("-P", DiscoveryServerPort.ToString(), "mdns", "services");
+        requests[1].Start.Environment["ADB_USB"].Should().Be("0");
+        requests[1].Start.Environment["ADB_EMU"].Should().Be("0");
+        requests[1].Start.Environment["ADB_MDNS_AUTO_CONNECT"].Should().Be("0");
+    }
+
+    [Fact]
+    public async Task DiscoverAsync_MergesBothServersWithoutDuplicates()
+    {
+        const string both = "List of discovered mdns services\nadb-a _adb-tls-connect._tcp 192.168.1.20:40555\n";
+        results.Enqueue(new(0, both));
+        results.Enqueue(new(0, both + "adb-b _adb-tls-pairing._tcp 192.168.1.21:37123\n"));
+
+        var result = await CreateFreshDiscoveryService().DiscoverAsync();
+
+        result.Services.Select(s => s.Name).Should().Equal("adb-a", "adb-b");
+    }
+
+    [Fact]
+    public async Task DiscoverAsync_FallsBackWhenEitherServerFails()
+    {
+        results.Enqueue(new(0, "List of discovered mdns services\nadb-a _adb-tls-connect._tcp 192.168.1.20:40555\n"));
+        results.Enqueue(new(1, "", "cannot bind"));
+        var mainOnly = await CreateFreshDiscoveryService().DiscoverAsync();
+        mainOnly.Success.Should().BeTrue();
+        mainOnly.Services.Should().ContainSingle();
+
+        results.Enqueue(new(1, "adb: unknown command mdns"));
+        results.Enqueue(new(0, "List of discovered mdns services\nadb-b _adb-tls-pairing._tcp 192.168.1.21:37123\n"));
+        var freshOnly = await CreateFreshDiscoveryService().DiscoverAsync();
+        freshOnly.Success.Should().BeTrue();
+        freshOnly.Services.Should().ContainSingle().Which.Name.Should().Be("adb-b");
+    }
+
+    [Fact]
+    public async Task StopDiscoveryAsync_StopsOnlyThePrivateServerItStarted()
+    {
+        var service = CreateFreshDiscoveryService();
+        await service.StopDiscoveryAsync();
+        requests.Should().BeEmpty();
+
+        results.Enqueue(new(0, "List of discovered mdns services\n"));
+        results.Enqueue(new(0, "List of discovered mdns services\n"));
+        results.Enqueue(new(0, ""));
+        await service.DiscoverAsync();
+        await service.StopDiscoveryAsync();
+        await service.StopDiscoveryAsync();
+
+        requests.Should().HaveCount(3);
+        requests[2].Start.ArgumentList.Should().Equal("-P", DiscoveryServerPort.ToString(), "kill-server");
+    }
+
+    [Fact]
+    public async Task PairAsync_ConnectsThePairedDeviceWhenAdbDoesNotAutoConnect()
+    {
+        results.Enqueue(new(0, "Enter pairing code: Successfully paired to 192.168.2.169:36811 [guid=adb-38020DLJG004ZG-6tWvZf]\n"));
+        results.Enqueue(new(0, "List of devices attached\n\n"));
+        results.Enqueue(new(0, "List of discovered mdns services\n"));
+        results.Enqueue(new(0, "List of discovered mdns services\nadb-38020DLJG004ZG-6tWvZf\t_adb-tls-connect._tcp\t192.168.2.169:46167\n"));
+        results.Enqueue(new(0, "connected to 192.168.2.169:46167"));
+        results.Enqueue(new(0, "device"));
+
+        var result = await CreateFreshDiscoveryService(TimeSpan.FromSeconds(5)).PairAsync("192.168.2.169:36811", "123456");
+
+        result.State.Should().Be(AndroidWirelessOperationState.Connected);
+        result.Message.Should().Contain("connected");
+        requests[1].Start.ArgumentList.Should().Equal("devices");
+        requests[4].Start.ArgumentList.Should().Equal("connect", "192.168.2.169:46167");
+        requests.Where(r => r.Start.ArgumentList.Contains("connect")).Should().OnlyContain(r => !UsesDiscoveryServer(r.Start));
+    }
+
+    [Fact]
+    public async Task PairAsync_DoesNotDuplicateAConnectionAdbAlreadyMade()
+    {
+        results.Enqueue(new(0, "Successfully paired to 192.168.2.169:36811 [guid=adb-device]"));
+        results.Enqueue(new(0, "List of devices attached\nadb-device._adb-tls-connect._tcp\tdevice\n"));
+
+        var result = await CreateFreshDiscoveryService(TimeSpan.FromSeconds(5)).PairAsync("192.168.2.169:36811", "123456");
+
+        result.State.Should().Be(AndroidWirelessOperationState.Connected);
+        requests.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task PairAsync_ReportsPairedWhenTheDebuggingServiceNeverAppears()
+    {
+        results.Enqueue(new(0, "Successfully paired to 192.168.2.169:36811 [guid=adb-device]"));
+        results.Enqueue(new(0, "List of devices attached\n"));
+        results.Enqueue(new(0, "List of discovered mdns services\n"));
+        results.Enqueue(new(0, "List of discovered mdns services\n"));
+
+        var result = await CreateFreshDiscoveryService(TimeSpan.FromTicks(1)).PairAsync("192.168.2.169:36811", "123456");
+
+        result.State.Should().Be(AndroidWirelessOperationState.Paired);
+        result.Message.Should().Contain("does not guarantee");
+        requests.Should().HaveCount(4);
+    }
+
     [Fact]
     public async Task RunProcessAsync_WritesCodeToStdinAndCapturesPromptWithoutNewline()
     {
