@@ -67,6 +67,32 @@ public class ManagedSecretsServiceTests
     }
 
     [Fact]
+    public async Task ListWithStatusAsync_ReportsAProviderThatFailsToEnumerate()
+    {
+        SetupActiveProvider();
+        _cloudService.Setup(x => x.ListSecretsAsync("sherpa-secrets-meta/", It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new HttpRequestException("offline"));
+
+        var result = await _sut.ListWithStatusAsync();
+
+        result.Secrets.Should().BeEmpty();
+        result.UnreadableProviders.Should().ContainSingle();
+        (await _sut.ListAsync()).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task ListWithStatusAsync_ReportsNoUnreadableProvidersWhenAllSucceed()
+    {
+        SetupActiveProvider();
+        _cloudService.Setup(x => x.ListSecretsAsync("sherpa-secrets-meta/", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<string>());
+
+        var result = await _sut.ListWithStatusAsync();
+
+        result.UnreadableProviders.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task ListFoldersAsync_WithFolders_ReturnsManagedSecretFolders()
     {
         SetupActiveProvider();

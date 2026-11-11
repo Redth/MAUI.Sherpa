@@ -860,6 +860,12 @@ public interface IIdentitySelectionStore
 
 public interface IAppleConnectService
 {
+    /// <summary>
+    /// The most provisioning profiles one App Store Connect request returns. The client
+    /// can't page, so a list this long may be missing profiles.
+    /// </summary>
+    const int ProfileListLimit = 200;
+
     // Bundle IDs
     Task<IReadOnlyList<AppleBundleId>> GetBundleIdsAsync();
     Task<AppleBundleId> CreateBundleIdAsync(string identifier, string name, string platform, string? seedId = null);
@@ -893,6 +899,73 @@ public interface IAppleConnectService
     Task<int> InstallProfilesAsync(IEnumerable<string> ids, IProgress<string>? progress = null);
     Task<IReadOnlyList<string>> GetProvisioningProfilesDirectoriesAsync();
     Task<IReadOnlyList<string>> FindInstalledProfilePathsAsync(string uuid);
+
+    /// <summary>
+    /// Reads everything needed to recreate a provisioning profile: its bundle ID resource,
+    /// every certificate and every device it provisions. Throws rather than returning a
+    /// partial list, so a caller never recreates a profile that silently loses devices.
+    /// </summary>
+    Task<AppleProfileDetails> GetProfileDetailsAsync(string profileId);
+}
+
+/// <summary>
+/// A provisioning profile together with the App Store Connect resources it references,
+/// as needed to recreate it.
+/// </summary>
+public record AppleProfileDetails(
+    AppleProfile Profile,
+    string BundleIdResourceId,
+    IReadOnlyList<string> CertificateIds,
+    IReadOnlyList<AppleDevice> Devices
+);
+
+/// <summary>
+/// Moves provisioning profiles from a certificate that is being retired to its replacement.
+/// App Store Connect can't edit a profile's certificates, so each profile is deleted and
+/// recreated with the same name, type, bundle ID and devices.
+/// </summary>
+public interface ICertificateRenewalService
+{
+    /// <summary>Profiles that include <paramref name="certificateId"/>.</summary>
+    IReadOnlyList<AppleProfile> FindProfilesUsingCertificate(
+        IEnumerable<AppleProfile> profiles,
+        string certificateId);
+
+    /// <summary>
+    /// Valid App Store Connect certificates of the same type that expire after
+    /// <paramref name="certificate"/>, newest first.
+    /// </summary>
+    IReadOnlyList<AppleCertificate> FindReplacementCandidates(
+        IEnumerable<AppleCertificate> certificates,
+        AppleCertificate certificate,
+        DateTime? now = null);
+
+    /// <summary>
+    /// Recreates <paramref name="profile"/> with <paramref name="newCertificateId"/> in place of
+    /// <paramref name="oldCertificateId"/>, then installs the regenerated profile.
+    /// </summary>
+    Task<ProfileRenewalResult> RepointProfileAsync(
+        AppleProfile profile,
+        string oldCertificateId,
+        string newCertificateId,
+        bool removeOldInstalledCopies,
+        IProgress<string>? progress = null,
+        CancellationToken cancellationToken = default);
+}
+
+/// <summary>
+/// Outcome of re-pointing one provisioning profile at a replacement certificate.
+/// </summary>
+public record ProfileRenewalResult(
+    AppleProfile OriginalProfile,
+    AppleProfile RegeneratedProfile,
+    string? InstalledPath,
+    string? InstallError,
+    IReadOnlyList<string> RemovedInstalledPaths,
+    IReadOnlyList<AppleDevice> DroppedDevices
+)
+{
+    public bool Installed => InstallError is null && InstalledPath is not null;
 }
 
 /// <summary>
@@ -3544,6 +3617,13 @@ public enum ManagedSecretType
 }
 
 /// <summary>
+/// Managed secrets read from every provider, and the display names of providers that failed.
+/// </summary>
+public record ManagedSecretListing(
+    IReadOnlyList<ManagedSecret> Secrets,
+    IReadOnlyList<string> UnreadableProviders);
+
+/// <summary>
 /// A secret managed by Sherpa in a cloud secrets provider
 /// </summary>
 public record ManagedSecret(
@@ -3584,6 +3664,12 @@ public interface IManagedSecretsService
     /// Lists all Sherpa-managed secrets
     /// </summary>
     Task<IReadOnlyList<ManagedSecret>> ListAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Lists all Sherpa-managed secrets along with the providers that couldn't be read,
+    /// so callers can tell a complete list from a partial one.
+    /// </summary>
+    Task<ManagedSecretListing> ListWithStatusAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Lists explicitly created Sherpa-managed secret folders.
@@ -4117,6 +4203,238 @@ public interface IPublishProfileService
         IProgress<string>? progress = null,
         CancellationToken ct = default);
     event Action? OnProfilesChanged;
+}
+
+// ============================================================================
+// Publish Profile Health — broken references in publish profiles
+// ============================================================================
+
+public enum PublishProfileHealthIssueKind
+{
+    /// <summary>A referenced certificate no longer exists in App Store Connect.</summary>
+    MissingCertificate,
+    /// <summary>A referenced certificate has expired.</summary>
+    ExpiredCertificate,
+    /// <summary>A newer certificate of the same type exists.</summary>
+    CertificateReplaced,
+    /// <summary>A referenced provisioning profile no longer exists.</summary>
+    MissingProvisioningProfile,
+    /// <summary>A referenced provisioning profile has expired or was invalidated.</summary>
+    ExpiredProvisioningProfile,
+    /// <summary>A referenced provisioning profile was regenerated (new UUID or new profile with the same name).</summary>
+    ProvisioningProfileUpdated,
+    /// <summary>A referenced Android keystore is not registered on this machine.</summary>
+    MissingKeystore,
+    /// <summary>A referenced managed secret does not exist.</summary>
+    MissingSecret,
+    /// <summary>A referenced Apple or Google identity no longer exists.</summary>
+    MissingIdentity,
+}
+
+public enum PublishProfileHealthSeverity
+{
+    /// <summary>Publishing still works, but something newer is available.</summary>
+    Warning,
+    /// <summary>Publishing will leave out or fail on this item.</summary>
+    Error,
+}
+
+/// <summary>Which part of a publish profile an issue belongs to.</summary>
+public enum PublishProfileConfigKind
+{
+    Apple,
+    AppleIdentity,
+    Android,
+    GoogleIdentity,
+    Secrets,
+}
+
+/// <summary>
+/// One broken or outdated reference in a publish profile.
+/// </summary>
+/// <param name="Kind">What is wrong.</param>
+/// <param name="Label">Human-readable description.</param>
+/// <param name="ConfigKind">Which section of the profile the reference lives in.</param>
+/// <param name="ConfigIndex">Index of the config inside that section, when it has one.</param>
+/// <param name="ConfigLabel">Label of that config (e.g. the Apple config label).</param>
+/// <param name="Reference">The stale value: certificate serial, profile ID, keystore ID, secret key or identity ID.</param>
+/// <param name="ReplacementReference">The value a one-click fix would use instead (new serial or profile ID).</param>
+/// <param name="ReplacementName">Display name of the replacement.</param>
+/// <param name="ReplacementUuid">UUID of the replacement provisioning profile.</param>
+public record PublishProfileHealthIssue(
+    PublishProfileHealthIssueKind Kind,
+    string Label,
+    PublishProfileConfigKind ConfigKind,
+    int? ConfigIndex,
+    string ConfigLabel,
+    string Reference,
+    string? ReplacementReference = null,
+    string? ReplacementName = null,
+    string? ReplacementUuid = null
+)
+{
+    public bool CanFix => !string.IsNullOrWhiteSpace(ReplacementReference);
+
+    public PublishProfileHealthSeverity Severity => Kind is
+        PublishProfileHealthIssueKind.CertificateReplaced or
+        PublishProfileHealthIssueKind.ProvisioningProfileUpdated
+            ? PublishProfileHealthSeverity.Warning
+            : PublishProfileHealthSeverity.Error;
+}
+
+/// <summary>
+/// Health of one publish profile.
+/// </summary>
+/// <param name="ProfileId">The publish profile ID.</param>
+/// <param name="Issues">Problems found.</param>
+/// <param name="UncheckedSources">Data sources that could not be checked, with the reason.</param>
+public record PublishProfileHealthReport(
+    string ProfileId,
+    IReadOnlyList<PublishProfileHealthIssue> Issues,
+    IReadOnlyList<string> UncheckedSources
+)
+{
+    public bool IsHealthy => Issues.Count == 0;
+    public bool HasFixes => Issues.Any(issue => issue.CanFix);
+    public PublishProfileHealthSeverity? Severity => Issues.Count == 0
+        ? null
+        : Issues.Max(issue => issue.Severity);
+
+    /// <summary>Compact summary, e.g. "2 missing secrets · Provisioning profile updated".</summary>
+    public string Summary => PublishProfileHealthText.Summarize(Issues);
+}
+
+public static class PublishProfileHealthText
+{
+    static readonly PublishProfileHealthIssueKind[] Order =
+    [
+        PublishProfileHealthIssueKind.MissingIdentity,
+        PublishProfileHealthIssueKind.MissingCertificate,
+        PublishProfileHealthIssueKind.ExpiredCertificate,
+        PublishProfileHealthIssueKind.MissingProvisioningProfile,
+        PublishProfileHealthIssueKind.ExpiredProvisioningProfile,
+        PublishProfileHealthIssueKind.MissingKeystore,
+        PublishProfileHealthIssueKind.MissingSecret,
+        PublishProfileHealthIssueKind.CertificateReplaced,
+        PublishProfileHealthIssueKind.ProvisioningProfileUpdated,
+    ];
+
+    public static string Summarize(IEnumerable<PublishProfileHealthIssue> issues)
+    {
+        var counts = issues
+            .GroupBy(issue => issue.Kind)
+            .ToDictionary(group => group.Key, group => group.Count());
+
+        return string.Join(" · ", Order
+            .Where(counts.ContainsKey)
+            .Select(kind => Describe(kind, counts[kind])));
+    }
+
+    public static string Describe(PublishProfileHealthIssueKind kind, int count) => kind switch
+    {
+        PublishProfileHealthIssueKind.MissingSecret =>
+            count == 1 ? "1 missing secret" : $"{count} missing secrets",
+        PublishProfileHealthIssueKind.MissingCertificate =>
+            count == 1 ? "Missing certificate" : $"{count} missing certificates",
+        PublishProfileHealthIssueKind.ExpiredCertificate =>
+            count == 1 ? "Expired certificate" : $"{count} expired certificates",
+        PublishProfileHealthIssueKind.CertificateReplaced =>
+            count == 1 ? "Newer certificate available" : $"{count} newer certificates available",
+        PublishProfileHealthIssueKind.MissingProvisioningProfile =>
+            count == 1 ? "Missing provisioning profile" : $"{count} missing provisioning profiles",
+        PublishProfileHealthIssueKind.ExpiredProvisioningProfile =>
+            count == 1 ? "Expired provisioning profile" : $"{count} expired provisioning profiles",
+        PublishProfileHealthIssueKind.ProvisioningProfileUpdated =>
+            count == 1 ? "Provisioning profile updated" : $"{count} provisioning profiles updated",
+        PublishProfileHealthIssueKind.MissingKeystore =>
+            count == 1 ? "Missing keystore" : $"{count} missing keystores",
+        PublishProfileHealthIssueKind.MissingIdentity =>
+            count == 1 ? "Missing identity" : $"{count} missing identities",
+        _ => kind.ToString()
+    };
+}
+
+/// <summary>
+/// The data publish profiles are checked against. A null list means that source could
+/// not be read; the reason is in <see cref="UnavailableSources"/>.
+/// </summary>
+public record PublishProfileHealthSnapshot(
+    string? AppleIdentityId,
+    string? AppleIdentityName,
+    IReadOnlyList<AppleCertificate>? Certificates,
+    IReadOnlyList<AppleProfile>? ProvisioningProfiles,
+    IReadOnlyList<AndroidKeystore>? Keystores,
+    IReadOnlyCollection<string>? ManagedSecretKeys,
+    IReadOnlyCollection<string>? AppleIdentityIds,
+    IReadOnlyCollection<string>? GoogleIdentityIds,
+    IReadOnlyDictionary<string, string> UnavailableSources,
+    DateTime Now
+);
+
+/// <summary>
+/// Finds references in publish profiles that broke because something was renewed,
+/// replaced, deleted or is no longer available, and re-points the obvious ones.
+/// </summary>
+public interface IPublishProfileHealthService
+{
+    /// <summary>
+    /// Reads the data to check against, from cached sources where possible. Never throws
+    /// for a single unavailable source; that source is recorded as unavailable instead.
+    /// </summary>
+    Task<PublishProfileHealthSnapshot> LoadSnapshotAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Checks one profile against a snapshot.</summary>
+    PublishProfileHealthReport Evaluate(PublishProfile profile, PublishProfileHealthSnapshot snapshot);
+
+    /// <summary>Loads a snapshot and checks every profile, keyed by profile ID.</summary>
+    Task<IReadOnlyDictionary<string, PublishProfileHealthReport>> EvaluateAsync(
+        IEnumerable<PublishProfile> profiles,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Applies the fixable issues to a copy of the profile. Returns the profile unchanged when nothing applies.</summary>
+    PublishProfile ApplyFixes(PublishProfile profile, IEnumerable<PublishProfileHealthIssue> issues);
+
+    /// <summary>
+    /// Re-points certificate serials and provisioning profile IDs. Keys are old serials and
+    /// old profile IDs. A signing certificate is only replaced in a config whose provisioning
+    /// profiles (after their replacements, looked up in <paramref name="knownProfiles"/>)
+    /// authorize the new certificate. Returns the profile unchanged when nothing applies.
+    /// </summary>
+    PublishProfile Repoint(
+        PublishProfile profile,
+        IReadOnlyDictionary<string, AppleCertificate> certificateReplacements,
+        IReadOnlyDictionary<string, AppleProfile> profileReplacements,
+        IReadOnlyList<AppleProfile>? knownProfiles,
+        IReadOnlyList<AppleCertificate> knownCertificates);
+
+    /// <summary>Drops the cached snapshot so the next evaluation re-reads every source.</summary>
+    void Invalidate();
+
+    /// <summary>
+    /// Flushes the cached certificates, provisioning profiles and keystores the snapshot is
+    /// built from, then drops the snapshot. Use for an explicit user refresh.
+    /// </summary>
+    Task RefreshAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Records that <paramref name="newSerialNumber"/> replaces <paramref name="oldSerialNumber"/>
+    /// (e.g. after a renewal), so publish profiles still on the old one are offered the fix
+    /// even while it is valid. Kept for the lifetime of the app.
+    /// </summary>
+    void RecordCertificateReplacement(string oldSerialNumber, string newSerialNumber);
+
+    /// <summary>
+    /// Records that a provisioning profile was regenerated as <paramref name="newProfileId"/>,
+    /// so publish profiles still pointing at <paramref name="oldProfileId"/> are offered the
+    /// fix, including legacy selections with no UUID or name. Kept for the lifetime of the app.
+    /// </summary>
+    void RecordProvisioningProfileReplacement(string oldProfileId, string newProfileId);
+
+    /// <summary>Applies the fixable issues and saves the profile. Returns the saved profile, or null when nothing changed.</summary>
+    Task<PublishProfile?> ApplyFixesAsync(
+        PublishProfile profile,
+        IEnumerable<PublishProfileHealthIssue> issues,
+        CancellationToken cancellationToken = default);
 }
 
 // ============================================================================

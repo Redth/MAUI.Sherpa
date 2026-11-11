@@ -189,4 +189,101 @@ public class AppleConnectServiceTests
             "/Users/test/Library/Developer/Xcode/UserData/Provisioning Profiles",
             "/Users/test/Library/MobileDevice/Provisioning Profiles");
     }
+
+    static AppleDevice TestDevice(string id, string udid) =>
+        new(id, udid, $"Device {id}", "IOS", "IPHONE", "ENABLED", null);
+
+    [Fact]
+    public void ResolveProfileDevices_UsesCompleteRelationshipData()
+    {
+        var included = new Dictionary<string, AppleDevice>
+        {
+            ["d1"] = TestDevice("d1", "U1"),
+            ["d2"] = TestDevice("d2", "U2"),
+        };
+
+        var result = AppleConnectService.ResolveProfileDevices(
+            "Dev", ["d1", "d2"], 2, included, provisionedUdids: null, allDevices: null);
+
+        result.Select(device => device.Id).Should().Equal("d1", "d2");
+        result[0].Udid.Should().Be("U1");
+    }
+
+    [Fact]
+    public void ResolveProfileDevices_KeepsDevicesMissingFromIncludedData()
+    {
+        var result = AppleConnectService.ResolveProfileDevices(
+            "Dev", ["d1"], null, new Dictionary<string, AppleDevice>(), null, null);
+
+        result.Should().ContainSingle().Which.Id.Should().Be("d1");
+    }
+
+    [Fact]
+    public void ResolveProfileDevices_MapsProvisionedUdidsWhenTheRelationshipIsTruncated()
+    {
+        var allDevices = Enumerable.Range(1, 60)
+            .Select(index => TestDevice($"d{index}", $"UDID-{index}"))
+            .ToList();
+        var udids = allDevices.Take(55).Select(device => device.Udid.ToLowerInvariant()).ToList();
+
+        var result = AppleConnectService.ResolveProfileDevices(
+            "Dev",
+            allDevices.Take(50).Select(device => device.Id).ToList(),
+            55,
+            new Dictionary<string, AppleDevice>(),
+            udids,
+            allDevices);
+
+        result.Should().HaveCount(55);
+        result.Select(device => device.Id).Should().Equal(allDevices.Take(55).Select(device => device.Id));
+    }
+
+    [Fact]
+    public void ResolveProfileDevices_RefusesWhenATruncatedDeviceCannotBeResolved()
+    {
+        var allDevices = new[] { TestDevice("d1", "U1") };
+
+        var act = () => AppleConnectService.ResolveProfileDevices(
+            "Dev", ["d1"], 2, new Dictionary<string, AppleDevice>(), ["U1", "U-UNKNOWN"], allDevices);
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*not registered*");
+    }
+
+    [Fact]
+    public void ResolveProfileDevices_RefusesWhenTruncatedAndTheProfileContentIsUnavailable()
+    {
+        var act = () => AppleConnectService.ResolveProfileDevices(
+            "Dev", ["d1"], 2, new Dictionary<string, AppleDevice>(), null, null);
+
+        act.Should().Throw<InvalidOperationException>();
+    }
+
+    [Fact]
+    public void ResolveProfileDevices_RefusesWhenTheProfileContentListsFewerDevicesThanReported()
+    {
+        var allDevices = new[] { TestDevice("d1", "U1"), TestDevice("d2", "U2") };
+
+        var act = () => AppleConnectService.ResolveProfileDevices(
+            "Dev", ["d1"], 3, new Dictionary<string, AppleDevice>(), ["U1", "U2"], allDevices);
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*reports 3*");
+    }
+
+    [Fact]
+    public void EnsureRelationshipComplete_RefusesTruncatedCertificateLists()
+    {
+        var act = () => AppleConnectService.EnsureRelationshipComplete("certificates", 50, 51, "Dev");
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*50 of 51 certificates*");
+    }
+
+    [Theory]
+    [InlineData(2u)]
+    [InlineData(null)]
+    public void EnsureRelationshipComplete_AllowsCompleteLists(uint? total)
+    {
+        var act = () => AppleConnectService.EnsureRelationshipComplete("certificates", 2, total, "Dev");
+
+        act.Should().NotThrow();
+    }
 }
