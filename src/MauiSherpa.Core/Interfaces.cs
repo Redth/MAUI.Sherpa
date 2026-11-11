@@ -860,6 +860,12 @@ public interface IIdentitySelectionStore
 
 public interface IAppleConnectService
 {
+    /// <summary>
+    /// The most provisioning profiles one App Store Connect request returns. The client
+    /// can't page, so a list this long may be missing profiles.
+    /// </summary>
+    const int ProfileListLimit = 200;
+
     // Bundle IDs
     Task<IReadOnlyList<AppleBundleId>> GetBundleIdsAsync();
     Task<AppleBundleId> CreateBundleIdAsync(string identifier, string name, string platform, string? seedId = null);
@@ -3611,6 +3617,13 @@ public enum ManagedSecretType
 }
 
 /// <summary>
+/// Managed secrets read from every provider, and the display names of providers that failed.
+/// </summary>
+public record ManagedSecretListing(
+    IReadOnlyList<ManagedSecret> Secrets,
+    IReadOnlyList<string> UnreadableProviders);
+
+/// <summary>
 /// A secret managed by Sherpa in a cloud secrets provider
 /// </summary>
 public record ManagedSecret(
@@ -3651,6 +3664,12 @@ public interface IManagedSecretsService
     /// Lists all Sherpa-managed secrets
     /// </summary>
     Task<IReadOnlyList<ManagedSecret>> ListAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Lists all Sherpa-managed secrets along with the providers that couldn't be read,
+    /// so callers can tell a complete list from a partial one.
+    /// </summary>
+    Task<ManagedSecretListing> ListWithStatusAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Lists explicitly created Sherpa-managed secret folders.
@@ -4377,15 +4396,25 @@ public interface IPublishProfileHealthService
 
     /// <summary>
     /// Re-points certificate serials and provisioning profile IDs. Keys are old serials and
-    /// old profile IDs. Returns the profile unchanged when nothing references them.
+    /// old profile IDs. A signing certificate is only replaced in a config whose provisioning
+    /// profiles (after their replacements, looked up in <paramref name="knownProfiles"/>)
+    /// authorize the new certificate. Returns the profile unchanged when nothing applies.
     /// </summary>
     PublishProfile Repoint(
         PublishProfile profile,
         IReadOnlyDictionary<string, AppleCertificate> certificateReplacements,
-        IReadOnlyDictionary<string, AppleProfile> profileReplacements);
+        IReadOnlyDictionary<string, AppleProfile> profileReplacements,
+        IReadOnlyList<AppleProfile>? knownProfiles,
+        IReadOnlyList<AppleCertificate> knownCertificates);
 
     /// <summary>Drops the cached snapshot so the next evaluation re-reads every source.</summary>
     void Invalidate();
+
+    /// <summary>
+    /// Flushes the cached certificates, provisioning profiles and keystores the snapshot is
+    /// built from, then drops the snapshot. Use for an explicit user refresh.
+    /// </summary>
+    Task RefreshAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Records that <paramref name="newSerialNumber"/> replaces <paramref name="oldSerialNumber"/>
@@ -4393,6 +4422,13 @@ public interface IPublishProfileHealthService
     /// even while it is valid. Kept for the lifetime of the app.
     /// </summary>
     void RecordCertificateReplacement(string oldSerialNumber, string newSerialNumber);
+
+    /// <summary>
+    /// Records that a provisioning profile was regenerated as <paramref name="newProfileId"/>,
+    /// so publish profiles still pointing at <paramref name="oldProfileId"/> are offered the
+    /// fix, including legacy selections with no UUID or name. Kept for the lifetime of the app.
+    /// </summary>
+    void RecordProvisioningProfileReplacement(string oldProfileId, string newProfileId);
 
     /// <summary>Applies the fixable issues and saves the profile. Returns the saved profile, or null when nothing changed.</summary>
     Task<PublishProfile?> ApplyFixesAsync(

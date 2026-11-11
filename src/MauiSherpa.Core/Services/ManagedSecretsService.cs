@@ -29,10 +29,14 @@ public class ManagedSecretsService : IManagedSecretsService
         _providerRegistry = providerRegistry;
     }
 
-    public async Task<IReadOnlyList<ManagedSecret>> ListAsync(CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<ManagedSecret>> ListAsync(CancellationToken cancellationToken = default) =>
+        (await ListWithStatusAsync(cancellationToken)).Secrets;
+
+    public async Task<ManagedSecretListing> ListWithStatusAsync(CancellationToken cancellationToken = default)
     {
         var secrets = new Dictionary<string, ManagedSecret>(StringComparer.Ordinal);
-        foreach (var provider in await GetReadProvidersAsync(cancellationToken))
+        var unreadable = new List<string>();
+        foreach (var provider in await GetReadProvidersAsync(cancellationToken, unreadable))
         {
             try
             {
@@ -55,12 +59,15 @@ public class ManagedSecretsService : IManagedSecretsService
             catch (Exception ex)
             {
                 _logger.LogWarning($"Failed to enumerate managed secrets from {provider.DisplayName}: {ex.Message}");
+                unreadable.Add(provider.DisplayName);
             }
         }
 
-        return secrets.Values
-            .OrderBy(secret => secret.Key, StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        return new ManagedSecretListing(
+            secrets.Values
+                .OrderBy(secret => secret.Key, StringComparer.OrdinalIgnoreCase)
+                .ToList(),
+            unreadable);
     }
 
     public async Task<IReadOnlyList<ManagedSecretFolder>> ListFoldersAsync(CancellationToken cancellationToken = default)
@@ -519,7 +526,8 @@ public class ManagedSecretsService : IManagedSecretsService
     }
 
     async Task<IReadOnlyList<ICloudSecretsProvider>> GetReadProvidersAsync(
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        List<string>? unavailable = null)
     {
         if (_providerRegistry is null)
         {
@@ -539,6 +547,8 @@ public class ManagedSecretsService : IManagedSecretsService
             var provider = await _providerRegistry.GetProviderAsync(config.Id);
             if (provider is not null)
                 providers.Add(provider);
+            else
+                unavailable?.Add(config.Name);
         }
 
         return providers;

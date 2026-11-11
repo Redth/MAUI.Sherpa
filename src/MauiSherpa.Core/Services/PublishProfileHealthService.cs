@@ -73,10 +73,37 @@ public class PublishProfileHealthService : IPublishProfileHealthService
     // ------------------------------------------------------------------
 
     readonly ConcurrentDictionary<string, string> _recordedReplacements = new(StringComparer.Ordinal);
+    readonly ConcurrentDictionary<string, string> _recordedProfileReplacements = new(StringComparer.Ordinal);
 
     public void Invalidate()
     {
         _snapshot = null;
+    }
+
+    public async Task RefreshAsync(CancellationToken cancellationToken = default)
+    {
+        // The snapshot reads through the mediator caches, so dropping only the snapshot
+        // would re-evaluate against the same stale certificates, profiles and keystores.
+        var keys = new List<string> { new GetKeystoresRequest().GetKey() };
+        if (_appleIdentityState.SelectedIdentity is { } identity)
+        {
+            keys.Add(new GetCertificatesRequest(identity.Id).GetKey());
+            keys.Add(new GetProfilesRequest(identity.Id).GetKey());
+        }
+
+        foreach (var key in keys)
+        {
+            try
+            {
+                await _mediator.FlushStores(key, cancellationToken: cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($"Publish profile health: could not flush cache '{key}': {ex.Message}");
+            }
+        }
+
+        Invalidate();
     }
 
     public void RecordCertificateReplacement(string oldSerialNumber, string newSerialNumber)
@@ -87,6 +114,19 @@ public class PublishProfileHealthService : IPublishProfileHealthService
             return;
 
         _recordedReplacements[oldSerial] = newSerial;
+        Invalidate();
+    }
+
+    public void RecordProvisioningProfileReplacement(string oldProfileId, string newProfileId)
+    {
+        if (string.IsNullOrWhiteSpace(oldProfileId) ||
+            string.IsNullOrWhiteSpace(newProfileId) ||
+            string.Equals(oldProfileId, newProfileId, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _recordedProfileReplacements[oldProfileId] = newProfileId;
         Invalidate();
     }
 
@@ -135,9 +175,17 @@ public class PublishProfileHealthService : IPublishProfileHealthService
                 SecretsSource,
                 "Managed secrets",
                 unavailable,
-                async () => (await _managedSecrets.ListAsync(cancellationToken))
-                    .Select(secret => secret.Key)
-                    .ToHashSet(StringComparer.Ordinal));
+                async () =>
+                {
+                    // A partial list would report secrets held by an unreachable provider as missing.
+                    var listing = await _managedSecrets.ListWithStatusAsync(cancellationToken);
+                    if (listing.UnreadableProviders.Count > 0)
+                        throw new InvalidOperationException($"{string.Join(", ", listing.UnreadableProviders)} couldn't be read");
+
+                    return listing.Secrets
+                        .Select(secret => secret.Key)
+                        .ToHashSet(StringComparer.Ordinal);
+                });
         }
 
         var appleIdentitiesTask = TryLoadAsync<IReadOnlyCollection<string>>(
@@ -372,7 +420,7 @@ public class PublishProfileHealthService : IPublishProfileHealthService
             if (snapshot.Certificates is null)
                 markUnchecked(CertificatesSource, "Apple certificates couldn't be checked");
             else
-                EvaluateCertificates(apple, index, certificateRefs, snapshot, issues);
+                EvaluateCertificates(apple, index, certificateRefs, ResolveProfiles(profileRefs, snapshot), snapshot, issues);
         }
 
         if (profileRefs.Count > 0)
@@ -380,8 +428,59 @@ public class PublishProfileHealthService : IPublishProfileHealthService
             if (snapshot.ProvisioningProfiles is null)
                 markUnchecked(ProfilesSource, "Provisioning profiles couldn't be checked");
             else
-                EvaluateProvisioningProfiles(apple, index, profileRefs, snapshot, issues);
+                EvaluateProvisioningProfiles(apple, index, profileRefs, snapshot, issues, markUnchecked);
         }
+    }
+
+    /// <summary>
+    /// The provisioning profiles a config builds with once its profile fixes are applied, or
+    /// null when they can't all be known. Profiles that no longer exist are left out.
+    /// </summary>
+    IReadOnlyList<AppleProfile>? ResolveProfiles(
+        IReadOnlyList<PublishProfileProvisioningProfileSelection> references,
+        PublishProfileHealthSnapshot snapshot)
+    {
+        if (references.Count == 0)
+            return [];
+        if (snapshot.ProvisioningProfiles is not { } profiles)
+            return null;
+
+        var referencedIds = references.Select(reference => reference.Id).ToHashSet(StringComparer.Ordinal);
+        var resolved = new List<AppleProfile>();
+        foreach (var reference in references)
+        {
+            var profile = profiles.FirstOrDefault(item => string.Equals(item.Id, reference.Id, StringComparison.Ordinal))
+                ?? FindRegenerated(reference, profiles, referencedIds, snapshot.Now);
+            if (profile is not null)
+                resolved.Add(profile);
+            else if (IsTruncated(profiles))
+                return null;
+        }
+
+        return resolved;
+    }
+
+    static bool IsTruncated(IReadOnlyList<AppleProfile> profiles) =>
+        profiles.Count >= IAppleConnectService.ProfileListLimit;
+
+    /// <summary>
+    /// Whether <paramref name="candidateId"/> can replace a signing certificate without
+    /// breaking the config: some profile must authorize it, and every profile must still
+    /// authorize one of the config's signing certificates afterwards.
+    /// </summary>
+    internal static bool ProfilesAuthorize(
+        IReadOnlyList<AppleProfile>? profiles,
+        string candidateId,
+        IEnumerable<string> otherCertificateIds)
+    {
+        if (profiles is null)
+            return false;
+        if (profiles.Count == 0)
+            return true;
+
+        var resulting = otherCertificateIds.Append(candidateId).ToHashSet(StringComparer.Ordinal);
+        return profiles.Any(profile => profile.CertificateIds?.Contains(candidateId, StringComparer.Ordinal) == true) &&
+            profiles.All(profile => profile.CertificateIds?.Any(resulting.Contains) == true);
     }
 
     sealed record CertificateReference(string SerialNumber, string Name, bool IsInstaller);
@@ -414,6 +513,7 @@ public class PublishProfileHealthService : IPublishProfileHealthService
         PublishProfileAppleConfig apple,
         int index,
         IReadOnlyList<CertificateReference> references,
+        IReadOnlyList<AppleProfile>? provisioningProfiles,
         PublishProfileHealthSnapshot snapshot,
         List<PublishProfileHealthIssue> issues)
     {
@@ -431,10 +531,25 @@ public class PublishProfileHealthService : IPublishProfileHealthService
                 ? certificates.FirstOrDefault(item => NormalizeSerial(item.SerialNumber) == replacementSerial && IsUsable(item))
                 : null;
 
+        AppleCertificate? Find(string serialNumber) =>
+            certificates.FirstOrDefault(item => NormalizeSerial(item.SerialNumber) == NormalizeSerial(serialNumber));
+
+        // Installer certificates sign the package, not the app, so no provisioning profile lists them.
+        bool Fits(CertificateReference reference, AppleCertificate replacement) =>
+            reference.IsInstaller ||
+            ProfilesAuthorize(
+                provisioningProfiles,
+                replacement.Id,
+                references
+                    .Where(other => !other.IsInstaller && !ReferenceEquals(other, reference))
+                    .Select(other => Find(other.SerialNumber)?.Id)
+                    .OfType<string>());
+
+        const string RegenerateFirst = "; regenerate its provisioning profiles with that certificate to update it";
+
         foreach (var reference in references)
         {
-            var normalized = NormalizeSerial(reference.SerialNumber);
-            var certificate = certificates.FirstOrDefault(item => NormalizeSerial(item.SerialNumber) == normalized);
+            var certificate = Find(reference.SerialNumber);
             var displayName = certificate?.Name ?? DisplayName(reference);
 
             if (certificate is null)
@@ -452,17 +567,18 @@ public class PublishProfileHealthService : IPublishProfileHealthService
                 var where = reference.IsInstaller
                     ? "isn't in App Store Connect or this Mac's Keychain"
                     : "no longer exists in App Store Connect";
+                var replacementFits = replacement is not null && Fits(reference, replacement);
                 issues.Add(new PublishProfileHealthIssue(
                     PublishProfileHealthIssueKind.MissingCertificate,
                     replacement is null
                         ? $"{CertificateNoun(reference)} '{displayName}' {where}"
-                        : $"{CertificateNoun(reference)} '{displayName}' {where}; '{replacement.Name}' (expires {replacement.ExpirationDate:MMM d, yyyy}) can replace it",
+                        : $"{CertificateNoun(reference)} '{displayName}' {where}; '{replacement.Name}' (expires {replacement.ExpirationDate:MMM d, yyyy}) can replace it{(replacementFits ? "" : RegenerateFirst)}",
                     PublishProfileConfigKind.Apple,
                     index,
                     apple.Label,
                     reference.SerialNumber,
-                    replacement?.SerialNumber,
-                    replacement?.Name));
+                    replacementFits ? replacement!.SerialNumber : null,
+                    replacementFits ? replacement!.Name : null));
                 continue;
             }
 
@@ -481,17 +597,18 @@ public class PublishProfileHealthService : IPublishProfileHealthService
             if (certificate.ExpirationDate <= snapshot.Now)
             {
                 var newer = recorded ?? sameName ?? sameType.FirstOrDefault();
+                var newerFits = newer is not null && Fits(reference, newer);
                 issues.Add(new PublishProfileHealthIssue(
                     PublishProfileHealthIssueKind.ExpiredCertificate,
                     newer is null
                         ? $"{CertificateNoun(reference)} '{certificate.Name}' expired on {certificate.ExpirationDate:MMM d, yyyy}"
-                        : $"{CertificateNoun(reference)} '{certificate.Name}' expired on {certificate.ExpirationDate:MMM d, yyyy}; '{newer.Name}' expires {newer.ExpirationDate:MMM d, yyyy}",
+                        : $"{CertificateNoun(reference)} '{certificate.Name}' expired on {certificate.ExpirationDate:MMM d, yyyy}; '{newer.Name}' expires {newer.ExpirationDate:MMM d, yyyy}{(newerFits ? "" : RegenerateFirst)}",
                     PublishProfileConfigKind.Apple,
                     index,
                     apple.Label,
                     reference.SerialNumber,
-                    newer?.SerialNumber,
-                    newer?.Name));
+                    newerFits ? newer!.SerialNumber : null,
+                    newerFits ? newer!.Name : null));
                 continue;
             }
 
@@ -504,25 +621,27 @@ public class PublishProfileHealthService : IPublishProfileHealthService
                 ?? (certificate.ExpirationDate - snapshot.Now <= RenewalWindow ? sameType.FirstOrDefault() : null);
             if (replacedBy is not null)
             {
+                var replacedByFits = Fits(reference, replacedBy);
                 issues.Add(new PublishProfileHealthIssue(
                     PublishProfileHealthIssueKind.CertificateReplaced,
-                    $"'{certificate.Name}' (expires {certificate.ExpirationDate:MMM d, yyyy}) has a newer {CertificateNoun(reference).ToLowerInvariant()} of the same type: '{replacedBy.Name}' (expires {replacedBy.ExpirationDate:MMM d, yyyy})",
+                    $"'{certificate.Name}' (expires {certificate.ExpirationDate:MMM d, yyyy}) has a newer {CertificateNoun(reference).ToLowerInvariant()} of the same type: '{replacedBy.Name}' (expires {replacedBy.ExpirationDate:MMM d, yyyy}){(replacedByFits ? "" : RegenerateFirst)}",
                     PublishProfileConfigKind.Apple,
                     index,
                     apple.Label,
                     reference.SerialNumber,
-                    replacedBy.SerialNumber,
-                    replacedBy.Name));
+                    replacedByFits ? replacedBy.SerialNumber : null,
+                    replacedByFits ? replacedBy.Name : null));
             }
         }
     }
 
-    static void EvaluateProvisioningProfiles(
+    void EvaluateProvisioningProfiles(
         PublishProfileAppleConfig apple,
         int index,
         IReadOnlyList<PublishProfileProvisioningProfileSelection> references,
         PublishProfileHealthSnapshot snapshot,
-        List<PublishProfileHealthIssue> issues)
+        List<PublishProfileHealthIssue> issues,
+        Action<string, string> markUnchecked)
     {
         var profiles = snapshot.ProvisioningProfiles!;
         var referencedIds = references.Select(reference => reference.Id).ToHashSet(StringComparer.Ordinal);
@@ -554,23 +673,20 @@ public class PublishProfileHealthService : IPublishProfileHealthService
                 continue;
             }
 
-            var regenerated =
-                (!string.IsNullOrWhiteSpace(reference.Uuid)
-                    ? profiles.FirstOrDefault(item => string.Equals(item.Uuid, reference.Uuid, StringComparison.OrdinalIgnoreCase))
-                    : null)
-                ?? (HasRealName(reference)
-                    ? profiles
-                        .Where(item => string.Equals(item.Name, reference.Name, StringComparison.OrdinalIgnoreCase))
-                        .Where(item => !referencedIds.Contains(item.Id))
-                        .OrderBy(item => IsExpired(item, snapshot.Now) ? 1 : 0)
-                        .ThenByDescending(item => item.ExpirationDate)
-                        .FirstOrDefault()
-                    : null);
-
+            var regenerated = FindRegenerated(reference, profiles, referencedIds, snapshot.Now);
             if (regenerated is not null)
             {
                 issues.Add(UpdatedIssue(apple, index, reference, regenerated,
                     $"'{regenerated.Name}' was regenerated; this publish profile still points to the old copy"));
+                continue;
+            }
+
+            // Profiles past the first page weren't read, so absence proves nothing.
+            if (IsTruncated(profiles))
+            {
+                markUnchecked(
+                    ProfilesSource,
+                    $"Only the first {IAppleConnectService.ProfileListLimit} provisioning profiles could be read, so missing ones weren't checked");
                 continue;
             }
 
@@ -582,6 +698,37 @@ public class PublishProfileHealthService : IPublishProfileHealthService
                 apple.Label,
                 reference.Id));
         }
+    }
+
+    AppleProfile? FindRegenerated(
+        PublishProfileProvisioningProfileSelection reference,
+        IReadOnlyList<AppleProfile> profiles,
+        IReadOnlySet<string> referencedIds,
+        DateTime now)
+    {
+        // Renewal records old-to-new IDs. That's the only link for legacy selections, which
+        // store the ID in the name slot and have no UUID. Follow repeated renewals to the end.
+        var recordedId = reference.Id;
+        var visited = new HashSet<string>(StringComparer.Ordinal) { recordedId };
+        while (_recordedProfileReplacements.TryGetValue(recordedId, out var nextId) && visited.Add(nextId))
+            recordedId = nextId;
+        if (!string.Equals(recordedId, reference.Id, StringComparison.Ordinal) &&
+            profiles.FirstOrDefault(item => string.Equals(item.Id, recordedId, StringComparison.Ordinal)) is { } recorded)
+        {
+            return recorded;
+        }
+
+        return (!string.IsNullOrWhiteSpace(reference.Uuid)
+                ? profiles.FirstOrDefault(item => string.Equals(item.Uuid, reference.Uuid, StringComparison.OrdinalIgnoreCase))
+                : null)
+            ?? (HasRealName(reference)
+                ? profiles
+                    .Where(item => string.Equals(item.Name, reference.Name, StringComparison.OrdinalIgnoreCase))
+                    .Where(item => !referencedIds.Contains(item.Id))
+                    .OrderBy(item => IsExpired(item, now) ? 1 : 0)
+                    .ThenByDescending(item => item.ExpirationDate)
+                    .FirstOrDefault()
+                : null);
     }
 
     static PublishProfileHealthIssue UpdatedIssue(
@@ -743,19 +890,19 @@ public class PublishProfileHealthService : IPublishProfileHealthService
     public PublishProfile Repoint(
         PublishProfile profile,
         IReadOnlyDictionary<string, AppleCertificate> certificateReplacements,
-        IReadOnlyDictionary<string, AppleProfile> profileReplacements)
+        IReadOnlyDictionary<string, AppleProfile> profileReplacements,
+        IReadOnlyList<AppleProfile>? knownProfiles,
+        IReadOnlyList<AppleCertificate> knownCertificates)
     {
         ArgumentNullException.ThrowIfNull(profile);
         ArgumentNullException.ThrowIfNull(certificateReplacements);
         ArgumentNullException.ThrowIfNull(profileReplacements);
+        ArgumentNullException.ThrowIfNull(knownCertificates);
 
-        var certificateMap = certificateReplacements
+        var replacements = certificateReplacements
             .Where(pair => !string.IsNullOrWhiteSpace(pair.Key))
             .GroupBy(pair => NormalizeSerial(pair.Key), StringComparer.Ordinal)
-            .ToDictionary(
-                group => group.Key,
-                group => new CertificateTarget(group.First().Value.SerialNumber, group.First().Value.Name),
-                StringComparer.Ordinal);
+            .ToDictionary(group => group.Key, group => group.First().Value, StringComparer.Ordinal);
         var profileMap = profileReplacements
             .Where(pair => !string.IsNullOrWhiteSpace(pair.Key))
             .ToDictionary(
@@ -767,6 +914,7 @@ public class PublishProfileHealthService : IPublishProfileHealthService
         var configs = profile.AppleConfigs
             .Select(config =>
             {
+                var certificateMap = FittingReplacements(config, replacements, profileReplacements, knownProfiles, knownCertificates);
                 var updated = RepointConfig(config, certificateMap, profileMap, out var configChanged);
                 changed |= configChanged;
                 return updated;
@@ -776,6 +924,63 @@ public class PublishProfileHealthService : IPublishProfileHealthService
         return changed
             ? profile with { AppleConfigs = configs, UpdatedAt = _clock() }
             : profile;
+    }
+
+    /// <summary>
+    /// The certificate replacements a config can take: a signing certificate only moves when
+    /// the config's provisioning profiles, after their own replacements, authorize the new one.
+    /// </summary>
+    static Dictionary<string, CertificateTarget> FittingReplacements(
+        PublishProfileAppleConfig config,
+        IReadOnlyDictionary<string, AppleCertificate> replacements,
+        IReadOnlyDictionary<string, AppleProfile> profileReplacements,
+        IReadOnlyList<AppleProfile>? knownProfiles,
+        IReadOnlyList<AppleCertificate> knownCertificates)
+    {
+        var map = new Dictionary<string, CertificateTarget>(StringComparer.Ordinal);
+        if (replacements.Count == 0)
+            return map;
+
+        List<AppleProfile>? profiles = [];
+        foreach (var reference in config.GetProvisioningProfiles())
+        {
+            var resolved = profileReplacements.GetValueOrDefault(reference.Id)
+                ?? knownProfiles?.FirstOrDefault(item => string.Equals(item.Id, reference.Id, StringComparison.Ordinal));
+            if (resolved is not null)
+                profiles?.Add(resolved);
+            else if (knownProfiles is null || IsTruncated(knownProfiles))
+                profiles = null;
+        }
+
+        string? IdAfterReplacement(string serialNumber) =>
+            replacements.TryGetValue(NormalizeSerial(serialNumber), out var replacement)
+                ? replacement.Id
+                : knownCertificates.FirstOrDefault(item => NormalizeSerial(item.SerialNumber) == NormalizeSerial(serialNumber))?.Id;
+
+        var signing = config.GetSigningCertificates()
+            .Select(selection => selection.SerialNumber)
+            .Where(serial => !string.IsNullOrWhiteSpace(serial))
+            .ToList();
+        var installer = NormalizeSerial(config.InstallerCertSerialNumber);
+
+        foreach (var (serial, replacement) in replacements)
+        {
+            var target = new CertificateTarget(replacement.SerialNumber, replacement.Name);
+            if (serial == installer)
+            {
+                map[serial] = target;
+                continue;
+            }
+
+            var others = signing
+                .Where(other => NormalizeSerial(other) != serial)
+                .Select(IdAfterReplacement)
+                .OfType<string>();
+            if (ProfilesAuthorize(profiles, replacement.Id, others))
+                map[serial] = target;
+        }
+
+        return map;
     }
 
     static PublishProfileAppleConfig RepointConfig(

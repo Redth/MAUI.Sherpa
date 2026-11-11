@@ -937,7 +937,11 @@
         await AlertService.ShowToastAsync(toast);
     }
 
-    private sealed record CreatedCertificate(AppleCertificate Certificate, bool ImportedLocally, string? SavePath);
+    private sealed record CreatedCertificate(AppleCertificate Certificate, bool ImportedLocally, string? SavePath)
+    {
+        /// <summary>Whether the private key ended up somewhere: installed locally or saved to a file.</summary>
+        public bool KeyRetained => ImportedLocally || !string.IsNullOrWhiteSpace(SavePath);
+    }
 
     /// <summary>
     /// Creates a certificate with Apple, installs its private key locally (or saves a copy),
@@ -1362,6 +1366,18 @@
             ToastService.Dismiss(loadingToast);
         }
 
+        // The App Store Connect client can't page, so a full page may be hiding profiles that
+        // use this certificate. Moving only some of them and then revoking would break the rest.
+        if (profiles.Count >= IAppleConnectService.ProfileListLimit)
+        {
+            await AlertService.ShowAlertAsync(
+                "Renew Certificate",
+                $"This team has at least {IAppleConnectService.ProfileListLimit} provisioning profiles, more than Sherpa can read in one request, " +
+                "so it can't be sure it has found every profile that uses this certificate. " +
+                "Delete expired or unused profiles in Apple Developer and try again, or renew the certificate there.");
+            return;
+        }
+
         var affected = RenewalService.FindProfilesUsingCertificate(profiles, oldCert.Id);
         var candidates = RenewalService.FindReplacementCandidates(certificates, oldCert);
         var typeLabel = FormatCertTypeExact(oldCert.CertificateType);
@@ -1398,6 +1414,13 @@
                 form.Passphrase);
             if (created is null)
                 return;
+            if (!created.KeyRetained)
+            {
+                // Without its private key the new certificate can't sign, so moving profiles
+                // to it (and then revoking the old one) would leave nothing that works.
+                await OfferRevokeUnusableCertificateAsync(created.Certificate);
+                return;
+            }
             newCert = created.Certificate;
         }
 
@@ -1410,11 +1433,26 @@
         if (affected.Count > 0)
         {
             renewed = await RepointProfilesAsync(oldCert, newCert, affected);
+            foreach (var result in renewed)
+                PublishProfileHealth.RecordProvisioningProfileReplacement(result.OriginalProfile.Id, result.RegeneratedProfile.Id);
             await Mediator.FlushStores($"apple:profiles:{identity.Id}");
         }
 
-        await OfferPublishProfileUpdatesAsync(oldCert, newCert, renewed);
+        await OfferPublishProfileUpdatesAsync(oldCert, newCert, renewed, profiles);
         await OfferRevokeAfterRenewalAsync(oldCert, newCert);
+    }
+
+    private async Task OfferRevokeUnusableCertificateAsync(AppleCertificate unusable)
+    {
+        var revoke = await AlertService.ShowConfirmAsync(
+            "Renewal Stopped",
+            $"Apple issued '{unusable.Name}', but its private key was neither installed on this machine nor saved, so it can't sign anything. " +
+            "No provisioning profiles were changed and the old certificate is untouched.\n\n" +
+            "Revoke the unusable certificate now? Apple limits how many certificates of each type a team can hold.",
+            "Revoke",
+            "Keep It");
+        if (revoke)
+            await RevokeCertificateCoreAsync(unusable);
     }
 
     private string BuildRenewalConfirmation(
@@ -1509,7 +1547,8 @@
     private async Task OfferPublishProfileUpdatesAsync(
         AppleCertificate oldCert,
         AppleCertificate newCert,
-        IReadOnlyList<ProfileRenewalResult> renewed)
+        IReadOnlyList<ProfileRenewalResult> renewed,
+        IReadOnlyList<AppleProfile> profilesBeforeRenewal)
     {
         PublishProfileHealth.Invalidate();
         if (CloudSecretsService.ActiveProvider is null)
@@ -1533,12 +1572,20 @@
             .GroupBy(result => result.OriginalProfile.Id)
             .ToDictionary(group => group.Key, group => group.Last().RegeneratedProfile);
 
-        var updates = publishProfiles
-            .Select(profile => (Original: profile, Updated: PublishProfileHealth.Repoint(profile, certificateMap, profileMap)))
+        var repointed = publishProfiles
+            .Select(profile => (Original: profile, Updated: PublishProfileHealth.Repoint(
+                profile, certificateMap, profileMap, profilesBeforeRenewal, certificates)))
+            .ToList();
+        var updates = repointed
             .Where(pair => !ReferenceEquals(pair.Original, pair.Updated))
             .ToList();
         if (updates.Count == 0)
             return;
+
+        // A config only moves to the new certificate when its provisioning profiles were moved
+        // too; one built with a profile that was skipped or failed keeps the old certificate.
+        var keepsOldCertificate = repointed.Any(pair => pair.Updated.AppleConfigs.Any(config =>
+            config.GetSigningCertificates().Any(selection => SerialsMatch(selection.SerialNumber, oldCert.SerialNumber))));
 
         var names = string.Join(", ", updates.Take(5).Select(pair => $"'{pair.Original.Name}'"));
         if (updates.Count > 5)
@@ -1548,6 +1595,9 @@
             "Update Publish Profiles",
             $"{updates.Count} publish profile(s) use the old certificate or a recreated provisioning profile: {names}.\n\n" +
             $"Update them to use '{newCert.Name}' and the recreated provisioning profiles? " +
+            (keepsOldCertificate
+                ? "Configs whose provisioning profiles weren't moved keep the old certificate until those profiles include the new one. "
+                : "") +
             "If you skip this, they show an \"updated\" badge on the Publish Profiles page with a one-click fix.",
             "Update",
             "Not Now");

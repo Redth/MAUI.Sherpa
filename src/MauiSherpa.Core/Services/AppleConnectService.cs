@@ -603,7 +603,7 @@ public class AppleConnectService : IAppleConnectService
             var response = await client.ListProfilesAsync(
                 filterId: null, filterName: null, 
                 filterProfileState: null, filterProfileType: null,
-                include: "bundleId,certificates", sort: null, limit: 100,
+                include: "bundleId,certificates", sort: null, limit: IAppleConnectService.ProfileListLimit,
                 limitCertificates: 50, limitDevices: null,
                 fieldsProfiles: null, fieldsBundleIds: null,
                 fieldsCertificates: null, fieldsDevices: null,

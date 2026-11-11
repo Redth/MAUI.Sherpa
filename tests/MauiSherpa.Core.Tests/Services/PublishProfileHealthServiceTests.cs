@@ -215,9 +215,82 @@ public class PublishProfileHealthServiceTests
         _sut.Evaluate(profile, Snapshot(certificates: [older, DistCert])).IsHealthy.Should().BeTrue();
     }
 
+    [Fact]
+    public void Evaluate_DoesNotOfferAReplacementItsProvisioningProfilesDoNotAuthorize()
+    {
+        var older = Certificate("c3", DistCert.Name, "DISTRIBUTION", Now.AddDays(200), "OLDER1");
+        var onlyOld = StoreProfile with { CertificateIds = [older.Id] };
+        var profile = Profile(apple: [AppleConfig(certificates: [Selection(older)], profiles: [ProfileSelection(onlyOld)])]);
+
+        var issue = _sut.Evaluate(profile, Snapshot(certificates: [older, DistCert], profiles: [onlyOld]))
+            .Issues.Should().ContainSingle().Subject;
+
+        issue.Kind.Should().Be(PublishProfileHealthIssueKind.CertificateReplaced);
+        issue.CanFix.Should().BeFalse();
+        issue.Label.Should().Contain("regenerate its provisioning profiles");
+    }
+
+    [Fact]
+    public void Evaluate_DoesNotOfferACertificateReplacementWhenProfilesCouldNotBeLoaded()
+    {
+        var expired = Certificate("c2", "Old Dist", "DISTRIBUTION", Now.AddDays(-1), "EXPIRED1");
+        var profile = Profile(apple: [AppleConfig(certificates: [Selection(expired)], profiles: [ProfileSelection(StoreProfile)])]);
+        var snapshot = Snapshot(certificates: [expired, DistCert]) with { ProvisioningProfiles = null };
+
+        var issue = _sut.Evaluate(profile, snapshot).Issues.Should().ContainSingle().Subject;
+
+        issue.Kind.Should().Be(PublishProfileHealthIssueKind.ExpiredCertificate);
+        issue.CanFix.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Evaluate_OffersAReplacementWhenTheRegeneratedProfileAuthorizesIt()
+    {
+        var older = Certificate("c3", DistCert.Name, "DISTRIBUTION", Now.AddDays(200), "OLDER1");
+        var oldProfile = StoreProfile with { CertificateIds = [older.Id] };
+        var regenerated = StoreProfile with { Id = "p-new", Uuid = "U-NEW", CertificateIds = [DistCert.Id] };
+        var profile = Profile(apple: [AppleConfig(certificates: [Selection(older)], profiles: [ProfileSelection(oldProfile)])]);
+
+        var report = _sut.Evaluate(profile, Snapshot(certificates: [older, DistCert], profiles: [regenerated]));
+
+        report.Issues.Should().Contain(issue =>
+            issue.Kind == PublishProfileHealthIssueKind.CertificateReplaced && issue.CanFix);
+    }
+
     // ------------------------------------------------------------------
     // Provisioning profiles
     // ------------------------------------------------------------------
+
+    [Fact]
+    public void Evaluate_FollowsARecordedProfileReplacementForALegacySelection()
+    {
+        // Legacy selections store the ID in the name slot and have no UUID.
+        var legacy = new PublishProfileProvisioningProfileSelection(StoreProfile.Id, "", StoreProfile.Id);
+        var regenerated = StoreProfile with { Id = "p-new", Uuid = "U-NEW" };
+        _sut.RecordProvisioningProfileReplacement(StoreProfile.Id, "p-mid");
+        _sut.RecordProvisioningProfileReplacement("p-mid", regenerated.Id);
+        var profile = Profile(apple: [AppleConfig(profiles: [legacy])]);
+
+        var issue = _sut.Evaluate(profile, Snapshot(profiles: [regenerated])).Issues.Should().ContainSingle().Subject;
+
+        issue.Kind.Should().Be(PublishProfileHealthIssueKind.ProvisioningProfileUpdated);
+        issue.ReplacementReference.Should().Be("p-new");
+        issue.ReplacementUuid.Should().Be("U-NEW");
+    }
+
+    [Fact]
+    public void Evaluate_DoesNotReportAMissingProfileWhenTheProfileListMayBeTruncated()
+    {
+        var page = Enumerable.Range(0, IAppleConnectService.ProfileListLimit)
+            .Select(i => StoreProfile with { Id = $"p-{i}", Uuid = $"U-{i}", Name = $"Profile {i}" })
+            .ToList();
+        var profile = Profile(apple: [AppleConfig(profiles: [new PublishProfileProvisioningProfileSelection("beyond", "U-BEYOND", "Beyond")])]);
+
+        var report = _sut.Evaluate(profile, Snapshot(profiles: page));
+
+        report.Issues.Should().BeEmpty();
+        report.UncheckedSources.Should().ContainSingle().Which.Should().Contain("first");
+    }
 
     [Fact]
     public void Evaluate_ReportsMissingProvisioningProfile()
@@ -468,7 +541,46 @@ public class PublishProfileHealthServiceTests
 
         snapshot.ManagedSecretKeys.Should().BeNull();
         snapshot.UnavailableSources.Should().ContainKey(PublishProfileHealthService.SecretsSource);
-        _managedSecrets.Verify(service => service.ListAsync(It.IsAny<CancellationToken>()), Times.Never);
+        _managedSecrets.Verify(service => service.ListWithStatusAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task LoadSnapshotAsync_TreatsAPartialSecretListAsUnchecked()
+    {
+        SetUpSources();
+        _managedSecrets.Setup(service => service.ListWithStatusAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ManagedSecretListing(
+                [new ManagedSecret("UNRELATED", ManagedSecretType.String, null, null, Now, Now)],
+                ["Azure Key Vault"]));
+
+        var snapshot = await _sut.LoadSnapshotAsync();
+        var report = _sut.Evaluate(Profile(secrets: [new PublishProfileSecretMapping("API_KEY", ["API_KEY"])]), snapshot);
+
+        snapshot.ManagedSecretKeys.Should().BeNull();
+        snapshot.UnavailableSources.Should().ContainKey(PublishProfileHealthService.SecretsSource)
+            .WhoseValue.Should().Contain("Azure Key Vault");
+        report.Issues.Should().BeEmpty();
+        report.UncheckedSources.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task RefreshAsync_FlushesTheSourceCachesAndTheSnapshot()
+    {
+        SetUpSources();
+        var profiles = new[] { Profile() };
+        await _sut.EvaluateAsync(profiles);
+
+        await _sut.RefreshAsync();
+        await _sut.EvaluateAsync(profiles);
+
+        var flushed = _mediator.Invocations
+            .SelectMany(invocation => invocation.Arguments)
+            .OfType<FlushStoresEvent>()
+            .Select(flush => flush.RequestKey)
+            .ToList();
+        flushed.Should().BeEquivalentTo(
+            [$"apple:certs:{IdentityId}", $"apple:profiles:{IdentityId}", "android:keystores"]);
+        _managedSecrets.Verify(service => service.ListWithStatusAsync(It.IsAny<CancellationToken>()), Times.Exactly(2));
     }
 
     [Fact]
@@ -479,12 +591,12 @@ public class PublishProfileHealthServiceTests
 
         await _sut.EvaluateAsync(profiles);
         await _sut.EvaluateAsync(profiles);
-        _managedSecrets.Verify(service => service.ListAsync(It.IsAny<CancellationToken>()), Times.Once);
+        _managedSecrets.Verify(service => service.ListWithStatusAsync(It.IsAny<CancellationToken>()), Times.Once);
 
         _sut.Invalidate();
         var reports = await _sut.EvaluateAsync(profiles);
 
-        _managedSecrets.Verify(service => service.ListAsync(It.IsAny<CancellationToken>()), Times.Exactly(2));
+        _managedSecrets.Verify(service => service.ListWithStatusAsync(It.IsAny<CancellationToken>()), Times.Exactly(2));
         reports.Should().ContainKey("pp-1").WhoseValue.IsHealthy.Should().BeTrue();
     }
 
@@ -615,7 +727,9 @@ public class PublishProfileHealthServiceTests
         var result = _sut.Repoint(
             profile,
             new Dictionary<string, AppleCertificate> { ["AABB"] = DistCert },
-            new Dictionary<string, AppleProfile> { [StoreProfile.Id] = regenerated });
+            new Dictionary<string, AppleProfile> { [StoreProfile.Id] = regenerated },
+            [StoreProfile with { CertificateIds = [oldCert.Id] }],
+            [oldCert, DistCert]);
 
         result.AppleConfigs[0].SigningCertificates.Single().SerialNumber.Should().Be(DistCert.SerialNumber);
         result.AppleConfigs[0].ProvisioningProfiles.Single().Id.Should().Be("p-new");
@@ -630,7 +744,51 @@ public class PublishProfileHealthServiceTests
         var result = _sut.Repoint(
             profile,
             new Dictionary<string, AppleCertificate> { ["SOMETHINGELSE"] = DistCert },
-            new Dictionary<string, AppleProfile>());
+            new Dictionary<string, AppleProfile>(),
+            [StoreProfile],
+            [DistCert]);
+
+        result.Should().BeSameAs(profile);
+    }
+
+    [Fact]
+    public void Repoint_KeepsTheOldCertificateWhenItsProvisioningProfileWasNotRegenerated()
+    {
+        // The profile was deselected or failed during renewal, so it still authorizes only the old certificate.
+        var oldCert = Certificate("c-old", "Dist", "DISTRIBUTION", Now.AddDays(5), "AA:BB");
+        var stillOld = StoreProfile with { CertificateIds = [oldCert.Id] };
+        var otherProfile = StoreProfile with { Id = "p2", Uuid = "U-2", Name = "Widget" , CertificateIds = [oldCert.Id] };
+        var regeneratedOther = otherProfile with { Id = "p2-new", Uuid = "U-2-NEW", CertificateIds = [DistCert.Id] };
+        var profile = Profile(apple:
+        [
+            AppleConfig(certificates: [Selection(oldCert)], profiles: [ProfileSelection(stillOld)]),
+            AppleConfig(certificates: [Selection(oldCert)], profiles: [ProfileSelection(otherProfile)]) with { Label = "Widget" },
+        ]);
+
+        var result = _sut.Repoint(
+            profile,
+            new Dictionary<string, AppleCertificate> { [oldCert.SerialNumber] = DistCert },
+            new Dictionary<string, AppleProfile> { [otherProfile.Id] = regeneratedOther },
+            [stillOld, otherProfile],
+            [oldCert, DistCert]);
+
+        result.AppleConfigs[0].Should().BeSameAs(profile.AppleConfigs[0]);
+        result.AppleConfigs[1].SigningCertificates.Single().SerialNumber.Should().Be(DistCert.SerialNumber);
+        result.AppleConfigs[1].ProvisioningProfiles.Single().Id.Should().Be("p2-new");
+    }
+
+    [Fact]
+    public void Repoint_DoesNotReplaceASigningCertificateWhenProfilesAreUnknown()
+    {
+        var oldCert = Certificate("c-old", "Dist", "DISTRIBUTION", Now.AddDays(5), "AA:BB");
+        var profile = Profile(apple: [AppleConfig(certificates: [Selection(oldCert)], profiles: [ProfileSelection(StoreProfile)])]);
+
+        var result = _sut.Repoint(
+            profile,
+            new Dictionary<string, AppleCertificate> { [oldCert.SerialNumber] = DistCert },
+            new Dictionary<string, AppleProfile>(),
+            knownProfiles: null,
+            [oldCert, DistCert]);
 
         result.Should().BeSameAs(profile);
     }
@@ -707,8 +865,8 @@ public class PublishProfileHealthServiceTests
             .Setup(mediator => mediator.Request(It.IsAny<GetKeystoresRequest>(), It.IsAny<CancellationToken>(), It.IsAny<Action<IMediatorContext>?>()))
             .ReturnsAsync((Mock.Of<IMediatorContext>(), (IReadOnlyList<AndroidKeystore>)[new AndroidKeystore("ks-1", "upload", "/tmp/k", "PKCS12", Now)]));
 
-        _managedSecrets.Setup(service => service.ListAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync([new ManagedSecret("API_KEY", ManagedSecretType.String, null, null, Now, Now)]);
+        _managedSecrets.Setup(service => service.ListWithStatusAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ManagedSecretListing([new ManagedSecret("API_KEY", ManagedSecretType.String, null, null, Now, Now)], []));
         _appleIdentities.Setup(service => service.GetIdentitiesAsync())
             .ReturnsAsync([new AppleIdentity(IdentityId, "Team", "KEY", "ISSUER", null, null)]);
         _googleIdentities.Setup(service => service.GetIdentitiesAsync())
