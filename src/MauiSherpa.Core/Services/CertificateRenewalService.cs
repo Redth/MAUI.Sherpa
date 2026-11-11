@@ -83,61 +83,16 @@ public class CertificateRenewalService : ICertificateRenewalService
         _logger.LogInformation(
             $"Re-pointed profile '{profile.Name}' ({profile.Id} -> {regenerated.Id}) from certificate {oldCertificateId} to {newCertificateId}");
 
-        string? installedPath = null;
-        string? installError = null;
-        try
-        {
-            progress?.Report($"Installing regenerated '{regenerated.Name}'...");
-            installedPath = await _appleService.InstallProfileAsync(regenerated.Id);
-        }
-        catch (Exception ex)
-        {
-            installError = ex.Message;
-            _logger.LogWarning($"Regenerated profile '{regenerated.Name}' could not be installed: {ex.Message}");
-        }
-
-        IReadOnlyList<string> removed = [];
-        if (removeOldInstalledCopies && installError is null)
-            removed = await RemoveOldInstalledCopiesAsync(profile, regenerated, progress, cancellationToken);
+        var install = await ProfileRegeneration.InstallAsync(
+            _appleService, _logger, profile, regenerated, removeOldInstalledCopies, progress, cancellationToken);
 
         return new ProfileRenewalResult(
             profile,
             regenerated,
-            installedPath,
-            installError,
-            removed,
+            install.InstalledPath,
+            install.InstallError,
+            install.RemovedInstalledPaths,
             plan.DroppedDevices);
-    }
-
-    async Task<IReadOnlyList<string>> RemoveOldInstalledCopiesAsync(
-        AppleProfile original,
-        AppleProfile regenerated,
-        IProgress<string>? progress,
-        CancellationToken cancellationToken)
-    {
-        if (string.IsNullOrWhiteSpace(original.Uuid) ||
-            string.Equals(original.Uuid, regenerated.Uuid, StringComparison.OrdinalIgnoreCase))
-        {
-            return [];
-        }
-
-        try
-        {
-            var paths = await _appleService.FindInstalledProfilePathsAsync(original.Uuid);
-            if (paths.Count == 0)
-                return [];
-
-            await ProvisioningProfileCleanupAnalyzer.DeleteAsync(paths, cancellationToken);
-            progress?.Report($"Removed {paths.Count} old installed copy(ies) of '{original.Name}'");
-            return paths;
-        }
-        catch (Exception ex)
-        {
-            // The new profile is installed; a stale old copy is harmless to leave behind.
-            _logger.LogWarning($"Could not remove old installed copies of '{original.Name}': {ex.Message}");
-            progress?.Report($"Could not remove the old installed copy: {ex.Message}");
-            return [];
-        }
     }
 
     internal sealed record ReplacementPlan(
