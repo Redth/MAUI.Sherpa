@@ -15,6 +15,8 @@
 @inject IEncryptedSettingsService SettingsService
 @inject IToolbarService ToolbarService
 @inject IPlatformService PlatformInfo
+@inject IFormModalService FormModalService
+@inject MauiSherpa.Pages.Forms.HybridFormBridgeHolder BridgeHolder
 @implements IDisposable
 
 <h1><i class="fas fa-mobile-alt"></i> Android Devices</h1>
@@ -26,6 +28,9 @@
 <div class="toolbar">
     <button class="btn btn-primary" @onclick="() => RefreshDevices(forceRefresh: true)" disabled="@isLoading">
         <i class="fas @(isLoading ? "fa-spinner fa-spin" : "fa-sync-alt")"></i> Refresh
+    </button>
+    <button class="btn btn-secondary" @onclick="OpenWirelessPairing">
+        <i class="fas fa-wifi"></i> Pair over Wi-Fi
     </button>
 </div>
 }
@@ -46,7 +51,10 @@
         <div class="empty-state">
             <div class="empty-icon"><i class="fas fa-mobile-alt"></i></div>
             <div class="empty-title">No devices connected</div>
-            <div class="empty-description">Connect an Android device via USB or start an emulator</div>
+            <div class="empty-description">Connect an Android device via USB, pair over Wi-Fi, or start an emulator</div>
+            <button class="btn btn-primary empty-pair-button" @onclick="OpenWirelessPairing">
+                <i class="fas fa-wifi"></i> Pair over Wi-Fi
+            </button>
         </div>
     }
     else
@@ -73,6 +81,14 @@
                         @if (device.IsEmulator)
                         {
                             <span class="badge badge-info">Emulator</span>
+                        }
+                        else if (MauiSherpa.Core.Services.AndroidWirelessPairingService.IsWirelessSerial(device.Serial))
+                        {
+                            <span class="badge badge-transport"><i class="fas fa-wifi" aria-hidden="true"></i> Wi-Fi</span>
+                        }
+                        else
+                        {
+                            <span class="badge badge-transport"><i class="fab fa-usb" aria-hidden="true"></i> USB</span>
                         }
                     </div>
                 </div>
@@ -131,6 +147,9 @@
 
     .toolbar {
         margin-bottom: 1.25rem;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
     }
 
     .btn i { font-size: 0.75rem; }
@@ -254,6 +273,9 @@
         color: #c05621;
     }
 
+    .badge-transport { background: var(--bg-tertiary); color: var(--text-secondary); display: inline-flex; align-items: center; gap: 0.25rem; }
+    .badge-transport i { font-size: 0.625rem; }
+
     .badge-info {
         background: #bee3f8;
         color: #2c5282;
@@ -285,16 +307,20 @@
         color: var(--text-muted);
         font-size: 0.875rem;
     }
+
+    .empty-pair-button { margin-top: 1.25rem; }
 </style>
 
 @code {
     private List<DeviceInfo> devices = new();
     private bool isLoading = false;
     private bool demoMode = false;
+    private bool showingWirelessPairing;
 
     protected override async Task OnInitializedAsync()
     {
         ToolbarService.SetItems(
+            new ToolbarAction("pair-wireless", "Pair over Wi-Fi", "wifi"),
             new ToolbarAction("refresh", "Refresh", "arrow.clockwise")
         );
         ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
@@ -392,6 +418,25 @@
         await AlertService.ShowToastAsync("Copied to clipboard");
     }
 
+    private async Task OpenWirelessPairing()
+    {
+        if (showingWirelessPairing) return;
+        showingWirelessPairing = true;
+        try
+        {
+            if (await FormModalService.ShowAsync<bool>(new Modals.AndroidDevicePairingPage(BridgeHolder)))
+                await RefreshDevices(forceRefresh: true);
+        }
+        catch (Exception ex)
+        {
+            await AlertService.ShowToastAsync($"Could not open Android pairing: {ex.Message}");
+        }
+        finally
+        {
+            showingWirelessPairing = false;
+        }
+    }
+
     public void Dispose()
     {
         ToolbarService.ToolbarItemClicked -= OnToolbarItemClicked;
@@ -405,6 +450,9 @@
         {
             switch (actionId)
             {
+                case "pair-wireless":
+                    await OpenWirelessPairing();
+                    break;
                 case "refresh":
                     ToolbarService.SetItemEnabled("refresh", false);
                     try { await RefreshDevices(forceRefresh: true); } finally { ToolbarService.SetItemEnabled("refresh", true); }

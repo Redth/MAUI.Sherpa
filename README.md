@@ -39,6 +39,17 @@ MAUI Sherpa is a desktop application for **macOS**, **Windows**, and **Linux** t
 - Create snapshots for quick boot
 - View emulator details and configuration
 
+### Android Wireless Devices
+- Pair a device without Android Studio from **Android Devices > Pair over Wi-Fi**; the sheet lists **Available Devices** (found on your network, refreshed every few seconds) and **My Devices** (connected to adb, with live status)
+- Enable **Developer options > Wireless debugging** on an Android 11+ phone or Android 13+ TV/Wear OS device
+- For QR pairing, choose **Pair over Wi-Fi…** in Sherpa and **Pair device with QR code** on the device; scan with that scanner, not the regular camera app. Codes are single-use and expire after 3 minutes; **Stop** cancels.
+- For code pairing, choose **Pair device with pairing code** on the device, then **Pair** on its row under Available Devices and enter the six-digit code; codes are never saved or logged
+- If Android does not connect automatically, use **Connect** on its row, or **Reconnect** for an offline Wi-Fi device under My Devices
+- When the network blocks discovery (guest Wi-Fi, VPNs, isolation), open **Enter an address manually** to pair or connect by IP address and port; the pairing and debugging ports differ
+- On macOS, allow MAUI Sherpa under **System Settings › Privacy & Security › Local Network**. If the ADB server was started by an app without that access, Sherpa shows **Restart ADB**, which relaunches it from Sherpa (briefly disconnecting all Android devices)
+- Sherpa also discovers devices with a private, discovery-only ADB server, because a long-running ADB server often misses devices announced after it starts; after pairing, Sherpa connects the device for debugging
+- Requires current Android SDK platform-tools and the same Wi-Fi network. QR pairing needs ADB mDNS discovery.
+
 ### 🔑 Android Keystores
 - Create and manage Android signing keystores
 - View certificate signatures and details

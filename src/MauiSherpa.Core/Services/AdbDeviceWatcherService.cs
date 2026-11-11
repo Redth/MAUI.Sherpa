@@ -83,14 +83,13 @@ public class AdbDeviceWatcherService : IAdbDeviceWatcherService
 
     private async Task WatchLoopAsync(string sdkPath, CancellationToken ct)
     {
-        // Do an initial device list fetch so we have devices immediately
-        await RefreshDeviceListAsync(sdkPath, ct);
-
         // Retry loop in case the ADB connection drops
         while (!ct.IsCancellationRequested)
         {
             try
             {
+                // Fetch the full list on every (re)connection; a restarted ADB server doesn't replay old changes.
+                await RefreshDeviceListAsync(sdkPath, ct);
                 _client = new AdbdClient(sdkPath);
 
                 // WatchDevicesAsync fires per-device per-update, but the upstream
