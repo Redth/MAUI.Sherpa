@@ -77,7 +77,8 @@ confirmation.
 
 Native helper distribution/notarization and other OS combinations still require validation. The
 helper is built for arm64 and x86_64, bundled in `Contents/MacOS`, and signed before the outer app.
-No new entitlement or sandbox bypass is used.
+The release workflow re-signs it with a Developer ID, hardened runtime, and a secure timestamp,
+then verifies each architecture before notarization. No new entitlement or sandbox bypass is used.
 
 The fresh USB and Wi-Fi pairings above were verified with the standalone prototype. The integrated
 Sherpa build has been checked for discovery, an existing iPad's live connection, helper availability,
