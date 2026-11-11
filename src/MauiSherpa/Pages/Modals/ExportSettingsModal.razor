@@ -164,6 +164,16 @@
                         <input type="checkbox" @bind="exportIncludeCertificates" />
                         <span>Signing Certificates (@selectedCertificateIds.Count/@certificates.Count)</span>
                     </label>
+                    @if (certificateLoadErrors.Count > 0)
+                    {
+                        <div class="error-message" role="alert">
+                            <div>Some signing certificates may be missing. Reopen this dialog after fixing the problem.</div>
+                            @foreach (var error in certificateLoadErrors)
+                            {
+                                <div>@error</div>
+                            }
+                        </div>
+                    }
                     @if (exportIncludeCertificates && certificates.Count > 0)
                     {
                         <div class="backup-selection-children">
@@ -208,6 +218,7 @@
     private List<PushProject> pushProjects = new();
     private List<PublishProfile> publishProfiles = new();
     private List<BackupCertificateInfo> certificates = new();
+    private IReadOnlyList<string> certificateLoadErrors = Array.Empty<string>();
 
     private string exportPassword = "";
     private string exportPasswordConfirm = "";
@@ -254,7 +265,16 @@
         try { secretsPublishers = (await SecretsPublisherService.GetPublishersAsync()).ToList(); } catch { }
         try { pushProjects = (await PushProjectService.GetProjectsAsync()).ToList(); } catch { }
         try { publishProfiles = (await PublishProfileService.GetProfilesAsync()).ToList(); } catch { }
-        try { certificates = (await BackupService.GetBackupCertificatesAsync()).ToList(); } catch { }
+        try
+        {
+            var discovery = await BackupService.GetBackupCertificatesAsync();
+            certificates = discovery.Certificates.ToList();
+            certificateLoadErrors = discovery.Errors;
+        }
+        catch (Exception ex)
+        {
+            certificateLoadErrors = new[] { $"Could not list signing certificates: {ex.Message}" };
+        }
 
         exportIncludeAppleIdentities = appleIdentities.Count > 0;
         exportIncludeCloudProviders = cloudProviders.Count > 0;
@@ -373,7 +393,7 @@
     .backup-item-source { margin-left: auto; font-size: 0.6875rem; color: var(--text-muted); white-space: nowrap; }
     .backup-selection-item input[type="checkbox"] { width: 1rem; height: 1rem; margin: 0; }
 
-    .error-message { background: rgba(245, 101, 101, 0.1); border: 1px solid rgba(245, 101, 101, 0.3); color: #c53030; padding: 0.625rem 0.875rem; border-radius: 0.75rem; font-size: 0.8125rem; }
+    .error-message { background: var(--status-error-bg); border: 1px solid var(--status-error-text); color: var(--text-primary); padding: 0.625rem 0.875rem; border-radius: 0.75rem; font-size: 0.8125rem; }
 
     .btn { padding: 10px 20px; border: none; border-radius: 6px; font-size: 14px; cursor: pointer; transition: all 0.2s ease; display: inline-flex; align-items: center; gap: 6px; }
     .btn i { font-size: 12px; }

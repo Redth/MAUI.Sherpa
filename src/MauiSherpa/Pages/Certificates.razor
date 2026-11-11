@@ -1400,7 +1400,7 @@
                 
                 try
                 {
-                    var success = await CertificateSyncService.DownloadAndInstallAsync(cert.Id);
+                    var success = await CertificateSyncService.DownloadAndInstallBySerialAsync(cert.SerialNumber ?? "");
                     
                     if (success)
                     {
@@ -1754,22 +1754,14 @@
                 ctx.LogInfo($"Serial: {cert.SerialNumber}");
                 ctx.LogInfo("Downloading from cloud storage...");
                 
-                // Use the CertificateSyncService to download and install
-                if (CertificateSyncService is MauiSherpa.Core.Services.CertificateSyncService syncService)
+                var success = await CertificateSyncService.DownloadAndInstallBySerialAsync(cert.SerialNumber ?? "");
+                if (!success)
                 {
-                    var success = await syncService.DownloadAndInstallBySerialAsync(cert.SerialNumber ?? "");
-                    if (!success)
-                    {
-                        ctx.LogError("Failed to download and install certificate");
-                        throw new Exception("Failed to download and install certificate - check logs for details");
-                    }
-                    ctx.LogSuccess("Certificate installed successfully");
-                    return true;
+                    ctx.LogError("Failed to download and install certificate");
+                    throw new Exception("Failed to download and install certificate - check logs for details");
                 }
-                else
-                {
-                    throw new Exception("Sync service not available");
-                }
+                ctx.LogSuccess("Certificate installed successfully");
+                return true;
             },
             canCancel: false);
         

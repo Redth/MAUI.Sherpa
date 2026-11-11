@@ -347,13 +347,23 @@ public class InfisicalProvider : ICloudSecretsProvider
         }
     }
 
-    public async Task<IReadOnlyList<string>> ListSecretsAsync(string? prefix = null, CancellationToken cancellationToken = default)
+    public Task<IReadOnlyList<string>> ListSecretsAsync(string? prefix = null, CancellationToken cancellationToken = default) =>
+        ListSecretsCoreAsync(prefix, false, cancellationToken);
+
+    public Task<IReadOnlyList<string>> ListSecretsStrictAsync(string? prefix = null, CancellationToken cancellationToken = default) =>
+        ListSecretsCoreAsync(prefix, true, cancellationToken);
+
+    private async Task<IReadOnlyList<string>> ListSecretsCoreAsync(string? prefix, bool throwOnError, CancellationToken cancellationToken)
     {
         try
         {
             var client = await GetClientAsync(cancellationToken);
             if (client == null)
+            {
+                if (throwOnError)
+                    throw new InvalidOperationException("Infisical client is unavailable.");
                 return Array.Empty<string>();
+            }
 
             var options = new ListSecretsOptions
             {

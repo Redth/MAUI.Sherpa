@@ -288,7 +288,13 @@ public class GoogleSecretManagerProvider : ICloudSecretsProvider
         }
     }
 
-    public async Task<IReadOnlyList<string>> ListSecretsAsync(string? prefix = null, CancellationToken cancellationToken = default)
+    public Task<IReadOnlyList<string>> ListSecretsAsync(string? prefix = null, CancellationToken cancellationToken = default) =>
+        ListSecretsCoreAsync(prefix, false, cancellationToken);
+
+    public Task<IReadOnlyList<string>> ListSecretsStrictAsync(string? prefix = null, CancellationToken cancellationToken = default) =>
+        ListSecretsCoreAsync(prefix, true, cancellationToken);
+
+    private async Task<IReadOnlyList<string>> ListSecretsCoreAsync(string? prefix, bool throwOnError, CancellationToken cancellationToken)
     {
         try
         {
@@ -325,6 +331,8 @@ public class GoogleSecretManagerProvider : ICloudSecretsProvider
         catch (Exception ex)
         {
             _logger.LogError($"Google Secret Manager list secrets error: {ex.Message}", ex);
+            if (throwOnError || cancellationToken.IsCancellationRequested)
+                throw;
             return Array.Empty<string>();
         }
     }

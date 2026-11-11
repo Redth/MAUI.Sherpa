@@ -712,7 +712,8 @@ public class BackupServiceTests
             "Apple Distribution: Test (TEAM)", "Apple Distribution: Test", "TEAM", serial, DateTime.UtcNow.AddYears(1), true);
 
         var localCertificates = new Mock<ILocalCertificateService>();
-        localCertificates.Setup(x => x.GetSigningIdentitiesAsync()).ReturnsAsync(new[] { identity });
+        localCertificates.Setup(x => x.GetSigningIdentityDiscoveryAsync())
+            .ReturnsAsync(new LocalSigningIdentityDiscoveryResult(new[] { identity }, Array.Empty<string>()));
         string? bundlePassword = null;
         localCertificates
             .Setup(x => x.ExportP12Async(It.IsAny<IReadOnlyList<LocalSigningIdentity>>(), It.IsAny<string>()))
@@ -728,7 +729,8 @@ public class BackupServiceTests
             localCertificateService: localCertificates.Object);
 
         var available = await service.GetBackupCertificatesAsync();
-        available.Should().ContainSingle(c => c.Item.Id == id && c.InKeychain && !c.InLocalVault);
+        available.Certificates.Should().ContainSingle(c => c.Item.Id == id && c.InKeychain && !c.InLocalVault);
+        available.Errors.Should().BeEmpty();
 
         var encrypted = await service.ExportSettingsAsync("password123");
         var imported = await service.ImportBackupAsync(encrypted, "password123");
@@ -746,6 +748,216 @@ public class BackupServiceTests
     }
 
     [Fact]
+    public async Task GetBackupCertificatesAsync_WhenVaultIsUnavailable_ReportsErrorAndKeepsKeychainItems()
+    {
+        var localCertificates = new Mock<ILocalCertificateService>();
+        localCertificates.Setup(x => x.GetSigningIdentityDiscoveryAsync())
+            .ReturnsAsync(new LocalSigningIdentityDiscoveryResult(
+                new[] { new LocalSigningIdentity("identity", "Keychain certificate", "TEAM", "ABC123", null, true) },
+                Array.Empty<string>()));
+        var (service, adapter, _) = CreateCertificateBackupService(
+            Array.Empty<SecretItemRef>(), _ => null, localCertificates.Object);
+        adapter.Setup(x => x.ListProviderItemsAsync(LocalId, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("Vault locked"));
+
+        var discovery = await service.GetBackupCertificatesAsync();
+
+        discovery.Certificates.Should().ContainSingle(c =>
+            c.Item.Id == "ABC123" && c.InKeychain && !c.InLocalVault);
+        discovery.Errors.Should().ContainSingle()
+            .Which.Should().Contain("Local Vault").And.Contain("Vault locked");
+    }
+
+    [Fact]
+    public async Task GetBackupCertificatesAsync_WhenLocalProviderCannotBeResolved_ReportsError()
+    {
+        var registry = new Mock<ISecretsProviderRegistry>();
+        var localCertificates = new Mock<ILocalCertificateService>();
+        localCertificates.Setup(x => x.GetSigningIdentityDiscoveryAsync())
+            .ReturnsAsync(new LocalSigningIdentityDiscoveryResult(
+                Array.Empty<LocalSigningIdentity>(), Array.Empty<string>()));
+        var adapter = new CertificateItemAdapter(registry.Object, localCertificates.Object);
+        var service = new BackupService(
+            _mockSettingsService.Object,
+            providerRegistry: registry.Object,
+            secretItemAdapters: new[] { adapter },
+            localCertificateService: localCertificates.Object);
+
+        var discovery = await service.GetBackupCertificatesAsync();
+
+        discovery.Errors.Should().ContainSingle()
+            .Which.Should().Contain("Local Vault").And.Contain("unavailable");
+    }
+
+    [Fact]
+    public async Task GetBackupCertificatesAsync_WhenLocalDiscoveryIsIncomplete_ReportsAvailableItemsAndErrors()
+    {
+        var localCertificates = new Mock<ILocalCertificateService>();
+        localCertificates.Setup(x => x.GetSigningIdentityDiscoveryAsync())
+            .ReturnsAsync(new LocalSigningIdentityDiscoveryResult(
+                new[] { new LocalSigningIdentity("identity", "Available certificate", "TEAM", "ABC123", null, true) },
+                new[] { "Could not read the serial number for another certificate." }));
+        var (service, _, _) = CreateCertificateBackupService(
+            Array.Empty<SecretItemRef>(), _ => null, localCertificates.Object);
+
+        var discovery = await service.GetBackupCertificatesAsync();
+        var export = () => service.ExportSettingsAsync("password123");
+
+        discovery.Certificates.Should().ContainSingle(c => c.Item.Id == "ABC123" && c.InKeychain);
+        discovery.Errors.Should().ContainSingle().Which.Should().Contain("another certificate");
+        (await export.Should().ThrowAsync<InvalidOperationException>())
+            .WithMessage("*Could not list all signing certificates*another certificate*");
+    }
+
+    [Fact]
+    public async Task ExportSettingsAsync_WhenSelectedCertificateDisappears_FailsEvenWithOtherSettings()
+    {
+        var (service, _, _) = CreateCertificateBackupService(Array.Empty<SecretItemRef>(), _ => null);
+        var selection = new BackupExportSelection { CertificateIds = new List<string> { "ABC123" } };
+
+        var act = () => service.ExportSettingsAsync("password123", selection);
+
+        (await act.Should().ThrowAsync<InvalidOperationException>())
+            .WithMessage("*selected signing certificates are no longer available*ABC123*");
+    }
+
+    [Fact]
+    public async Task ExportSettingsAsync_WhenVaultFailsAfterSelection_ReportsTheMissingCertificate()
+    {
+        var certificate = new SecretItemRef(SecretItemKind.Certificate, "ABC123", "Vault certificate");
+        var (service, adapter, _) = CreateCertificateBackupService(new[] { certificate }, _ => null);
+        adapter.SetupSequence(x => x.ListProviderItemsAsync(LocalId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { certificate })
+            .ThrowsAsync(new InvalidOperationException("Vault locked"));
+        var initial = await service.GetBackupCertificatesAsync();
+        var selection = new BackupExportSelection
+        {
+            CertificateIds = initial.Certificates.Select(c => c.Item.Id).ToList()
+        };
+
+        var act = () => service.ExportSettingsAsync("password123", selection);
+
+        (await act.Should().ThrowAsync<InvalidOperationException>())
+            .WithMessage("*no longer available*ABC123*Local Vault*Vault locked*");
+    }
+
+    [Fact]
+    public async Task ExportSettingsAsync_WhenVaultFailsAfterSelection_UsesAvailableKeychainCopy()
+    {
+        var (bundle, serial) = CreateP12("source-password", includePrivateKey: true);
+        var id = SecretItemAdapterHelper.SanitizeSerialNumber(serial);
+        var certificate = new SecretItemRef(SecretItemKind.Certificate, id, "Vault certificate");
+        var identity = new LocalSigningIdentity(
+            "identity", "Keychain certificate", "TEAM", serial, DateTime.UtcNow.AddYears(1), true);
+        var localCertificates = new Mock<ILocalCertificateService>();
+        localCertificates.Setup(x => x.GetSigningIdentityDiscoveryAsync())
+            .ReturnsAsync(new LocalSigningIdentityDiscoveryResult(new[] { identity }, Array.Empty<string>()));
+        localCertificates
+            .Setup(x => x.ExportP12Async(It.IsAny<IReadOnlyList<LocalSigningIdentity>>(), It.IsAny<string>()))
+            .ReturnsAsync((IReadOnlyList<LocalSigningIdentity> _, string password) =>
+                CreateKeychainBundle(bundle, "source-password", password));
+        var (service, adapter, _) = CreateCertificateBackupService(
+            new[] { certificate }, _ => null, localCertificates.Object);
+        adapter.SetupSequence(x => x.ListProviderItemsAsync(LocalId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { certificate })
+            .ThrowsAsync(new InvalidOperationException("Vault locked"));
+        var initial = await service.GetBackupCertificatesAsync();
+        var selection = new BackupExportSelection
+        {
+            CertificateIds = initial.Certificates.Select(c => c.Item.Id).ToList()
+        };
+
+        var encrypted = await service.ExportSettingsAsync("password123", selection);
+        var imported = await service.ImportBackupAsync(encrypted, "password123");
+
+        imported.Certificates.Should().ContainSingle(c => c.Item.Id == id && BackupService.HasPrivateKey(c));
+        localCertificates.Verify(
+            x => x.ExportP12Async(It.IsAny<IReadOnlyList<LocalSigningIdentity>>(), It.IsAny<string>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task ExportSettingsAsync_WhenVaultPayloadHasAnotherId_RejectsIt()
+    {
+        var (p12, _) = CreateP12("vault-pw", includePrivateKey: true);
+        var selected = new SecretItemRef(SecretItemKind.Certificate, "ABC123", "Selected certificate");
+        var (service, _, _) = CreateCertificateBackupService(
+            new[] { selected }, _ => CreateCertificatePayload("DEF456", p12, "vault-pw"));
+        var selection = new BackupExportSelection { CertificateIds = new List<string> { selected.Id } };
+
+        var act = () => service.ExportSettingsAsync("password123", selection);
+
+        (await act.Should().ThrowAsync<InvalidOperationException>())
+            .WithMessage("*Selected certificate*does not match the selected certificate*");
+    }
+
+    [Fact]
+    public async Task ExportSettingsAsync_WhenVaultPayloadContainsAnotherCertificate_RejectsIt()
+    {
+        var (p12, _) = CreateP12("vault-pw", includePrivateKey: true);
+        var selected = new SecretItemRef(SecretItemKind.Certificate, "ABC123", "Selected certificate");
+        var (service, _, _) = CreateCertificateBackupService(
+            new[] { selected }, _ => CreateCertificatePayload(selected.Id, p12, "vault-pw"));
+        var selection = new BackupExportSelection { CertificateIds = new List<string> { selected.Id } };
+
+        var act = () => service.ExportSettingsAsync("password123", selection);
+
+        (await act.Should().ThrowAsync<InvalidOperationException>())
+            .WithMessage("*private key could not be included*Selected certificate*");
+    }
+
+    [Fact]
+    public async Task ExportSettingsAsync_WhenKeychainExportHasDifferentSerial_RejectsIt()
+    {
+        var (bundle, _) = CreateP12("source-password", includePrivateKey: true);
+        using var bundledCertificate = X509CertificateLoader.LoadPkcs12(bundle, "source-password");
+        var identity = new LocalSigningIdentity(
+            "identity", "Selected certificate", "TEAM", "ABC123", null, true, bundledCertificate.Thumbprint);
+        var localCertificates = new Mock<ILocalCertificateService>();
+        localCertificates.Setup(x => x.GetSigningIdentityDiscoveryAsync())
+            .ReturnsAsync(new LocalSigningIdentityDiscoveryResult(new[] { identity }, Array.Empty<string>()));
+        localCertificates.Setup(x => x.ExportP12Async(It.IsAny<IReadOnlyList<LocalSigningIdentity>>(), It.IsAny<string>()))
+            .ReturnsAsync((IReadOnlyList<LocalSigningIdentity> _, string password) =>
+                CreateKeychainBundle(bundle, "source-password", password));
+        var (service, _, _) = CreateCertificateBackupService(
+            Array.Empty<SecretItemRef>(), _ => null, localCertificates.Object);
+        var selection = new BackupExportSelection { CertificateIds = new List<string> { "ABC123" } };
+
+        var act = () => service.ExportSettingsAsync("password123", selection);
+
+        (await act.Should().ThrowAsync<InvalidOperationException>())
+            .WithMessage("*Selected certificate*exported identity does not match the selected certificate*");
+    }
+
+    [Fact]
+    public async Task ExportSettingsAsync_WithoutCertificates_DoesNotAccessUnavailableVault()
+    {
+        var (service, adapter, _) = CreateCertificateBackupService(Array.Empty<SecretItemRef>(), _ => null);
+        adapter.Setup(x => x.ListProviderItemsAsync(LocalId, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("Vault locked"));
+
+        var encrypted = await service.ExportSettingsAsync("password123", new BackupExportSelection());
+        var imported = await service.ImportBackupAsync(encrypted, "password123");
+
+        imported.Selection.IncludePreferences.Should().BeTrue();
+        imported.Certificates.Should().BeEmpty();
+        adapter.Verify(x => x.ListProviderItemsAsync(LocalId, It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ExportSettingsAsync_DefaultSelectionFailsWhenCertificateListIsIncomplete()
+    {
+        var (service, adapter, _) = CreateCertificateBackupService(Array.Empty<SecretItemRef>(), _ => null);
+        adapter.Setup(x => x.ListProviderItemsAsync(LocalId, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("Vault locked"));
+
+        var act = () => service.ExportSettingsAsync("password123");
+
+        (await act.Should().ThrowAsync<InvalidOperationException>())
+            .WithMessage("*Could not list all signing certificates*Local Vault*Vault locked*");
+    }
+
+    [Fact]
     public async Task RestoreStoredItemsAsync_RejectsCertificateWithoutPrivateKey()
     {
         var (p12, serial) = CreateP12("pw", includePrivateKey: false);
@@ -759,7 +971,24 @@ public class BackupServiceTests
         var result = await service.RestoreStoredItemsAsync(importResult);
 
         result.CertificatesRestored.Should().Be(0);
-        result.Failures.Should().ContainSingle(f => f.Contains("no private key"));
+        result.Failures.Should().ContainSingle(f => f.Contains("no matching private key"));
+        written.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task RestoreStoredItemsAsync_RejectsCertificateWithDifferentSerial()
+    {
+        var (p12, _) = CreateP12("pw", includePrivateKey: true);
+        var (service, _, written) = CreateCertificateBackupService(Array.Empty<SecretItemRef>(), _ => null);
+        var importResult = new BackupImportResult(
+            new MauiSherpaSettings(),
+            new BackupExportSelection { CertificateIds = new List<string> { "ABC123" } },
+            new[] { CreateCertificatePayload("ABC123", p12, "pw") });
+
+        var result = await service.RestoreStoredItemsAsync(importResult);
+
+        result.CertificatesRestored.Should().Be(0);
+        result.Failures.Should().ContainSingle(f => f.Contains("no matching private key"));
         written.Should().BeEmpty();
     }
 

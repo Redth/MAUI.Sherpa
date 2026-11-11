@@ -25,7 +25,7 @@ public class CertificateSyncService : ICertificateSyncService
         _cloudSecretsService = cloudSecretsService;
         _localCertificateService = localCertificateService;
         _logger = logger;
-        _providerRegistry = providerRegistry;
+        _providerRegistry = providerRegistry ?? cloudSecretsService as ISecretsProviderRegistry;
     }
 
     /// <summary>
@@ -37,31 +37,39 @@ public class CertificateSyncService : ICertificateSyncService
         Func<string, CancellationToken, Task<IReadOnlyList<string>>> ListAsync,
         Func<string, CancellationToken, Task<byte[]?>> GetAsync);
 
+    private sealed record ProviderCertificate(byte[] P12, string? Password, string ProviderName, string Key);
+
     /// <summary>
-    /// Every configured provider in read order: Local Vault first, then the active provider,
-    /// then the rest. Without a registry only the active provider is available.
+    /// Every configured provider in read order. Without a registry only the active provider
+    /// is available.
     /// </summary>
-    private async Task<IReadOnlyList<ProviderSource>> GetProviderSourcesAsync()
+    private async Task<IReadOnlyList<ProviderSource>> GetProviderSourcesAsync(
+        CancellationToken cancellationToken,
+        bool preferActiveProvider = false)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+        var activeSource = GetActiveProviderSource();
+        var activeSources = activeSource is null ? Array.Empty<ProviderSource>() : new[] { activeSource };
         if (_providerRegistry is null)
+            return activeSources;
+
+        var activeId = activeSource?.Id;
+        IReadOnlyList<CloudSecretsProviderConfig> providerConfigs;
+        try
         {
-            var active = _cloudSecretsService.ActiveProvider;
-            return active is null
-                ? Array.Empty<ProviderSource>()
-                : new[]
-                {
-                    new ProviderSource(
-                        active.Id,
-                        active.Name,
-                        (prefix, ct) => _cloudSecretsService.ListSecretsAsync(prefix, ct),
-                        (key, ct) => _cloudSecretsService.GetSecretAsync(key, ct))
-                };
+            providerConfigs = await _providerRegistry.GetProvidersAsync();
+            cancellationToken.ThrowIfCancellationRequested();
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning($"Could not list certificate providers: {ex.Message}");
+            return activeSources;
         }
 
-        var activeId = _cloudSecretsService.ActiveProvider?.Id;
-        var configs = (await _providerRegistry.GetProvidersAsync())
+        var configs = providerConfigs
             .OrderBy(config =>
-                config.Id == CloudSecretsService.DefaultLocalProviderId ? 0 :
+                preferActiveProvider && config.Id == activeId ? 0 :
+                config.Id == CloudSecretsService.DefaultLocalProviderId ? (preferActiveProvider ? 1 : 0) :
                 config.Id == activeId ? 1 : 2)
             .ThenBy(config => config.Name, StringComparer.OrdinalIgnoreCase);
 
@@ -69,24 +77,93 @@ public class CertificateSyncService : ICertificateSyncService
         foreach (var config in configs)
         {
             var providerId = config.Id;
+            var fallback = providerId == activeId ? activeSource : null;
+            Task<ICloudSecretsProvider?>? providerTask = null;
+            Task<ICloudSecretsProvider?> GetProviderAsync(CancellationToken ct) =>
+                providerTask ??= ResolveProviderAsync(providerId, config.Name, fallback is not null, ct);
             sources.Add(new ProviderSource(
                 providerId,
                 config.Name,
                 async (prefix, ct) =>
                 {
-                    var provider = await _providerRegistry.GetProviderAsync(providerId);
+                    var provider = await GetProviderAsync(ct);
                     return provider is null
-                        ? Array.Empty<string>()
-                        : await provider.ListSecretsAsync(prefix, ct);
+                        ? await fallback!.ListAsync(prefix, ct)
+                        : await provider.ListSecretsStrictAsync(prefix, ct);
                 },
                 async (key, ct) =>
                 {
-                    var provider = await _providerRegistry.GetProviderAsync(providerId);
-                    return provider is null ? null : await provider.GetSecretAsync(key, ct);
+                    var provider = await GetProviderAsync(ct);
+                    return provider is null
+                        ? await fallback!.GetAsync(key, ct)
+                        : await provider.GetSecretAsync(key, ct);
                 }));
         }
 
+        if (activeSource is not null && sources.All(source => source.Id != activeId))
+        {
+            _logger.LogWarning($"Active provider '{activeId}' was not returned by the certificate provider registry");
+            var localCount = sources.Count(source => source.Id == CloudSecretsService.DefaultLocalProviderId);
+            sources.Insert(preferActiveProvider ? 0 : localCount, activeSource);
+        }
+
         return sources;
+    }
+
+    private async Task<ICloudSecretsProvider?> ResolveProviderAsync(
+        string providerId,
+        string providerName,
+        bool allowActiveFallback,
+        CancellationToken cancellationToken)
+    {
+        ICloudSecretsProvider? provider;
+        try
+        {
+            provider = await _providerRegistry!.GetProviderAsync(providerId);
+            cancellationToken.ThrowIfCancellationRequested();
+        }
+        catch (Exception ex) when (allowActiveFallback && !cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning($"Could not resolve active certificate provider '{providerName}': {ex.Message}");
+            return null;
+        }
+
+        if (provider is null)
+        {
+            if (!allowActiveFallback)
+                throw new InvalidOperationException($"Provider '{providerName}' is unavailable.");
+            _logger.LogWarning($"Active certificate provider '{providerName}' is unavailable in the registry");
+        }
+
+        return provider;
+    }
+
+    private ProviderSource? GetActiveProviderSource()
+    {
+        var active = _cloudSecretsService.ActiveProvider;
+        return active is null
+            ? null
+            : new ProviderSource(
+                active.Id,
+                active.Name,
+                (prefix, ct) => UseActiveProviderAsync(
+                    active.Id, () => _cloudSecretsService.ListSecretsAsync(prefix, ct)),
+                (key, ct) => UseActiveProviderAsync(
+                    active.Id, () => _cloudSecretsService.GetSecretAsync(key, ct)));
+    }
+
+    private async Task<T> UseActiveProviderAsync<T>(string providerId, Func<Task<T>> operation)
+    {
+        EnsureActiveProviderUnchanged(providerId);
+        var result = await operation();
+        EnsureActiveProviderUnchanged(providerId);
+        return result;
+    }
+
+    private void EnsureActiveProviderUnchanged(string providerId)
+    {
+        if (!string.Equals(_cloudSecretsService.ActiveProvider?.Id, providerId, StringComparison.Ordinal))
+            throw new InvalidOperationException("The active secrets provider changed during the certificate operation.");
     }
 
     public string GetCertificateSecretKey(string serialNumber)
@@ -110,6 +187,7 @@ public class CertificateSyncService : ICertificateSyncService
         var localIdentities = _localCertificateService.IsSupported 
             ? await _localCertificateService.GetSigningIdentitiesAsync()
             : Array.Empty<LocalSigningIdentity>();
+        cancellationToken.ThrowIfCancellationRequested();
         
         var localSerials = localIdentities
             .Where(i => i.IsValid) // Only consider valid certificates
@@ -119,22 +197,19 @@ public class CertificateSyncService : ICertificateSyncService
 
         // Check every configured provider; the first one holding a copy is reported.
         var cloudSecrets = new Dictionary<string, string?>(StringComparer.Ordinal);
-        foreach (var source in await GetProviderSourcesAsync())
+        foreach (var source in await GetProviderSourcesAsync(cancellationToken))
         {
             try
             {
                 var secrets = await source.ListAsync($"{SecretPrefix}_", cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
                 foreach (var secret in secrets)
                 {
-                    // Extract serial number from key like "CERT_XXXX_P12"
-                    var parts = secret.Split('_');
-                    if (parts.Length >= 2)
-                    {
-                        cloudSecrets.TryAdd(parts[1].ToUpperInvariant(), source.Id);
-                    }
+                    if (CertificateSecretKeys.TryExtractSerial(secret, CertificateSecretKeys.P12Suffix, out var serial))
+                        cloudSecrets.TryAdd(SanitizeSerialNumber(serial), source.Id);
                 }
             }
-            catch (Exception ex)
+            catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
             {
                 _logger.LogWarning($"Could not check certificate copies in '{source.Name}': {ex.Message}");
             }
@@ -176,9 +251,16 @@ public class CertificateSyncService : ICertificateSyncService
         CertificateSecretMetadata? metadata = null,
         CancellationToken cancellationToken = default)
     {
-        if (_cloudSecretsService.ActiveProvider == null)
+        cancellationToken.ThrowIfCancellationRequested();
+        var activeProvider = _cloudSecretsService.ActiveProvider;
+        if (activeProvider is null)
         {
             _logger.LogWarning("No active cloud secrets provider configured");
+            return false;
+        }
+        if (_providerRegistry is null)
+        {
+            _logger.LogError("Cannot safely upload a certificate without a provider registry");
             return false;
         }
 
@@ -186,24 +268,82 @@ public class CertificateSyncService : ICertificateSyncService
         
         try
         {
-            // Store the P12 data
+            var provider = await ResolveProviderAsync(activeProvider.Id, activeProvider.Name, false, cancellationToken)
+                ?? throw new InvalidOperationException($"Provider '{activeProvider.Name}' is unavailable.");
+
+            Task<byte[]?> ReadAsync(string key, CancellationToken token) =>
+                provider.GetSecretAsync(key, token);
+
+            Task<bool> WriteAsync(string key, byte[] value, CancellationToken token) =>
+                provider.StoreSecretAsync(key, value, null, token);
+
+            Task<bool> DeleteAsync(string key, CancellationToken token) =>
+                provider.DeleteSecretAsync(key, token);
+
+            async Task RestoreAsync(string key, byte[]? previous)
+            {
+                try
+                {
+                    var restored = previous is null
+                        ? await DeleteAsync(key, CancellationToken.None)
+                        : await WriteAsync(key, previous, CancellationToken.None);
+                    if (!restored)
+                        _logger.LogError($"Failed to restore certificate secret {key} after an upload error");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError($"Failed to restore certificate secret {key} after an upload error: {ex.Message}", ex);
+                }
+            }
+
             var p12Key = GetCertificateSecretKey(serialNumber);
-            if (!await _cloudSecretsService.StoreSecretAsync(p12Key, p12Data, null, cancellationToken))
+            var pwdKey = GetCertificatePasswordKey(serialNumber);
+            var previousP12 = await ReadAsync(p12Key, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            var previousPassword = await ReadAsync(pwdKey, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            bool p12Stored;
+            try
+            {
+                p12Stored = await WriteAsync(p12Key, p12Data, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Failed to store P12 data for certificate {serialNumber}: {ex.Message}", ex);
+                p12Stored = false;
+            }
+
+            if (!p12Stored)
             {
                 _logger.LogError($"Failed to store P12 data for certificate {serialNumber}");
+                await RestoreAsync(p12Key, previousP12);
+                cancellationToken.ThrowIfCancellationRequested();
                 return false;
             }
 
-            // Store the password
-            var pwdKey = GetCertificatePasswordKey(serialNumber);
+            // Finish or clean up the pair even if cancellation arrives after the P12 was stored.
             var pwdBytes = Encoding.UTF8.GetBytes(password);
-            if (!await _cloudSecretsService.StoreSecretAsync(pwdKey, pwdBytes, null, cancellationToken))
+            bool passwordStored;
+            try
+            {
+                passwordStored = await WriteAsync(pwdKey, pwdBytes, CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Failed to store password for certificate {serialNumber}: {ex.Message}", ex);
+                passwordStored = false;
+            }
+
+            if (!passwordStored)
             {
                 _logger.LogError($"Failed to store password for certificate {serialNumber}");
-                // Clean up the P12 we just stored
-                await _cloudSecretsService.DeleteSecretAsync(p12Key, cancellationToken);
+                await RestoreAsync(pwdKey, previousPassword);
+                await RestoreAsync(p12Key, previousP12);
+                cancellationToken.ThrowIfCancellationRequested();
                 return false;
             }
+            cancellationToken.ThrowIfCancellationRequested();
 
             // Store metadata if provided
             if (metadata != null)
@@ -211,13 +351,19 @@ public class CertificateSyncService : ICertificateSyncService
                 var metaKey = GetCertificateMetadataKey(serialNumber);
                 var metaJson = JsonSerializer.Serialize(metadata);
                 var metaBytes = Encoding.UTF8.GetBytes(metaJson);
-                await _cloudSecretsService.StoreSecretAsync(metaKey, metaBytes, null, cancellationToken);
+                var metadataStored = await WriteAsync(metaKey, metaBytes, cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!metadataStored)
+                {
+                    _logger.LogError($"Failed to store metadata for certificate {serialNumber}");
+                    return false;
+                }
             }
 
             _logger.LogInformation($"Uploaded certificate {serialNumber} to cloud storage");
             return true;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
             _logger.LogError($"Failed to upload certificate to cloud: {ex.Message}", ex);
             return false;
@@ -230,66 +376,35 @@ public class CertificateSyncService : ICertificateSyncService
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(serialNumber))
+        {
+            _logger.LogWarning("Cannot resolve a certificate without a serial number");
             return (null, null);
-
-        // 1) Cloud lookup — exact key, then fuzzy serial match against stored CERT_ secrets.
-        if (_cloudSecretsService.ActiveProvider != null)
-        {
-            try
-            {
-                var p12Key = GetCertificateSecretKey(serialNumber);
-                var p12 = await _cloudSecretsService.GetSecretAsync(p12Key, cancellationToken);
-                if (p12 is { Length: > 0 })
-                {
-                    var pwd = await _cloudSecretsService.GetSecretAsync(GetCertificatePasswordKey(serialNumber), cancellationToken);
-                    _logger.LogInformation($"Resolved certificate {serialNumber} from cloud (exact key {p12Key})");
-                    return (p12, pwd is not null ? Encoding.UTF8.GetString(pwd) : null);
-                }
-
-                // Exact key missed — the secret may have been stored under a differently
-                // normalized serial. Scan CERT_*_P12 keys and fuzzy-match the serial.
-                var storedSerial = await FindStoredCertSerialAsync(serialNumber, cancellationToken);
-                if (storedSerial is not null)
-                {
-                    var fuzzyP12Key = $"{SecretPrefix}_{storedSerial}_P12";
-                    var fuzzyP12 = await _cloudSecretsService.GetSecretAsync(fuzzyP12Key, cancellationToken);
-                    if (fuzzyP12 is { Length: > 0 })
-                    {
-                        var fuzzyPwd = await _cloudSecretsService.GetSecretAsync($"{SecretPrefix}_{storedSerial}_PWD", cancellationToken);
-                        _logger.LogInformation($"Resolved certificate {serialNumber} from cloud via fuzzy serial match (key {fuzzyP12Key})");
-                        return (fuzzyP12, fuzzyPwd is not null ? Encoding.UTF8.GetString(fuzzyPwd) : null);
-                    }
-                }
-
-                _logger.LogWarning($"Certificate {serialNumber} not found in cloud storage (tried key {p12Key} and fuzzy serial match)");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning($"Cloud lookup for certificate {serialNumber} failed: {ex.Message}");
-            }
-        }
-        else
-        {
-            _logger.LogWarning($"No active cloud secrets provider while resolving certificate {serialNumber}");
         }
 
-        // 1b) The other configured providers, Local Vault first, without changing the active one.
-        var fromOtherProvider = await FindInOtherProvidersAsync(serialNumber, cancellationToken);
-        if (fromOtherProvider.P12 is not null)
-            return fromOtherProvider;
+        var storedCertificate = await FindProviderCertificateAsync(
+            serialNumber, cancellationToken, preferActiveProvider: true);
+        if (storedCertificate is not null)
+        {
+            _logger.LogInformation(
+                $"Resolved certificate {serialNumber} from '{storedCertificate.ProviderName}' (key {storedCertificate.Key})");
+            return (storedCertificate.P12, storedCertificate.Password);
+        }
 
-        // 2) Local macOS keychain fallback — export the private key directly.
+        // Local macOS keychain fallback — export the private key directly.
         if (_localCertificateService.IsSupported)
         {
             try
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 var identities = await _localCertificateService.GetSigningIdentitiesAsync();
+                cancellationToken.ThrowIfCancellationRequested();
                 var identity = identities.FirstOrDefault(i => SerialsFuzzyEqual(i.SerialNumber, serialNumber));
                 if (identity is not null)
                 {
                     var password = GenerateRandomPassword();
                     var p12 = await _localCertificateService.ExportP12Async(identity.Identity, password);
-                    if (p12 is { Length: > 0 })
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (CertificateBundleUtilities.ContainsPrivateKey(p12, password, serialNumber))
                     {
                         _logger.LogInformation($"Resolved certificate {serialNumber} from local keychain (identity '{identity.Identity}')");
 
@@ -314,8 +429,9 @@ public class CertificateSyncService : ICertificateSyncService
                                     CreatedAt: DateTime.UtcNow);
                                 if (await UploadToCloudAsync(cert, p12, password, metadata, cancellationToken))
                                     _logger.LogInformation($"Auto-uploaded certificate {serialNumber} to cloud storage for future runs");
+                                cancellationToken.ThrowIfCancellationRequested();
                             }
-                            catch (Exception ex)
+                            catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
                             {
                                 _logger.LogWarning($"Auto-upload of certificate {serialNumber} to cloud failed: {ex.Message}");
                             }
@@ -323,13 +439,15 @@ public class CertificateSyncService : ICertificateSyncService
 
                         return (p12, password);
                     }
+
+                    _logger.LogWarning($"Keychain export for certificate {serialNumber} did not contain a usable private key");
                 }
                 else
                 {
                     _logger.LogWarning($"No local keychain identity found for certificate serial {serialNumber}");
                 }
             }
-            catch (Exception ex)
+            catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
             {
                 _logger.LogWarning($"Local keychain fallback for certificate {serialNumber} failed: {ex.Message}");
             }
@@ -340,122 +458,136 @@ public class CertificateSyncService : ICertificateSyncService
     }
 
     /// <summary>
-    /// Finds the raw serial segment of a stored CERT_&lt;serial&gt;_P12 secret whose serial
-    /// fuzzy-matches the requested one (tolerant of leading-zero / non-alphanumeric differences).
+    /// Searches providers in priority order, checking exact keys and then legacy serial forms.
     /// </summary>
-    private async Task<(byte[]? P12, string? Password)> FindInOtherProvidersAsync(
+    private async Task<ProviderCertificate?> FindProviderCertificateAsync(
+        string serialNumber,
+        CancellationToken cancellationToken,
+        bool preferActiveProvider = false)
+    {
+        var exactKey = GetCertificateSecretKey(serialNumber);
+        foreach (var source in await GetProviderSourcesAsync(cancellationToken, preferActiveProvider))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var certificate = await ReadProviderCertificateAsync(source, exactKey, serialNumber, cancellationToken);
+            if (certificate is not null)
+                return certificate;
+
+            IReadOnlyList<string> keys;
+            try
+            {
+                keys = await source.ListAsync(CertificateSecretKeys.Prefix, cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+            catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+            {
+                _logger.LogWarning($"Could not list certificate copies in '{source.Name}': {ex.Message}");
+                continue;
+            }
+
+            foreach (var key in keys)
+            {
+                if (string.Equals(key, exactKey, StringComparison.Ordinal) ||
+                    !CertificateSecretKeys.TryExtractSerial(key, CertificateSecretKeys.P12Suffix, out var storedSerial) ||
+                    !SerialsFuzzyEqual(storedSerial, serialNumber))
+                {
+                    continue;
+                }
+
+                certificate = await ReadProviderCertificateAsync(source, key, serialNumber, cancellationToken);
+                if (certificate is not null)
+                    return certificate;
+            }
+        }
+
+        return null;
+    }
+
+    private async Task<ProviderCertificate?> ReadProviderCertificateAsync(
+        ProviderSource source,
+        string p12Key,
         string serialNumber,
         CancellationToken cancellationToken)
     {
-        if (_providerRegistry is null)
-            return (null, null);
-
-        var activeId = _cloudSecretsService.ActiveProvider?.Id;
-        foreach (var source in await GetProviderSourcesAsync())
+        try
         {
-            if (source.Id == activeId)
-                continue;
+            var p12 = await source.GetAsync(p12Key, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (p12 is not { Length: > 0 })
+                return null;
 
-            try
+            var passwordKey = p12Key[..^3] + "PWD";
+            var passwordBytes = await source.GetAsync(passwordKey, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            var password = passwordBytes is null ? null : Encoding.UTF8.GetString(passwordBytes);
+            if (!CertificateBundleUtilities.ContainsPrivateKey(p12, password, serialNumber))
             {
-                var storedSerial = SanitizeSerialNumber(serialNumber);
-                var p12 = await source.GetAsync(GetCertificateSecretKey(serialNumber), cancellationToken);
-                if (p12 is not { Length: > 0 })
-                {
-                    var keys = await source.ListAsync($"{SecretPrefix}_", cancellationToken);
-                    storedSerial = FindFuzzySerial(keys, serialNumber);
-                    if (storedSerial is null)
-                        continue;
-                    p12 = await source.GetAsync($"{SecretPrefix}_{storedSerial}_P12", cancellationToken);
-                    if (p12 is not { Length: > 0 })
-                        continue;
-                }
+                _logger.LogWarning(
+                    $"Certificate copy '{p12Key}' in '{source.Name}' could not be opened or has no matching private key");
+                return null;
+            }
 
-                var pwd = await source.GetAsync($"{SecretPrefix}_{storedSerial}_PWD", cancellationToken);
-                _logger.LogInformation($"Resolved certificate {serialNumber} from provider '{source.Name}'");
-                return (p12, pwd is not null ? Encoding.UTF8.GetString(pwd) : null);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning($"Lookup for certificate {serialNumber} in '{source.Name}' failed: {ex.Message}");
-            }
+            return new ProviderCertificate(p12, password, source.Name, p12Key);
         }
-
-        return (null, null);
-    }
-
-    private async Task<string?> FindStoredCertSerialAsync(string serialNumber, CancellationToken cancellationToken)
-    {
-        var keys = await _cloudSecretsService.ListSecretsAsync($"{SecretPrefix}_", cancellationToken);
-        return FindFuzzySerial(keys, serialNumber);
-    }
-
-    private static string? FindFuzzySerial(IEnumerable<string> keys, string serialNumber)
-    {
-        foreach (var key in keys)
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
-            if (!key.EndsWith("_P12", StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            // Key format: CERT_<serial>_P12 — the serial may itself be empty but never contains '_'
-            // because SanitizeSerialNumber strips non-alphanumerics.
-            var parts = key.Split('_');
-            if (parts.Length < 3)
-                continue;
-            var rawSerial = string.Join('_', parts[1..^1]);
-            if (SerialsFuzzyEqual(rawSerial, serialNumber))
-                return rawSerial;
+            _logger.LogWarning($"Could not read certificate copy '{p12Key}' from '{source.Name}': {ex.Message}");
+            return null;
         }
-        return null;
     }
 
     public async Task<bool> DownloadAndInstallAsync(string certificateId, CancellationToken cancellationToken = default)
     {
-        if (_cloudSecretsService.ActiveProvider == null)
-        {
-            _logger.LogWarning("No active cloud secrets provider configured");
-            return false;
-        }
-
         if (string.IsNullOrWhiteSpace(certificateId))
         {
             _logger.LogWarning("DownloadAndInstallAsync called with empty certificate ID");
             return false;
         }
 
-        try
+        foreach (var source in await GetProviderSourcesAsync(cancellationToken))
         {
-            // Resolve certificate ID to serial number via metadata records.
-            var keys = await _cloudSecretsService.ListSecretsAsync($"{SecretPrefix}_", cancellationToken);
-            var metadataKeys = keys
-                .Where(k => k.EndsWith("_META", StringComparison.OrdinalIgnoreCase))
-                .Distinct(StringComparer.OrdinalIgnoreCase);
-
-            foreach (var metadataKey in metadataKeys)
+            IReadOnlyList<string> keys;
+            try
             {
-                var serial = TryExtractSerialFromMetadataKey(metadataKey);
-                if (string.IsNullOrEmpty(serial))
-                    continue;
-
-                var metadata = await GetCertificateMetadataAsync(serial, cancellationToken);
-                if (metadata == null)
-                    continue;
-
-                if (!string.Equals(metadata.CertificateId, certificateId, StringComparison.OrdinalIgnoreCase))
-                    continue;
-
-                _logger.LogInformation($"Resolved certificate ID {certificateId} to serial {metadata.SerialNumber}");
-                return await DownloadAndInstallBySerialAsync(metadata.SerialNumber, cancellationToken);
+                keys = await source.ListAsync(CertificateSecretKeys.Prefix, cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+            catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+            {
+                _logger.LogWarning($"Could not list certificate metadata in '{source.Name}': {ex.Message}");
+                continue;
             }
 
-            _logger.LogWarning($"Could not resolve certificate ID {certificateId} to cloud metadata");
-            return false;
+            foreach (var key in keys)
+            {
+                if (!CertificateSecretKeys.TryExtractSerial(key, CertificateSecretKeys.MetadataSuffix, out var storedSerial))
+                    continue;
+
+                try
+                {
+                    var data = await source.GetAsync(key, cancellationToken);
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var metadata = data is null ? null : JsonSerializer.Deserialize<CertificateSecretMetadata>(data);
+                    if (metadata is null ||
+                        string.IsNullOrWhiteSpace(metadata.SerialNumber) ||
+                        !SerialsFuzzyEqual(storedSerial, metadata.SerialNumber) ||
+                        !string.Equals(metadata.CertificateId, certificateId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    _logger.LogInformation($"Resolved certificate ID {certificateId} to serial {metadata.SerialNumber}");
+                    return await DownloadAndInstallBySerialAsync(metadata.SerialNumber, cancellationToken);
+                }
+                catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+                {
+                    _logger.LogWarning($"Could not read certificate metadata '{key}' from '{source.Name}': {ex.Message}");
+                }
+            }
         }
-        catch (Exception ex)
-        {
-            _logger.LogError($"Failed to resolve certificate ID {certificateId}: {ex.Message}", ex);
-            return false;
-        }
+
+        _logger.LogWarning($"Could not resolve certificate ID {certificateId} to provider metadata");
+        return false;
     }
 
     /// <summary>
@@ -465,89 +597,63 @@ public class CertificateSyncService : ICertificateSyncService
         string serialNumber,
         CancellationToken cancellationToken = default)
     {
-        var p12Key = GetCertificateSecretKey(serialNumber);
-        var pwdKey = GetCertificatePasswordKey(serialNumber);
-        var sources = await GetProviderSourcesAsync();
-        if (sources.Count == 0)
+        if (string.IsNullOrWhiteSpace(serialNumber))
         {
-            _logger.LogWarning("No secrets provider configured");
+            _logger.LogWarning("Cannot install a certificate without a serial number");
             return false;
         }
 
-        // Use the first provider copy that actually carries the private key, so an install
-        // never leaves a certificate in the Keychain that can't sign.
-        foreach (var source in sources)
+        var certificate = await FindProviderCertificateAsync(serialNumber, cancellationToken);
+        if (certificate is null)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            byte[]? p12Data;
-            byte[]? pwdData;
-            try
-            {
-                p12Data = await source.GetAsync(p12Key, cancellationToken);
-                if (p12Data is null)
-                    continue;
-                pwdData = await source.GetAsync(pwdKey, cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning($"Could not read certificate {serialNumber} from '{source.Name}': {ex.Message}");
-                continue;
-            }
-
-            if (pwdData is null)
-            {
-                _logger.LogWarning($"Certificate {serialNumber} in '{source.Name}' has no stored password");
-                continue;
-            }
-
-            var password = Encoding.UTF8.GetString(pwdData);
-            if (!CertificateBundleUtilities.ContainsPrivateKey(p12Data, password))
-            {
-                _logger.LogWarning($"Certificate {serialNumber} in '{source.Name}' has no private key; not installing that copy");
-                continue;
-            }
-
-            _logger.LogInformation($"Installing certificate {serialNumber} from '{source.Name}'");
-            try
-            {
-                if (!await ImportP12LocallyAsync(p12Data, password, cancellationToken))
-                {
-                    _logger.LogError($"Importing certificate {serialNumber} from '{source.Name}' failed");
-                    return false;
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError($"Failed to install certificate {serialNumber}: {ex.Message}", ex);
-                return false;
-            }
-
-            return await VerifySigningIdentityInstalledAsync(serialNumber);
+            _logger.LogError($"No provider holds certificate {serialNumber} with its private key");
+            return false;
         }
 
-        _logger.LogError($"No provider holds certificate {serialNumber} with its private key");
-        return false;
+        _logger.LogInformation($"Installing certificate {serialNumber} from '{certificate.ProviderName}'");
+        try
+        {
+            var imported = await ImportP12LocallyAsync(certificate.P12, certificate.Password ?? string.Empty, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!imported)
+            {
+                _logger.LogError($"Importing certificate {serialNumber} from '{certificate.ProviderName}' failed");
+                return false;
+            }
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogError($"Failed to install certificate {serialNumber}: {ex.Message}", ex);
+            return false;
+        }
+
+        return await VerifySigningIdentityInstalledAsync(serialNumber, cancellationToken);
     }
 
     /// <summary>
     /// Confirms the Keychain now has a signing identity (certificate + private key) for the
     /// serial. Only checked where the local certificate service can enumerate identities.
     /// </summary>
-    private async Task<bool> VerifySigningIdentityInstalledAsync(string serialNumber)
+    private async Task<bool> VerifySigningIdentityInstalledAsync(string serialNumber, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (!_localCertificateService.IsSupported)
             return true;
 
         _localCertificateService.InvalidateCache();
-        if (!await _localCertificateService.HasInstalledIdentityAsync(serialNumber))
+        var installed = await _localCertificateService.HasInstalledIdentityAsync(serialNumber);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!installed)
         {
             _logger.LogError($"Certificate {serialNumber} was imported but no signing identity with its private key appeared in the Keychain");
             return false;
         }
 
         var wanted = SanitizeSerialNumber(serialNumber).TrimStart('0');
-        var trusted = (await _localCertificateService.GetSigningIdentitiesAsync())
-            .Any(candidate => SanitizeSerialNumber(candidate.SerialNumber ?? "").TrimStart('0') == wanted);
+        var identities = await _localCertificateService.GetSigningIdentitiesAsync();
+        cancellationToken.ThrowIfCancellationRequested();
+        var trusted = identities.Any(candidate =>
+            SanitizeSerialNumber(candidate.SerialNumber ?? "").TrimStart('0') == wanted);
         if (!trusted)
         {
             // Usually a missing Apple WWDR intermediate; the key itself is installed.
@@ -651,18 +757,8 @@ public class CertificateSyncService : ICertificateSyncService
 
     #region Private Helpers
 
-    private static string SanitizeSerialNumber(string serialNumber)
-    {
-        // Remove any non-alphanumeric characters and convert to uppercase
-        var sb = new StringBuilder();
-        foreach (var c in serialNumber)
-        {
-            if (char.IsLetterOrDigit(c))
-                sb.Append(char.ToUpperInvariant(c));
-        }
-        // Strip leading zeros — local keychain may include them but API may not
-        return sb.ToString().TrimStart('0');
-    }
+    private static string SanitizeSerialNumber(string serialNumber) =>
+        SecretItemAdapterHelper.SanitizeSerialNumber(serialNumber);
 
     /// <summary>
     /// Compares two certificate serial numbers tolerantly, ignoring case, non-alphanumeric
@@ -673,22 +769,6 @@ public class CertificateSyncService : ICertificateSyncService
 
     private static string GenerateRandomPassword()
         => Convert.ToBase64String(Guid.NewGuid().ToByteArray())[..16];
-
-    private static string? TryExtractSerialFromMetadataKey(string key)
-    {
-        // Expected format: CERT_<SERIAL>_META
-        var parts = key.Split('_');
-        if (parts.Length != 3)
-            return null;
-
-        if (!parts[0].Equals(SecretPrefix, StringComparison.OrdinalIgnoreCase))
-            return null;
-
-        if (!parts[2].Equals("META", StringComparison.OrdinalIgnoreCase))
-            return null;
-
-        return parts[1];
-    }
 
     private Task<bool> ImportP12LocallyAsync(
         byte[] p12Data,

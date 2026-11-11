@@ -44,39 +44,46 @@ public partial class LocalCertificateService : ILocalCertificateService
         _logger.LogInformation("Local certificate cache invalidated");
     }
 
-    public async Task<IReadOnlyList<LocalSigningIdentity>> GetSigningIdentitiesAsync()
+    public async Task<IReadOnlyList<LocalSigningIdentity>> GetSigningIdentitiesAsync() =>
+        (await GetSigningIdentityDiscoveryAsync()).Identities;
+
+    public async Task<LocalSigningIdentityDiscoveryResult> GetSigningIdentityDiscoveryAsync()
     {
         if (!IsSupported)
         {
             _logger.LogWarning("LocalCertificateService is only supported on macOS");
-            return Array.Empty<LocalSigningIdentity>();
+            return new(Array.Empty<LocalSigningIdentity>(), Array.Empty<string>());
         }
 
         // Return cached results if still valid
         if (_cachedIdentities != null && DateTime.UtcNow < _cacheExpiry)
         {
-            return _cachedIdentities.AsReadOnly();
+            return new(_cachedIdentities.AsReadOnly(), Array.Empty<string>());
         }
 
         _logger.LogInformation("Querying local keychain for signing identities...");
         
         var identities = new List<LocalSigningIdentity>();
+        var errors = new List<string>();
         
         try
         {
             // Run: security find-identity -v -p codesigning
             var result = await RunSecurityCommandAsync("find-identity", "-v", "-p", "codesigning");
-            
+            var lines = new List<string>();
             if (result.ExitCode != 0)
             {
-                _logger.LogError($"security find-identity failed with exit code {result.ExitCode}");
-                return identities.AsReadOnly();
+                var message = $"Could not list code-signing identities (security exited with {result.ExitCode}).";
+                _logger.LogError(message);
+                errors.Add(message);
             }
-
-            // Parse output - each line looks like:
-            // 1) HASH "Identity String"
-            // or with CSSMERR_TP_CERT_EXPIRED for invalid certs
-            var lines = result.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries).ToList();
+            else
+            {
+                // Parse output - each line looks like:
+                // 1) HASH "Identity String"
+                // or with CSSMERR_TP_CERT_EXPIRED for invalid certs
+                lines.AddRange(result.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries));
+            }
 
             // Installer certificates (Developer ID Installer, Mac Installer Distribution)
             // sign packages rather than code, so the codesigning policy leaves them out.
@@ -91,8 +98,9 @@ public partial class LocalCertificateService : ILocalCertificateService
             }
             else
             {
-                _logger.LogWarning(
-                    $"Could not list installer identities: security find-identity -p basic exited with {installerResult.ExitCode}");
+                var message = $"Could not list installer identities (security exited with {installerResult.ExitCode}).";
+                _logger.LogWarning(message);
+                errors.Add(message);
             }
 
             var seenHashes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -117,6 +125,8 @@ public partial class LocalCertificateService : ILocalCertificateService
                         else
                         {
                             _logger.LogDebug($"Found identity: {identity.CommonName}, Serial: (not found) (Valid: {identity.IsValid})");
+                            if (identity.IsValid)
+                                errors.Add($"Could not read the serial number for '{identity.CommonName}'.");
                         }
                     }
                     
@@ -126,16 +136,20 @@ public partial class LocalCertificateService : ILocalCertificateService
 
             _logger.LogInformation($"Found {identities.Count} signing identities in keychain");
             
-            // Cache the results
-            _cachedIdentities = identities;
-            _cacheExpiry = DateTime.UtcNow + CacheDuration;
+            // Incomplete results must be retried rather than cached as a complete list.
+            if (errors.Count == 0)
+            {
+                _cachedIdentities = identities;
+                _cacheExpiry = DateTime.UtcNow + CacheDuration;
+            }
         }
         catch (Exception ex)
         {
             _logger.LogError($"Failed to query signing identities: {ex.Message}", ex);
+            errors.Add($"Could not query Keychain: {ex.Message}");
         }
 
-        return identities.AsReadOnly();
+        return new(identities.AsReadOnly(), errors.AsReadOnly());
     }
 
     public async Task<bool> HasPrivateKeyAsync(string serialNumber)

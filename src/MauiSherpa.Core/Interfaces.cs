@@ -1673,6 +1673,10 @@ public record LocalSigningIdentity(
     string? Hash = null       // SHA-1 hash from keychain (for looking up details)
 );
 
+public record LocalSigningIdentityDiscoveryResult(
+    IReadOnlyList<LocalSigningIdentity> Identities,
+    IReadOnlyList<string> Errors);
+
 /// <summary>
 /// Service for managing local signing identities in the macOS keychain
 /// </summary>
@@ -1682,7 +1686,13 @@ public interface ILocalCertificateService
     /// Gets all valid code signing identities from the local keychain
     /// </summary>
     Task<IReadOnlyList<LocalSigningIdentity>> GetSigningIdentitiesAsync();
-    
+
+    /// <summary>
+    /// Gets available signing identities and reports any incomplete discovery.
+    /// </summary>
+    async Task<LocalSigningIdentityDiscoveryResult> GetSigningIdentityDiscoveryAsync() =>
+        new(await GetSigningIdentitiesAsync(), Array.Empty<string>());
+
     /// <summary>
     /// Checks if a certificate with the given serial number has a private key locally
     /// </summary>
@@ -3278,6 +3288,12 @@ public interface ICloudSecretsProvider
     /// </summary>
     /// <param name="prefix">Optional prefix to filter secrets</param>
     Task<IReadOnlyList<string>> ListSecretsAsync(string? prefix = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Lists secrets without treating a provider failure as an empty list.
+    /// </summary>
+    Task<IReadOnlyList<string>> ListSecretsStrictAsync(string? prefix = null, CancellationToken cancellationToken = default) =>
+        ListSecretsAsync(prefix, cancellationToken);
 }
 
 /// <summary>
@@ -3743,13 +3759,19 @@ public interface ICertificateSyncService
     /// </summary>
     /// <param name="certificateId">The certificate ID to download</param>
     Task<bool> DownloadAndInstallAsync(string certificateId, CancellationToken cancellationToken = default);
-    
+
+    /// <summary>
+    /// Downloads and installs a certificate using its serial number.
+    /// </summary>
+    Task<bool> DownloadAndInstallBySerialAsync(string serialNumber, CancellationToken cancellationToken = default);
+
     /// <summary>
     /// Resolves a certificate's private key (P12) and password for publishing, using a
-    /// resilient lookup order: (1) exact cloud key, (2) fuzzy serial match against cloud
-    /// secrets, (3) export from the local macOS keychain (when supported). When the key is
-    /// found only in the local keychain and <paramref name="autoUploadFromKeychain"/> is true,
-    /// it is best-effort uploaded to cloud storage so subsequent runs (e.g. CI) succeed.
+    /// resilient lookup order: the active provider, Local Vault, other configured providers,
+    /// then the local macOS Keychain (when supported). Each provider is checked using an exact
+    /// key and a fuzzy serial match. When the key is found only in the Keychain and
+    /// <paramref name="autoUploadFromKeychain"/> is true, it is best-effort uploaded to the
+    /// active provider so subsequent runs (e.g. CI) succeed.
     /// </summary>
     /// <param name="serialNumber">The certificate serial number to resolve.</param>
     /// <param name="autoUploadFromKeychain">Upload the exported key to cloud when resolved from the keychain.</param>
@@ -4344,9 +4366,10 @@ public interface IBackupService
     Task<bool> ValidateBackupAsync(byte[] data);
 
     /// <summary>
-    /// Lists the signing certificates (Local Vault and Keychain) that can be included in a backup.
+    /// Lists signing certificates available from Local Vault and Keychain, along with any
+    /// errors that made the list incomplete.
     /// </summary>
-    Task<IReadOnlyList<BackupCertificateInfo>> GetBackupCertificatesAsync(CancellationToken cancellationToken = default);
+    Task<BackupCertificateDiscoveryResult> GetBackupCertificatesAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Writes the publish profiles and certificates from an imported backup into the Local Vault.
@@ -4379,6 +4402,11 @@ public record BackupCertificateInfo(
     SecretItemRef Item,
     bool InLocalVault,
     bool InKeychain
+);
+
+public record BackupCertificateDiscoveryResult(
+    IReadOnlyList<BackupCertificateInfo> Certificates,
+    IReadOnlyList<string> Errors
 );
 
 public record BackupRestoreResult(
