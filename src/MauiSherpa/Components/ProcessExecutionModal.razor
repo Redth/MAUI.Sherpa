@@ -524,6 +524,9 @@
         _cts = new CancellationTokenSource();
         try
         {
+            if (Request.BeforeExecuteAsync != null)
+                await Request.BeforeExecuteAsync(_cts.Token);
+
             Result = await ProcessService.ExecuteAsync(Request, _cts.Token);
         }
         catch (Exception ex)

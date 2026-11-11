@@ -135,7 +135,11 @@ counts, available updates, and diagnostics.
 - Remove recorded workload IDs: `<root>/dotnet workload uninstall <ids>`
 - Change to an exact set: `<root>/dotnet workload update --version <set>`
 - Update to the latest compatible set: `<root>/dotnet workload update`
-- Repair installed workload packs: `<root>/dotnet workload repair`
+- Repair installed workload packs: `<root>/dotnet workload repair`. If the recorded workload set
+  is missing, which currently happens after dotnetup garbage collection
+  ([dotnet/sdk#57039](https://github.com/dotnet/sdk/issues/57039)), Repair instead backs up
+  `InstallState/default.json`, clears the missing version, and runs
+  `<root>/dotnet workload update --version <recorded set>`.
 - Restore a project's workloads: `<root>/dotnet workload restore`
 
 Workload and set selection uses native hybrid dialogs. The **Workloads** dialog shows directly

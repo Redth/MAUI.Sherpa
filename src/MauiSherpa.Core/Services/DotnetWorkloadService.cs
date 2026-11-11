@@ -255,13 +255,39 @@ public sealed class DotnetWorkloadService : IDotnetWorkloadService
             $"Updating feature band {target.FeatureBand} to its latest compatible workload set",
             confirmationButtonText: "Update set");
 
-    public ProcessRequest CreateRepairRequest(DotnetWorkloadTarget target) =>
-        CreateMutationRequest(
+    public ProcessRequest CreateRepairRequest(DotnetWorkloadTarget target)
+    {
+        // Every `dotnet workload` command, including repair and update, fails while the install
+        // state names a workload set that is no longer on disk. dotnetup's garbage collection
+        // currently removes those sets: https://github.com/dotnet/sdk/issues/57039
+        if (target.CanWrite && TryGetMissingRecordedWorkloadSet(target, out var missingVersion))
+        {
+            return CreateMutationRequest(
+                target,
+                ["workload", "update", "--version", missingVersion],
+                "Restore missing workload set",
+                $"Restoring workload set {missingVersion} for SDK feature band {target.FeatureBand}",
+                confirmationButtonText: "Restore") with
+            {
+                ConfirmationDetails =
+                    $"Workload set {missingVersion} is recorded for this SDK feature band, but its files are missing.\n" +
+                    "Sherpa will back up the workload install state, clear the missing version, " +
+                    "and reinstall the workload set and its packs.",
+                BeforeExecuteAsync = _ =>
+                {
+                    WorkloadInstallStateEditor.ClearMissingWorkloadVersion(target, missingVersion);
+                    return Task.CompletedTask;
+                }
+            };
+        }
+
+        return CreateMutationRequest(
             target,
             ["workload", "repair"],
             "Repair .NET workloads",
             $"Repairing installed workloads for SDK feature band {target.FeatureBand}",
             confirmationButtonText: "Repair");
+    }
 
     public ProcessRequest CreateRestoreRequest(
         DotnetWorkloadTarget target,
@@ -328,7 +354,7 @@ public sealed class DotnetWorkloadService : IDotnetWorkloadService
             workloadVersion = recordedWorkloadVersion;
             diagnostics.Add(
                 $"The recorded workload set {workloadVersion} is missing from this SDK installation. " +
-                "Run workload repair or update to restore it. Installed workload IDs were read directly from .NET metadata.");
+                "Use Repair to restore it. Installed workload IDs were read directly from .NET metadata.");
         }
         else
         {
