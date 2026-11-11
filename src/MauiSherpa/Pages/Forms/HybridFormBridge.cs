@@ -41,6 +41,10 @@ public class HybridFormBridge
     /// <summary>Fired by the Blazor component when the native form actions change.</summary>
     public event Action? ActionStateChanged;
 
+    public event Action<bool>? ActionFocusRequested;
+
+    public void RequestActionFocus(bool backwards) => ActionFocusRequested?.Invoke(backwards);
+
     /// <summary>Fired when the top-right header icon actions change.</summary>
     public event Action? HeaderActionsChanged;
 

@@ -3,6 +3,10 @@
 Open **Apple > Devices & Simulators > Pair Device** to pair a physical device with this Mac without opening Xcode.
 This is separate from registering a device in an Apple Developer account.
 
+The pairing screen is a native hybrid sheet: native title and action buttons surround a themed
+Blazor body. Choose USB or Wi-Fi at the top. Connection details stay collapsed until needed.
+**Stop** cancels the current operation without revoking trust; **Close** dismisses the sheet.
+
 ## USB
 
 Connect and unlock the device, refresh the list, select its stable CoreDevice identifier, and choose
@@ -60,14 +64,17 @@ No new entitlement or sandbox bypass is used.
 
 The fresh USB and Wi-Fi pairings above were verified with the standalone prototype. The integrated
 Sherpa build has been checked for discovery, an existing iPad's live connection, helper availability,
-both themes, dialog keyboard navigation, and consecutive signed macOS builds without starting another
-real pairing. A fresh pairing through the packaged dialog
-still needs a consenting device and owner-completed authentication.
+and consecutive signed macOS builds without starting another real pairing. The native hybrid sheet
+has been checked in both themes, including native action labels, Wi-Fi acknowledgment gating, Close,
+and Escape. Automated tests cover the web-to-native Tab handoff; complete native keyboard traversal
+still needs interactive confirmation. Fresh pairings through the packaged dialog still need
+consenting devices and owner-completed authentication.
 
 ## Development checks
 
 ```sh
 dotnet test tests/MauiSherpa.Core.Tests --filter FullyQualifiedName~AppleDevicePairingServiceTests
+node --test tests/javascript/modalInterop.test.cjs
 dotnet build src/MauiSherpa.MacOS -f net10.0-macos
 
 HELPER="src/MauiSherpa.MacOS/bin/Debug/net10.0-macos/osx-arm64/MAUI Sherpa.app/Contents/MacOS/sherpa-apple-pairing"

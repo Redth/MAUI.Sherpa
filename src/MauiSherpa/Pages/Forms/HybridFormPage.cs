@@ -45,6 +45,8 @@ public abstract class HybridFormPage<TResult> : ContentPage, IFormPage<TResult>,
     /// <summary>Height of the native footer actions.</summary>
     protected virtual double ActionButtonHeight => 30;
 
+    protected virtual double SubmitButtonMinimumWidth => -1;
+
     /// <summary>Whether the native submit button performs a destructive action.</summary>
     protected virtual bool IsDestructiveSubmit => false;
 
@@ -99,6 +101,7 @@ public abstract class HybridFormPage<TResult> : ContentPage, IFormPage<TResult>,
                     _submitButton.IsEnabled = _bridge.IsValid && !_isSubmitting;
             });
         _bridge.ActionStateChanged += OnActionStateChanged;
+        _bridge.ActionFocusRequested += OnActionFocusRequested;
         _bridge.HeaderActionsChanged += OnHeaderActionsChanged;
         _bridge.CloseRequested += OnCloseRequested;
 
@@ -211,6 +214,7 @@ public abstract class HybridFormPage<TResult> : ContentPage, IFormPage<TResult>,
             CornerRadius = 5,
             Padding = new Thickness(14, 4),
             HeightRequest = ActionButtonHeight,
+            MinimumWidthRequest = SubmitButtonMinimumWidth,
             IsEnabled = false,
         };
         _submitButton.SetDynamicResource(
@@ -320,6 +324,20 @@ public abstract class HybridFormPage<TResult> : ContentPage, IFormPage<TResult>,
             ApplyActionState();
     }
 
+    private void OnActionFocusRequested(bool backwards)
+    {
+        Dispatcher.Dispatch(() =>
+        {
+            var target = backwards && _submitButton?.IsEnabled == true ? _submitButton : _cancelButton;
+#if MACOSAPP
+            if (target?.Handler?.PlatformView is AppKit.NSView nativeView)
+                nativeView.Window?.MakeFirstResponder(nativeView);
+#else
+            target?.Focus();
+#endif
+        });
+    }
+
     private void OnHeaderActionsChanged()
     {
         if (Dispatcher.IsDispatchRequired)
@@ -384,6 +402,7 @@ public abstract class HybridFormPage<TResult> : ContentPage, IFormPage<TResult>,
 
         _isClosed = true;
         _bridge.ActionStateChanged -= OnActionStateChanged;
+        _bridge.ActionFocusRequested -= OnActionFocusRequested;
         _bridge.CloseRequested -= OnCloseRequested;
         _bridgeHolder.Pop();
         _tcs.TrySetResult(result);

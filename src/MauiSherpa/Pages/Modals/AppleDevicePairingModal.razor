@@ -1,0 +1,490 @@
+@page "/modal/apple-device-pairing"
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Pages.Forms
+@inject IAppleDevicePairingService PairingService
+@inject HybridFormBridgeHolder BridgeHolder
+@inject ILoggingService Logger
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<section class="apple-pairing-content" id="@contentId" aria-label="Device pairing options">
+    <div class="apple-pairing-methods" role="group" aria-label="Connection method">
+        <button type="button" class="@(!wireless ? "selected" : "")" aria-pressed="@(!wireless)"
+                disabled="@busy" @onclick="() => SetMode(false)">
+            <i class="fa-brands fa-usb" aria-hidden="true"></i> USB
+        </button>
+        <button type="button" class="@(wireless ? "selected" : "")" aria-pressed="@wireless"
+                disabled="@busy" @onclick="() => SetMode(true)">
+            <i class="fa-solid fa-wifi" aria-hidden="true"></i> Wi-Fi <span>Experimental</span>
+        </button>
+    </div>
+
+    <div class="apple-pairing-intro">
+        <div class="apple-pairing-connection" aria-hidden="true">
+            <i class="fa-solid fa-mobile-screen-button"></i>
+            <span><i class="@(wireless ? "fa-solid fa-wifi" : "fa-brands fa-usb")"></i></span>
+            <i class="fa-solid fa-laptop"></i>
+        </div>
+        <h2>@(wireless ? "Pair over your local network" : "Connect your device to this Mac")</h2>
+        <p>@(wireless ? "Pair an iPhone or iPad on the same local network." : "Connect with a USB cable and keep your device unlocked.")</p>
+    </div>
+
+    @if (wireless)
+    {
+        @if (pairingCode != null)
+        {
+            <div class="apple-pairing-code-panel">
+                <h3>Enter this code on your device</h3>
+                <div class="apple-pairing-code" role="status" aria-label="Pairing code">@pairingCode</div>
+                <p>Complete any Apple prompts on the device yourself.</p>
+            </div>
+        }
+        else
+        {
+            <ol class="apple-pairing-steps">
+                <li>
+                    <span class="apple-pairing-step-number" aria-hidden="true">1</span>
+                    <div><strong>Open Paired Macs on your device</strong><p>Settings &gt; Developer &gt; Paired Macs</p></div>
+                </li>
+                <li>
+                    <span class="apple-pairing-step-number" aria-hidden="true">2</span>
+                    <div><strong>Start discovery, then choose this Mac</strong><p>Look under Other Devices. Discovery lasts up to three minutes.</p></div>
+                </li>
+                <li>
+                    <span class="apple-pairing-step-number" aria-hidden="true">3</span>
+                    <div><strong>Enter the code on your device</strong><p>Sherpa will display a temporary code, then check the connection.</p></div>
+                </li>
+            </ol>
+        }
+
+        @if (!busy)
+        {
+            <div class="apple-pairing-experimental">
+                <i class="fa-solid fa-flask" aria-hidden="true"></i>
+                <div>
+                    <strong>Uses a private Apple API</strong>
+                    <p>Requires iOS/iPadOS 27+ and Developer Mode. Tested on macOS 27.2 with iOS 27.2; other versions and device families are not verified. Apple may change or remove this feature.</p>
+                </div>
+            </div>
+            <label class="apple-pairing-consent">
+                <input type="checkbox" @bind="wirelessAcknowledged" @bind:after="UpdateActions" />
+                <span>I understand this uses an experimental, private Apple feature.</span>
+            </label>
+            @if (!PairingService.IsWirelessSupported)
+            {
+                <p class="apple-pairing-error" role="alert">Wi-Fi pairing is unavailable on this installation. Use a USB cable instead.</p>
+            }
+        }
+    }
+    else
+    {
+        <div class="apple-pairing-field-heading">
+            <label for="@(contentId + "-device")">Device</label>
+            <button type="button" class="apple-pairing-refresh" @onclick="RefreshDevicesAsync" disabled="@(busy || loading)">
+                <i class="fa-solid @(loading ? "fa-spinner fa-spin" : "fa-rotate")" aria-hidden="true"></i>
+                @(loading ? "Refreshing..." : "Refresh")
+            </button>
+        </div>
+        <select id="@(contentId + "-device")" class="apple-pairing-select" @bind="selectedIdentifier"
+                @bind:after="SelectionChanged" disabled="@(busy || loading)" aria-label="Device to pair or check">
+            <option value="">@(loading ? "Looking for devices..." : "Choose a device")</option>
+            @foreach (var device in devices)
+            {
+                <option value="@device.Identifier">@device.Name - @device.Model (@PairingLabel(device))</option>
+            }
+        </select>
+
+        @if (SelectedDevice is { } selected)
+        {
+            <div class="apple-pairing-device">
+                <i class="fa-solid @(selected.Platform is "tvOS" ? "fa-tv" : "fa-mobile-screen-button")" aria-hidden="true"></i>
+                <div>
+                    <strong>@selected.Model</strong>
+                    <span>@selected.Platform @selected.OsVersion</span>
+                </div>
+                <span class="apple-pairing-paired @(selected.IsPaired ? "saved" : "")">
+                    <i class="fa-solid @(selected.IsPaired ? "fa-check" : "fa-link")" aria-hidden="true"></i>
+                    @PairingLabel(selected)
+                </span>
+            </div>
+            <p class="apple-pairing-guidance">
+                @if (selected.IsPaired)
+                {
+                    <span>Already paired. <strong>Check Connection</strong> verifies live access without pairing again.</span>
+                }
+                else if (selected.IsWired)
+                {
+                    <span>When prompted, choose <strong>Trust</strong> on your device and complete its passcode prompt. Approve any Mac authorization yourself.</span>
+                }
+                else
+                {
+                    <span>Connect this device with a USB cable, then refresh. Or switch to Wi-Fi to pair wirelessly.</span>
+                }
+            </p>
+            <details class="apple-pairing-details">
+                <summary>Connection details</summary>
+                <dl>
+                    <dt>Connection</dt><dd>@selected.ConnectionState (@selected.TransportType)</dd>
+                    <dt>Developer Mode</dt><dd>@selected.DeveloperModeStatus</dd>
+                    <dt>CoreDevice ID</dt><dd class="mono">@selected.Identifier</dd>
+                </dl>
+            </details>
+        }
+        else if (!loading && loadError == null)
+        {
+            <div class="apple-pairing-empty">
+                <i class="fa-brands fa-usb" aria-hidden="true"></i>
+                <strong>No device selected</strong>
+                <p>Connect and unlock a device, then refresh. Saved pairings are also available in the list.</p>
+            </div>
+        }
+    }
+
+    @if (loadError != null)
+    {
+        <p class="apple-pairing-error" role="alert">@loadError</p>
+    }
+    @if (busy)
+    {
+        <div class="apple-pairing-status" role="status">
+            <i class="fa-solid fa-circle-notch fa-spin" aria-hidden="true"></i>
+            <p>@status</p>
+        </div>
+    }
+    @if (result != null)
+    {
+        <div class="apple-pairing-result @(result.IsLiveVerified ? "verified" : "")" role="status">
+            <i class="fa-solid @(result.IsLiveVerified ? "fa-circle-check" : "fa-circle-info")" aria-hidden="true"></i>
+            <div><strong>@ResultTitle(result)</strong><p>@result.Message</p></div>
+        </div>
+    }
+    <p class="apple-pairing-privacy">
+        <i class="fa-solid fa-shield-halved" aria-hidden="true"></i>
+        Existing pairings stay unchanged. You approve every Apple prompt.
+    </p>
+</section>
+
+<style>
+    .apple-pairing-content { padding: 8px 28px 20px; color: var(--text-primary); }
+    .apple-pairing-content p { margin: 0; line-height: 1.5; }
+    .apple-pairing-methods { display: flex; padding: 3px; border-radius: 8px; background: var(--bg-tertiary); }
+    .apple-pairing-methods button { flex: 1; display: flex; align-items: center; justify-content: center; gap: 7px; min-height: 32px; border: 0; border-radius: 5px; background: transparent; color: var(--text-secondary); font: inherit; font-weight: 500; cursor: pointer; }
+    .apple-pairing-methods button.selected { background: var(--bg-primary); color: var(--text-primary); box-shadow: 0 1px 3px color-mix(in srgb, var(--text-primary) 12%, transparent); }
+    .apple-pairing-methods button:hover:not(:disabled):not(.selected) { background: var(--bg-hover); }
+    .apple-pairing-methods button span { font-size: 10px; font-weight: 400; color: var(--text-secondary); }
+    .apple-pairing-content button:disabled, .apple-pairing-select:disabled { opacity: 0.55; cursor: default; }
+    .apple-pairing-content :is(button, input, select, summary):focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 3px; }
+    .apple-pairing-intro { padding: 22px 0 24px; text-align: center; }
+    .apple-pairing-connection { display: flex; align-items: center; justify-content: center; gap: 18px; margin-bottom: 14px; color: var(--text-primary); }
+    .apple-pairing-connection > i { font-size: 29px; }
+    .apple-pairing-connection > span { display: flex; align-items: center; gap: 10px; color: var(--text-secondary); font-size: 13px; }
+    .apple-pairing-connection > span::before, .apple-pairing-connection > span::after { content: ""; width: 20px; height: 1px; background: var(--input-border); }
+    .apple-pairing-intro h2 { margin: 0 0 6px; font-size: 18px; font-weight: 600; letter-spacing: -0.02em; }
+    .apple-pairing-intro p { color: var(--text-secondary); font-size: 13px; }
+    .apple-pairing-field-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 7px; }
+    .apple-pairing-field-heading label { font-weight: 600; }
+    .apple-pairing-refresh { display: inline-flex; align-items: center; gap: 5px; padding: 5px 0 5px 8px; border: 0; background: transparent; color: var(--accent-primary); font: inherit; font-size: 12px; cursor: pointer; }
+    .apple-pairing-refresh:hover:not(:disabled) { color: var(--accent-primary-hover); }
+    .apple-pairing-select { width: 100%; min-height: 36px; box-sizing: border-box; padding: 7px 10px; border: 1px solid var(--input-border); border-radius: 6px; background: var(--input-bg); color: var(--text-primary); font: inherit; }
+    .apple-pairing-device { display: flex; align-items: center; gap: 12px; padding: 18px 0 14px; }
+    .apple-pairing-device > i { width: 24px; font-size: 25px; text-align: center; color: var(--text-secondary); }
+    .apple-pairing-device > div { display: flex; flex: 1; flex-direction: column; min-width: 0; gap: 3px; }
+    .apple-pairing-device strong { font-weight: 600; overflow-wrap: anywhere; }
+    .apple-pairing-device > div > span { color: var(--text-secondary); font-size: 12px; }
+    .apple-pairing-paired { display: inline-flex; align-items: center; gap: 5px; color: var(--text-secondary); font-size: 12px; }
+    .apple-pairing-paired.saved { color: var(--status-success-text); }
+    .apple-pairing-guidance { color: var(--text-secondary); }
+    .apple-pairing-details { margin-top: 16px; color: var(--text-secondary); font-size: 12px; }
+    .apple-pairing-details summary { width: fit-content; padding: 4px 0; cursor: pointer; }
+    .apple-pairing-details dl { display: grid; grid-template-columns: auto 1fr; gap: 8px 16px; margin: 12px 0 0; }
+    .apple-pairing-details dd { margin: 0; overflow-wrap: anywhere; }
+    .apple-pairing-steps { display: flex; flex-direction: column; gap: 18px; padding: 0; margin: 0 0 22px; list-style: none; }
+    .apple-pairing-steps li { display: flex; align-items: flex-start; gap: 12px; }
+    .apple-pairing-step-number { display: flex; align-items: center; justify-content: center; flex: 0 0 24px; height: 24px; border-radius: 50%; background: var(--bg-tertiary); color: var(--text-secondary); font-size: 12px; font-weight: 600; }
+    .apple-pairing-steps strong { display: block; margin: 1px 0 3px; font-weight: 600; }
+    .apple-pairing-steps p { color: var(--text-secondary); font-size: 12px; }
+    .apple-pairing-experimental { display: flex; align-items: flex-start; gap: 10px; padding-top: 16px; border-top: 1px solid var(--input-border); }
+    .apple-pairing-experimental > i { margin-top: 2px; color: var(--text-secondary); }
+    .apple-pairing-experimental strong { font-size: 12px; font-weight: 600; }
+    .apple-pairing-experimental p { margin-top: 4px; color: var(--text-secondary); font-size: 12px; }
+    .apple-pairing-consent { display: flex; align-items: flex-start; gap: 8px; padding-top: 14px; font-size: 12px; line-height: 1.5; cursor: pointer; }
+    .apple-pairing-consent input { flex-shrink: 0; margin: 2px 0 0; accent-color: var(--accent-primary); }
+    .apple-pairing-code-panel { padding: 6px 0 24px; text-align: center; }
+    .apple-pairing-code-panel h3 { margin: 0; font-size: 14px; font-weight: 600; }
+    .apple-pairing-code { padding: 18px 0; font-family: var(--font-mono, monospace); font-size: 32px; font-variant-numeric: tabular-nums; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .apple-pairing-code-panel p { color: var(--text-secondary); font-size: 12px; }
+    .apple-pairing-status, .apple-pairing-result { display: flex; align-items: flex-start; gap: 10px; padding: 14px 0 0; margin-top: 18px; border-top: 1px solid var(--input-border); }
+    .apple-pairing-status > i, .apple-pairing-result > i { margin-top: 3px; color: var(--text-secondary); }
+    .apple-pairing-status p, .apple-pairing-result p { color: var(--text-secondary); font-size: 12px; }
+    .apple-pairing-result strong { display: block; margin-bottom: 4px; font-weight: 600; }
+    .apple-pairing-result.verified > i { color: var(--status-success-text); }
+    .apple-pairing-error { padding-top: 16px; color: var(--accent-danger); overflow-wrap: anywhere; }
+    .apple-pairing-empty { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 26px 18px; text-align: center; color: var(--text-secondary); }
+    .apple-pairing-empty > i { font-size: 24px; }
+    .apple-pairing-empty p { max-width: 36ch; font-size: 12px; }
+    .apple-pairing-privacy { display: flex; align-items: flex-start; gap: 7px; padding-top: 24px; color: var(--text-secondary); font-size: 11px; }
+    .apple-pairing-privacy i { margin-top: 3px; }
+    @@media (max-width: 460px) {
+        .apple-pairing-content { padding-right: 20px; padding-left: 20px; }
+        .apple-pairing-methods button { flex-wrap: wrap; gap: 5px; }
+        .apple-pairing-paired { max-width: 95px; }
+    }
+</style>
+
+@code {
+    private readonly string contentId = $"apple-pairing-{Guid.NewGuid():N}";
+    private CancellationTokenSource lifetime = new();
+    private CancellationTokenSource? operationCts;
+    private DotNetObjectReference<AppleDevicePairingModal>? dotNetRef;
+    private HybridFormBridge? bridge;
+    private Task? operationTask;
+    private IReadOnlyList<PhysicalDevice> devices = [];
+    private string selectedIdentifier = "";
+    private string? pairingCode, loadError;
+    private string status = "";
+    private ApplePairingResult? result;
+    private bool initialized, wireless, wirelessAcknowledged, busy, loading, closing, stopping, disposed;
+    private long generation;
+    private PhysicalDevice? SelectedDevice => devices.FirstOrDefault(d => d.Identifier == selectedIdentifier);
+
+    protected override async Task OnInitializedAsync()
+    {
+        bridge = BridgeHolder.Current ?? throw new InvalidOperationException("The native pairing dialog is unavailable.");
+        if (bridge.Parameters.TryGetValue("LifetimeToken", out var value) && value is CancellationToken token)
+        {
+            lifetime.Dispose();
+            lifetime = CancellationTokenSource.CreateLinkedTokenSource(token);
+        }
+        selectedIdentifier = bridge.Parameters.GetValueOrDefault("DeviceIdentifier") as string ?? "";
+        bridge.PreventClose = true;
+        bridge.PreventSubmitClose = true;
+        bridge.SubmitRequested += SubmitAsync;
+        bridge.CancelRequested += OnSecondaryAction;
+        await RefreshDevicesAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!initialized && !disposed)
+        {
+            dotNetRef ??= DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("modalInterop.initialize", contentId, dotNetRef, true);
+            initialized = true;
+        }
+    }
+
+    private void UpdateActions() => bridge?.SetActionState(
+        enabled: !closing && !loading && (wireless
+            ? wirelessAcknowledged && PairingService.IsWirelessSupported
+            : SelectedDevice is { } selected && (selected.IsPaired || selected.IsWired)),
+        busy: busy,
+        actionText: busy ? (wireless ? "Pairing..." : "Checking...") :
+            wireless ? "Start Wi-Fi Pairing" : SelectedDevice?.IsPaired == true ? "Check Connection" : "Pair via USB",
+        secondaryActionText: busy ? "Stop" : "Close");
+
+    private async Task RefreshDevicesAsync()
+    {
+        loading = true;
+        loadError = null;
+        UpdateActions();
+        try
+        {
+            devices = await PairingService.GetDevicesAsync(lifetime.Token);
+            if (!devices.Any(d => d.Identifier == selectedIdentifier))
+                selectedIdentifier = devices.FirstOrDefault(d => d.IsWired)?.Identifier ??
+                    devices.FirstOrDefault()?.Identifier ?? "";
+        }
+        catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
+        catch (Exception ex)
+        {
+            devices = [];
+            selectedIdentifier = "";
+            loadError = $"Could not refresh Apple devices. {ex.Message}";
+            Logger.LogWarning("Apple pairing device discovery failed.");
+        }
+        finally
+        {
+            loading = false;
+            UpdateActions();
+            if (!disposed) StateHasChanged();
+        }
+    }
+
+    private void SelectionChanged()
+    {
+        result = null;
+        UpdateActions();
+    }
+
+    private void SetMode(bool useWireless)
+    {
+        if (busy) return;
+        wireless = useWireless;
+        pairingCode = null;
+        result = null;
+        UpdateActions();
+    }
+
+    private Task SubmitAsync() => InvokeAsync(() => wireless ? StartWirelessAsync() : StartUsbAsync());
+
+    private Task StartUsbAsync()
+    {
+        var selected = SelectedDevice;
+        if (selected == null || busy || closing) return Task.CompletedTask;
+        return RunAsync(ct => selected.IsPaired
+            ? PairingService.VerifyAsync(selected.Identifier, ct)
+            : PairingService.PairUsbAsync(selected.Identifier, ct),
+            selected.IsPaired ? "Checking Apple's live connection..." :
+                "Waiting for Apple's trust prompts. Unlock your device and complete its passcode prompt.");
+    }
+
+    private Task StartWirelessAsync()
+    {
+        if (!wirelessAcknowledged || !PairingService.IsWirelessSupported || busy || closing) return Task.CompletedTask;
+        return RunAsync(ct =>
+        {
+            var current = generation;
+            var progress = new Progress<ApplePairingProgress>(update =>
+            {
+                if (disposed || !busy || operationCts?.IsCancellationRequested != false || current != generation)
+                    return;
+                pairingCode = update.Stage == ApplePairingStage.Code ? update.PairingCode : null;
+                status = update.Stage switch
+                {
+                    ApplePairingStage.Advertising => "This Mac is discoverable. Select it in Paired Macs on your device.",
+                    ApplePairingStage.Code => "Code ready. Enter it on your device; finish any Apple prompts yourself.",
+                    _ => "Apple completed the exchange. Checking the saved pairing and live connection..."
+                };
+                StateHasChanged();
+            });
+            return PairingService.PairWirelessAsync(progress, ct);
+        }, "Starting Apple's private Wi-Fi discovery...");
+    }
+
+    private Task RunAsync(Func<CancellationToken, Task<ApplePairingResult>> action, string initialStatus)
+    {
+        busy = true;
+        stopping = false;
+        result = null;
+        pairingCode = null;
+        status = initialStatus;
+        generation++;
+        if (bridge != null) bridge.Result = true;
+        operationCts = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+        UpdateActions();
+        StateHasChanged();
+        operationTask = PerformAsync(action, operationCts);
+        return operationTask;
+    }
+
+    private async Task PerformAsync(Func<CancellationToken, Task<ApplePairingResult>> action, CancellationTokenSource source)
+    {
+        try
+        {
+            result = await action(source.Token);
+        }
+        catch (OperationCanceledException) when (source.IsCancellationRequested)
+        {
+            result = new(ApplePairingState.Failed, "Stopped. Trust you already approved may still be saved; refresh before retrying.");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError($"Apple pairing dialog operation failed ({ex.GetType().Name}).");
+            result = new(ApplePairingState.Failed, "Pairing could not finish. Refresh devices and check Apple's prompts before retrying.");
+        }
+        finally
+        {
+            generation++;
+            pairingCode = null;
+            try
+            {
+                if (!disposed && !closing && !lifetime.IsCancellationRequested)
+                    await RefreshDevicesAsync();
+            }
+            finally
+            {
+                source.Dispose();
+                operationCts = null;
+                busy = false;
+                stopping = false;
+                UpdateActions();
+                if (!disposed) StateHasChanged();
+            }
+        }
+    }
+
+    private async Task CancelOperationAsync()
+    {
+        generation++;
+        pairingCode = null;
+        if (operationCts != null) await operationCts.CancelAsync();
+        if (operationTask != null) await operationTask;
+    }
+
+    private void OnSecondaryAction() => _ = InvokeAsync(async () =>
+    {
+        if (stopping || closing) return;
+        if (busy)
+        {
+            stopping = true;
+            status = "Stopping discovery and waiting for Apple's tools to exit...";
+            UpdateActions();
+            StateHasChanged();
+            await CancelOperationAsync();
+        }
+        else
+        {
+            await CloseAsync();
+        }
+    });
+
+    private async Task CloseAsync()
+    {
+        if (closing) return;
+        closing = true;
+        UpdateActions();
+        await lifetime.CancelAsync();
+        await CancelOperationAsync();
+        bridge?.RequestClose();
+    }
+
+    [JSInvokable] public Task OnEscapePressed() => CloseAsync();
+
+    [JSInvokable] public void OnFocusBoundary(bool backwards) => bridge?.RequestActionFocus(backwards);
+
+    public async ValueTask DisposeAsync()
+    {
+        disposed = true;
+        pairingCode = null;
+        if (bridge != null)
+        {
+            bridge.SubmitRequested -= SubmitAsync;
+            bridge.CancelRequested -= OnSecondaryAction;
+        }
+        await lifetime.CancelAsync();
+        await CancelOperationAsync();
+        if (initialized)
+        {
+            try { await JS.InvokeVoidAsync("modalInterop.dispose", contentId); }
+            catch (JSDisconnectedException) { }
+        }
+        dotNetRef?.Dispose();
+        lifetime.Dispose();
+    }
+
+    private static string PairingLabel(PhysicalDevice device) => device.PairingState switch
+    {
+        "paired" => "Paired",
+        "unpaired" => "Not paired",
+        "pairingInProgress" => "Pairing in progress",
+        _ => "Pairing state unknown"
+    };
+
+    private static string ResultTitle(ApplePairingResult value) => value.State switch
+    {
+        ApplePairingState.Connected => "Paired and responding",
+        ApplePairingState.Paired => "Pairing saved; live access not verified",
+        ApplePairingState.CompletedUnverified => "Apple completed pairing; device verification needed",
+        _ => "Pairing not confirmed"
+    };
+}

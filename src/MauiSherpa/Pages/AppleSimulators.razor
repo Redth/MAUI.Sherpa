@@ -17,6 +17,7 @@
 @inject IEncryptedSettingsService SettingsService
 @inject IFormModalService FormModalService
 @inject IToolbarService ToolbarService
+@inject MauiSherpa.Pages.Forms.HybridFormBridgeHolder BridgeHolder
 @implements IDisposable
 
 <h1><i class="fas fa-tablet-screen-button"></i> Apple Devices</h1>
@@ -300,9 +301,6 @@ else
 </div>
 
 } @* end else IsSupported *@
-
-<AppleDevicePairingDialog IsOpen="@showPairing" InitialDeviceIdentifier="@pairingDeviceIdentifier"
-                          OnClose="ClosePairing" OnDevicesMayHaveChanged="RefreshPhysicalDevices" />
 
 <style>
     .physical-device-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 0.75rem; }
@@ -621,7 +619,6 @@ else
     private bool isLoading = false;
     private bool isLoadingDevices = false;
     private bool showPairing;
-    private string? pairingDeviceIdentifier;
     private string? physicalDevicesError;
     private ElementReference pairButton;
     private bool demoMode = false;
@@ -967,16 +964,24 @@ else
     }
 
     // Physical devices
-    private void ShowPairing(string? identifier = null)
+    private async Task ShowPairing(string? identifier = null)
     {
-        pairingDeviceIdentifier = identifier;
+        if (showPairing) return;
         showPairing = true;
-    }
-
-    private async Task ClosePairing()
-    {
-        showPairing = false;
-        await pairButton.FocusAsync();
+        try
+        {
+            await FormModalService.ShowAsync<bool>(new Modals.AppleDevicePairingPage(BridgeHolder, identifier));
+            await RefreshPhysicalDevices();
+        }
+        catch (Exception ex)
+        {
+            await AlertService.ShowToastAsync($"Could not open Apple pairing: {ex.Message}");
+        }
+        finally
+        {
+            showPairing = false;
+            await pairButton.FocusAsync();
+        }
     }
 
     private Task RefreshAll() => Task.WhenAll(RefreshSimulators(forceRefresh: true), RefreshPhysicalDevices());
@@ -1066,7 +1071,7 @@ else
                     ToolbarService.SetItemEnabled("refresh", false);
                     try { await RefreshAll(); } finally { ToolbarService.SetItemEnabled("refresh", true); }
                     break;
-                case "pair": ShowPairing(); break;
+                case "pair": await ShowPairing(); break;
                 case "create": await ShowCreateDialog(); break;
             }
             StateHasChanged();

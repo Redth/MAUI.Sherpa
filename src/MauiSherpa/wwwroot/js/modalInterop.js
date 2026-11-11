@@ -3,12 +3,13 @@
 window.modalInterop = {
     _instances: new Map(),
 
-    initialize(modalId, dotNetRef) {
+    initialize(modalId, dotNetRef, nativeActions = false) {
         const modal = document.getElementById(modalId);
         if (!modal) return;
 
         const state = {
             dotNetRef,
+            nativeActions,
             keyHandler: (e) => this._handleKeyDown(modalId, e),
         };
 
@@ -44,7 +45,7 @@ window.modalInterop = {
         if (!modal) return;
 
         if (e.key === 'Tab') {
-            this._trapFocus(modal, e);
+            this._trapFocus(modal, e, state);
         } else if (e.key === 'Escape') {
             e.preventDefault();
             e.stopPropagation();
@@ -52,14 +53,26 @@ window.modalInterop = {
         }
     },
 
-    _trapFocus(modal, e) {
+    _trapFocus(modal, e, state) {
         const focusable = this._getFocusableElements(modal);
-        if (focusable.length === 0) return;
+        if (focusable.length === 0) {
+            if (state.nativeActions) {
+                e.preventDefault();
+                state.dotNetRef.invokeMethodAsync('OnFocusBoundary', e.shiftKey);
+            }
+            return;
+        }
 
         e.preventDefault();
 
         const active = document.activeElement;
         let idx = focusable.indexOf(active);
+
+        if (state.nativeActions &&
+            (e.shiftKey ? idx <= 0 : idx < 0 || idx === focusable.length - 1)) {
+            state.dotNetRef.invokeMethodAsync('OnFocusBoundary', e.shiftKey);
+            return;
+        }
 
         if (e.shiftKey) {
             idx = (idx <= 0) ? focusable.length - 1 : idx - 1;
@@ -77,6 +90,7 @@ window.modalInterop = {
             'select:not([disabled]):not([tabindex="-1"])',
             'textarea:not([disabled]):not([tabindex="-1"])',
             'a[href]:not([tabindex="-1"])',
+            'summary:not([tabindex="-1"])',
             '[tabindex]:not([tabindex="-1"]):not([disabled])'
         ].join(', ');
         return Array.from(container.querySelectorAll(selector))
