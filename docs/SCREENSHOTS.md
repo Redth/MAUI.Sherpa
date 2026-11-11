@@ -50,7 +50,7 @@ dotnet maui devflow webview Runtime evaluate "document.body.classList.remove('th
 
 ### Start Devices
 
-- **Android emulator:** Navigate to the Emulators page in the app and click the play button on an AVD, or use `android avd start --name <avd-name>` from CLI.
+- **Android emulator:** Navigate to the Android Devices page in the app and click the play button on an AVD, or use `android avd start --name <avd-name>` from CLI.
 - **iOS simulator:** Should already be booted (`xcrun simctl list devices booted`). If not, boot one from Apple Simulators page in the app.
 
 ## Screenshot Naming Convention
@@ -72,7 +72,7 @@ Examples:
 # Navigate via sidebar link
 dotnet maui devflow webview Input dispatchClickEvent "a.nav-item[href='<page-href>']"
 
-# Page hrefs: (empty string)=Dashboard, doctor, settings, devices, emulators,
+# Page hrefs: (empty string)=Dashboard, doctor, settings, devices,
 #   android-sdk, keystores, apple-simulators, apple-devices, bundle-ids,
 #   certificates, profiles, root-certificates
 ```
@@ -115,7 +115,7 @@ dotnet maui devflow webview Runtime evaluate "document.querySelector('main.conte
 | `Settings` | `settings` | Top of page showing Demo Mode toggle |
 | `Settings_02` | `settings` | Scrolled to show Apple Identities (blurred) |
 | `Android_SDK` | `android-sdk` | SDK packages list |
-| `Emulators` | `emulators` | Emulator cards |
+| `Emulators` | `devices` | Emulator cards on the combined Android Devices page |
 | `Android_Devices` | `devices` | With emulator running for inspector button |
 | `Keystores` | `keystores` | Keystore cards |
 | `Apple_Simulators` | `apple-simulators` | Simulator list with booted sim |
@@ -130,7 +130,7 @@ dotnet maui devflow webview Runtime evaluate "document.querySelector('main.conte
 
 | Screenshot | How to Open | Notes |
 |------------|-------------|-------|
-| `Create_Emulator` | Emulators → toolbar `+` button | Fill name field |
+| `Create_Emulator` | Android Devices → toolbar `+` button | Fill name field |
 | `Create_Keystore` | Keystores → toolbar `+` button | Fill all form fields |
 | `Keystore_Signatures` | Keystores → fingerprint icon on card | Shows cert signatures |
 | `Keystore_PEPK` | Keystores → file-export icon on card | PEPK export dialog |

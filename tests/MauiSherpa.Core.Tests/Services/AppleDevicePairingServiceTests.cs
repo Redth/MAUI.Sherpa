@@ -85,6 +85,68 @@ public class AppleDevicePairingServiceTests
         device.DeveloperModeStatus.Should().Be("disabled");
     }
 
+    [Theory]
+    [InlineData("fidelity")]
+    [InlineData("reality")]
+    [InlineData("transportType")]
+    public void Discovery_ExcludesLegacySimulatorsWithoutModernProperties(string marker)
+    {
+        var raw = new JsonObject
+        {
+            ["identifier"] = "simulator",
+            ["hardwareProperties"] = new JsonObject { ["platform"] = "iOS" },
+            ["connectionProperties"] = new JsonObject { ["pairingState"] = "paired" }
+        };
+        if (marker == "transportType")
+            raw["connectionProperties"]![marker] = "sameMachine";
+        else
+            raw["hardwareProperties"]![marker] = "simulated";
+        using var response = Envelope(new { devices = new[] { raw } });
+
+        PhysicalDeviceService.ParseDevices(response.RootElement).Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("wired", "USB", true, false)]
+    [InlineData("usb", "USB", true, false)]
+    [InlineData("localNetwork", "Wi-Fi", false, true)]
+    [InlineData("wifi", "Wi-Fi", false, true)]
+    [InlineData("wireless", "Wi-Fi", false, true)]
+    [InlineData("unknown", "Unknown connection", false, false)]
+    [InlineData("futureTransport", "Unknown connection", false, false)]
+    public void Discovery_UsesFriendlyTransportLabelsWithoutGuessingUnknownConnections(
+        string transport, string label, bool isWired, bool isWireless)
+    {
+        using var response = Envelope(new { devices = new[] { Device("physical", "paired", transport: transport) } });
+        var device = PhysicalDeviceService.ParseDevices(response.RootElement).Single();
+
+        device.TransportLabel.Should().Be(label);
+        device.IsWired.Should().Be(isWired);
+        device.IsWireless.Should().Be(isWireless);
+        device.IsConnected.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Discovery_MixedListKeepsOnlyPhysicalDevicesAndTheirLiveTransport()
+    {
+        var simulator = Device("simulator", "paired");
+        simulator["properties"]!["hardware"]!["fidelity"] = "simulated";
+        simulator["properties"]!["connection"]!["transportType"] = "sameMachine";
+        var usb = Device("usb", "paired");
+        usb["properties"]!["connection"]!["state"] = "connected";
+        var wifi = Device("wifi", "paired", transport: "localNetwork");
+        wifi["properties"]!["connection"]!["state"] = "connected";
+        var offline = Device("offline", "paired", transport: "localNetwork");
+        using var response = Envelope(new { devices = new[] { simulator, usb, wifi, offline } });
+
+        var devices = PhysicalDeviceService.ParseDevices(response.RootElement);
+
+        devices.Select(d => d.Identifier).Should().Equal("usb", "wifi", "offline");
+        devices.Where(d => d.IsConnected).Select(d => d.TransportLabel).Should().Equal("USB", "Wi-Fi");
+        devices.Last().IsPaired.Should().BeTrue();
+        devices.Last().IsConnected.Should().BeFalse();
+    }
+
     [Fact]
     public void Discovery_RejectsMissingStableIdentifier()
     {

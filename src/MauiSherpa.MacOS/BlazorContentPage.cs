@@ -47,7 +47,7 @@ public class BlazorContentPage : ContentPage
     // Routes that show the Apple identity picker
     static readonly HashSet<string> AppleRoutes = new(StringComparer.OrdinalIgnoreCase)
     {
-        "/certificates", "/profiles", "/apple-devices", "/bundle-ids", "/apple-simulators"
+        "/certificates", "/profiles", "/apple-devices", "/bundle-ids"
     };
 
     // Routes that show the Google identity picker

@@ -33,7 +33,7 @@ public class WindowsTitleBarManager
 
     private static readonly HashSet<string> AppleRoutes = new(StringComparer.OrdinalIgnoreCase)
     {
-        "/certificates", "/profiles", "/apple-devices", "/bundle-ids", "/apple-simulators"
+        "/certificates", "/profiles", "/apple-devices", "/bundle-ids"
     };
 
     private static readonly HashSet<string> GoogleRoutes = new(StringComparer.OrdinalIgnoreCase)

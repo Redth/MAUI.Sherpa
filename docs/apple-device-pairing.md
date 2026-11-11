@@ -1,6 +1,7 @@
 # Apple device pairing
 
-Open **Apple > Devices & Simulators > Pair Device** to pair a physical device with this Mac without opening Xcode.
+Open **Apple > Devices & Simulators** and choose **Pair Device** in the toolbar to pair a physical
+device with this Mac without opening Xcode.
 This is separate from registering a device in an Apple Developer account.
 
 The pairing screen is a native hybrid sheet: native title and action buttons surround a themed
@@ -22,6 +23,11 @@ live check queries `devicectl device info lockState`; cached device details alon
 proof that the device is responding.
 
 ## Unpairing
+
+The **Physical Devices** section also has an **Unpair device** action on each paired device card,
+including offline devices. A confirmation explains that unpairing removes this Mac's trust
+relationship, not the device's data. Connected cards show **USB** or **Wi-Fi**; offline cards do not
+present the last-known transport as a current connection. The pairing sheet uses the same labels.
 
 Each row under **My Devices** has an unpair button. Sherpa asks for confirmation inside that row
 before doing anything. After you choose **Unpair**, it re-reads the device by stable identifier, runs
@@ -82,10 +88,26 @@ web-to-native Tab handoff; complete native keyboard traversal still needs intera
 Fresh pairings through the packaged dialog still need consenting devices and owner-completed
 authentication.
 
+## Simulators
+
+Simulators are listed separately from physical devices, including unavailable simulators whose
+runtime is no longer installed. Use **Delete simulator** (the trash button on its card) to remove a
+simulator and all of its apps and data. Sherpa asks for confirmation, shuts down a running simulator
+first, and stops without deleting if shutdown fails. Deletion cannot be undone. This deletes the
+simulator, not its shared runtime.
+
+To delete several at once, choose **Select** beside the Simulators heading, check individual
+simulators or use **Select all shown**, then choose **Delete Selected**. Select all applies only to
+the current search and filters; the selection count calls out selected simulators hidden by filters.
+Review the batch list and choose **Run … Operations** to confirm. Each simulator is stopped if running and
+deleted in turn. A failure does not stop the rest of the batch. Failed or skipped simulators stay
+selected for another attempt; successfully deleted simulators are removed from the selection.
+**Cancel Selection** leaves all simulators unchanged.
+
 ## Development checks
 
 ```sh
-dotnet test tests/MauiSherpa.Core.Tests --filter FullyQualifiedName~AppleDevicePairingServiceTests
+dotnet test tests/MauiSherpa.Core.Tests --filter 'FullyQualifiedName~AppleDevicePairingServiceTests|FullyQualifiedName~SimulatorDeletionTests'
 node --test tests/javascript/modalInterop.test.cjs
 dotnet build src/MauiSherpa.MacOS -f net10.0-macos
 

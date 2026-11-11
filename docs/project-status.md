@@ -15,7 +15,7 @@
 
 ### Recent Updates (Feb 2026)
 - Doctor fixes now route Android SDK installs through `DoctorService` and resolve a concrete system image package before install.
-- Android Emulator fix now links to the Emulators page to create an AVD.
+- Android Emulator fix now links to the Android Devices page to create an AVD.
 - `NavigationService` is scoped and guarded to avoid uninitialized navigation errors.
 
 ### Build Status: ✅ SUCCESS
