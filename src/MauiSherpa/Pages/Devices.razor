@@ -15,6 +15,8 @@
 @inject IEncryptedSettingsService SettingsService
 @inject IToolbarService ToolbarService
 @inject IPlatformService PlatformInfo
+@inject IFormModalService FormModalService
+@inject MauiSherpa.Pages.Forms.HybridFormBridgeHolder BridgeHolder
 @implements IDisposable
 
 <h1><i class="fas fa-mobile-alt"></i> Android Devices</h1>
@@ -100,9 +102,6 @@
         }
     }
 </div>
-
-<AndroidWirelessPairingDialog IsOpen="@showWirelessPairing" OnClose="CloseWirelessPairing"
-                             OnDevicesMayHaveChanged="() => RefreshDevices(forceRefresh: true)" />
 
 <style>
     h1 {
@@ -305,7 +304,7 @@
     private List<DeviceInfo> devices = new();
     private bool isLoading = false;
     private bool demoMode = false;
-    private bool showWirelessPairing;
+    private bool showingWirelessPairing;
 
     protected override async Task OnInitializedAsync()
     {
@@ -408,8 +407,24 @@
         await AlertService.ShowToastAsync("Copied to clipboard");
     }
 
-    private void OpenWirelessPairing() => showWirelessPairing = true;
-    private void CloseWirelessPairing() => showWirelessPairing = false;
+    private async Task OpenWirelessPairing()
+    {
+        if (showingWirelessPairing) return;
+        showingWirelessPairing = true;
+        try
+        {
+            if (await FormModalService.ShowAsync<bool>(new Modals.AndroidDevicePairingPage(BridgeHolder)))
+                await RefreshDevices(forceRefresh: true);
+        }
+        catch (Exception ex)
+        {
+            await AlertService.ShowToastAsync($"Could not open Android pairing: {ex.Message}");
+        }
+        finally
+        {
+            showingWirelessPairing = false;
+        }
+    }
 
     public void Dispose()
     {
@@ -425,7 +440,7 @@
             switch (actionId)
             {
                 case "pair-wireless":
-                    OpenWirelessPairing();
+                    await OpenWirelessPairing();
                     break;
                 case "refresh":
                     ToolbarService.SetItemEnabled("refresh", false);

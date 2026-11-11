@@ -40,14 +40,13 @@ MAUI Sherpa is a desktop application for **macOS**, **Windows**, and **Linux** t
 - View emulator details and configuration
 
 ### Android Wireless Devices
-- Pair a device without Android Studio from **Android Devices > Pair over Wi-Fi**
-- For QR pairing, select **Show QR code** in Sherpa and **Pair device with QR code** on your device's Wireless debugging screen; scan with that scanner, not the regular camera app
-- QR codes use fresh, single-use credentials and expire after 3 minutes. Keep Sherpa open; use **Stop QR pairing** to return to pairing by code. QR pairing requires ADB mDNS discovery.
-- Enable **Developer options > Wireless debugging** on an Android 11+ phone or Android 13+ TV/Wear OS device, then choose **Pair device with pairing code**
-- Enter the pairing screen's IP address, port, and six-digit code in Sherpa; codes are not saved or logged
-- If Android does not connect automatically, use the separate debugging IP address and port from the main Wireless debugging screen in **Connect for debugging**
-- **Find nearby devices** discovers pairing and debugging addresses with ADB mDNS; manual entry still works when discovery is blocked by the network
-- Requires current Android SDK platform-tools and the same Wi-Fi network. Devices without a QR scanner can use the six-digit pairing-code flow.
+- Pair a device without Android Studio from **Android Devices > Pair over Wi-Fi**; the sheet lists **Available Devices** (found on your network, refreshed every few seconds) and **My Devices** (connected to adb, with live status)
+- Enable **Developer options > Wireless debugging** on an Android 11+ phone or Android 13+ TV/Wear OS device
+- For QR pairing, choose **Pair over Wi-Fi…** in Sherpa and **Pair device with QR code** on the device; scan with that scanner, not the regular camera app. Codes are single-use and expire after 3 minutes; **Stop** cancels.
+- For code pairing, choose **Pair device with pairing code** on the device, then **Pair** on its row under Available Devices and enter the six-digit code; codes are never saved or logged
+- If Android does not connect automatically, use **Connect** on its row, or **Reconnect** for an offline Wi-Fi device under My Devices
+- When the network blocks discovery (guest Wi-Fi, VPNs, isolation), open **Enter an address manually** to pair or connect by IP address and port; the pairing and debugging ports differ
+- Requires current Android SDK platform-tools and the same Wi-Fi network. QR pairing needs ADB mDNS discovery.
 
 ### 🔑 Android Keystores
 - Create and manage Android signing keystores
