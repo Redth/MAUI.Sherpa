@@ -1,0 +1,675 @@
+@page "/modal/apple-device-pairing"
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Pages.Forms
+@inject IAppleDevicePairingService PairingService
+@inject HybridFormBridgeHolder BridgeHolder
+@inject ILoggingService Logger
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+@*
+THESIS: A device sheet that reads like macOS Bluetooth settings, not a form: devices you can add first, with a wireless door in that header, then devices you own. It refuses the dropdown-plus-detail-panel form.
+OWN-WORLD: Sherpa's native sheet palette (white or graphite page, card-grey inset groups, hairline separators inset past the glyph), one purple accent matching the native footer, green only for a live connection, red only for unpair.
+STORY: See at a glance what is paired and responding, plug in a cable and watch it appear, pair or forget it from its own row, or step into the experimental Wi-Fi flow.
+FIRST VIEWPORT: One-line purpose with a quiet refresh; Available Devices (Pair over Wi-Fi in its header) then My Devices; row actions trail each device. The native footer carries Done or Stop.
+FORM: Extension of the established Sherpa world; no new identity.
+*@
+
+<section class="ap @(wifiView ? "is-wifi" : "")" id="@contentId" aria-label="Pair Apple devices">
+    @if (!wifiView)
+    {
+        <div class="ap-intro">
+            <p>Pair iPhone, iPad, and Apple TV with this Mac. No Xcode required.</p>
+            <button type="button" class="ap-icon-btn" @onclick="() => RefreshDevicesAsync()" disabled="@(busy || loading)"
+                    title="Refresh devices" aria-label="Refresh devices">
+                <i class="fa-solid fa-rotate @(loading ? "fa-spin" : "")" aria-hidden="true"></i>
+            </button>
+        </div>
+
+        @if (banner != null)
+        {
+            <div class="ap-banner @(banner.IsLiveVerified ? "is-ok" : "")" role="status">
+                <i class="fa-solid @(banner.IsLiveVerified ? "fa-circle-check" : "fa-circle-info")" aria-hidden="true"></i>
+                <div><strong>@ResultTitle(banner)</strong><span>@banner.Message</span></div>
+            </div>
+        }
+        @if (loadError != null)
+        {
+            <div class="ap-banner is-error" role="alert">
+                <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+                <div><strong>Couldn't read Apple devices</strong><span>@loadError</span></div>
+            </div>
+        }
+
+        <div class="ap-group">
+            <div class="ap-group-head">
+                <h3>Available Devices @if (loading) { <i class="fa-solid fa-circle-notch fa-spin ap-scan" aria-label="Scanning"></i> }</h3>
+                <button type="button" class="ap-link" @onclick="OpenWifi" disabled="@(busy || !PairingService.IsWirelessSupported)"
+                        title="@(PairingService.IsWirelessSupported ? "Experimental: uses a private Apple API" : "Wi-Fi pairing is unavailable on this installation")">
+                    <i class="fa-solid fa-wifi" aria-hidden="true"></i> Pair over Wi-Fi…
+                </button>
+            </div>
+            <ul class="ap-list">
+                @if (AvailableDevices.Count == 0)
+                {
+                    <li class="ap-row ap-row-empty">
+                        <span class="ap-glyph is-hint" aria-hidden="true"><i class="fa-brands fa-usb"></i></span>
+                        <div class="ap-text">
+                            <span class="ap-name">Connect a device with a USB cable</span>
+                            <span class="ap-meta">Unlock it and it will appear here. Sherpa checks every few seconds.</span>
+                        </div>
+                    </li>
+                }
+                @foreach (var device in AvailableDevices)
+                {
+                    @Row(device)
+                }
+            </ul>
+        </div>
+
+        <div class="ap-group">
+            <div class="ap-group-head"><h3>My Devices</h3></div>
+            <ul class="ap-list">
+                @if (PairedDevices.Count == 0)
+                {
+                    <li class="ap-row ap-row-empty">
+                        <span>@(initialLoad ? "Looking for paired devices…" : "No devices are paired with this Mac yet.")</span>
+                    </li>
+                }
+                @foreach (var device in PairedDevices)
+                {
+                    @Row(device)
+                }
+            </ul>
+        </div>
+    }
+    else
+    {
+        <button type="button" class="ap-back" @onclick="CloseWifi" disabled="@busy">
+            <i class="fa-solid fa-chevron-left" aria-hidden="true"></i> Devices
+        </button>
+
+        <div class="ap-hero" aria-live="polite">
+            @if (pairingCode != null)
+            {
+                <h2>Enter this code on your device</h2>
+                <div class="ap-code" role="status" aria-label="Pairing code">@pairingCode</div>
+                <p>The code is temporary and never saved. Finish any Apple prompts on the device yourself.</p>
+            }
+            else
+            {
+                <div class="ap-beacon @(busy ? "is-live" : "")" aria-hidden="true">
+                    <i class="fa-solid fa-mobile-screen-button"></i>
+                    <span class="ap-beacon-wave"><i class="fa-solid fa-wifi"></i></span>
+                    <i class="fa-solid fa-laptop"></i>
+                </div>
+                <h2>@(busy ? "Waiting for your device" : "Pair over Wi-Fi")</h2>
+                <p>@(busy ? status : "For an iPhone or iPad on the same network as this Mac.")</p>
+            }
+        </div>
+
+        @if (pairingCode == null)
+        {
+            <ol class="ap-list ap-steps">
+                <li class="ap-row">
+                    <span class="ap-step" aria-hidden="true">1</span>
+                    <div class="ap-text"><span class="ap-name">Open Paired Macs on your device</span><span class="ap-meta">Settings › Developer › Paired Macs. Developer Mode must be on.</span></div>
+                </li>
+                <li class="ap-row">
+                    <span class="ap-step" aria-hidden="true">2</span>
+                    <div class="ap-text"><span class="ap-name">@(busy ? "Choose this Mac under Other Devices" : "Start pairing, then choose this Mac")</span><span class="ap-meta">This Mac stays discoverable for up to three minutes.</span></div>
+                </li>
+                <li class="ap-row">
+                    <span class="ap-step" aria-hidden="true">3</span>
+                    <div class="ap-text"><span class="ap-name">Enter the code shown here</span><span class="ap-meta">Sherpa then confirms the device is responding.</span></div>
+                </li>
+            </ol>
+        }
+
+        @if (!busy)
+        {
+            @if (wifiResult != null)
+            {
+                <div class="ap-banner @(wifiResult.IsLiveVerified ? "is-ok" : "")" role="status">
+                    <i class="fa-solid @(wifiResult.IsLiveVerified ? "fa-circle-check" : "fa-circle-info")" aria-hidden="true"></i>
+                    <div><strong>@ResultTitle(wifiResult)</strong><span>@wifiResult.Message</span></div>
+                </div>
+            }
+            <div class="ap-caution">
+                <i class="fa-solid fa-flask" aria-hidden="true"></i>
+                <p><strong>Uses a private Apple API.</strong> Tested on macOS 27.2 with iOS 27.2. Other versions and device families aren't verified, and Apple may change or remove it.</p>
+            </div>
+            <label class="ap-consent">
+                <input type="checkbox" @bind="wirelessAcknowledged" @bind:after="UpdateActions" />
+                <span>I understand this uses an experimental, private Apple feature.</span>
+            </label>
+        }
+    }
+</section>
+
+<style>
+    .ap {
+        --ap-accent: var(--accent-purple);
+        --ap-accent-ink: #6b46c1;
+        --ap-card: #F7F7F7;
+        --ap-sep: #E0E0E0;
+        --ap-live: #2f855a;
+        --ap-danger: var(--accent-danger);
+        padding: 14px 24px 22px;
+        color: var(--text-primary);
+        font-size: 13px;
+    }
+    .theme-dark .ap { --ap-accent-ink: #d6bcfa; --ap-card: #2C2C2C; --ap-sep: #454545; --ap-live: #68d391; }
+    .ap p { margin: 0; }
+    .ap button { font-family: inherit; line-height: 1.2; }
+    .ap :is(button, input):focus-visible { outline: 2px solid var(--ap-accent); outline-offset: 2px; }
+
+    .ap-intro p { font-size: 13px; line-height: 1.4; }
+    .ap-intro { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; color: var(--text-secondary); }
+    .ap-icon-btn { display: grid; place-items: center; width: 26px; height: 26px; border: 0; border-radius: 6px; background: transparent; color: var(--text-secondary); cursor: pointer; }
+    .ap-icon-btn:hover:not(:disabled) { background: var(--bg-hover); color: var(--text-primary); }
+    .ap-icon-btn:disabled { opacity: 0.5; cursor: default; }
+
+    .ap-group + .ap-group { margin-top: 20px; }
+    .ap-group-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 24px; margin: 0 0 7px 2px; }
+    .ap-group h3 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 13px; font-weight: 600; color: var(--text-primary); }
+    .ap-link { display: inline-flex; align-items: center; gap: 6px; height: 24px; margin-right: -6px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; color: var(--ap-accent-ink); font-size: 12px; font-weight: 500; cursor: pointer; }
+    .ap-link i { font-size: 11px; }
+    .ap-link:hover:not(:disabled) { background: color-mix(in srgb, var(--ap-accent) 12%, transparent); }
+    .ap-link:disabled { opacity: 0.45; cursor: default; }
+    .ap-scan { font-size: 11px; color: var(--text-muted); }
+
+    .ap-list { list-style: none; margin: 0; padding: 0; background: var(--ap-card); border-radius: 10px; overflow: hidden; }
+    .ap-row { position: relative; display: flex; align-items: center; gap: 12px; min-height: 54px; padding: 9px 12px; box-sizing: border-box; transition: background-color 180ms cubic-bezier(0.16, 1, 0.3, 1); }
+    .ap-row + .ap-row::before { content: ""; position: absolute; top: 0; left: 56px; right: 0; height: 1px; background: var(--ap-sep); }
+    .ap-row.is-highlighted { background: color-mix(in srgb, var(--ap-accent) 9%, transparent); }
+    .ap-row-empty { color: var(--text-secondary); font-size: 12px; }
+    .ap-row-empty > span:only-child { padding: 6px 2px; }
+
+    .ap-glyph { flex: none; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 8px; background: var(--bg-tertiary); color: var(--text-secondary); font-size: 15px; }
+    .ap-glyph.is-live { color: var(--ap-accent-ink); background: color-mix(in srgb, var(--ap-accent) 16%, transparent); }
+    .ap-glyph.is-hint { background: transparent; border: 1px dashed var(--ap-sep); }
+    .ap-text { display: flex; flex: 1; flex-direction: column; gap: 2px; min-width: 0; }
+    .ap-name { overflow: hidden; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+    .ap-meta { overflow: hidden; color: var(--text-secondary); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
+    .ap-note { display: flex; align-items: baseline; gap: 6px; margin-top: 3px; color: var(--text-secondary); font-size: 11.5px; line-height: 1.45; }
+    .ap-note.is-ok { color: var(--ap-live); }
+    .ap-note.is-danger { color: var(--ap-danger); }
+    .ap-trailing { display: flex; flex: none; align-items: center; gap: 10px; }
+    .ap-status { display: inline-flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 11.5px; white-space: nowrap; }
+    .ap-status i { font-size: 11px; }
+    .ap-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-muted); opacity: 0.6; }
+    .ap-dot.is-live { background: var(--ap-live); opacity: 1; }
+    .ap-working { display: inline-flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 11.5px; white-space: nowrap; }
+
+    .ap-btn { height: 24px; padding: 0 11px; border: 1px solid var(--input-border); border-radius: 6px; background: var(--input-bg); color: var(--text-primary); font-size: 12px; font-weight: 500; white-space: nowrap; cursor: pointer; transition: background-color 150ms ease, border-color 150ms ease; }
+    .ap-btn:hover:not(:disabled) { border-color: var(--text-muted); }
+    .ap-btn.is-primary { border-color: transparent; background: color-mix(in srgb, var(--ap-accent) 18%, transparent); color: var(--ap-accent-ink); font-weight: 600; }
+    .ap-btn.is-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--ap-accent) 28%, transparent); }
+    .ap-btn.is-danger { border-color: transparent; background: var(--ap-danger); color: #fff; font-weight: 600; }
+    .ap-btn:disabled { opacity: 0.45; cursor: default; }
+    .ap-unpair { display: grid; place-items: center; width: 24px; height: 24px; border: 0; border-radius: 6px; background: transparent; color: var(--text-muted); cursor: pointer; }
+    .ap-unpair:hover:not(:disabled) { background: color-mix(in srgb, var(--ap-danger) 12%, transparent); color: var(--ap-danger); }
+    .ap-unpair:disabled { opacity: 0.4; cursor: default; }
+    .ap-hint { color: var(--text-muted); font-size: 11.5px; white-space: nowrap; }
+
+    .ap-banner { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 16px; padding: 11px 13px; border-radius: 10px; background: var(--ap-card); font-size: 12px; line-height: 1.45; }
+    .ap-banner > i { margin-top: 2px; color: var(--text-secondary); }
+    .ap-banner div { display: flex; flex-direction: column; gap: 2px; }
+    .ap-banner span { color: var(--text-secondary); }
+    .ap-banner.is-ok > i { color: var(--ap-live); }
+    .ap-banner.is-error > i, .ap-banner.is-error strong { color: var(--ap-danger); }
+
+    .ap-back { display: inline-flex; align-items: center; gap: 6px; margin: 0 0 6px -6px; padding: 4px 6px; border: 0; border-radius: 6px; background: transparent; color: var(--ap-accent-ink); font-weight: 500; cursor: pointer; }
+    .ap-back i { font-size: 11px; }
+    .ap-back:hover:not(:disabled) { background: var(--bg-hover); }
+    .ap-back:disabled { opacity: 0.45; cursor: default; }
+    .ap-hero { padding: 8px 0 22px; text-align: center; }
+    .ap-hero h2 { margin: 0 0 5px; font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
+    .ap-hero p { max-width: 46ch; margin: 0 auto; color: var(--text-secondary); line-height: 1.45; }
+    .ap-beacon { display: flex; align-items: center; justify-content: center; gap: 22px; margin-bottom: 14px; color: var(--text-primary); font-size: 28px; }
+    .ap-beacon-wave { position: relative; display: grid; place-items: center; width: 40px; height: 40px; color: var(--text-secondary); font-size: 15px; }
+    .ap-beacon-wave::before, .ap-beacon-wave::after { content: ""; position: absolute; inset: 0; border: 1.5px solid var(--ap-accent); border-radius: 50%; opacity: 0; }
+    .ap-beacon.is-live .ap-beacon-wave { color: var(--ap-accent-ink); }
+    .ap-beacon.is-live .ap-beacon-wave::before, .ap-beacon.is-live .ap-beacon-wave::after { animation: ap-ripple 2.4s cubic-bezier(0.16, 1, 0.3, 1) infinite; }
+    .ap-beacon.is-live .ap-beacon-wave::after { animation-delay: 1.2s; }
+    @@keyframes ap-ripple { from { transform: scale(0.6); opacity: 0.7; } to { transform: scale(1.9); opacity: 0; } }
+    @@media (prefers-reduced-motion: reduce) { .ap-beacon.is-live .ap-beacon-wave::before, .ap-beacon.is-live .ap-beacon-wave::after { animation: none; opacity: 0.5; } }
+    .ap-code { margin: 18px auto 16px; padding: 18px 0; border-radius: 12px; background: var(--ap-card); color: var(--text-primary); font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 40px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: 0.08em; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+    .ap-step { flex: none; display: grid; place-items: center; width: 22px; height: 22px; margin: 0 5px; border-radius: 50%; background: var(--bg-tertiary); color: var(--text-secondary); font-size: 11px; font-weight: 600; }
+    .ap-steps .ap-row + .ap-row::before { left: 50px; }
+    .ap-steps .ap-meta { white-space: normal; }
+    .ap-caution { display: flex; align-items: flex-start; gap: 10px; margin-top: 20px; color: var(--text-secondary); font-size: 12px; line-height: 1.5; }
+    .ap-caution > i { margin-top: 3px; }
+    .ap-caution strong { color: var(--text-primary); font-weight: 600; }
+    .ap-consent { display: flex; align-items: flex-start; gap: 8px; margin-top: 12px; font-size: 12px; line-height: 1.5; cursor: pointer; }
+    .ap-consent input { flex: none; margin: 2px 0 0; accent-color: var(--ap-accent); }
+    .is-wifi .ap-banner { margin: 18px 0 0; }
+</style>
+
+@code {
+    private readonly string contentId = $"apple-pairing-{Guid.NewGuid():N}";
+    private readonly SemaphoreSlim refreshGate = new(1, 1);
+    private CancellationTokenSource lifetime = new();
+    private CancellationTokenSource? operationCts;
+    private DotNetObjectReference<AppleDevicePairingModal>? dotNetRef;
+    private HybridFormBridge? bridge;
+    private Task? operationTask, pollTask;
+    private IReadOnlyList<PhysicalDevice> devices = [];
+    private string? highlightId, activeId, confirmId, pairingCode, loadError, status;
+    private (string Id, ApplePairingResult Result)? rowResult;
+    private ApplePairingResult? banner, wifiResult;
+    private string busyLabel = "";
+    private bool initialized, initialLoad = true, wifiView, wirelessAcknowledged, busy, loading, closing, stopping, disposed;
+    private long generation;
+
+    private List<PhysicalDevice> PairedDevices => devices.Where(d => d.IsPaired)
+        .OrderByDescending(d => d.IsConnected).ThenBy(d => d.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
+    private List<PhysicalDevice> AvailableDevices => devices.Where(d => !d.IsPaired)
+        .OrderByDescending(d => d.IsWired).ThenBy(d => d.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
+
+    private RenderFragment Row(PhysicalDevice d) =>
+        @<li class="ap-row @(highlightId == d.Identifier ? "is-highlighted" : "")" data-device="@d.Identifier">
+            <span class="ap-glyph @(d.IsPaired && d.IsConnected ? "is-live" : "")" aria-hidden="true"><i class="fa-solid @Glyph(d)"></i></span>
+            <div class="ap-text">
+                <span class="ap-name" title="@d.Name">@d.Name</span>
+                <span class="ap-meta" title="@d.Model">@d.Model · @OsLabel(d)</span>
+                @if (confirmId == d.Identifier)
+                {
+                    <span class="ap-note is-danger">This Mac will forget the device. Pairing again requires Trust and the device passcode.</span>
+                }
+                else if (busy && activeId == d.Identifier && !string.IsNullOrEmpty(status))
+                {
+                    <span class="ap-note">@status</span>
+                }
+                else if (rowResult is { } r && r.Id == d.Identifier)
+                {
+                    <span class="ap-note @(r.Result.IsLiveVerified || r.Result.State == ApplePairingState.Unpaired ? "is-ok" : "")">
+                        <i class="fa-solid @(r.Result.IsLiveVerified || r.Result.State == ApplePairingState.Unpaired ? "fa-check" : "fa-circle-info")" aria-hidden="true"></i>
+                        @r.Result.Message
+                    </span>
+                }
+            </div>
+            <div class="ap-trailing">
+                @if (confirmId == d.Identifier)
+                {
+                    <button type="button" class="ap-btn" @onclick="() => confirmId = null">Cancel</button>
+                    <button type="button" class="ap-btn is-danger" @onclick="() => UnpairAsync(d)">Unpair</button>
+                }
+                else if (busy && activeId == d.Identifier)
+                {
+                    <span class="ap-working"><i class="fa-solid fa-circle-notch fa-spin" aria-hidden="true"></i>@busyLabel</span>
+                }
+                else if (d.IsPaired)
+                {
+                    <span class="ap-status">
+                        <span class="ap-dot @(d.IsConnected ? "is-live" : "")"></span>
+                        @(d.IsConnected ? "Connected" : "Not connected")
+                        <i class="@(d.IsWired ? "fa-brands fa-usb" : "fa-solid fa-wifi")" title="@(d.IsWired ? "USB" : "Network")" aria-label="@(d.IsWired ? "USB" : "Network")"></i>
+                    </span>
+                    <button type="button" class="ap-btn" @onclick="() => CheckAsync(d)" disabled="@busy">Check</button>
+                    <button type="button" class="ap-unpair" @onclick="() => AskUnpair(d)" disabled="@busy"
+                            title="Unpair…" aria-label="@($"Unpair {d.Name}")">
+                        <i class="fa-solid fa-link-slash" aria-hidden="true"></i>
+                    </button>
+                }
+                else if (d.PairingState == "pairingInProgress")
+                {
+                    <span class="ap-hint">Pairing in progress</span>
+                }
+                else if (d.PairingState != "unpaired")
+                {
+                    <span class="ap-hint">State unknown</span>
+                }
+                else if (d.IsWired)
+                {
+                    <button type="button" class="ap-btn is-primary" @onclick="() => PairUsbAsync(d)" disabled="@busy">Pair</button>
+                }
+                else
+                {
+                    <span class="ap-hint">Connect with USB</span>
+                }
+            </div>
+        </li>;
+
+    protected override async Task OnInitializedAsync()
+    {
+        bridge = BridgeHolder.Current ?? throw new InvalidOperationException("The native pairing dialog is unavailable.");
+        if (bridge.Parameters.TryGetValue("LifetimeToken", out var value) && value is CancellationToken token)
+        {
+            lifetime.Dispose();
+            lifetime = CancellationTokenSource.CreateLinkedTokenSource(token);
+        }
+        highlightId = bridge.Parameters.GetValueOrDefault("DeviceIdentifier") as string;
+        bridge.PreventClose = true;
+        bridge.PreventSubmitClose = true;
+        bridge.SubmitRequested += SubmitAsync;
+        bridge.CancelRequested += OnSecondaryAction;
+        UpdateActions();
+        await RefreshDevicesAsync();
+        pollTask = PollAsync(lifetime.Token);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!initialized && !disposed)
+        {
+            dotNetRef ??= DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("modalInterop.initialize", contentId, dotNetRef, true);
+            initialized = true;
+        }
+    }
+
+    private void UpdateActions() => bridge?.SetActionState(
+        enabled: wifiView && !busy && !closing && wirelessAcknowledged && PairingService.IsWirelessSupported,
+        busy: busy && wifiView,
+        actionText: busy ? "Waiting…" : "Start Wi-Fi Pairing",
+        secondaryActionText: busy ? "Stop" : "Done",
+        visible: wifiView);
+
+    private async Task PollAsync(CancellationToken ct)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(4));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(ct))
+            {
+                if (!busy && !loading && !wifiView && !closing && confirmId == null)
+                    await InvokeAsync(() => RefreshDevicesAsync(silent: true));
+            }
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    private async Task RefreshDevicesAsync(bool silent = false)
+    {
+        if (disposed) return;
+        if (silent ? !await refreshGate.WaitAsync(0) : !await TryEnterRefreshAsync()) return;
+        loading = true;
+        if (!silent) StateHasChanged();
+        try
+        {
+            devices = await PairingService.GetDevicesAsync(lifetime.Token);
+            loadError = null;
+        }
+        catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
+        catch (Exception ex)
+        {
+            loadError = ex.Message;
+            Logger.LogWarning("Apple pairing device discovery failed.");
+        }
+        finally
+        {
+            loading = false;
+            initialLoad = false;
+            refreshGate.Release();
+            if (!disposed) StateHasChanged();
+        }
+    }
+
+    private async Task<bool> TryEnterRefreshAsync()
+    {
+        try
+        {
+            await refreshGate.WaitAsync(lifetime.Token);
+            return true;
+        }
+        catch (OperationCanceledException) { return false; }
+    }
+
+    private void OpenWifi()
+    {
+        if (busy) return;
+        wifiView = true;
+        confirmId = null;
+        wifiResult = null;
+        UpdateActions();
+    }
+
+    private void CloseWifi()
+    {
+        if (busy) return;
+        wifiView = false;
+        pairingCode = null;
+        UpdateActions();
+    }
+
+    private void AskUnpair(PhysicalDevice device)
+    {
+        if (busy) return;
+        rowResult = null;
+        confirmId = device.Identifier;
+    }
+
+    private Task CheckAsync(PhysicalDevice d) =>
+        RunRowAsync(d, "Checking…", "Asking the device to respond…", ct => PairingService.VerifyAsync(d.Identifier, ct));
+
+    private Task PairUsbAsync(PhysicalDevice d) =>
+        RunRowAsync(d, "Pairing…", "Choose Trust on the device and enter its passcode. Approve any Mac prompt yourself.",
+            ct => PairingService.PairUsbAsync(d.Identifier, ct));
+
+    private Task UnpairAsync(PhysicalDevice d)
+    {
+        confirmId = null;
+        return RunRowAsync(d, "Unpairing…", "Removing this Mac's pairing…", ct => PairingService.UnpairAsync(d.Identifier, ct));
+    }
+
+    private Task RunRowAsync(PhysicalDevice d, string label, string note, Func<CancellationToken, Task<ApplePairingResult>> action)
+    {
+        if (busy || closing) return Task.CompletedTask;
+        activeId = d.Identifier;
+        highlightId = d.Identifier;
+        busyLabel = label;
+        rowResult = null;
+        banner = null;
+        return RunAsync(action, note, result =>
+        {
+            var id = result.Device?.Identifier ?? d.Identifier;
+            rowResult = (id, result);
+            highlightId = id;
+        });
+    }
+
+    private Task SubmitAsync() => InvokeAsync(StartWirelessAsync);
+
+    private Task StartWirelessAsync()
+    {
+        if (!wifiView || !wirelessAcknowledged || !PairingService.IsWirelessSupported || busy || closing) return Task.CompletedTask;
+        wifiResult = null;
+        activeId = null;
+        return RunAsync(ct =>
+        {
+            var current = generation;
+            var progress = new Progress<ApplePairingProgress>(update =>
+            {
+                if (disposed || !busy || operationCts?.IsCancellationRequested != false || current != generation)
+                    return;
+                pairingCode = update.Stage == ApplePairingStage.Code ? update.PairingCode : null;
+                status = update.Stage switch
+                {
+                    ApplePairingStage.Advertising => "This Mac is discoverable. Choose it under Other Devices.",
+                    ApplePairingStage.Code => "Enter the code on your device.",
+                    _ => "Apple completed the exchange. Confirming the new pairing…"
+                };
+                StateHasChanged();
+            });
+            return PairingService.PairWirelessAsync(progress, ct);
+        }, "Starting discovery…", result =>
+        {
+            if (result.Device is { } device && result.State != ApplePairingState.Failed)
+            {
+                wifiView = false;
+                wirelessAcknowledged = false;
+                highlightId = device.Identifier;
+                rowResult = (device.Identifier, result);
+            }
+            else if (result.State == ApplePairingState.CompletedUnverified)
+            {
+                wifiView = false;
+                banner = result;
+            }
+            else
+            {
+                wifiResult = result;
+            }
+        });
+    }
+
+    private Task RunAsync(Func<CancellationToken, Task<ApplePairingResult>> action, string initialStatus, Action<ApplePairingResult> onResult)
+    {
+        busy = true;
+        stopping = false;
+        pairingCode = null;
+        status = initialStatus;
+        generation++;
+        if (bridge != null) bridge.Result = true;
+        operationCts = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+        UpdateActions();
+        StateHasChanged();
+        operationTask = PerformAsync(action, operationCts, onResult);
+        return operationTask;
+    }
+
+    private async Task PerformAsync(Func<CancellationToken, Task<ApplePairingResult>> action, CancellationTokenSource source, Action<ApplePairingResult> onResult)
+    {
+        ApplePairingResult result;
+        try
+        {
+            result = await action(source.Token);
+        }
+        catch (OperationCanceledException) when (source.IsCancellationRequested)
+        {
+            result = new(ApplePairingState.Failed, "Stopped. Any trust you already approved may still be saved.");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError($"Apple pairing dialog operation failed ({ex.GetType().Name}).");
+            result = new(ApplePairingState.Failed, "That didn't finish. Refresh and check the device's prompts before retrying.");
+        }
+        generation++;
+        pairingCode = null;
+        try
+        {
+            if (!disposed && !closing)
+            {
+                onResult(result);
+                if (!lifetime.IsCancellationRequested)
+                    await RefreshDevicesAsync();
+            }
+        }
+        finally
+        {
+            source.Dispose();
+            operationCts = null;
+            busy = false;
+            stopping = false;
+            activeId = null;
+            status = null;
+            UpdateActions();
+            if (!disposed) StateHasChanged();
+        }
+    }
+
+    private async Task CancelOperationAsync()
+    {
+        generation++;
+        pairingCode = null;
+        if (operationCts != null) await operationCts.CancelAsync();
+        if (operationTask != null) await operationTask;
+    }
+
+    private void OnSecondaryAction() => _ = InvokeAsync(async () =>
+    {
+        if (stopping || closing) return;
+        if (busy)
+        {
+            stopping = true;
+            status = "Stopping…";
+            StateHasChanged();
+            await CancelOperationAsync();
+        }
+        else
+        {
+            await CloseAsync();
+        }
+    });
+
+    private async Task CloseAsync()
+    {
+        if (closing) return;
+        closing = true;
+        UpdateActions();
+        await lifetime.CancelAsync();
+        await CancelOperationAsync();
+        bridge?.RequestClose();
+    }
+
+    [JSInvokable]
+    public Task OnEscapePressed() => InvokeAsync(async () =>
+    {
+        if (confirmId != null)
+        {
+            confirmId = null;
+            StateHasChanged();
+        }
+        else if (wifiView && !busy)
+        {
+            CloseWifi();
+            StateHasChanged();
+        }
+        else
+        {
+            await CloseAsync();
+        }
+    });
+
+    [JSInvokable] public void OnFocusBoundary(bool backwards) => bridge?.RequestActionFocus(backwards);
+
+    public async ValueTask DisposeAsync()
+    {
+        disposed = true;
+        pairingCode = null;
+        if (bridge != null)
+        {
+            bridge.SubmitRequested -= SubmitAsync;
+            bridge.CancelRequested -= OnSecondaryAction;
+        }
+        await lifetime.CancelAsync();
+        await CancelOperationAsync();
+        if (pollTask != null) await pollTask;
+        if (initialized)
+        {
+            try { await JS.InvokeVoidAsync("modalInterop.dispose", contentId); }
+            catch (JSDisconnectedException) { }
+        }
+        dotNetRef?.Dispose();
+        lifetime.Dispose();
+    }
+
+    private static string Glyph(PhysicalDevice d)
+    {
+        var type = $"{d.DeviceType} {d.Model}".ToLowerInvariant();
+        if (type.Contains("ipad")) return "fa-tablet-screen-button";
+        if (d.Platform == "tvOS" || type.Contains("tv")) return "fa-tv";
+        if (d.Platform == "watchOS" || type.Contains("watch")) return "fa-clock";
+        if (d.Platform == "visionOS" || type.Contains("vision")) return "fa-vr-cardboard";
+        return "fa-mobile-screen-button";
+    }
+
+    private static string OsLabel(PhysicalDevice d)
+    {
+        var platform = d.Platform == "iOS" && $"{d.DeviceType} {d.Model}".Contains("iPad", StringComparison.OrdinalIgnoreCase)
+            ? "iPadOS" : d.Platform;
+        return string.IsNullOrWhiteSpace(d.OsVersion) ? platform : $"{platform} {d.OsVersion}";
+    }
+
+    private static string ResultTitle(ApplePairingResult value) => value.State switch
+    {
+        ApplePairingState.Connected => "Paired and responding",
+        ApplePairingState.Paired => "Paired, but not responding",
+        ApplePairingState.CompletedUnverified => "Paired, but the device couldn't be confirmed",
+        ApplePairingState.Unpaired => "Unpaired",
+        _ => "Not paired"
+    };
+}

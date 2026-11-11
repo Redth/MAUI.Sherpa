@@ -41,6 +41,10 @@ public class HybridFormBridge
     /// <summary>Fired by the Blazor component when the native form actions change.</summary>
     public event Action? ActionStateChanged;
 
+    public event Action<bool>? ActionFocusRequested;
+
+    public void RequestActionFocus(bool backwards) => ActionFocusRequested?.Invoke(backwards);
+
     /// <summary>Fired when the top-right header icon actions change.</summary>
     public event Action? HeaderActionsChanged;
 
@@ -67,6 +71,7 @@ public class HybridFormBridge
     // Dynamic form action state — used by long-running forms that remain open after submit.
     public bool HasActionState { get; private set; }
     public bool ActionEnabled { get; private set; }
+    public bool ActionVisible { get; private set; } = true;
     public bool ActionBusy { get; private set; }
     public string? ActionText { get; private set; }
     public string? SecondaryActionText { get; private set; }
@@ -104,10 +109,12 @@ public class HybridFormBridge
         bool enabled,
         bool busy = false,
         string? actionText = null,
-        string? secondaryActionText = null)
+        string? secondaryActionText = null,
+        bool visible = true)
     {
         HasActionState = true;
         ActionEnabled = enabled;
+        ActionVisible = visible;
         ActionBusy = busy;
         ActionText = actionText;
         SecondaryActionText = secondaryActionText;

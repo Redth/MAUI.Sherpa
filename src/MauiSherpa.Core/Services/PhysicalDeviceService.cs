@@ -22,43 +22,14 @@ public class PhysicalDeviceService : IPhysicalDeviceService
         if (!IsSupported) return [];
         try
         {
-            var tempFile = Path.GetTempFileName();
-            try
-            {
-                var psi = new ProcessStartInfo
-                {
-                    FileName = "xcrun",
-                    Arguments = $"devicectl list devices --json-output \"{tempFile}\"",
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                };
-
-                using var process = Process.Start(psi);
-                if (process == null) return [];
-
-                var stdoutTask = process.StandardOutput.ReadToEndAsync();
-                var stderrTask = process.StandardError.ReadToEndAsync();
-                await Task.WhenAll(stdoutTask, stderrTask);
-                await process.WaitForExitAsync();
-
-                if (!File.Exists(tempFile))
-                    return [];
-
-                var json = await File.ReadAllTextAsync(tempFile);
-                return ParseDevices(json);
-            }
-            finally
-            {
-                if (File.Exists(tempFile))
-                    File.Delete(tempFile);
-            }
+            var runner = new AppleDevicePairingRunner();
+            using var response = await runner.RunDeviceCtlAsync(["list", "devices"], 20, default);
+            return ParseDevices(response.RootElement);
         }
         catch (Exception ex)
         {
             _logger.LogError($"Failed to list physical devices: {ex.Message}", ex);
-            return [];
+            throw;
         }
     }
 
@@ -356,51 +327,74 @@ public class PhysicalDeviceService : IPhysicalDeviceService
         }
     }
 
-    private IReadOnlyList<PhysicalDevice> ParseDevices(string json)
+    internal static IReadOnlyList<PhysicalDevice> ParseDevices(JsonElement root)
     {
         var devices = new List<PhysicalDevice>();
-        try
+        if (!root.TryGetProperty("result", out var result) ||
+            !result.TryGetProperty("devices", out var devicesArray) ||
+            devicesArray.ValueKind != JsonValueKind.Array)
+            throw new InvalidOperationException("devicectl did not return a device list.");
+
+        foreach (var device in devicesArray.EnumerateArray())
         {
-            using var doc = JsonDocument.Parse(json);
-            var root = doc.RootElement;
-
-            if (!root.TryGetProperty("result", out var result) ||
-                !result.TryGetProperty("devices", out var devicesArray))
-                return devices;
-
-            foreach (var device in devicesArray.EnumerateArray())
-            {
-                var dp = device.TryGetProperty("deviceProperties", out var dProps) ? dProps : default;
-                var hp = device.TryGetProperty("hardwareProperties", out var hProps) ? hProps : default;
-                var cp = device.TryGetProperty("connectionProperties", out var cProps) ? cProps : default;
-
-                var platform = GetStr(hp, "platform") ?? "unknown";
-                // Only include iOS devices, skip watchOS etc.
-                if (platform != "iOS") continue;
-
-                var identifier = GetStr(device, "identifier") ?? "";
-                var udid = GetStr(hp, "udid") ?? identifier;
-                var name = GetStr(dp, "name") ?? "Unknown";
-                var model = GetStr(hp, "marketingName") ?? GetStr(hp, "productType") ?? "Unknown";
-                var osVersion = GetStr(dp, "osVersionNumber") ?? "?";
-                var transport = GetStr(cp, "transportType") ?? "unknown";
-                var pairingState = GetStr(cp, "pairingState") ?? "unknown";
-                var tunnelState = GetStr(cp, "tunnelState") ?? "unknown";
-
-                devices.Add(new PhysicalDevice(
-                    identifier, udid, name, model, platform,
-                    GetStr(hp, "deviceType") ?? "iPhone",
-                    osVersion, transport, pairingState, tunnelState
-                ));
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError($"Failed to parse devicectl output: {ex.Message}", ex);
+            var parsed = ParseDevice(device);
+            if (parsed != null)
+                devices.Add(parsed);
         }
 
         return devices;
     }
+
+    internal static PhysicalDevice? ParseDevice(JsonElement device)
+    {
+        var properties = GetObject(device, "properties");
+        var hp = GetObject(properties, "hardware", GetObject(device, "hardwareProperties"));
+        var state = GetObject(properties, "state", GetObject(device, "deviceProperties"));
+        var software = GetObject(properties, "software", GetObject(device, "deviceProperties"));
+        var cp = GetObject(properties, "connection", GetObject(device, "connectionProperties"));
+        var platform = GetStr(hp, "osPlatform") ?? GetStr(hp, "platform") ?? "unknown";
+        var transport = GetStr(cp, "transportType") ?? "unknown";
+        var fidelity = GetStr(hp, "fidelity") ?? "unknown";
+
+        // JSON v6 includes simulators, sometimes with the same platform as a real phone.
+        if (fidelity == "simulated" || transport == "sameMachine" ||
+            GetStr(device, "visibilityClass") == "simulators" ||
+            GetStr(state, "visibilityClass") == "simulators" ||
+            platform.Contains("simulator", StringComparison.OrdinalIgnoreCase) ||
+            platform is "macOS" or "MacOS")
+            return null;
+
+        var identifier = GetStr(device, "identifier");
+        if (string.IsNullOrWhiteSpace(identifier))
+            throw new InvalidOperationException("devicectl returned a device without a stable identifier.");
+
+        var developerMode = GetStr(state, "developerModeStatus") ?? "unknown";
+        var mode = GetObject(state, "developerModeStatus");
+        if (mode.ValueKind == JsonValueKind.Object)
+        {
+            if (mode.TryGetProperty("enabled", out _)) developerMode = "enabled";
+            else if (mode.TryGetProperty("disabled", out _)) developerMode = "disabled";
+        }
+
+        return new PhysicalDevice(
+            identifier,
+            GetStr(hp, "udid") ?? identifier,
+            GetStr(state, "name") ?? "Unknown device",
+            GetStr(hp, "marketingName") ?? GetStr(hp, "productType") ?? "Unknown model",
+            platform,
+            GetStr(hp, "deviceType") ?? "unknown",
+            GetStr(software, "osVersionNumber") ?? "?",
+            transport,
+            GetStr(cp, "state") ?? GetStr(cp, "tunnelState") ?? "unknown",
+            GetStr(cp, "tunnelState") ?? "unknown",
+            GetStr(cp, "pairingState") ?? "unknown",
+            developerMode,
+            fidelity);
+    }
+
+    private static JsonElement GetObject(JsonElement element, string property, JsonElement fallback = default) =>
+        element.ValueKind == JsonValueKind.Object && element.TryGetProperty(property, out var value) &&
+        value.ValueKind == JsonValueKind.Object ? value : fallback;
 
     /// <summary>
     /// Extracts a user-friendly error message from devicectl JSON error responses.
@@ -468,10 +462,11 @@ public class PhysicalDeviceService : IPhysicalDeviceService
 
     private static string? GetStr(JsonElement element, string property)
     {
-        if (element.ValueKind == JsonValueKind.Undefined) return null;
-        return element.TryGetProperty(property, out var prop) && prop.ValueKind == JsonValueKind.String
-            ? prop.GetString()
-            : null;
+        if (element.ValueKind != JsonValueKind.Object) return null;
+        if (!element.TryGetProperty(property, out var prop)) return null;
+        if (prop.ValueKind == JsonValueKind.Object && prop.TryGetProperty("stringValue", out var value))
+            prop = value;
+        return prop.ValueKind == JsonValueKind.String ? prop.GetString() : null;
     }
 
     private IReadOnlyList<PhysicalDeviceApp> ParseApps(string json)

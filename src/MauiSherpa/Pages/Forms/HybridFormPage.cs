@@ -27,6 +27,7 @@ public abstract class HybridFormPage<TResult> : ContentPage, IFormPage<TResult>,
     private Button? _submitButton;
     private Button? _cancelButton;
     private ActivityIndicator? _submittingIndicator;
+    private Grid? _footerLayout;
     private Grid? _headerGrid;
     private HorizontalStackLayout? _headerActionsLayout;
 #if MACOSAPP
@@ -44,6 +45,8 @@ public abstract class HybridFormPage<TResult> : ContentPage, IFormPage<TResult>,
 
     /// <summary>Height of the native footer actions.</summary>
     protected virtual double ActionButtonHeight => 30;
+
+    protected virtual double SubmitButtonMinimumWidth => -1;
 
     /// <summary>Whether the native submit button performs a destructive action.</summary>
     protected virtual bool IsDestructiveSubmit => false;
@@ -99,6 +102,7 @@ public abstract class HybridFormPage<TResult> : ContentPage, IFormPage<TResult>,
                     _submitButton.IsEnabled = _bridge.IsValid && !_isSubmitting;
             });
         _bridge.ActionStateChanged += OnActionStateChanged;
+        _bridge.ActionFocusRequested += OnActionFocusRequested;
         _bridge.HeaderActionsChanged += OnHeaderActionsChanged;
         _bridge.CloseRequested += OnCloseRequested;
 
@@ -211,6 +215,7 @@ public abstract class HybridFormPage<TResult> : ContentPage, IFormPage<TResult>,
             CornerRadius = 5,
             Padding = new Thickness(14, 4),
             HeightRequest = ActionButtonHeight,
+            MinimumWidthRequest = SubmitButtonMinimumWidth,
             IsEnabled = false,
         };
         _submitButton.SetDynamicResource(
@@ -218,13 +223,24 @@ public abstract class HybridFormPage<TResult> : ContentPage, IFormPage<TResult>,
             IsDestructiveSubmit ? FormTheme.AccentDanger : FormTheme.AccentPrimary);
         _submitButton.Clicked += OnSubmitClicked;
 
-        var footerLayout = new HorizontalStackLayout
+        _submittingIndicator.Margin = new Thickness(12, 0, 0, 0);
+        _submitButton.Margin = new Thickness(12, 0, 0, 0);
+        _footerLayout = new Grid
         {
-            Spacing = 12,
-            HorizontalOptions = LayoutOptions.End,
+            ColumnDefinitions =
+            {
+                new ColumnDefinition(GridLength.Star),
+                new ColumnDefinition(GridLength.Auto),
+                new ColumnDefinition(GridLength.Auto),
+                new ColumnDefinition(GridLength.Auto),
+            },
+            ColumnSpacing = 0,
+            HorizontalOptions = LayoutOptions.Fill,
             Margin = new Thickness(28, 12, 28, 24),
-            Children = { _cancelButton, _submittingIndicator, _submitButton },
         };
+        _footerLayout.Add(_cancelButton, 1);
+        _footerLayout.Add(_submittingIndicator, 2);
+        _footerLayout.Add(_submitButton, 3);
 
         var grid = new Grid
         {
@@ -246,13 +262,13 @@ public abstract class HybridFormPage<TResult> : ContentPage, IFormPage<TResult>,
         Grid.SetRow(headerSeparator, 1);
         Grid.SetRow(webView, 2);
         Grid.SetRow(footerSeparator, 3);
-        Grid.SetRow(footerLayout, 4);
+        Grid.SetRow(_footerLayout, 4);
 
         grid.Children.Add(headerGrid);
         grid.Children.Add(headerSeparator);
         grid.Children.Add(webView);
         grid.Children.Add(footerSeparator);
-        grid.Children.Add(footerLayout);
+        grid.Children.Add(_footerLayout);
 
         Content = grid;
         ApplyActionState();
@@ -320,6 +336,20 @@ public abstract class HybridFormPage<TResult> : ContentPage, IFormPage<TResult>,
             ApplyActionState();
     }
 
+    private void OnActionFocusRequested(bool backwards)
+    {
+        Dispatcher.Dispatch(() =>
+        {
+            var target = backwards && _submitButton is { IsEnabled: true, IsVisible: true } ? _submitButton : _cancelButton;
+#if MACOSAPP
+            if (target?.Handler?.PlatformView is AppKit.NSView nativeView)
+                nativeView.Window?.MakeFirstResponder(nativeView);
+#else
+            target?.Focus();
+#endif
+        });
+    }
+
     private void OnHeaderActionsChanged()
     {
         if (Dispatcher.IsDispatchRequired)
@@ -352,12 +382,6 @@ public abstract class HybridFormPage<TResult> : ContentPage, IFormPage<TResult>,
         if (!_bridge.HasActionState)
             return;
 
-        if (_submitButton != null)
-        {
-            _submitButton.Text = _bridge.ActionText ?? SubmitButtonText;
-            _submitButton.IsEnabled = _bridge.ActionEnabled && !_bridge.ActionBusy && !_isSubmitting;
-        }
-
         if (_cancelButton != null)
             _cancelButton.Text = _bridge.SecondaryActionText ?? "Cancel";
 
@@ -365,6 +389,28 @@ public abstract class HybridFormPage<TResult> : ContentPage, IFormPage<TResult>,
         {
             _submittingIndicator.IsRunning = _bridge.ActionBusy;
             _submittingIndicator.IsVisible = _bridge.ActionBusy;
+        }
+
+        if (_submitButton != null)
+        {
+            _submitButton.Text = _bridge.ActionText ?? SubmitButtonText;
+            _submitButton.IsEnabled = _bridge.ActionEnabled && !_bridge.ActionBusy && !_isSubmitting;
+            _submitButton.IsVisible = _bridge.ActionVisible;
+        }
+
+        // Re-measure after every label change; the macOS backend keeps stale Auto column widths (clipping "Stop" -> "Done")
+        // and hides invisible views without collapsing them, so collapse the submit column explicitly.
+        if (_footerLayout != null)
+        {
+            _footerLayout.ColumnDefinitions[3].Width = _bridge.ActionVisible ? GridLength.Auto : new GridLength(0);
+            ((IView)_footerLayout).InvalidateMeasure();
+#if MACOSAPP
+            if (_footerLayout.Handler?.PlatformView is AppKit.NSView footerView)
+            {
+                footerView.NeedsLayout = true;
+                footerView.LayoutSubtreeIfNeeded();
+            }
+#endif
         }
     }
 
@@ -384,6 +430,7 @@ public abstract class HybridFormPage<TResult> : ContentPage, IFormPage<TResult>,
 
         _isClosed = true;
         _bridge.ActionStateChanged -= OnActionStateChanged;
+        _bridge.ActionFocusRequested -= OnActionFocusRequested;
         _bridge.CloseRequested -= OnCloseRequested;
         _bridgeHolder.Pop();
         _tcs.TrySetResult(result);

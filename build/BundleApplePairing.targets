@@ -1,0 +1,35 @@
+<Project>
+  <Target Name="_BuildApplePairingHelper"
+          Inputs="$(MSBuildProjectDirectory)/Native/ApplePairingHost.m"
+          Outputs="$(IntermediateOutputPath)apple-pairing/sherpa-apple-pairing">
+    <MakeDir Directories="$(IntermediateOutputPath)apple-pairing" />
+    <Exec Command="xcrun --sdk macosx clang -fobjc-arc -Wall -Wextra -Werror -O2 -arch arm64 -arch x86_64 -mmacosx-version-min=14.0 -framework Foundation &quot;$(MSBuildProjectDirectory)/Native/ApplePairingHost.m&quot; -o &quot;$(IntermediateOutputPath)apple-pairing/sherpa-apple-pairing&quot;" />
+  </Target>
+
+  <Target Name="_CopyApplePairingHelper"
+          DependsOnTargets="_BuildApplePairingHelper"
+          Inputs="$(IntermediateOutputPath)apple-pairing/sherpa-apple-pairing"
+          Outputs="$(AppBundleDir)/Contents/MacOS/sherpa-apple-pairing">
+    <MakeDir Directories="$(AppBundleDir)/Contents/MacOS" />
+    <Copy SourceFiles="$(IntermediateOutputPath)apple-pairing/sherpa-apple-pairing"
+          DestinationFiles="$(AppBundleDir)/Contents/MacOS/sherpa-apple-pairing" />
+    <Touch Files="$(AppBundleDir)/Contents/MacOS/sherpa-apple-pairing" />
+  </Target>
+
+  <!-- Preserve the signed copy on incremental builds; codesigning changes its length. -->
+  <Target Name="_BundleApplePairingHelper"
+          AfterTargets="_CreateAppBundle"
+          DependsOnTargets="_CopyApplePairingHelper"
+          Condition="'$(_CanOutputAppBundle)' == 'true'">
+    <ItemGroup>
+      <_CodesignItems Include="$(AppBundleDir)/Contents/MacOS/sherpa-apple-pairing">
+        <CodesignAllocate>$(_CodesignAllocate)</CodesignAllocate>
+        <CodesignSigningKey>$(_CodeSigningKey)</CodesignSigningKey>
+        <CodesignKeychain>$(CodesignKeychain)</CodesignKeychain>
+        <CodesignUseHardenedRuntime>$(UseHardenedRuntime)</CodesignUseHardenedRuntime>
+        <CodesignUseSecureTimestamp>$(UseHardenedRuntime)</CodesignUseSecureTimestamp>
+        <CodesignDisableTimestamp Condition="'$(Configuration)' == 'Debug'">true</CodesignDisableTimestamp>
+      </_CodesignItems>
+    </ItemGroup>
+  </Target>
+</Project>
