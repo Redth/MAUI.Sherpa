@@ -382,26 +382,6 @@ public abstract class HybridFormPage<TResult> : ContentPage, IFormPage<TResult>,
         if (!_bridge.HasActionState)
             return;
 
-        if (_submitButton != null)
-        {
-            _submitButton.Text = _bridge.ActionText ?? SubmitButtonText;
-            _submitButton.IsEnabled = _bridge.ActionEnabled && !_bridge.ActionBusy && !_isSubmitting;
-            _submitButton.IsVisible = _bridge.ActionVisible;
-            // The macOS backend hides invisible views without collapsing them, so collapse the column explicitly.
-            if (_footerLayout != null)
-            {
-                _footerLayout.ColumnDefinitions[3].Width = _bridge.ActionVisible ? GridLength.Auto : new GridLength(0);
-                ((IView)_footerLayout).InvalidateMeasure();
-#if MACOSAPP
-                if (_footerLayout.Handler?.PlatformView is AppKit.NSView footerView)
-                {
-                    footerView.NeedsLayout = true;
-                    footerView.LayoutSubtreeIfNeeded();
-                }
-#endif
-            }
-        }
-
         if (_cancelButton != null)
             _cancelButton.Text = _bridge.SecondaryActionText ?? "Cancel";
 
@@ -409,6 +389,28 @@ public abstract class HybridFormPage<TResult> : ContentPage, IFormPage<TResult>,
         {
             _submittingIndicator.IsRunning = _bridge.ActionBusy;
             _submittingIndicator.IsVisible = _bridge.ActionBusy;
+        }
+
+        if (_submitButton != null)
+        {
+            _submitButton.Text = _bridge.ActionText ?? SubmitButtonText;
+            _submitButton.IsEnabled = _bridge.ActionEnabled && !_bridge.ActionBusy && !_isSubmitting;
+            _submitButton.IsVisible = _bridge.ActionVisible;
+        }
+
+        // Re-measure after every label change; the macOS backend keeps stale Auto column widths (clipping "Stop" -> "Done")
+        // and hides invisible views without collapsing them, so collapse the submit column explicitly.
+        if (_footerLayout != null)
+        {
+            _footerLayout.ColumnDefinitions[3].Width = _bridge.ActionVisible ? GridLength.Auto : new GridLength(0);
+            ((IView)_footerLayout).InvalidateMeasure();
+#if MACOSAPP
+            if (_footerLayout.Handler?.PlatformView is AppKit.NSView footerView)
+            {
+                footerView.NeedsLayout = true;
+                footerView.LayoutSubtreeIfNeeded();
+            }
+#endif
         }
     }
 
