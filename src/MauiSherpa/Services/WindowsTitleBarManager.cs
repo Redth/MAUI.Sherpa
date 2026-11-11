@@ -723,6 +723,7 @@ public class WindowsTitleBarManager
     private static FluentIcons? MapSfSymbolToFluentIcon(string sfSymbol) => sfSymbol switch
     {
         "arrow.clockwise" => FluentIcons.ArrowClockwise20,
+        "wifi" => FluentIcons.Wifi420,
         "plus" => FluentIcons.Add20,
         "plus.circle" => FluentIcons.AddCircle20,
         "folder" => FluentIcons.FolderOpen20,

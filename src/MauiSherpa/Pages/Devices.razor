@@ -20,6 +20,7 @@
 @inject IToolbarService ToolbarService
 @inject IPlatformService PlatformInfo
 @inject DeviceInspectorService DeviceInspector
+@inject HybridFormBridgeHolder BridgeHolder
 @implements IDisposable
 
 <h1 class="visually-hidden">Android Devices &amp; Emulators</h1>
@@ -432,41 +433,12 @@ else
         isOperating = true;
         try
         {
-            var request = await FormModalService.ShowAsync<AndroidWirelessConnectionRequest>(new AndroidDevicePairingPage());
-            if (request == null) return;
-
-            await OperationModal.RunAsync(
-                request.PairFirst ? "Pair Android Device" : "Connect Android Device",
-                "Setting up wireless debugging...",
-                async context =>
-                {
-                    try
-                    {
-                        if (request.PairFirst)
-                        {
-                            context.SetStatus("Pairing device...");
-                            await AdbService.PairAsync(request.PairingAddress!, request.PairingCode!, context.CancellationToken);
-                            context.LogSuccess("Device paired.");
-                        }
-                        if (!string.IsNullOrWhiteSpace(request.ConnectionAddress))
-                        {
-                            context.SetStatus("Connecting device...");
-                            await AdbService.ConnectAsync(request.ConnectionAddress, context.CancellationToken);
-                            context.LogSuccess("Device connected.");
-                        }
-                        else if (request.PairFirst)
-                        {
-                            context.LogInfo("If the device does not connect automatically, choose Pair Device again and connect using the address on the main Wireless debugging screen.");
-                        }
-                        return true;
-                    }
-                    catch (AndroidAdbException ex)
-                    {
-                        context.LogError(ex.Message);
-                        return false;
-                    }
-                });
-            await RefreshDevices();
+            if (await FormModalService.ShowAsync<bool>(new Modals.AndroidDevicePairingPage(BridgeHolder)))
+                await RefreshDevices();
+        }
+        catch (Exception ex)
+        {
+            await AlertService.ShowToastAsync($"Could not open Android pairing: {ex.Message}");
         }
         finally
         {

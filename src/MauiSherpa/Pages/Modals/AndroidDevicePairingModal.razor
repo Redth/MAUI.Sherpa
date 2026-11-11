@@ -1,0 +1,921 @@
+@page "/modal/android-device-pairing"
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Core.Requests.Android
+@using MauiSherpa.Core.Services
+@using MauiSherpa.Pages.Forms
+@using Shiny.Mediator
+@inject IAndroidWirelessPairingService PairingService
+@inject IAdbDeviceWatcherService DeviceWatcher
+@inject IMediator Mediator
+@inject HybridFormBridgeHolder BridgeHolder
+@inject ILoggingService Logger
+@inject IPlatformService Platform
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+@*
+Visual sibling of the Apple pairing sheet: devices you can add first, with the QR door in that header, then devices
+already talking to adb. Same grouped-list palette, one purple accent matching the native footer, green only for a live
+connection. Addresses and ports stay out of the way unless the network forces a manual fallback.
+*@
+
+<section class="ad @(qrView ? "is-qr" : "")" id="@contentId" aria-label="Pair Android devices">
+    @if (!qrView)
+    {
+        <div class="ad-intro">
+            <p>Pair Android phones, tablets, TV, and Wear OS over Wi-Fi. No Android Studio required.</p>
+            <button type="button" class="ad-icon-btn" @onclick="() => RefreshAsync()" disabled="@(busy || loading)"
+                    title="Refresh devices" aria-label="Refresh devices">
+                <i class="fa-solid fa-rotate @(loading ? "fa-spin" : "")" aria-hidden="true"></i>
+            </button>
+        </div>
+
+        @AdbNotice()
+
+        @if (banner is { } b)
+        {
+            <div class="ad-banner @(b.Result.Success ? "is-ok" : b.Result.State == AndroidWirelessOperationState.Failed ? "is-error" : "")"
+                 role="@(b.Result.State == AndroidWirelessOperationState.Failed ? "alert" : "status")">
+                <i class="fa-solid @BannerIcon(b.Result)" aria-hidden="true"></i>
+                <div><strong>@b.Title</strong><span>@b.Result.Message</span></div>
+            </div>
+        }
+
+        <div class="ad-group">
+            <div class="ad-group-head">
+                <h3>Available Devices @if (loading) { <i class="fa-solid fa-circle-notch fa-spin ad-scan" aria-label="Scanning"></i> }</h3>
+                <button type="button" class="ad-link" @onclick="OpenQr" disabled="@busy">
+                    <i class="fa-solid fa-qrcode" aria-hidden="true"></i> Pair over Wi-Fi…
+                </button>
+            </div>
+            @if (discoveryError != null)
+            {
+                <div class="ad-banner is-error is-inline" role="alert">
+                    <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+                    <div><strong>Can't search this network</strong><span>@discoveryError</span></div>
+                </div>
+            }
+            <ul class="ad-list">
+                @if (AvailableServices.Count == 0)
+                {
+                    <li class="ad-row ad-row-empty">
+                        <span class="ad-glyph is-hint" aria-hidden="true"><i class="fa-solid fa-wifi"></i></span>
+                        <div class="ad-text">
+                            <span class="ad-name">Turn on Wireless debugging on your device</span>
+                            <span class="ad-meta">Open Pair device with pairing code and it will appear here. Sherpa checks every few seconds.</span>
+                            @if (Platform.IsMacOS)
+                            {
+                                <span class="ad-meta">Not listed? Allow MAUI Sherpa in System Settings › Privacy &amp; Security › Local Network.</span>
+                            }
+                        </div>
+                    </li>
+                }
+                @foreach (var service in AvailableServices)
+                {
+                    @ServiceRow(service)
+                }
+            </ul>
+        </div>
+
+        <div class="ad-group">
+            <div class="ad-group-head"><h3>My Devices</h3></div>
+            <ul class="ad-list">
+                @if (PhysicalDevices.Count == 0)
+                {
+                    <li class="ad-row ad-row-empty">
+                        <span>@(initialLoad ? "Looking for connected devices…" : "No Android devices are connected yet.")</span>
+                    </li>
+                }
+                @foreach (var device in PhysicalDevices)
+                {
+                    @DeviceRow(device)
+                }
+            </ul>
+        </div>
+
+        <details class="ad-manual">
+            <summary><i class="fa-solid fa-chevron-right" aria-hidden="true"></i> Enter an address manually</summary>
+            <p class="ad-manual-intro">Use this when your network blocks discovery. The pairing and debugging addresses use different ports.</p>
+            <form class="ad-list ad-form" @onsubmit="ManualPairAsync" @onsubmit:preventDefault="true">
+                <div class="ad-field">
+                    <label for="ad-pair-address">Pairing address</label>
+                    <input id="ad-pair-address" type="text" @bind="manualPairAddress" @bind:event="oninput" disabled="@busy"
+                           placeholder="192.168.1.20:37123" autocomplete="off" spellcheck="false" aria-describedby="ad-pair-help" />
+                </div>
+                <div class="ad-field is-code">
+                    <label for="ad-pair-code">Code</label>
+                    <input id="ad-pair-code" type="password" inputmode="numeric" maxlength="6" @bind="manualCode" @bind:event="oninput"
+                           disabled="@busy" autocomplete="off" aria-describedby="ad-pair-help" />
+                </div>
+                <button type="submit" class="ad-btn is-primary" disabled="@(busy || !CanManualPair)">
+                    @(activeKey == ManualPairKey ? "Pairing…" : "Pair")
+                </button>
+                <span class="ad-field-help" id="ad-pair-help">From Pair device with pairing code. The code is never saved or logged.</span>
+            </form>
+            <form class="ad-list ad-form" @onsubmit="ManualConnectAsync" @onsubmit:preventDefault="true">
+                <div class="ad-field">
+                    <label for="ad-connect-address">Debugging address</label>
+                    <input id="ad-connect-address" type="text" @bind="manualConnectAddress" @bind:event="oninput" disabled="@busy"
+                           placeholder="192.168.1.20:40555" autocomplete="off" spellcheck="false" aria-describedby="ad-connect-help" />
+                </div>
+                <button type="submit" class="ad-btn" disabled="@(busy || !CanManualConnect)">
+                    @(activeKey == ManualConnectKey ? "Connecting…" : "Connect")
+                </button>
+                <span class="ad-field-help" id="ad-connect-help">IP address &amp; port from the main Wireless debugging screen.</span>
+            </form>
+            @if (manualResult is { } m)
+            {
+                <p class="ad-note @(m.Result.Success ? "is-ok" : m.Result.State == AndroidWirelessOperationState.Failed ? "is-danger" : "")"
+                   role="@(m.Result.State == AndroidWirelessOperationState.Failed ? "alert" : "status")">
+                    <i class="fa-solid @BannerIcon(m.Result)" aria-hidden="true"></i>
+                    <span><strong>@m.Title.</strong> @m.Result.Message</span>
+                </p>
+            }
+        </details>
+    }
+    else
+    {
+        <button type="button" class="ad-back" @onclick="CloseQr" disabled="@busy">
+            <i class="fa-solid fa-chevron-left" aria-hidden="true"></i> Devices
+        </button>
+
+        <div class="ad-hero" aria-live="polite">
+            @if (qrSession != null)
+            {
+                <img class="ad-qr" src="@qrSession.ImageDataUrl"
+                     alt="Android wireless pairing QR code. Scan it with the device's Wireless debugging scanner." />
+                <p role="status"><i class="fa-solid fa-circle-notch fa-spin" aria-hidden="true"></i> @status</p>
+            }
+            else
+            {
+                <div class="ad-beacon" aria-hidden="true">
+                    <i class="fa-solid fa-mobile-screen-button"></i>
+                    <span class="ad-beacon-wave"><i class="fa-solid fa-qrcode"></i></span>
+                    <i class="fa-solid fa-laptop"></i>
+                </div>
+                <h2>Pair with a QR code</h2>
+                <p>For Android 11+ phones and Android 13+ TV and Wear OS on the same network as this computer.</p>
+            }
+        </div>
+
+        <ol class="ad-list ad-steps">
+            <li class="ad-row">
+                <span class="ad-step" aria-hidden="true">1</span>
+                <div class="ad-text"><span class="ad-name">Open Wireless debugging</span><span class="ad-meta">Settings › Developer options › Wireless debugging, then turn it on.</span></div>
+            </li>
+            <li class="ad-row">
+                <span class="ad-step" aria-hidden="true">2</span>
+                <div class="ad-text"><span class="ad-name">Tap Pair device with QR code</span><span class="ad-meta">Use that scanner, not the regular camera app.</span></div>
+            </li>
+            <li class="ad-row">
+                <span class="ad-step" aria-hidden="true">3</span>
+                <div class="ad-text"><span class="ad-name">Scan the code shown here</span><span class="ad-meta">It works once and expires after 3 minutes. Sherpa pairs automatically.</span></div>
+            </li>
+        </ol>
+
+        @AdbNotice()
+
+        @if (!busy && qrResult != null)
+        {
+            @if (qrStopped)
+            {
+                <div class="ad-banner" role="status">
+                    <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
+                    <div><strong>QR pairing stopped</strong><span>Show a new code when your device is ready.</span></div>
+                </div>
+            }
+            else
+            {
+                <div class="ad-banner is-error" role="alert">
+                    <i class="fa-solid @BannerIcon(qrResult)" aria-hidden="true"></i>
+                    <div><strong>Couldn't pair with QR code</strong><span>@qrResult.Message</span></div>
+                </div>
+            }
+        }
+
+        <div class="ad-caution">
+            <i class="fa-solid fa-key" aria-hidden="true"></i>
+            <p><strong>Can't scan?</strong> Choose Pair device with pairing code on the device instead. It appears under Available Devices, where you can enter the code.</p>
+        </div>
+    }
+</section>
+
+<style>
+    .ad {
+        --ad-accent: var(--accent-purple);
+        --ad-accent-ink: #6b46c1;
+        --ad-card: #F7F7F7;
+        --ad-sep: #E0E0E0;
+        --ad-live: #2f855a;
+        --ad-danger: var(--accent-danger);
+        padding: 14px 24px 22px;
+        color: var(--text-primary);
+        font-size: 13px;
+    }
+    .theme-dark .ad { --ad-accent-ink: #d6bcfa; --ad-card: #2C2C2C; --ad-sep: #454545; --ad-live: #68d391; }
+    .ad p { margin: 0; }
+    .ad button { font-family: inherit; line-height: 1.2; }
+    .ad :is(button, input, summary):focus-visible { outline: 2px solid var(--ad-accent); outline-offset: 2px; }
+
+    .ad-intro { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; color: var(--text-secondary); }
+    .ad-intro p { font-size: 13px; line-height: 1.4; }
+    .ad-icon-btn { display: grid; place-items: center; width: 26px; height: 26px; border: 0; border-radius: 6px; background: transparent; color: var(--text-secondary); cursor: pointer; }
+    .ad-icon-btn:hover:not(:disabled) { background: var(--bg-hover); color: var(--text-primary); }
+    .ad-icon-btn:disabled { opacity: 0.5; cursor: default; }
+
+    .ad-group + .ad-group { margin-top: 20px; }
+    .ad-group-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 24px; margin: 0 0 7px 2px; }
+    .ad-group h3 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 13px; font-weight: 600; color: var(--text-primary); }
+    .ad-link { display: inline-flex; align-items: center; gap: 6px; height: 24px; margin-right: -6px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; color: var(--ad-accent-ink); font-size: 12px; font-weight: 500; cursor: pointer; }
+    .ad-link i { font-size: 11px; }
+    .ad-link:hover:not(:disabled) { background: color-mix(in srgb, var(--ad-accent) 12%, transparent); }
+    .ad-link:disabled { opacity: 0.45; cursor: default; }
+    .ad-scan { font-size: 11px; color: var(--text-muted); }
+
+    .ad-list { list-style: none; margin: 0; padding: 0; background: var(--ad-card); border-radius: 10px; overflow: hidden; }
+    .ad-row { position: relative; display: flex; align-items: center; gap: 12px; min-height: 54px; padding: 9px 12px; box-sizing: border-box; transition: background-color 180ms cubic-bezier(0.16, 1, 0.3, 1); }
+    .ad-row + .ad-row::before { content: ""; position: absolute; top: 0; left: 56px; right: 0; height: 1px; background: var(--ad-sep); }
+    .ad-row.is-highlighted { background: color-mix(in srgb, var(--ad-accent) 9%, transparent); }
+    .ad-row-empty { color: var(--text-secondary); font-size: 12px; }
+    .ad-row-empty > span:only-child { padding: 6px 2px; }
+
+    .ad-glyph { flex: none; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 8px; background: var(--bg-tertiary); color: var(--text-secondary); font-size: 15px; }
+    .ad-glyph.is-live { color: var(--ad-accent-ink); background: color-mix(in srgb, var(--ad-accent) 16%, transparent); }
+    .ad-glyph.is-hint { background: transparent; border: 1px dashed var(--ad-sep); }
+    .ad-text { display: flex; flex: 1; flex-direction: column; gap: 2px; min-width: 0; }
+    .ad-name { overflow: hidden; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+    .ad-meta { overflow: hidden; color: var(--text-secondary); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
+    .ad-row-empty .ad-meta { white-space: normal; }
+    .ad-note { display: flex; align-items: baseline; gap: 6px; margin-top: 3px; color: var(--text-secondary); font-size: 11.5px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .ad-note.is-ok { color: var(--ad-live); }
+    .ad-note.is-danger { color: var(--ad-danger); }
+    .ad-trailing { display: flex; flex: none; align-items: center; gap: 10px; }
+    .ad-status { display: inline-flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 11.5px; white-space: nowrap; }
+    .ad-status i { font-size: 11px; }
+    .ad-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-muted); opacity: 0.6; }
+    .ad-dot.is-live { background: var(--ad-live); opacity: 1; }
+    .ad-working { display: inline-flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 11.5px; white-space: nowrap; }
+    .ad-hint { color: var(--text-muted); font-size: 11.5px; white-space: nowrap; }
+
+    .ad-btn { height: 24px; padding: 0 11px; border: 1px solid var(--input-border); border-radius: 6px; background: var(--input-bg); color: var(--text-primary); font-size: 12px; font-weight: 500; white-space: nowrap; cursor: pointer; transition: background-color 150ms ease, border-color 150ms ease; }
+    .ad-btn:hover:not(:disabled) { border-color: var(--text-muted); }
+    .ad-btn.is-primary { border-color: transparent; background: color-mix(in srgb, var(--ad-accent) 18%, transparent); color: var(--ad-accent-ink); font-weight: 600; }
+    .ad-btn.is-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--ad-accent) 28%, transparent); }
+    .ad-btn:disabled { opacity: 0.45; cursor: default; }
+    .ad input { box-sizing: border-box; height: 24px; padding: 0 8px; border: 1px solid var(--input-border); border-radius: 6px; background: var(--input-bg); color: var(--text-primary); font: inherit; font-size: 12px; }
+    .ad input::placeholder { color: var(--text-muted); opacity: 1; }
+    .ad input:disabled { opacity: 0.6; }
+    .ad input.ad-code { width: 84px; font-family: ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: 0.12em; text-align: center; }
+
+    .ad-banner { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 16px; padding: 11px 13px; border-radius: 10px; background: var(--ad-card); font-size: 12px; line-height: 1.45; }
+    .ad-banner > i { margin-top: 2px; color: var(--text-secondary); }
+    .ad-banner div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .ad-banner span { color: var(--text-secondary); white-space: pre-wrap; overflow-wrap: anywhere; }
+    .ad-banner.is-ok > i { color: var(--ad-live); }
+    .ad-banner.is-error > i, .ad-banner.is-error strong { color: var(--ad-danger); }
+    .ad-banner.is-inline { margin-bottom: 8px; }
+    .ad-banner .ad-btn { align-self: flex-start; margin-top: 6px; }
+
+    .ad-manual { margin-top: 20px; }
+    .ad-manual summary { display: inline-flex; align-items: center; gap: 7px; margin-left: -4px; padding: 3px 4px; border-radius: 6px; color: var(--text-secondary); font-size: 12px; font-weight: 500; list-style: none; cursor: pointer; }
+    .ad-manual summary::-webkit-details-marker { display: none; }
+    .ad-manual summary:hover { color: var(--text-primary); }
+    .ad-manual summary i { font-size: 9px; transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1); }
+    .ad-manual[open] summary i { transform: rotate(90deg); }
+    .ad-manual-intro { margin: 6px 2px 10px !important; color: var(--text-secondary); font-size: 11.5px; line-height: 1.45; }
+    .ad-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 6px 10px; padding: 10px 12px; }
+    .ad-form + .ad-form { margin-top: 8px; }
+    .ad-field { display: flex; flex: 1; flex-direction: column; gap: 4px; min-width: 150px; }
+    .ad-field.is-code { flex: none; min-width: 0; }
+    .ad .ad-field.is-code input { width: 84px; font-family: ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: 0.12em; }
+    .ad-field label { color: var(--text-secondary); font-size: 11px; font-weight: 500; }
+    .ad-field-help { flex-basis: 100%; color: var(--text-muted); font-size: 11px; }
+    .ad-manual > .ad-note { margin: 10px 2px 0; }
+
+    .ad-back { display: inline-flex; align-items: center; gap: 6px; margin: 0 0 6px -6px; padding: 4px 6px; border: 0; border-radius: 6px; background: transparent; color: var(--ad-accent-ink); font-weight: 500; cursor: pointer; }
+    .ad-back i { font-size: 11px; }
+    .ad-back:hover:not(:disabled) { background: var(--bg-hover); }
+    .ad-back:disabled { opacity: 0.45; cursor: default; }
+    .ad-hero { padding: 4px 0 16px; text-align: center; }
+    .ad-hero h2 { margin: 0 0 5px; font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
+    .ad-hero p { max-width: 46ch; margin: 0 auto; color: var(--text-secondary); line-height: 1.45; }
+    .ad-hero p i { margin-right: 4px; font-size: 11px; }
+    .ad-qr { display: block; width: 176px; max-width: 100%; height: auto; margin: 0 auto 10px; border-radius: 10px; background: #fff; image-rendering: pixelated; }
+    .ad-beacon { display: flex; align-items: center; justify-content: center; gap: 22px; margin-bottom: 14px; color: var(--text-primary); font-size: 28px; }
+    .ad-beacon-wave { display: grid; place-items: center; width: 40px; height: 40px; color: var(--ad-accent-ink); font-size: 17px; }
+
+    .ad-step { flex: none; display: grid; place-items: center; width: 22px; height: 22px; margin: 0 5px; border-radius: 50%; background: var(--bg-tertiary); color: var(--text-secondary); font-size: 11px; font-weight: 600; }
+    .ad-steps .ad-row + .ad-row::before { left: 50px; }
+    .ad-steps .ad-row { min-height: 46px; padding-block: 7px; }
+    .ad-steps .ad-meta { white-space: normal; }
+    .ad-caution { display: flex; align-items: flex-start; gap: 10px; margin-top: 16px; color: var(--text-secondary); font-size: 12px; line-height: 1.5; }
+    .ad-caution > i { margin-top: 3px; }
+    .ad-caution strong { color: var(--text-primary); font-weight: 600; }
+    .is-qr .ad-banner { margin: 14px 0 0; }
+</style>
+
+@code {
+    private const string ManualPairKey = "manual-pair";
+    private const string ManualConnectKey = "manual-connect";
+
+    private readonly string contentId = $"android-pairing-{Guid.NewGuid():N}";
+    private readonly SemaphoreSlim refreshGate = new(1, 1);
+    private CancellationTokenSource lifetime = new();
+    private CancellationTokenSource? operationCts;
+    private DotNetObjectReference<AndroidDevicePairingModal>? dotNetRef;
+    private HybridFormBridge? bridge;
+    private Task? operationTask, pollTask;
+    private IReadOnlyList<DeviceInfo> devices = [];
+    private IReadOnlyList<AndroidWirelessService> services = [];
+    private AndroidWirelessQrSession? qrSession;
+    private AndroidWirelessOperationResult? qrResult;
+    private (string Title, AndroidWirelessOperationResult Result)? banner, manualResult;
+    private (string Key, string Title, AndroidWirelessOperationResult Result)? rowResult;
+    private string? discoveryError, status, activeKey, codeKey, highlightKey;
+    private string busyLabel = "", code = "", manualPairAddress = "", manualCode = "", manualConnectAddress = "";
+    private bool initialized, initialLoad = true, qrView, qrStopped, focusCode, busy, loading, closing, stopping, disposed;
+    private bool adbBlocked, restartingAdb;
+    private string? adbNotice;
+    private ElementReference codeInput;
+
+    private List<AndroidWirelessService> AvailableServices => services
+        .Where(s => !s.Name.StartsWith("studio-", StringComparison.Ordinal))
+        .Where(s => s.IsPairing || !IsConnected(s))
+        .OrderByDescending(s => s.IsPairing).ThenBy(s => s.Endpoint, StringComparer.Ordinal).ToList();
+
+    private List<DeviceInfo> PhysicalDevices => devices.Where(d => !d.IsEmulator)
+        .OrderByDescending(d => d.State == "device")
+        .ThenBy(d => d.Model ?? d.Serial, StringComparer.CurrentCultureIgnoreCase).ToList();
+
+    private bool CanManualPair => AndroidWirelessPairingService.TryNormalizeEndpoint(manualPairAddress, out _) &&
+        manualCode.Length == 6 && manualCode.All(char.IsAsciiDigit);
+    private bool CanManualConnect => AndroidWirelessPairingService.TryNormalizeEndpoint(manualConnectAddress, out _);
+
+    private RenderFragment AdbNotice() =>
+        @<text>
+            @if (adbBlocked)
+            {
+                <div class="ad-banner is-error" role="alert">
+                    <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+                    <div>
+                        <strong>macOS is blocking ADB from your network</strong>
+                        <span>ADB was started by an app without Local Network access, so it can't reach Wi-Fi devices. Restarting it from Sherpa briefly disconnects all Android devices.</span>
+                        <button type="button" class="ad-btn is-primary" @onclick="RestartAdbAsync" disabled="@busy">
+                            @(restartingAdb ? "Restarting…" : "Restart ADB")
+                        </button>
+                    </div>
+                </div>
+            }
+            else if (adbNotice != null)
+            {
+                <div class="ad-banner" role="status">
+                    <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
+                    <div><strong>ADB restarted</strong><span>@adbNotice</span></div>
+                </div>
+            }
+        </text>;
+
+    private RenderFragment ServiceRow(AndroidWirelessService s)
+    {
+        var key = ServiceKey(s);
+        return @<li class="ad-row @(highlightKey == key ? "is-highlighted" : "")">
+            <span class="ad-glyph" aria-hidden="true"><i class="fa-solid @(s.IsPairing ? "fa-key" : "fa-mobile-screen-button")"></i></span>
+            <div class="ad-text">
+                <span class="ad-name">@(s.IsPairing ? "Ready to pair" : "Wireless debugging on")</span>
+                <span class="ad-meta" title="@s.Name">@(s.IsPairing ? "Pairing code screen" : "Not connected") · @s.Endpoint</span>
+                @if (codeKey == key)
+                {
+                    <span class="ad-note">Enter the six-digit code shown on the device.</span>
+                }
+                else if (busy && activeKey == key && !string.IsNullOrEmpty(status))
+                {
+                    <span class="ad-note">@status</span>
+                }
+                else if (rowResult is { } r && r.Key == key)
+                {
+                    <span class="ad-note @(r.Result.Success ? "is-ok" : r.Result.State == AndroidWirelessOperationState.Failed ? "is-danger" : "")">
+                        <i class="fa-solid @(r.Result.Success ? "fa-check" : "fa-circle-info")" aria-hidden="true"></i>
+                        @r.Result.Message
+                    </span>
+                }
+            </div>
+            <div class="ad-trailing">
+                @if (codeKey == key)
+                {
+                    <form class="ad-trailing" @onsubmit="() => PairCodeAsync(s)" @onsubmit:preventDefault="true">
+                        <input class="ad-code" type="password" inputmode="numeric" maxlength="6" autocomplete="off"
+                               @ref="codeInput" @bind="code" @bind:event="oninput" aria-label="Six-digit pairing code" />
+                        <button type="button" class="ad-btn" @onclick="CancelCode">Cancel</button>
+                        <button type="submit" class="ad-btn is-primary" disabled="@(!IsSixDigits(code))">Pair</button>
+                    </form>
+                }
+                else if (busy && activeKey == key)
+                {
+                    <span class="ad-working"><i class="fa-solid fa-circle-notch fa-spin" aria-hidden="true"></i>@busyLabel</span>
+                }
+                else if (s.IsPairing)
+                {
+                    <button type="button" class="ad-btn is-primary" @onclick="() => AskCode(s)" disabled="@busy">Pair</button>
+                }
+                else
+                {
+                    <button type="button" class="ad-btn" @onclick="() => ConnectServiceAsync(s)" disabled="@busy">Connect</button>
+                }
+            </div>
+        </li>;
+    }
+
+    private RenderFragment DeviceRow(DeviceInfo d)
+    {
+        var key = DeviceKey(d);
+        var wireless = IsWireless(d);
+        var live = d.State == "device";
+        var reconnect = wireless && !live ? ReconnectEndpoint(d) : null;
+        return @<li class="ad-row @(highlightKey == key ? "is-highlighted" : "")">
+            <span class="ad-glyph @(live ? "is-live" : "")" aria-hidden="true"><i class="fa-solid fa-mobile-screen-button"></i></span>
+            <div class="ad-text">
+                <span class="ad-name" title="@(d.Model ?? d.Serial)">@(d.Model ?? "Android device")</span>
+                <span class="ad-meta" title="@d.Serial">@(wireless ? "Wi-Fi" : "USB")@(d.Model == null ? "" : $" · {d.Serial}")</span>
+                @if (busy && activeKey == key && !string.IsNullOrEmpty(status))
+                {
+                    <span class="ad-note">@status</span>
+                }
+                else if (rowResult is { } r && r.Key == key)
+                {
+                    <span class="ad-note @(r.Result.Success ? "is-ok" : r.Result.State == AndroidWirelessOperationState.Failed ? "is-danger" : "")">
+                        <i class="fa-solid @(r.Result.Success ? "fa-check" : "fa-circle-info")" aria-hidden="true"></i>
+                        @r.Result.Message
+                    </span>
+                }
+            </div>
+            <div class="ad-trailing">
+                @if (busy && activeKey == key)
+                {
+                    <span class="ad-working"><i class="fa-solid fa-circle-notch fa-spin" aria-hidden="true"></i>@busyLabel</span>
+                }
+                else
+                {
+                    <span class="ad-status">
+                        <span class="ad-dot @(live ? "is-live" : "")"></span>
+                        @StateLabel(d.State)
+                        <i class="@(wireless ? "fa-solid fa-wifi" : "fa-brands fa-usb")" title="@(wireless ? "Wi-Fi" : "USB")" aria-label="@(wireless ? "Wi-Fi" : "USB")"></i>
+                    </span>
+                    @if (reconnect != null)
+                    {
+                        <button type="button" class="ad-btn" @onclick="() => ReconnectAsync(d, reconnect)" disabled="@busy">Reconnect</button>
+                    }
+                }
+            </div>
+        </li>;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        bridge = BridgeHolder.Current ?? throw new InvalidOperationException("The native pairing dialog is unavailable.");
+        if (bridge.Parameters.TryGetValue("LifetimeToken", out var value) && value is CancellationToken token)
+        {
+            lifetime.Dispose();
+            lifetime = CancellationTokenSource.CreateLinkedTokenSource(token);
+        }
+        bridge.PreventClose = true;
+        bridge.PreventSubmitClose = true;
+        bridge.SubmitRequested += SubmitAsync;
+        bridge.CancelRequested += OnSecondaryAction;
+        DeviceWatcher.DevicesChanged += OnDevicesChanged;
+        UpdateActions();
+        await RefreshAsync();
+        pollTask = PollAsync(lifetime.Token);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!initialized && !disposed)
+        {
+            dotNetRef ??= DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("modalInterop.initialize", contentId, dotNetRef, true);
+            initialized = true;
+        }
+        if (focusCode && codeKey != null)
+        {
+            focusCode = false;
+            try { await codeInput.FocusAsync(); }
+            catch (InvalidOperationException) { }
+        }
+    }
+
+    private void UpdateActions() => bridge?.SetActionState(
+        enabled: qrView && !busy && !closing,
+        busy: busy && qrView,
+        actionText: busy && qrView ? "Waiting…" : qrResult != null ? "Show New Code" : "Show QR Code",
+        secondaryActionText: busy ? "Stop" : "Done",
+        visible: qrView);
+
+    private void OnDevicesChanged(IReadOnlyList<DeviceInfo> latest) => _ = InvokeAsync(() =>
+    {
+        if (disposed) return;
+        devices = latest;
+        StateHasChanged();
+    });
+
+    private async Task PollAsync(CancellationToken ct)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(4));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(ct))
+            {
+                if (!busy && !loading && !qrView && !closing && codeKey == null)
+                    await InvokeAsync(() => RefreshAsync(silent: true));
+            }
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    private async Task RefreshAsync(bool silent = false)
+    {
+        if (disposed) return;
+        if (silent ? !await refreshGate.WaitAsync(0) : !await TryEnterRefreshAsync()) return;
+        loading = true;
+        if (!silent) StateHasChanged();
+        try
+        {
+            var discovery = await PairingService.DiscoverAsync(lifetime.Token);
+            services = discovery.Success ? discovery.Services : [];
+            discoveryError = discovery.Success ? null : discovery.Message;
+            devices = await LoadDevicesAsync();
+        }
+        catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
+        catch (Exception ex)
+        {
+            Logger.LogWarning($"Android pairing device refresh failed ({ex.GetType().Name}).");
+        }
+        finally
+        {
+            loading = false;
+            initialLoad = false;
+            refreshGate.Release();
+            if (!disposed) StateHasChanged();
+        }
+    }
+
+    // Ask ADB directly on every refresh: the live watcher only speeds up updates and can lag behind an ADB restart.
+    private async Task<IReadOnlyList<DeviceInfo>> LoadDevicesAsync()
+    {
+        await Mediator.FlushStores("android:devices");
+        var (_, result) = await Mediator.Request(new GetAndroidDevicesRequest(), lifetime.Token);
+        return result ?? [];
+    }
+
+    private async Task<bool> TryEnterRefreshAsync()
+    {
+        try
+        {
+            await refreshGate.WaitAsync(lifetime.Token);
+            return true;
+        }
+        catch (OperationCanceledException) { return false; }
+    }
+
+    private void AskCode(AndroidWirelessService s)
+    {
+        if (busy) return;
+        rowResult = null;
+        code = "";
+        codeKey = ServiceKey(s);
+        highlightKey = codeKey;
+        focusCode = true;
+    }
+
+    private void CancelCode()
+    {
+        code = "";
+        codeKey = null;
+    }
+
+    private Task PairCodeAsync(AndroidWirelessService s)
+    {
+        var entered = code;
+        code = "";
+        codeKey = null;
+        if (!IsSixDigits(entered)) return Task.CompletedTask;
+        return RunRowAsync(ServiceKey(s), "Pairing…", "Keep the pairing-code screen open on the device…", "Paired", "Couldn't pair",
+            ct => PairingService.PairAsync(s.Endpoint, entered, ct));
+    }
+
+    private Task ConnectServiceAsync(AndroidWirelessService s) =>
+        RunRowAsync(ServiceKey(s), "Connecting…", "Connecting for debugging…", "Connected", "Couldn't connect",
+            ct => PairingService.ConnectAsync(s.Endpoint, ct), s.Endpoint);
+
+    private Task ReconnectAsync(DeviceInfo d, string endpoint) =>
+        RunRowAsync(DeviceKey(d), "Connecting…", "Connecting for debugging…", "Connected", "Couldn't connect",
+            ct => PairingService.ConnectAsync(endpoint, ct));
+
+    private Task ManualPairAsync()
+    {
+        if (busy || !CanManualPair) return Task.CompletedTask;
+        var entered = manualCode;
+        var address = manualPairAddress;
+        manualCode = "";
+        manualResult = null;
+        activeKey = ManualPairKey;
+        return RunAsync(ct => PairingService.PairAsync(address, entered, ct), "Pairing…",
+            result => manualResult = (Title(result, "Paired", "Couldn't pair"), result));
+    }
+
+    private Task ManualConnectAsync()
+    {
+        if (busy || !CanManualConnect) return Task.CompletedTask;
+        var address = manualConnectAddress;
+        manualResult = null;
+        activeKey = ManualConnectKey;
+        return RunAsync(ct => PairingService.ConnectAsync(address, ct), "Connecting…",
+            result => manualResult = (Title(result, "Connected", "Couldn't connect"), result));
+    }
+
+    private Task RunRowAsync(string key, string label, string note, string successTitle, string failureTitle,
+        Func<CancellationToken, Task<AndroidWirelessOperationResult>> action, string? connectedSerial = null)
+    {
+        if (busy || closing) return Task.CompletedTask;
+        activeKey = key;
+        highlightKey = key;
+        busyLabel = label;
+        rowResult = null;
+        banner = null;
+        return RunAsync(action, note, result =>
+        {
+            var title = Title(result, successTitle, failureTitle);
+            // A successful pair or connect usually moves the device out of Available Devices, so report it above the lists.
+            if (!result.Success && RowExists(key))
+                rowResult = (key, title, result);
+            else
+                banner = (title, result);
+            highlightKey = connectedSerial != null && result.State != AndroidWirelessOperationState.Failed
+                ? $"device|{connectedSerial}" : key;
+        });
+    }
+
+    private void OpenQr()
+    {
+        if (busy) return;
+        qrView = true;
+        codeKey = null;
+        code = "";
+        qrResult = null;
+        qrStopped = false;
+        UpdateActions();
+        _ = StartQrAsync();
+    }
+
+    private void CloseQr()
+    {
+        if (busy) return;
+        qrView = false;
+        qrResult = null;
+        UpdateActions();
+    }
+
+    // The native footer isn't a Blazor event, so nothing re-renders for us; and it must not wait for the whole attempt.
+    private Task SubmitAsync() => InvokeAsync(() => { _ = StartQrAsync(); });
+
+    private Task StartQrAsync()
+    {
+        if (!qrView || busy || closing) return Task.CompletedTask;
+        qrResult = null;
+        qrStopped = false;
+        activeKey = null;
+        return RunAsync(ct =>
+        {
+            var session = PairingService.CreateQrPairingSession();
+            qrSession = session;
+            adbNotice = null;
+            StateHasChanged();
+            return PairingService.PairQrAsync(session, ct);
+        }, "Waiting for your device to scan the code…", result =>
+        {
+            if (result.Success)
+            {
+                qrView = false;
+                banner = (Title(result, "Paired", "Couldn't pair"), result);
+            }
+            else
+            {
+                qrResult = result;
+            }
+        });
+    }
+
+    private Task RunAsync(Func<CancellationToken, Task<AndroidWirelessOperationResult>> action, string initialStatus,
+        Action<AndroidWirelessOperationResult> onResult)
+    {
+        busy = true;
+        stopping = false;
+        status = initialStatus;
+        operationCts = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+        UpdateActions();
+        StateHasChanged();
+        operationTask = PerformAsync(action, operationCts, onResult);
+        return operationTask;
+    }
+
+    private async Task PerformAsync(Func<CancellationToken, Task<AndroidWirelessOperationResult>> action,
+        CancellationTokenSource source, Action<AndroidWirelessOperationResult> onResult)
+    {
+        AndroidWirelessOperationResult result;
+        var stopped = false;
+        try
+        {
+            result = await action(source.Token);
+        }
+        catch (OperationCanceledException) when (source.IsCancellationRequested)
+        {
+            stopped = true;
+            result = new(AndroidWirelessOperationState.Failed, "Stopped. Start again when the device is ready.");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError($"Android pairing dialog operation failed ({ex.GetType().Name}).");
+            result = new(AndroidWirelessOperationState.Failed, "That didn't finish. Refresh and check the device before retrying.");
+        }
+        qrSession = null;
+        try
+        {
+            if (!disposed && !closing)
+            {
+                if (result.Success && bridge != null) bridge.Result = true;
+                qrStopped = stopped;
+                if (result.LocalNetworkBlocked)
+                {
+                    // One actionable notice replaces adb's raw "protocol fault" output.
+                    adbBlocked = true;
+                    adbNotice = null;
+                }
+                // Stopping is the user's choice, not a failure: only the QR view acknowledges it.
+                else if (!stopped || qrView)
+                    onResult(result);
+                if (!lifetime.IsCancellationRequested)
+                {
+                    busy = false;
+                    await RefreshAsync();
+                }
+            }
+        }
+        finally
+        {
+            source.Dispose();
+            operationCts = null;
+            busy = false;
+            stopping = false;
+            activeKey = null;
+            status = null;
+            UpdateActions();
+            if (!disposed) StateHasChanged();
+        }
+    }
+
+    private async Task RestartAdbAsync()
+    {
+        if (busy || closing) return;
+        busy = restartingAdb = true;
+        UpdateActions();
+        StateHasChanged();
+        var restarted = false;
+        try
+        {
+            restarted = await PairingService.RestartAdbServerAsync(lifetime.Token);
+        }
+        catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
+        busy = restartingAdb = stopping = false;
+        if (disposed || closing) return;
+        adbBlocked = !restarted;
+        adbNotice = restarted
+            ? "If macOS asks, allow MAUI Sherpa to find devices on your local network. Then pair again."
+            : null;
+        if (!restarted)
+            banner = ("Couldn't restart ADB", new(AndroidWirelessOperationState.Failed, "Quit other Android tools that use ADB, then try again."));
+        UpdateActions();
+        await RefreshAsync();
+    }
+
+    private async Task CancelOperationAsync()
+    {
+        qrSession = null;
+        if (operationCts != null) await operationCts.CancelAsync();
+        if (operationTask != null) await operationTask;
+    }
+
+    private void OnSecondaryAction() => _ = InvokeAsync(async () =>
+    {
+        if (stopping || closing) return;
+        if (busy)
+        {
+            stopping = true;
+            status = "Stopping…";
+            StateHasChanged();
+            await CancelOperationAsync();
+        }
+        else
+        {
+            await CloseAsync();
+        }
+    });
+
+    private async Task CloseAsync()
+    {
+        if (closing) return;
+        closing = true;
+        code = manualCode = "";
+        UpdateActions();
+        await lifetime.CancelAsync();
+        await CancelOperationAsync();
+        bridge?.RequestClose();
+    }
+
+    [JSInvokable]
+    public Task OnEscapePressed() => InvokeAsync(async () =>
+    {
+        if (codeKey != null)
+        {
+            CancelCode();
+            StateHasChanged();
+        }
+        else if (qrView && !busy)
+        {
+            CloseQr();
+            StateHasChanged();
+        }
+        else
+        {
+            await CloseAsync();
+        }
+    });
+
+    [JSInvokable] public void OnFocusBoundary(bool backwards) => bridge?.RequestActionFocus(backwards);
+
+    public async ValueTask DisposeAsync()
+    {
+        disposed = true;
+        code = manualCode = "";
+        DeviceWatcher.DevicesChanged -= OnDevicesChanged;
+        if (bridge != null)
+        {
+            bridge.SubmitRequested -= SubmitAsync;
+            bridge.CancelRequested -= OnSecondaryAction;
+            // Without this component nothing can honour Stop/Done, so let the native footer close the sheet directly.
+            bridge.PreventClose = false;
+            bridge.PreventSubmitClose = false;
+        }
+        await lifetime.CancelAsync();
+        await CancelOperationAsync();
+        if (pollTask != null) await pollTask;
+        await PairingService.StopDiscoveryAsync();
+        if (initialized)
+        {
+            try { await JS.InvokeVoidAsync("modalInterop.dispose", contentId); }
+            catch (JSDisconnectedException) { }
+        }
+        dotNetRef?.Dispose();
+        lifetime.Dispose();
+    }
+
+    private bool IsConnected(AndroidWirelessService s) => devices.Any(d =>
+        d.Serial == s.Endpoint || d.Serial.StartsWith(s.Name + ".", StringComparison.Ordinal));
+
+    private bool RowExists(string key) =>
+        AvailableServices.Any(s => ServiceKey(s) == key) || PhysicalDevices.Any(d => DeviceKey(d) == key);
+
+    private string? ReconnectEndpoint(DeviceInfo d)
+    {
+        if (AndroidWirelessPairingService.TryNormalizeEndpoint(d.Serial, out var endpoint))
+            return endpoint;
+        return services.FirstOrDefault(s => !s.IsPairing && d.Serial.StartsWith(s.Name + ".", StringComparison.Ordinal))?.Endpoint;
+    }
+
+    private static bool IsWireless(DeviceInfo d) => AndroidWirelessPairingService.IsWirelessSerial(d.Serial);
+
+    private static bool IsSixDigits(string value) => value.Length == 6 && value.All(char.IsAsciiDigit);
+    private static string ServiceKey(AndroidWirelessService s) => $"{(s.IsPairing ? "pair" : "connect")}|{s.Endpoint}";
+    private static string DeviceKey(DeviceInfo d) => $"device|{d.Serial}";
+
+    private static string StateLabel(string state) => state switch
+    {
+        "device" => "Connected",
+        "unauthorized" => "Allow debugging on device",
+        "offline" => "Offline",
+        _ => state
+    };
+
+    private static string Title(AndroidWirelessOperationResult result, string success, string failure) => result.State switch
+    {
+        AndroidWirelessOperationState.ConnectionPending => "Not online yet",
+        AndroidWirelessOperationState.Connected when success == "Paired" => "Paired and connected",
+        AndroidWirelessOperationState.Failed => failure,
+        _ => success
+    };
+
+    private static string BannerIcon(AndroidWirelessOperationResult result) => result.State switch
+    {
+        AndroidWirelessOperationState.Failed => "fa-triangle-exclamation",
+        AndroidWirelessOperationState.ConnectionPending => "fa-circle-info",
+        _ => "fa-circle-check"
+    };
+}

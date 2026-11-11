@@ -258,6 +258,59 @@ public interface IAdbDeviceWatcherService : IDisposable
     event Action<IReadOnlyList<DeviceInfo>>? DevicesChanged;
 }
 
+public interface IAndroidWirelessPairingService
+{
+    AndroidWirelessQrSession CreateQrPairingSession();
+    Task<AndroidWirelessOperationResult> PairQrAsync(AndroidWirelessQrSession session, CancellationToken ct = default);
+    Task<AndroidWirelessOperationResult> PairAsync(string endpoint, string pairingCode, CancellationToken ct = default);
+    Task<AndroidWirelessOperationResult> ConnectAsync(string endpoint, CancellationToken ct = default);
+    Task<AndroidWirelessDiscoveryResult> DiscoverAsync(CancellationToken ct = default);
+    /// <summary>Stops the private discovery-only adb server used by <see cref="DiscoverAsync"/>, if one was started.</summary>
+    Task StopDiscoveryAsync();
+    /// <summary>Restarts the user's ADB server so that it is launched by Sherpa. Disconnects all devices briefly.</summary>
+    Task<bool> RestartAdbServerAsync(CancellationToken ct = default);
+}
+
+public enum AndroidWirelessOperationState
+{
+    Failed,
+    Paired,
+    ConnectionPending,
+    Connected
+}
+
+public record AndroidWirelessOperationResult(AndroidWirelessOperationState State, string Message)
+{
+    public bool Success => State is AndroidWirelessOperationState.Paired or AndroidWirelessOperationState.Connected;
+
+    /// <summary>The ADB server can't reach the local network (macOS Local Network privacy); restarting ADB from Sherpa fixes it.</summary>
+    public bool LocalNetworkBlocked { get; init; }
+}
+
+public record AndroidWirelessService(string Name, string Endpoint, bool IsPairing);
+
+public record AndroidWirelessDiscoveryResult(
+    bool Success, IReadOnlyList<AndroidWirelessService> Services, string? Message = null);
+
+public sealed class AndroidWirelessQrSession
+{
+    private int started;
+
+    internal AndroidWirelessQrSession(string serviceName, string password, string imageDataUrl, DateTimeOffset expiresAt)
+    {
+        ServiceName = serviceName;
+        Password = password;
+        ImageDataUrl = imageDataUrl;
+        ExpiresAt = expiresAt;
+    }
+
+    public string ImageDataUrl { get; }
+    internal string ServiceName { get; }
+    internal string Password { get; }
+    internal DateTimeOffset ExpiresAt { get; }
+    internal bool TryStart() => Interlocked.Exchange(ref started, 1) == 0;
+}
+
 // ============================================================================
 // DEVICE MONITOR SERVICE — Centralized device/simulator/emulator monitoring
 // ============================================================================

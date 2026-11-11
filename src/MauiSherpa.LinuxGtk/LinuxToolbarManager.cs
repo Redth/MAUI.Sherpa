@@ -49,6 +49,7 @@ public class LinuxToolbarManager
     {
         // SF Symbols used by pages
         ["arrow.clockwise"] = "view-refresh-symbolic",
+        ["wifi"] = "network-wireless-signal-excellent-symbolic",
         ["plus"] = "list-add-symbolic",
         ["plus.circle"] = "list-add-symbolic",
         ["trash"] = "edit-delete-symbolic",
