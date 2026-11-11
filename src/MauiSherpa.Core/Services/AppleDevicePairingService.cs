@@ -53,6 +53,22 @@ public sealed class AppleDevicePairingService : IAppleDevicePairingService
     public Task<ApplePairingResult> VerifyAsync(string identifier, CancellationToken cancellationToken = default) =>
         RunOperationAsync(async ct => await VerifyDeviceAsync(await GetDeviceAsync(identifier, ct), ct), cancellationToken);
 
+    public Task<ApplePairingResult> UnpairAsync(string identifier, CancellationToken cancellationToken = default) =>
+        RunOperationAsync(async ct =>
+        {
+            var device = await GetDeviceAsync(identifier, ct);
+            if (!device.IsPaired)
+                return new(ApplePairingState.Failed, $"Apple does not report {device.Name} as paired, so nothing was unpaired.", device);
+
+            using var unpair = await _runner.RunDeviceCtlAsync(
+                ["manage", "unpair", "--device", device.Identifier], 60, ct);
+            var remaining = (await GetDevicesAsync(ct))
+                .FirstOrDefault(d => d.Identifier.Equals(device.Identifier, StringComparison.OrdinalIgnoreCase));
+            return remaining?.IsPaired == true
+                ? new(ApplePairingState.Failed, $"Apple completed the request, but still reports {device.Name} as paired. Refresh before trying again.", remaining)
+                : new(ApplePairingState.Unpaired, $"This Mac no longer has a pairing with {device.Name}. Pair it again to use it for development.", remaining ?? device with { PairingState = "unpaired" });
+        }, cancellationToken);
+
     public Task<ApplePairingResult> PairWirelessAsync(
         IProgress<ApplePairingProgress> progress, CancellationToken cancellationToken = default) =>
         RunOperationAsync(async ct =>

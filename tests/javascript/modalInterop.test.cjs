@@ -59,12 +59,14 @@ test('hybrid forms hand forward focus to native actions at the last control', ()
 
 test('hybrid forms hand backward focus to native actions at the first control', () => {
     const ui = setup(true);
+    ui.document.activeElement = ui.elements[0];
     assert.equal(ui.press('Tab', true).prevented, true);
     assert.deepEqual(ui.calls, [['OnFocusBoundary', true]]);
 });
 
 test('hybrid forms still move focus between web controls explicitly', () => {
     const ui = setup(true);
+    ui.document.activeElement = ui.elements[0];
     ui.press('Tab');
     assert.equal(ui.document.activeElement, ui.elements[1]);
     ui.press('Tab', true);
@@ -82,6 +84,12 @@ test('Escape invokes the component cancellation and close handler', () => {
     const ui = setup(true);
     assert.equal(ui.press('Escape').prevented, true);
     assert.deepEqual(ui.calls, [['OnEscapePressed']]);
+});
+
+test('hybrid forms leave initial focus with the native window', () => {
+    assert.equal(setup(true).document.activeElement, null);
+    const web = setup(false);
+    assert.equal(web.document.activeElement, web.elements[0]);
 });
 
 test('dispose removes the keyboard listener and its reference', () => {

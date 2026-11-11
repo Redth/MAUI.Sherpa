@@ -170,6 +170,7 @@ public class AppleDevicePairingServiceTests
         result.IsLiveVerified.Should().BeTrue();
         runner.PairCalls.Should().Be(0);
         runner.LiveTargets.Should().Equal("old");
+        runner.UnpairCalls.Should().Be(0);
     }
 
     [Fact]
@@ -347,8 +348,65 @@ public class AppleDevicePairingServiceTests
         var platform = new Mock<IPlatformService>();
         var service = new AppleDevicePairingService(platform.Object, Mock.Of<ILoggingService>(), runner);
         (await service.PairUsbAsync("old")).State.Should().Be(ApplePairingState.Failed);
+        (await service.UnpairAsync("old")).State.Should().Be(ApplePairingState.Failed);
         runner.ListCalls.Should().Be(0);
         service.IsWirelessSupported.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Unpair_TargetsExactStableIdentifierAndConfirmsSavedState()
+    {
+        var runner = new FakeRunner();
+        var result = await Service(runner).UnpairAsync("old");
+        result.State.Should().Be(ApplePairingState.Unpaired);
+        runner.UnpairTargets.Should().Equal("old");
+        runner.UnpairTimeout.Should().Be(60);
+        runner.PairCalls.Should().Be(0);
+        runner.LiveTargets.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Unpair_RefusesNamesAndAlreadyUnpairedDevices()
+    {
+        var runner = new FakeRunner { State = "unpaired" };
+        (await Service(runner).UnpairAsync("Test device")).State.Should().Be(ApplePairingState.Failed);
+        (await Service(runner).UnpairAsync("old")).State.Should().Be(ApplePairingState.Failed);
+        runner.UnpairCalls.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Unpair_RechecksDetailsInsteadOfTrustingListState()
+    {
+        var runner = new FakeRunner { DetailsState = "unpaired" };
+        (await Service(runner).UnpairAsync("old")).State.Should().Be(ApplePairingState.Failed);
+        runner.UnpairCalls.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Unpair_DoesNotClaimSuccessWhenAppleStillReportsPaired()
+    {
+        var runner = new FakeRunner { IgnoreUnpair = true };
+        var result = await Service(runner).UnpairAsync("old");
+        result.State.Should().Be(ApplePairingState.Failed);
+        runner.UnpairCalls.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Unpair_IsSerializedWithPairing()
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var runner = new FakeRunner
+        {
+            OnWireless = async ct => { entered.SetResult(); await Task.Delay(Timeout.Infinite, ct); }
+        };
+        var service = Service(runner);
+        using var cancel = new CancellationTokenSource();
+        var wireless = service.PairWirelessAsync(new InlineProgress(), cancel.Token);
+        await entered.Task;
+        (await service.UnpairAsync("old")).Message.Should().Contain("Another Apple");
+        runner.UnpairCalls.Should().Be(0);
+        cancel.Cancel();
+        await FluentActions.Awaiting(() => wireless).Should().ThrowAsync<OperationCanceledException>();
     }
 
     private static AppleDevicePairingService Service(FakeRunner runner)
@@ -393,6 +451,10 @@ public class AppleDevicePairingServiceTests
         public int NewDevices { get; init; } = 1;
         public int PairCalls { get; private set; }
         public int PairTimeout { get; private set; }
+        public int UnpairCalls => UnpairTargets.Count;
+        public int UnpairTimeout { get; private set; }
+        public bool IgnoreUnpair { get; init; }
+        public List<string> UnpairTargets { get; } = [];
         public int WirelessTimeout { get; private set; }
         public int ListCalls { get; private set; }
         public int ActiveWirelessSessions { get; private set; }
@@ -419,7 +481,14 @@ public class AppleDevicePairingServiceTests
             var identifier = arguments[Array.IndexOf(arguments, "--device") + 1];
             if (arguments[0] == "manage")
             {
-                arguments[1].Should().Be("pair", "no unpair or revocation is ever allowed");
+                if (arguments[1] == "unpair")
+                {
+                    UnpairTargets.Add(identifier);
+                    UnpairTimeout = timeoutSeconds;
+                    if (!IgnoreUnpair) State = "unpaired";
+                    return Task.FromResult(Envelope(new { }));
+                }
+                arguments[1].Should().Be("pair");
                 PairCalls++;
                 PairTimeout = timeoutSeconds;
                 PairTargets.Add(identifier);

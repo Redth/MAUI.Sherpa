@@ -71,6 +71,7 @@ public class HybridFormBridge
     // Dynamic form action state — used by long-running forms that remain open after submit.
     public bool HasActionState { get; private set; }
     public bool ActionEnabled { get; private set; }
+    public bool ActionVisible { get; private set; } = true;
     public bool ActionBusy { get; private set; }
     public string? ActionText { get; private set; }
     public string? SecondaryActionText { get; private set; }
@@ -108,10 +109,12 @@ public class HybridFormBridge
         bool enabled,
         bool busy = false,
         string? actionText = null,
-        string? secondaryActionText = null)
+        string? secondaryActionText = null,
+        bool visible = true)
     {
         HasActionState = true;
         ActionEnabled = enabled;
+        ActionVisible = visible;
         ActionBusy = busy;
         ActionText = actionText;
         SecondaryActionText = secondaryActionText;

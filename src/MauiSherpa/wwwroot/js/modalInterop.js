@@ -16,8 +16,9 @@ window.modalInterop = {
         modal.addEventListener('keydown', state.keyHandler);
         this._instances.set(modalId, state);
 
-        // Auto-focus first focusable element
-        requestAnimationFrame(() => this._focusFirst(modal));
+        // Hybrid sheets leave initial focus with the native window so nothing appears pre-selected.
+        if (!nativeActions)
+            requestAnimationFrame(() => this._focusFirst(modal));
     },
 
     dispose(modalId) {

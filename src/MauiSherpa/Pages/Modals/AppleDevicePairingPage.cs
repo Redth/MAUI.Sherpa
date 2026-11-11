@@ -11,7 +11,7 @@ public sealed class AppleDevicePairingPage : HybridFormPage<bool>
     private bool disappeared;
 
     protected override string FormTitle => "Pair Apple Device";
-    protected override string SubmitButtonText => "Pair via USB";
+    protected override string SubmitButtonText => "Start Wi-Fi Pairing";
     protected override double SubmitButtonMinimumWidth => 164;
     protected override string BlazorRoute => "/modal/apple-device-pairing";
 
@@ -24,8 +24,8 @@ public sealed class AppleDevicePairingPage : HybridFormPage<bool>
 
 #if MACOSAPP
         MacOSPage.SetModalSheetSizesToContent(this, false);
-        MacOSPage.SetModalSheetWidth(this, 620);
-        MacOSPage.SetModalSheetHeight(this, 650);
+        MacOSPage.SetModalSheetWidth(this, 640);
+        MacOSPage.SetModalSheetHeight(this, 620);
 #endif
     }
 

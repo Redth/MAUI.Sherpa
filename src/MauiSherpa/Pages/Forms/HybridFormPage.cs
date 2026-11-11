@@ -27,6 +27,7 @@ public abstract class HybridFormPage<TResult> : ContentPage, IFormPage<TResult>,
     private Button? _submitButton;
     private Button? _cancelButton;
     private ActivityIndicator? _submittingIndicator;
+    private Grid? _footerLayout;
     private Grid? _headerGrid;
     private HorizontalStackLayout? _headerActionsLayout;
 #if MACOSAPP
@@ -222,13 +223,24 @@ public abstract class HybridFormPage<TResult> : ContentPage, IFormPage<TResult>,
             IsDestructiveSubmit ? FormTheme.AccentDanger : FormTheme.AccentPrimary);
         _submitButton.Clicked += OnSubmitClicked;
 
-        var footerLayout = new HorizontalStackLayout
+        _submittingIndicator.Margin = new Thickness(12, 0, 0, 0);
+        _submitButton.Margin = new Thickness(12, 0, 0, 0);
+        _footerLayout = new Grid
         {
-            Spacing = 12,
-            HorizontalOptions = LayoutOptions.End,
+            ColumnDefinitions =
+            {
+                new ColumnDefinition(GridLength.Star),
+                new ColumnDefinition(GridLength.Auto),
+                new ColumnDefinition(GridLength.Auto),
+                new ColumnDefinition(GridLength.Auto),
+            },
+            ColumnSpacing = 0,
+            HorizontalOptions = LayoutOptions.Fill,
             Margin = new Thickness(28, 12, 28, 24),
-            Children = { _cancelButton, _submittingIndicator, _submitButton },
         };
+        _footerLayout.Add(_cancelButton, 1);
+        _footerLayout.Add(_submittingIndicator, 2);
+        _footerLayout.Add(_submitButton, 3);
 
         var grid = new Grid
         {
@@ -250,13 +262,13 @@ public abstract class HybridFormPage<TResult> : ContentPage, IFormPage<TResult>,
         Grid.SetRow(headerSeparator, 1);
         Grid.SetRow(webView, 2);
         Grid.SetRow(footerSeparator, 3);
-        Grid.SetRow(footerLayout, 4);
+        Grid.SetRow(_footerLayout, 4);
 
         grid.Children.Add(headerGrid);
         grid.Children.Add(headerSeparator);
         grid.Children.Add(webView);
         grid.Children.Add(footerSeparator);
-        grid.Children.Add(footerLayout);
+        grid.Children.Add(_footerLayout);
 
         Content = grid;
         ApplyActionState();
@@ -328,7 +340,7 @@ public abstract class HybridFormPage<TResult> : ContentPage, IFormPage<TResult>,
     {
         Dispatcher.Dispatch(() =>
         {
-            var target = backwards && _submitButton?.IsEnabled == true ? _submitButton : _cancelButton;
+            var target = backwards && _submitButton is { IsEnabled: true, IsVisible: true } ? _submitButton : _cancelButton;
 #if MACOSAPP
             if (target?.Handler?.PlatformView is AppKit.NSView nativeView)
                 nativeView.Window?.MakeFirstResponder(nativeView);
@@ -374,6 +386,20 @@ public abstract class HybridFormPage<TResult> : ContentPage, IFormPage<TResult>,
         {
             _submitButton.Text = _bridge.ActionText ?? SubmitButtonText;
             _submitButton.IsEnabled = _bridge.ActionEnabled && !_bridge.ActionBusy && !_isSubmitting;
+            _submitButton.IsVisible = _bridge.ActionVisible;
+            // The macOS backend hides invisible views without collapsing them, so collapse the column explicitly.
+            if (_footerLayout != null)
+            {
+                _footerLayout.ColumnDefinitions[3].Width = _bridge.ActionVisible ? GridLength.Auto : new GridLength(0);
+                ((IView)_footerLayout).InvalidateMeasure();
+#if MACOSAPP
+                if (_footerLayout.Handler?.PlatformView is AppKit.NSView footerView)
+                {
+                    footerView.NeedsLayout = true;
+                    footerView.LayoutSubtreeIfNeeded();
+                }
+#endif
+            }
         }
 
         if (_cancelButton != null)

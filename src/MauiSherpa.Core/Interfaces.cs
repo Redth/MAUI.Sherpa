@@ -1508,7 +1508,8 @@ public enum ApplePairingState
     Failed,
     Paired,
     Connected,
-    CompletedUnverified
+    CompletedUnverified,
+    Unpaired
 }
 
 public record ApplePairingResult(
@@ -1543,6 +1544,8 @@ public interface IAppleDevicePairingService
     Task<IReadOnlyList<PhysicalDevice>> GetDevicesAsync(CancellationToken cancellationToken = default);
     Task<ApplePairingResult> PairUsbAsync(string identifier, CancellationToken cancellationToken = default);
     Task<ApplePairingResult> VerifyAsync(string identifier, CancellationToken cancellationToken = default);
+    /// <summary>Removes this Mac's pairing with the device. Call only after the user explicitly confirms.</summary>
+    Task<ApplePairingResult> UnpairAsync(string identifier, CancellationToken cancellationToken = default);
     Task<ApplePairingResult> PairWirelessAsync(
         IProgress<ApplePairingProgress> progress, CancellationToken cancellationToken = default);
 }

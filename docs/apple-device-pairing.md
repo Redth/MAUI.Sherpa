@@ -4,20 +4,30 @@ Open **Apple > Devices & Simulators > Pair Device** to pair a physical device wi
 This is separate from registering a device in an Apple Developer account.
 
 The pairing screen is a native hybrid sheet: native title and action buttons surround a themed
-Blazor body. Choose USB or Wi-Fi at the top. Connection details stay collapsed until needed.
-**Stop** cancels the current operation without revoking trust; **Close** dismisses the sheet.
+Blazor body laid out like macOS Bluetooth settings. **Available Devices** comes first and lists
+unpaired devices Sherpa can see; it refreshes every few seconds, so a newly connected cable shows up
+on its own. Its header holds **Pair over Wi-Fi…**. **My Devices** lists devices already paired with
+this Mac, with their live connection status. **Stop** cancels the current operation without revoking
+trust; **Done** dismisses the sheet.
 
 ## USB
 
-Connect and unlock the device, refresh the list, select its stable CoreDevice identifier, and choose
-**Pair via USB**. Sherpa runs Apple's documented `xcrun devicectl manage pair` command. Complete the
-device's Trust/passcode prompt and any Mac authorization prompt yourself. Sherpa never supplies
-authentication answers.
+Connect and unlock the device. When it appears under **Available Devices**, choose **Pair** on its
+row. Sherpa targets the device's stable CoreDevice identifier and runs Apple's documented
+`xcrun devicectl manage pair` command. Complete the device's Trust/passcode prompt and any Mac
+authorization prompt yourself. Sherpa never supplies authentication answers.
 
-An already-paired device offers **Check Connection** instead. This does not re-pair the device.
-Pairing records, current connection, transport, and Developer Mode are shown separately. A successful
+Paired devices offer **Check** instead. This does not re-pair the device. A successful
 live check queries `devicectl device info lockState`; cached device details alone are not considered
 proof that the device is responding.
+
+## Unpairing
+
+Each row under **My Devices** has an unpair button. Sherpa asks for confirmation inside that row
+before doing anything. After you choose **Unpair**, it re-reads the device by stable identifier, runs
+Apple's documented `xcrun devicectl manage unpair` command, and only reports success once Apple no
+longer lists the device as paired. Pairing again requires Trust and the device passcode. Sherpa never
+unpairs a device on its own, during pairing, or to make another flow work.
 
 Xcode must be installed and selected with `xcode-select`. Apple devices supported by CoreDevice are
 listed, excluding simulators and the Mac host. USB pairing has been verified with an iPad on iPadOS
@@ -55,8 +65,9 @@ already-paired, same-name phone as proof of a new pairing.
 
 Cancellation and failed commands can leave a pairing that the owner already approved. Sherpa
 refreshes device state after an attempt; refresh errors are shown separately from the pairing result.
-Unlock the device and inspect its state before explicitly retrying. Sherpa never unpairs, revokes
-trust, disables Developer Mode, or automatically retries a pairing operation.
+Unlock the device and inspect its state before explicitly retrying. Sherpa never revokes trust,
+disables Developer Mode, automatically retries a pairing operation, or unpairs without your
+confirmation.
 
 Native helper distribution/notarization and other OS combinations still require validation. The
 helper is built for arm64 and x86_64, bundled in `Contents/MacOS`, and signed before the outer app.
@@ -64,11 +75,12 @@ No new entitlement or sandbox bypass is used.
 
 The fresh USB and Wi-Fi pairings above were verified with the standalone prototype. The integrated
 Sherpa build has been checked for discovery, an existing iPad's live connection, helper availability,
-and consecutive signed macOS builds without starting another real pairing. The native hybrid sheet
-has been checked in both themes, including native action labels, Wi-Fi acknowledgment gating, Close,
-and Escape. Automated tests cover the web-to-native Tab handoff; complete native keyboard traversal
-still needs interactive confirmation. Fresh pairings through the packaged dialog still need
-consenting devices and owner-completed authentication.
+and consecutive signed macOS builds without starting another real pairing. The grouped native sheet
+has been checked for layout, native footer actions, and Wi-Fi acknowledgment gating. Unpairing is
+covered by automated tests only; it has not been run against real hardware. Automated tests cover the
+web-to-native Tab handoff; complete native keyboard traversal still needs interactive confirmation.
+Fresh pairings through the packaged dialog still need consenting devices and owner-completed
+authentication.
 
 ## Development checks
 
