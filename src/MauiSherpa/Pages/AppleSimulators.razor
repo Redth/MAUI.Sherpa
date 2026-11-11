@@ -12,6 +12,7 @@
 @inject BlazorToastService ToastService
 @inject SimInspectorService SimInspector
 @inject IPhysicalDeviceService PhysicalDeviceService
+@inject IAppleDevicePairingService PairingService
 @inject IPlatformService Platform
 @inject IEncryptedSettingsService SettingsService
 @inject IFormModalService FormModalService
@@ -31,21 +32,33 @@
 else
 {
 <!-- Physical Devices Section -->
-<div class="section-label"><i class="fas fa-mobile-alt"></i> Physical Devices</div>
+<div class="physical-device-heading">
+    <div class="section-label"><i class="fas fa-mobile-alt"></i> Physical Devices</div>
+    <button class="btn btn-primary" @ref="pairButton" @onclick="() => ShowPairing()" disabled="@(!PairingService.IsSupported)">
+        <i class="fas fa-link"></i> Pair Device
+    </button>
+</div>
+@if (physicalDevicesError != null)
+{
+    <div class="physical-device-error" role="alert">
+        @physicalDevicesError
+        <button class="btn btn-secondary" @onclick="RefreshPhysicalDevices" disabled="@isLoadingDevices">Retry</button>
+    </div>
+}
 @if (isLoadingDevices)
 {
     <div class="loading-indicator"><i class="fas fa-spinner fa-spin"></i> Scanning for devices...</div>
 }
-else if (physicalDevices.Count == 0)
+else if (physicalDevices.Count == 0 && physicalDevicesError == null)
 {
-    <div class="empty-hint">No physical iOS devices detected. Connect a device via USB or ensure it's on the same network.</div>
+    <div class="empty-hint">No physical Apple devices found. Connect a device by USB, or use Pair Device to set up a new connection.</div>
 }
 else
 {
     <div class="simulator-list">
         @foreach (var device in physicalDevices)
         {
-            <div class="simulator-card running">
+            <div class="simulator-card @(device.IsConnected ? "running" : "")">
                 <div class="simulator-icon">
                     <i class="fas @GetPhysicalDeviceIcon(device)"></i>
                     <i class="fab fa-apple brand-overlay"></i>
@@ -54,7 +67,7 @@ else
                     <div class="simulator-name">@device.Name</div>
                     <div class="simulator-info">
                         <span>@device.Model</span>
-                        <span>• iOS @device.OsVersion</span>
+                        <span>• @device.Platform @device.OsVersion</span>
                     </div>
                     <div class="simulator-udid">
                         <span class="@(demoMode ? "demo-blur" : "")">@device.Udid</span>
@@ -63,20 +76,28 @@ else
                         </button>
                     </div>
                     <div class="simulator-badges">
-                        <span class="badge badge-success">Connected</span>
+                        <span class="badge @(device.IsConnected ? "badge-success" : "badge-shutdown")">@(device.IsConnected ? "Connected" : "Offline / not verified")</span>
+                        <span class="badge @(device.IsPaired ? "badge-success" : "badge-warning")">@(device.IsPaired ? "Paired" : device.PairingState == "unpaired" ? "Not paired" : "Pairing unknown")</span>
                         <span class="badge badge-transport">
-                            <i class="fas fa-@(device.TransportType == "wired" ? "usb" : "wifi")"></i> @device.TransportType
+                            <i class="@(device.IsWired ? "fab fa-usb" : "fas fa-wifi")"></i> @device.TransportType
                         </span>
+                        @if (device.DeveloperModeStatus == "disabled")
+                        {
+                            <span class="badge badge-warning">Developer Mode off</span>
+                        }
                     </div>
                 </div>
                 <div class="simulator-actions">
-                    <button class="btn btn-info btn-icon" @onclick="@(() => SimInspector.Open(device.Identifier, device.Name, SimInspectorTab.Logs, isPhysicalDevice: true))" title="Logs">
+                    <button class="btn btn-secondary btn-icon" @onclick="() => ShowPairing(device.Identifier)" title="Pair or check connection" aria-label="@($"Pair or check connection for {device.Name}")">
+                        <i class="fas fa-link"></i>
+                    </button>
+                    <button class="btn btn-info btn-icon" @onclick="@(() => SimInspector.Open(device.Identifier, device.Name, SimInspectorTab.Logs, isPhysicalDevice: true))" disabled="@(!device.IsPaired || !device.IsConnected)" title="Logs">
                         <i class="fas fa-scroll"></i>
                     </button>
-                    <button class="btn btn-secondary btn-icon" @onclick="@(() => SimInspector.Open(device.Identifier, device.Name, SimInspectorTab.Apps, isPhysicalDevice: true))" title="Apps">
+                    <button class="btn btn-secondary btn-icon" @onclick="@(() => SimInspector.Open(device.Identifier, device.Name, SimInspectorTab.Apps, isPhysicalDevice: true))" disabled="@(!device.IsPaired || !device.IsConnected)" title="Apps">
                         <i class="fas fa-th-large"></i>
                     </button>
-                    <button class="btn btn-secondary btn-icon" @onclick="@(() => InstallAppOnDevice(device))" title="Install App">
+                    <button class="btn btn-secondary btn-icon" @onclick="@(() => InstallAppOnDevice(device))" disabled="@(!device.IsPaired || !device.IsConnected || device.DeveloperModeStatus == "disabled")" title="Install App">
                         <i class="fas fa-download"></i>
                     </button>
                 </div>
@@ -91,7 +112,7 @@ else
 @if (!Platform.HasNativeToolbar)
 {
 <div class="toolbar">
-    <button class="btn btn-primary" @onclick="() => RefreshSimulators(forceRefresh: true)" disabled="@isLoading">
+    <button class="btn btn-primary" @onclick="RefreshAll" disabled="@(isLoading || isLoadingDevices)">
         <i class="fas @(isLoading ? "fa-spinner fa-spin" : "fa-sync-alt")"></i> Refresh
     </button>
     <button class="btn btn-success" @onclick="ShowCreateDialog" disabled="@isLoading">
@@ -280,7 +301,13 @@ else
 
 } @* end else IsSupported *@
 
+<AppleDevicePairingDialog IsOpen="@showPairing" InitialDeviceIdentifier="@pairingDeviceIdentifier"
+                          OnClose="ClosePairing" OnDevicesMayHaveChanged="RefreshPhysicalDevices" />
+
 <style>
+    .physical-device-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 0.75rem; }
+    .physical-device-heading .section-label { margin-bottom: 0; }
+    .physical-device-error { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.875rem; margin-bottom: 0.75rem; color: var(--accent-danger); background: var(--status-error-bg); border: 1px solid var(--accent-danger); border-radius: 0.5rem; }
     .not-supported {
         text-align: center;
         padding: 3.75rem 1.25rem;
@@ -593,6 +620,10 @@ else
     private HashSet<string> bootingSimulators = new();
     private bool isLoading = false;
     private bool isLoadingDevices = false;
+    private bool showPairing;
+    private string? pairingDeviceIdentifier;
+    private string? physicalDevicesError;
+    private ElementReference pairButton;
     private bool demoMode = false;
     private string? openDropdownId;
 
@@ -632,6 +663,7 @@ else
 
         ToolbarService.SetItems(
             new ToolbarAction("refresh", "Refresh", "arrow.clockwise"),
+            new ToolbarAction("pair", "Pair Device", "link"),
             new ToolbarAction("create", "Create Simulator", "plus")
         );
         ToolbarService.SetSearch("Search by name...");
@@ -935,15 +967,35 @@ else
     }
 
     // Physical devices
+    private void ShowPairing(string? identifier = null)
+    {
+        pairingDeviceIdentifier = identifier;
+        showPairing = true;
+    }
+
+    private async Task ClosePairing()
+    {
+        showPairing = false;
+        await pairButton.FocusAsync();
+    }
+
+    private Task RefreshAll() => Task.WhenAll(RefreshSimulators(forceRefresh: true), RefreshPhysicalDevices());
+
     private async Task RefreshPhysicalDevices()
     {
+        if (isLoadingDevices) return;
         isLoadingDevices = true;
+        physicalDevicesError = null;
         try
         {
             var devices = await PhysicalDeviceService.GetDevicesAsync();
             physicalDevices = devices.ToList();
         }
-        catch { }
+        catch (Exception ex)
+        {
+            physicalDevices = [];
+            physicalDevicesError = $"Could not load physical Apple devices. {ex.Message}";
+        }
         finally
         {
             isLoadingDevices = false;
@@ -1012,8 +1064,9 @@ else
             {
                 case "refresh":
                     ToolbarService.SetItemEnabled("refresh", false);
-                    try { await RefreshSimulators(forceRefresh: true); } finally { ToolbarService.SetItemEnabled("refresh", true); }
+                    try { await RefreshAll(); } finally { ToolbarService.SetItemEnabled("refresh", true); }
                     break;
+                case "pair": ShowPairing(); break;
                 case "create": await ShowCreateDialog(); break;
             }
             StateHasChanged();

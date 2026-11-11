@@ -1476,11 +1476,11 @@ public interface IAndroidDeviceToolsService
 }
 
 // ============================================================================
-// Physical iOS Device Management (via xcrun devicectl)
+// Physical Apple Device Management (via xcrun devicectl)
 // ============================================================================
 
 /// <summary>
-/// Represents a physical iOS device connected via USB or network
+/// Represents a known physical Apple device. A saved pairing is not a live connection.
 /// </summary>
 public record PhysicalDevice(
     string Identifier,
@@ -1492,8 +1492,60 @@ public record PhysicalDevice(
     string OsVersion,
     string TransportType,
     string ConnectionState,
-    string TunnelState
-);
+    string TunnelState,
+    string PairingState = "unknown",
+    string DeveloperModeStatus = "unknown",
+    string Fidelity = "unknown"
+)
+{
+    public bool IsPaired => PairingState == "paired";
+    public bool IsConnected => ConnectionState == "connected";
+    public bool IsWired => TransportType is "wired" or "usb";
+}
+
+public enum ApplePairingState
+{
+    Failed,
+    Paired,
+    Connected,
+    CompletedUnverified
+}
+
+public record ApplePairingResult(
+    ApplePairingState State,
+    string Message,
+    PhysicalDevice? Device = null)
+{
+    public bool IsLiveVerified => State == ApplePairingState.Connected;
+}
+
+public enum ApplePairingStage
+{
+    Advertising,
+    Code,
+    Verifying
+}
+
+/// <summary>Ephemeral UI data. Never log or persist the pairing code.</summary>
+public sealed class ApplePairingProgress
+{
+    public ApplePairingStage Stage { get; init; }
+    public string? PairingCode { get; init; }
+    public string? RequestingDevice { get; init; }
+
+    public override string ToString() => $"Apple pairing: {Stage}";
+}
+
+public interface IAppleDevicePairingService
+{
+    bool IsSupported { get; }
+    bool IsWirelessSupported { get; }
+    Task<IReadOnlyList<PhysicalDevice>> GetDevicesAsync(CancellationToken cancellationToken = default);
+    Task<ApplePairingResult> PairUsbAsync(string identifier, CancellationToken cancellationToken = default);
+    Task<ApplePairingResult> VerifyAsync(string identifier, CancellationToken cancellationToken = default);
+    Task<ApplePairingResult> PairWirelessAsync(
+        IProgress<ApplePairingProgress> progress, CancellationToken cancellationToken = default);
+}
 
 /// <summary>
 /// Represents an installed app on a physical iOS device (from devicectl)

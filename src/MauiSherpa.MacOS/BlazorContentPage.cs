@@ -1029,6 +1029,7 @@ public class BlazorContentPage : ContentPage
             var supersetActions = new[]
             {
                 ("create", "New Secret", "plus"),
+                ("pair", "Pair Device", "link"),
                 ("export", "Export", "square.and.arrow.up"),
                 ("export-selected", "Export Selected", "square.and.arrow.up"),
                 ("select", "Select", "checkmark.circle"),

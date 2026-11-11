@@ -218,6 +218,7 @@ public static class MauiProgram
         builder.Services.AddSingleton<ISimulatorService, MauiSherpa.Core.Services.SimulatorService>();
         builder.Services.AddSingleton<ISimulatorLogService, SimulatorLogService>();
         builder.Services.AddSingleton<IPhysicalDeviceService, MauiSherpa.Core.Services.PhysicalDeviceService>();
+        builder.Services.AddSingleton<IAppleDevicePairingService, AppleDevicePairingService>();
         builder.Services.AddSingleton<IPhysicalDeviceLogService, PhysicalDeviceLogService>();
         builder.Services.AddSingleton<SimInspectorService>();
         builder.Services.AddSingleton<IDeepLinkValidationService, DeepLinkValidationService>();
