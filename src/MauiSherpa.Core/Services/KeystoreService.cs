@@ -123,6 +123,33 @@ public class KeystoreService : IKeystoreService
         return ParseKeystoreInfo(output);
     }
 
+    public async Task<bool> VerifyKeyPasswordAsync(string keystorePath, string alias, string keystorePassword, string keyPassword)
+    {
+        var keytool = await GetKeytoolPathAsync()
+            ?? throw new InvalidOperationException("keytool not found. Please configure OpenJDK path in Settings.");
+
+        // Generating a certificate request signs with the private key, so it fails when the
+        // key password can't recover the key.
+        var requestPath = Path.Combine(Path.GetTempPath(), $"sherpa-keycheck-{Guid.NewGuid():N}.csr");
+        try
+        {
+            var (exitCode, output) = await RunProcessAsync(keytool,
+                ["-J-Duser.language=en", "-J-Duser.country=US", "-certreq",
+                 "-keystore", keystorePath, "-storepass", keystorePassword,
+                 "-alias", alias, "-keypass", keyPassword, "-file", requestPath]);
+            if (exitCode == 0)
+                return true;
+            if (output.Contains("UnrecoverableKeyException", StringComparison.Ordinal) ||
+                output.Contains("Cannot recover key", StringComparison.Ordinal))
+                return false;
+            throw new InvalidOperationException($"keytool failed (exit {exitCode}): {output}");
+        }
+        finally
+        {
+            try { File.Delete(requestPath); } catch { }
+        }
+    }
+
     public async Task ExportPepkAsync(
         string keystorePath,
         string alias,
@@ -169,6 +196,16 @@ public class KeystoreService : IKeystoreService
     {
         await EnsureKeystoresLoadedAsync();
         _keystores!.Add(keystore);
+        await SaveKeystoresAsync();
+    }
+
+    public async Task UpdateKeystoreAsync(AndroidKeystore keystore)
+    {
+        await EnsureKeystoresLoadedAsync();
+        var index = _keystores!.FindIndex(k => k.Id == keystore.Id);
+        if (index < 0)
+            throw new InvalidOperationException($"Keystore '{keystore.Alias}' is not registered.");
+        _keystores[index] = keystore;
         await SaveKeystoresAsync();
     }
 
@@ -283,6 +320,7 @@ public class KeystoreService : IKeystoreService
 
     private static async Task<(int ExitCode, string Output)> RunProcessAsync(ProcessStartInfo psi)
     {
+        psi.RedirectStandardInput = true;
         psi.RedirectStandardOutput = true;
         psi.RedirectStandardError = true;
         psi.UseShellExecute = false;
@@ -290,6 +328,9 @@ public class KeystoreService : IKeystoreService
 
         using var process = Process.Start(psi)
             ?? throw new InvalidOperationException($"Failed to start: {psi.FileName}");
+
+        // keytool prompts on stdin when a password is wrong or missing; give it nothing to wait on.
+        process.StandardInput.Close();
 
         var stdoutTask = process.StandardOutput.ReadToEndAsync();
         var stderrTask = process.StandardError.ReadToEndAsync();

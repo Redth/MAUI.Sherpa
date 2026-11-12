@@ -5059,7 +5059,17 @@ public interface IKeystoreService
 
     Task<IReadOnlyList<AndroidKeystore>> ListKeystoresAsync();
     Task AddKeystoreAsync(AndroidKeystore keystore);
+
+    /// <summary>Replaces the registered keystore with the same ID, keeping its saved passwords.</summary>
+    Task UpdateKeystoreAsync(AndroidKeystore keystore);
     Task RemoveKeystoreAsync(string id);
+
+    /// <summary>
+    /// True when <paramref name="keyPassword"/> unlocks the private key for <paramref name="alias"/>.
+    /// keytool ignores the key password for PKCS12 keystores, whose key password is always the
+    /// keystore password, so this only tells a wrong key password apart for other keystore types.
+    /// </summary>
+    Task<bool> VerifyKeyPasswordAsync(string keystorePath, string alias, string keystorePassword, string keyPassword);
     Task<string?> GetKeytoolPathAsync();
 
     /// <summary>The saved keystore (store) password, or null when none is saved.</summary>
