@@ -10,9 +10,12 @@ namespace MauiSherpa.Core.Services;
 /// <summary>
 /// Android keystores live in the Local Vault secrets provider: the keystore file, its keystore
 /// and key passwords and its metadata, laid out as <see cref="KeystoreVaultLayout"/> describes.
-/// Older versions registered a path to a file on disk in <c>android-keystores.json</c> and kept
-/// passwords in secure storage; those keystores are moved into the vault the first time their
-/// file is found.
+/// <para>
+/// Keystores can also be file-attached: registered by path in <c>android-keystores.json</c>
+/// with passwords in secure storage. That is how older versions stored every keystore, and how
+/// keystores are still stored when the Local Vault is not turned on. File-attached keystores
+/// move into the vault the first time it is available and their file is found.
+/// </para>
 /// </summary>
 public class KeystoreService : IKeystoreService
 {
@@ -25,24 +28,34 @@ public class KeystoreService : IKeystoreService
     private readonly ILoggingService _logger;
     private readonly ISecretsProviderRegistry? _providerRegistry;
     private readonly ICloudSecretsService? _cloudSecrets;
+    private readonly ILocalVaultIntroductionService? _localVaultIntroduction;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
-    /// <summary>Where older versions registered keystore file paths.</summary>
+    /// <summary>Where file-attached keystores are registered by path.</summary>
     internal string LegacyRegistryPath { get; init; } =
         Path.Combine(AppDataPath.GetAppDataDirectory(), KeystoresFileName);
+
+    /// <summary>
+    /// Where a file-attached keystore's file is written when it arrives without one on disk
+    /// (created, restored or downloaded while the Local Vault is off).
+    /// </summary>
+    internal string FileKeystoreDirectory { get; init; } =
+        Path.Combine(AppDataPath.GetAppDataDirectory(), "keystores");
 
     public KeystoreService(
         IOpenJdkSettingsService jdkSettings,
         ISecureStorageService secureStorage,
         ILoggingService logger,
         ISecretsProviderRegistry? providerRegistry = null,
-        ICloudSecretsService? cloudSecrets = null)
+        ICloudSecretsService? cloudSecrets = null,
+        ILocalVaultIntroductionService? localVaultIntroduction = null)
     {
         _jdkSettings = jdkSettings;
         _secureStorage = secureStorage;
         _logger = logger;
         _providerRegistry = providerRegistry;
         _cloudSecrets = cloudSecrets;
+        _localVaultIntroduction = localVaultIntroduction;
     }
 
     public async Task<string?> GetKeytoolPathAsync()
@@ -239,7 +252,10 @@ public class KeystoreService : IKeystoreService
         await _gate.WaitAsync();
         try
         {
-            var vault = await RequireVaultAsync();
+            var vault = await GetVaultAsync(create: true);
+            if (vault is null)
+                return await AddFileKeystoreAsync(keystore, content, keystorePassword, keyPassword);
+
             var stored = await ReadVaultKeystoresAsync(vault);
 
             var conflict = stored.FirstOrDefault(k =>
@@ -316,7 +332,7 @@ public class KeystoreService : IKeystoreService
         if (vault is not null && keystore.StoredInVault)
             return await vault.GetSecretAsync(KeystoreVaultLayout.GetKey(keystore.Alias, KeystoreVaultLayout.FileSuffix));
 
-        // An older keystore that could not be moved into the vault yet.
+        // A file-attached keystore.
         return File.Exists(keystore.FilePath) ? await File.ReadAllBytesAsync(keystore.FilePath) : null;
     }
 
@@ -325,7 +341,7 @@ public class KeystoreService : IKeystoreService
         var (_, keystore) = await FindAsync(id);
         var content = keystore is null ? null : await GetKeystoreContentAsync(id);
         if (keystore is null || content is null)
-            throw new InvalidOperationException("The keystore is not stored in the Local Vault.");
+            throw new InvalidOperationException(KeystoreUnavailableMessage(keystore));
 
         var directory = CreatePrivateTempDirectory();
         var path = Path.Combine(directory, SanitizeFileName(Path.GetFileName(keystore.FilePath), keystore.Alias));
@@ -347,7 +363,7 @@ public class KeystoreService : IKeystoreService
     public async Task ExportKeystoreFileAsync(string id, string destinationPath)
     {
         var content = await GetKeystoreContentAsync(id)
-            ?? throw new InvalidOperationException("The keystore is not stored in the Local Vault.");
+            ?? throw new InvalidOperationException(KeystoreUnavailableMessage((await FindAsync(id)).Keystore));
         await File.WriteAllBytesAsync(destinationPath, content);
     }
 
@@ -395,19 +411,18 @@ public class KeystoreService : IKeystoreService
         return (vault, keystore);
     }
 
+    /// <summary>
+    /// The Local Vault provider, or null when keystores are file-attached because the user has
+    /// not turned the Local Vault on (the same rule <see cref="CloudSecretsService"/> follows).
+    /// </summary>
     private async Task<ICloudSecretsProvider?> GetVaultAsync(bool create)
     {
-        if (_providerRegistry is null)
+        if (_providerRegistry is null || _localVaultIntroduction?.GetState().IsLocalVaultEnabled == false)
             return null;
         if (create && _cloudSecrets is not null)
             await _cloudSecrets.EnableDefaultLocalProviderAsync(setActiveProvider: false);
         return await _providerRegistry.GetProviderAsync(CloudSecretsService.DefaultLocalProviderId);
     }
-
-    private async Task<ICloudSecretsProvider> RequireVaultAsync() =>
-        await GetVaultAsync(create: true)
-        ?? throw new InvalidOperationException(
-            "Keystores are stored in the Local Vault, which is not available. Turn on the Local Vault in Settings.");
 
     private static async Task<List<AndroidKeystore>> ReadVaultKeystoresAsync(ICloudSecretsProvider vault)
     {
@@ -462,11 +477,75 @@ public class KeystoreService : IKeystoreService
             await vault.DeleteSecretAsync(KeystoreVaultLayout.GetKey(alias, suffix));
     }
 
+    private static string KeystoreUnavailableMessage(AndroidKeystore? keystore) =>
+        keystore is null
+            ? "The keystore is not registered."
+            : $"The file for keystore '{keystore.Alias}' was not found at {keystore.FilePath}. Locate it first.";
+
     /// <summary>
-    /// Moves older keystores into the vault: from their file when it is still on disk, or by
-    /// adopting a vault copy of the same alias (for example one synced there earlier) when the
-    /// file is gone. Keystores that can be neither stay in the legacy registry. Returns true
-    /// when anything moved.
+    /// Registers a file-attached keystore, for when the Local Vault is off. The keystore's own
+    /// path is used when it holds this content; otherwise the content is written to
+    /// <see cref="FileKeystoreDirectory"/> without overwriting a different file.
+    /// </summary>
+    private async Task<AndroidKeystore> AddFileKeystoreAsync(
+        AndroidKeystore keystore,
+        byte[] content,
+        string? keystorePassword,
+        string? keyPassword)
+    {
+        var registered = await LoadLegacyKeystoresAsync();
+        if (registered.Any(k =>
+                string.Equals(k.Alias, keystore.Alias, StringComparison.Ordinal) &&
+                !string.Equals(k.Id, keystore.Id, StringComparison.Ordinal)))
+        {
+            throw new InvalidOperationException(
+                $"A keystore with alias '{keystore.Alias}' is already registered. " +
+                "Remove it first, or use a keystore with a different alias.");
+        }
+
+        var path = await HasContentAsync(keystore.FilePath, content)
+            ? keystore.FilePath
+            : await WriteFileKeystoreAsync(keystore, content);
+
+        var entry = keystore with { FilePath = path, StoredInVault = false };
+        registered.RemoveAll(k => k.Id == keystore.Id);
+        registered.Add(entry);
+        await SaveLegacyKeystoresAsync(registered);
+
+        if (keystorePassword is not null)
+            await _secureStorage.SetAsync(LegacyPasswordKeyPrefix + keystore.Id, keystorePassword);
+        if (keyPassword is not null)
+            await _secureStorage.SetAsync(LegacyKeyPasswordKeyPrefix + keystore.Id, keyPassword);
+        return entry;
+    }
+
+    private async Task<string> WriteFileKeystoreAsync(AndroidKeystore keystore, byte[] content)
+    {
+        Directory.CreateDirectory(FileKeystoreDirectory);
+
+        var fileName = SanitizeFileName(Path.GetFileName(keystore.FilePath), keystore.Alias);
+        var path = Path.Combine(FileKeystoreDirectory, fileName);
+        if (File.Exists(path) && !await HasContentAsync(path, content))
+        {
+            var suffix = keystore.Id.Length > 8 ? keystore.Id[..8] : keystore.Id;
+            path = Path.Combine(
+                FileKeystoreDirectory,
+                $"{Path.GetFileNameWithoutExtension(fileName)}-{suffix}{Path.GetExtension(fileName)}");
+        }
+
+        if (!await HasContentAsync(path, content))
+            await File.WriteAllBytesAsync(path, content);
+        return path;
+    }
+
+    private static async Task<bool> HasContentAsync(string path, byte[] content) =>
+        File.Exists(path) && (await File.ReadAllBytesAsync(path)).AsSpan().SequenceEqual(content);
+
+    /// <summary>
+    /// Moves file-attached keystores into the vault: from their file when it is still on disk, or
+    /// by adopting a vault copy of the same alias (for example one synced there earlier) when the
+    /// file is gone. Keystores that can be neither stay file-attached. Returns true when anything
+    /// moved.
     /// </summary>
     private async Task<bool> MoveLegacyKeystoresAsync(
         ICloudSecretsProvider vault,
@@ -670,14 +749,17 @@ public class KeystoreService : IKeystoreService
         }
     }
 
+    private async Task SaveLegacyKeystoresAsync(List<AndroidKeystore> keystores)
+    {
+        var json = JsonSerializer.Serialize(keystores, new JsonSerializerOptions { WriteIndented = true });
+        await File.WriteAllTextAsync(LegacyRegistryPath, json);
+    }
+
     private async Task RemoveLegacyKeystoreAsync(string id)
     {
         var legacy = await LoadLegacyKeystoresAsync();
         if (legacy.RemoveAll(k => k.Id == id) > 0)
-        {
-            var json = JsonSerializer.Serialize(legacy, new JsonSerializerOptions { WriteIndented = true });
-            await File.WriteAllTextAsync(LegacyRegistryPath, json);
-        }
+            await SaveLegacyKeystoresAsync(legacy);
 
         await _secureStorage.RemoveAsync(LegacyPasswordKeyPrefix + id);
         await _secureStorage.RemoveAsync(LegacyKeyPasswordKeyPrefix + id);

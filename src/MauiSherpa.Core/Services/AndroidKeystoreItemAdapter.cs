@@ -4,25 +4,41 @@ namespace MauiSherpa.Core.Services;
 
 /// <summary>
 /// Syncs Android keystores between providers. Keystores live in the Local Vault provider
-/// (see <see cref="KeystoreService"/>), so they are provider-owned: the Local Vault copy is
-/// the source and there is no separate copy on this machine to read.
+/// (see <see cref="KeystoreService"/>), so they are provider-owned and the Local Vault copy is
+/// the source. File-attached keystores (stored while the Local Vault is off) are the one local
+/// source: they are read from their file and saved passwords.
 /// </summary>
 public sealed class AndroidKeystoreItemAdapter : ISecretItemAdapter
 {
     private const string KeyPrefix = KeystoreVaultLayout.KeyPrefix;
     private readonly ISecretsProviderRegistry _providerRegistry;
+    private readonly IKeystoreService _keystoreService;
 
-    public AndroidKeystoreItemAdapter(ISecretsProviderRegistry providerRegistry)
+    public AndroidKeystoreItemAdapter(
+        ISecretsProviderRegistry providerRegistry,
+        IKeystoreService keystoreService)
     {
         _providerRegistry = providerRegistry;
+        _keystoreService = keystoreService;
     }
 
     public SecretItemKind Kind => SecretItemKind.AndroidKeystore;
     public bool IsProviderOwned => true;
 
-    public Task<IReadOnlyList<SecretItemRef>> ListLocalItemsAsync(
-        CancellationToken cancellationToken = default) =>
-        Task.FromResult<IReadOnlyList<SecretItemRef>>(Array.Empty<SecretItemRef>());
+    public async Task<IReadOnlyList<SecretItemRef>> ListLocalItemsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return (await GetFileAttachedKeystoresAsync())
+            .Select(k => new SecretItemRef(Kind, k.Alias, k.Alias))
+            .OrderBy(x => x.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private async Task<IReadOnlyList<AndroidKeystore>> GetFileAttachedKeystoresAsync() =>
+        (await _keystoreService.ListKeystoresAsync())
+            .Where(k => !k.StoredInVault && File.Exists(k.FilePath))
+            .ToList();
 
     public async Task<IReadOnlyList<SecretItemRef>> ListProviderItemsAsync(
         string providerId,
@@ -89,10 +105,46 @@ public sealed class AndroidKeystoreItemAdapter : ISecretItemAdapter
         return itemIds;
     }
 
-    public Task<SecretItemPayload?> ReadLocalAsync(
+    public async Task<SecretItemPayload?> ReadLocalAsync(
         SecretItemRef item,
-        CancellationToken cancellationToken = default) =>
-        Task.FromResult<SecretItemPayload?>(null);
+        CancellationToken cancellationToken = default)
+    {
+        if (item.Kind != Kind)
+            return null;
+
+        var keystore = (await GetFileAttachedKeystoresAsync())
+            .FirstOrDefault(k => string.Equals(k.Alias, item.Id, StringComparison.Ordinal));
+        if (keystore is null)
+            return null;
+
+        var content = await _keystoreService.GetKeystoreContentAsync(keystore.Id);
+        if (content is null)
+            return null;
+
+        var lastWriteTime = File.GetLastWriteTimeUtc(keystore.FilePath);
+        var artifacts = new List<SecretArtifact>
+        {
+            new(GetKey(keystore.Alias, KeystoreVaultLayout.FileSuffix), content),
+            new(GetKey(keystore.Alias, KeystoreVaultLayout.MetadataSuffix), KeystoreVaultLayout.SerializeMetadata(
+                new KeystoreVaultMetadata(
+                    keystore.Alias,
+                    keystore.KeystoreType,
+                    keystore.CreatedDate,
+                    keystore.Notes,
+                    lastWriteTime,
+                    keystore.Id,
+                    Path.GetFileName(keystore.FilePath))))
+        };
+        if (await _keystoreService.GetKeystorePasswordAsync(keystore.Id) is { } password)
+            artifacts.Add(new(GetKey(keystore.Alias, KeystoreVaultLayout.PasswordSuffix), System.Text.Encoding.UTF8.GetBytes(password)));
+        if (await _keystoreService.GetKeyPasswordAsync(keystore.Id) is { } keyPassword)
+            artifacts.Add(new(GetKey(keystore.Alias, KeystoreVaultLayout.KeyPasswordSuffix), System.Text.Encoding.UTF8.GetBytes(keyPassword)));
+
+        return SecretItemAdapterHelper.CreatePayload(
+            new SecretItemRef(Kind, keystore.Alias, keystore.Alias),
+            SecretItemAdapterHelper.GetUtcRevision(lastWriteTime),
+            artifacts);
+    }
 
     public async Task<SecretItemPayload?> ReadProviderAsync(
         SecretItemRef item,

@@ -471,9 +471,9 @@ public class BackupService : IBackupService
     }
 
     /// <summary>
-    /// Stores a backed-up keystore in the Local Vault under its original ID, so publish profiles
-    /// that point at it keep working. A keystore already in the vault keeps its file and only
-    /// gains the passwords it is missing.
+    /// Stores a backed-up keystore under its original ID, so publish profiles that point at it
+    /// keep working: in the Local Vault, or file-attached while the vault is off. A keystore that
+    /// is already here keeps its file and only gains the passwords it is missing.
     /// </summary>
     private static async Task RestoreKeystoreAsync(
         IKeystoreService keystoreService,
@@ -484,7 +484,7 @@ public class BackupService : IBackupService
             .FirstOrDefault(k => string.Equals(k.Id, item.Id, StringComparison.Ordinal));
         cancellationToken.ThrowIfCancellationRequested();
 
-        if (existing is { StoredInVault: true })
+        if (existing is not null && (existing.StoredInVault || File.Exists(existing.FilePath)))
         {
             if (item.KeystorePassword is not null && await keystoreService.GetKeystorePasswordAsync(item.Id) is null)
                 await keystoreService.SaveKeystorePasswordAsync(item.Id, item.KeystorePassword);

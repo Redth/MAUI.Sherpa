@@ -13,6 +13,8 @@ public class KeystoreVaultStorageTests : IDisposable
     private readonly Dictionary<string, byte[]> _vault = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _secureStorage = new(StringComparer.Ordinal);
     private readonly string _directory;
+    private readonly Mock<ISecretsProviderRegistry> _registry = new();
+    private readonly Mock<ISecureStorageService> _secureStorageMock = new();
     private readonly KeystoreService _service;
 
     public KeystoreVaultStorageTests()
@@ -38,10 +40,9 @@ public class KeystoreVaultStorageTests : IDisposable
         provider.Setup(x => x.DeleteSecretAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((string key, CancellationToken _) => _vault.Remove(key));
 
-        var registry = new Mock<ISecretsProviderRegistry>();
-        registry.Setup(x => x.GetProviderAsync(CloudSecretsService.DefaultLocalProviderId)).ReturnsAsync(provider.Object);
+        _registry.Setup(x => x.GetProviderAsync(CloudSecretsService.DefaultLocalProviderId)).ReturnsAsync(provider.Object);
 
-        var secureStorage = new Mock<ISecureStorageService>();
+        var secureStorage = _secureStorageMock;
         secureStorage.Setup(x => x.GetAsync(It.IsAny<string>()))
             .ReturnsAsync((string key) => _secureStorage.GetValueOrDefault(key));
         secureStorage.Setup(x => x.SetAsync(It.IsAny<string>(), It.IsAny<string>()))
@@ -51,14 +52,24 @@ public class KeystoreVaultStorageTests : IDisposable
             .Callback<string>(key => _secureStorage.Remove(key))
             .Returns(Task.CompletedTask);
 
-        _service = new KeystoreService(
+        _service = CreateService(LocalVaultIntroductionDecision.Enabled);
+    }
+
+    private KeystoreService CreateService(LocalVaultIntroductionDecision decision)
+    {
+        var introduction = new Mock<ILocalVaultIntroductionService>();
+        introduction.Setup(x => x.GetState())
+            .Returns(new LocalVaultIntroductionState(LocalVaultIntroductionState.CurrentVersion, decision));
+        return new KeystoreService(
             Mock.Of<IOpenJdkSettingsService>(),
-            secureStorage.Object,
+            _secureStorageMock.Object,
             Mock.Of<ILoggingService>(),
-            registry.Object,
-            Mock.Of<ICloudSecretsService>())
+            _registry.Object,
+            Mock.Of<ICloudSecretsService>(),
+            introduction.Object)
         {
-            LegacyRegistryPath = Path.Combine(_directory, "android-keystores.json")
+            LegacyRegistryPath = Path.Combine(_directory, "android-keystores.json"),
+            FileKeystoreDirectory = Path.Combine(_directory, "keystores")
         };
     }
 
@@ -221,5 +232,123 @@ public class KeystoreVaultStorageTests : IDisposable
 
         _vault.Should().BeEmpty();
         (await _service.ListKeystoresAsync()).Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData(LocalVaultIntroductionDecision.Declined)]
+    [InlineData(LocalVaultIntroductionDecision.NotSet)]
+    public async Task FileAttachedKeystores_StayOnDiskAndWorkWhenTheLocalVaultIsNotOn(LocalVaultIntroductionDecision decision)
+    {
+        var service = CreateService(decision);
+        var path = Path.Combine(_directory, "release.jks");
+        await File.WriteAllBytesAsync(path, new byte[] { 7, 8, 9 });
+        await WriteLegacyRegistryAsync(Keystore(filePath: path));
+        _secureStorage["android_keystore_pwd_ks-1"] = "store-pw";
+
+        var listed = (await service.ListKeystoresAsync()).Should().ContainSingle().Subject;
+
+        listed.StoredInVault.Should().BeFalse();
+        listed.FilePath.Should().Be(path);
+        _vault.Should().BeEmpty();
+        (await service.GetKeystoreContentAsync("ks-1")).Should().Equal(7, 8, 9);
+        (await service.GetKeystorePasswordAsync("ks-1")).Should().Be("store-pw");
+
+        await service.SaveKeyPasswordAsync("ks-1", "key-pw");
+        _secureStorage["android_keystore_keypwd_ks-1"].Should().Be("key-pw");
+
+        await using (var file = await service.OpenKeystoreFileAsync("ks-1"))
+            (await File.ReadAllBytesAsync(file.Path)).Should().Equal(7, 8, 9);
+
+        await service.RemoveKeystoreAsync("ks-1");
+        File.Exists(path).Should().BeTrue();
+        (await service.ListKeystoresAsync()).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task AddKeystoreAsync_AttachesTheKeystoresOwnFileWhenTheLocalVaultIsDeclined()
+    {
+        var service = CreateService(LocalVaultIntroductionDecision.Declined);
+        var path = Path.Combine(_directory, "release.jks");
+        await File.WriteAllBytesAsync(path, new byte[] { 1, 2 });
+
+        var stored = await service.AddKeystoreAsync(Keystore(filePath: path), new byte[] { 1, 2 }, "store-pw", "key-pw");
+
+        stored.StoredInVault.Should().BeFalse();
+        stored.FilePath.Should().Be(path);
+        _vault.Should().BeEmpty();
+        _secureStorage["android_keystore_pwd_ks-1"].Should().Be("store-pw");
+        _secureStorage["android_keystore_keypwd_ks-1"].Should().Be("key-pw");
+        Directory.Exists(Path.Combine(_directory, "keystores")).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task AddKeystoreAsync_WritesAFileWhenTheLocalVaultIsDeclinedAndThereIsNone()
+    {
+        var service = CreateService(LocalVaultIntroductionDecision.Declined);
+        var clash = Path.Combine(_directory, "keystores", "release.keystore");
+        Directory.CreateDirectory(Path.GetDirectoryName(clash)!);
+        await File.WriteAllBytesAsync(clash, new byte[] { 9 });
+
+        var stored = await service.AddKeystoreAsync(
+            Keystore(id: "abcdef123456", filePath: "release.keystore"), new byte[] { 4, 5 }, "pw", null);
+
+        stored.FilePath.Should().Be(Path.Combine(_directory, "keystores", "release-abcdef12.keystore"));
+        (await File.ReadAllBytesAsync(stored.FilePath)).Should().Equal(4, 5);
+        (await File.ReadAllBytesAsync(clash)).Should().Equal(9);
+    }
+
+    [Fact]
+    public async Task AddKeystoreAsync_RejectsADuplicateAliasAmongFileAttachedKeystores()
+    {
+        var service = CreateService(LocalVaultIntroductionDecision.Declined);
+        await service.AddKeystoreAsync(Keystore(filePath: "release.keystore"), new byte[] { 1 }, "pw", "pw");
+
+        var act = () => service.AddKeystoreAsync(Keystore(id: "ks-2", filePath: "other.keystore"), new byte[] { 2 }, "pw", "pw");
+
+        (await act.Should().ThrowAsync<InvalidOperationException>()).WithMessage("*alias 'release' is already registered*");
+    }
+
+    [Fact]
+    public async Task FileAttachedKeystores_MoveIntoTheVaultOnceItIsTurnedOn()
+    {
+        var path = Path.Combine(_directory, "release.jks");
+        await File.WriteAllBytesAsync(path, new byte[] { 3 });
+        await CreateService(LocalVaultIntroductionDecision.Declined)
+            .AddKeystoreAsync(Keystore(filePath: path), new byte[] { 3 }, "pw", "key-pw");
+
+        var listed = (await CreateService(LocalVaultIntroductionDecision.Enabled).ListKeystoresAsync()).Single();
+
+        listed.StoredInVault.Should().BeTrue();
+        listed.Id.Should().Be("ks-1");
+        _vault["KEYSTORE_release_JKS"].Should().Equal(3);
+        Encoding.UTF8.GetString(_vault["KEYSTORE_release_KEYPWD"]).Should().Be("key-pw");
+        File.Exists(path).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Adapter_ReadsFileAttachedKeystoresAsTheLocalSyncSource()
+    {
+        var service = CreateService(LocalVaultIntroductionDecision.Declined);
+        var path = Path.Combine(_directory, "release.jks");
+        await File.WriteAllBytesAsync(path, new byte[] { 6, 6 });
+        await service.AddKeystoreAsync(Keystore(filePath: path), new byte[] { 6, 6 }, "store-pw", "key-pw");
+        var adapter = new AndroidKeystoreItemAdapter(_registry.Object, service);
+
+        var item = (await adapter.ListLocalItemsAsync()).Should().ContainSingle().Subject;
+        var payload = await adapter.ReadLocalAsync(item);
+
+        payload!.Artifacts.Select(a => a.Key).Should().BeEquivalentTo(
+            "KEYSTORE_release_JKS", "KEYSTORE_release_PWD", "KEYSTORE_release_KEYPWD", "KEYSTORE_release_META");
+        payload.Artifacts.Single(a => a.Key == "KEYSTORE_release_JKS").Value.Should().Equal(6, 6);
+    }
+
+    [Fact]
+    public async Task Adapter_HasNoLocalSourceForKeystoresInTheVault()
+    {
+        await _service.AddKeystoreAsync(Keystore(), new byte[] { 1 }, "pw", "pw");
+        var adapter = new AndroidKeystoreItemAdapter(_registry.Object, _service);
+
+        (await adapter.ListLocalItemsAsync()).Should().BeEmpty();
+        (await adapter.ReadLocalAsync(new SecretItemRef(SecretItemKind.AndroidKeystore, "release", "release"))).Should().BeNull();
     }
 }

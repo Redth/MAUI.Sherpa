@@ -313,7 +313,7 @@
             {
                 var hasPassword = false;
                 try { hasPassword = !string.IsNullOrEmpty(await KeystoreService.GetKeystorePasswordAsync(keystore.Id)); } catch { }
-                keystores.Add(new KeystoreOption(keystore, keystore.StoredInVault, hasPassword));
+                keystores.Add(new KeystoreOption(keystore, keystore.StoredInVault || File.Exists(keystore.FilePath), hasPassword));
             }
         }
         catch { }
@@ -345,7 +345,7 @@
         : "Keychain";
 
     private static string GetKeystoreStatus(KeystoreOption keystore) =>
-        !keystore.FileExists ? "Not in Local Vault"
+        !keystore.FileExists ? "File missing"
         : !keystore.HasPassword ? $"{Path.GetFileName(keystore.Keystore.FilePath)} · no saved password"
         : Path.GetFileName(keystore.Keystore.FilePath);
 
