@@ -390,7 +390,7 @@ public class DialogService : IDialogService
 #endif
     }
 
-    public async Task<string?> PickSaveFileAsync(string title, string suggestedName, string extension)
+    public async Task<string?> PickSaveFileAsync(string title, string suggestedName, string extension, bool startOnDesktop = false)
     {
 #if MACCATALYST
         var tcs = new TaskCompletionSource<string?>();
@@ -408,6 +408,8 @@ public class DialogService : IDialogService
             #pragma warning disable CA1422 // Obsolete API - no good alternative yet
             var picker = new UIDocumentPickerViewController(new[] { tempUrl }, UIDocumentPickerMode.MoveToService);
             #pragma warning restore CA1422
+            if (startOnDesktop)
+                picker.DirectoryUrl = NSUrl.FromFilename(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory));
             
             picker.DidPickDocumentAtUrls += (sender, e) =>
             {
@@ -439,7 +441,9 @@ public class DialogService : IDialogService
         return await Dispatcher.DispatchAsync(async () =>
         {
             var savePicker = new Windows.Storage.Pickers.FileSavePicker();
-            savePicker.SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.DocumentsLibrary;
+            savePicker.SuggestedStartLocation = startOnDesktop
+                ? Windows.Storage.Pickers.PickerLocationId.Desktop
+                : Windows.Storage.Pickers.PickerLocationId.DocumentsLibrary;
             savePicker.SuggestedFileName = suggestedName;
             
             var cleanExt = "." + extension.TrimStart('.');
@@ -462,6 +466,8 @@ public class DialogService : IDialogService
                 NameFieldStringValue = suggestedName,
                 CanCreateDirectories = true,
             };
+            if (startOnDesktop)
+                panel.DirectoryUrl = NSUrl.FromFilename(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory));
 
             var cleanExt = extension.TrimStart('.');
             panel.AllowedFileTypes = new[] { cleanExt };
@@ -482,6 +488,8 @@ public class DialogService : IDialogService
             dialog.SetModal(true);
             var cleanExt = extension.TrimStart('.');
             dialog.SetInitialName(suggestedName);
+            if (startOnDesktop)
+                dialog.SetInitialFolder(Gio.FileHelper.NewForPath(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory)));
             var filterList = Gio.ListStore.New(Gtk.FileFilter.GetGType());
             var filter = Gtk.FileFilter.New();
             filter.AddSuffix(cleanExt);

@@ -1,6 +1,7 @@
 @page "/certificates"
 @using MauiSherpa.Core.Interfaces
 @using MauiSherpa.Core.Requests.Apple
+@using MauiSherpa.Core.Services
 @using MauiSherpa.Services
 @using MauiSherpa.Pages.Forms
 @using MauiSherpa.Pages.Modals
@@ -9,6 +10,7 @@
 @inject IAppleConnectService AppleService
 @inject IAppleIdentityStateService IdentityState
 @inject IAlertService AlertService
+@inject ILauncher AppLauncher
 @inject IDialogService DialogService
 @inject OperationModalService OperationModal
 @inject MultiOperationModalService MultiOpModal
@@ -52,8 +54,8 @@
             <button class="btn btn-secondary" @onclick="InstallSelectedAsync" disabled="@(selectedCertificateIds.Count == 0)">
                 <i class="fas fa-download"></i> Install
             </button>
-            <button class="btn btn-secondary" @onclick="ExportSelectedAsync" disabled="@(selectedCertificateIds.Count == 0)">
-                <i class="fas fa-file-export"></i> Export P12
+            <button class="btn btn-secondary" @onclick="ExportSelectedAsync" disabled="@(selectedCertificateIds.Count == 0)" title="Export">
+                <i class="fas fa-file-export"></i> Export Selected...
             </button>
             <button class="btn btn-secondary" @onclick="CancelSelectionMode">
                 <i class="fas fa-times"></i> Cancel
@@ -143,6 +145,7 @@
             <label class="select-all-checkbox">
                 <input type="checkbox"
                        checked="@AllVisibleSelected"
+                       disabled="@isLoading"
                        @onchange="ToggleAllVisible" />
                 <span>Select all certificates shown</span>
             </label>
@@ -177,13 +180,16 @@
                 var isExpiringSoon = !isExpired && cert.ExpirationDate < DateTime.UtcNow.AddDays(30);
                 var syncStatus = GetSyncStatus(cert);
                 
-                <div class="cert-card @(isExpired ? "expired" : isExpiringSoon ? "expiring" : "") @(selectedCertificateIds.Contains(cert.Id) ? "selected" : "")">
+                <div @key="cert.Id"
+                     class="cert-card @(isExpired ? "expired" : isExpiringSoon ? "expiring" : "") @(selectedCertificateIds.Contains(cert.Id) ? "selected" : "") @(isSelectionMode && !isLoading ? "selectable" : "")"
+                     @onclick="() => { if (isSelectionMode) ToggleCertificateSelection(cert.Id, !selectedCertificateIds.Contains(cert.Id)); }">
                     @if (isSelectionMode)
                     {
-                        <label class="cert-select" title="@GetSelectionHint(cert, syncStatus)">
+                        <label class="cert-select" title="@GetSelectionHint(cert, syncStatus)" @onclick:stopPropagation="true">
                             <input type="checkbox"
                                    aria-label="@($"Select {cert.Name}")"
                                    checked="@selectedCertificateIds.Contains(cert.Id)"
+                                   disabled="@isLoading"
                                    @onchange="@(e => ToggleCertificateSelection(cert.Id, e.Value is bool selected && selected))" />
                         </label>
                     }
@@ -192,7 +198,7 @@
                         <div class="cert-name"><span>@cert.Name</span></div>
                         <div class="cert-serial">
                             Serial: <span class="@(demoMode ? "demo-blur" : "")">@cert.SerialNumber</span>
-                            <button class="btn-copy" @onclick="@(() => CopyToClipboard(cert.SerialNumber))" title="Copy to clipboard">
+                            <button class="btn-copy" @onclick="@(() => CopyToClipboard(cert.SerialNumber))" @onclick:stopPropagation="true" title="Copy to clipboard">
                                 <i class="fas fa-copy"></i>
                             </button>
                         </div>
@@ -467,6 +473,7 @@
     .cert-card.expired { border-left-color: #f56565; opacity: 0.7; }
     .cert-card.expiring { border-left-color: var(--accent-warning); }
     .cert-card.selected { box-shadow: 0 0 0 2px var(--accent-primary); }
+    .cert-card.selectable { cursor: pointer; }
 
     .cert-icon { font-size: 1.5rem; color: #6b46c1; }
     .cert-icon i { font-size: 1.25rem; }
@@ -922,6 +929,67 @@
         var request = await FormModalService.ShowAsync<CreateCertificateFormResult>(page);
         if (request == null) return;
 
+        if (AppleCertificateTypes.Find(request.CertificateType) is { CanCreateInApp: false })
+        {
+            try
+            {
+                var storeKeyInKeychain = PlatformInfo.IsMacOS || PlatformInfo.IsMacCatalyst;
+                var generateRequest = await AlertService.ShowConfirmAsync(
+                    "Certificate Signing Request",
+                    storeKeyInKeychain
+                        ? "Generate a certificate request to use on Apple Developer? The request will be saved to a location you choose (Desktop by default), and its private key will be stored in your login Keychain."
+                        : "Generate a certificate request to use on Apple Developer? The request and an encrypted private key will be saved together, with Desktop as the default location.",
+                    "Generate Request",
+                    "Use My Own Request");
+                if (generateRequest)
+                {
+                    var csrPage = new CreateCertificateRequestPage(
+                        IdentityState.SelectedIdentity?.Name ?? "Apple Signing Key",
+                        isPaymentProcessing: request.CertificateType == "APPLE_PAY",
+                        storeKeyInKeychain: storeKeyInKeychain);
+                    var csr = await FormModalService.ShowAsync<CreateCertificateRequestFormResult>(csrPage);
+                    if (csr == null) return;
+
+                    var requestPath = await DialogService.PickSaveFileAsync(
+                        "Save Certificate Signing Request",
+                        $"{request.CertificateType.ToLowerInvariant().Replace('_', '-')}-{DateTime.Now:yyyyMMdd-HHmmss}.certSigningRequest",
+                        "certSigningRequest",
+                        startOnDesktop: true);
+                    if (string.IsNullOrWhiteSpace(requestPath)) return;
+
+                    if (storeKeyInKeychain)
+                    {
+                        await CertificateSigningRequestService.SaveToKeychainAsync(
+                            requestPath, csr.CommonName, csr.Email, csr.UseEc, LocalCertificateService);
+                        await AlertService.ShowAlertAsync(
+                            "Certificate Request Saved",
+                            $"Upload this request to Apple:\n{requestPath}\n\nThe private key is stored in your login Keychain. " +
+                            "Download the certificate from Apple and open the .cer file in Keychain Access, then refresh Sherpa's certificate list.");
+                    }
+                    else
+                    {
+                        var keyPath = await CertificateSigningRequestService.SaveAsync(
+                            requestPath, csr.CommonName, csr.Email, csr.Passphrase, csr.UseEc);
+                        await AlertService.ShowAlertAsync(
+                            "Certificate Request Saved",
+                            $"Upload this request to Apple:\n{requestPath}\n\nKeep this encrypted private key and its passphrase:\n{keyPath}\n\n" +
+                            "Do not upload the .key file. Combine it with the certificate Apple issues to use the certificate.");
+                    }
+                }
+
+                if (!await AppLauncher.OpenAsync(new Uri(AppleCertificateTypes.PortalUrl)))
+                    throw new InvalidOperationException("The browser could not be opened.");
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError($"Failed to prepare Apple Developer certificate creation: {ex.Message}", ex);
+                await AlertService.ShowAlertAsync(
+                    "Could Not Continue to Apple Developer",
+                    $"{ex.Message}\n\nOpen {AppleCertificateTypes.PortalUrl} in your browser to create this certificate.");
+            }
+            return;
+        }
+
         var created = await CreateCertificateCoreAsync(
             "Create Certificate",
             request.CertificateType,
@@ -1062,7 +1130,7 @@
             ToolbarService.SetItems(
                 new ToolbarAction("backup-selected", "Back Up", "icloud.and.arrow.up"),
                 new ToolbarAction("install-selected", "Install", "square.and.arrow.down"),
-                new ToolbarAction("export-selected", "Export P12", "square.and.arrow.up"),
+                new ToolbarAction("export-selected", "Export Selected...", "square.and.arrow.up", ToolTip: "Export"),
                 new ToolbarAction("cancel-selection", "Cancel", "xmark", IsPrimary: false));
             UpdateSelectionToolbar();
         }
@@ -1106,6 +1174,9 @@
 
     private void ToggleCertificateSelection(string certificateId, bool selected)
     {
+        if (!isSelectionMode || isLoading)
+            return;
+
         if (selected)
             selectedCertificateIds.Add(certificateId);
         else
@@ -1115,6 +1186,9 @@
 
     private void ToggleAllVisible(ChangeEventArgs args)
     {
+        if (!isSelectionMode || isLoading)
+            return;
+
         var visibleIds = FilteredCertificates.Select(certificate => certificate.Id).ToList();
         if (args.Value is bool selected && selected)
             selectedCertificateIds.UnionWith(visibleIds);

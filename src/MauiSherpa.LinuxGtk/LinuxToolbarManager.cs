@@ -368,12 +368,12 @@ public class LinuxToolbarManager
                 button.SetChild(Gtk.Image.NewFromFile(path));
             else
                 button.SetLabel(action.Label);
-            button.SetTooltipText(action.Label);
+            button.SetTooltipText(action.ToolTip ?? action.Label);
         }
         else if (IconMap.TryGetValue(action.SfSymbol, out var gtkIcon))
         {
             button.SetIconName(gtkIcon);
-            button.SetTooltipText(action.Label);
+            button.SetTooltipText(action.ToolTip ?? action.Label);
         }
         else
         {

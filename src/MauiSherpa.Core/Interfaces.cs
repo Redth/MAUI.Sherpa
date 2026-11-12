@@ -50,7 +50,7 @@ public interface IDialogService
     Task<string?> ShowFileDialogAsync(string title, bool isSave = false, string[]? filters = null, string? defaultFileName = null);
     Task<string?> PickFolderAsync(string title);
     Task<string?> PickOpenFileAsync(string title, string[]? extensions = null);
-    Task<string?> PickSaveFileAsync(string title, string suggestedName, string extension);
+    Task<string?> PickSaveFileAsync(string title, string suggestedName, string extension, bool startOnDesktop = false);
     Task CopyToClipboardAsync(string text);
 }
 
@@ -1979,6 +1979,13 @@ public interface ILocalCertificateService
     /// <param name="password">Password protecting the P12 file</param>
     /// <returns>True if import succeeded</returns>
     Task<bool> ImportP12Async(byte[] p12Data, string password, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Imports a CSR's DER-encoded RSA PKCS#1 or EC SEC1 private key into the macOS login keychain so the
+    /// certificate subsequently downloaded from Apple can pair with it.
+    /// </summary>
+    Task ImportPrivateKeyAsync(byte[] privateKeyDer) =>
+        throw new PlatformNotSupportedException("Standalone private-key import is only supported on macOS.");
 
     /// <summary>
     /// Checks whether a certificate with this serial is installed together with its private
@@ -5180,7 +5187,7 @@ public record ApnsPushResult(
 /// <summary>
 /// Represents a toolbar action that can be displayed in the native macOS toolbar.
 /// </summary>
-public record ToolbarAction(string Id, string Label, string SfSymbol, bool IsPrimary = true);
+public record ToolbarAction(string Id, string Label, string SfSymbol, bool IsPrimary = true, string? ToolTip = null);
 
 /// <summary>Describes a filter dropdown for the native toolbar.</summary>
 public record ToolbarFilter(string Id, string Label, string[] Options, int SelectedIndex = 0);

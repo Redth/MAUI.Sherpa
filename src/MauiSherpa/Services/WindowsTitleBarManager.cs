@@ -452,7 +452,7 @@ public class WindowsTitleBarManager
             VerticalOptions = LayoutOptions.Center,
             HorizontalOptions = LayoutOptions.Center,
         };
-        ToolTipProperties.SetText(btn, action.Label);
+        ToolTipProperties.SetText(btn, action.ToolTip ?? action.Label);
 
         var tapGesture = new TapGestureRecognizer();
         tapGesture.Tapped += (s, e) =>

@@ -8,6 +8,34 @@ namespace MauiSherpa.Core.Tests.Services;
 
 public class AppleConnectServiceTests
 {
+    public static IEnumerable<object[]> PortalCertificateTypes =>
+        AppleCertificateTypes.All
+            .Where(option => !option.CanCreateInApp)
+            .Select(option => new object[] { option.Value });
+
+    [Theory]
+    [MemberData(nameof(PortalCertificateTypes))]
+    public async Task CreateCertificateAsync_PortalTypesDoNotAccessAppleCredentials(string value)
+    {
+        var state = new Mock<IAppleIdentityStateService>(MockBehavior.Strict);
+        var identities = new Mock<IAppleIdentityService>(MockBehavior.Strict);
+        var storage = new Mock<ISecureStorageService>(MockBehavior.Strict);
+        var service = new AppleConnectService(
+            state.Object,
+            identities.Object,
+            storage.Object,
+            Mock.Of<IEncryptedSettingsService>(),
+            Mock.Of<ILoggingService>());
+
+        var action = () => service.CreateCertificateAsync($" {value.ToLowerInvariant()} ");
+
+        await action.Should().ThrowAsync<NotSupportedException>()
+            .WithMessage($"*must be created in Apple Developer*{AppleCertificateTypes.PortalUrl}*");
+        state.VerifyNoOtherCalls();
+        identities.VerifyNoOtherCalls();
+        storage.VerifyNoOtherCalls();
+    }
+
     [Fact]
     public async Task GetProfilesForIdentityAsync_MissingIdentityDoesNotUseSelectedAccount()
     {
