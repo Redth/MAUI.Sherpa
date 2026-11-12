@@ -5187,7 +5187,7 @@ public record ApnsPushResult(
 /// <summary>
 /// Represents a toolbar action that can be displayed in the native macOS toolbar.
 /// </summary>
-public record ToolbarAction(string Id, string Label, string SfSymbol, bool IsPrimary = true);
+public record ToolbarAction(string Id, string Label, string SfSymbol, bool IsPrimary = true, string? ToolTip = null);
 
 /// <summary>Describes a filter dropdown for the native toolbar.</summary>
 public record ToolbarFilter(string Id, string Label, string[] Options, int SelectedIndex = 0);

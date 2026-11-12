@@ -471,7 +471,10 @@ public class BlazorContentPage : ContentPage
             bool shouldShow = activeIds.Contains(actionId);
             var action = _toolbarService.CurrentItems.FirstOrDefault(item => item.Id == actionId);
             if (action != null)
+            {
+                MacOSToolbarItem.SetToolTip(toolbarItem, action.ToolTip);
                 toolbarItem.Text = action.Label;
+            }
             toolbarItem.IsEnabled = shouldShow && _toolbarService.IsItemEnabled(actionId);
             MacOSToolbarItem.SetIsVisible(toolbarItem, shouldShow);
         }
