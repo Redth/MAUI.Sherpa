@@ -446,9 +446,12 @@ public class AppleConnectService : IAppleConnectService
         _logger.LogInformation($"Creating certificate of type: {certificateType}");
         try
         {
-            var client = await GetClientAsync();
-            
+            if (AppleCertificateTypes.Find(certificateType) is { CanCreateInApp: false } option)
+                throw new NotSupportedException(
+                    $"{option.Name} must be created in Apple Developer. {option.PortalReason} Visit {AppleCertificateTypes.PortalUrl}.");
+
             var certType = ParseCertificateType(certificateType);
+            var client = await GetClientAsync();
             
             var fallbackName = string.IsNullOrWhiteSpace(Environment.UserName)
                 ? Environment.MachineName

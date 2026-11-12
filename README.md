@@ -61,7 +61,7 @@ MAUI Sherpa is a desktop application for **macOS**, **Windows**, and **Linux** t
 - **Simulators**: Manage iOS/iPadOS/tvOS/watchOS simulators with built-in inspector
 - **Bundle IDs**: Create and manage App IDs with capabilities editor
 - **Devices**: Register devices for development and ad-hoc distribution
-- **Certificates**: Create, download, export, and revoke signing certificates
+- **Certificates**: Create, download, export, and revoke signing certificates. The creation picker includes Apple's Software and Services types with descriptions; Developer ID Installer and service flows not supported in-app open the Apple Developer portal with guidance instead. Optionally generate a CSR first, choosing a save location starting on Desktop. On macOS, the private key is stored in the login Keychain: upload the `.certSigningRequest` file to Apple, then open the downloaded `.cer` file in Keychain Access and refresh Sherpa. Other platforms save an encrypted `.key` file beside the request; retain it and its passphrase to use with the issued certificate. Apple Pay processing requests support ECC 256 or RSA 2048 for China mainland; use your payment provider's CSR when they supply one.
 - **Provisioning Profiles**: Create, edit, and manage profiles with CI secrets export
 - **Root Certificates**: Install Apple root certificates for development
 

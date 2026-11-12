@@ -176,7 +176,11 @@ public abstract class FormPage<TResult> : ContentPage, IFormPage<TResult>, IForm
     protected void UpdateSubmitEnabled()
     {
         if (_submitButton != null)
+        {
             _submitButton.IsEnabled = CanSubmit && !_isSubmitting;
+            if (!_isSubmitting)
+                _submitButton.Text = SubmitButtonText;
+        }
     }
 
     private async void OnSubmitClicked(object? sender, EventArgs e)

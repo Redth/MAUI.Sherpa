@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using MauiSherpa.Core.Interfaces;
@@ -369,6 +370,43 @@ public partial class LocalCertificateService : ILocalCertificateService
         finally
         {
             try { File.Delete(tempFile); } catch { }
+        }
+    }
+
+    public async Task ImportPrivateKeyAsync(byte[] privateKeyDer)
+    {
+        if (!IsSupported)
+            throw new PlatformNotSupportedException("Private-key import is only supported on macOS");
+        ArgumentNullException.ThrowIfNull(privateKeyDer);
+        if (privateKeyDer.Length == 0)
+            throw new ArgumentException("Private key cannot be empty.", nameof(privateKeyDer));
+
+        var keyPath = Path.Combine(Path.GetDirectoryName(_serialCachePath)!, $"csr-key-{Guid.NewGuid():N}.key");
+        try
+        {
+            await using (var stream = new FileStream(keyPath, new FileStreamOptions
+            {
+                Mode = FileMode.CreateNew,
+                Access = FileAccess.Write,
+                UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite,
+            }))
+                await stream.WriteAsync(privateKeyDer);
+
+            var loginKeychain = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                "Library/Keychains/login.keychain-db");
+            var result = await RunSecurityCommandAsync(
+                "import", keyPath, "-k", loginKeychain, "-t", "priv", "-f", "openssl",
+                "-T", "/usr/bin/codesign", "-T", "/usr/bin/productsign", "-T", "/usr/bin/security");
+            if (result.ExitCode != 0)
+                throw new CryptographicException($"Could not store the private key in Keychain: {result.Error}");
+
+            InvalidateCache();
+            _logger.LogInformation("Stored certificate request private key in the login keychain");
+        }
+        finally
+        {
+            File.Delete(keyPath);
         }
     }
 

@@ -1,4 +1,5 @@
 using Microsoft.Maui.Controls;
+using MauiSherpa.Core.Services;
 #if MACOSAPP
 using Microsoft.Maui.Platforms.MacOS.Platform;
 #endif
@@ -15,30 +16,19 @@ public record CreateCertificateFormResult(
 
 public class CreateCertificatePage : FormPage<CreateCertificateFormResult>
 {
-    private sealed record CertificateTypeOption(string Label, string Value);
-
     private Picker _typePicker = null!;
     private CheckBox _saveToDiskCheckBox = null!;
     private Entry _passphraseEntry = null!;
 
     private readonly bool _requireDiskExport;
 
-    private static readonly CertificateTypeOption[] CertificateTypes =
-    {
-        new("Apple Development", "DEVELOPMENT"),
-        new("Apple Distribution", "DISTRIBUTION"),
-        new("iOS App Development", "IOS_DEVELOPMENT"),
-        new("iOS Distribution (App Store Connect and Ad Hoc)", "IOS_DISTRIBUTION"),
-        new("Mac Development", "MAC_APP_DEVELOPMENT"),
-        new("Mac App Distribution", "MAC_APP_DISTRIBUTION"),
-        new("Mac Installer Distribution", "MAC_INSTALLER_DISTRIBUTION"),
-        new("Developer ID Application", "DEVELOPER_ID_APPLICATION"),
-        new("Developer ID Kernel Extension", "DEVELOPER_ID_KEXT"),
-        new("Pass Type ID", "PASS_TYPE_ID"),
-        new("Pass Type ID with NFC", "PASS_TYPE_ID_WITH_NFC"),
-    };
+    private AppleCertificateTypeOption SelectedType => AppleCertificateTypes.All[_typePicker.SelectedIndex];
 
     protected override string FormTitle => "Create Certificate";
+    protected override string SubmitButtonText =>
+        _typePicker?.SelectedIndex >= 0 && !SelectedType.CanCreateInApp
+            ? "Open Apple Developer"
+            : "Create";
     protected override double FormBodyHeightRequest => 440;
 
     protected override bool CanSubmit => _typePicker?.SelectedIndex >= 0;
@@ -60,7 +50,7 @@ public class CreateCertificatePage : FormPage<CreateCertificateFormResult>
 
     protected override View BuildFormContent()
     {
-        _typePicker = CreatePicker(null, CertificateTypes.Select(type => type.Label).ToList());
+        _typePicker = CreatePicker(null, AppleCertificateTypes.All.Select(type => type.PickerLabel).ToList());
         _typePicker.SelectedIndex = 0;
 
         _saveToDiskCheckBox = new CheckBox
@@ -98,13 +88,44 @@ public class CreateCertificatePage : FormPage<CreateCertificateFormResult>
             ? "Required because this platform does not provide a supported certificate store"
             : "The certificate is installed in the platform certificate store and synced to default providers";
 
+        var storageGroup = CreateFormGroup("Certificate Storage", saveToDiskRow, storageHelp);
+        var description = new Label { FontSize = 13 };
+        description.SetDynamicResource(Label.TextColorProperty, FormTheme.TextSecondary);
+        var portalHelp = new Label { FontSize = 13 };
+        portalHelp.SetDynamicResource(Label.TextColorProperty, FormTheme.TextPrimary);
+
+        void UpdateSelection()
+        {
+            if (_typePicker.SelectedIndex < 0)
+            {
+                UpdateSubmitEnabled();
+                return;
+            }
+
+            var type = SelectedType;
+            description.Text = $"{type.Category}: {type.Description}";
+            portalHelp.Text = type.CanCreateInApp ? null :
+                $"{type.PortalReason}\n\nOpen Apple Developer, sign in with the intended team, and select \"{type.Name}\". " +
+                "Sherpa can generate a certificate request and securely retain its private key before opening the portal. " +
+                "Follow Apple's steps to create the certificate. Storage and P12 export are handled outside Sherpa for this flow.";
+            portalHelp.IsVisible = !type.CanCreateInApp;
+            storageGroup.IsVisible = type.CanCreateInApp;
+            passphraseGroup.IsVisible = type.CanCreateInApp && _saveToDiskCheckBox.IsChecked;
+            UpdateSubmitEnabled();
+        }
+
+        _typePicker.SelectedIndexChanged += (_, _) => UpdateSelection();
+        UpdateSelection();
+
         return new VerticalStackLayout
         {
             Spacing = 16,
             Children =
             {
                 CreateFormGroup("Certificate Type", _typePicker),
-                CreateFormGroup("Certificate Storage", saveToDiskRow, storageHelp),
+                description,
+                portalHelp,
+                storageGroup,
                 passphraseGroup,
             }
         };
@@ -112,8 +133,8 @@ public class CreateCertificatePage : FormPage<CreateCertificateFormResult>
 
     protected override Task<CreateCertificateFormResult> OnSubmitAsync()
     {
-        var certType = CertificateTypes[_typePicker.SelectedIndex].Value;
-        var saveToDisk = _saveToDiskCheckBox.IsChecked;
+        var certType = SelectedType.Value;
+        var saveToDisk = SelectedType.CanCreateInApp && _saveToDiskCheckBox.IsChecked;
         var passphrase = saveToDisk ? _passphraseEntry.Text ?? string.Empty : null;
 
         return Task.FromResult(new CreateCertificateFormResult(

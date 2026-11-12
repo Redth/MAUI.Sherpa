@@ -538,7 +538,7 @@ public class CopilotToolsService : ICopilotToolsService
 
     [Description("Create a new signing certificate")]
     private async Task<string> CreateCertificateAsync(
-        [Description("Certificate type: DEVELOPMENT, DISTRIBUTION, IOS_DEVELOPMENT, IOS_DISTRIBUTION, MAC_APP_DEVELOPMENT, MAC_APP_DISTRIBUTION, MAC_INSTALLER_DISTRIBUTION, DEVELOPER_ID_APPLICATION, DEVELOPER_ID_KEXT, PASS_TYPE_ID, PASS_TYPE_ID_WITH_NFC")] string certificateType)
+        [Description("In-app certificate type: DEVELOPMENT, DISTRIBUTION, IOS_DEVELOPMENT, IOS_DISTRIBUTION, MAC_APP_DEVELOPMENT, MAC_APP_DISTRIBUTION, MAC_INSTALLER_DISTRIBUTION, DEVELOPER_ID_APPLICATION, DEVELOPER_ID_KEXT. Developer ID Installer and service certificates require the Apple Developer portal at https://developer.apple.com/account/resources/certificates/add.")] string certificateType)
     {
         var error = CheckIdentitySelected();
         if (error != null) return error;
