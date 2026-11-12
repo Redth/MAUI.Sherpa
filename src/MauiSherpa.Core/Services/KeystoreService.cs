@@ -116,7 +116,8 @@ public class KeystoreService : IKeystoreService
                     CreatedDate: DateTime.UtcNow),
                 await File.ReadAllBytesAsync(outputPath),
                 keystorePassword,
-                keyPassword);
+                // PKCS12 has no separate key password: keytool protects the key with the store password.
+                string.Equals(keystoreType, "PKCS12", StringComparison.OrdinalIgnoreCase) ? keystorePassword : keyPassword);
 
             _logger.LogInformation($"Keystore created in Local Vault: {alias}");
             return keystore;
@@ -473,8 +474,16 @@ public class KeystoreService : IKeystoreService
 
     private static async Task DeleteVaultArtifactsAsync(ICloudSecretsProvider vault, string alias)
     {
+        var failed = new List<string>();
         foreach (var suffix in KeystoreVaultLayout.Suffixes)
-            await vault.DeleteSecretAsync(KeystoreVaultLayout.GetKey(alias, suffix));
+        {
+            if (!await vault.DeleteSecretAsync(KeystoreVaultLayout.GetKey(alias, suffix)))
+                failed.Add(suffix);
+        }
+
+        if (failed.Count > 0)
+            throw new InvalidOperationException(
+                $"Could not delete keystore '{alias}' from the Local Vault ({string.Join(", ", failed)}).");
     }
 
     private static string KeystoreUnavailableMessage(AndroidKeystore? keystore) =>
@@ -524,18 +533,37 @@ public class KeystoreService : IKeystoreService
         Directory.CreateDirectory(FileKeystoreDirectory);
 
         var fileName = SanitizeFileName(Path.GetFileName(keystore.FilePath), keystore.Alias);
-        var path = Path.Combine(FileKeystoreDirectory, fileName);
-        if (File.Exists(path) && !await HasContentAsync(path, content))
-        {
-            var suffix = keystore.Id.Length > 8 ? keystore.Id[..8] : keystore.Id;
-            path = Path.Combine(
-                FileKeystoreDirectory,
-                $"{Path.GetFileNameWithoutExtension(fileName)}-{suffix}{Path.GetExtension(fileName)}");
-        }
+        var baseName = Path.GetFileNameWithoutExtension(fileName);
+        var extension = Path.GetExtension(fileName);
+        var suffix = keystore.Id.Length > 8 ? keystore.Id[..8] : keystore.Id;
 
-        if (!await HasContentAsync(path, content))
-            await File.WriteAllBytesAsync(path, content);
-        return path;
+        // Never overwrite a different signing key: try names until one is free or already holds
+        // this content, and create the file exclusively so one appearing meanwhile is not clobbered.
+        for (var attempt = 0; ; attempt++)
+        {
+            var name = attempt switch
+            {
+                0 => fileName,
+                1 => $"{baseName}-{suffix}{extension}",
+                _ => $"{baseName}-{suffix}-{attempt}{extension}"
+            };
+            var path = Path.Combine(FileKeystoreDirectory, name);
+            if (await HasContentAsync(path, content))
+                return path;
+            if (File.Exists(path))
+                continue;
+
+            try
+            {
+                await using var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+                await stream.WriteAsync(content);
+                return path;
+            }
+            catch (IOException) when (File.Exists(path))
+            {
+                // Created by someone else between the check and the write; try the next name.
+            }
+        }
     }
 
     private static async Task<bool> HasContentAsync(string path, byte[] content) =>
@@ -597,6 +625,9 @@ public class KeystoreService : IKeystoreService
                         Path.GetFileName(keystore.FilePath)),
                     keystorePassword,
                     keyPassword);
+
+                stored.RemoveAll(k => string.Equals(k.Alias, keystore.Alias, StringComparison.Ordinal));
+                stored.Add(keystore with { StoredInVault = true });
 
                 await RemoveLegacyKeystoreAsync(keystore.Id);
                 legacy.Remove(keystore);
