@@ -32,12 +32,6 @@ public class BackupService : IBackupService
     private readonly IKeystoreService? _keystoreService;
     private readonly ILoggingService? _logger;
 
-    /// <summary>
-    /// Where restored keystore files are written when they can't be found at their original path.
-    /// </summary>
-    internal string KeystoreRestoreDirectory { get; init; } =
-        Path.Combine(AppDataPath.GetAppDataDirectory(), "keystores");
-
     private static readonly JsonSerializerOptions PublishProfileJsonOptions = new(JsonSerializerDefaults.Web);
 
     private record BackupPayload(
@@ -425,8 +419,8 @@ public class BackupService : IBackupService
     }
 
     /// <summary>
-    /// Reads each selected keystore file with its saved passwords. Export fails rather than
-    /// writing a backup that is missing a keystore file that was asked for.
+    /// Reads each selected keystore from the Local Vault with its saved passwords. Export fails
+    /// rather than writing a backup that is missing a keystore that was asked for.
     /// </summary>
     private async Task<List<KeystoreBackupItem>> ReadKeystoresAsync(IReadOnlyList<AndroidKeystore> keystores)
     {
@@ -437,14 +431,20 @@ public class BackupService : IBackupService
         var failures = new List<string>();
         foreach (var keystore in keystores)
         {
-            byte[] content;
+            byte[]? content;
             try
             {
-                content = await File.ReadAllBytesAsync(keystore.FilePath);
+                content = await _keystoreService.GetKeystoreContentAsync(keystore.Id);
             }
             catch (Exception ex)
             {
                 failures.Add($"{keystore.Alias} ({ex.Message})");
+                continue;
+            }
+
+            if (content is null)
+            {
+                failures.Add($"{keystore.Alias} (the keystore file has not been located)");
                 continue;
             }
 
@@ -463,7 +463,7 @@ public class BackupService : IBackupService
         if (failures.Count > 0)
         {
             throw new InvalidOperationException(
-                "The keystore file could not be read for: " + string.Join(", ", failures) +
+                "The keystore could not be read for: " + string.Join(", ", failures) +
                 ". Locate the keystore files or deselect them.");
         }
 
@@ -471,20 +471,20 @@ public class BackupService : IBackupService
     }
 
     /// <summary>
-    /// Registers a backed-up keystore under its original ID, so publish profiles that point at
-    /// it keep working. A keystore that is already registered with its file in place keeps
-    /// that file and only gains the passwords it is missing. Otherwise the file is written to
-    /// the restore directory and replaces any registration whose file has gone.
+    /// Stores a backed-up keystore in the Local Vault under its original ID, so publish profiles
+    /// that point at it keep working. A keystore already in the vault keeps its file and only
+    /// gains the passwords it is missing.
     /// </summary>
-    private async Task RestoreKeystoreAsync(
+    private static async Task RestoreKeystoreAsync(
         IKeystoreService keystoreService,
         KeystoreBackupItem item,
         CancellationToken cancellationToken)
     {
         var existing = (await keystoreService.ListKeystoresAsync())
             .FirstOrDefault(k => string.Equals(k.Id, item.Id, StringComparison.Ordinal));
+        cancellationToken.ThrowIfCancellationRequested();
 
-        if (existing is not null && File.Exists(existing.FilePath))
+        if (existing is { StoredInVault: true })
         {
             if (item.KeystorePassword is not null && await keystoreService.GetKeystorePasswordAsync(item.Id) is null)
                 await keystoreService.SaveKeystorePasswordAsync(item.Id, item.KeystorePassword);
@@ -493,55 +493,17 @@ public class BackupService : IBackupService
             return;
         }
 
-        var filePath = await WriteRestoredKeystoreFileAsync(item, cancellationToken);
-
-        if (existing is not null)
-            await keystoreService.RemoveKeystoreAsync(existing.Id);
-
-        await keystoreService.AddKeystoreAsync(new AndroidKeystore(
-            Id: item.Id,
-            Alias: item.Alias,
-            FilePath: filePath,
-            KeystoreType: item.KeystoreType,
-            CreatedDate: item.CreatedDate,
-            Notes: item.Notes));
-
-        if (item.KeystorePassword is not null)
-            await keystoreService.SaveKeystorePasswordAsync(item.Id, item.KeystorePassword);
-        if (item.KeyPassword is not null)
-            await keystoreService.SaveKeyPasswordAsync(item.Id, item.KeyPassword);
-    }
-
-    private async Task<string> WriteRestoredKeystoreFileAsync(KeystoreBackupItem item, CancellationToken cancellationToken)
-    {
-        Directory.CreateDirectory(KeystoreRestoreDirectory);
-
-        // The file name comes from the backup, so only its last segment is ever used.
-        var fileName = Path.GetFileName(item.FileName);
-        if (string.IsNullOrWhiteSpace(fileName) || fileName is "." or "..")
-            fileName = "keystore.keystore";
-        fileName = string.Concat(fileName.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c));
-
-        var path = Path.Combine(KeystoreRestoreDirectory, fileName);
-        if (File.Exists(path) && !await HasContentAsync(path, item.Content, cancellationToken))
-        {
-            var suffix = item.Id.Length > 8 ? item.Id[..8] : item.Id;
-            path = Path.Combine(
-                KeystoreRestoreDirectory,
-                $"{Path.GetFileNameWithoutExtension(fileName)}-{suffix}{Path.GetExtension(fileName)}");
-        }
-
-        if (!File.Exists(path) || !await HasContentAsync(path, item.Content, cancellationToken))
-            await File.WriteAllBytesAsync(path, item.Content, cancellationToken);
-        return path;
-    }
-
-    private static async Task<bool> HasContentAsync(string path, byte[] content, CancellationToken cancellationToken)
-    {
-        if (!File.Exists(path))
-            return false;
-        var existing = await File.ReadAllBytesAsync(path, cancellationToken);
-        return existing.AsSpan().SequenceEqual(content);
+        await keystoreService.AddKeystoreAsync(
+            new AndroidKeystore(
+                Id: item.Id,
+                Alias: item.Alias,
+                FilePath: item.FileName,
+                KeystoreType: item.KeystoreType,
+                CreatedDate: item.CreatedDate,
+                Notes: item.Notes),
+            item.Content,
+            item.KeystorePassword,
+            item.KeyPassword);
     }
 
     private ISecretItemAdapter? GetAdapter(SecretItemKind kind) =>

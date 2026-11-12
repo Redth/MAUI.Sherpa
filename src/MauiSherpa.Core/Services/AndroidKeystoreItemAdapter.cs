@@ -1,42 +1,28 @@
-using System.Text;
-using System.Text.Json;
 using MauiSherpa.Core.Interfaces;
 
 namespace MauiSherpa.Core.Services;
 
+/// <summary>
+/// Syncs Android keystores between providers. Keystores live in the Local Vault provider
+/// (see <see cref="KeystoreService"/>), so they are provider-owned: the Local Vault copy is
+/// the source and there is no separate copy on this machine to read.
+/// </summary>
 public sealed class AndroidKeystoreItemAdapter : ISecretItemAdapter
 {
-    private const string KeyPrefix = "KEYSTORE_";
-    private const string PasswordStoragePrefix = "android_keystore_pwd_";
+    private const string KeyPrefix = KeystoreVaultLayout.KeyPrefix;
     private readonly ISecretsProviderRegistry _providerRegistry;
-    private readonly IKeystoreService _keystoreService;
-    private readonly ISecureStorageService _secureStorage;
 
-    public AndroidKeystoreItemAdapter(
-        ISecretsProviderRegistry providerRegistry,
-        IKeystoreService keystoreService,
-        ISecureStorageService secureStorage)
+    public AndroidKeystoreItemAdapter(ISecretsProviderRegistry providerRegistry)
     {
         _providerRegistry = providerRegistry;
-        _keystoreService = keystoreService;
-        _secureStorage = secureStorage;
     }
 
     public SecretItemKind Kind => SecretItemKind.AndroidKeystore;
-    public bool IsProviderOwned => false;
+    public bool IsProviderOwned => true;
 
-    public async Task<IReadOnlyList<SecretItemRef>> ListLocalItemsAsync(
-        CancellationToken cancellationToken = default)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        var keystores = await _keystoreService.ListKeystoresAsync();
-        return keystores
-            .Where(x => !string.IsNullOrWhiteSpace(x.Alias))
-            .GroupBy(x => x.Alias, StringComparer.OrdinalIgnoreCase)
-            .Select(x => new SecretItemRef(Kind, x.Key, x.First().Alias))
-            .OrderBy(x => x.DisplayName, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-    }
+    public Task<IReadOnlyList<SecretItemRef>> ListLocalItemsAsync(
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<SecretItemRef>>(Array.Empty<SecretItemRef>());
 
     public async Task<IReadOnlyList<SecretItemRef>> ListProviderItemsAsync(
         string providerId,
@@ -103,47 +89,10 @@ public sealed class AndroidKeystoreItemAdapter : ISecretItemAdapter
         return itemIds;
     }
 
-    public async Task<SecretItemPayload?> ReadLocalAsync(
+    public Task<SecretItemPayload?> ReadLocalAsync(
         SecretItemRef item,
-        CancellationToken cancellationToken = default)
-    {
-        if (item.Kind != Kind)
-            return null;
-
-        var keystores = await _keystoreService.ListKeystoresAsync();
-        var keystore = keystores.FirstOrDefault(x =>
-            string.Equals(x.Alias, item.Id, StringComparison.OrdinalIgnoreCase));
-        if (keystore is null || !File.Exists(keystore.FilePath))
-            return null;
-
-        var password = await _secureStorage.GetAsync(PasswordStoragePrefix + keystore.Id);
-        if (password is null)
-            return null;
-
-        var fileBytes = await File.ReadAllBytesAsync(keystore.FilePath, cancellationToken);
-        var lastWriteTime = File.GetLastWriteTimeUtc(keystore.FilePath);
-        var metadata = new KeystoreArtifactMetadata(
-            keystore.Alias,
-            keystore.KeystoreType,
-            keystore.CreatedDate,
-            keystore.Notes,
-            lastWriteTime);
-        var artifacts = new[]
-        {
-            new SecretArtifact(GetKey(keystore.Alias, "JKS"), fileBytes),
-            new SecretArtifact(
-                GetKey(keystore.Alias, "PWD"),
-                Encoding.UTF8.GetBytes(password)),
-            new SecretArtifact(
-                GetKey(keystore.Alias, "META"),
-                Encoding.UTF8.GetBytes(JsonSerializer.Serialize(metadata)))
-        };
-
-        return SecretItemAdapterHelper.CreatePayload(
-            new SecretItemRef(Kind, keystore.Alias, keystore.Alias),
-            SecretItemAdapterHelper.GetUtcRevision(lastWriteTime),
-            artifacts);
-    }
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult<SecretItemPayload?>(null);
 
     public async Task<SecretItemPayload?> ReadProviderAsync(
         SecretItemRef item,
@@ -165,12 +114,15 @@ public sealed class AndroidKeystoreItemAdapter : ISecretItemAdapter
             return null;
 
         var artifacts = new List<SecretArtifact> { jksArtifact };
-        var passwordArtifact = await SecretItemAdapterHelper.ReadArtifactAsync(
-            provider,
-            GetKey(item.Id, "PWD"),
-            cancellationToken);
-        if (passwordArtifact is not null)
-            artifacts.Add(passwordArtifact);
+        foreach (var suffix in new[] { KeystoreVaultLayout.PasswordSuffix, KeystoreVaultLayout.KeyPasswordSuffix })
+        {
+            var passwordArtifact = await SecretItemAdapterHelper.ReadArtifactAsync(
+                provider,
+                GetKey(item.Id, suffix),
+                cancellationToken);
+            if (passwordArtifact is not null)
+                artifacts.Add(passwordArtifact);
+        }
 
         var metadataKey = GetKey(item.Id, "META");
         var metadataArtifact = await SecretItemAdapterHelper.ReadArtifactAsync(
@@ -180,7 +132,7 @@ public sealed class AndroidKeystoreItemAdapter : ISecretItemAdapter
         var metadata = DeserializeMetadata(metadataArtifact?.Value);
         if (metadataArtifact is null)
         {
-            metadata = new KeystoreArtifactMetadata(
+            metadata = new KeystoreVaultMetadata(
                 item.Id,
                 "PKCS12",
                 DateTime.UnixEpoch,
@@ -188,7 +140,7 @@ public sealed class AndroidKeystoreItemAdapter : ISecretItemAdapter
                 DateTime.UnixEpoch);
             metadataArtifact = new SecretArtifact(
                 metadataKey,
-                Encoding.UTF8.GetBytes(JsonSerializer.Serialize(metadata)));
+                KeystoreVaultLayout.SerializeMetadata(metadata));
         }
         artifacts.Add(metadataArtifact);
 
@@ -227,39 +179,13 @@ public sealed class AndroidKeystoreItemAdapter : ISecretItemAdapter
         return provider is not null &&
             await SecretItemAdapterHelper.DeleteArtifactsAsync(
                 provider,
-                new[]
-                {
-                    GetKey(item.Id, "JKS"),
-                    GetKey(item.Id, "PWD"),
-                    GetKey(item.Id, "META")
-                },
+                KeystoreVaultLayout.Suffixes.Select(suffix => GetKey(item.Id, suffix)).ToArray(),
                 cancellationToken);
     }
 
     private static string GetKey(string alias, string suffix) =>
-        $"{KeyPrefix}{alias}_{suffix}";
+        KeystoreVaultLayout.GetKey(alias, suffix);
 
-    private static KeystoreArtifactMetadata? DeserializeMetadata(byte[]? bytes)
-    {
-        if (bytes is null)
-            return null;
-
-        try
-        {
-            return JsonSerializer.Deserialize<KeystoreArtifactMetadata>(
-                bytes,
-                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
-    }
-
-    private sealed record KeystoreArtifactMetadata(
-        string Alias,
-        string KeystoreType,
-        DateTime CreatedDate,
-        string? Notes,
-        DateTime UploadedAt);
+    private static KeystoreVaultMetadata? DeserializeMetadata(byte[]? bytes) =>
+        KeystoreVaultLayout.DeserializeMetadata(bytes);
 }

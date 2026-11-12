@@ -5013,14 +5013,30 @@ public interface IUpdateService
 // Android Keystore Management
 // =============================================
 
+/// <summary>
+/// An Android signing keystore. Keystores are stored in the Local Vault, where
+/// <see cref="FilePath"/> is only the name of the file it was imported from. A keystore with
+/// <see cref="StoredInVault"/> false was registered by an older version and still points at a
+/// file on disk that could not be found; it moves into the vault once that file is located.
+/// </summary>
 public record AndroidKeystore(
     string Id,
     string Alias,
     string FilePath,
     string KeystoreType,
     DateTime CreatedDate,
-    string? Notes = null
+    string? Notes = null,
+    bool StoredInVault = false
 );
+
+/// <summary>
+/// A temporary copy of a vault keystore on disk for tools like keytool that need a path.
+/// Disposing it deletes the copy.
+/// </summary>
+public interface IKeystoreFileLease : IAsyncDisposable
+{
+    string Path { get; }
+}
 
 public record KeystoreSignatureInfo(
     string Alias,
@@ -5035,8 +5051,8 @@ public record KeystoreInfo(string KeystoreType, IReadOnlyList<string> Aliases);
 
 public interface IKeystoreService
 {
+    /// <summary>Generates a new keystore with keytool and stores it, with both passwords, in the Local Vault.</summary>
     Task<AndroidKeystore> CreateKeystoreAsync(
-        string outputPath,
         string alias,
         string keyPassword,
         string keystorePassword,
@@ -5057,12 +5073,30 @@ public interface IKeystoreService
         string encryptionKey,
         string outputPath);
 
+    /// <summary>
+    /// Lists keystores in the Local Vault, plus any older keystores whose file could not be found
+    /// to move into the vault. Older keystores whose file is found are moved in first.
+    /// </summary>
     Task<IReadOnlyList<AndroidKeystore>> ListKeystoresAsync();
-    Task AddKeystoreAsync(AndroidKeystore keystore);
 
-    /// <summary>Replaces the registered keystore with the same ID, keeping its saved passwords.</summary>
-    Task UpdateKeystoreAsync(AndroidKeystore keystore);
+    /// <summary>
+    /// Stores a keystore in the Local Vault under <paramref name="keystore"/>'s ID, replacing a
+    /// keystore with that ID. Null passwords are left as they are. Fails when a different
+    /// keystore already uses the alias.
+    /// </summary>
+    Task<AndroidKeystore> AddKeystoreAsync(AndroidKeystore keystore, byte[] content, string? keystorePassword, string? keyPassword);
+
+    /// <summary>Deletes the keystore from the Local Vault. Copies in other providers are not touched.</summary>
     Task RemoveKeystoreAsync(string id);
+
+    /// <summary>The keystore file's bytes, or null when the keystore is not stored in the vault.</summary>
+    Task<byte[]?> GetKeystoreContentAsync(string id);
+
+    /// <summary>Writes a temporary copy of the keystore to disk for tools that need a path.</summary>
+    Task<IKeystoreFileLease> OpenKeystoreFileAsync(string id);
+
+    /// <summary>Writes the keystore file to <paramref name="destinationPath"/>.</summary>
+    Task ExportKeystoreFileAsync(string id, string destinationPath);
 
     /// <summary>
     /// True when <paramref name="keyPassword"/> unlocks the private key for <paramref name="alias"/>.

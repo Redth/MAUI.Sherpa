@@ -17,12 +17,12 @@ public class PepkExportPage : HybridFormPage<bool>
     public PepkExportPage(
         HybridFormBridgeHolder bridgeHolder,
         string alias,
-        string keystorePath)
+        string keystoreId)
         : base(bridgeHolder)
     {
         FormTitle = $"Export PEPK — {alias}";
         Bridge.Parameters["Alias"] = alias;
-        Bridge.Parameters["KeystorePath"] = keystorePath;
+        Bridge.Parameters["KeystoreId"] = keystoreId;
 #if MACOSAPP
         MacOSPage.SetModalSheetSizesToContent(this, false);
         MacOSPage.SetModalSheetWidth(this, 500);

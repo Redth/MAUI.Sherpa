@@ -505,10 +505,10 @@ public class PublishProfileService : IPublishProfileService
                     var keystore = keystores.FirstOrDefault(k => k.Id == android.KeystoreId);
                     if (keystore is not null)
                     {
-                        // Read keystore file bytes
-                        if (!string.IsNullOrEmpty(keystore.FilePath) && File.Exists(keystore.FilePath))
+                        // Keystore file bytes from the Local Vault
+                        var keystoreBytes = await _keystoreService.GetKeystoreContentAsync(keystore.Id);
+                        if (keystoreBytes is not null)
                         {
-                            var keystoreBytes = await File.ReadAllBytesAsync(keystore.FilePath, ct);
                             var defaultKey = $"ANDROID_{SanitizeLabel(android.Label)}_KEYSTORE";
                             AddMappedSecrets(secrets, android.KeyMappings, defaultKey, Convert.ToBase64String(keystoreBytes));
                         }
