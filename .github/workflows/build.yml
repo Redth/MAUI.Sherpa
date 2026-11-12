@@ -28,9 +28,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Test macOS release signing
-        run: python3 -B tests/native/test_macos_release_signing.py
-
       - name: Select Xcode
         run: |
           if [ -d "/Applications/Xcode_26.2.app" ]; then
@@ -43,6 +40,9 @@ jobs:
           echo "Selected Xcode: $XCODE_PATH"
           sudo xcode-select -s "$XCODE_PATH"
           xcodebuild -version
+
+      - name: Test macOS release signing
+        run: python3 -B tests/native/test_macos_release_signing.py
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4

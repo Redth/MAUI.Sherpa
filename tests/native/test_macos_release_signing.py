@@ -3,7 +3,9 @@
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
+import sys
 import tempfile
 import textwrap
 import unittest
@@ -70,9 +72,10 @@ class MacOSReleaseSigningTests(unittest.TestCase):
             import os, sys
 
             args = sys.argv[1:]
-            if len(args) != 3 or args[0] != "-verify_arch":
+            if (len(args) != 3 or not args[0].endswith("/sherpa-apple-pairing")
+                    or args[1] != "-verify_arch" or args[2] not in ("arm64", "x86_64")):
                 sys.exit(2)
-            sys.exit(1 if args[1] == os.environ.get("MISSING_ARCH") else 0)
+            sys.exit(1 if args[2] == os.environ.get("MISSING_ARCH") else 0)
         """)
         self.env = os.environ.copy()
         for key in ("BAD_HELPER", "BAD_HELPER_ARCH", "FAIL_HELPER_SIGN",
@@ -148,6 +151,32 @@ class MacOSReleaseSigningTests(unittest.TestCase):
             for args in calls
         ))
 
+    @unittest.skipUnless(sys.platform == "darwin", "requires macOS developer tools")
+    def test_verifies_architectures_with_real_lipo(self):
+        objects = []
+        for arch in ("arm64", "x86_64"):
+            obj = self.root / f"{arch}.o"
+            subprocess.run(
+                ["clang", "-arch", arch, "-x", "c", "-c", "-", "-o", str(obj)],
+                input="int main(void) { return 0; }\n",
+                text=True,
+                check=True,
+            )
+            objects.append(obj)
+        subprocess.run(
+            ["lipo", "-create", *(str(obj) for obj in objects), "-output", str(self.helper)],
+            check=True,
+        )
+        (self.bin / "lipo").unlink()
+
+        result = self.run_step("Verify code signature")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+        shutil.copyfile(objects[0], self.helper)
+        result = self.run_step("Verify code signature")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("missing the x86_64 architecture", result.stdout)
+
     def test_rejects_bad_helper_signature_on_either_architecture(self):
         messages = {
             "identity": "not signed with a Developer ID certificate",
@@ -165,10 +194,14 @@ class MacOSReleaseSigningTests(unittest.TestCase):
                     self.assertIn(message, result.stdout)
 
     def test_rejects_missing_architecture_and_invalid_signature(self):
-        for overrides in ({"MISSING_ARCH": "x86_64"}, {"INVALID_SIGNATURE": "1"}):
+        for overrides in (
+            {"MISSING_ARCH": "arm64"}, {"MISSING_ARCH": "x86_64"}, {"INVALID_SIGNATURE": "1"}
+        ):
             with self.subTest(**overrides):
                 result = self.run_step("Verify code signature", **overrides)
                 self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                if "MISSING_ARCH" in overrides:
+                    self.assertIn(f"missing the {overrides['MISSING_ARCH']} architecture", result.stdout)
 
     def test_rejects_missing_helper_during_verification(self):
         self.helper.unlink()
