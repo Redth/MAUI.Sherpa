@@ -14,12 +14,11 @@ public class KeystoreSignaturesPage : HybridViewPage
     protected override string FormTitle { get; }
     protected override string BlazorRoute => "/modal/keystore-signatures";
 
-    public KeystoreSignaturesPage(ModalParameterService modalParams, string alias, string keystorePath, string keystoreId)
+    public KeystoreSignaturesPage(ModalParameterService modalParams, string alias, string keystoreId)
     {
         FormTitle = $"Signatures — {alias}";
         modalParams.Clear();
         modalParams.Set("Alias", alias);
-        modalParams.Set("KeystorePath", keystorePath);
         modalParams.Set("KeystoreId", keystoreId);
 #if MACOSAPP
         MacOSPage.SetModalSheetWidth(this, 900);

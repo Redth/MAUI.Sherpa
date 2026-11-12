@@ -138,6 +138,7 @@ public sealed class SecretSyncCoordinator : ISecretSyncCoordinator, IBackgroundT
                 .Select(pair => pair.Key)
                 .ToHashSet(StringComparer.Ordinal);
         ApplyProviderSelectionChanges(desiredProviderIds, selectionChanges);
+        KeepHomeProvider(item, desiredProviderIds, observations.TryGetValue(CloudSecretsService.DefaultLocalProviderId, out var localObservation) && localObservation.Observed);
 
         var hasConflict = observations.Values
             .Where(observation => observation.Observed &&
@@ -228,6 +229,7 @@ public sealed class SecretSyncCoordinator : ISecretSyncCoordinator, IBackgroundT
                     .Select(pair => pair.Key)
                     .ToHashSet(StringComparer.Ordinal);
         ApplyProviderSelectionChanges(desiredProviderIds, selectionChanges);
+        KeepHomeProvider(item, desiredProviderIds, observations.TryGetValue(CloudSecretsService.DefaultLocalProviderId, out var localObservation) && localObservation.Observed);
 
         var observedHashes = observations.Values
             .Where(observation => observation.Observed &&
@@ -581,6 +583,7 @@ public sealed class SecretSyncCoordinator : ISecretSyncCoordinator, IBackgroundT
                 }
             }
             ApplyProviderSelectionChanges(desiredProviderIds, selectionChanges);
+            KeepHomeProvider(item, desiredProviderIds, payloads.ContainsKey(CloudSecretsService.DefaultLocalProviderId));
 
             SecretItemPayload? sourcePayload = null;
             if (desiredProviderIds.Count > 0)
@@ -1371,6 +1374,16 @@ public sealed class SecretSyncCoordinator : ISecretSyncCoordinator, IBackgroundT
 
         return JsonSerializer.Deserialize<Dictionary<string, bool>>(json)
             ?? new Dictionary<string, bool>(StringComparer.Ordinal);
+    }
+
+    /// <summary>
+    /// Android keystores live in the Local Vault (see <see cref="KeystoreService"/>), so the
+    /// Local Vault copy is never dropped by a sync, even when it is deselected.
+    /// </summary>
+    private static void KeepHomeProvider(SecretItemRef item, HashSet<string> providerIds, bool inLocalVault)
+    {
+        if (item.Kind == SecretItemKind.AndroidKeystore && inLocalVault)
+            providerIds.Add(CloudSecretsService.DefaultLocalProviderId);
     }
 
     private static void ApplyProviderSelectionChanges(

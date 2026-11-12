@@ -10,6 +10,7 @@
 @inject ISecretsPublisherService SecretsPublisherService
 @inject IPushProjectService PushProjectService
 @inject IPublishProfileService PublishProfileService
+@inject IKeystoreService KeystoreService
 
 <div class="dialog-content">
     <div class="dialog-header">
@@ -191,6 +192,30 @@
                         <div class="help-text">Certificates are exported with their private keys. Keychain certificates may prompt for Keychain access.</div>
                     }
                 </div>
+
+                <div class="backup-selection-group">
+                    <label class="backup-selection-item">
+                        <input type="checkbox" @bind="exportIncludeKeystores" />
+                        <span>Android Keystores (@selectedKeystoreIds.Count/@keystores.Count)</span>
+                    </label>
+                    @if (exportIncludeKeystores && keystores.Count > 0)
+                    {
+                        <div class="backup-selection-children">
+                            @foreach (var keystore in keystores)
+                            {
+                                <label class="backup-selection-item child">
+                                    <input type="checkbox"
+                                           checked="@selectedKeystoreIds.Contains(keystore.Keystore.Id)"
+                                           disabled="@(!keystore.FileExists)"
+                                           @onchange="e => ToggleSelection(selectedKeystoreIds, keystore.Keystore.Id, e.Value is bool c && c)" />
+                                    <span>@keystore.Keystore.Alias</span>
+                                    <span class="backup-item-source">@GetKeystoreStatus(keystore)</span>
+                                </label>
+                            }
+                        </div>
+                        <div class="help-text">Keystores are exported with the keystore file and their saved keystore and key passwords.</div>
+                    }
+                </div>
             </div>
             @if (!CanExportSelection)
             {
@@ -219,6 +244,9 @@
     private List<PublishProfile> publishProfiles = new();
     private List<BackupCertificateInfo> certificates = new();
     private IReadOnlyList<string> certificateLoadErrors = Array.Empty<string>();
+    private List<KeystoreOption> keystores = new();
+
+    private record KeystoreOption(AndroidKeystore Keystore, bool FileExists, bool HasPassword);
 
     private string exportPassword = "";
     private string exportPasswordConfirm = "";
@@ -232,6 +260,7 @@
     private bool exportIncludePushProjects = true;
     private bool exportIncludePublishProfiles = true;
     private bool exportIncludeCertificates = true;
+    private bool exportIncludeKeystores = true;
 
     private HashSet<string> selectedAppleIds = new(StringComparer.Ordinal);
     private HashSet<string> selectedProviderIds = new(StringComparer.Ordinal);
@@ -240,6 +269,7 @@
     private HashSet<string> selectedPushProjectIds = new(StringComparer.Ordinal);
     private HashSet<string> selectedProfileIds = new(StringComparer.Ordinal);
     private HashSet<string> selectedCertificateIds = new(StringComparer.Ordinal);
+    private HashSet<string> selectedKeystoreIds = new(StringComparer.Ordinal);
 
     private bool CanExportSelection =>
         exportIncludePreferences ||
@@ -249,7 +279,8 @@
         (exportIncludeGoogleIdentities && selectedGoogleIds.Count > 0) ||
         (exportIncludePushProjects && selectedPushProjectIds.Count > 0) ||
         (exportIncludePublishProfiles && selectedProfileIds.Count > 0) ||
-        (exportIncludeCertificates && selectedCertificateIds.Count > 0);
+        (exportIncludeCertificates && selectedCertificateIds.Count > 0) ||
+        (exportIncludeKeystores && selectedKeystoreIds.Count > 0);
 
     private bool CanExport =>
         !isExporting &&
@@ -276,6 +307,17 @@
             certificateLoadErrors = new[] { $"Could not list signing certificates: {ex.Message}" };
         }
 
+        try
+        {
+            foreach (var keystore in await KeystoreService.ListKeystoresAsync())
+            {
+                var hasPassword = false;
+                try { hasPassword = !string.IsNullOrEmpty(await KeystoreService.GetKeystorePasswordAsync(keystore.Id)); } catch { }
+                keystores.Add(new KeystoreOption(keystore, keystore.StoredInVault || File.Exists(keystore.FilePath), hasPassword));
+            }
+        }
+        catch { }
+
         exportIncludeAppleIdentities = appleIdentities.Count > 0;
         exportIncludeCloudProviders = cloudProviders.Count > 0;
         exportIncludeSecretsPublishers = secretsPublishers.Count > 0;
@@ -283,6 +325,7 @@
         exportIncludePushProjects = pushProjects.Count > 0;
         exportIncludePublishProfiles = publishProfiles.Count > 0;
         exportIncludeCertificates = certificates.Count > 0;
+        exportIncludeKeystores = keystores.Any(k => k.FileExists);
 
         selectedAppleIds = appleIdentities.Select(i => i.Id).ToHashSet(StringComparer.Ordinal);
         selectedProviderIds = cloudProviders.Select(p => p.Id).ToHashSet(StringComparer.Ordinal);
@@ -291,6 +334,7 @@
         selectedPushProjectIds = pushProjects.Select(p => p.Id).ToHashSet(StringComparer.Ordinal);
         selectedProfileIds = publishProfiles.Select(p => p.Id).ToHashSet(StringComparer.Ordinal);
         selectedCertificateIds = certificates.Select(c => c.Item.Id).ToHashSet(StringComparer.Ordinal);
+        selectedKeystoreIds = keystores.Where(k => k.FileExists).Select(k => k.Keystore.Id).ToHashSet(StringComparer.Ordinal);
     }
 
     private void Cancel() => ModalParams.Cancel();
@@ -299,6 +343,11 @@
         certificate.InLocalVault && certificate.InKeychain ? "Local Vault + Keychain"
         : certificate.InLocalVault ? "Local Vault"
         : "Keychain";
+
+    private static string GetKeystoreStatus(KeystoreOption keystore) =>
+        !keystore.FileExists ? "File missing"
+        : !keystore.HasPassword ? $"{Path.GetFileName(keystore.Keystore.FilePath)} · no saved password"
+        : Path.GetFileName(keystore.Keystore.FilePath);
 
     private static void ToggleSelection(HashSet<string> set, string id, bool isSelected)
     {
@@ -338,7 +387,8 @@
                 GoogleIdentityIds = exportIncludeGoogleIdentities ? selectedGoogleIds.ToList() : new List<string>(),
                 PushProjectIds = exportIncludePushProjects ? selectedPushProjectIds.ToList() : new List<string>(),
                 PublishProfileIds = exportIncludePublishProfiles ? selectedProfileIds.ToList() : new List<string>(),
-                CertificateIds = exportIncludeCertificates ? selectedCertificateIds.ToList() : new List<string>()
+                CertificateIds = exportIncludeCertificates ? selectedCertificateIds.ToList() : new List<string>(),
+                KeystoreIds = exportIncludeKeystores ? selectedKeystoreIds.ToList() : new List<string>()
             };
             var encrypted = await BackupService.ExportSettingsAsync(exportPassword, selection);
             var timestamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");

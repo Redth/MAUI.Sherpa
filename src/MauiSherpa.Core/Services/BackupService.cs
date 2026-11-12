@@ -29,6 +29,7 @@ public class BackupService : IBackupService
     private readonly ISecretsProviderRegistry? _providerRegistry;
     private readonly IReadOnlyList<ISecretItemAdapter> _secretItemAdapters;
     private readonly ILocalCertificateService? _localCertificateService;
+    private readonly IKeystoreService? _keystoreService;
     private readonly ILoggingService? _logger;
 
     private static readonly JsonSerializerOptions PublishProfileJsonOptions = new(JsonSerializerDefaults.Web);
@@ -37,7 +38,8 @@ public class BackupService : IBackupService
         int Version,
         MauiSherpaSettings Settings,
         BackupExportSelection Selection,
-        List<SecretItemPayload>? Certificates = null
+        List<SecretItemPayload>? Certificates = null,
+        List<KeystoreBackupItem>? Keystores = null
     );
 
     public BackupService(
@@ -51,7 +53,8 @@ public class BackupService : IBackupService
         ISecretsProviderRegistry? providerRegistry = null,
         IEnumerable<ISecretItemAdapter>? secretItemAdapters = null,
         ILocalCertificateService? localCertificateService = null,
-        ILoggingService? logger = null)
+        ILoggingService? logger = null,
+        IKeystoreService? keystoreService = null)
     {
         _settingsService = settingsService;
         _appleIdentityService = appleIdentityService;
@@ -63,6 +66,7 @@ public class BackupService : IBackupService
         _providerRegistry = providerRegistry;
         _secretItemAdapters = secretItemAdapters?.ToList() ?? new List<ISecretItemAdapter>();
         _localCertificateService = localCertificateService;
+        _keystoreService = keystoreService;
         _logger = logger;
     }
 
@@ -101,10 +105,14 @@ public class BackupService : IBackupService
             }
         }
 
+        var availableKeystores = _keystoreService is null
+            ? Array.Empty<AndroidKeystore>()
+            : await _keystoreService.ListKeystoresAsync();
         var resolvedSelection = ResolveSelection(
             selection,
             settings,
-            availableCertificates.Select(c => c.Item.Id).ToList());
+            availableCertificates.Select(c => c.Item.Id).ToList(),
+            availableKeystores.Select(k => k.Id).ToList());
         if (!resolvedSelection.IncludePreferences &&
             resolvedSelection.AppleIdentityIds.Count == 0 &&
             resolvedSelection.CloudProviderIds.Count == 0 &&
@@ -112,7 +120,8 @@ public class BackupService : IBackupService
             resolvedSelection.GoogleIdentityIds.Count == 0 &&
             resolvedSelection.PushProjectIds.Count == 0 &&
             resolvedSelection.PublishProfileIds.Count == 0 &&
-            resolvedSelection.CertificateIds.Count == 0)
+            resolvedSelection.CertificateIds.Count == 0 &&
+            resolvedSelection.KeystoreIds.Count == 0)
         {
             throw new InvalidOperationException("At least one setting item must be selected for export.");
         }
@@ -120,11 +129,14 @@ public class BackupService : IBackupService
         var selectedSettings = ApplySelection(settings, resolvedSelection);
         var certificates = await ReadCertificatesWithPrivateKeysAsync(
             availableCertificates.Where(c => resolvedSelection.CertificateIds.Contains(c.Item.Id)).ToList());
+        var keystores = await ReadKeystoresAsync(
+            availableKeystores.Where(k => resolvedSelection.KeystoreIds.Contains(k.Id)).ToList());
         var payload = new BackupPayload(
             Version: BackupPayloadVersion,
             Settings: selectedSettings,
             Selection: resolvedSelection,
-            Certificates: certificates);
+            Certificates: certificates,
+            Keystores: keystores);
 
         var json = JsonSerializer.Serialize(payload);
         var plaintext = Encoding.UTF8.GetBytes(json);
@@ -203,15 +215,20 @@ public class BackupService : IBackupService
         if (payload?.Settings != null && payload.Selection != null)
         {
             var certificates = payload.Certificates ?? new List<SecretItemPayload>();
+            var keystores = payload.Keystores ?? new List<KeystoreBackupItem>();
             var resolvedSelection = ResolveSelection(
                 payload.Selection,
                 payload.Settings,
-                certificates.Select(c => c.Item.Id).ToList());
+                certificates.Select(c => c.Item.Id).ToList(),
+                keystores.Select(k => k.Id).ToList());
             var selectedSettings = ApplySelection(payload.Settings, resolvedSelection);
             var selectedCertificates = certificates
                 .Where(c => resolvedSelection.CertificateIds.Contains(c.Item.Id))
                 .ToList();
-            return new BackupImportResult(selectedSettings, resolvedSelection, selectedCertificates);
+            var selectedKeystores = keystores
+                .Where(k => resolvedSelection.KeystoreIds.Contains(k.Id))
+                .ToList();
+            return new BackupImportResult(selectedSettings, resolvedSelection, selectedCertificates, selectedKeystores);
         }
 
         var settings = JsonSerializer.Deserialize<MauiSherpaSettings>(json) 
@@ -317,12 +334,13 @@ public class BackupService : IBackupService
         var failures = new List<string>();
         var profiles = importResult.Settings.PublishProfiles;
         var certificates = importResult.Certificates ?? Array.Empty<SecretItemPayload>();
-        if (profiles.Count == 0 && certificates.Count == 0)
+        var keystores = importResult.Keystores ?? Array.Empty<KeystoreBackupItem>();
+        if (profiles.Count == 0 && certificates.Count == 0 && keystores.Count == 0)
             return new BackupRestoreResult(0, 0, failures);
 
         // Restored items always land in the built-in Local Vault so they are available even
         // when the remote providers they originally came from are unreachable.
-        if (_cloudSecretsService is not null)
+        if (_cloudSecretsService is not null && (profiles.Count > 0 || certificates.Count > 0))
         {
             try
             {
@@ -332,7 +350,8 @@ public class BackupService : IBackupService
             {
                 failures.AddRange(profiles.Select(p => $"Publish profile '{p.Name}' (Local Vault unavailable: {ex.Message})"));
                 failures.AddRange(certificates.Select(c => $"Certificate '{c.Item.DisplayName}' (Local Vault unavailable: {ex.Message})"));
-                return new BackupRestoreResult(0, 0, failures);
+                profiles = new List<PublishProfileData>();
+                certificates = Array.Empty<SecretItemPayload>();
             }
         }
 
@@ -374,7 +393,117 @@ public class BackupService : IBackupService
             }
         }
 
-        return new BackupRestoreResult(profilesRestored, certificatesRestored, failures);
+        var keystoresRestored = 0;
+        foreach (var keystore in keystores)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (_keystoreService is null)
+            {
+                failures.Add($"Keystore '{keystore.Alias}' (keystore service unavailable)");
+                continue;
+            }
+
+            try
+            {
+                await RestoreKeystoreAsync(_keystoreService, keystore, cancellationToken);
+                keystoresRestored++;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger?.LogWarning($"Could not restore keystore '{keystore.Alias}': {ex.Message}");
+                failures.Add($"Keystore '{keystore.Alias}' ({ex.Message})");
+            }
+        }
+
+        return new BackupRestoreResult(profilesRestored, certificatesRestored, failures, keystoresRestored);
+    }
+
+    /// <summary>
+    /// Reads each selected keystore from the Local Vault with its saved passwords. Export fails
+    /// rather than writing a backup that is missing a keystore that was asked for.
+    /// </summary>
+    private async Task<List<KeystoreBackupItem>> ReadKeystoresAsync(IReadOnlyList<AndroidKeystore> keystores)
+    {
+        var items = new List<KeystoreBackupItem>();
+        if (_keystoreService is null || keystores.Count == 0)
+            return items;
+
+        var failures = new List<string>();
+        foreach (var keystore in keystores)
+        {
+            byte[]? content;
+            try
+            {
+                content = await _keystoreService.GetKeystoreContentAsync(keystore.Id);
+            }
+            catch (Exception ex)
+            {
+                failures.Add($"{keystore.Alias} ({ex.Message})");
+                continue;
+            }
+
+            if (content is null)
+            {
+                failures.Add($"{keystore.Alias} (the keystore file has not been located)");
+                continue;
+            }
+
+            items.Add(new KeystoreBackupItem(
+                Id: keystore.Id,
+                Alias: keystore.Alias,
+                KeystoreType: keystore.KeystoreType,
+                CreatedDate: keystore.CreatedDate,
+                Notes: keystore.Notes,
+                FileName: Path.GetFileName(keystore.FilePath),
+                Content: content,
+                KeystorePassword: await _keystoreService.GetKeystorePasswordAsync(keystore.Id),
+                KeyPassword: await _keystoreService.GetKeyPasswordAsync(keystore.Id)));
+        }
+
+        if (failures.Count > 0)
+        {
+            throw new InvalidOperationException(
+                "The keystore could not be read for: " + string.Join(", ", failures) +
+                ". Locate the keystore files or deselect them.");
+        }
+
+        return items;
+    }
+
+    /// <summary>
+    /// Stores a backed-up keystore under its original ID, so publish profiles that point at it
+    /// keep working: in the Local Vault, or file-attached while the vault is off. A keystore that
+    /// is already here keeps its file and only gains the passwords it is missing.
+    /// </summary>
+    private static async Task RestoreKeystoreAsync(
+        IKeystoreService keystoreService,
+        KeystoreBackupItem item,
+        CancellationToken cancellationToken)
+    {
+        var existing = (await keystoreService.ListKeystoresAsync())
+            .FirstOrDefault(k => string.Equals(k.Id, item.Id, StringComparison.Ordinal));
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (existing is not null && (existing.StoredInVault || File.Exists(existing.FilePath)))
+        {
+            if (item.KeystorePassword is not null && await keystoreService.GetKeystorePasswordAsync(item.Id) is null)
+                await keystoreService.SaveKeystorePasswordAsync(item.Id, item.KeystorePassword);
+            if (item.KeyPassword is not null && await keystoreService.GetKeyPasswordAsync(item.Id) is null)
+                await keystoreService.SaveKeyPasswordAsync(item.Id, item.KeyPassword);
+            return;
+        }
+
+        await keystoreService.AddKeystoreAsync(
+            new AndroidKeystore(
+                Id: item.Id,
+                Alias: item.Alias,
+                FilePath: item.FileName,
+                KeystoreType: item.KeystoreType,
+                CreatedDate: item.CreatedDate,
+                Notes: item.Notes),
+            item.Content,
+            item.KeystorePassword,
+            item.KeyPassword);
     }
 
     private ISecretItemAdapter? GetAdapter(SecretItemKind kind) =>
@@ -785,7 +914,8 @@ public class BackupService : IBackupService
     private static BackupExportSelection ResolveSelection(
         BackupExportSelection? selection,
         MauiSherpaSettings settings,
-        IReadOnlyCollection<string> availableCertificateIds)
+        IReadOnlyCollection<string> availableCertificateIds,
+        IReadOnlyCollection<string> availableKeystoreIds)
     {
         var availableIdentityIds = settings.AppleIdentities.Select(i => i.Id).ToHashSet(StringComparer.Ordinal);
         var availableProviderIds = settings.CloudProviders.Select(p => p.Id).ToHashSet(StringComparer.Ordinal);
@@ -794,6 +924,7 @@ public class BackupService : IBackupService
         var availablePushProjectIds = settings.PushProjects.Select(p => p.Id).ToHashSet(StringComparer.Ordinal);
         var availableProfileIds = settings.PublishProfiles.Select(p => p.Id).ToHashSet(StringComparer.Ordinal);
         var availableCertIds = availableCertificateIds.ToHashSet(StringComparer.Ordinal);
+        var availableKeystoreIdSet = availableKeystoreIds.ToHashSet(StringComparer.Ordinal);
 
         if (selection is null)
         {
@@ -806,7 +937,8 @@ public class BackupService : IBackupService
                 GoogleIdentityIds = availableGoogleIds.ToList(),
                 PushProjectIds = availablePushProjectIds.ToList(),
                 PublishProfileIds = availableProfileIds.ToList(),
-                CertificateIds = availableCertIds.ToList()
+                CertificateIds = availableCertIds.ToList(),
+                KeystoreIds = availableKeystoreIdSet.ToList()
             };
         }
 
@@ -817,6 +949,7 @@ public class BackupService : IBackupService
         var selectedPushProjectIds = selection.PushProjectIds ?? new List<string>();
         var selectedProfileIds = selection.PublishProfileIds ?? new List<string>();
         var selectedCertIds = selection.CertificateIds ?? new List<string>();
+        var selectedKeystoreIds = selection.KeystoreIds ?? new List<string>();
 
         return new BackupExportSelection
         {
@@ -847,6 +980,10 @@ public class BackupService : IBackupService
                 .ToList(),
             CertificateIds = selectedCertIds
                 .Where(id => availableCertIds.Contains(id))
+                .Distinct(StringComparer.Ordinal)
+                .ToList(),
+            KeystoreIds = selectedKeystoreIds
+                .Where(id => availableKeystoreIdSet.Contains(id))
                 .Distinct(StringComparer.Ordinal)
                 .ToList()
         };

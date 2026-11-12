@@ -10,18 +10,15 @@ public class KeystoreSyncService : IKeystoreSyncService
 
     private readonly IKeystoreService _keystoreService;
     private readonly ICloudSecretsService _cloudService;
-    private readonly ISecureStorageService _secureStorage;
     private readonly ILoggingService _logger;
 
     public KeystoreSyncService(
         IKeystoreService keystoreService,
         ICloudSecretsService cloudService,
-        ISecureStorageService secureStorage,
         ILoggingService logger)
     {
         _keystoreService = keystoreService;
         _cloudService = cloudService;
-        _secureStorage = secureStorage;
         _logger = logger;
     }
 
@@ -87,10 +84,8 @@ public class KeystoreSyncService : IKeystoreSyncService
     public async Task UploadKeystoreFileAsync(string keystoreId, CancellationToken ct = default)
     {
         var ks = await GetKeystoreByIdAsync(keystoreId);
-        if (!File.Exists(ks.FilePath))
-            throw new FileNotFoundException($"Keystore file not found: {ks.FilePath}");
-
-        var fileBytes = await File.ReadAllBytesAsync(ks.FilePath, ct);
+        var fileBytes = await _keystoreService.GetKeystoreContentAsync(ks.Id)
+            ?? throw new InvalidOperationException($"Keystore '{ks.Alias}' is not stored in the Local Vault. Locate its file first.");
         await _cloudService.StoreSecretAsync(GetCloudKey(ks.Alias, "JKS"), fileBytes, null, ct);
     }
 
@@ -131,12 +126,6 @@ public class KeystoreSyncService : IKeystoreSyncService
         var fileBytes = await _cloudService.GetSecretAsync(GetCloudKey(alias, "JKS"), ct)
             ?? throw new InvalidOperationException($"Keystore data not found in cloud for: {alias}");
 
-        // Save to app data
-        var keystoreDir = Path.Combine(AppDataPath.GetAppDataDirectory(), "keystores");
-        Directory.CreateDirectory(keystoreDir);
-        var filePath = Path.Combine(keystoreDir, $"{alias}.keystore");
-        await File.WriteAllBytesAsync(filePath, fileBytes, ct);
-
         // Read metadata
         var metaBytes = await _cloudService.GetSecretAsync(GetCloudKey(alias, "META"), ct);
         string keystoreType = "PKCS12";
@@ -153,21 +142,21 @@ public class KeystoreSyncService : IKeystoreSyncService
             catch { }
         }
 
-        // Download password and store locally
+        // Download passwords and store the keystore in the Local Vault
         var pwdBytes = await _cloudService.GetSecretAsync(GetCloudKey(alias, "PWD"), ct);
-        var keystore = new AndroidKeystore(
-            Id: Guid.NewGuid().ToString(),
-            Alias: alias,
-            FilePath: filePath,
-            KeystoreType: keystoreType,
-            CreatedDate: createdDate);
+        var keyPwdBytes = await _cloudService.GetSecretAsync(GetCloudKey(alias, "KEYPWD"), ct);
+        await _keystoreService.AddKeystoreAsync(
+            new AndroidKeystore(
+                Id: Guid.NewGuid().ToString(),
+                Alias: alias,
+                FilePath: $"{alias}.keystore",
+                KeystoreType: keystoreType,
+                CreatedDate: createdDate),
+            fileBytes,
+            pwdBytes is null ? null : Encoding.UTF8.GetString(pwdBytes),
+            keyPwdBytes is null ? null : Encoding.UTF8.GetString(keyPwdBytes));
 
-        await _keystoreService.AddKeystoreAsync(keystore);
-
-        if (pwdBytes != null)
-            await _secureStorage.SetAsync($"android_keystore_pwd_{keystore.Id}", Encoding.UTF8.GetString(pwdBytes));
-
-        _logger.LogInformation($"Keystore downloaded from cloud: {alias} → {filePath}");
+        _logger.LogInformation($"Keystore downloaded from cloud into the Local Vault: {alias}");
     }
 
     public async Task DeleteKeystoreFromCloudAsync(string alias, CancellationToken ct = default)

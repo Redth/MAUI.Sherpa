@@ -14,7 +14,6 @@ public class PublishProfileService : IPublishProfileService
     readonly ICloudSecretsService _cloudService;
     readonly ICertificateSyncService _certSync;
     readonly IKeystoreService _keystoreService;
-    readonly ISecureStorageService _secureStorage;
     readonly IManagedSecretsService _managedSecrets;
     readonly IAppleConnectService _appleConnect;
     readonly IAppleIdentityService _appleIdentity;
@@ -41,7 +40,6 @@ public class PublishProfileService : IPublishProfileService
         ICloudSecretsService cloudService,
         ICertificateSyncService certSync,
         IKeystoreService keystoreService,
-        ISecureStorageService secureStorage,
         IManagedSecretsService managedSecrets,
         IAppleConnectService appleConnect,
         IAppleIdentityService appleIdentity,
@@ -54,7 +52,6 @@ public class PublishProfileService : IPublishProfileService
         _cloudService = cloudService;
         _certSync = certSync;
         _keystoreService = keystoreService;
-        _secureStorage = secureStorage;
         _managedSecrets = managedSecrets;
         _appleConnect = appleConnect;
         _appleIdentity = appleIdentity;
@@ -508,10 +505,10 @@ public class PublishProfileService : IPublishProfileService
                     var keystore = keystores.FirstOrDefault(k => k.Id == android.KeystoreId);
                     if (keystore is not null)
                     {
-                        // Read keystore file bytes
-                        if (!string.IsNullOrEmpty(keystore.FilePath) && File.Exists(keystore.FilePath))
+                        // Keystore file bytes from the Local Vault
+                        var keystoreBytes = await _keystoreService.GetKeystoreContentAsync(keystore.Id);
+                        if (keystoreBytes is not null)
                         {
-                            var keystoreBytes = await File.ReadAllBytesAsync(keystore.FilePath, ct);
                             var defaultKey = $"ANDROID_{SanitizeLabel(android.Label)}_KEYSTORE";
                             AddMappedSecrets(secrets, android.KeyMappings, defaultKey, Convert.ToBase64String(keystoreBytes));
                         }
@@ -521,15 +518,21 @@ public class PublishProfileService : IPublishProfileService
                         AddMappedSecrets(secrets, android.KeyMappings, defaultAliasKey, keystore.Alias);
 
                         // Keystore password from secure storage
-                        var pwd = await _secureStorage.GetAsync($"android_keystore_pwd_{keystore.Id}");
+                        var pwd = await _keystoreService.GetKeystorePasswordAsync(keystore.Id);
                         if (!string.IsNullOrEmpty(pwd))
                         {
                             var defaultPwdKey = $"ANDROID_{SanitizeLabel(android.Label)}_KEYSTORE_PASSWORD";
                             AddMappedSecrets(secrets, android.KeyMappings, defaultPwdKey, pwd);
+                        }
 
-                            // Key password (typically same as keystore password for PKCS12)
+                        // Key password; when none is saved it is the keystore password, as for PKCS12
+                        var keyPwd = await _keystoreService.GetKeyPasswordAsync(keystore.Id);
+                        if (string.IsNullOrEmpty(keyPwd))
+                            keyPwd = pwd;
+                        if (!string.IsNullOrEmpty(keyPwd))
+                        {
                             var defaultKeyPwdKey = $"ANDROID_{SanitizeLabel(android.Label)}_KEY_PASSWORD";
-                            AddMappedSecrets(secrets, android.KeyMappings, defaultKeyPwdKey, pwd);
+                            AddMappedSecrets(secrets, android.KeyMappings, defaultKeyPwdKey, keyPwd);
                         }
                     }
                 }

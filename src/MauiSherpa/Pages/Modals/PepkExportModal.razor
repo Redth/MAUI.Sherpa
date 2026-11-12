@@ -38,7 +38,7 @@
 
 @code {
     private string alias = "";
-    private string keystorePath = "";
+    private string keystoreId = "";
     private string pepkKeystorePassword = "";
     private string pepkKeyPassword = "";
     private string pepkEncryptionKey = "";
@@ -47,15 +47,24 @@
         && !string.IsNullOrWhiteSpace(pepkKeyPassword)
         && !string.IsNullOrWhiteSpace(pepkEncryptionKey);
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
         var bridge = BridgeHolder.Current;
         if (bridge == null) return;
 
         alias = bridge.Parameters.GetValueOrDefault("Alias") as string ?? "";
-        keystorePath = bridge.Parameters.GetValueOrDefault("KeystorePath") as string ?? "";
+        keystoreId = bridge.Parameters.GetValueOrDefault("KeystoreId") as string ?? "";
 
         bridge.SubmitRequested += OnSubmitRequested;
+
+        // Start from the saved passwords; the key password falls back to the keystore password.
+        try
+        {
+            pepkKeystorePassword = await KeystoreService.GetKeystorePasswordAsync(keystoreId) ?? "";
+            pepkKeyPassword = await KeystoreService.GetKeyPasswordAsync(keystoreId) ?? pepkKeystorePassword;
+        }
+        catch { }
+
         bridge.SetValid(CanExportPepk);
     }
 
@@ -76,10 +85,10 @@
 
         await OperationModal.RunAsync("Export PEPK", $"Exporting PEPK for '{alias}'...", async (ctx) =>
         {
-            ctx.LogInfo($"Keystore: {keystorePath}");
             ctx.LogInfo($"Alias: {alias}");
+            await using var file = await KeystoreService.OpenKeystoreFileAsync(keystoreId);
             await KeystoreService.ExportPepkAsync(
-                keystorePath, alias,
+                file.Path, alias,
                 pepkKeystorePassword, pepkKeyPassword,
                 pepkEncryptionKey, savePath);
             ctx.LogInfo($"PEPK exported to: {savePath}");
