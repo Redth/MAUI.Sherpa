@@ -4862,7 +4862,8 @@ public interface IBackupService
     Task<BackupCertificateDiscoveryResult> GetBackupCertificatesAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Writes the publish profiles and certificates from an imported backup into the Local Vault.
+    /// Writes the publish profiles and certificates from an imported backup into the Local Vault,
+    /// and registers the backed-up Android keystores with their passwords.
     /// </summary>
     Task<BackupRestoreResult> RestoreStoredItemsAsync(BackupImportResult importResult, CancellationToken cancellationToken = default);
 }
@@ -4877,12 +4878,30 @@ public record BackupExportSelection
     public List<string> PushProjectIds { get; init; } = new();
     public List<string> PublishProfileIds { get; init; } = new();
     public List<string> CertificateIds { get; init; } = new();
+    public List<string> KeystoreIds { get; init; } = new();
 }
 
 public record BackupImportResult(
     MauiSherpaSettings Settings,
     BackupExportSelection Selection,
-    IReadOnlyList<SecretItemPayload>? Certificates = null
+    IReadOnlyList<SecretItemPayload>? Certificates = null,
+    IReadOnlyList<KeystoreBackupItem>? Keystores = null
+);
+
+/// <summary>
+/// An Android keystore in a backup: the keystore file itself and its saved passwords.
+/// A null password was not saved on the machine the backup came from.
+/// </summary>
+public record KeystoreBackupItem(
+    string Id,
+    string Alias,
+    string KeystoreType,
+    DateTime CreatedDate,
+    string? Notes,
+    string FileName,
+    byte[] Content,
+    string? KeystorePassword,
+    string? KeyPassword
 );
 
 /// <summary>
@@ -4902,7 +4921,8 @@ public record BackupCertificateDiscoveryResult(
 public record BackupRestoreResult(
     int PublishProfilesRestored,
     int CertificatesRestored,
-    IReadOnlyList<string> Failures
+    IReadOnlyList<string> Failures,
+    int KeystoresRestored = 0
 );
 
 /// <summary>
@@ -5041,6 +5061,17 @@ public interface IKeystoreService
     Task AddKeystoreAsync(AndroidKeystore keystore);
     Task RemoveKeystoreAsync(string id);
     Task<string?> GetKeytoolPathAsync();
+
+    /// <summary>The saved keystore (store) password, or null when none is saved.</summary>
+    Task<string?> GetKeystorePasswordAsync(string id);
+    Task SaveKeystorePasswordAsync(string id, string password);
+
+    /// <summary>
+    /// The saved password for the keystore's key alias, or null when none is saved. Callers
+    /// fall back to the keystore password, which is the same for PKCS12 keystores.
+    /// </summary>
+    Task<string?> GetKeyPasswordAsync(string id);
+    Task SaveKeyPasswordAsync(string id, string password);
 }
 
 public interface IKeystoreSyncService

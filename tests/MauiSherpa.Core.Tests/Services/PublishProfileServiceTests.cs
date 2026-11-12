@@ -14,7 +14,6 @@ public class PublishProfileServiceTests
     readonly Mock<ICloudSecretsService> _cloudService = new();
     readonly Mock<ICertificateSyncService> _certSync = new();
     readonly Mock<IKeystoreService> _keystoreService = new();
-    readonly Mock<ISecureStorageService> _secureStorage = new();
     readonly Mock<IManagedSecretsService> _managedSecrets = new();
     readonly Mock<IAppleConnectService> _appleConnect = new();
     readonly Mock<IAppleIdentityService> _appleIdentity = new();
@@ -34,7 +33,6 @@ public class PublishProfileServiceTests
             _cloudService.Object,
             _certSync.Object,
             _keystoreService.Object,
-            _secureStorage.Object,
             _managedSecrets.Object,
             _appleConnect.Object,
             _appleIdentity.Object,
@@ -117,6 +115,34 @@ public class PublishProfileServiceTests
         secrets.Should().Contain("FIREBASE_CLIENT_EMAIL", "firebase-adminsdk@example.iam.gserviceaccount.com");
         secrets.Should().Contain("FIREBASE_SERVICE_ACCOUNT_JSON", serviceAccountJson);
         _googleIdentity.Verify(x => x.GetIdentityAsync("google-1"), Times.Once);
+    }
+
+    [Theory]
+    [InlineData("key-pw", "key-pw")]
+    [InlineData(null, "store-pw")]
+    public async Task ResolveSecretsAsync_WithKeystore_MapsSavedKeyPasswordOrFallsBackToKeystorePassword(
+        string? savedKeyPassword, string expectedKeyPassword)
+    {
+        _keystoreService.Setup(x => x.ListKeystoresAsync()).ReturnsAsync(new[]
+        {
+            new AndroidKeystore("ks-1", "release", "/nonexistent/release.keystore", "JKS", DateTime.UtcNow)
+        });
+        _keystoreService.Setup(x => x.GetKeystorePasswordAsync("ks-1")).ReturnsAsync("store-pw");
+        _keystoreService.Setup(x => x.GetKeyPasswordAsync("ks-1")).ReturnsAsync(savedKeyPassword);
+
+        var profile = CreateProfile() with
+        {
+            AndroidConfigs = new List<PublishProfileAndroidConfig>
+            {
+                new("Release", "ks-1", new Dictionary<string, List<string>>())
+            }
+        };
+
+        var secrets = await _sut.ResolveSecretsAsync(profile);
+
+        secrets.Should().Contain("ANDROID_RELEASE_KEY_ALIAS", "release");
+        secrets.Should().Contain("ANDROID_RELEASE_KEYSTORE_PASSWORD", "store-pw");
+        secrets.Should().Contain("ANDROID_RELEASE_KEY_PASSWORD", expectedKeyPassword);
     }
 
     [Fact]
@@ -223,7 +249,7 @@ public class PublishProfileServiceTests
         var sync = new CertificateSyncService(
             _cloudService.Object, localCertificates.Object, _logger.Object, registry.Object);
         var publishService = new PublishProfileService(
-            _cloudService.Object, sync, _keystoreService.Object, _secureStorage.Object, _managedSecrets.Object,
+            _cloudService.Object, sync, _keystoreService.Object, _managedSecrets.Object,
             _appleConnect.Object, _appleIdentity.Object, _identityState.Object, _googleIdentity.Object, _logger.Object);
         var profile = CreateProfile() with
         {
@@ -432,7 +458,6 @@ public class PublishProfileServiceTests
             _cloudService.Object,
             _certSync.Object,
             _keystoreService.Object,
-            _secureStorage.Object,
             _managedSecrets.Object,
             _appleConnect.Object,
             _appleIdentity.Object,
@@ -481,7 +506,6 @@ public class PublishProfileServiceTests
             _cloudService.Object,
             _certSync.Object,
             _keystoreService.Object,
-            _secureStorage.Object,
             _managedSecrets.Object,
             _appleConnect.Object,
             _appleIdentity.Object,

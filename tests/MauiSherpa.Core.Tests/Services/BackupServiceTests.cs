@@ -1041,4 +1041,263 @@ public class BackupServiceTests
         result.Failures.Should().ContainSingle(f => f.Contains("vault locked"));
         written.Should().BeEmpty();
     }
+
+    private sealed class KeystoreStore
+    {
+        public List<AndroidKeystore> Keystores { get; } = new();
+        public Dictionary<string, string> Passwords { get; } = new();
+        public Dictionary<string, string> KeyPasswords { get; } = new();
+    }
+
+    private static Mock<IKeystoreService> CreateKeystoreService(KeystoreStore store)
+    {
+        var mock = new Mock<IKeystoreService>();
+        mock.Setup(x => x.ListKeystoresAsync()).ReturnsAsync(() => store.Keystores.ToList());
+        mock.Setup(x => x.AddKeystoreAsync(It.IsAny<AndroidKeystore>()))
+            .Callback<AndroidKeystore>(store.Keystores.Add)
+            .Returns(Task.CompletedTask);
+        mock.Setup(x => x.RemoveKeystoreAsync(It.IsAny<string>()))
+            .Callback<string>(id =>
+            {
+                store.Keystores.RemoveAll(k => k.Id == id);
+                store.Passwords.Remove(id);
+                store.KeyPasswords.Remove(id);
+            })
+            .Returns(Task.CompletedTask);
+        mock.Setup(x => x.GetKeystorePasswordAsync(It.IsAny<string>()))
+            .ReturnsAsync((string id) => store.Passwords.GetValueOrDefault(id));
+        mock.Setup(x => x.GetKeyPasswordAsync(It.IsAny<string>()))
+            .ReturnsAsync((string id) => store.KeyPasswords.GetValueOrDefault(id));
+        mock.Setup(x => x.SaveKeystorePasswordAsync(It.IsAny<string>(), It.IsAny<string>()))
+            .Callback<string, string>((id, pwd) => store.Passwords[id] = pwd)
+            .Returns(Task.CompletedTask);
+        mock.Setup(x => x.SaveKeyPasswordAsync(It.IsAny<string>(), It.IsAny<string>()))
+            .Callback<string, string>((id, pwd) => store.KeyPasswords[id] = pwd)
+            .Returns(Task.CompletedTask);
+        return mock;
+    }
+
+    private BackupService CreateKeystoreBackupService(KeystoreStore store, string restoreDirectory)
+    {
+        _mockSettingsService.Setup(x => x.GetSettingsAsync()).ReturnsAsync(new MauiSherpaSettings());
+        return new BackupService(
+            _mockSettingsService.Object,
+            _mockAppleIdentityService.Object,
+            _mockCloudSecretsService.Object,
+            _mockSecretsPublisherService.Object,
+            _mockGoogleIdentityService.Object,
+            keystoreService: CreateKeystoreService(store).Object)
+        {
+            KeystoreRestoreDirectory = restoreDirectory
+        };
+    }
+
+    private static string CreateTempDirectory()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "sherpa-backup-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(path);
+        return path;
+    }
+
+    [Fact]
+    public async Task Backup_RoundTrip_RestoresKeystoreFileAndPasswordsOnAnotherMachine()
+    {
+        var sourceDir = CreateTempDirectory();
+        var restoreDir = CreateTempDirectory();
+        try
+        {
+            var content = RandomNumberGenerator.GetBytes(256);
+            var keystorePath = Path.Combine(sourceDir, "release.keystore");
+            await File.WriteAllBytesAsync(keystorePath, content);
+            var created = new DateTime(2025, 3, 1, 0, 0, 0, DateTimeKind.Utc);
+
+            var source = new KeystoreStore();
+            source.Keystores.Add(new AndroidKeystore("ks-1", "release", keystorePath, "JKS", created, "notes"));
+            source.Passwords["ks-1"] = "store-pw";
+            source.KeyPasswords["ks-1"] = "key-pw";
+
+            var encrypted = await CreateKeystoreBackupService(source, restoreDir).ExportSettingsAsync(
+                "password123",
+                new BackupExportSelection { IncludePreferences = false, KeystoreIds = new List<string> { "ks-1" } });
+
+            var target = new KeystoreStore();
+            var targetService = CreateKeystoreBackupService(target, restoreDir);
+            var imported = await targetService.ImportBackupAsync(encrypted, "password123");
+            var result = await targetService.RestoreStoredItemsAsync(imported);
+
+            result.KeystoresRestored.Should().Be(1);
+            result.Failures.Should().BeEmpty();
+            var restored = target.Keystores.Should().ContainSingle().Subject;
+            restored.Id.Should().Be("ks-1");
+            restored.Alias.Should().Be("release");
+            restored.KeystoreType.Should().Be("JKS");
+            restored.CreatedDate.Should().Be(created);
+            restored.Notes.Should().Be("notes");
+            restored.FilePath.Should().Be(Path.Combine(restoreDir, "release.keystore"));
+            (await File.ReadAllBytesAsync(restored.FilePath)).Should().Equal(content);
+            target.Passwords["ks-1"].Should().Be("store-pw");
+            target.KeyPasswords["ks-1"].Should().Be("key-pw");
+            _mockCloudSecretsService.Verify(x => x.EnableDefaultLocalProviderAsync(It.IsAny<bool>()), Times.Never);
+        }
+        finally
+        {
+            Directory.Delete(sourceDir, recursive: true);
+            Directory.Delete(restoreDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task RestoreStoredItemsAsync_KeepsRegisteredKeystoreAndAddsMissingPasswords()
+    {
+        var dir = CreateTempDirectory();
+        try
+        {
+            var keystorePath = Path.Combine(dir, "existing.keystore");
+            await File.WriteAllBytesAsync(keystorePath, new byte[] { 1, 2, 3 });
+            var store = new KeystoreStore();
+            store.Keystores.Add(new AndroidKeystore("ks-1", "release", keystorePath, "PKCS12", DateTime.UtcNow));
+            store.Passwords["ks-1"] = "current-pw";
+            var service = CreateKeystoreBackupService(store, Path.Combine(dir, "restored"));
+
+            var result = await service.RestoreStoredItemsAsync(new BackupImportResult(
+                new MauiSherpaSettings(),
+                new BackupExportSelection { KeystoreIds = new List<string> { "ks-1" } },
+                Keystores: new[]
+                {
+                    new KeystoreBackupItem("ks-1", "release", "PKCS12", DateTime.UtcNow, null,
+                        "release.keystore", new byte[] { 9, 9, 9 }, "backup-pw", "backup-key-pw")
+                }));
+
+            result.KeystoresRestored.Should().Be(1);
+            store.Keystores.Should().ContainSingle().Which.FilePath.Should().Be(keystorePath);
+            (await File.ReadAllBytesAsync(keystorePath)).Should().Equal(1, 2, 3);
+            store.Passwords["ks-1"].Should().Be("current-pw");
+            store.KeyPasswords["ks-1"].Should().Be("backup-key-pw");
+            Directory.Exists(Path.Combine(dir, "restored")).Should().BeFalse();
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task RestoreStoredItemsAsync_ReplacesRegistrationWhoseFileIsGone()
+    {
+        var dir = CreateTempDirectory();
+        try
+        {
+            var store = new KeystoreStore();
+            store.Keystores.Add(new AndroidKeystore("ks-1", "release", Path.Combine(dir, "gone.keystore"), "PKCS12", DateTime.UtcNow));
+            var service = CreateKeystoreBackupService(store, dir);
+
+            var result = await service.RestoreStoredItemsAsync(new BackupImportResult(
+                new MauiSherpaSettings(),
+                new BackupExportSelection { KeystoreIds = new List<string> { "ks-1" } },
+                Keystores: new[]
+                {
+                    new KeystoreBackupItem("ks-1", "release", "PKCS12", DateTime.UtcNow, null,
+                        "../../release.keystore", new byte[] { 4, 5, 6 }, "pw", null)
+                }));
+
+            result.KeystoresRestored.Should().Be(1);
+            var restored = store.Keystores.Should().ContainSingle().Subject;
+            restored.FilePath.Should().Be(Path.Combine(dir, "release.keystore"));
+            (await File.ReadAllBytesAsync(restored.FilePath)).Should().Equal(4, 5, 6);
+            store.Passwords["ks-1"].Should().Be("pw");
+            store.KeyPasswords.Should().NotContainKey("ks-1");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task RestoreStoredItemsAsync_DoesNotOverwriteDifferentFileWithSameName()
+    {
+        var dir = CreateTempDirectory();
+        try
+        {
+            var otherPath = Path.Combine(dir, "release.keystore");
+            await File.WriteAllBytesAsync(otherPath, new byte[] { 7 });
+            var store = new KeystoreStore();
+            var service = CreateKeystoreBackupService(store, dir);
+
+            await service.RestoreStoredItemsAsync(new BackupImportResult(
+                new MauiSherpaSettings(),
+                new BackupExportSelection { KeystoreIds = new List<string> { "abcdef123456" } },
+                Keystores: new[]
+                {
+                    new KeystoreBackupItem("abcdef123456", "release", "PKCS12", DateTime.UtcNow, null,
+                        "release.keystore", new byte[] { 8 }, "pw", "pw")
+                }));
+
+            (await File.ReadAllBytesAsync(otherPath)).Should().Equal(7);
+            var restored = store.Keystores.Should().ContainSingle().Subject;
+            restored.FilePath.Should().Be(Path.Combine(dir, "release-abcdef12.keystore"));
+            (await File.ReadAllBytesAsync(restored.FilePath)).Should().Equal(8);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ExportSettingsAsync_FailsWhenSelectedKeystoreFileIsMissing()
+    {
+        var store = new KeystoreStore();
+        store.Keystores.Add(new AndroidKeystore("ks-1", "release", "/nonexistent/release.keystore", "PKCS12", DateTime.UtcNow));
+        var service = CreateKeystoreBackupService(store, CreateTempDirectory());
+
+        var act = () => service.ExportSettingsAsync("password123", new BackupExportSelection
+        {
+            IncludePreferences = false,
+            KeystoreIds = new List<string> { "ks-1" }
+        });
+
+        (await act.Should().ThrowAsync<InvalidOperationException>())
+            .WithMessage("*keystore file could not be read*release*");
+    }
+
+    [Fact]
+    public async Task RestoreStoredItemsAsync_RestoresKeystoresWhenLocalVaultCannotBeEnabled()
+    {
+        var dir = CreateTempDirectory();
+        try
+        {
+            _mockCloudSecretsService
+                .Setup(x => x.EnableDefaultLocalProviderAsync(false))
+                .ThrowsAsync(new InvalidOperationException("vault locked"));
+            var store = new KeystoreStore();
+            var service = CreateKeystoreBackupService(store, dir);
+            var settings = new MauiSherpaSettings
+            {
+                PublishProfiles = new List<PublishProfileData>
+                {
+                    new("profile-1", "Release", null, null, null, null,
+                        new List<PublishProfileAppleConfig>(), new List<PublishProfileAndroidConfig>(),
+                        new List<PublishProfileSecretMapping>())
+                }
+            };
+
+            var result = await service.RestoreStoredItemsAsync(new BackupImportResult(
+                settings,
+                new BackupExportSelection(),
+                Keystores: new[]
+                {
+                    new KeystoreBackupItem("ks-1", "release", "PKCS12", DateTime.UtcNow, null,
+                        "release.keystore", new byte[] { 1 }, "pw", "pw")
+                }));
+
+            result.PublishProfilesRestored.Should().Be(0);
+            result.KeystoresRestored.Should().Be(1);
+            result.Failures.Should().ContainSingle(f => f.Contains("vault locked"));
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
 }

@@ -11,6 +11,7 @@ public class KeystoreService : IKeystoreService
 {
     private const string KeystoresFileName = "android-keystores.json";
     private const string PasswordKeyPrefix = "android_keystore_pwd_";
+    private const string KeyPasswordKeyPrefix = "android_keystore_keypwd_";
 
     private readonly IOpenJdkSettingsService _jdkSettings;
     private readonly ISecureStorageService _secureStorage;
@@ -86,8 +87,9 @@ public class KeystoreService : IKeystoreService
 
         await AddKeystoreAsync(keystore);
 
-        // Store password securely
-        await _secureStorage.SetAsync(PasswordKeyPrefix + keystore.Id, keystorePassword);
+        // Store passwords securely
+        await SaveKeystorePasswordAsync(keystore.Id, keystorePassword);
+        await SaveKeyPasswordAsync(keystore.Id, keyPassword);
 
         _logger.LogInformation($"Keystore created: {outputPath}");
         return keystore;
@@ -175,8 +177,21 @@ public class KeystoreService : IKeystoreService
         await EnsureKeystoresLoadedAsync();
         _keystores!.RemoveAll(k => k.Id == id);
         await _secureStorage.RemoveAsync(PasswordKeyPrefix + id);
+        await _secureStorage.RemoveAsync(KeyPasswordKeyPrefix + id);
         await SaveKeystoresAsync();
     }
+
+    public Task<string?> GetKeystorePasswordAsync(string id)
+        => _secureStorage.GetAsync(PasswordKeyPrefix + id);
+
+    public Task SaveKeystorePasswordAsync(string id, string password)
+        => _secureStorage.SetAsync(PasswordKeyPrefix + id, password);
+
+    public Task<string?> GetKeyPasswordAsync(string id)
+        => _secureStorage.GetAsync(KeyPasswordKeyPrefix + id);
+
+    public Task SaveKeyPasswordAsync(string id, string password)
+        => _secureStorage.SetAsync(KeyPasswordKeyPrefix + id, password);
 
     // --- Keytool output parsing ---
 

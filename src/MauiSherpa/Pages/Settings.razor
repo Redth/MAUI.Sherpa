@@ -2679,7 +2679,7 @@
                 {
                     await AlertService.ShowAlertAsync(
                         "Import Incomplete",
-                        "Settings were imported, but these items could not be restored to the Local Vault:\n\n" +
+                        "Settings were imported, but these items could not be restored:\n\n" +
                         string.Join("\n", restoreResult.Failures));
                 }
                 else
@@ -2787,13 +2787,17 @@
         }
 
         // Publish profiles and certificates live in secret providers, not settings, so they
-        // are written straight into the Local Vault.
+        // are written straight into the Local Vault. Keystores are registered with their files
+        // and passwords.
         var restoreResult = await BackupService.RestoreStoredItemsAsync(importResult);
         if (restoreResult.PublishProfilesRestored > 0)
             await PublishProfileService.RefreshProfilesAsync();
+        if (restoreResult.KeystoresRestored > 0)
+            await Mediator.FlushStores("android:keystores");
         Logger.LogInformation(
             $"Backup restore: {restoreResult.PublishProfilesRestored} publish profile(s), " +
-            $"{restoreResult.CertificatesRestored} certificate(s) restored to Local Vault; " +
+            $"{restoreResult.CertificatesRestored} certificate(s) restored to Local Vault, " +
+            $"{restoreResult.KeystoresRestored} keystore(s) restored; " +
             $"{restoreResult.Failures.Count} failure(s)");
 
         await LoadGoogleIdentities();
