@@ -11,25 +11,34 @@ namespace MauiSherpa.Services;
 /// Subscribes to IToolbarService.ToolbarChanged and maps ToolbarActions/Filters/Search
 /// to native MAUI TitleBar Content and TrailingContent controls.
 /// </summary>
-public class WindowsTitleBarManager
+public class WindowsTitleBarManager : IDisposable
 {
+    private readonly Window _window;
     private readonly IToolbarService _toolbarService;
+    private readonly IThemeService _themeService;
     private readonly IAppleIdentityService _appleIdentityService;
     private readonly IAppleIdentityStateService _appleIdentityState;
     private readonly IGoogleIdentityService _googleIdentityService;
     private readonly IGoogleIdentityStateService _googleIdentityState;
     private readonly ICopilotContextService _copilotContext;
     private readonly IServiceProvider _serviceProvider;
+    private readonly Action _toggleSidebar;
     private TitleBar? _titleBar;
     private SearchBar? _searchBar;
+    private BoxView? _sidebarSpacer;
+    private double _sidebarWidth = 250;
     private string _currentRoute = "";
+    private bool _isDark;
 
-    private static readonly Color BgDark = Color.FromArgb("#1e1a2e");
-    private static readonly Color BgControl = Color.FromArgb("#2a2540");
-    private static readonly Color BgControlHover = Color.FromArgb("#352f50");
-    private static readonly Color BorderColor = Color.FromArgb("#3a3555");
-    private static readonly Color TextMuted = Color.FromArgb("#8888aa");
-    private static readonly Color Accent = Color.FromArgb("#8b5cf6");
+    private Color Surface => Color.FromArgb(_isDark ? "#2C2C2C" : "#F2F2F2");
+    private Color Foreground => Color.FromArgb(_isDark ? "#E2E8F0" : "#2D3748");
+    private Color ControlBackground => Color.FromArgb(_isDark ? "#383838" : "#FFFFFF");
+    private Color ControlHover => Color.FromArgb(_isDark ? "#3D3844" : "#EAE5F2");
+    private Color ControlBorder => Color.FromArgb(_isDark ? "#505050" : "#D4D4D4");
+    private Color TextMuted => Color.FromArgb(_isDark ? "#A0AEC0" : "#718096");
+    private Color Accent => Color.FromArgb(_isDark ? "#C4B5FD" : "#6D28D9");
+    private Color AccentBackground => Color.FromArgb(_isDark ? "#3D3844" : "#EAE5F2");
+    private Color AccentHover => Color.FromArgb(_isDark ? "#494152" : "#E2D9EF");
 
     private static readonly HashSet<string> AppleRoutes = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -45,39 +54,107 @@ public class WindowsTitleBarManager
     private IReadOnlyList<GoogleIdentity>? _cachedGoogleIdentities;
 
     public WindowsTitleBarManager(
+        Window window,
         IToolbarService toolbarService,
+        IThemeService themeService,
         IAppleIdentityService appleIdentityService,
         IAppleIdentityStateService appleIdentityState,
         IGoogleIdentityService googleIdentityService,
         IGoogleIdentityStateService googleIdentityState,
         ICopilotContextService copilotContext,
-        IServiceProvider serviceProvider)
+        IServiceProvider serviceProvider,
+        Action toggleSidebar)
     {
+        _window = window;
         _toolbarService = toolbarService;
+        _themeService = themeService;
         _appleIdentityService = appleIdentityService;
         _appleIdentityState = appleIdentityState;
         _googleIdentityService = googleIdentityService;
         _googleIdentityState = googleIdentityState;
         _copilotContext = copilotContext;
         _serviceProvider = serviceProvider;
+        _toggleSidebar = toggleSidebar;
+        _isDark = themeService.IsDarkMode;
 
         _toolbarService.ToolbarChanged += OnToolbarChanged;
         _toolbarService.RouteChanged += OnRouteChanged;
+        _themeService.ThemeChanged += OnThemeChanged;
         _appleIdentityState.OnSelectionChanged += OnToolbarChanged;
         _googleIdentityState.OnSelectionChanged += OnToolbarChanged;
+        _window.HandlerChanged += OnWindowHandlerChanged;
     }
 
     public TitleBar CreateTitleBar()
     {
         _titleBar = new TitleBar
         {
-            BackgroundColor = BgDark,
-            ForegroundColor = Colors.White,
+            BackgroundColor = Surface,
+            ForegroundColor = Foreground,
             HeightRequest = 48,
         };
 
         RebuildContent();
         return _titleBar;
+    }
+
+    public void Dispose()
+    {
+        _toolbarService.ToolbarChanged -= OnToolbarChanged;
+        _toolbarService.RouteChanged -= OnRouteChanged;
+        _themeService.ThemeChanged -= OnThemeChanged;
+        _appleIdentityState.OnSelectionChanged -= OnToolbarChanged;
+        _googleIdentityState.OnSelectionChanged -= OnToolbarChanged;
+        _window.HandlerChanged -= OnWindowHandlerChanged;
+    }
+
+    internal void SetSidebarWidth(double width)
+    {
+        _sidebarWidth = width;
+        if (_sidebarSpacer != null)
+            _sidebarSpacer.WidthRequest = Math.Max(0, 117 + width - 250);
+    }
+
+    private void OnThemeChanged()
+    {
+        if (Application.Current?.Dispatcher is { } dispatcher)
+            dispatcher.Dispatch(ApplyTheme);
+        else
+            ApplyTheme();
+    }
+
+    private void ApplyTheme()
+    {
+        _isDark = _themeService.IsDarkMode;
+        if (_titleBar == null) return;
+
+        _titleBar.BackgroundColor = Surface;
+        _titleBar.ForegroundColor = Foreground;
+        ApplyCaptionColors();
+        RebuildContent();
+    }
+
+    private void OnWindowHandlerChanged(object? sender, EventArgs e) => ApplyCaptionColors();
+
+    private void ApplyCaptionColors()
+    {
+#if WINDOWS
+        if (_window.Handler?.PlatformView is not Microsoft.UI.Xaml.Window nativeWindow)
+            return;
+
+        var titleBar = nativeWindow.AppWindow.TitleBar;
+        var foreground = _isDark ? Microsoft.UI.Colors.White : Microsoft.UI.Colors.Black;
+        titleBar.ButtonForegroundColor = foreground;
+        titleBar.ButtonInactiveForegroundColor = foreground;
+        titleBar.ButtonHoverForegroundColor = foreground;
+        titleBar.ButtonPressedForegroundColor = foreground;
+        titleBar.ButtonHoverBackgroundColor = _isDark
+            ? global::Windows.UI.Color.FromArgb(32, 255, 255, 255)
+            : global::Windows.UI.Color.FromArgb(16, 0, 0, 0);
+        titleBar.ButtonPressedBackgroundColor = _isDark
+            ? global::Windows.UI.Color.FromArgb(48, 255, 255, 255)
+            : global::Windows.UI.Color.FromArgb(28, 0, 0, 0);
+#endif
     }
 
     private void OnToolbarChanged()
@@ -108,6 +185,7 @@ public class WindowsTitleBarManager
         // When toolbar is suppressed (e.g. modal is open), show minimal titlebar
         if (_toolbarService.IsToolbarSuppressed)
         {
+            _sidebarSpacer = null;
             var minimal = new HorizontalStackLayout
             {
                 Spacing = 6,
@@ -154,34 +232,36 @@ public class WindowsTitleBarManager
             Margin = new Thickness(0, 0, 8, 0),
         });
 
+        var sidebarToggle = CreateSidebarButton(
+            FluentIcons.Navigation20, "Toggle sidebar", "sidebar-toggle", _toggleSidebar);
+        leading.Children.Add(sidebarToggle);
+        _titleBar.PassthroughElements.Add(sidebarToggle);
+
         // Copilot button
         var copilotBtn = CreateCopilotButton();
         leading.Children.Add(copilotBtn);
         _titleBar.PassthroughElements.Add(copilotBtn);
 
         // Doctor button
-        var doctorBtn = CreateSidebarButton(FluentIcons.Stethoscope20, "Doctor");
-        var doctorTap = new TapGestureRecognizer();
-        doctorTap.Tapped += (s, e) => _toolbarService.RequestNavigation("/doctor");
-        doctorBtn.GestureRecognizers.Add(doctorTap);
+        var doctorBtn = CreateSidebarButton(FluentIcons.Stethoscope20, "Doctor", "toolbar-doctor",
+            () => _toolbarService.RequestNavigation("/doctor"));
         leading.Children.Add(doctorBtn);
         _titleBar.PassthroughElements.Add(doctorBtn);
 
         // Settings button
-        var settingsBtn = CreateSidebarButton(FluentIcons.Settings20, "Settings");
-        var settingsTap = new TapGestureRecognizer();
-        settingsTap.Tapped += (s, e) => _ = OpenSettingsDialogAsync();
-        settingsBtn.GestureRecognizers.Add(settingsTap);
+        var settingsBtn = CreateSidebarButton(FluentIcons.Settings20, "Settings", "toolbar-settings",
+            () => _ = OpenSettingsDialogAsync());
         leading.Children.Add(settingsBtn);
         _titleBar.PassthroughElements.Add(settingsBtn);
 
         // Spacer to push remaining items past sidebar width
-        leading.Children.Add(new BoxView
+        _sidebarSpacer = new BoxView
         {
-            WidthRequest = 155,
+            WidthRequest = Math.Max(0, 117 + _sidebarWidth - 250),
             HeightRequest = 1,
             Color = Colors.Transparent,
-        });
+        };
+        leading.Children.Add(_sidebarSpacer);
 
         // Identity picker (Apple or Google depending on route)
         if (AppleRoutes.Contains(_currentRoute))
@@ -236,14 +316,16 @@ public class WindowsTitleBarManager
                     HorizontalOptions = LayoutOptions.Fill,
                     VerticalOptions = LayoutOptions.Center,
                     HeightRequest = 32,
-                    BackgroundColor = BgControl,
-                    TextColor = Colors.White,
+                    BackgroundColor = ControlBackground,
+                    TextColor = Foreground,
                     PlaceholderColor = TextMuted,
+                    AutomationId = "toolbar-search",
                 };
                 _searchBar.TextChanged += (s, e) =>
                 {
                     _toolbarService.NotifySearchTextChanged(e.NewTextValue ?? "");
                 };
+                ApplySearchAccent(_searchBar);
                 contentLayout.Children.Add(_searchBar);
                 _titleBar.PassthroughElements.Add(_searchBar);
             }
@@ -309,22 +391,23 @@ public class WindowsTitleBarManager
             WidthRequest = 52,
             MinimumWidthRequest = 52,
             Padding = new Thickness(10, 0),
-            BackgroundColor = hasActiveFilter ? Accent : BgControl,
-            TextColor = Colors.White,
-            BorderColor = hasActiveFilter ? Accent : BorderColor,
+            BackgroundColor = hasActiveFilter ? AccentBackground : ControlBackground,
+            TextColor = hasActiveFilter ? Accent : Foreground,
+            BorderColor = hasActiveFilter ? Accent : ControlBorder,
             BorderWidth = 1,
-            CornerRadius = 6,
+            CornerRadius = 4,
             VerticalOptions = LayoutOptions.Center,
             HorizontalOptions = LayoutOptions.Center,
             LineBreakMode = LineBreakMode.NoWrap,
+            AutomationId = "toolbar-filter",
         };
         ApplyVerticalCentering(btn);
         ToolTipProperties.SetText(btn, "Filter");
+        SemanticProperties.SetDescription(btn, "Filter");
         ApplyHoverEffect(btn,
-            hasActiveFilter ? Accent : BgControl,
-            hasActiveFilter ? Accent : BgControlHover,
-            hasActiveFilter ? Accent : BorderColor,
-            Accent);
+            hasActiveFilter ? AccentBackground : ControlBackground,
+            hasActiveFilter ? AccentHover : ControlHover,
+            hasActiveFilter ? Accent : ControlBorder);
 
         var menuFlyout = new MenuFlyout();
 
@@ -369,146 +452,81 @@ public class WindowsTitleBarManager
         return btn;
     }
 
-    private Border CreateSidebarButton(FluentIcons icon, string tooltip)
+    private Button CreateSidebarButton(FluentIcons icon, string tooltip, string automationId, Action clicked)
     {
-        var glyph = GetEnumDescription(icon);
-
-        var btn = new Border
-        {
-            BackgroundColor = Colors.Transparent,
-            StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 6 },
-            Stroke = Colors.Transparent,
-            Padding = new Thickness(6, 4),
-            VerticalOptions = LayoutOptions.Center,
-            Content = new Label
-            {
-                Text = glyph,
-                FontFamily = "FluentIcons",
-                FontSize = 20,
-                TextColor = Colors.White,
-                VerticalOptions = LayoutOptions.Center,
-                HorizontalOptions = LayoutOptions.Center,
-                VerticalTextAlignment = TextAlignment.Center,
-                HorizontalTextAlignment = TextAlignment.Center,
-            }
-        };
-        ToolTipProperties.SetText(btn, tooltip);
-
-        var pointerEnter = new PointerGestureRecognizer();
-        pointerEnter.PointerEntered += (s, e) => btn.BackgroundColor = BgControlHover;
-        var pointerExit = new PointerGestureRecognizer();
-        pointerExit.PointerExited += (s, e) => btn.BackgroundColor = Colors.Transparent;
-        btn.GestureRecognizers.Add(pointerEnter);
-        btn.GestureRecognizers.Add(pointerExit);
-
+        var btn = CreateIconButton(tooltip, automationId, clicked);
+        btn.Text = GetEnumDescription(icon);
+        btn.FontFamily = "FluentIcons";
+        btn.FontSize = 20;
         return btn;
     }
 
-    private Border CreateActionButton(ToolbarAction action)
+    private Button CreateIconButton(string tooltip, string automationId, Action clicked)
+    {
+        var btn = new Button
+        {
+            BackgroundColor = Colors.Transparent,
+            BorderColor = Colors.Transparent,
+            BorderWidth = 0,
+            TextColor = Foreground,
+            CornerRadius = 4,
+            WidthRequest = 32,
+            HeightRequest = 32,
+            Padding = new Thickness(6),
+            VerticalOptions = LayoutOptions.Center,
+            AutomationId = automationId,
+        };
+        ToolTipProperties.SetText(btn, tooltip);
+        SemanticProperties.SetDescription(btn, tooltip);
+        btn.Clicked += (_, _) => clicked();
+        ApplyVerticalCentering(btn);
+        ApplyHoverEffect(btn, Colors.Transparent, ControlHover, Colors.Transparent);
+        return btn;
+    }
+
+    private Button CreateActionButton(ToolbarAction action)
     {
         var fluentIcon = MapSfSymbolToFluentIcon(action.SfSymbol);
-        var isEnabled = _toolbarService.IsItemEnabled(action.Id);
-
-        var content = new HorizontalStackLayout
-        {
-            Spacing = 6,
-            VerticalOptions = LayoutOptions.Center,
-            HorizontalOptions = LayoutOptions.Center,
-        };
-        if (fluentIcon is { } icon)
-        {
-            content.Children.Add(new Label
-            {
-                Text = GetEnumDescription(icon),
-                FontFamily = "FluentIcons",
-                FontSize = 16,
-                TextColor = Colors.White,
-                VerticalOptions = LayoutOptions.Center,
-                VerticalTextAlignment = TextAlignment.Center,
-            });
-        }
-        content.Children.Add(new Label
+        var btn = new Button
         {
             Text = action.Label,
-            FontSize = 12,
-            TextColor = Colors.White,
-            VerticalOptions = LayoutOptions.Center,
-            VerticalTextAlignment = TextAlignment.Center,
-            LineBreakMode = LineBreakMode.NoWrap,
-        });
-
-        var btn = new Border
-        {
-            Content = content,
+            FontSize = 13,
+            TextColor = Foreground,
             HeightRequest = 32,
             MinimumWidthRequest = 36,
             Padding = new Thickness(10, 0),
-            BackgroundColor = BgControl,
-            Stroke = BorderColor,
-            StrokeThickness = 1,
-            StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 6 },
-            IsEnabled = isEnabled,
-            Opacity = isEnabled ? 1 : 0.5,
+            BackgroundColor = ControlBackground,
+            BorderColor = ControlBorder,
+            BorderWidth = 1,
+            CornerRadius = 4,
+            IsEnabled = _toolbarService.IsItemEnabled(action.Id),
             VerticalOptions = LayoutOptions.Center,
             HorizontalOptions = LayoutOptions.Center,
+            AutomationId = $"toolbar-{action.Id}",
         };
+        if (fluentIcon is { } icon)
+        {
+            btn.ImageSource = new FontImageSource
+            {
+                Glyph = GetEnumDescription(icon),
+                FontFamily = "FluentIcons",
+                Size = 16,
+                Color = Foreground,
+            };
+            btn.ContentLayout = new Button.ButtonContentLayout(Button.ButtonContentLayout.ImagePosition.Left, 6);
+        }
+
         ToolTipProperties.SetText(btn, action.ToolTip ?? action.Label);
-
-        var tapGesture = new TapGestureRecognizer();
-        tapGesture.Tapped += (s, e) =>
-        {
-            _toolbarService.InvokeToolbarItemClicked(action.Id);
-        };
-        btn.GestureRecognizers.Add(tapGesture);
-
-        var pointerEnter = new PointerGestureRecognizer();
-        pointerEnter.PointerEntered += (s, e) =>
-        {
-            btn.BackgroundColor = BgControlHover;
-            btn.Stroke = Accent;
-        };
-        var pointerExit = new PointerGestureRecognizer();
-        pointerExit.PointerExited += (s, e) =>
-        {
-            btn.BackgroundColor = BgControl;
-            btn.Stroke = BorderColor;
-        };
-        btn.GestureRecognizers.Add(pointerEnter);
-        btn.GestureRecognizers.Add(pointerExit);
-
+        btn.Clicked += (_, _) => _toolbarService.InvokeToolbarItemClicked(action.Id);
+        ApplyVerticalCentering(btn);
+        ApplyHoverEffect(btn, ControlBackground, ControlHover, ControlBorder);
         return btn;
     }
 
-    private View CreateCopilotButton()
+    private Button CreateCopilotButton()
     {
-        var btn = new Border
-        {
-            BackgroundColor = Colors.Transparent,
-            StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 6 },
-            Stroke = Colors.Transparent,
-            Padding = new Thickness(6, 4),
-            VerticalOptions = LayoutOptions.Center,
-            Content = new Image
-            {
-                Source = "ghcp_icon_white.png",
-                HeightRequest = 20,
-                WidthRequest = 20,
-                VerticalOptions = LayoutOptions.Center,
-            }
-        };
-
-        var tapGesture = new TapGestureRecognizer();
-        tapGesture.Tapped += (s, e) => _copilotContext.ToggleOverlay();
-        btn.GestureRecognizers.Add(tapGesture);
-
-        // Hover effect via PointerGestureRecognizer
-        var pointerEnter = new PointerGestureRecognizer();
-        pointerEnter.PointerEntered += (s, e) => btn.BackgroundColor = BgControlHover;
-        var pointerExit = new PointerGestureRecognizer();
-        pointerExit.PointerExited += (s, e) => btn.BackgroundColor = Colors.Transparent;
-        btn.GestureRecognizers.Add(pointerEnter);
-        btn.GestureRecognizers.Add(pointerExit);
-
+        var btn = CreateIconButton("Copilot", "toolbar-copilot", _copilotContext.ToggleOverlay);
+        btn.ImageSource = _isDark ? "ghcp_icon_white.png" : "ghcp_icon_dark.png";
         return btn;
     }
 
@@ -642,82 +660,44 @@ public class WindowsTitleBarManager
             displayName, menuFlyout);
     }
 
-    private Border CreateIdentityPickerView(string iconGlyph, string iconFontFamily, string displayName, MenuFlyout menuFlyout)
+    private Button CreateIdentityPickerView(string iconGlyph, string iconFontFamily, string displayName, MenuFlyout menuFlyout)
     {
-        var chevronGlyph = GetEnumDescription(FluentIcons.ChevronDown16);
-
-        var layout = new HorizontalStackLayout
+        var btn = new Button
         {
-            Spacing = 6,
-            VerticalOptions = LayoutOptions.Center,
-        };
-
-        layout.Children.Add(new Label
-        {
-            Text = iconGlyph,
-            FontFamily = iconFontFamily,
-            FontSize = 16,
-            TextColor = Colors.White,
-            VerticalOptions = LayoutOptions.Center,
-            VerticalTextAlignment = TextAlignment.Center,
-        });
-
-        layout.Children.Add(new Label
-        {
-            Text = displayName,
-            FontSize = 12,
-            TextColor = Colors.White,
-            VerticalOptions = LayoutOptions.Center,
-            VerticalTextAlignment = TextAlignment.Center,
-        });
-
-        layout.Children.Add(new Label
-        {
-            Text = chevronGlyph,
-            FontFamily = "FluentIcons",
-            FontSize = 12,
-            TextColor = TextMuted,
-            VerticalOptions = LayoutOptions.Center,
-            VerticalTextAlignment = TextAlignment.Center,
-        });
-
-        var border = new Border
-        {
-            Content = layout,
-            BackgroundColor = BgControl,
-            Stroke = BorderColor,
-            StrokeThickness = 1,
-            StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 6 },
+            Text = $"{displayName}  \u25BE",
+            TextColor = Foreground,
+            FontSize = 13,
+            ImageSource = new FontImageSource
+            {
+                Glyph = iconGlyph,
+                FontFamily = iconFontFamily,
+                Size = 16,
+                Color = Foreground,
+            },
+            ContentLayout = new Button.ButtonContentLayout(Button.ButtonContentLayout.ImagePosition.Left, 6),
+            BackgroundColor = ControlBackground,
+            BorderColor = ControlBorder,
+            BorderWidth = 1,
+            CornerRadius = 4,
             Padding = new Thickness(10, 0),
             HeightRequest = 32,
             VerticalOptions = LayoutOptions.Center,
+            AutomationId = "toolbar-identity",
         };
+        ToolTipProperties.SetText(btn, "Select identity");
+        SemanticProperties.SetDescription(btn, "Select identity");
+        ApplyVerticalCentering(btn);
+        ApplyHoverEffect(btn, ControlBackground, ControlHover, ControlBorder);
+        FlyoutBase.SetContextFlyout(btn, menuFlyout);
 
-        FlyoutBase.SetContextFlyout(border, menuFlyout);
-
-        var tapGesture = new TapGestureRecognizer();
-        tapGesture.Tapped += (s, e) =>
+        btn.Clicked += (_, _) =>
         {
 #if WINDOWS
-            if (border.Handler?.PlatformView is Microsoft.UI.Xaml.FrameworkElement pv)
-                pv.ContextFlyout?.ShowAt(pv);
+            if (btn.Handler?.PlatformView is Microsoft.UI.Xaml.FrameworkElement platformView)
+                platformView.ContextFlyout?.ShowAt(platformView);
 #endif
         };
-        border.GestureRecognizers.Add(tapGesture);
-
-#if WINDOWS
-        // Hover effect
-        border.HandlerChanged += (s, e) =>
-        {
-            if (border.Handler?.PlatformView is Microsoft.UI.Xaml.FrameworkElement fe)
-            {
-                fe.PointerEntered += (_, _) => { border.BackgroundColor = BgControlHover; border.Stroke = Accent; };
-                fe.PointerExited += (_, _) => { border.BackgroundColor = BgControl; border.Stroke = BorderColor; };
-            }
-        };
-#endif
-
-        return border;
+        return btn;
     }
 
     private static FluentIcons? MapSfSymbolToFluentIcon(string sfSymbol) => sfSymbol switch
@@ -786,7 +766,44 @@ public class WindowsTitleBarManager
             {
                 platformBtn.VerticalContentAlignment = Microsoft.UI.Xaml.VerticalAlignment.Center;
                 platformBtn.HorizontalContentAlignment = Microsoft.UI.Xaml.HorizontalAlignment.Center;
+
+                // Center the visible text glyphs against MAUI's separately rendered font icon.
+                if (btn.ImageSource != null && !string.IsNullOrEmpty(btn.Text)
+                    && Microsoft.Maui.Platform.ButtonExtensions.GetContent<Microsoft.UI.Xaml.Controls.TextBlock>(platformBtn) is { } text)
+                {
+                    text.RenderTransform = new Microsoft.UI.Xaml.Media.TranslateTransform { Y = -2 };
+                }
             }
+        };
+#endif
+    }
+
+    private void ApplySearchAccent(SearchBar searchBar)
+    {
+#if WINDOWS
+        var dark = _isDark;
+        searchBar.HandlerChanged += (_, _) =>
+        {
+            if (searchBar.Handler?.PlatformView is not Microsoft.UI.Xaml.Controls.AutoSuggestBox nativeSearch)
+                return;
+
+            var accent = dark
+                ? Platforms.Windows.WindowsAccentTheme.Dark
+                : Platforms.Windows.WindowsAccentTheme.Light;
+            var border = dark
+                ? global::Windows.UI.Color.FromArgb(0x12, 255, 255, 255)
+                : global::Windows.UI.Color.FromArgb(0x0F, 0, 0, 0);
+            var focusedBorder = new Microsoft.UI.Xaml.Media.LinearGradientBrush
+            {
+                MappingMode = Microsoft.UI.Xaml.Media.BrushMappingMode.Absolute,
+                StartPoint = new global::Windows.Foundation.Point(0, 0),
+                EndPoint = new global::Windows.Foundation.Point(0, 2),
+                RelativeTransform = new Microsoft.UI.Xaml.Media.ScaleTransform { ScaleY = -1, CenterY = 0.5 }
+            };
+            focusedBorder.GradientStops.Add(new Microsoft.UI.Xaml.Media.GradientStop { Offset = 1, Color = accent });
+            focusedBorder.GradientStops.Add(new Microsoft.UI.Xaml.Media.GradientStop { Offset = 1, Color = border });
+            nativeSearch.Resources["TextControlBorderBrushFocused"] = focusedBorder;
+            nativeSearch.Resources["TextControlSelectionHighlightColor"] = new Microsoft.UI.Xaml.Media.SolidColorBrush(accent);
         };
 #endif
     }

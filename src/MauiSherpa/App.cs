@@ -22,6 +22,11 @@ public class App : Application
     protected override Window CreateWindow(IActivationState? activationState)
     {
         var splashService = _serviceProvider.GetRequiredService<ISplashService>();
+        var themeService = _serviceProvider.GetRequiredService<IThemeService>();
+#if WINDOWS
+        if (themeService is MauiSherpa.Services.ThemeService windowsThemeService)
+            windowsThemeService.StartMonitoringSystemTheme();
+#endif
 
         double savedWidth;
         double savedHeight;
@@ -37,10 +42,15 @@ public class App : Application
         savedWidth = Math.Max(MinWidth, savedWidth);
         savedHeight = Math.Max(MinHeight, savedHeight);
         
+        var mainPage = new MainPage(
+            splashService,
+            _serviceProvider.GetRequiredService<IToolbarService>(),
+            themeService);
+
         var window = new Window
         {
             Title = "MAUI Sherpa",
-            Page = new MainPage(splashService),
+            Page = mainPage,
             Width = savedWidth,
             Height = savedHeight,
         };
@@ -48,19 +58,30 @@ public class App : Application
 #if WINDOWS
         var toolbarService = _serviceProvider.GetRequiredService<IToolbarService>();
         var titleBarManager = new MauiSherpa.Services.WindowsTitleBarManager(
+            window,
             toolbarService,
+            themeService,
             _serviceProvider.GetRequiredService<IAppleIdentityService>(),
             _serviceProvider.GetRequiredService<IAppleIdentityStateService>(),
             _serviceProvider.GetRequiredService<IGoogleIdentityService>(),
             _serviceProvider.GetRequiredService<IGoogleIdentityStateService>(),
             _serviceProvider.GetRequiredService<ICopilotContextService>(),
-            _serviceProvider);
+            _serviceProvider,
+            mainPage.ToggleSidebar);
+        mainPage.SidebarWidthChanged += titleBarManager.SetSidebarWidth;
         var titleBar = titleBarManager.CreateTitleBar();
         window.TitleBar = titleBar;
+        window.Destroying += (_, _) =>
+        {
+            mainPage.SidebarWidthChanged -= titleBarManager.SetSidebarWidth;
+            titleBarManager.Dispose();
+        };
 
         // Eagerly resolve CopilotModalService so its constructor subscribes
         // to context events before the Blazor app loads.
         _serviceProvider.GetRequiredService<ICopilotModalService>();
+
+        window.ModalPushing += (_, e) => Platforms.Windows.WindowsModalPresentation.Prepare(e.Modal);
 
         // Suppress titlebar controls whenever any modal is pushed, restore when all are popped.
         window.ModalPushed += (_, _) => toolbarService.SetToolbarSuppressed(true);
@@ -71,23 +92,6 @@ public class App : Application
                 toolbarService.SetToolbarSuppressed(false);
         };
 
-        window.HandlerChanged += (s, e) =>
-        {
-            if (window.Handler?.PlatformView is Microsoft.UI.Xaml.Window nativeWindow)
-            {
-                var appWindow = nativeWindow.AppWindow;
-                if (appWindow.TitleBar is { } tb)
-                {
-                    // Make caption buttons (min/max/close) white on dark background
-                    tb.ButtonForegroundColor = Microsoft.UI.Colors.White;
-                    tb.ButtonInactiveForegroundColor = Microsoft.UI.Colors.White;
-                    tb.ButtonHoverForegroundColor = Microsoft.UI.Colors.White;
-                    tb.ButtonPressedForegroundColor = Microsoft.UI.Colors.White;
-                    tb.ButtonHoverBackgroundColor = new Windows.UI.Color { A = 40, R = 255, G = 255, B = 255 };
-                    tb.ButtonPressedBackgroundColor = new Windows.UI.Color { A = 60, R = 255, G = 255, B = 255 };
-                }
-            }
-        };
 #endif
 
         window.SizeChanged += OnWindowSizeChanged;

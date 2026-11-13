@@ -443,7 +443,9 @@ public abstract class HybridFormPage<TResult> : ContentPage, IFormPage<TResult>,
         {
             if (_webView != null)
             {
+#if !WINDOWS
                 _webView.HeightRequest = Math.Max(contentHeight, 200);
+#endif
                 await _webView.FadeToAsync(1, 200, Easing.CubicIn);
             }
         });

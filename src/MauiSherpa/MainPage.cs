@@ -9,8 +9,11 @@ public class MainPage : ContentPage
     private readonly ISplashService _splashService;
     
     private readonly BlazorWebView _blazorWebView;
+#if WINDOWS
+    private readonly Platforms.Windows.WindowsNavigationHost _navigationHost;
+#endif
 
-    public MainPage(ISplashService splashService)
+    public MainPage(ISplashService splashService, IToolbarService toolbarService, IThemeService themeService)
     {
         _splashService = splashService;
         
@@ -49,7 +52,15 @@ public class MainPage : ContentPage
         
         // Use a Grid to layer the BlazorWebView and splash
         var container = new Grid();
+#if WINDOWS
+        _navigationHost = new Platforms.Windows.WindowsNavigationHost(toolbarService, themeService)
+        {
+            Content = _blazorWebView
+        };
+        container.Children.Add(_navigationHost);
+#else
         container.Children.Add(_blazorWebView);
+#endif
         container.Children.Add(_splashOverlay);
         
         Content = container;
@@ -72,15 +83,29 @@ public class MainPage : ContentPage
             return false; // Don't repeat
         });
     }
+
+#if WINDOWS
+    internal void ToggleSidebar() => _navigationHost.TogglePane();
+
+    internal event Action<double>? SidebarWidthChanged
+    {
+        add => _navigationHost.PaneWidthChanged += value;
+        remove => _navigationHost.PaneWidthChanged -= value;
+    }
+#endif
     
     private Grid CreateSplashOverlay()
     {
         var overlay = new Grid
         {
-            BackgroundColor = Color.FromArgb("#1a1625"),
             ZIndex = 1000
         };
-        
+
+#if WINDOWS
+        overlay.SetDynamicResource(BackgroundColorProperty, Pages.Forms.FormTheme.PageBg);
+#else
+        overlay.BackgroundColor = Color.FromArgb("#1a1625");
+
         // Add gradient background using BoxView layers
         var gradientTop = new BoxView
         {
@@ -88,6 +113,7 @@ public class MainPage : ContentPage
             Opacity = 0.5
         };
         overlay.Children.Add(gradientTop);
+#endif
         
         // Content stack
         var contentStack = new VerticalStackLayout
@@ -111,35 +137,50 @@ public class MainPage : ContentPage
         var title = new Label
         {
             Text = "MAUI Sherpa",
+#if !WINDOWS
             TextColor = Colors.White,
+#endif
             FontSize = 28,
             FontAttributes = FontAttributes.Bold,
             HorizontalOptions = LayoutOptions.Center,
             Margin = new Thickness(0, 24, 0, 0)
         };
+#if WINDOWS
+        title.SetDynamicResource(Label.TextColorProperty, Pages.Forms.FormTheme.TextPrimary);
+#endif
         contentStack.Children.Add(title);
         
         // Subtitle
         var subtitle = new Label
         {
             Text = "Your guide to .NET MAUI development",
+#if !WINDOWS
             TextColor = Color.FromArgb("#9999aa"),
+#endif
             FontSize = 14,
             HorizontalOptions = LayoutOptions.Center,
             Margin = new Thickness(0, 8, 0, 0)
         };
+#if WINDOWS
+        subtitle.SetDynamicResource(Label.TextColorProperty, Pages.Forms.FormTheme.TextMuted);
+#endif
         contentStack.Children.Add(subtitle);
         
         // Loading indicator
         var loadingIndicator = new ActivityIndicator
         {
             IsRunning = true,
+#if !WINDOWS
             Color = Color.FromArgb("#8b5cf6"),
+#endif
             WidthRequest = 32,
             HeightRequest = 32,
             Margin = new Thickness(0, 40, 0, 0),
             HorizontalOptions = LayoutOptions.Center
         };
+#if WINDOWS
+        loadingIndicator.SetDynamicResource(ActivityIndicator.ColorProperty, Pages.Forms.FormTheme.AccentPrimary);
+#endif
         contentStack.Children.Add(loadingIndicator);
         
         overlay.Children.Add(contentStack);

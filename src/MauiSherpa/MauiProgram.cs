@@ -85,6 +85,13 @@ public static class MauiProgram
         builder.Services.AddMauiBlazorWebView();
 #endif
 
+#if WINDOWS
+        builder.ConfigureMauiHandlers(handlers =>
+        {
+            handlers.AddHandler<Platforms.Windows.WindowsNavigationHost, Platforms.Windows.WindowsNavigationHostHandler>();
+        });
+#endif
+
         // Debug logging service (must be registered before logger provider)
         var debugLogService = new DebugLogService();
         builder.Services.AddSingleton(debugLogService);

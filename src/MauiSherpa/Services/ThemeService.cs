@@ -10,6 +10,7 @@ public class ThemeService : IThemeService
     private string _currentTheme = "System";
     private double _fontScale = 1.0;
     private bool? _systemIsDark;
+    private bool _monitoringSystemTheme;
     
     public string CurrentTheme => _currentTheme;
     public double FontScale => _fontScale;
@@ -86,7 +87,8 @@ public class ThemeService : IThemeService
     /// </summary>
     public void StartMonitoringSystemTheme()
     {
-        if (Application.Current == null) return;
+        if (Application.Current == null || _monitoringSystemTheme) return;
+        _monitoringSystemTheme = true;
         Application.Current.RequestedThemeChanged += (_, _) =>
         {
             if (_currentTheme == "System")

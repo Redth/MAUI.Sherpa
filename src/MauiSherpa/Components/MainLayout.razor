@@ -194,6 +194,7 @@
 
             // Notify native sidebar of route changes from Blazor navigation
             NavManager.LocationChanged += OnLocationChanged;
+            NotifyRouteChanged(NavManager.Uri);
 
             // On macOS, make html/body transparent and enable document-level scrolling
             // so WKWebView setObscuredContentInsets can scroll content under the toolbar
@@ -277,8 +278,11 @@
     }
 
     private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+        => NotifyRouteChanged(e.Location);
+
+    private void NotifyRouteChanged(string location)
     {
-        var uri = new Uri(e.Location);
+        var uri = new Uri(location);
         var route = uri.AbsolutePath;
         if (string.IsNullOrEmpty(route)) route = "/";
         ToolbarService.NotifyRouteChanged(route);
@@ -578,10 +582,6 @@
         --titlebar-height: 0px;
     }
 
-    .platform-windows .sidebar-menu {
-        padding-top: 0;
-    }
-
     .platform-linux {
         --titlebar-height: 0px;
     }
@@ -598,8 +598,9 @@
         color: #a0aec0;
     }
 
-    /* macOS AppKit: hide Blazor sidebar (native sidebar handles navigation) */
-    .platform-macos .sidebar {
+    /* Native sidebars handle navigation on macOS and Windows. */
+    .platform-macos .sidebar,
+    .platform-windows .sidebar {
         display: none;
     }
 

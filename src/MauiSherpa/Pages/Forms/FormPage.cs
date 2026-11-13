@@ -76,13 +76,24 @@ public abstract class FormPage<TResult> : ContentPage, IFormPage<TResult>, IForm
         };
 
         // Header separator — full width
-        var headerSeparator = new BoxView { HeightRequest = 1, Opacity = 0.2 };
+        var headerSeparator = new BoxView { HeightRequest = 1 };
+        headerSeparator.SetDynamicResource(BoxView.ColorProperty, FormTheme.Separator);
 
 
         var formContent = BuildFormContent();
+        var scrollFormBody = FormBodyHeightRequest > 0;
+#if WINDOWS
+        scrollFormBody = true;
+        formContent = new VerticalStackLayout
+        {
+            Padding = new Thickness(28, 16, 28, 16),
+            Children = { formContent },
+        };
+#else
         formContent.Margin = new Thickness(28, 16, 28, 16);
+#endif
         View formBody = formContent;
-        if (FormBodyHeightRequest > 0)
+        if (scrollFormBody)
         {
             formBody = new ScrollView
             {
@@ -94,7 +105,8 @@ public abstract class FormPage<TResult> : ContentPage, IFormPage<TResult>, IForm
         }
 
         // Footer separator — full width
-        var footerSeparator = new BoxView { HeightRequest = 1, Opacity = 0.2 };
+        var footerSeparator = new BoxView { HeightRequest = 1 };
+        footerSeparator.SetDynamicResource(BoxView.ColorProperty, FormTheme.Separator);
 
 
         var cancelButton = new Button
@@ -148,7 +160,7 @@ public abstract class FormPage<TResult> : ContentPage, IFormPage<TResult>, IForm
             {
                 new RowDefinition(GridLength.Auto),
                 new RowDefinition(GridLength.Auto),
-                new RowDefinition(FormBodyHeightRequest > 0 ? GridLength.Star : GridLength.Auto),
+                new RowDefinition(scrollFormBody ? GridLength.Star : GridLength.Auto),
                 new RowDefinition(GridLength.Auto),
                 new RowDefinition(GridLength.Auto),
             },
