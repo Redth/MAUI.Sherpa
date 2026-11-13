@@ -7,6 +7,21 @@ namespace MauiSherpa.Core.Tests.Services;
 public class ToolbarServiceTests
 {
     [Fact]
+    public void NotifyRouteChanged_UpdatesCurrentRouteBeforeNotifyingSubscribers()
+    {
+        var service = new ToolbarService();
+        var observedRoutes = new List<(string EventRoute, string CurrentRoute)>();
+        service.RouteChanged += route => observedRoutes.Add((route, service.CurrentRoute));
+
+        service.NotifyRouteChanged("/devices");
+        service.NotifyRouteChanged("/profiling/gcdump");
+
+        observedRoutes.Should().Equal(
+            ("/devices", "/devices"),
+            ("/profiling/gcdump", "/profiling/gcdump"));
+    }
+
+    [Fact]
     public void InvokeToolbarItemClicked_OnlyDispatchesActiveEnabledActions()
     {
         var service = new ToolbarService();

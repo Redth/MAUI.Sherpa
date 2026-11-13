@@ -65,6 +65,8 @@ public class CopilotPage : ContentPage
         GtkPage.SetModalSizesToContent(this, false);
         GtkPage.SetModalWidth(this, (int)modalWidth);
         GtkPage.SetModalHeight(this, (int)modalHeight);
+#elif WINDOWS
+        Platforms.Windows.WindowsModalPresentation.SetPreferredSize(this, double.PositiveInfinity, double.PositiveInfinity);
 #endif
 
         // --- BlazorWebView for the full Copilot UI ---

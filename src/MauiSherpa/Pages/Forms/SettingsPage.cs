@@ -35,6 +35,8 @@ public class SettingsPage : ContentPage
 #elif LINUXGTK
         GtkPage.SetModalWidth(this, 800);
         GtkPage.SetModalHeight(this, 600);
+#elif WINDOWS
+        Platforms.Windows.WindowsModalPresentation.SetPreferredSize(this, 800, 600);
 #endif
     }
 
@@ -72,6 +74,9 @@ public class SettingsPage : ContentPage
             FontAttributes = FontAttributes.Bold,
             Margin = new Thickness(28, 24, 28, 12),
         };
+#if WINDOWS
+        titleLabel.SetDynamicResource(Label.TextColorProperty, FormTheme.TextPrimary);
+#endif
 
         // Header separator
         var headerSeparator = new BoxView { HeightRequest = 1 };
@@ -189,6 +194,9 @@ public class SettingsPage : ContentPage
             RowSpacing = 0,
             VerticalOptions = LayoutOptions.Fill,
         };
+#if WINDOWS
+        grid.SetDynamicResource(Grid.BackgroundColorProperty, FormTheme.PageBg);
+#endif
 
         Grid.SetRow(titleLabel, 0);
         Grid.SetRow(headerSeparator, 1);

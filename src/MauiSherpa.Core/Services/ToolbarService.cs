@@ -17,6 +17,7 @@ public class ToolbarService : IToolbarService
     private readonly HashSet<string> _disabledItems = new();
 
     public IReadOnlyList<ToolbarAction> CurrentItems => _items;
+    public string CurrentRoute { get; private set; } = "/";
     public string? SearchPlaceholder => _searchPlaceholder;
     public string SearchText => _searchText;
     public IReadOnlyList<ToolbarFilter> CurrentFilters => _filters;
@@ -71,6 +72,7 @@ public class ToolbarService : IToolbarService
 
     public void NotifyRouteChanged(string route)
     {
+        CurrentRoute = route;
         RouteChanged?.Invoke(route);
     }
 

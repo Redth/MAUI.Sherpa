@@ -49,6 +49,8 @@ public class HybridProgressPage : ContentPage
 #elif LINUXGTK
         GtkPage.SetModalWidth(this, width);
         GtkPage.SetModalHeight(this, height);
+#elif WINDOWS
+        Platforms.Windows.WindowsModalPresentation.SetPreferredSize(this, width, height);
 #endif
         BuildPage();
     }

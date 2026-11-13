@@ -32,6 +32,8 @@ public class ProgressModalPage : ContentPage
 #elif LINUXGTK
         GtkPage.SetModalWidth(this, minWidth);
         GtkPage.SetModalHeight(this, minHeight);
+#elif WINDOWS
+        Platforms.Windows.WindowsModalPresentation.SetPreferredSize(this, minWidth, minHeight);
 #endif
         BuildPage(route);
     }

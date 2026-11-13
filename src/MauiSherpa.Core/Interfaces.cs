@@ -5200,6 +5200,7 @@ public record ToolbarFilter(string Id, string Label, string[] Options, int Selec
 public interface IToolbarService
 {
     IReadOnlyList<ToolbarAction> CurrentItems { get; }
+    string CurrentRoute { get; }
     string? SearchPlaceholder { get; }
     string SearchText { get; }
     IReadOnlyList<ToolbarFilter> CurrentFilters { get; }
