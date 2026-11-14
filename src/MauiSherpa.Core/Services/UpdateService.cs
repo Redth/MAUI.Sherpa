@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Net.Http.Json;
 using System.Text.Json;
 using MauiSherpa.Core.Interfaces;
+using NuGet.Versioning;
 
 namespace MauiSherpa.Core.Services;
 
@@ -51,7 +52,10 @@ public class UpdateService : IUpdateService
 
             var latestRelease = releases
                 .Where(r => !r.IsPrerelease && !r.IsDraft)
-                .OrderByDescending(r => r.PublishedAt)
+                .Select(r => (Release: r, Version: ParseReleaseVersion(r.TagName)))
+                .Where(r => r.Version is { IsPrerelease: false })
+                .OrderByDescending(r => r.Version, VersionComparer.VersionRelease)
+                .Select(r => r.Release)
                 .FirstOrDefault();
 
             if (latestRelease == null)
@@ -100,7 +104,8 @@ public class UpdateService : IUpdateService
             if (releases == null)
                 return Array.Empty<GitHubRelease>();
 
-            return releases.Select(r => new GitHubRelease(
+            return releases.Where(r => ParseReleaseVersion(r.TagName) != null)
+                .Select(r => new GitHubRelease(
                 TagName: r.TagName ?? "",
                 Name: r.Name ?? r.TagName ?? "Unnamed Release",
                 Body: r.Body ?? "",
@@ -122,10 +127,26 @@ public class UpdateService : IUpdateService
         }
     }
 
+    private static NuGetVersion? ParseReleaseVersion(string? tagName)
+    {
+        if (string.IsNullOrEmpty(tagName) || tagName != tagName.Trim())
+            return null;
+
+        var version = tagName[0] is 'v' or 'V' ? tagName[1..] : tagName;
+        var numericParts = version.Split(['-', '+'])[0].Split('.');
+
+        // Discovery accepts only version tags, never rolling channels or other release metadata.
+        if (numericParts.Length is < 3 or > 4 ||
+            numericParts.Any(part => part.Length == 0 || !part.All(char.IsAsciiDigit)))
+            return null;
+
+        return NuGetVersion.TryParse(version, out var parsed) ? parsed : null;
+    }
+
     internal static bool IsNewerVersion(string remoteVersion, string currentVersion)
     {
-        var remote = remoteVersion.TrimStart('v');
-        var current = currentVersion.TrimStart('v');
+        var remote = remoteVersion.TrimStart('v', 'V');
+        var current = currentVersion.TrimStart('v', 'V');
 
         try
         {
