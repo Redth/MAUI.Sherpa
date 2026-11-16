@@ -1,0 +1,152 @@
+@using System.Text.Json
+@using Shiny.Controls.AgentUI
+
+@* A Sherpa list tool's result drawn as a table in the Copilot chat (replaces AgentView's JSON tool card). *@
+<div class="copilot-result-card @StatusClass">
+    <button type="button" class="copilot-result-head" @onclick="() => collapsed = !collapsed" aria-expanded="@(!collapsed)">
+        <span class="copilot-result-title">
+            <i class="@Spec.Icon"></i>
+            @Spec.Title
+            @if (rows != null)
+            {
+                <span class="copilot-result-count">@rows.Count</span>
+            }
+        </span>
+        <span class="copilot-result-status">
+            @if (IsRunning)
+            {
+                <i class="fa-solid fa-spinner fa-spin"></i>
+            }
+            else if (Call.Status == AgentToolCallStatus.Failed)
+            {
+                <i class="fa-solid fa-circle-xmark"></i>
+            }
+            else
+            {
+                <i class="fa-solid fa-circle-check"></i>
+            }
+            <i class="fa-solid @(collapsed ? "fa-chevron-down" : "fa-chevron-up") copilot-result-chevron"></i>
+        </span>
+    </button>
+
+    @if (!collapsed && !IsRunning)
+    {
+        @if (rows is { Count: > 0 })
+        {
+            <div class="copilot-result-body">
+                <table class="copilot-result-table">
+                    <thead>
+                        <tr>
+                            @foreach (var column in Spec.Columns)
+                            {
+                                <th>@column.Header</th>
+                            }
+                            @if (Spec.Action != null)
+                            {
+                                <th></th>
+                            }
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in rows)
+                        {
+                            <tr>
+                                @foreach (var column in Spec.Columns)
+                                {
+                                    <td>@RenderCell(row, column)</td>
+                                }
+                                @if (Spec.Action != null)
+                                {
+                                    <td class="copilot-result-action-cell">
+                                        @if (Spec.Action.AppliesTo(row))
+                                        {
+                                            <button type="button" class="copilot-result-action" disabled="@IsBusy"
+                                                    @onclick="() => OnAction.InvokeAsync(Spec.Action.Prompt(row))">
+                                                <i class="@Spec.Action.Icon"></i> @Spec.Action.Label
+                                            </button>
+                                        }
+                                    </td>
+                                }
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+        else
+        {
+            <div class="copilot-result-message text-selectable">@(Call.Error ?? Call.Result ?? "No result.")</div>
+        }
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public AgentToolCallItem Call { get; set; } = default!;
+    [Parameter, EditorRequired] public CopilotToolResultSpec Spec { get; set; } = default!;
+
+    /// <summary>Whether the agent is busy, which disables the row actions.</summary>
+    [Parameter] public bool IsBusy { get; set; }
+
+    /// <summary>Raised with the prompt a row action wants sent to Copilot.</summary>
+    [Parameter] public EventCallback<string> OnAction { get; set; }
+
+    bool collapsed;
+    string? parsedResult;
+    List<JsonElement>? rows;
+
+    bool IsRunning => Call.Status is AgentToolCallStatus.Streaming or AgentToolCallStatus.Ready or AgentToolCallStatus.Running;
+
+    string StatusClass => IsRunning ? "running" : Call.Status == AgentToolCallStatus.Failed ? "failed" : "completed";
+
+    protected override void OnParametersSet()
+    {
+        if (Call.Result == parsedResult)
+            return;
+
+        parsedResult = Call.Result;
+        rows = ParseRows(Call.Result);
+    }
+
+    static List<JsonElement>? ParseRows(string? result)
+    {
+        // The list tools return a JSON array, or a plain sentence ("No devices found.") when there's nothing to list
+        if (string.IsNullOrWhiteSpace(result) || !result.TrimStart().StartsWith('['))
+            return null;
+
+        try
+        {
+            using var document = JsonDocument.Parse(result);
+            return document.RootElement.ValueKind == JsonValueKind.Array
+                ? document.RootElement.EnumerateArray().Select(e => e.Clone()).ToList()
+                : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    RenderFragment RenderCell(JsonElement row, CopilotResultColumn column) => __builder =>
+    {
+        var text = CopilotToolResultSpecs.Text(row, column.Key);
+        switch (column.Kind)
+        {
+            case "pill":
+                var pill = column.Pills?.GetValueOrDefault(text.ToLowerInvariant()) ?? new CopilotResultPill(text, "neutral");
+                if (pill.Label.Length > 0)
+                {
+                    <span class="copilot-pill copilot-pill--@pill.Tone">@pill.Label</span>
+                }
+                break;
+            case "mono":
+                <span class="mono">@text</span>
+                break;
+            case "date":
+                <span>@(DateTime.TryParse(text, out var date) ? date.ToString("d MMM yyyy") : text)</span>
+                break;
+            default:
+                <span>@text</span>
+                break;
+        }
+    };
+}

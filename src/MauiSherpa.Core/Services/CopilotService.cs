@@ -49,8 +49,11 @@ public class CopilotService : ICopilotService, IAsyncDisposable
     public event Action<string>? OnIntentChanged;
     public event Action<CopilotUsageInfo>? OnUsageInfoChanged;
     public event Action<CopilotSessionError>? OnSessionError;
+    public event Action<SessionEvent>? OnSessionEvent;
     
     public Func<ToolPermissionRequest, Task<ToolPermissionResult>>? PermissionHandler { get; set; }
+    public Func<CopilotUserInputRequest, Task<CopilotUserInputResponse>>? UserInputHandler { get; set; }
+    public IReadOnlyList<AIFunction> AdditionalTools { get; set; } = [];
 
     public CopilotService(ILoggingService logger, ICopilotToolsService toolsService)
     {
@@ -601,8 +604,8 @@ public class CopilotService : ICopilotService, IAsyncDisposable
             var selectedModel = string.IsNullOrWhiteSpace(model) ? "auto" : model;
             _logger.LogInformation($"Starting Copilot session with model: {selectedModel}");
             
-            // Get tools from tools service
-            var tools = _toolsService.GetTools();
+            // Get tools from tools service, plus any registered by the chat UI
+            var tools = _toolsService.GetTools().Concat(AdditionalTools).ToList();
             _logger.LogInformation($"Registering {tools.Count} tools with Copilot session");
             
             // Build system prompt - use provided prompt or fall back to default
@@ -614,6 +617,7 @@ public class CopilotService : ICopilotService, IAsyncDisposable
                 Streaming = true,
                 Tools = tools.Cast<AIFunctionDeclaration>().ToList(),
                 OnPermissionRequest = HandleSdkPermissionRequest,
+                OnUserInputRequest = HandleSdkUserInputRequest,
                 SystemMessage = new SystemMessageConfig
                 {
                     Content = promptContent
@@ -732,6 +736,23 @@ public class CopilotService : ICopilotService, IAsyncDisposable
         return GitHub.Copilot.Rpc.PermissionDecision.UserNotAvailable();
     }
 #pragma warning restore GHCP001
+
+    private async Task<UserInputResponse> HandleSdkUserInputRequest(UserInputRequest request, UserInputInvocation invocation)
+    {
+        _logger.LogDebug($"User input request: Question={request.Question}, Choices={request.Choices?.Count ?? 0}, AllowFreeform={request.AllowFreeform}");
+
+        if (UserInputHandler == null)
+        {
+            return new UserInputResponse { Answer = "The user is not available to answer questions right now.", WasFreeform = true };
+        }
+
+        var response = await UserInputHandler(new CopilotUserInputRequest(
+            request.Question,
+            request.Choices?.ToList() ?? [],
+            request.AllowFreeform ?? true));
+
+        return new UserInputResponse { Answer = response.Answer, WasFreeform = response.WasFreeform };
+    }
 
     private ResolvedPermissionRequest ResolvePermissionRequest(PermissionRequest request)
     {
@@ -974,6 +995,7 @@ public class CopilotService : ICopilotService, IAsyncDisposable
             // Debug log all events with full type name
             var eventType = evt.GetType().Name;
             _logger.LogDebug($"SDK Event: {eventType}");
+            OnSessionEvent?.Invoke(evt);
             
             switch (evt)
             {

@@ -3088,7 +3088,32 @@ public interface ICopilotService
     /// Return the default result to accept default behavior, or a custom result to override.
     /// </summary>
     Func<ToolPermissionRequest, Task<ToolPermissionResult>>? PermissionHandler { get; set; }
+
+    /// <summary>
+    /// Answers the agent's ask_user questions. When null, the agent is told the user isn't available.
+    /// </summary>
+    Func<CopilotUserInputRequest, Task<CopilotUserInputResponse>>? UserInputHandler { get; set; }
+
+    /// <summary>
+    /// Tools registered on every new session alongside the tools from <see cref="ICopilotToolsService"/>.
+    /// </summary>
+    IReadOnlyList<Microsoft.Extensions.AI.AIFunction> AdditionalTools { get; set; }
+
+    /// <summary>
+    /// Event fired for every raw SDK session event, before the service handles it.
+    /// </summary>
+    event Action<GitHub.Copilot.SessionEvent>? OnSessionEvent;
 }
+
+/// <summary>
+/// A question the agent asked the user through its ask_user tool
+/// </summary>
+public record CopilotUserInputRequest(string Question, IReadOnlyList<string> Choices, bool AllowFreeform);
+
+/// <summary>
+/// The user's answer to an ask_user question
+/// </summary>
+public record CopilotUserInputResponse(string Answer, bool WasFreeform);
 
 /// <summary>
 /// Information about a tool permission request
@@ -3333,6 +3358,33 @@ public record CopilotTool(Microsoft.Extensions.AI.AIFunction Function, bool IsRe
 {
     public string Name => Function.Name;
     public string Description => Function.Description ?? string.Empty;
+}
+
+/// <summary>
+/// Drives the Copilot chat through the Shiny AgentView: owns the AG-UI conversation the view draws,
+/// the inline prompts tools wait on, and the generated-UI (A2UI) tools offered to the agent.
+/// </summary>
+public interface ICopilotAgentService
+{
+    /// <summary>
+    /// The conversation runner the AgentView draws. It outlives the Copilot window, so reopening it keeps the chat.
+    /// </summary>
+    Shiny.Controls.AgentUI.AgentRunner Runner { get; }
+
+    /// <summary>
+    /// Questions (permissions, ask_user, pickers) waiting on the user, drawn inline under their tool card.
+    /// </summary>
+    Shiny.Controls.AgentUI.AgentPromptQueue Prompts { get; }
+
+    /// <summary>
+    /// The A2UI catalogs the agent may build surfaces from.
+    /// </summary>
+    Shiny.Controls.AgentUI.A2UI.A2UICatalogRegistry Catalogs { get; }
+
+    /// <summary>
+    /// Stops any run in progress and clears the conversation.
+    /// </summary>
+    void Reset();
 }
 
 /// <summary>

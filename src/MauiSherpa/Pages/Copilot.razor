@@ -1,7 +1,9 @@
 @using MauiSherpa.Core.Interfaces
 @using MauiSherpa.Core.Services
-@using Markdig
+@using Shiny.Blazor.Controls.Agents
+@using Shiny.Controls.AgentUI
 @inject ICopilotService CopilotService
+@inject ICopilotAgentService AgentService
 @inject IAlertService AlertService
 @inject ICopilotToolsService ToolsService
 @inject ICopilotContextService ContextService
@@ -190,326 +192,52 @@ else
     else
     {
         <div class="chat-layout">
-        <!-- Chat Messages -->
-        <div class="chat-container">
-            <div class="model-selector">
-                <label for="copilot-model"><i class="fas fa-robot"></i> Model</label>
-                <select id="copilot-model" value="@selectedModel" @onchange="SelectModelAsync" disabled="@(isBusy || isConnecting)">
-                    @foreach (var model in availableModels)
-                    {
-                        <option value="@model.Id">@model.Name</option>
-                    }
-                </select>
-            </div>
-            <div class="chat-messages" @ref="chatMessagesRef" @onscroll="OnChatScroll">
-                @* Show suggestions as first item - collapsible *@
-                <div class="suggestions-bubble @(suggestionsCollapsed ? "collapsed" : "")">
-                    <button class="suggestions-header" @onclick="ToggleSuggestionsCollapsed">
-                        <div class="suggestions-header-content">
-                            <i class="fas fa-lightbulb"></i>
-                            <span>Copilot Suggestions</span>
-                            </div>
-                            <i class="fas @(suggestionsCollapsed ? "fa-chevron-down" : "fa-chevron-up") collapse-icon"></i>
-                        </button>
-                        @if (!suggestionsCollapsed)
+            <div class="chat-container">
+                <div class="model-selector">
+                    <label for="copilot-model"><i class="fas fa-robot"></i> Model</label>
+                    <select id="copilot-model" value="@selectedModel" @onchange="SelectModelAsync" disabled="@(isBusy || isConnecting)">
+                        @foreach (var model in availableModels)
                         {
-                            <p class="suggestions-intro">Hi! I can help you manage your development environment. Try one of these:</p>
-                            <div class="suggestions-grid">
-                                @foreach (var suggestion in suggestedPrompts)
-                                {
-                                    <button class="suggestion-bubble" @onclick="@(() => UseSuggestion(suggestion))">
-                                        <span class="bubble-text">"@suggestion.Prompt"</span>
-                                        <i class="fas fa-arrow-right bubble-arrow"></i>
-                                    </button>
-                                }
-                            </div>
+                            <option value="@model.Id">@model.Name</option>
                         }
-                    </div>
-                @foreach (var msg in messages.ToList())
-                {
-                    @if (msg.MessageType == CopilotMessageType.Reasoning)
-                    {
-                        @* Reasoning/Thinking Message *@
-                        <div class="reasoning-block @(msg.IsCollapsed ? "collapsed" : "")">
-                            <button class="reasoning-header" @onclick="@(() => ToggleMessageCollapse(msg))">
-                                <div class="reasoning-title">
-                                    <i class="fas fa-brain"></i>
-                                    <span>@(msg.IsComplete ? "Thought" : "Thinking...")</span>
-                                </div>
-                                <i class="fas @(msg.IsCollapsed ? "fa-chevron-down" : "fa-chevron-up") collapse-icon"></i>
-                            </button>
-                            @if (!msg.IsCollapsed)
-                            {
-                                <div class="reasoning-content">@msg.Content</div>
-                            }
-                        </div>
-                    }
-                     else if (msg.MessageType == CopilotMessageType.ToolCall)
-                     {
-                         @* Tool Call Message - skip internal/noisy tools *@
-                         @if (!IsInternalTool(msg.ToolName))
-                         {
-                        var hasToolResult = msg.IsComplete && !string.IsNullOrEmpty(msg.Content) && !IsUnusableToolResult(msg.Content);
-                        var parsed = hasToolResult ? ParseBashOutput(msg.Content) : (Command: "", Output: "");
-                        var commandPreview = !string.IsNullOrWhiteSpace(msg.ToolCommand) ? msg.ToolCommand : parsed.Command;
-                        var hasCommandPreview = !string.IsNullOrWhiteSpace(commandPreview);
-                        var expandedContent = !string.IsNullOrEmpty(parsed.Command) ? parsed.Output : msg.Content;
-                        var hasExpandableContent = hasToolResult && !string.IsNullOrWhiteSpace(expandedContent) && expandedContent.Trim() != commandPreview;
-                        <div class="tool-card @(msg.IsComplete ? (msg.IsSuccess ? "success" : "error") : "running")">
-                            <button type="button"
-                                    class="tool-header tool-header-button"
-                                    @onclick="@(() => ToggleMessageCollapse(msg))"
-                                    disabled="@(!hasExpandableContent)"
-                                    aria-expanded="@(msg.IsCollapsed ? "false" : "true")">
-                                <div class="tool-info">
-                                    <i class="@GetToolIconClass(msg.ToolName ?? "") @GetToolIcon(msg.ToolName ?? "")"></i>
-                                    <div class="tool-meta">
-                                        <span class="tool-name">@FormatToolName(msg.ToolName ?? "")</span>
-                                        @if (hasCommandPreview)
-                                        {
-                                            <code class="tool-preview" title="@commandPreview">$ @commandPreview</code>
-                                        }
-                                    </div>
-                                </div>
-                                <div class="tool-actions">
-                                    <div class="tool-status">
-                                        @if (!msg.IsComplete)
-                                        {
-                                            <i class="fas fa-spinner fa-spin"></i>
-                                            <span>Running</span>
-                                        }
-                                        else if (msg.IsSuccess)
-                                        {
-                                            <i class="fas fa-check-circle"></i>
-                                            <span>Complete</span>
-                                        }
-                                        else
-                                        {
-                                            <i class="fas fa-times-circle"></i>
-                                            <span>Failed</span>
-                                        }
-                                    </div>
-                                    @if (hasExpandableContent)
-                                    {
-                                        <i class="fas @(msg.IsCollapsed ? "fa-chevron-down" : "fa-chevron-up") tool-expand-icon"></i>
-                                    }
-                                </div>
-                            </button>
-                            @if (hasExpandableContent && !msg.IsCollapsed)
-                            {
-                                <div class="tool-result">
-                                    @if (hasCommandPreview)
-                                    {
-                                        <pre class="tool-output-content">@TruncateResult(expandedContent)</pre>
-                                    }
-                                    else
-                                    {
-                                        <pre class="tool-result-content">@TruncateResult(expandedContent)</pre>
-                                    }
-                                </div>
-                            }
-                        </div>
-                        }
-                    }
-                    else if (msg.MessageType == CopilotMessageType.Error)
-                    {
-                        @* Error Message *@
-                        <div class="error-card">
-                            <div class="error-header">
-                                <i class="fas fa-exclamation-triangle"></i>
-                                <span>Error@(!string.IsNullOrEmpty(msg.ToolName) ? $" ({msg.ToolName})" : "")</span>
-                            </div>
-                            <div class="error-content">
-                                @msg.Content
-                            </div>
-                        </div>
-                    }
-                    else
-                    {
-                        @* Regular Text Message *@
-                        <div class="message @(msg.IsUser ? "user-message" : "assistant-message")">
-                            <div class="message-header">
-                                <i class="fas @(msg.IsUser ? "fa-user" : "fa-robot")"></i>
-                                <span>@(msg.IsUser ? "You" : "Copilot")</span>
-                            </div>
-                            <div class="message-content">
-                                @if (msg.IsUser)
-                                {
-                                    @msg.Content
-                                }
-                                else
-                                {
-                                    @((MarkupString)RenderMarkdown(msg.Content))
-                                }
-                            </div>
-                        </div>
-                    }
-                }
-                
-                @* Streaming Response *@
-                @if (isBusy && !string.IsNullOrEmpty(currentResponse))
-                {
-                    <div class="message assistant-message streaming">
-                        <div class="message-header">
-                            <i class="fas fa-robot"></i>
-                            <span>Copilot</span>
-                        </div>
-                        <div class="message-content">
-                            @((MarkupString)RenderMarkdown(currentResponse))
-                            <div class="streaming-indicator">
-                                <span class="thinking-dots">
-                                    <span>●</span><span>●</span><span>●</span>
-                                </span>
-                            </div>
-                        </div>
-                    </div>
-                }
-                else if (isBusy && !messages.Any(m => m.MessageType == CopilotMessageType.Reasoning && !m.IsComplete) 
-                         && !messages.Any(m => m.MessageType == CopilotMessageType.ToolCall && !m.IsComplete))
-                {
-                    <div class="message assistant-message thinking">
-                        <div class="message-header">
-                            <i class="fas fa-robot"></i>
-                            <span>Copilot</span>
-                        </div>
-                        <div class="message-content">
-                            <span class="thinking-dots">
-                                <span>●</span><span>●</span><span>●</span>
-                            </span>
-                        </div>
-                    </div>
-                }
-            </div>
+                    </select>
+                    <button class="model-selector__new-chat" @onclick="NewChatAsync" disabled="@(isBusy || isConnecting)" title="Start a new conversation">
+                        <i class="fas fa-plus"></i> New chat
+                    </button>
+                </div>
 
-            @if (!HideInputArea)
-            {
-            <div class="chat-input-area">
-                @{
-                    var hasUsageToShow = currentUsageInfo != null && (
-                        !string.IsNullOrEmpty(currentUsageInfo.Model) ||
-                        currentUsageInfo.InputTokens.HasValue ||
-                        currentUsageInfo.OutputTokens.HasValue ||
-                        (currentUsageInfo.CurrentTokens.HasValue && currentUsageInfo.TokenLimit.HasValue)
-                    );
-                }
-                @if (hasUsageToShow)
+                <div class="copilot-agent-host">
+                    <AgentView @ref="agentView"
+                               Runner="AgentService.Runner"
+                               Prompts="AgentService.Prompts"
+                               Catalogs="AgentService.Catalogs"
+                               Suggestions="suggestions"
+                               PlaceholderText="Ask Copilot something..."
+                               ShowSteps="true"
+                               ToolCallTemplates="toolTemplates"
+                               CssClass="copilot-agent-view" />
+                </div>
+
+                @if (currentUsageInfo != null || CopilotService.IsConnected)
                 {
-                    <div class="usage-info">
-                        @if (!string.IsNullOrEmpty(currentUsageInfo!.Model))
-                        {
-                            <span class="usage-item"><i class="fas fa-robot"></i> @currentUsageInfo.Model</span>
-                        }
-                        @if (currentUsageInfo.InputTokens.HasValue || currentUsageInfo.OutputTokens.HasValue)
+                    <div class="usage-info @(currentUsageInfo == null ? "subtle" : "")">
+                        <span class="usage-item"><i class="fas fa-robot"></i> @(currentUsageInfo?.Model ?? SelectedModelDisplayName)</span>
+                        @if (currentUsageInfo?.InputTokens.HasValue == true || currentUsageInfo?.OutputTokens.HasValue == true)
                         {
                             <span class="usage-item">
                                 <i class="fas fa-arrow-right"></i> @(currentUsageInfo.InputTokens ?? 0)
                                 <i class="fas fa-arrow-left"></i> @(currentUsageInfo.OutputTokens ?? 0)
                             </span>
                         }
-                        @if (currentUsageInfo.CurrentTokens.HasValue && currentUsageInfo.TokenLimit.HasValue)
+                        @if (currentUsageInfo?.CurrentTokens.HasValue == true && currentUsageInfo.TokenLimit.HasValue)
                         {
                             <span class="usage-item"><i class="fas fa-database"></i> @currentUsageInfo.CurrentTokens / @currentUsageInfo.TokenLimit</span>
                         }
                     </div>
                 }
-                else if (CopilotService.IsConnected)
-                {
-                    <div class="usage-info subtle">
-                        <span class="usage-item"><i class="fas fa-robot"></i> @SelectedModelDisplayName</span>
-                        <span class="usage-item muted">Waiting for response...</span>
-                    </div>
-                }
-                @if (!string.IsNullOrEmpty(currentIntent))
-                {
-                    <div class="intent-indicator">
-                        <i class="fas fa-lightbulb"></i>
-                        <span>@currentIntent</span>
-                    </div>
-                }
-                else if (!string.IsNullOrEmpty(currentTool))
-                {
-                    <div class="tool-indicator">
-                        <i class="fas fa-cog fa-spin"></i>
-                        <span>Running: @FormatToolName(currentTool)</span>
-                    </div>
-                }
-                <div class="chat-input">
-                    <textarea 
-                        placeholder="Ask Copilot something..." 
-                        @bind="userInput"
-                        @bind:event="oninput"
-                        @onkeydown="HandleKeyDown"
-                        @onkeydown:preventDefault="shouldPreventDefault"
-                        disabled="@(isBusy || !CopilotService.IsConnected)"
-                        rows="1"></textarea>
-                    <button class="btn-send" @onclick="SendMessage" disabled="@(isBusy || string.IsNullOrWhiteSpace(userInput) || !CopilotService.IsConnected)">
-                        @if (isBusy)
-                        {
-                            <i class="fas fa-stop"></i>
-                        }
-                        else
-                        {
-                            <i class="fas fa-paper-plane"></i>
-                        }
-                    </button>
-                </div>
             </div>
-            }
         </div>
-    </div>
     }
-}
-
-@* Permission Dialog Modal *@
-@if (_showPermissionDialog && _pendingPermissionRequest != null)
-{
-    <div class="modal-overlay" @onclick="DenyPermission" id="copilot-permission-modal">
-        <div class="permission-modal" @onclick:stopPropagation="true" role="dialog" aria-modal="true" aria-labelledby="copilot-perm-title">
-            <div class="permission-header">
-                <i class="fas fa-shield-alt"></i>
-                <h3 id="copilot-perm-title">Permission Required</h3>
-            </div>
-            <div class="permission-content">
-                <p>Copilot wants to execute the following tool:</p>
-                <div class="tool-details">
-                    <div class="tool-detail-name">
-                        <i class="@GetToolIconClass(_pendingPermissionRequest.ToolName) @GetToolIcon(_pendingPermissionRequest.ToolName)"></i>
-                        <strong>@FormatToolName(_pendingPermissionRequest.ToolName)</strong>
-                    </div>
-                    @if (!string.IsNullOrEmpty(_pendingPermissionRequest.ToolDescription))
-                    {
-                        <p class="tool-description">@_pendingPermissionRequest.ToolDescription</p>
-                    }
-                    @if (!string.IsNullOrEmpty(_pendingPermissionRequest.Command))
-                    {
-                        <div class="tool-command">
-                            <label><i class="fas fa-terminal"></i> Command:</label>
-                            <code>@_pendingPermissionRequest.Command</code>
-                        </div>
-                    }
-                    @if (!string.IsNullOrEmpty(_pendingPermissionRequest.Path) && string.IsNullOrEmpty(_pendingPermissionRequest.Command))
-                    {
-                        <div class="tool-path">
-                            <label><i class="fas fa-folder"></i> Path:</label>
-                            <code>@_pendingPermissionRequest.Path</code>
-                        </div>
-                    }
-                </div>
-                <p class="permission-warning">
-                    <i class="fas fa-exclamation-triangle"></i>
-                    This action may modify your system or data.
-                </p>
-            </div>
-            <div class="permission-actions">
-                <button class="btn btn-secondary" @onclick="DenyPermission">
-                    <i class="fas fa-times"></i> Deny
-                </button>
-                <button class="btn btn-primary" @onclick="AllowPermission">
-                    <i class="fas fa-check"></i> Allow
-                </button>
-            </div>
-        </div>
-    </div>
 }
 
 @* Debug Overlay *@
@@ -557,7 +285,6 @@ else
 }
 
 </div> @* Close copilot-page *@
-
 <style>
     .copilot-page {
         display: flex;
@@ -585,11 +312,6 @@ else
         border-radius: 0;
     }
 
-    .copilot-page.embedded .chat-messages {
-        padding: 1rem 1rem 0.5rem 1rem;
-        gap: 0.5rem;
-    }
-    
     h1 {
         margin-bottom: 1.25rem;
         font-size: 1.75rem;
@@ -844,144 +566,6 @@ else
         font: inherit;
     }
 
-    .suggestions-section {
-        background: var(--card-bg);
-        border-radius: 0.75rem;
-        padding: 1.25rem;
-    }
-
-    .suggestions-section h3 {
-        font-size: 1rem;
-        color: var(--text-secondary);
-        margin-bottom: 1rem;
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-    }
-
-    .suggestions-section h3 i { color: #f6ad55; }
-
-    .suggestions-section {
-        margin-bottom: 1rem;
-    }
-
-    .suggestions-bubble {
-        align-self: flex-start;
-        max-width: 90%;
-        background: var(--bg-tertiary);
-        border: 1px solid var(--border-color);
-        border-radius: 0.75rem;
-        padding: 1rem;
-        flex-shrink: 0;
-    }
-
-    .suggestions-bubble.collapsed {
-        padding: 0.5rem 1rem;
-    }
-
-    .suggestions-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        width: 100%;
-        background: none;
-        border: none;
-        cursor: pointer;
-        padding: 0;
-        font-size: 0.75rem;
-        font-weight: 600;
-        color: var(--text-muted);
-    }
-
-    .suggestions-bubble:not(.collapsed) .suggestions-header {
-        margin-bottom: 0.75rem;
-    }
-
-    .suggestions-header-content {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-    }
-
-    .suggestions-header-content i {
-        color: #8b5cf6;
-    }
-
-    .suggestions-header .collapse-icon {
-        font-size: 0.625rem;
-        color: var(--text-muted);
-        transition: transform 0.2s;
-        margin-left: 0.75rem;
-    }
-
-    .suggestions-intro {
-        font-size: 0.875rem;
-        color: var(--text-primary);
-        margin: 0 0 1rem 0;
-        line-height: 1.5;
-    }
-
-    .suggestions-hint {
-        font-size: 0.8125rem;
-        color: var(--text-muted);
-        margin-bottom: 0.75rem;
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-    }
-
-    .suggestions-hint i {
-        color: #ecc94b;
-    }
-
-    .suggestions-grid {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.5rem;
-    }
-
-    .suggestion-bubble {
-        display: inline-flex;
-        align-items: flex-start;
-        gap: 0.5rem;
-        padding: 0.625rem 0.875rem;
-        background: var(--suggestion-bg, linear-gradient(135deg, #f0f4ff 0%, #e8ecff 100%));
-        border: 1px solid var(--suggestion-border, #c7d2fe);
-        border-radius: 18px;
-        cursor: pointer;
-        text-align: left;
-        transition: all 0.2s;
-        max-width: 100%;
-    }
-
-    .suggestion-bubble:hover {
-        background: var(--suggestion-bg-hover, linear-gradient(135deg, #e8ecff 0%, #ddd6fe 100%));
-        border-color: var(--suggestion-border-hover, #a5b4fc);
-        transform: translateY(-1px);
-        box-shadow: 0 2px 0.5rem rgba(99, 102, 241, 0.15);
-    }
-
-    .bubble-text {
-        font-size: 0.8125rem;
-        color: var(--suggestion-text, #4338ca);
-        font-style: italic;
-        line-height: 1.4;
-        word-wrap: break-word;
-    }
-
-    .bubble-arrow {
-        font-size: 0.6875rem;
-        color: var(--suggestion-arrow, #6366f1);
-        opacity: 0;
-        transition: opacity 0.2s, transform 0.2s;
-        flex-shrink: 0;
-    }
-
-    .suggestion-bubble:hover .bubble-arrow {
-        opacity: 1;
-        transform: translateX(2px);
-    }
-
     .chat-container {
         display: flex;
         flex-direction: column;
@@ -990,94 +574,6 @@ else
         background: var(--card-bg);
         border-radius: 0.75rem;
         overflow: hidden;
-    }
-
-    .chat-messages {
-        flex: 1;
-        padding: 1.25rem;
-        overflow-y: auto;
-        display: flex;
-        flex-direction: column;
-        gap: 1rem;
-    }
-
-    .message {
-        max-width: 85%;
-        padding: 0.75rem 1rem;
-        border-radius: 0.75rem;
-        flex-shrink: 0; /* Prevent shrinking */
-    }
-
-    .user-message {
-        align-self: flex-end;
-        background: linear-gradient(135deg, #6366f1, #8b5cf6);
-        color: white;
-    }
-
-    .assistant-message {
-        align-self: flex-start;
-        background: var(--bg-tertiary);
-        border: 1px solid var(--border-color);
-    }
-
-    .message-header {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        font-size: 0.75rem;
-        font-weight: 600;
-        margin-bottom: 0.5rem;
-        opacity: 0.8;
-    }
-
-    .user-message .message-header { color: rgba(255,255,255,0.9); }
-    .assistant-message .message-header { color: var(--text-muted); }
-
-    .typing-indicator {
-        margin-left: auto;
-        font-size: 0.625rem;
-    }
-
-    .message-content {
-        line-height: 1.5;
-        word-break: break-word;
-    }
-    
-    /* User messages preserve whitespace since they're not markdown */
-    .user-message .message-content {
-        white-space: pre-wrap;
-    }
-
-    .assistant-message .message-content { color: var(--text-primary); }
-
-    .thinking-dots {
-        display: inline-flex;
-        gap: 0.25rem;
-    }
-
-    .thinking-dots span {
-        animation: thinking 1.4s infinite ease-in-out both;
-        color: var(--text-secondary);
-    }
-
-    .thinking-dots span:nth-child(1) { animation-delay: -0.32s; }
-    .thinking-dots span:nth-child(2) { animation-delay: -0.16s; }
-
-    @@keyframes thinking {
-        0%, 80%, 100% { opacity: 0.3; }
-        40% { opacity: 1; }
-    }
-    
-    .streaming-indicator {
-        margin-top: 0.75rem;
-        padding-top: 0.5rem;
-        border-top: 1px solid var(--border-color);
-    }
-
-    .chat-input-area {
-        border-top: 1px solid var(--border-color);
-        padding: 1rem;
-        flex-shrink: 0;
     }
 
     .usage-info {
@@ -1113,634 +609,6 @@ else
     .usage-item.muted {
         font-style: italic;
         opacity: 0.6;
-    }
-
-    .intent-indicator {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        padding: 0.5rem 0.75rem;
-        background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(139, 92, 246, 0.1));
-        color: #6366f1;
-        border-radius: 0.375rem;
-        font-size: 0.8125rem;
-        margin-bottom: 0.75rem;
-        border: 1px solid rgba(99, 102, 241, 0.2);
-    }
-    
-    .intent-indicator i {
-        color: #8b5cf6;
-    }
-
-    .tool-indicator {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        padding: 0.5rem 0.75rem;
-        background: var(--tool-indicator-bg, linear-gradient(135deg, rgba(99, 102, 241, 0.15) 0%, rgba(139, 92, 246, 0.1) 100%));
-        color: var(--tool-indicator-text, #6366f1);
-        border: 1px solid var(--tool-indicator-border, rgba(99, 102, 241, 0.3));
-        border-radius: 0.375rem;
-        font-size: 0.8125rem;
-        margin-bottom: 0.75rem;
-    }
-
-    .tool-indicator i {
-        color: var(--tool-indicator-icon, #8b5cf6);
-    }
-
-    .chat-input {
-        display: flex;
-        gap: 0.75rem;
-        align-items: flex-end;
-    }
-
-    .chat-input textarea {
-        flex: 1;
-        padding: 0.75rem 1rem;
-        border: 1px solid var(--border-color);
-        border-radius: 0.5rem;
-        font-size: 0.875rem;
-        font-family: inherit;
-        resize: none;
-        min-height: 44px;
-        max-height: 120px;
-        background: var(--input-bg, var(--card-bg));
-        color: var(--text-primary);
-    }
-
-    .chat-input textarea:focus {
-        outline: none;
-        border-color: #6366f1;
-        box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
-    }
-
-    .chat-input textarea:disabled {
-        background: var(--bg-tertiary);
-    }
-
-    .btn-send {
-        width: 44px;
-        height: 44px;
-        border: none;
-        border-radius: 0.5rem;
-        background: linear-gradient(135deg, #6366f1, #8b5cf6);
-        color: white;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        transition: all 0.2s;
-        flex-shrink: 0;
-    }
-
-    .btn-send:hover:not(:disabled) {
-        background: linear-gradient(135deg, #4f46e5, #7c3aed);
-    }
-
-    .btn-send:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
-    }
-
-    /* Reasoning Block Styles */
-    .reasoning-block {
-        background: linear-gradient(135deg, rgba(139, 92, 246, 0.08) 0%, rgba(99, 102, 241, 0.08) 100%);
-        border: 1px solid rgba(139, 92, 246, 0.25);
-        border-radius: 0.75rem;
-        margin-bottom: 0.5rem;
-        overflow: hidden;
-        max-width: 95%;
-        flex-shrink: 0; /* Prevent shrinking */
-    }
-
-    .reasoning-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        width: 100%;
-        padding: 0.75rem 1rem;
-        background: transparent;
-        border: none;
-        cursor: pointer;
-        color: var(--text-primary);
-    }
-
-    .reasoning-header:hover {
-        background: rgba(139, 92, 246, 0.1);
-    }
-
-    .reasoning-title {
-        display: flex;
-        align-items: center;
-        gap: 0.625rem;
-        font-size: 0.8125rem;
-        font-weight: 600;
-        color: #8b5cf6;
-    }
-
-    .reasoning-title i {
-        font-size: 1rem;
-    }
-
-    .collapse-icon {
-        font-size: 0.75rem;
-        color: var(--text-muted);
-        transition: transform 0.2s;
-    }
-
-    .reasoning-content {
-        padding: 0 1rem 1rem 1rem;
-        font-size: 0.8125rem;
-        line-height: 1.6;
-        color: var(--text-secondary);
-        font-style: italic;
-        white-space: pre-wrap;
-        word-break: break-word;
-        max-height: 200px;
-        overflow-y: auto;
-    }
-
-    .reasoning-block.collapsed .reasoning-content {
-        display: none;
-    }
-
-    /* Tool Card Styles */
-    .tool-card {
-        background: var(--card-bg);
-        border-radius: 0.625rem;
-        border: 1px solid var(--border-color);
-        margin-bottom: 0.5rem;
-        overflow: hidden;
-        max-width: 90%;
-        flex-shrink: 0;
-    }
-
-    .tool-card.running {
-        border-color: rgba(99, 102, 241, 0.5);
-        box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.15);
-    }
-
-    .tool-card.success {
-        border-color: rgba(34, 197, 94, 0.4);
-    }
-
-    .tool-card.error {
-        border-color: rgba(239, 68, 68, 0.4);
-    }
-
-    .tool-header {
-        display: flex;
-        align-items: flex-start;
-        justify-content: space-between;
-        padding: 0.75rem 1rem;
-        background: var(--bg-tertiary);
-    }
-
-    .tool-header-button {
-        width: 100%;
-        border: none;
-        cursor: pointer;
-        color: inherit;
-        text-align: left;
-    }
-
-    .tool-header-button:not(:disabled):hover {
-        background: var(--bg-hover);
-    }
-
-    .tool-header-button:disabled {
-        cursor: default;
-        opacity: 1;
-    }
-
-    .tool-header-button:focus-visible {
-        outline: 2px solid #8b5cf6;
-        outline-offset: -2px;
-    }
-
-    .tool-info {
-        display: flex;
-        align-items: flex-start;
-        gap: 0.625rem;
-        min-width: 0;
-        flex: 1;
-    }
-
-    .tool-info i {
-        font-size: 0.875rem;
-        color: #6366f1;
-        margin-top: 0.125rem;
-    }
-
-    .tool-meta {
-        display: flex;
-        flex-direction: column;
-        gap: 0.25rem;
-        min-width: 0;
-    }
-
-    .tool-name {
-        font-size: 0.8125rem;
-        font-weight: 600;
-        color: var(--text-primary);
-    }
-
-    .tool-preview {
-        display: block;
-        max-width: 100%;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        font-size: 0.75rem;
-        font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-        color: var(--text-secondary);
-        background: transparent;
-        padding: 0;
-    }
-
-    .tool-actions {
-        display: flex;
-        align-items: flex-start;
-        gap: 0.75rem;
-        margin-left: 1rem;
-        flex-shrink: 0;
-        padding-top: 0.0625rem;
-    }
-
-    .tool-status {
-        display: flex;
-        align-items: center;
-        gap: 0.375rem;
-        font-size: 0.75rem;
-        font-weight: 500;
-    }
-
-    .tool-card.running .tool-status {
-        color: #6366f1;
-    }
-
-    .tool-card.success .tool-status {
-        color: #22c55e;
-    }
-
-    .tool-card.error .tool-status {
-        color: #ef4444;
-    }
-
-    /* Error Card Styles */
-    .error-card {
-        flex-shrink: 0;
-        border-radius: 0.75rem;
-        background: linear-gradient(135deg, rgba(239, 68, 68, 0.1), rgba(220, 38, 38, 0.05));
-        border: 1px solid rgba(239, 68, 68, 0.3);
-        overflow: hidden;
-    }
-    
-    .error-header {
-        display: flex;
-        align-items: center;
-        gap: 0.625rem;
-        padding: 0.75rem 1rem;
-        background: rgba(239, 68, 68, 0.15);
-        border-bottom: 1px solid rgba(239, 68, 68, 0.2);
-    }
-    
-    .error-header i {
-        color: #ef4444;
-        font-size: 1rem;
-    }
-    
-    .error-header span {
-        font-weight: 600;
-        color: #dc2626;
-        font-size: 0.875rem;
-    }
-    
-    .error-content {
-        padding: 0.75rem 1rem;
-        font-size: 0.8125rem;
-        color: #b91c1c;
-        white-space: pre-wrap;
-        line-height: 1.5;
-    }
-    
-    .theme-dark .error-card {
-        background: linear-gradient(135deg, rgba(239, 68, 68, 0.15), rgba(220, 38, 38, 0.08));
-    }
-    
-    .theme-dark .error-header span {
-        color: #f87171;
-    }
-    
-    .theme-dark .error-content {
-        color: #fca5a5;
-    }
-
-    .tool-result {
-        border-top: 1px solid var(--border-color);
-    }
-
-    .tool-expand-icon {
-        font-size: 0.75rem;
-        color: var(--text-muted);
-        margin-top: 0.125rem;
-    }
-
-    /* Output content */
-    .tool-output-content {
-        margin: 0;
-        padding: 0.75rem 1rem;
-        font-size: 0.75rem;
-        background: #11111b;
-        color: #a6adc8;
-        white-space: pre-wrap;
-        word-break: break-word;
-        max-height: 250px;
-        overflow-y: auto;
-        font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-        line-height: 1.5;
-    }
-
-    .tool-result-content {
-        margin: 0;
-        padding: 0.75rem 1rem;
-        font-size: 0.75rem;
-        background: var(--bg-tertiary);
-        color: var(--text-secondary);
-        white-space: pre-wrap;
-        word-break: break-word;
-        max-height: 200px;
-        overflow-y: auto;
-        font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-    }
-
-    /* Markdown Content Styles */
-    .message-content p {
-        margin: 0 0 0.5rem 0;
-    }
-
-    .message-content p:last-child {
-        margin-bottom: 0;
-    }
-
-    .message-content code {
-        background: rgba(99, 102, 241, 0.1);
-        padding: 2px 0.375rem;
-        border-radius: 0.25rem;
-        font-size: 0.9em;
-        font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-    }
-
-    .user-message .message-content code {
-        background: rgba(255, 255, 255, 0.2);
-    }
-
-    .message-content pre {
-        background: var(--bg-tertiary);
-        border: 1px solid var(--border-color);
-        border-radius: 0.5rem;
-        padding: 0.75rem;
-        overflow-x: auto;
-        margin: 0.5rem 0;
-    }
-
-    .message-content pre code {
-        background: transparent;
-        padding: 0;
-        font-size: 0.8125rem;
-        line-height: 1.4;
-    }
-
-    .user-message .message-content pre {
-        background: rgba(255, 255, 255, 0.1);
-        border-color: rgba(255, 255, 255, 0.2);
-    }
-
-    .message-content ul, .message-content ol {
-        margin: 0.375rem 0;
-        padding-left: 1.5rem;
-    }
-
-    .message-content li {
-        margin: 2px 0;
-    }
-
-    .message-content h1, .message-content h2, .message-content h3 {
-        margin: 0.75rem 0 0.375rem 0;
-    }
-
-    .message-content h1 { font-size: 1.3em; }
-    .message-content h2 { font-size: 1.15em; }
-    .message-content h3 { font-size: 1.05em; }
-
-    .message-content blockquote {
-        border-left: 3px solid #6366f1;
-        margin: 0.75rem 0;
-        padding: 0.5rem 1rem;
-        background: rgba(99, 102, 241, 0.05);
-        border-radius: 0 0.5rem 0.5rem 0;
-    }
-
-    .user-message .message-content blockquote {
-        border-left-color: rgba(255, 255, 255, 0.5);
-        background: rgba(255, 255, 255, 0.1);
-    }
-
-    .message-content a {
-        color: #6366f1;
-        text-decoration: none;
-    }
-
-    .message-content a:hover {
-        text-decoration: underline;
-    }
-
-    .user-message .message-content a {
-        color: #c4b5fd;
-    }
-
-    .message-content table {
-        border-collapse: collapse;
-        margin: 0.75rem 0;
-        width: 100%;
-    }
-
-    .message-content th, .message-content td {
-        border: 1px solid var(--border-color);
-        padding: 0.5rem 0.75rem;
-        text-align: left;
-    }
-
-    .message-content th {
-        background: var(--bg-tertiary);
-        font-weight: 600;
-    }
-
-    /* Dark mode specific for reasoning */
-    .theme-dark .reasoning-block {
-        background: linear-gradient(135deg, rgba(139, 92, 246, 0.12) 0%, rgba(99, 102, 241, 0.12) 100%);
-        border-color: rgba(139, 92, 246, 0.3);
-    }
-
-    .theme-dark .reasoning-header:hover {
-        background: rgba(139, 92, 246, 0.15);
-    }
-
-    /* Permission Modal Styles */
-    .modal-overlay {
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: rgba(0, 0, 0, 0.5);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        z-index: 1000;
-        backdrop-filter: blur(4px);
-    }
-
-    .permission-modal {
-        background: var(--card-bg);
-        border-radius: 1rem;
-        box-shadow: 0 1.25rem 3.75rem rgba(0, 0, 0, 0.3);
-        max-width: 600px;
-        min-width: 400px;
-        width: auto;
-        overflow: hidden;
-        animation: modalSlideIn 0.2s ease-out;
-    }
-
-    @@keyframes modalSlideIn {
-        from {
-            opacity: 0;
-            transform: translateY(-20px) scale(0.95);
-        }
-        to {
-            opacity: 1;
-            transform: translateY(0) scale(1);
-        }
-    }
-
-    .permission-header {
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
-        padding: 1.25rem 1.5rem;
-        background: linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(139, 92, 246, 0.1) 100%);
-        border-bottom: 1px solid var(--border-color);
-    }
-
-    .permission-header i {
-        font-size: 1.5rem;
-        color: #6366f1;
-    }
-
-    .permission-header h3 {
-        margin: 0;
-        font-size: 1.125rem;
-        color: var(--text-primary);
-    }
-
-    .permission-content {
-        padding: 1.5rem;
-    }
-
-    .permission-content > p {
-        margin: 0 0 1rem 0;
-        color: var(--text-secondary);
-    }
-
-    .tool-details {
-        background: var(--bg-tertiary);
-        border-radius: 0.625rem;
-        padding: 1rem;
-        margin-bottom: 1rem;
-    }
-
-    .tool-detail-name {
-        display: flex;
-        align-items: center;
-        gap: 0.625rem;
-    }
-
-    .tool-detail-name i {
-        font-size: 1.125rem;
-        color: #6366f1;
-    }
-
-    .tool-detail-name strong {
-        font-size: 0.9375rem;
-        color: var(--text-primary);
-    }
-
-    .tool-description {
-        margin: 0.625rem 0 0 0;
-        font-size: 0.8125rem;
-        color: var(--text-muted);
-        line-height: 1.5;
-    }
-    
-    .tool-command, .tool-path {
-        margin: 0.75rem 0 0 0;
-        padding: 0.75rem;
-        background: var(--bg-tertiary, #f1f5f9);
-        border-radius: 0.5rem;
-        border: 1px solid var(--border-color, #e2e8f0);
-    }
-    
-    .tool-command label, .tool-path label {
-        display: flex;
-        align-items: center;
-        gap: 0.375rem;
-        font-size: 0.6875rem;
-        font-weight: 600;
-        color: var(--text-muted);
-        margin-bottom: 0.5rem;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-    }
-    
-    .tool-command code, .tool-path code {
-        display: block;
-        font-family: 'SF Mono', 'Menlo', 'Monaco', 'Courier New', monospace;
-        font-size: 0.75rem;
-        color: var(--text-primary);
-        word-break: break-all;
-        white-space: pre-wrap;
-        line-height: 1.5;
-    }
-
-    .permission-warning {
-        display: flex;
-        align-items: center;
-        gap: 0.625rem;
-        padding: 0.75rem 1rem;
-        background: rgba(245, 158, 11, 0.1);
-        border: 1px solid rgba(245, 158, 11, 0.3);
-        border-radius: 0.5rem;
-        color: #d97706;
-        font-size: 0.8125rem;
-        margin: 0;
-    }
-
-    .permission-warning i {
-        color: #f59e0b;
-    }
-
-    .permission-actions {
-        display: flex;
-        gap: 0.75rem;
-        padding: 1rem 1.5rem 1.5rem;
-        justify-content: flex-end;
-    }
-
-    .permission-actions .btn {
-        padding: 0.625rem 1.25rem;
-        font-size: 0.875rem;
-        font-weight: 500;
     }
 
     /* Debug Overlay Styles */
@@ -1909,132 +777,6 @@ else
     .theme-dark .debug-log.log-wrn .log-level { color: #fbbf24; }
     .theme-dark .debug-log.log-err .log-level { color: #f87171; }
 
-    /* Comprehensive Dark Mode Styles */
-    .theme-dark .suggestion-bubble {
-        background: linear-gradient(135deg, rgba(99, 102, 241, 0.2) 0%, rgba(139, 92, 246, 0.2) 100%);
-        border-color: rgba(139, 92, 246, 0.4);
-    }
-
-    .theme-dark .suggestion-bubble:hover {
-        background: linear-gradient(135deg, rgba(99, 102, 241, 0.3) 0%, rgba(139, 92, 246, 0.3) 100%);
-        border-color: rgba(139, 92, 246, 0.6);
-    }
-
-    .theme-dark .bubble-text {
-        color: #c4b5fd;
-    }
-
-    .theme-dark .bubble-arrow {
-        color: #a78bfa;
-    }
-
-    .theme-dark .suggestions-hint {
-        color: #e2e8f0;
-    }
-
-    .theme-dark .assistant-message {
-        background: var(--bg-tertiary);
-        border-color: var(--border-color);
-    }
-
-    .theme-dark .usage-info {
-        background: linear-gradient(135deg, rgba(99, 102, 241, 0.15) 0%, rgba(139, 92, 246, 0.15) 100%);
-    }
-
-    .theme-dark .usage-label {
-        color: #a78bfa;
-    }
-
-    .theme-dark .usage-value {
-        color: #e2e8f0;
-    }
-
-    .theme-dark .tool-call {
-        background: linear-gradient(135deg, rgba(139, 92, 246, 0.12) 0%, rgba(99, 102, 241, 0.12) 100%);
-        border-color: rgba(139, 92, 246, 0.3);
-    }
-
-    .theme-dark .tool-name {
-        color: #c4b5fd;
-    }
-
-    .theme-dark .tool-status {
-        color: #a0aec0;
-    }
-
-    .theme-dark .input-area {
-        background: var(--card-bg);
-        border-color: var(--border-color);
-    }
-
-    .theme-dark .message-input {
-        background: var(--bg-tertiary);
-        color: var(--text-primary);
-        border-color: var(--border-color);
-    }
-
-    .theme-dark .message-input::placeholder {
-        color: var(--text-muted);
-    }
-
-    .theme-dark .message-input:focus {
-        border-color: #8b5cf6;
-        box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.2);
-    }
-
-    .theme-dark .permission-request {
-        background: linear-gradient(135deg, rgba(251, 191, 36, 0.15) 0%, rgba(245, 158, 11, 0.1) 100%);
-        border-color: rgba(251, 191, 36, 0.4);
-    }
-
-    .theme-dark .permission-header span {
-        color: #fcd34d;
-    }
-
-    .theme-dark .permission-message {
-        color: #e2e8f0;
-    }
-
-    .theme-dark .permission-tool {
-        color: #fbbf24;
-    }
-
-    .theme-dark .expand-permission-btn {
-        color: #fbbf24;
-    }
-
-    .theme-dark .permission-details {
-        background: rgba(0, 0, 0, 0.2);
-    }
-
-    .theme-dark .perm-label {
-        color: #a0aec0;
-    }
-
-    .theme-dark .perm-value {
-        color: #e2e8f0;
-    }
-
-    .theme-dark .intent-indicator {
-        background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(139, 92, 246, 0.15));
-    }
-
-    .theme-dark .intent-text {
-        color: #c4b5fd;
-    }
-
-    .theme-dark .welcome-message {
-        color: var(--text-muted);
-    }
-
-    .theme-dark .empty-state-icon {
-        color: #6366f1;
-    }
-
-    .theme-dark .empty-state-text {
-        color: var(--text-muted);
-    }
-
     .theme-dark .chat-container {
         background: var(--card-bg);
     }
@@ -2158,29 +900,208 @@ else
         color: #fff;
         opacity: 1;
     }
+    .model-selector__new-chat {
+        margin-left: auto;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        padding: 0.25rem 0.6rem;
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+        background: var(--bg-tertiary);
+        color: var(--text-primary);
+        font: inherit;
+        cursor: pointer;
+    }
+
+    .model-selector__new-chat:hover:not(:disabled) {
+        background: var(--bg-hover);
+    }
+
+    .model-selector__new-chat:disabled {
+        opacity: 0.5;
+        cursor: default;
+    }
+
+    /* AgentView fills the space between the model bar and the usage bar and owns its own scroll */
+    .copilot-agent-host {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .copilot-agent-host .copilot-agent-view {
+        flex: 1;
+        min-height: 0;
+        height: 100%;
+    }
+
+    /* The global user-select: none would stop the user copying replies and tool output */
+    .copilot-agent-view .agent-items *,
+    .copilot-agent-view textarea {
+        user-select: text;
+        -webkit-user-select: text;
+    }
+
+    .chat-container > .usage-info {
+        margin: 0.5rem 0.75rem;
+    }
+
+    /* Tool result tables (CopilotToolResultCard) */
+    .copilot-result-card {
+        margin: 0.25rem 0;
+        border: 1px solid var(--border-color-light);
+        border-radius: 0.5rem;
+        background: var(--bg-primary);
+        overflow: hidden;
+        font-size: 0.8125rem;
+    }
+
+    .copilot-result-head {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.5rem;
+        padding: 0.45rem 0.75rem;
+        border: none;
+        background: var(--bg-secondary);
+        color: var(--text-primary);
+        font: inherit;
+        cursor: pointer;
+    }
+
+    .copilot-result-title {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-weight: 600;
+    }
+
+    .copilot-result-title > i {
+        color: var(--accent-primary);
+    }
+
+    .copilot-result-count {
+        padding: 0 0.45rem;
+        border-radius: 999px;
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+        font-size: 0.7rem;
+        font-weight: 600;
+    }
+
+    .copilot-result-status {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        color: var(--text-muted);
+    }
+
+    .copilot-result-card.completed .copilot-result-status > i:first-child { color: var(--accent-success); }
+    .copilot-result-card.failed .copilot-result-status > i:first-child { color: var(--accent-danger); }
+    .copilot-result-card.running .copilot-result-status > i:first-child { color: var(--accent-primary); }
+
+    .copilot-result-chevron {
+        font-size: 0.7rem;
+    }
+
+    .copilot-result-body {
+        max-height: 20rem;
+        overflow: auto;
+    }
+
+    .copilot-result-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    .copilot-result-table th {
+        position: sticky;
+        top: 0;
+        padding: 0.4rem 0.75rem;
+        background: var(--bg-primary);
+        border-bottom: 1px solid var(--border-color-light);
+        color: var(--text-secondary);
+        font-size: 0.7rem;
+        font-weight: 600;
+        text-align: left;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        white-space: nowrap;
+    }
+
+    .copilot-result-table td {
+        padding: 0.4rem 0.75rem;
+        border-bottom: 1px solid var(--border-color-light);
+        color: var(--text-primary);
+        vertical-align: middle;
+    }
+
+    .copilot-result-table tr:last-child td {
+        border-bottom: none;
+    }
+
+    .copilot-result-table .mono {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        word-break: break-all;
+    }
+
+    .copilot-result-action-cell {
+        text-align: right;
+        white-space: nowrap;
+    }
+
+    .copilot-result-action {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+        padding: 0.2rem 0.55rem;
+        border: 1px solid var(--border-color-light);
+        border-radius: 4px;
+        background: var(--bg-secondary);
+        color: var(--accent-primary);
+        font: inherit;
+        font-size: 0.75rem;
+        cursor: pointer;
+    }
+
+    .copilot-result-action:hover:not(:disabled) {
+        background: var(--bg-hover);
+    }
+
+    .copilot-result-action:disabled {
+        opacity: 0.5;
+        cursor: default;
+    }
+
+    .copilot-result-message {
+        padding: 0.6rem 0.75rem;
+        color: var(--text-secondary);
+        white-space: pre-wrap;
+    }
+
+    .copilot-pill {
+        display: inline-block;
+        padding: 0.1rem 0.5rem;
+        border-radius: 999px;
+        font-size: 0.7rem;
+        font-weight: 600;
+        white-space: nowrap;
+    }
+
+    .copilot-pill--success { background: var(--status-success-bg); color: var(--status-success-text); }
+    .copilot-pill--warning { background: var(--status-warning-bg); color: var(--status-warning-text); }
+    .copilot-pill--error { background: var(--status-error-bg); color: var(--status-error-text); }
+    .copilot-pill--info { background: var(--status-info-bg); color: var(--status-info-text); }
+    .copilot-pill--neutral { background: var(--bg-tertiary); color: var(--text-secondary); }
 </style>
 
 <script suppress-error="BL9992">
     window.copilotChat = {
-        scrollToBottom: function(element) {
-            if (element) {
-                element.scrollTop = element.scrollHeight;
-            }
-        },
-        isAtBottom: function(element) {
-            if (!element) return true;
-            // Consider "at bottom" if within 50px of the bottom
-            const threshold = 50;
-            return element.scrollHeight - element.scrollTop - element.clientHeight < threshold;
-        },
-        scrollReasoningToBottom: function() {
-            // Find all reasoning-content elements and scroll the last one to bottom
-            const elements = document.querySelectorAll('.reasoning-content');
-            if (elements.length > 0) {
-                const lastElement = elements[elements.length - 1];
-                lastElement.scrollTop = lastElement.scrollHeight;
-            }
-        },
         scrollDebugToBottom: function(element) {
             if (element) {
                 element.scrollTop = element.scrollHeight;
@@ -2202,17 +1123,16 @@ else
     // Parameters for embedded mode (overlay)
     [Parameter] public bool IsEmbedded { get; set; } = false;
     [Parameter] public bool ShowHeader { get; set; } = false;
-    [Parameter] public bool HideInputArea { get; set; } = false;
     [Parameter] public string? PendingMessage { get; set; }
     [Parameter] public CopilotContext? PendingContext { get; set; }
     [Parameter] public EventCallback OnPendingHandled { get; set; }
     [Parameter] public EventCallback OnClose { get; set; }
+    [Parameter] public EventCallback OnReady { get; set; }
 
     private async Task OpenUrl(string url)
     {
         await AppLauncher.OpenAsync(new Uri(url));
     }
-    [Parameter] public EventCallback OnReady { get; set; }
     
     private bool isCheckingAvailability = true;
     private CopilotAvailability? availability;
@@ -2220,20 +1140,10 @@ else
     private bool isBusy = false;
     private string selectedModel = "auto";
     private List<CopilotModelOption> availableModels = [new("auto", "Auto")];
-    private bool modelsLoaded = false;
     private string SelectedModelDisplayName => availableModels
         .FirstOrDefault(model => string.Equals(model.Id, selectedModel, StringComparison.OrdinalIgnoreCase))
         ?.Name ?? selectedModel;
-    private bool suggestionsCollapsed = false;
-    private string userInput = "";
-    private string currentResponse = "";
-    private string currentTool = "";
-    private string currentToolCallId = "";
-    private string currentIntent = "";
-    private ElementReference chatMessagesRef;
-    private ElementReference? _activeReasoningRef;
-    private bool shouldPreventDefault = false;
-    private bool isAtBottom = true; // Track if user is scrolled to bottom
+    private AgentView? agentView;
     
     // Debug overlay state
     private bool showDebugOverlay = false;
@@ -2247,73 +1157,39 @@ else
     // System prompt loaded from bundled file
     private string? _systemPrompt;
     
-    // Current streaming reasoning ID for updates
-    private string? currentReasoningId;
-    
     // Track if pending was already processed
     private string? _lastProcessedMessage;
     private CopilotContext? _lastProcessedContext;
     private bool _disposed;
-    
-    // Markdig pipeline for markdown rendering
-    private static readonly MarkdownPipeline MarkdownPipeline = new MarkdownPipelineBuilder()
-        .UseAdvancedExtensions()
-        .Build();
 
-    // Use service's message list for persistence across navigation
-    private IReadOnlyList<CopilotChatMessage> messages => CopilotService.Messages;
+    // Shown as chips while the conversation is empty
+    private readonly string[] suggestions =
+    [
+        "Check my .NET MAUI development environment and help me fix any issues",
+        "Show my Apple certificates and provisioning profiles, and which expire soon, as a dashboard",
+        "Help me create a new Android emulator for testing .NET MAUI apps",
+        "What Android SDK packages am I missing for .NET MAUI development?",
+        "Help me register a new iPhone for iOS development",
+        "Help me set up code signing for my iOS app"
+    ];
 
-    private readonly List<SuggestedPrompt> suggestedPrompts = new()
-    {
-        new("fa-stethoscope", "Check Development Environment", 
-            "Analyze and help setup my .NET MAUI development environment",
-            "Please check my .NET MAUI development environment and help me fix any issues. Check .NET SDK, MAUI workloads, JDK, Android SDK, and Xcode (if on macOS). Ask before making changes."),
-        
-        new("fa-mobile-alt", "Register iPhone for Development",
-            "Help register a new iPhone device for iOS development",
-            "Help me register my new iPhone for iOS development. Guide me through getting the device UDID, adding it to my Apple Developer account, and updating my provisioning profiles."),
-        
-        new("fa-desktop", "Create Android Emulator",
-            "Create a new Android emulator with recommended settings",
-            "Help me create a new Android emulator. Suggest a good system image and device definition for testing .NET MAUI apps. Walk me through the options."),
-        
-        new("fa-certificate", "Setup Code Signing",
-            "Help configure iOS code signing certificates and profiles",
-            "Help me set up code signing for my iOS app. I need to create or check my development certificate, app ID, and provisioning profile. Guide me through the process."),
-        
-        new("fa-box", "Install Android SDK Packages",
-            "Recommend and install essential Android SDK packages",
-            "What Android SDK packages do I need for .NET MAUI development? Please check what I have installed and recommend any missing packages."),
-        
-        new("fa-bug", "Debug Build Issues",
-            "Help troubleshoot .NET MAUI build errors",
-            "I'm having build issues with my .NET MAUI project. Help me diagnose and fix the problem. What information do you need to help?")
-    };
-
-    private record SuggestedPrompt(string Icon, string Title, string Description, string Prompt);
+    // Sherpa list tools draw their results as tables instead of the default JSON tool card
+    private Dictionary<string, RenderFragment<AgentToolCallItem>> toolTemplates = new();
 
     protected override async Task OnInitializedAsync()
     {
-        CopilotService.OnAssistantDelta += OnAssistantDelta;
-        CopilotService.OnAssistantMessage += OnAssistantMessage;
-        CopilotService.OnSessionIdle += OnSessionIdle;
-        CopilotService.OnError += OnCopilotError;
-        CopilotService.OnToolStart += OnToolStart;
-        CopilotService.OnToolComplete += OnToolComplete;
-        CopilotService.OnReasoningStart += OnReasoningStart;
-        CopilotService.OnReasoningDelta += OnReasoningDelta;
-        CopilotService.OnTurnStart += OnTurnStart;
-        CopilotService.OnTurnEnd += OnTurnEnd;
-        CopilotService.OnIntentChanged += OnIntentChanged;
+        toolTemplates = CopilotToolResultSpecs.All.ToDictionary(
+            entry => entry.Key,
+            entry => (RenderFragment<AgentToolCallItem>)(call =>
+                @<CopilotToolResultCard Call="call" Spec="entry.Value" IsBusy="isBusy" OnAction="SendPromptAsync" />));
+
+        isBusy = AgentService.Runner.IsBusy;
+        AgentService.Runner.BusyChanged += OnRunnerBusyChanged;
         CopilotService.OnUsageInfoChanged += OnUsageInfoChanged;
-        CopilotService.OnSessionError += OnSessionError;
         _logger.OnLogAdded += OnLogAdded;
         
-        // Listen for messages submitted from native UI (when HideInputArea is true)
+        // Listen for messages submitted from native UI
         ContextService.OnMessageSubmitted += OnNativeMessageSubmitted;
-        
-        // Set up permission handler
-        CopilotService.PermissionHandler = HandlePermissionRequest;
         
         // Load system prompt from bundled file
         await LoadSystemPromptAsync();
@@ -2332,46 +1208,49 @@ else
     
     private async Task ProcessPendingAsync()
     {
-        // Check for pending message
         if (!string.IsNullOrEmpty(PendingMessage) && PendingMessage != _lastProcessedMessage)
         {
             _lastProcessedMessage = PendingMessage;
-            
-            // Ensure connected
-            if (!CopilotService.IsConnected && availability?.IsAuthenticated == true)
-            {
-                await Connect();
-                await Task.Delay(100); // Brief wait for connection
-            }
-            
-            // Set user input and send
-            userInput = PendingMessage;
-            StateHasChanged();
-            await Task.Delay(50);
-            await SendMessage();
-            
+            _ = SendPromptAsync(PendingMessage);
             await OnPendingHandled.InvokeAsync();
         }
         
-        // Check for pending context
         if (PendingContext != null && PendingContext != _lastProcessedContext)
         {
             _lastProcessedContext = PendingContext;
-            
-            // Ensure connected
-            if (!CopilotService.IsConnected && availability?.IsAuthenticated == true)
-            {
-                await Connect();
-                await Task.Delay(100);
-            }
-            
-            // Set user input from context and send
-            userInput = PendingContext.Message;
-            StateHasChanged();
-            await Task.Delay(50);
-            await SendMessage();
-            
+            _ = SendPromptAsync(PendingContext.Message);
             await OnPendingHandled.InvokeAsync();
+        }
+    }
+
+    /// <summary>
+    /// Sends a prompt into the conversation from outside the composer (a pending context, a row action),
+    /// connecting first when needed.
+    /// </summary>
+    private async Task SendPromptAsync(string message)
+    {
+        if (string.IsNullOrWhiteSpace(message) || AgentService.Runner.IsBusy)
+            return;
+
+        try
+        {
+            if (!CopilotService.IsConnected || CopilotService.CurrentSessionId == null)
+            {
+                if (availability?.IsAuthenticated != true)
+                    return;
+                await Connect();
+                if (CopilotService.CurrentSessionId == null)
+                    return;
+            }
+
+            if (agentView != null)
+                await agentView.SendAsync(message.Trim());
+            else
+                await AgentService.Runner.SendAsync(message.Trim());
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Failed to send Copilot prompt: {ex.Message}", ex);
         }
     }
     
@@ -2394,25 +1273,18 @@ else
     public void Dispose()
     {
         _disposed = true;
-        CopilotService.OnAssistantDelta -= OnAssistantDelta;
-        CopilotService.OnAssistantMessage -= OnAssistantMessage;
-        CopilotService.OnSessionIdle -= OnSessionIdle;
-        CopilotService.OnError -= OnCopilotError;
-        CopilotService.OnToolStart -= OnToolStart;
-        CopilotService.OnToolComplete -= OnToolComplete;
-        CopilotService.OnReasoningStart -= OnReasoningStart;
-        CopilotService.OnReasoningDelta -= OnReasoningDelta;
-        CopilotService.OnTurnStart -= OnTurnStart;
-        CopilotService.OnTurnEnd -= OnTurnEnd;
-        CopilotService.OnIntentChanged -= OnIntentChanged;
+        AgentService.Runner.BusyChanged -= OnRunnerBusyChanged;
         CopilotService.OnUsageInfoChanged -= OnUsageInfoChanged;
-        CopilotService.OnSessionError -= OnSessionError;
         _logger.OnLogAdded -= OnLogAdded;
         ContextService.OnMessageSubmitted -= OnNativeMessageSubmitted;
-        CopilotService.PermissionHandler = null;
-        foreach (var id in _activeCopilotModals)
-            try { JSRuntime.InvokeVoidAsync("modalInterop.dispose", id); } catch { }
-        _copilotDotNetRef?.Dispose();
+    }
+
+    private void OnRunnerBusyChanged(object? sender, EventArgs e)
+    {
+        if (_disposed) return;
+        isBusy = AgentService.Runner.IsBusy;
+        ContextService.NotifyBusyStateChanged(isBusy);
+        InvokeAsync(StateHasChanged);
     }
 
     private async Task CheckAvailability(bool forceRefresh = false)
@@ -2529,8 +1401,8 @@ else
         try
         {
             await CopilotService.DisconnectAsync();
-            CopilotService.ClearMessages();
-            currentResponse = "";
+            AgentService.Reset();
+            currentUsageInfo = null;
         }
         catch (Exception ex)
         {
@@ -2545,64 +1417,20 @@ else
         ContextService.NotifyConnectionStateChanged();
     }
 
-    private async Task UseSuggestion(SuggestedPrompt suggestion)
+    private async Task NewChatAsync()
     {
-        suggestionsCollapsed = true;
-        
-        if (!CopilotService.IsConnected)
-        {
-            await Connect();
-            if (!CopilotService.IsConnected) return;
-        }
-
-        userInput = suggestion.Prompt;
-        await SendMessage();
-    }
-
-    private async Task SendMessage()
-    {
-        if (string.IsNullOrWhiteSpace(userInput) || isBusy) return;
-        
-        suggestionsCollapsed = true;
-
-        var message = userInput.Trim();
-        userInput = "";
-        
-        CopilotService.AddUserMessage(message);
-        currentResponse = "";
-        isBusy = true;
-        ContextService.NotifyBusyStateChanged(true);
-        isAtBottom = true; // Reset to bottom when user sends a message
-        StateHasChanged();
-        
-        // Force scroll after DOM update
-        await Task.Delay(50);
-        await ForceScrollToBottom();
-
         try
         {
-            if (!CopilotService.IsConnected)
-            {
-                await CopilotService.ConnectAsync();
-            }
-
-            if (!modelsLoaded)
-                await LoadModelsAsync();
-
-            if (CopilotService.CurrentSessionId == null)
-            {
+            // Copilot keeps its own history, so start a fresh session along with the cleared view
+            AgentService.Reset();
+            currentUsageInfo = null;
+            if (CopilotService.IsConnected)
                 await CopilotService.StartSessionAsync(selectedModel, _systemPrompt);
-            }
-
-            await CopilotService.SendMessageAsync(message);
         }
         catch (Exception ex)
         {
-            CopilotService.AddAssistantMessage($"Error: {ex.Message}");
-            isBusy = false;
-            ContextService.NotifyBusyStateChanged(false);
-            StateHasChanged();
-            await ScrollToBottomIfNeeded();
+            _logger.LogError($"Unable to start a new Copilot chat: {ex.Message}", ex);
+            await AlertService.ShowAlertAsync("New Chat Failed", ex.Message);
         }
     }
 
@@ -2620,8 +1448,6 @@ else
                     .DistinctBy(model => model.Id, StringComparer.OrdinalIgnoreCase)
             ];
 
-            modelsLoaded = true;
-
             var selectedModelIsAvailable = availableModels.Any(model =>
                 string.Equals(model.Id, selectedModel, StringComparison.OrdinalIgnoreCase));
             if (!selectedModelIsAvailable ||
@@ -2635,7 +1461,6 @@ else
         }
         catch (Exception ex)
         {
-            modelsLoaded = false;
             availableModels = [new CopilotModelOption("auto", "Auto")];
             selectedModel = "auto";
             _logger.LogWarning($"Unable to load Copilot models: {ex.Message}");
@@ -2666,180 +1491,7 @@ else
 
     private void OnNativeMessageSubmitted(string message)
     {
-        InvokeAsync(async () =>
-        {
-            userInput = message;
-            await SendMessage();
-        });
-    }
-
-    private async Task HandleKeyDown(KeyboardEventArgs e)
-    {
-        // Prevent default only for Enter without Shift (submit on Enter, newline on Shift+Enter)
-        shouldPreventDefault = e.Key == "Enter" && !e.ShiftKey;
-        
-        if (e.Key == "Enter" && !e.ShiftKey)
-        {
-            await SendMessage();
-        }
-    }
-
-    private void OnAssistantDelta(string delta)
-    {
-        if (string.IsNullOrEmpty(delta) || _disposed) return;
-        currentResponse += delta;
-        InvokeAsync(async () => 
-        {
-            StateHasChanged();
-            await ScrollToBottomIfNeeded();
-        });
-    }
-
-    private void OnAssistantMessage(string message)
-    {
-        if (_disposed) return;
-        // Final message - replace streaming content
-        if (!string.IsNullOrEmpty(message))
-        {
-            currentResponse = message;
-        }
-        InvokeAsync(async () => 
-        {
-            StateHasChanged();
-            await ScrollToBottomIfNeeded();
-        });
-    }
-
-    private void OnSessionIdle()
-    {
-        if (_disposed) return;
-        if (!string.IsNullOrEmpty(currentResponse))
-        {
-            CopilotService.AddAssistantMessage(currentResponse);
-            currentResponse = "";
-        }
-        isBusy = false;
-        currentTool = "";
-        currentReasoningId = null;
-        ContextService.NotifyBusyStateChanged(false);
-        InvokeAsync(async () => 
-        {
-            StateHasChanged();
-            await ScrollToBottomIfNeeded();
-        });
-    }
-
-    private void OnCopilotError(string error)
-    {
-        if (_disposed) return;
-        CopilotService.AddAssistantMessage($"Error: {error}");
-        isBusy = false;
-        currentTool = "";
-        currentReasoningId = null;
-        ContextService.NotifyBusyStateChanged(false);
-        InvokeAsync(async () => 
-        {
-            StateHasChanged();
-            await ScrollToBottomIfNeeded();
-        });
-    }
-
-    private void OnToolStart(string toolName, string toolCallId)
-    {
-        if (_disposed) return;
-        currentTool = toolName;
-        currentToolCallId = toolCallId;
-        _logger.LogDebug($"UI: OnToolStart - {toolName}, callId={toolCallId}");
-        CopilotService.AddToolMessage(toolName, toolCallId);
-        InvokeAsync(async () => 
-        {
-            StateHasChanged();
-            await ScrollToBottomIfNeeded();
-        });
-    }
-
-    private void OnToolComplete(string toolCallId, string result)
-    {
-        if (_disposed) return;
-        _logger.LogDebug($"UI: OnToolComplete - callId={toolCallId}, currentTool={currentTool}, currentCallId={currentToolCallId}, resultLen={result?.Length ?? 0}");
-        // Use stored callId/name if event doesn't have it
-        var completedCallId = !string.IsNullOrEmpty(toolCallId) ? toolCallId : currentToolCallId;
-        currentTool = "";
-        currentToolCallId = "";
-        CopilotService.CompleteToolMessage(null, completedCallId, true, result ?? "(no result)");
-        InvokeAsync(async () => 
-        {
-            StateHasChanged();
-            await ScrollToBottomIfNeeded();
-        });
-    }
-    
-    private void OnReasoningStart(string reasoningId)
-    {
-        if (_disposed) return;
-        // Complete any previous reasoning
-        if (currentReasoningId != null)
-        {
-            CopilotService.CompleteReasoningMessage(currentReasoningId);
-        }
-        currentReasoningId = reasoningId;
-        CopilotService.AddReasoningMessage(reasoningId);
-        InvokeAsync(async () => 
-        {
-            StateHasChanged();
-            await ScrollToBottomIfNeeded();
-        });
-    }
-    
-    private void OnReasoningDelta(string reasoningId, string content)
-    {
-        if (_disposed) return;
-        if (!string.IsNullOrEmpty(content))
-        {
-            CopilotService.UpdateReasoningMessage(reasoningId, content);
-            InvokeAsync(async () => 
-            {
-                StateHasChanged();
-                await ScrollToBottomIfNeeded();
-                // Also scroll the reasoning content itself to the bottom
-                try
-                {
-                    await JSRuntime.InvokeVoidAsync("copilotChat.scrollReasoningToBottom");
-                }
-                catch { /* Ignore JS errors */ }
-            });
-        }
-    }
-    
-    private void OnTurnStart()
-    {
-        // Complete any pending reasoning from previous turn
-        if (currentReasoningId != null)
-        {
-            CopilotService.CompleteReasoningMessage(currentReasoningId);
-            currentReasoningId = null;
-        }
-        InvokeAsync(StateHasChanged);
-    }
-    
-    private void OnTurnEnd()
-    {
-        // Complete reasoning when turn ends
-        if (currentReasoningId != null)
-        {
-            CopilotService.CompleteReasoningMessage(currentReasoningId);
-            currentReasoningId = null;
-        }
-        // Clear intent when turn ends
-        currentIntent = "";
-        InvokeAsync(StateHasChanged);
-    }
-    
-    private void OnIntentChanged(string intent)
-    {
-        currentIntent = intent;
-        _logger.LogDebug($"UI: Intent changed to: {intent}");
-        InvokeAsync(StateHasChanged);
+        InvokeAsync(() => SendPromptAsync(message));
     }
     
     private void OnUsageInfoChanged(CopilotUsageInfo usageInfo)
@@ -2864,227 +1516,6 @@ else
         
         _logger.LogDebug($"UI: UsageInfo merged - Model={currentUsageInfo.Model}, Tokens={currentUsageInfo.CurrentTokens}/{currentUsageInfo.TokenLimit}");
         InvokeAsync(StateHasChanged);
-    }
-    
-    private void OnSessionError(CopilotSessionError error)
-    {
-        if (_disposed) return;
-        _logger.LogError($"Session error: {error.Message} (Code: {error.Code})");
-        
-        // Add error message to chat
-        var errorMsg = new CopilotChatMessage(
-            error.Message + (error.Details != null ? $"\n\nDetails: {error.Details}" : ""),
-            false,
-            CopilotMessageType.Error,
-            toolName: error.Code
-        );
-        CopilotService.AddErrorMessage(errorMsg);
-        
-        InvokeAsync(async () =>
-        {
-            StateHasChanged();
-            await ScrollToBottomIfNeeded();
-        });
-    }
-    
-    // Permission handling
-    private TaskCompletionSource<ToolPermissionResult>? _permissionTcs;
-    private ToolPermissionRequest? _pendingPermissionRequest;
-    private bool _showPermissionDialog = false;
-    
-    private async Task<ToolPermissionResult> HandlePermissionRequest(ToolPermissionRequest request)
-    {
-        CopilotService.SetToolCommand(request.ToolName, request.ToolCallId, request.Command);
-        await InvokeAsync(StateHasChanged);
-
-        // Auto-approve read-only tools
-        if (request.IsReadOnly)
-        {
-            return new ToolPermissionResult(true);
-        }
-        
-        // Show dialog for destructive tools
-        _pendingPermissionRequest = request;
-        _permissionTcs = new TaskCompletionSource<ToolPermissionResult>();
-        _showPermissionDialog = true;
-        _ = InitCopilotModalAsync("copilot-permission-modal");
-        await InvokeAsync(StateHasChanged);
-        
-        return await _permissionTcs.Task;
-    }
-    
-    private void AllowPermission()
-    {
-        _logger.LogDebug($"AllowPermission called, _permissionTcs is {(_permissionTcs == null ? "null" : "set")}");
-        _showPermissionDialog = false;
-        _ = DisposeCopilotModalAsync("copilot-permission-modal");
-        var setResult = _permissionTcs?.TrySetResult(new ToolPermissionResult(true));
-        _logger.LogDebug($"AllowPermission: TrySetResult returned {setResult}");
-        _pendingPermissionRequest = null;
-        StateHasChanged();
-    }
-    
-    private void DenyPermission()
-    {
-        _logger.LogDebug($"DenyPermission called, _permissionTcs is {(_permissionTcs == null ? "null" : "set")}");
-        _showPermissionDialog = false;
-        _ = DisposeCopilotModalAsync("copilot-permission-modal");
-        var setResult = _permissionTcs?.TrySetResult(new ToolPermissionResult(false, "User denied permission"));
-        _logger.LogDebug($"DenyPermission: TrySetResult returned {setResult}");
-        _pendingPermissionRequest = null;
-        StateHasChanged();
-    }
-    
-    // UI helper methods
-    private void ToggleSuggestionsCollapsed()
-    {
-        suggestionsCollapsed = !suggestionsCollapsed;
-        StateHasChanged();
-    }
-    
-    private void ToggleMessageCollapse(CopilotChatMessage msg)
-    {
-        msg.IsCollapsed = !msg.IsCollapsed;
-        StateHasChanged();
-    }
-    
-    private bool IsInternalTool(string? toolName)
-    {
-        if (string.IsNullOrEmpty(toolName)) return false;
-        // These tools are internal/noisy and shouldn't be shown in the UI
-        return toolName switch
-        {
-            "report_intent" => true,
-            "skill" => true,
-            "update_todo" => true, // TODO tracking tool
-            _ => false
-        };
-    }
-    
-    private string RenderMarkdown(string markdown)
-    {
-        if (string.IsNullOrEmpty(markdown)) return "";
-        try
-        {
-            return Markdown.ToHtml(markdown, MarkdownPipeline);
-        }
-        catch
-        {
-            return System.Web.HttpUtility.HtmlEncode(markdown);
-        }
-    }
-    
-    private string TruncateResult(string result, int maxLength = 1000)
-    {
-        if (string.IsNullOrEmpty(result)) return "";
-        if (result.Length <= maxLength) return result;
-        return result.Substring(0, maxLength) + "\n... (truncated)";
-    }
-    
-    private (string Command, string Output) ParseBashOutput(string content)
-    {
-        if (string.IsNullOrEmpty(content))
-            return ("", "");
-        
-        // Check if the content starts with "$ " indicating a bash command
-        var trimmed = content.TrimStart();
-        if (!trimmed.StartsWith("$ "))
-            return ("", content);
-        
-        // Find the end of the command line (first newline)
-        var newlineIndex = trimmed.IndexOf('\n');
-        if (newlineIndex == -1)
-        {
-            // No output, just a command
-            return (trimmed.Substring(2), "");
-        }
-        
-        var command = trimmed.Substring(2, newlineIndex - 2).Trim();
-        var output = trimmed.Substring(newlineIndex + 1).TrimEnd();
-        
-        return (command, output);
-    }
-    
-    private bool IsUnusableToolResult(string? content)
-    {
-        if (string.IsNullOrEmpty(content)) return true;
-        // Filter out SDK type names that aren't useful to display
-        if (content.StartsWith("GitHub.Copilot.SDK.")) return true;
-        if (content == "(no result)") return true;
-        return false;
-    }
-    
-    private string FormatToolName(string toolName)
-    {
-        if (string.IsNullOrEmpty(toolName)) return "";
-        // Convert snake_case to Title Case
-        return string.Join(" ", toolName.Split('_').Select(w => 
-            char.ToUpperInvariant(w[0]) + w.Substring(1).ToLowerInvariant()));
-    }
-    
-    private string GetToolIcon(string toolName)
-    {
-        // Note: Brand icons (apple, android) need "fab" class, others use "fas"
-        return toolName switch
-        {
-            var t when t.Contains("apple") || t.Contains("certificate") || t.Contains("profile") => "fa-apple",
-            var t when t.Contains("android") || t.Contains("emulator") || t.Contains("avd") => "fa-android",
-            var t when t.Contains("bundle") || t.Contains("package") => "fa-box",
-            var t when t.Contains("device") => "fa-mobile-alt",
-            var t when t.Contains("identity") => "fa-id-card",
-            var t when t.Contains("list") => "fa-list",
-            var t when t.Contains("create") || t.Contains("install") => "fa-plus-circle",
-            var t when t.Contains("delete") || t.Contains("uninstall") => "fa-trash",
-            var t when t.Contains("download") => "fa-download",
-            var t when t.Contains("sdk") || t.Contains("path") => "fa-folder-open",
-            _ => "fa-cog"
-        };
-    }
-    
-    private string GetToolIconClass(string toolName)
-    {
-        // Brand icons need "fab" class, others use "fas"
-        var isBrandIcon = toolName.Contains("apple") || toolName.Contains("android") 
-            || toolName.Contains("certificate") || toolName.Contains("profile")
-            || toolName.Contains("emulator") || toolName.Contains("avd");
-        return isBrandIcon ? "fab" : "fas";
-    }
-    
-    // Auto-scroll functionality
-    private async Task ScrollToBottomIfNeeded()
-    {
-        if (isAtBottom)
-        {
-            try
-            {
-                await JSRuntime.InvokeVoidAsync("copilotChat.scrollToBottom", chatMessagesRef);
-            }
-            catch { /* Ignore JS interop errors during disposal */ }
-        }
-    }
-    
-    private async Task ForceScrollToBottom()
-    {
-        try
-        {
-            await JSRuntime.InvokeVoidAsync("copilotChat.scrollToBottom", chatMessagesRef);
-            isAtBottom = true;
-        }
-        catch { /* Ignore JS interop errors during disposal */ }
-    }
-    
-    private async Task CheckScrollPosition()
-    {
-        try
-        {
-            isAtBottom = await JSRuntime.InvokeAsync<bool>("copilotChat.isAtBottom", chatMessagesRef);
-        }
-        catch { /* Ignore JS interop errors */ }
-    }
-    
-    private async Task OnChatScroll()
-    {
-        await CheckScrollPosition();
     }
     
     // Debug overlay methods
@@ -3157,27 +1588,4 @@ else
         }
     }
 
-    private DotNetObjectReference<Copilot>? _copilotDotNetRef;
-    private readonly HashSet<string> _activeCopilotModals = new();
-
-    private async Task InitCopilotModalAsync(string modalId)
-    {
-        await Task.Yield();
-        _copilotDotNetRef ??= DotNetObjectReference.Create(this);
-        _activeCopilotModals.Add(modalId);
-        await JSRuntime.InvokeVoidAsync("modalInterop.initialize", modalId, _copilotDotNetRef);
-    }
-
-    private async Task DisposeCopilotModalAsync(string modalId)
-    {
-        _activeCopilotModals.Remove(modalId);
-        try { await JSRuntime.InvokeVoidAsync("modalInterop.dispose", modalId); } catch { }
-    }
-
-    [JSInvokable]
-    public void OnEscapePressed()
-    {
-        DenyPermission();
-        InvokeAsync(StateHasChanged);
-    }
 }

@@ -1,0 +1,17 @@
+<Project>
+  <!--
+    Shiny.Blazor.Controls.Agents 2.5.0 declares a staticwebassets/.gitkeep asset (and two endpoints for it)
+    that isn't in the package. The Apple bundle step turns every static web asset into a BundleResource
+    and fails on the missing file, so drop the phantom asset before the package assets are processed.
+  -->
+  <Target Name="_RemoveMissingShinyAgentsStaticAssets" BeforeTargets="UpdateExistingPackageStaticWebAssets">
+    <ItemGroup>
+      <_MissingShinyAgentsAsset Include="@(StaticWebAsset)"
+                                Condition="'%(StaticWebAsset.SourceId)' == 'Shiny.Blazor.Controls.Agents' AND '%(StaticWebAsset.RelativePath)' == '.gitkeep'" />
+      <StaticWebAsset Remove="@(_MissingShinyAgentsAsset)" />
+      <_MissingShinyAgentsEndpoint Include="@(StaticWebAssetEndpoint)"
+                                   Condition="'%(StaticWebAssetEndpoint.AssetFile)' != '' AND $([System.String]::Copy('%(StaticWebAssetEndpoint.AssetFile)').EndsWith('.gitkeep')) AND $([System.String]::Copy('%(StaticWebAssetEndpoint.Identity)').StartsWith('_content/Shiny.Blazor.Controls.Agents/'))" />
+      <StaticWebAssetEndpoint Remove="@(_MissingShinyAgentsEndpoint)" />
+    </ItemGroup>
+  </Target>
+</Project>
