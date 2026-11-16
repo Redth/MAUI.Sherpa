@@ -23,6 +23,8 @@ public class CopilotService : ICopilotService, IAsyncDisposable
     private readonly string _skillsPath;
     private readonly string _copilotWorkingDirectory;
     private readonly SemaphoreSlim _clientGate = new(1, 1);
+    // Serializes session replacement with sends, so a message never reaches a session being torn down
+    private readonly SemaphoreSlim _sessionGate = new(1, 1);
     private readonly List<CopilotChatMessage> _messages = new();
     private readonly Dictionary<string, string> _toolCallIdToName = new(); // Track callId -> toolName mapping
     
@@ -589,6 +591,19 @@ public class CopilotService : ICopilotService, IAsyncDisposable
 
     public async Task StartSessionAsync(string? model = null, string? systemPrompt = null)
     {
+        await _sessionGate.WaitAsync();
+        try
+        {
+            await StartSessionCoreAsync(model, systemPrompt);
+        }
+        finally
+        {
+            _sessionGate.Release();
+        }
+    }
+
+    private async Task StartSessionCoreAsync(string? model, string? systemPrompt)
+    {
         if (_client == null)
         {
             throw new InvalidOperationException("Not connected to Copilot. Call ConnectAsync first.");
@@ -596,7 +611,7 @@ public class CopilotService : ICopilotService, IAsyncDisposable
 
         if (_session != null)
         {
-            await EndSessionAsync();
+            await EndSessionCoreAsync();
         }
 
         try
@@ -925,6 +940,19 @@ public class CopilotService : ICopilotService, IAsyncDisposable
 
     public async Task EndSessionAsync()
     {
+        await _sessionGate.WaitAsync();
+        try
+        {
+            await EndSessionCoreAsync();
+        }
+        finally
+        {
+            _sessionGate.Release();
+        }
+    }
+
+    private async Task EndSessionCoreAsync()
+    {
         if (_session == null)
         {
             return;
@@ -949,16 +977,18 @@ public class CopilotService : ICopilotService, IAsyncDisposable
 
     public async Task SendMessageAsync(string message)
     {
-        if (_session == null)
-        {
-            await StartSessionAsync();
-        }
-
+        // Waits out a session being replaced, then sends to the new one
+        await _sessionGate.WaitAsync();
         try
         {
+            if (_session == null)
+            {
+                await StartSessionCoreAsync(null, null);
+            }
+
             _logger.LogInformation($"Sending message: {message.Substring(0, Math.Min(50, message.Length))}...");
             
-            await _session.SendAsync(new MessageOptions
+            await _session!.SendAsync(new MessageOptions
             {
                 Prompt = message
             });
@@ -967,6 +997,10 @@ public class CopilotService : ICopilotService, IAsyncDisposable
         {
             _logger.LogError($"Failed to send message: {ex.Message}", ex);
             throw;
+        }
+        finally
+        {
+            _sessionGate.Release();
         }
     }
 

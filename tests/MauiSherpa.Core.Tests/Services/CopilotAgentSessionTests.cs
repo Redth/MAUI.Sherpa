@@ -7,6 +7,7 @@ using MauiSherpa.Core.Interfaces;
 using MauiSherpa.Core.Services;
 using Microsoft.Extensions.AI;
 using Moq;
+using Shiny.Controls.AgentUI;
 
 namespace MauiSherpa.Core.Tests.Services;
 
@@ -196,6 +197,41 @@ public class CopilotAgentSessionTests
     }
 
     [Fact]
+    public async Task CardOpenedForAPrompt_IsFilledByTheLaterAnnouncement()
+    {
+        var prompts = new AgentPromptQueue();
+        prompts.Changed += (_, _) => prompts.Pending.FirstOrDefault()?.Submit(new JsonObject { ["confirmed"] = true });
+        CopilotAgentSession? session = null;
+        _copilot
+            .Setup(c => c.SendMessageAsync(It.IsAny<string>()))
+            .Returns(async () =>
+            {
+                _copilot.Raise(c => c.OnSessionEvent += null, TurnStart());
+                // Permission is asked before the tool announces itself
+                await session!.AskAsync(prompts, "c1", "delete_bundle_id", AgentPromptKinds.Confirm, new JsonObject { ["message"] = "Delete?" });
+                _copilot.Raise(c => c.OnSessionEvent += null, (SessionEvent)new ToolExecutionStartEvent
+                {
+                    Data = new ToolExecutionStartData
+                    {
+                        ToolCallId = "c1",
+                        ToolName = "delete_bundle_id",
+                        Arguments = JsonSerializer.SerializeToElement(new { identifier = "com.example.app" })
+                    }
+                });
+                _copilot.Raise(c => c.OnSessionEvent += null, Idle());
+            });
+        session = new CopilotAgentSession(_copilot.Object, _logger.Object);
+
+        var events = await CollectAsync(session, UserTurn("u1", "Delete it"));
+
+        events.OfType<ToolCallStartEvent>().Should().ContainSingle();
+        events.OfType<ToolCallArgsEvent>().Single().Delta.Should().Contain("com.example.app");
+        var names = events.Select(e => e.GetType().Name).ToList();
+        names.IndexOf(nameof(ToolCallArgsEvent)).Should().BeLessThan(names.IndexOf(nameof(ToolCallEndEvent)));
+        events.OfType<ToolCallEndEvent>().Should().ContainSingle();
+    }
+
+    [Fact]
     public async Task StaleIdleBeforeTheTurnStarts_DoesNotEndTheRun()
     {
         var session = CreateSession(
@@ -241,6 +277,41 @@ public class CopilotAgentServiceTests
             "choose_one", "choose_many", "pick_date", "pick_date_range", "get_ui_catalog", "render_ui");
         _copilot.VerifySet(c => c.PermissionHandler = It.IsNotNull<Func<ToolPermissionRequest, Task<ToolPermissionResult>>>());
         _copilot.VerifySet(c => c.UserInputHandler = It.IsNotNull<Func<CopilotUserInputRequest, Task<CopilotUserInputResponse>>>());
+    }
+
+    [Fact]
+    public async Task AskUser_WithChoicesAndFreeform_LetsTheUserTypeTheirOwnAnswer()
+    {
+        _copilot.SetupProperty(c => c.AdditionalTools, []);
+        _copilot.SetupProperty(c => c.UserInputHandler);
+        var service = new CopilotAgentService(_copilot.Object, _logger.Object);
+        service.Prompts.Changed += (_, _) =>
+        {
+            var prompt = service.Prompts.Pending.FirstOrDefault();
+            if (prompt?.Kind == AgentPromptKinds.ChooseOne)
+            {
+                prompt.List("options").Should().EndWith("Something else…");
+                prompt.Submit(new JsonObject { ["choice"] = "Something else…" });
+            }
+            else
+            {
+                prompt?.Submit(new JsonObject { ["text"] = "Pixel 9 Pro" });
+            }
+        };
+
+        CopilotUserInputResponse? answer = null;
+        _copilot
+            .Setup(c => c.SendMessageAsync(It.IsAny<string>()))
+            .Returns(async () =>
+            {
+                _copilot.Raise(c => c.OnSessionEvent += null, (SessionEvent)new AssistantTurnStartEvent { Data = new AssistantTurnStartData { TurnId = "t1" } });
+                answer = await _copilot.Object.UserInputHandler!(new CopilotUserInputRequest("Which device?", ["Pixel 8", "Pixel Tablet"], true));
+                _copilot.Raise(c => c.OnSessionEvent += null, (SessionEvent)new SessionIdleEvent { Data = new SessionIdleData() });
+            });
+
+        await service.Runner.SendAsync("Create an emulator");
+
+        answer.Should().Be(new CopilotUserInputResponse("Pixel 9 Pro", true));
     }
 
     [Fact]

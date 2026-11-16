@@ -109,7 +109,7 @@ public sealed class CopilotAgentSession : IAgentSession
         {
             run = _run;
             if (run != null)
-                EnsureToolCard(run, toolCallId, toolName, null, null);
+                EnsureToolCard(run, toolCallId, toolName, null, null, awaitArguments: true);
         }
 
         if (run == null)
@@ -417,16 +417,31 @@ public sealed class CopilotAgentSession : IAgentSession
         }
     }
 
-    static void EnsureToolCard(RunState run, string toolCallId, string toolName, string? argumentsJson, string? subagent)
+    /// <summary>
+    /// Starts a tool call's card once, and ends it once its arguments are known. A card opened for a prompt
+    /// before the agent announced the call (<paramref name="awaitArguments"/>) stays open so the arguments
+    /// from the later announcement can still fill it; the thread closes it when the run ends if none arrive.
+    /// </summary>
+    static void EnsureToolCard(RunState run, string toolCallId, string toolName, string? argumentsJson, string? subagent, bool awaitArguments = false)
     {
-        if (!run.ToolCards.Add(toolCallId))
+        if (run.ToolCards.Add(toolCallId))
+        {
+            run.ToolNames.Add((toolCallId, toolName));
+            run.Emit(new ToolCallStartEvent { ToolCallId = toolCallId, ToolCallName = toolName, SubagentRunId = subagent });
+        }
+
+        if (run.EndedToolCards.Contains(toolCallId))
             return;
 
-        run.ToolNames.Add((toolCallId, toolName));
-        run.Emit(new ToolCallStartEvent { ToolCallId = toolCallId, ToolCallName = toolName, SubagentRunId = subagent });
-        if (!string.IsNullOrEmpty(argumentsJson))
-            run.Emit(new ToolCallArgsEvent { ToolCallId = toolCallId, Delta = argumentsJson, SubagentRunId = subagent });
-        run.Emit(new ToolCallEndEvent { ToolCallId = toolCallId, SubagentRunId = subagent });
+        var hasArguments = !string.IsNullOrEmpty(argumentsJson);
+        if (hasArguments)
+            run.Emit(new ToolCallArgsEvent { ToolCallId = toolCallId, Delta = argumentsJson!, SubagentRunId = subagent });
+
+        if (hasArguments || !awaitArguments)
+        {
+            run.Emit(new ToolCallEndEvent { ToolCallId = toolCallId, SubagentRunId = subagent });
+            run.EndedToolCards.Add(toolCallId);
+        }
     }
 
     static Task<T> OnUiAsync<T>(SynchronizationContext? context, Func<Task<T>> work)
@@ -477,6 +492,7 @@ public sealed class CopilotAgentSession : IAgentSession
         public HashSet<string> OpenReasoning { get; } = new(StringComparer.Ordinal);
         public HashSet<string> ClosedReasoning { get; } = new(StringComparer.Ordinal);
         public HashSet<string> ToolCards { get; } = new(StringComparer.Ordinal);
+        public HashSet<string> EndedToolCards { get; } = new(StringComparer.Ordinal);
         public List<(string Id, string Name)> ToolNames { get; } = new();
         public HashSet<string> HiddenToolCalls { get; } = new(StringComparer.Ordinal);
         public Dictionary<string, string> Subagents { get; } = new(StringComparer.Ordinal);

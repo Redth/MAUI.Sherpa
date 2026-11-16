@@ -18,6 +18,7 @@ namespace MauiSherpa.Core.Services;
 public sealed class CopilotAgentService : ICopilotAgentService
 {
     const string ShinyCatalogId = "https://shinylib.net/a2ui/shiny.controls/v1.json";
+    const string OwnAnswerOption = "Something else…";
 
     readonly ILoggingService _logger;
     readonly CopilotAgentSession _session;
@@ -107,14 +108,21 @@ public sealed class CopilotAgentService : ICopilotAgentService
 
         if (request.Choices.Count > 0)
         {
+            // When the agent accepts freeform answers, an extra option lets the user type their own
+            var options = request.AllowFreeform ? request.Choices.Append(OwnAnswerOption) : request.Choices;
             var choice = await _session.AskAsync(Prompts, toolCallId, "ask_user", AgentPromptKinds.ChooseOne, new JsonObject
             {
                 ["title"] = request.Question,
-                ["options"] = new JsonArray(request.Choices.Select(c => (JsonNode?)JsonValue.Create(c)).ToArray())
+                ["options"] = ToJsonArray(options)
             });
-            return choice.Error == null
-                ? new CopilotUserInputResponse(ReadResult(choice)?["choice"]?.GetValue<string>() ?? "", false)
-                : new CopilotUserInputResponse("The user declined to answer.", true);
+            if (choice.Error != null)
+                return new CopilotUserInputResponse("The user declined to answer.", true);
+
+            var picked = ReadResult(choice)?["choice"]?.GetValue<string>() ?? "";
+            if (!request.AllowFreeform || picked != OwnAnswerOption)
+                return new CopilotUserInputResponse(picked, false);
+
+            // The answered prompt has left the queue, so the text box takes its place under the same card
         }
 
         var text = await _session.AskAsync(Prompts, toolCallId, "ask_user", AgentPromptKinds.Text, new JsonObject

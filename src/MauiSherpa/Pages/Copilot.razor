@@ -195,18 +195,18 @@ else
             <div class="chat-container">
                 <div class="model-selector">
                     <label for="copilot-model"><i class="fas fa-robot"></i> Model</label>
-                    <select id="copilot-model" value="@selectedModel" @onchange="SelectModelAsync" disabled="@(isBusy || isConnecting)">
+                    <select id="copilot-model" value="@selectedModel" @onchange="SelectModelAsync" disabled="@(isBusy || isConnecting || isStartingSession)">
                         @foreach (var model in availableModels)
                         {
                             <option value="@model.Id">@model.Name</option>
                         }
                     </select>
-                    <button class="model-selector__new-chat" @onclick="NewChatAsync" disabled="@(isBusy || isConnecting)" title="Start a new conversation">
+                    <button class="model-selector__new-chat" @onclick="NewChatAsync" disabled="@(isBusy || isConnecting || isStartingSession)" title="Start a new conversation">
                         <i class="fas fa-plus"></i> New chat
                     </button>
                 </div>
 
-                <div class="copilot-agent-host">
+                <div class="copilot-agent-host @(isStartingSession ? "starting" : "")" inert="@isStartingSession">
                     <AgentView @ref="agentView"
                                Runner="AgentService.Runner"
                                Prompts="AgentService.Prompts"
@@ -931,6 +931,10 @@ else
         flex-direction: column;
     }
 
+    .copilot-agent-host.starting {
+        opacity: 0.5;
+    }
+
     .copilot-agent-host .copilot-agent-view {
         flex: 1;
         min-height: 0;
@@ -1144,6 +1148,7 @@ else
         .FirstOrDefault(model => string.Equals(model.Id, selectedModel, StringComparison.OrdinalIgnoreCase))
         ?.Name ?? selectedModel;
     private AgentView? agentView;
+    private bool isStartingSession;
     
     // Debug overlay state
     private bool showDebugOverlay = false;
@@ -1229,7 +1234,7 @@ else
     /// </summary>
     private async Task SendPromptAsync(string message)
     {
-        if (string.IsNullOrWhiteSpace(message) || AgentService.Runner.IsBusy)
+        if (string.IsNullOrWhiteSpace(message) || AgentService.Runner.IsBusy || isStartingSession)
             return;
 
         try
@@ -1419,6 +1424,12 @@ else
 
     private async Task NewChatAsync()
     {
+        if (isStartingSession)
+            return;
+
+        // The chat stays inert until the new session is ready; CopilotService also holds back any send
+        // that slips in, so it can't reach the session being replaced
+        isStartingSession = true;
         try
         {
             // Copilot keeps its own history, so start a fresh session along with the cleared view
@@ -1431,6 +1442,10 @@ else
         {
             _logger.LogError($"Unable to start a new Copilot chat: {ex.Message}", ex);
             await AlertService.ShowAlertAsync("New Chat Failed", ex.Message);
+        }
+        finally
+        {
+            isStartingSession = false;
         }
     }
 
