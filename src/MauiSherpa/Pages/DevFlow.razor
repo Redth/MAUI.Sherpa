@@ -238,9 +238,9 @@
         return DevFlowVersionSupport.TryParseComparableVersion(agent.Version, out var v) && v < MinSupportedAgentVersion;
     }
 
-    private void OpenInspector(BrokerAgent agent)
+    private Task OpenInspector(BrokerAgent agent)
     {
-        InspectorService.Open(agent.Id, brokerHost, agent.Port, agent.AppName);
+        return InspectorService.OpenAsync(agent.Id, brokerHost, agent.Port, agent.AppName);
     }
 
     private async Task ManualConnect()
@@ -252,7 +252,7 @@
             if (status != null)
             {
                 var id = $"manual-{manualHost}-{manualPort}";
-                InspectorService.Open(id, manualHost, manualPort, status.AppName ?? $"{manualHost}:{manualPort}");
+                await InspectorService.OpenAsync(id, manualHost, manualPort, status.AppName ?? $"{manualHost}:{manualPort}");
             }
             else
             {

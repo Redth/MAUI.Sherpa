@@ -574,7 +574,7 @@ public class ProcessExecutionService : IProcessExecutionService
 
         try
         {
-            if (_platform.IsMacCatalyst || _platform.IsMacOS)
+            if (_platform.IsMacCatalyst || _platform.IsMacOS || _platform.IsLinux)
             {
                 // Send SIGINT on Unix — let the process flush and exit on its own.
                 // The active execution waits for the process to flush output and exit.

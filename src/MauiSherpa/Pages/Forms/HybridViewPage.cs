@@ -16,7 +16,7 @@ namespace MauiSherpa.Pages.Forms;
 /// Uses native MAUI title and Close button with a BlazorWebView for content.
 /// Used for read-only or live-update dialogs like capabilities, signatures.
 /// </summary>
-public abstract class HybridViewPage : ContentPage
+public abstract class HybridViewPage : ContentPage, INativeModalDismissible
 {
     private readonly TaskCompletionSource _tcs = new();
     private View? _webView;
@@ -48,7 +48,13 @@ public abstract class HybridViewPage : ContentPage
 
     public Task WaitForCloseAsync() => _tcs.Task;
 
-    protected void CompleteClose() => _tcs.TrySetResult();
+    public void OnNativeDismissed() => CompleteClose();
+
+    protected void CompleteClose()
+    {
+        ModalWebViewReadySignal.Ready -= OnBlazorReady;
+        _tcs.TrySetResult();
+    }
 
     private void BuildPage()
     {

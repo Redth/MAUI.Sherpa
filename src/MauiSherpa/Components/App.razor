@@ -74,14 +74,7 @@
         ModalParams.Clear();
         ModalParams.Set("UpdateResult", updateResult);
 
-        var nav = Application.Current?.Windows.FirstOrDefault()?.Page?.Navigation;
-        if (nav == null) return;
-
-        var resultTask = ModalParams.WaitForResultAsync();
-        var page = new MauiSherpa.Pages.Forms.ProgressModalPage("/modal/update-available", 600, 500);
-        await nav.PushModalAsync(page, animated: true);
-        await resultTask;
-        await nav.PopModalAsync(animated: true);
+        await NativeModalPresenter.ShowProgressAsync(ModalParams, "/modal/update-available", 600, 500);
     }
 
     public void Dispose()

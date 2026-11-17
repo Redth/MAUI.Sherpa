@@ -204,7 +204,7 @@
         }
     }
 
-    protected override void OnParametersSet()
+    protected override async Task OnParametersSetAsync()
     {
         var newTab = ParseTab(TabName);
         if (newTab != ActiveTab)
@@ -214,7 +214,7 @@
         }
         if (InspectorService.ActiveUdid != Udid)
         {
-            InspectorService.SwitchDevice(Udid);
+            await InspectorService.SwitchDeviceAsync(Udid);
         }
     }
 
@@ -224,7 +224,7 @@
         InspectorService.SetTab(tab);
     }
 
-    private void OnDeviceChanged(ChangeEventArgs e)
+    private async Task OnDeviceChanged(ChangeEventArgs e)
     {
         var newUdid = e.Value?.ToString();
         if (string.IsNullOrEmpty(newUdid) || newUdid == Udid) return;
@@ -234,7 +234,7 @@
         var sim = bootedSimulators.FirstOrDefault(s => s.Udid == newUdid);
         InspectorService.IsPhysicalDevice = physical != null;
         var name = physical?.Name ?? sim?.Name;
-        InspectorService.SwitchDevice(newUdid, name);
+        await InspectorService.SwitchDeviceAsync(newUdid, name);
 
         // If switched to physical and on sim-only tab, redirect
         if (InspectorService.IsPhysicalDevice && (ActiveTab == SimInspectorTab.Capture || ActiveTab == SimInspectorTab.Tools))

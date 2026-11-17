@@ -179,7 +179,7 @@
         connectedDevices = DeviceWatcher.Devices.ToList();
     }
 
-    protected override void OnParametersSet()
+    protected override async Task OnParametersSetAsync()
     {
         var newTab = ParseTab(TabName);
         if (newTab != ActiveTab)
@@ -189,7 +189,7 @@
         }
         if (InspectorService.ActiveSerial != Serial)
         {
-            InspectorService.SwitchDevice(Serial);
+            await InspectorService.SwitchDeviceAsync(Serial);
         }
     }
 
@@ -199,13 +199,13 @@
         InspectorService.SetTab(tab);
     }
 
-    private void OnDeviceChanged(ChangeEventArgs e)
+    private async Task OnDeviceChanged(ChangeEventArgs e)
     {
         var newSerial = e.Value?.ToString();
         if (string.IsNullOrEmpty(newSerial) || newSerial == Serial) return;
         Serial = newSerial;
         var device = connectedDevices.FirstOrDefault(d => d.Serial == newSerial);
-        InspectorService.SwitchDevice(newSerial, device?.Model);
+        await InspectorService.SwitchDeviceAsync(newSerial, device?.Model);
     }
 
     private void OnDevicesChanged(IReadOnlyList<DeviceInfo> devices)

@@ -447,6 +447,7 @@
 </style>
 
 @code {
+    private HybridFormBridge? _bridge;
     private DotnetWorkloadInventory? inventory;
     private string search = string.Empty;
     private bool showAll;
@@ -455,13 +456,13 @@
 
     protected override void OnInitialized()
     {
-        var bridge = BridgeHolder.Current;
-        if (bridge == null)
+        _bridge = BridgeHolder.Current;
+        if (_bridge == null)
             return;
 
-        inventory = bridge.Parameters.GetValueOrDefault("Inventory") as DotnetWorkloadInventory;
-        bridge.SubmitRequested += OnSubmit;
-        bridge.CancelRequested += OnCancel;
+        inventory = _bridge.Parameters.GetValueOrDefault("Inventory") as DotnetWorkloadInventory;
+        _bridge.SubmitRequested += OnSubmit;
+        _bridge.CancelRequested += OnCancel;
         UpdateBridge();
     }
 
@@ -549,13 +550,12 @@
 
     private void UpdateBridge()
     {
-        var bridge = BridgeHolder.Current;
-        if (bridge == null)
+        if (_bridge == null)
             return;
-        bridge.Result = new WorkloadSelectionResult(
+        _bridge.Result = new WorkloadSelectionResult(
             selectedInstall.OrderBy(id => id, StringComparer.OrdinalIgnoreCase).ToList(),
             selectedUninstall.OrderBy(id => id, StringComparer.OrdinalIgnoreCase).ToList());
-        bridge.SetValid(selectedInstall.Count > 0 || selectedUninstall.Count > 0);
+        _bridge.SetValid(selectedInstall.Count > 0 || selectedUninstall.Count > 0);
         StateHasChanged();
     }
 
@@ -567,17 +567,15 @@
 
     private void OnCancel()
     {
-        var bridge = BridgeHolder.Current;
-        if (bridge != null)
-            bridge.Result = null;
+        if (_bridge != null)
+            _bridge.Result = null;
     }
 
     public void Dispose()
     {
-        var bridge = BridgeHolder.Current;
-        if (bridge == null)
+        if (_bridge == null)
             return;
-        bridge.SubmitRequested -= OnSubmit;
-        bridge.CancelRequested -= OnCancel;
+        _bridge.SubmitRequested -= OnSubmit;
+        _bridge.CancelRequested -= OnCancel;
     }
 }
