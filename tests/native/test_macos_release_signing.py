@@ -12,6 +12,7 @@ import unittest
 
 
 WORKFLOW = Path(__file__).resolve().parents[2] / ".github/workflows/build.yml"
+COPILOT_ENTITLEMENTS = WORKFLOW.parents[2] / "src/MauiSherpa.MacOS/Entitlements.Copilot.plist"
 
 
 def workflow_script(name):
@@ -30,28 +31,48 @@ class MacOSReleaseSigningTests(unittest.TestCase):
         self.helper = self.app / "Contents/MacOS/sherpa-apple-pairing"
         self.helper.parent.mkdir(parents=True)
         self.helper.touch()
-        copilot = self.app / "Contents/MonoBundle/runtimes/osx-arm64/native/copilot"
-        copilot.parent.mkdir(parents=True)
-        copilot.touch()
+        for rid in ("osx-arm64", "osx-x64"):
+            copilot = self.app / f"Contents/MonoBundle/runtimes/{rid}/native/copilot"
+            copilot.parent.mkdir(parents=True)
+            copilot.touch()
+        entitlements = self.root / "src/MauiSherpa.MacOS/Entitlements.Copilot.plist"
+        entitlements.parent.mkdir(parents=True)
+        shutil.copyfile(COPILOT_ENTITLEMENTS, entitlements)
 
         self.bin = self.root / "bin"
         self.bin.mkdir()
         self.log = self.root / "codesign.jsonl"
         self.write_tool("codesign", """
             #!/usr/bin/env python3
-            import json, os, sys
+            import json, os, plistlib, subprocess, sys
 
             args = sys.argv[1:]
             with open(os.environ["CODESIGN_LOG"], "a", encoding="utf-8") as log:
                 log.write(json.dumps(args) + "\\n")
             target = args[-1]
             is_helper = target.endswith("/sherpa-apple-pairing")
+            is_copilot = target.endswith("/copilot")
+            if is_copilot and os.environ.get("REAL_CODESIGN"):
+                if "--sign" in args:
+                    args[args.index("--sign") + 1] = "-"
+                    args[args.index("--timestamp")] = "--timestamp=none"
+                sys.exit(subprocess.run([os.environ["REAL_CODESIGN"], *args]).returncode)
             if "--verify" in args:
                 sys.exit(1 if os.environ.get("INVALID_SIGNATURE") == "1" else 0)
-            if "--entitlements" in args:
-                print("com.apple.security.cs.allow-jit")
-                print("com.apple.security.cs.allow-unsigned-executable-memory")
-                print("com.apple.security.cs.disable-library-validation")
+            if "--sign" in args and is_copilot:
+                # Model a binary with no upstream entitlements.
+                entitlements = {}
+                if "--entitlements" in args:
+                    with open(args[args.index("--entitlements") + 1], "rb") as source:
+                        entitlements = plistlib.load(source)
+                with open(target + ".plist", "wb") as output:
+                    plistlib.dump(entitlements, output)
+            elif "-d" in args and "--entitlements" in args:
+                with open(target + ".plist", "rb") as source:
+                    entitlements = plistlib.load(source)
+                if os.environ.get("BAD_COPILOT_RID", "") in target:
+                    entitlements.pop(os.environ.get("MISSING_ENTITLEMENT"), None)
+                print(plistlib.dumps(entitlements).decode())
             elif "-dvv" in args:
                 if not is_helper:
                     print("CodeDirectory flags=0x10000(runtime)")
@@ -79,7 +100,8 @@ class MacOSReleaseSigningTests(unittest.TestCase):
         """)
         self.env = os.environ.copy()
         for key in ("BAD_HELPER", "BAD_HELPER_ARCH", "FAIL_HELPER_SIGN",
-                    "INVALID_SIGNATURE", "MISSING_ARCH"):
+                    "INVALID_SIGNATURE", "MISSING_ARCH", "REAL_CODESIGN",
+                    "BAD_COPILOT_RID", "MISSING_ENTITLEMENT"):
             self.env.pop(key, None)
         self.env.update({
             "APPLE_CODESIGN_IDENTITY": "Developer ID Application: Test",
@@ -117,8 +139,12 @@ class MacOSReleaseSigningTests(unittest.TestCase):
             "--force", "--options", "runtime", "--timestamp",
             "--sign", "Developer ID Application: Test",
         ])
-        copilot = next(args for args in calls if args[-1].endswith("/copilot"))
-        self.assertIn("--preserve-metadata=entitlements", copilot)
+        for rid in ("osx-arm64", "osx-x64"):
+            copilot = next(args for args in calls if args[-1].endswith(f"/{rid}/native/copilot"))
+            self.assertEqual(
+                copilot[copilot.index("--entitlements") + 1],
+                "src/MauiSherpa.MacOS/Entitlements.Copilot.plist",
+            )
 
     def test_missing_or_failed_helper_signing_stops_before_outer_app(self):
         for missing in (True, False):
@@ -136,6 +162,8 @@ class MacOSReleaseSigningTests(unittest.TestCase):
                 self.assertFalse(any(args[-1].endswith("/MAUI Sherpa.app") for args in self.calls()))
 
     def test_verifies_each_helper_architecture(self):
+        signed = self.run_step("Re-sign with Hardened Runtime")
+        self.assertEqual(signed.returncode, 0, signed.stdout + signed.stderr)
         result = self.run_step("Verify code signature")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         calls = self.calls()
@@ -150,6 +178,50 @@ class MacOSReleaseSigningTests(unittest.TestCase):
             and args[-1].endswith("/sherpa-apple-pairing")
             for args in calls
         ))
+
+    def test_rejects_missing_copilot_entitlements_for_either_runtime(self):
+        signed = self.run_step("Re-sign with Hardened Runtime")
+        self.assertEqual(signed.returncode, 0, signed.stdout + signed.stderr)
+        for rid in ("osx-arm64", "osx-x64"):
+            for entitlement in (
+                "allow-jit", "allow-unsigned-executable-memory", "disable-library-validation"
+            ):
+                with self.subTest(rid=rid, entitlement=entitlement):
+                    result = self.run_step(
+                        "Verify code signature", BAD_COPILOT_RID=rid,
+                        MISSING_ENTITLEMENT=f"com.apple.security.cs.{entitlement}",
+                    )
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(f"Copilot helper ({rid}) entitlements are missing", result.stdout)
+
+    def test_rejects_missing_copilot_binary_for_either_runtime(self):
+        signed = self.run_step("Re-sign with Hardened Runtime")
+        self.assertEqual(signed.returncode, 0, signed.stdout + signed.stderr)
+        for rid in ("osx-arm64", "osx-x64"):
+            with self.subTest(rid=rid):
+                copilot = self.app / f"Contents/MonoBundle/runtimes/{rid}/native/copilot"
+                copilot.unlink()
+                result = self.run_step("Verify code signature")
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("Copilot helper is missing", result.stdout)
+                self.assertIn(rid, result.stdout)
+                copilot.touch()
+
+    @unittest.skipUnless(sys.platform == "darwin", "requires macOS developer tools")
+    def test_signs_real_copilot_binaries_without_upstream_entitlements(self):
+        codesign = shutil.which("codesign")
+        for arch, rid in (("arm64", "osx-arm64"), ("x86_64", "osx-x64")):
+            copilot = self.app / f"Contents/MonoBundle/runtimes/{rid}/native/copilot"
+            subprocess.run(
+                ["clang", "-arch", arch, "-x", "c", "-", "-o", str(copilot)],
+                input="int main(void) { return 0; }\n",
+                text=True,
+                check=True,
+            )
+        result = self.run_step("Re-sign with Hardened Runtime", REAL_CODESIGN=codesign)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        result = self.run_step("Verify code signature", REAL_CODESIGN=codesign)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     @unittest.skipUnless(sys.platform == "darwin", "requires macOS developer tools")
     def test_verifies_architectures_with_real_lipo(self):
@@ -169,6 +241,8 @@ class MacOSReleaseSigningTests(unittest.TestCase):
         )
         (self.bin / "lipo").unlink()
 
+        signed = self.run_step("Re-sign with Hardened Runtime")
+        self.assertEqual(signed.returncode, 0, signed.stdout + signed.stderr)
         result = self.run_step("Verify code signature")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 

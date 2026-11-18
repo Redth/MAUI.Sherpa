@@ -410,8 +410,9 @@ jobs:
               find "$APP_PATH/Contents/MonoBundle/runtimes" \( -name "copilot" -o -name "unxip" \) -type f | while read -r item; do
                 chmod +x "$item"
                 if [ "$(basename "$item")" = "copilot" ]; then
+                  # Upstream binaries may have no entitlements to preserve.
                   codesign --force --options runtime --timestamp \
-                    --preserve-metadata=entitlements \
+                    --entitlements src/MauiSherpa.MacOS/Entitlements.Copilot.plist \
                     --sign "$APPLE_CODESIGN_IDENTITY" "$item"
                 else
                   codesign --force --options runtime --timestamp \
@@ -484,19 +485,23 @@ jobs:
               fi
             done
 
-            COPILOT_PATH="$APP_PATH/Contents/MonoBundle/runtimes/osx-arm64/native/copilot"
-            if [ -f "$COPILOT_PATH" ]; then
-              COPILOT_ENTITLEMENTS=$(codesign -d --entitlements :- "$COPILOT_PATH" 2>&1)
+            for rid in osx-arm64 osx-x64; do
+              COPILOT_PATH="$APP_PATH/Contents/MonoBundle/runtimes/$rid/native/copilot"
+              if [ ! -f "$COPILOT_PATH" ]; then
+                echo "::error::Copilot helper is missing: $COPILOT_PATH"
+                exit 1
+              fi
+              COPILOT_ENTITLEMENTS=$(codesign -d --entitlements - "$COPILOT_PATH")
               printf '%s\n' "$COPILOT_ENTITLEMENTS"
               if grep -q "com.apple.security.cs.allow-jit" <<< "$COPILOT_ENTITLEMENTS" \
                 && grep -q "com.apple.security.cs.allow-unsigned-executable-memory" <<< "$COPILOT_ENTITLEMENTS" \
                 && grep -q "com.apple.security.cs.disable-library-validation" <<< "$COPILOT_ENTITLEMENTS"; then
-                echo "✅ Copilot helper entitlements are preserved"
+                echo "✅ Copilot helper ($rid) entitlements are present"
               else
-                echo "::error::Copilot helper entitlements are missing — the CLI will crash in release builds"
+                echo "::error::Copilot helper ($rid) entitlements are missing — the CLI will crash in release builds"
                 exit 1
               fi
-            fi
+            done
           fi
 
       - name: Create ZIP archive
