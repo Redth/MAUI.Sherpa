@@ -1,5 +1,6 @@
 @using MauiSherpa.Core.Interfaces
 @using MauiSherpa.Core.Requests.Apple
+@using MauiSherpa.Core.Services
 @using MauiSherpa.Services
 @using Shiny.Mediator
 @inject IAppleConnectService AppleService
@@ -682,21 +683,8 @@
             : certTypeLower.Contains("DISTRIBUTION") || certTypeLower.Contains("STORE");
     }
 
-    private bool IsDeviceCompatible(string devicePlatform, string deviceClass)
-    {
-        if (Profile == null) return true;
-        var profileType = Profile.ProfileType;
-
-        if (profileType.StartsWith("IOS_") || profileType.StartsWith("MAC_CATALYST_"))
-        {
-            return devicePlatform == "IOS" || deviceClass is "IPHONE" or "IPAD" or "IPOD";
-        }
-        if (profileType.StartsWith("MAC_APP_"))
-        {
-            return devicePlatform == "MAC_OS" || deviceClass == "MAC";
-        }
-        return true;
-    }
+    private bool IsDeviceCompatible(string devicePlatform, string deviceClass) =>
+        Profile == null || AppleProfileTypes.IsDeviceCompatible(Profile.ProfileType, devicePlatform, deviceClass);
 
     private string GetDeviceIcon(string deviceClass) => deviceClass?.ToUpperInvariant() switch
     {
@@ -708,19 +696,7 @@
         _ => "fas fa-microchip"
     };
 
-    private string FormatProfileType(string profileType) => profileType switch
-    {
-        "IOS_APP_DEVELOPMENT" => "iOS Development",
-        "IOS_APP_ADHOC" => "iOS Ad Hoc",
-        "IOS_APP_STORE" => "iOS App Store",
-        "MAC_APP_DEVELOPMENT" => "macOS Development",
-        "MAC_APP_STORE" => "Mac App Store",
-        "MAC_APP_DIRECT" => "macOS Direct Distribution",
-        "MAC_CATALYST_APP_DEVELOPMENT" => "Mac Catalyst Development",
-        "MAC_CATALYST_APP_STORE" => "Mac Catalyst App Store",
-        "MAC_CATALYST_APP_DIRECT" => "Mac Catalyst Direct",
-        _ => profileType.Replace("_", " ")
-    };
+    private string FormatProfileType(string profileType) => AppleProfileTypes.GetDisplayName(profileType);
 
     private async Task LoadSyncStatusesAsync()
     {

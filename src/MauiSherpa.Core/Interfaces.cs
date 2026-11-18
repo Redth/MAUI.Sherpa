@@ -2063,7 +2063,8 @@ public enum ApplePlatformType
 {
     iOS,
     MacCatalyst,
-    macOS
+    macOS,
+    tvOS          // Appended so stored publish profiles keep their numeric values
 }
 
 /// <summary>
@@ -2072,7 +2073,7 @@ public enum ApplePlatformType
 public enum AppleDistributionType
 {
     Development,
-    AdHoc,        // iOS only
+    AdHoc,        // iOS / tvOS only
     AppStore,
     Direct        // Mac Catalyst / macOS only (Developer ID)
 }

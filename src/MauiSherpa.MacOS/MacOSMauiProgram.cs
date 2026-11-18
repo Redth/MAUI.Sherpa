@@ -113,6 +113,7 @@ public static class MacOSMauiProgram
         builder.Services.AddSingleton<IProfilingArtifactConverterService, ProfilingArtifactConverterService>();
         builder.Services.AddSingleton<IProfilingSessionStorageService, ProfilingSessionStorageService>();
         builder.Services.AddSingleton<MauiSherpa.Pages.Forms.ProgressBridgeHolder>();
+        builder.Services.AddSingleton<LinuxModalOverlayHosts>();
         builder.Services.AddSingleton<ProcessModalService>();
         builder.Services.AddSingleton<IProcessModalService>(sp => sp.GetRequiredService<ProcessModalService>());
         builder.Services.AddSingleton<OperationModalService>();

@@ -1,5 +1,6 @@
 @using MauiSherpa.Core.Interfaces
 @using MauiSherpa.Core.Requests.Apple
+@using MauiSherpa.Core.Services
 @using MauiSherpa.Services
 @using Shiny.Mediator
 @inject IAppleConnectService AppleService
@@ -1000,6 +1001,12 @@
             new ProfileTypeInfo("IOS_APP_ADHOC", "Ad Hoc", "Distribute to a limited number of registered devices"),
             new ProfileTypeInfo("IOS_APP_STORE", "App Store", "Submit to the App Store or TestFlight")
         }),
+        new("tvOS", "fas fa-tv", new[]
+        {
+            new ProfileTypeInfo("TVOS_APP_DEVELOPMENT", "Development", "Run app on registered Apple TVs during development"),
+            new ProfileTypeInfo("TVOS_APP_ADHOC", "Ad Hoc", "Distribute to a limited number of registered Apple TVs"),
+            new ProfileTypeInfo("TVOS_APP_STORE", "App Store", "Submit to the App Store or TestFlight")
+        }),
         new("Mac Catalyst", "fas fa-layer-group", new[]
         {
             new ProfileTypeInfo("MAC_CATALYST_APP_DEVELOPMENT", "Development", "Run iPad app on Mac during development"),
@@ -1164,25 +1171,15 @@
             : certTypeLower.Contains("DISTRIBUTION") || certTypeLower.Contains("STORE");
     }
 
-    private bool IsDeviceCompatible(string devicePlatform, string deviceClass)
-    {
-        if (string.IsNullOrEmpty(selectedProfileType)) return true;
-
-        if (selectedProfileType.StartsWith("IOS_"))
-        {
-            return devicePlatform == "IOS" || deviceClass is "IPHONE" or "IPAD" or "IPOD";
-        }
-        // Mac Catalyst apps run on Macs, so they need Mac devices
-        if (selectedProfileType.StartsWith("MAC_CATALYST_") || selectedProfileType.StartsWith("MAC_APP_"))
-        {
-            return devicePlatform == "MAC_OS" || deviceClass == "MAC";
-        }
-        return true;
-    }
+    // Mac Catalyst apps run on Macs, so they need Mac devices
+    private bool IsDeviceCompatible(string devicePlatform, string deviceClass) =>
+        string.IsNullOrEmpty(selectedProfileType) ||
+        AppleProfileTypes.IsDeviceCompatible(selectedProfileType, devicePlatform, deviceClass);
 
     private string GetPlatformFromProfileType() => selectedProfileType switch
     {
         var t when t?.StartsWith("IOS_") == true => "iOS",
+        var t when t?.StartsWith("TVOS_") == true => "tvOS",
         var t when t?.StartsWith("MAC_CATALYST_") == true => "iOS (Mac Catalyst)",
         var t when t?.StartsWith("MAC_") == true => "macOS",
         _ => "this platform"
@@ -1200,19 +1197,7 @@
 
     private string FormatCertType(string certType) => certType.Replace("_", " ");
 
-    private string FormatProfileTypeDisplay(string? profileType) => profileType switch
-    {
-        "IOS_APP_DEVELOPMENT" => "iOS Development",
-        "IOS_APP_ADHOC" => "iOS Ad Hoc",
-        "IOS_APP_STORE" => "iOS App Store",
-        "MAC_APP_DEVELOPMENT" => "macOS Development",
-        "MAC_APP_STORE" => "Mac App Store",
-        "MAC_APP_DIRECT" => "macOS Direct Distribution",
-        "MAC_CATALYST_APP_DEVELOPMENT" => "Mac Catalyst Development",
-        "MAC_CATALYST_APP_STORE" => "Mac Catalyst App Store",
-        "MAC_CATALYST_APP_DIRECT" => "Mac Catalyst Direct",
-        _ => profileType ?? "-"
-    };
+    private string FormatProfileTypeDisplay(string? profileType) => AppleProfileTypes.GetDisplayName(profileType);
 
     private string GenerateSuggestedName()
     {

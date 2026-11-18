@@ -11,6 +11,7 @@ public static class ProfilesCommand
     private static readonly string[] ValidProfileTypes =
     [
         "IOS_APP_DEVELOPMENT", "IOS_APP_STORE", "IOS_APP_ADHOC", "IOS_APP_INHOUSE",
+        "TVOS_APP_DEVELOPMENT", "TVOS_APP_STORE", "TVOS_APP_ADHOC", "TVOS_APP_INHOUSE",
         "MAC_APP_DEVELOPMENT", "MAC_APP_STORE", "MAC_APP_DIRECT",
         "MAC_CATALYST_APP_DEVELOPMENT", "MAC_CATALYST_APP_STORE", "MAC_CATALYST_APP_DIRECT",
     ];
@@ -308,7 +309,7 @@ public static class ProfilesCommand
                         var devices = await ListDevicesAsync(client);
                         var enabledDevices = devices
                             .Where(d => d.Status.Equals("ENABLED", StringComparison.OrdinalIgnoreCase))
-                            .Where(d => IsCompatibleDevice(d.Platform, profileTypeStr))
+                            .Where(d => IsCompatibleDevice(d.Platform, d.DeviceClass, profileTypeStr))
                             .ToList();
 
                         if (enabledDevices.Count == 0)
@@ -530,7 +531,7 @@ public static class ProfilesCommand
     }
 
     private record CertInfo(string Id, string Name, string CertificateType, DateTime ExpirationDate);
-    private record DeviceInfo(string Id, string Name, string Platform, string Status);
+    private record DeviceInfo(string Id, string Name, string Platform, string DeviceClass, string Status);
 
     private static async Task<List<CertInfo>> ListCertificatesAsync(AppStoreConnectClient client)
     {
@@ -577,6 +578,7 @@ public static class ProfilesCommand
             d.Id,
             d.Attributes?.Name ?? "",
             d.Attributes?.Platform.ToString() ?? "IOS",
+            d.Attributes?.DeviceClass ?? "IPHONE",
             d.Attributes?.Status.ToString() ?? "ENABLED"
         )).ToList();
     }
@@ -597,12 +599,20 @@ public static class ProfilesCommand
                certType.Contains("IN_HOUSE", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static bool IsCompatibleDevice(string devicePlatform, string profileType)
+    // Mirrors AppleProfileTypes.IsDeviceCompatible in Core: Apple TVs register under
+    // the IOS platform, so the device class keeps them to tvOS profiles.
+    private static bool IsCompatibleDevice(string devicePlatform, string deviceClass, string profileType)
     {
-        if (profileType.Contains("IOS", StringComparison.OrdinalIgnoreCase))
-            return devicePlatform.Contains("IOS", StringComparison.OrdinalIgnoreCase);
-        if (profileType.Contains("MAC", StringComparison.OrdinalIgnoreCase))
-            return devicePlatform.Contains("MAC", StringComparison.OrdinalIgnoreCase);
+        var isAppleTv = deviceClass.Equals("APPLE_TV", StringComparison.OrdinalIgnoreCase);
+        var isMac = devicePlatform.Contains("MAC", StringComparison.OrdinalIgnoreCase) ||
+                    deviceClass.Equals("MAC", StringComparison.OrdinalIgnoreCase);
+
+        if (profileType.StartsWith("TVOS", StringComparison.OrdinalIgnoreCase))
+            return isAppleTv;
+        if (profileType.StartsWith("IOS", StringComparison.OrdinalIgnoreCase))
+            return devicePlatform.Contains("IOS", StringComparison.OrdinalIgnoreCase) && !isAppleTv && !isMac;
+        if (profileType.StartsWith("MAC", StringComparison.OrdinalIgnoreCase))
+            return isMac;
         return true;
     }
 
