@@ -34,6 +34,8 @@ public class AppleProfileTypesTests
     [InlineData("IOS_APP_DEVELOPMENT", "IOS", "APPLE_TV", false)]
     [InlineData("IOS_APP_DEVELOPMENT", "IOS", "IPAD", true)]
     [InlineData("IOS_APP_ADHOC", "IOS", "APPLE_VISION_PRO", true)]
+    [InlineData("IOS_APP_DEVELOPMENT", "IOS", "APPLE_WATCH", true)]
+    [InlineData("TVOS_APP_DEVELOPMENT", "IOS", "APPLE_WATCH", false)]
     [InlineData("MAC_APP_DEVELOPMENT", "MAC_OS", "MAC", true)]
     [InlineData("MAC_APP_DEVELOPMENT", "IOS", "APPLE_TV", false)]
     public void IsDeviceCompatible_KeepsAppleTvsToTvosProfiles(

@@ -890,7 +890,11 @@ public class CopilotToolsService : ICopilotToolsService
                     // Handle special "all" keyword
                     if (deviceInput.Equals("all", StringComparison.OrdinalIgnoreCase))
                     {
-                        resolvedDeviceIds = allDevices.Where(d => d.Status == "ENABLED").Select(d => d.Id).ToList();
+                        resolvedDeviceIds = allDevices
+                        .Where(d => d.Status == "ENABLED")
+                        .Where(d => AppleProfileTypes.IsDeviceCompatible(profileType, d.Platform, d.DeviceClass))
+                        .Select(d => d.Id)
+                        .ToList();
                         break;
                     }
 
@@ -1058,7 +1062,11 @@ public class CopilotToolsService : ICopilotToolsService
                 {
                     if (devices.Equals("all", StringComparison.OrdinalIgnoreCase))
                     {
-                        resolvedDeviceIds = allDevices.Where(d => d.Status == "ENABLED").Select(d => d.Id).ToList();
+                        resolvedDeviceIds = allDevices
+                        .Where(d => d.Status == "ENABLED")
+                        .Where(d => AppleProfileTypes.IsDeviceCompatible(profileType, d.Platform, d.DeviceClass))
+                        .Select(d => d.Id)
+                        .ToList();
                     }
                     else
                     {
@@ -1086,7 +1094,11 @@ public class CopilotToolsService : ICopilotToolsService
                 else
                 {
                     // Use all enabled devices
-                    resolvedDeviceIds = allDevices.Where(d => d.Status == "ENABLED").Select(d => d.Id).ToList();
+                    resolvedDeviceIds = allDevices
+                        .Where(d => d.Status == "ENABLED")
+                        .Where(d => AppleProfileTypes.IsDeviceCompatible(profileType, d.Platform, d.DeviceClass))
+                        .Select(d => d.Id)
+                        .ToList();
                 }
 
                 if (!resolvedDeviceIds.Any())

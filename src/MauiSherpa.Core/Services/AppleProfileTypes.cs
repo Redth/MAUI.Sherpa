@@ -53,6 +53,7 @@ public static class AppleProfileTypes
     /// <summary>
     /// Whether a registered device can be included in a profile of the given type.
     /// Apple TVs register under the IOS platform, so the device class separates them from iPhones and iPads.
+    /// Apple Watches stay with iOS profiles, which is how watchOS apps are provisioned.
     /// </summary>
     public static bool IsDeviceCompatible(string? profileType, string? devicePlatform, string? deviceClass)
     {
@@ -64,7 +65,7 @@ public static class AppleProfileTypes
             return deviceKind == "APPLE_TV";
         if (type.StartsWith("IOS_"))
             return deviceKind is "IPHONE" or "IPAD" or "IPOD" ||
-                (platform == "IOS" && deviceKind is not ("APPLE_TV" or "APPLE_WATCH" or "MAC"));
+                (platform == "IOS" && deviceKind is not ("APPLE_TV" or "MAC"));
         if (type.StartsWith("MAC_CATALYST_") || type.StartsWith("MAC_APP_"))
             return platform == "MAC_OS" || deviceKind == "MAC";
         return true;
