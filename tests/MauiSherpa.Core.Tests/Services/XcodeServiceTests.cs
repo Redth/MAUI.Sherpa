@@ -1,6 +1,12 @@
+using System.Net;
+using System.Net.Http.Headers;
+using System.Collections.Concurrent;
+using System.Text;
 using FluentAssertions;
 using MauiSherpa.Core.Interfaces;
 using MauiSherpa.Core.Services;
+using Moq;
+using Moq.Protected;
 
 namespace MauiSherpa.Core.Tests.Services;
 
@@ -51,8 +57,8 @@ public class XcodeServiceTests
             null);
 
         command.FileName.Should().Be("xip");
-        command.Arguments.Should().Be("--expand \"/tmp/Xcode_16.0.xip\"");
-        command.Preference.Should().Be(XcodeArchiveExtractorOptions.SystemXip);
+        command.Arguments.Should().Equal("--expand", "/tmp/Xcode_16.0.xip");
+        command.Extractor.Should().Be(XcodeArchiveExtractor.SystemXip);
         command.FellBackToSystemXip.Should().BeFalse();
     }
 
@@ -65,8 +71,8 @@ public class XcodeServiceTests
             "/opt/homebrew/bin/unxip");
 
         command.FileName.Should().Be("/opt/homebrew/bin/unxip");
-        command.Arguments.Should().Be("\"/tmp/Xcode_16.0.xip\"");
-        command.Preference.Should().Be(XcodeArchiveExtractorOptions.Unxip);
+        command.Arguments.Should().Equal("/tmp/Xcode_16.0.xip");
+        command.Extractor.Should().Be(XcodeArchiveExtractor.Unxip);
         command.FellBackToSystemXip.Should().BeFalse();
     }
 
@@ -79,9 +85,322 @@ public class XcodeServiceTests
             null);
 
         command.FileName.Should().Be("xip");
-        command.Arguments.Should().Be("--expand \"/tmp/Xcode_16.0.xip\"");
-        command.Preference.Should().Be(XcodeArchiveExtractorOptions.SystemXip);
+        command.Arguments.Should().Equal("--expand", "/tmp/Xcode_16.0.xip");
+        command.Extractor.Should().Be(XcodeArchiveExtractor.SystemXip);
         command.FellBackToSystemXip.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData(XcodeArchiveExtractorOptions.SystemXip)]
+    [InlineData(XcodeArchiveExtractorOptions.Unxip)]
+    public void CreateArchiveExtractionCommand_WithAea_IgnoresXipPreference(string preference)
+    {
+        const string archivePath = "/archives/With spaces/Quoted \"Xcode\".AEA";
+        var command = XcodeService.CreateArchiveExtractionCommand(archivePath, preference, "/usr/local/bin/unxip");
+
+        command.FileName.Should().Be("/usr/bin/archiveutil");
+        command.Arguments.Should().Equal("extractXcodeAEA", archivePath);
+        command.Extractor.Should().Be(XcodeArchiveExtractor.ArchiveUtil);
+        command.FellBackToSystemXip.Should().BeFalse();
+    }
+
+    [Fact]
+    public void CreateArchiveExtractionCommand_WithUnknownFormat_RejectsArchive()
+    {
+        var act = () => XcodeService.CreateArchiveExtractionCommand("/archives/Xcode.zip", null, null);
+
+        act.Should().Throw<NotSupportedException>();
+    }
+
+    [Theory]
+    [InlineData("https://download.developer.apple.com/Developer_Tools/Xcode_27.3_beta_2/Xcode_27.3_beta_2.aea", "Xcode_27.3_beta_2.aea", ".aea")]
+    [InlineData("https://developer.apple.com/services-account/download?path=/Developer_Tools/Xcode_27.3_beta_2/Xcode_27.3_beta_2.aea", "Xcode_27.3_beta_2.aea", ".aea")]
+    [InlineData("https://developer.apple.com/services-account/download?other=1&path=%2FDeveloper_Tools%2FXcode%20Beta.AEA", "Xcode Beta.AEA", ".aea")]
+    [InlineData("https://download.developer.apple.com/Developer_Tools/Xcode.xip?token=value", "Xcode.xip", ".xip")]
+    [InlineData(null, null, null)]
+    public void ArchiveMetadata_UsesUnderlyingDownloadPath(string? url, string? fileName, string? extension)
+    {
+        var release = CreateDownloadRelease(url);
+
+        release.ArchiveFileName.Should().Be(fileName);
+        release.ArchiveExtension.Should().Be(extension);
+    }
+
+    [Theory]
+    [InlineData(true, 2, false, "Xcode 27.3 Beta 2")]
+    [InlineData(true, null, false, "Xcode 27.3 Beta")]
+    [InlineData(true, null, true, "Xcode 27.3 RC")]
+    [InlineData(false, null, false, "Xcode 27.3")]
+    public void ReleaseDisplayName_PreservesPrereleaseIdentity(bool isBeta, int? betaNumber, bool isRc, string expected)
+    {
+        var release = CreateDownloadRelease() with { IsBeta = isBeta, BetaNumber = betaNumber, IsReleaseCandidate = isRc };
+
+        release.DisplayName.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("27.2", false, null, false, false)]
+    [InlineData("27.3", true, 1, false, false)]
+    [InlineData("27.3.0", true, 1, false, false)]
+    [InlineData("27.3", true, null, false, false)]
+    [InlineData("27.3", true, 2, false, true)]
+    [InlineData("27.3.0", true, 3, false, true)]
+    [InlineData("27.3", true, null, true, true)]
+    [InlineData("27.3", false, null, false, true)]
+    [InlineData("27.3.1", true, 1, false, true)]
+    [InlineData("27.4", true, 1, false, true)]
+    [InlineData("28.0", true, 1, false, true)]
+    public void GetAeaDownloadCandidate_RespectsBeta2Boundary(
+        string version, bool isBeta, int? betaNumber, bool isRc, bool expected)
+    {
+        var release = CreateDownloadRelease() with
+        {
+            Version = version, IsBeta = isBeta, BetaNumber = betaNumber, IsReleaseCandidate = isRc
+        };
+
+        var candidate = XcodeService.GetAeaDownloadCandidate(release);
+
+        if (expected)
+            candidate.Should().Be("https://download.developer.apple.com/Developer_Tools/Xcode_27.3_beta_2/Xcode_27.3_beta_2.aea");
+        else
+            candidate.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("https://example.com/Developer_Tools/Xcode.xip")]
+    [InlineData("http://download.developer.apple.com/Developer_Tools/Xcode.xip")]
+    [InlineData("https://download.developer.apple.com/Developer_Tools/Xcode.aea")]
+    [InlineData("https://download.developer.apple.com/Other/Xcode.xip")]
+    public void GetAeaDownloadCandidate_DoesNotRewriteOtherDownloads(string url)
+    {
+        XcodeService.GetAeaDownloadCandidate(CreateDownloadRelease(url)).Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData(200, "application/octet-stream", "AEA1", true)]
+    [InlineData(206, "application/octet-stream", "AEA1", true)]
+    [InlineData(200, "application/vnd.apple.encrypted-archive", "AEA1", true)]
+    [InlineData(200, "application/octet-stream", "not-an-archive", false)]
+    [InlineData(200, "application/octet-stream", "AEA", false)]
+    [InlineData(200, "text/html", "<html>Sign in</html>", false)]
+    [InlineData(200, "application/json", "{\"resultCode\":1100}", false)]
+    [InlineData(302, "application/octet-stream", "", false)]
+    [InlineData(403, "application/octet-stream", "", false)]
+    [InlineData(404, "application/octet-stream", "", false)]
+    public async Task GetAvailableReleasesAsync_UsesAeaOnlyWhenAppleConfirmsAnArchive(
+        int statusCode, string contentType, string body, bool expectAea)
+    {
+        var requests = new List<HttpMethod>();
+        var authHandler = new Mock<HttpMessageHandler>();
+        authHandler.Protected()
+            .Setup<Task<HttpResponseMessage>>("SendAsync", ItExpr.IsAny<HttpRequestMessage>(), ItExpr.IsAny<CancellationToken>())
+            .Returns<HttpRequestMessage, CancellationToken>((request, _) =>
+            {
+                requests.Add(request.Method);
+                if (request.Method == HttpMethod.Get)
+                {
+                    request.Headers.Range!.Ranges.Should().ContainSingle()
+                        .Which.Should().BeEquivalentTo(new RangeItemHeaderValue(0, 3));
+                }
+                var response = new HttpResponseMessage(request.Method == HttpMethod.Post ? HttpStatusCode.OK : (HttpStatusCode)statusCode);
+                response.Content = new ByteArrayContent(Encoding.ASCII.GetBytes(body));
+                response.Content.Headers.ContentType = new MediaTypeHeaderValue(contentType);
+                if (statusCode == 206)
+                    response.Content.Headers.ContentRange = new ContentRangeHeaderValue(0, 3, 1000000);
+                return Task.FromResult(response);
+            });
+        var auth = new Mock<IAppleDownloadAuthService>();
+        auth.SetupGet(a => a.IsAuthenticated).Returns(true);
+        auth.Setup(a => a.ValidateSessionAsync()).ReturnsAsync(true);
+        auth.Setup(a => a.GetAllCookies()).Returns(new CookieCollection { new Cookie("ADCDownloadAuth", "test-cookie") });
+        auth.Setup(a => a.CreateAuthenticatedHttpClient()).Returns(() => new HttpClient(authHandler.Object, disposeHandler: false));
+        using var feedClient = CreateReleaseFeedClient();
+        var service = CreateService(feedClient, auth.Object);
+
+        var releases = await service.GetAvailableReleasesAsync();
+
+        var release = releases.Should().ContainSingle().Subject;
+        release.BetaNumber.Should().Be(2);
+        release.ArchiveExtension.Should().Be(expectAea ? ".aea" : ".xip");
+        requests.Should().Equal(HttpMethod.Get);
+        if (statusCode == 206 && expectAea)
+            release.FileSizeBytes.Should().Be(1000000);
+    }
+
+    [Fact]
+    public async Task GetAvailableReleasesAsync_WithoutSignIn_DoesNotProbeApple()
+    {
+        var auth = new Mock<IAppleDownloadAuthService>(MockBehavior.Strict);
+        auth.SetupGet(a => a.IsAuthenticated).Returns(false);
+        using var client = CreateReleaseFeedClient();
+
+        var releases = await CreateService(client, auth.Object).GetAvailableReleasesAsync();
+
+        releases.Should().ContainSingle().Which.ArchiveExtension.Should().Be(".xip");
+        auth.Verify(a => a.CreateAuthenticatedHttpClient(), Times.Never);
+    }
+
+    [Fact]
+    public async Task GetAvailableReleasesAsync_WhenDownloadSessionIsNotValid_DoesNotProbeArchives()
+    {
+        var auth = new Mock<IAppleDownloadAuthService>(MockBehavior.Strict);
+        auth.SetupGet(a => a.IsAuthenticated).Returns(true);
+        auth.Setup(a => a.ValidateSessionAsync()).ReturnsAsync(false);
+        using var client = CreateReleaseFeedClient();
+
+        var releases = await CreateService(client, auth.Object).GetAvailableReleasesAsync();
+
+        releases.Should().ContainSingle().Which.ArchiveExtension.Should().Be(".xip");
+        auth.Verify(a => a.CreateAuthenticatedHttpClient(), Times.Never);
+    }
+
+    [Fact]
+    public async Task GetAvailableReleasesAsync_WhenProbeFails_PreservesFeedRelease()
+    {
+        var handler = new Mock<HttpMessageHandler>();
+        handler.Protected()
+            .Setup<Task<HttpResponseMessage>>("SendAsync", ItExpr.IsAny<HttpRequestMessage>(), ItExpr.IsAny<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("Network unavailable"));
+        var auth = new Mock<IAppleDownloadAuthService>();
+        auth.SetupGet(a => a.IsAuthenticated).Returns(true);
+        auth.Setup(a => a.ValidateSessionAsync()).ReturnsAsync(true);
+        auth.Setup(a => a.GetAllCookies()).Returns(new CookieCollection { new Cookie("ADCDownloadAuth", "test-cookie") });
+        auth.Setup(a => a.CreateAuthenticatedHttpClient()).Returns(() => new HttpClient(handler.Object, disposeHandler: false));
+        using var client = CreateReleaseFeedClient();
+
+        var releases = await CreateService(client, auth.Object).GetAvailableReleasesAsync();
+
+        releases.Should().ContainSingle().Which.ArchiveExtension.Should().Be(".xip");
+    }
+
+    [Fact]
+    public async Task RunProcessAsync_CancellationStopsExtraction()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(300));
+        var act = () => XcodeService.RunProcessAsync("/bin/sh", ["-c", "exec sleep 30"], ct: cts.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+    }
+
+    [Fact]
+    public async Task RunProcessAsync_ReportsBothStreamsBeforeExtractionFinishes()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        var lines = new ConcurrentQueue<string>();
+        var received = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var progress = new Progress<string>(line =>
+        {
+            lines.Enqueue(line);
+            if (lines.Count == 3)
+                received.TrySetResult();
+        });
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var run = XcodeService.RunProcessAsync("/bin/sh",
+            ["-c", "printf 'Extracting\\rVerifying\\n'; printf 'Checking archive\\n' >&2; exec sleep 30"],
+            ct: cts.Token, progress: progress);
+        try
+        {
+            await received.Task.WaitAsync(cts.Token);
+            run.IsCompleted.Should().BeFalse();
+            lines.Should().BeEquivalentTo(new[] { "Extracting", "Verifying", "Checking archive" });
+        }
+        finally
+        {
+            cts.Cancel();
+            var act = async () => await run;
+            await act.Should().ThrowAsync<OperationCanceledException>();
+        }
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(7)]
+    public async Task InstallationScript_MovesBundleAndRunsFirstLaunchInOneInvocation(int firstLaunchExitCode)
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        var tempDir = CreateTempDirectory();
+        try
+        {
+            var source = Path.Combine(tempDir, "Source \"Beta's\".app");
+            var destination = Path.Combine(tempDir, "Installed \"Beta's\".app");
+            var xcodebuild = Path.Combine(source, "Contents", "Developer", "usr", "bin", "xcodebuild");
+            Directory.CreateDirectory(Path.GetDirectoryName(xcodebuild)!);
+            await File.WriteAllTextAsync(xcodebuild,
+                $"#!/bin/sh\nprintf '%s\\n' \"$1\"\nexit {firstLaunchExitCode}\n");
+            File.SetUnixFileMode(xcodebuild, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+
+            var result = await XcodeService.RunProcessAsync("/bin/bash",
+                ["-euo", "pipefail", "-c", XcodeService.CreateInstallationScript(source, destination)]);
+
+            result.exitCode.Should().Be(0);
+            Directory.Exists(source).Should().BeFalse();
+            File.Exists(Path.Combine(destination, "Contents", "Developer", "usr", "bin", "xcodebuild")).Should().BeTrue();
+            result.output.Should().Contain("-runFirstLaunch");
+            if (firstLaunchExitCode != 0)
+                result.output.Should().Contain("MAUI_SHERPA_XCODE_FIRST_LAUNCH_FAILED");
+            else
+                result.output.Should().NotContain("MAUI_SHERPA_XCODE_FIRST_LAUNCH_FAILED");
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task InstallationScript_WhenMoveFails_PreservesSourceAndReturnsFailure()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        var tempDir = CreateTempDirectory();
+        try
+        {
+            var source = Path.Combine(tempDir, "Source.app");
+            Directory.CreateDirectory(source);
+            var destination = Path.Combine(tempDir, "missing-parent", "Xcode.app");
+
+            var result = await XcodeService.RunProcessAsync("/bin/bash",
+                ["-euo", "pipefail", "-c", XcodeService.CreateInstallationScript(source, destination)]);
+
+            result.exitCode.Should().NotBe(0);
+            Directory.Exists(source).Should().BeTrue();
+            result.output.Should().NotContain("MAUI_SHERPA_XCODE_FIRST_LAUNCH_FAILED");
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    private static XcodeRelease CreateDownloadRelease(
+        string? url = "https://download.developer.apple.com/Developer_Tools/Xcode_27.3_beta_2/Xcode_27.3_beta_2.xip") =>
+        new("27.3", "27C5035i", new DateTime(2026, 11, 16), true, null, url, null, null, [], [], 2);
+
+    private static XcodeService CreateService(HttpClient client, IAppleDownloadAuthService auth) =>
+        new(Mock.Of<ILoggingService>(), Mock.Of<IPlatformService>(), client, auth, Mock.Of<IEncryptedSettingsService>());
+
+    private static HttpClient CreateReleaseFeedClient()
+    {
+        const string json = """
+            [{
+                "version": { "number": "27.3", "build": "27C5035i", "release": { "beta": 2 } },
+                "date": { "year": 2026, "month": 11, "day": 16 },
+                "links": { "download": { "url": "https://download.developer.apple.com/Developer_Tools/Xcode_27.3_beta_2/Xcode_27.3_beta_2.xip" } }
+            }]
+            """;
+        var handler = new Mock<HttpMessageHandler>();
+        handler.Protected()
+            .Setup<Task<HttpResponseMessage>>("SendAsync", ItExpr.IsAny<HttpRequestMessage>(), ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(() => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(json) });
+        return new HttpClient(handler.Object);
     }
 
     [Fact]

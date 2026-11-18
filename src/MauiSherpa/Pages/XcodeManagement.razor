@@ -52,12 +52,17 @@ else
         </div>
     }
 
-    <div class="auth-banner @(ViewModel.IsAuthenticated ? "auth-banner-signed-in" : "")" data-testid="apple-account-card">
+    <div class="auth-banner @(ViewModel.IsAuthenticated && DownloadAuthService.SessionValidationMessage == null ? "auth-banner-signed-in" : "")" data-testid="apple-account-card">
         <div class="auth-banner-icon">
-            <i class="fas @(ViewModel.IsAuthenticated ? "fa-user-check" : "fa-user-lock")"></i>
+            <i class="fas @(DownloadAuthService.SessionValidationMessage != null ? "fa-triangle-exclamation" : ViewModel.IsAuthenticated ? "fa-user-check" : "fa-user-lock")"></i>
         </div>
         <div class="auth-banner-content">
-            @if (ViewModel.IsAuthenticated)
+            @if (DownloadAuthService.SessionValidationMessage is { } validationMessage)
+            {
+                <strong>Apple download session needs attention</strong>
+                <p>@validationMessage</p>
+            }
+            else if (ViewModel.IsAuthenticated)
             {
                 <strong>Signed in with Apple ID</strong>
                 <p class="text-selectable">@ViewModel.AuthenticatedAppleId</p>
@@ -213,7 +218,7 @@ else
             <div class="loading-state">
                 <div class="loading-spinner"><i class="fas fa-spinner fa-spin"></i></div>
                 <div class="loading-title">Fetching Available Releases</div>
-                <div class="loading-description">Querying xcodereleases.com...</div>
+                <div class="loading-description">Fetching releases and checking Apple archive availability...</div>
             </div>
         }
         else if (filteredReleases.Count > 0)
@@ -222,7 +227,7 @@ else
                 @foreach (var release in filteredReleases)
                 {
                     var installed = ViewModel.IsInstalled(release);
-                    var isDownloading = downloadingRelease?.Version == release.Version;
+                    var isDownloading = downloadingRelease?.BuildNumber == release.BuildNumber;
                     <div class="xcode-card @(installed ? "installed" : "") @(isDownloading ? "downloading" : "")">
                         <div class="xcode-card-icon">
                             @if (release.IsBeta)
@@ -239,7 +244,7 @@ else
                                 Xcode @release.Version
                                 @if (release.IsBeta)
                                 {
-                                    <span class="badge badge-beta">Beta</span>
+                                    <span class="badge badge-beta">@release.PrereleaseLabel</span>
                                 }
                                 @if (installed)
                                 {
@@ -249,6 +254,10 @@ else
                             <div class="xcode-card-details">
                                 <span class="detail-item"><i class="fas fa-code-branch"></i> Build @release.BuildNumber</span>
                                 <span class="detail-item"><i class="fas fa-calendar"></i> @release.ReleaseDate.ToString("MMM d, yyyy")</span>
+                                @if (!string.IsNullOrEmpty(release.ArchiveExtension))
+                                {
+                                    <span class="detail-item"><i class="fas fa-file-archive"></i> @release.ArchiveExtension.TrimStart('.').ToUpperInvariant()</span>
+                                }
                                 @if (!string.IsNullOrEmpty(release.MinimumMacOSVersion))
                                 {
                                     <span class="detail-item"><i class="fas fa-desktop"></i> macOS @release.MinimumMacOSVersion+</span>
@@ -954,6 +963,8 @@ else
             ToolbarService.SetFilters();
             ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
             ToolbarService.SearchTextChanged += OnSearchTextChanged;
+            if (DownloadAuthService.IsAuthenticated)
+                await DownloadAuthService.ValidateSessionAsync();
             await ViewModel.LoadInstalledAsync();
         }
     }
@@ -988,7 +999,13 @@ else
     }
 
     private void OnDownloadAuthStateChanged() =>
-        InvokeAsync(StateHasChanged);
+        InvokeAsync(async () =>
+        {
+            await Mediator.FlushStores("apple:xcode:available");
+            if (activeTab == "available" && !ViewModel.IsLoadingAvailable)
+                await ViewModel.LoadAvailableAsync();
+            StateHasChanged();
+        });
 
     public void Dispose()
     {
@@ -999,6 +1016,9 @@ else
 
     private async Task RefreshAll()
     {
+        if (activeTab != "available" && DownloadAuthService.IsAuthenticated)
+            await DownloadAuthService.ValidateSessionAsync();
+
         if (activeTab == "installed")
         {
             await Mediator.FlushStores("apple:xcode:installed");
@@ -1029,7 +1049,7 @@ else
 
     private bool MatchesSearch(XcodeRelease release)
     {
-        if (ContainsSearchText(release.Version, release.BuildNumber, release.MinimumMacOSVersion))
+        if (ContainsSearchText(release.DisplayName, release.BuildNumber, release.MinimumMacOSVersion, release.ArchiveExtension))
             return true;
 
         return release.Sdks.Any(sdk => ContainsSearchText(sdk.Name, sdk.Version)) ||
@@ -1100,12 +1120,16 @@ else
         try
         {
             await OperationModal.RunAsync(
-                $"Install Xcode {release.Version}",
-                $"Downloading and installing Xcode {release.Version} (build {release.BuildNumber})...",
+                $"Install {release.DisplayName}",
+                $"Downloading and installing {release.DisplayName} (build {release.BuildNumber})...",
                 async ctx =>
                 {
-                    var tempPath = Path.Combine(Path.GetTempPath(), $"Xcode_{release.Version}_{release.BuildNumber}.xip");
-                    ctx.LogInfo($"Downloading Xcode {release.Version} ({release.BuildNumber})");
+                    var archiveName = release.ArchiveFileName
+                        ?? throw new InvalidOperationException("The Xcode release has no archive download filename.");
+                    await XcodeService.ValidateArchiveSupportAsync(archiveName, ctx.CancellationToken);
+                    var tempPath = Path.Combine(Path.GetTempPath(), $"Xcode_{release.Version}_{release.BuildNumber}{release.ArchiveExtension}");
+                    ctx.LogInfo($"Downloading {release.DisplayName} ({release.BuildNumber})");
+                    ctx.LogInfo($"Archive format: {release.ArchiveExtension}");
                     ctx.SetStatus("Preparing download...");
 
                     var progress = new Progress<XcodeDownloadProgress>(p =>
@@ -1136,7 +1160,7 @@ else
 
                     ctx.LogSuccess("Download complete");
                     ctx.SetProgress(null);
-                    ctx.SetStatus("Extracting and moving to /Applications...");
+                    ctx.SetStatus($"Extracting {release.DisplayName}...");
 
                     var installProgress = new Progress<string>(message =>
                     {
@@ -1151,7 +1175,7 @@ else
                         ctx.CancellationToken);
                     if (!installOk)
                     {
-                        ctx.LogError("Installation failed. The Xcode .xip file has been preserved in your temp directory.");
+                        ctx.LogError("Installation failed. See the installation messages for the preserved archive location.");
                         return false;
                     }
 
