@@ -260,6 +260,14 @@ dotnet maui devflow webview Runtime evaluate "document.body.classList.remove('th
 
 ## Key Dependencies
 
+Keep SDK-aligned NuGet packages (`Microsoft.Maui.*`, `Microsoft.AspNetCore.*`,
+`Microsoft.Extensions.*`, and `System.Configuration.ConfigurationManager`) on a
+major version no higher than the .NET SDK/target framework major. Update the
+version ceilings in `.github/dependabot.yml` only as part of a coordinated SDK,
+target framework, and workload upgrade. Independently versioned packages such as
+`Microsoft.NET.Test.Sdk`, Azure SDKs, and third-party libraries do not follow the
+.NET SDK's major version.
+
 | Package | Purpose |
 |---------|---------|
 | Microsoft.Maui.Controls | MAUI framework |
