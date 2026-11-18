@@ -23,6 +23,8 @@ public class CopilotService : ICopilotService, IAsyncDisposable
     private readonly string _skillsPath;
     private readonly string _copilotWorkingDirectory;
     private readonly SemaphoreSlim _clientGate = new(1, 1);
+    // Serializes session replacement with sends, so a message never reaches a session being torn down
+    private readonly SemaphoreSlim _sessionGate = new(1, 1);
     private readonly List<CopilotChatMessage> _messages = new();
     private readonly Dictionary<string, string> _toolCallIdToName = new(); // Track callId -> toolName mapping
     
@@ -49,8 +51,11 @@ public class CopilotService : ICopilotService, IAsyncDisposable
     public event Action<string>? OnIntentChanged;
     public event Action<CopilotUsageInfo>? OnUsageInfoChanged;
     public event Action<CopilotSessionError>? OnSessionError;
+    public event Action<SessionEvent>? OnSessionEvent;
     
     public Func<ToolPermissionRequest, Task<ToolPermissionResult>>? PermissionHandler { get; set; }
+    public Func<CopilotUserInputRequest, Task<CopilotUserInputResponse>>? UserInputHandler { get; set; }
+    public IReadOnlyList<AIFunction> AdditionalTools { get; set; } = [];
 
     public CopilotService(ILoggingService logger, ICopilotToolsService toolsService)
     {
@@ -586,6 +591,19 @@ public class CopilotService : ICopilotService, IAsyncDisposable
 
     public async Task StartSessionAsync(string? model = null, string? systemPrompt = null)
     {
+        await _sessionGate.WaitAsync();
+        try
+        {
+            await StartSessionCoreAsync(model, systemPrompt);
+        }
+        finally
+        {
+            _sessionGate.Release();
+        }
+    }
+
+    private async Task StartSessionCoreAsync(string? model, string? systemPrompt)
+    {
         if (_client == null)
         {
             throw new InvalidOperationException("Not connected to Copilot. Call ConnectAsync first.");
@@ -593,7 +611,7 @@ public class CopilotService : ICopilotService, IAsyncDisposable
 
         if (_session != null)
         {
-            await EndSessionAsync();
+            await EndSessionCoreAsync();
         }
 
         try
@@ -601,8 +619,8 @@ public class CopilotService : ICopilotService, IAsyncDisposable
             var selectedModel = string.IsNullOrWhiteSpace(model) ? "auto" : model;
             _logger.LogInformation($"Starting Copilot session with model: {selectedModel}");
             
-            // Get tools from tools service
-            var tools = _toolsService.GetTools();
+            // Get tools from tools service, plus any registered by the chat UI
+            var tools = _toolsService.GetTools().Concat(AdditionalTools).ToList();
             _logger.LogInformation($"Registering {tools.Count} tools with Copilot session");
             
             // Build system prompt - use provided prompt or fall back to default
@@ -614,6 +632,7 @@ public class CopilotService : ICopilotService, IAsyncDisposable
                 Streaming = true,
                 Tools = tools.Cast<AIFunctionDeclaration>().ToList(),
                 OnPermissionRequest = HandleSdkPermissionRequest,
+                OnUserInputRequest = HandleSdkUserInputRequest,
                 SystemMessage = new SystemMessageConfig
                 {
                     Content = promptContent
@@ -732,6 +751,23 @@ public class CopilotService : ICopilotService, IAsyncDisposable
         return GitHub.Copilot.Rpc.PermissionDecision.UserNotAvailable();
     }
 #pragma warning restore GHCP001
+
+    private async Task<UserInputResponse> HandleSdkUserInputRequest(UserInputRequest request, UserInputInvocation invocation)
+    {
+        _logger.LogDebug($"User input request: Question={request.Question}, Choices={request.Choices?.Count ?? 0}, AllowFreeform={request.AllowFreeform}");
+
+        if (UserInputHandler == null)
+        {
+            return new UserInputResponse { Answer = "The user is not available to answer questions right now.", WasFreeform = true };
+        }
+
+        var response = await UserInputHandler(new CopilotUserInputRequest(
+            request.Question,
+            request.Choices?.ToList() ?? [],
+            request.AllowFreeform ?? true));
+
+        return new UserInputResponse { Answer = response.Answer, WasFreeform = response.WasFreeform };
+    }
 
     private ResolvedPermissionRequest ResolvePermissionRequest(PermissionRequest request)
     {
@@ -904,6 +940,19 @@ public class CopilotService : ICopilotService, IAsyncDisposable
 
     public async Task EndSessionAsync()
     {
+        await _sessionGate.WaitAsync();
+        try
+        {
+            await EndSessionCoreAsync();
+        }
+        finally
+        {
+            _sessionGate.Release();
+        }
+    }
+
+    private async Task EndSessionCoreAsync()
+    {
         if (_session == null)
         {
             return;
@@ -928,16 +977,18 @@ public class CopilotService : ICopilotService, IAsyncDisposable
 
     public async Task SendMessageAsync(string message)
     {
-        if (_session == null)
-        {
-            await StartSessionAsync();
-        }
-
+        // Waits out a session being replaced, then sends to the new one
+        await _sessionGate.WaitAsync();
         try
         {
+            if (_session == null)
+            {
+                await StartSessionCoreAsync(null, null);
+            }
+
             _logger.LogInformation($"Sending message: {message.Substring(0, Math.Min(50, message.Length))}...");
             
-            await _session.SendAsync(new MessageOptions
+            await _session!.SendAsync(new MessageOptions
             {
                 Prompt = message
             });
@@ -946,6 +997,10 @@ public class CopilotService : ICopilotService, IAsyncDisposable
         {
             _logger.LogError($"Failed to send message: {ex.Message}", ex);
             throw;
+        }
+        finally
+        {
+            _sessionGate.Release();
         }
     }
 
@@ -974,6 +1029,7 @@ public class CopilotService : ICopilotService, IAsyncDisposable
             // Debug log all events with full type name
             var eventType = evt.GetType().Name;
             _logger.LogDebug($"SDK Event: {eventType}");
+            OnSessionEvent?.Invoke(evt);
             
             switch (evt)
             {

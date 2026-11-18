@@ -158,6 +158,7 @@ public static class MacOSMauiProgram
         builder.Services.AddSingleton<IProfilingContextService, ProfilingContextService>();
         builder.Services.AddSingleton<ICopilotToolsService, CopilotToolsService>();
         builder.Services.AddSingleton<ICopilotService, CopilotService>();
+        builder.Services.AddSingleton<ICopilotAgentService, CopilotAgentService>();
         builder.Services.AddSingleton<ICopilotContextService, CopilotContextService>();
         builder.Services.AddSingleton<ICopilotModalService, MauiSherpa.Services.CopilotModalService>();
         builder.Services.AddSingleton<IFormModalService, MauiSherpa.Services.FormModalService>();
