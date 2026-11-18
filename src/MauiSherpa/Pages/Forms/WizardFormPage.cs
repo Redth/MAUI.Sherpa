@@ -18,7 +18,7 @@ namespace MauiSherpa.Pages.Forms;
 /// Row 3 = footer separator, Row 4 = native footer with Back/Cancel/Next/Submit.
 /// The Blazor component controls button visibility via HybridFormBridge.SetWizardState().
 /// </summary>
-public abstract class WizardFormPage<TResult> : ContentPage, IFormPage<TResult>, IFormPageBuildable
+public abstract class WizardFormPage<TResult> : ContentPage, IFormPage<TResult>, IFormPageBuildable, INativeModalDismissible
 {
     private readonly TaskCompletionSource<TResult?> _tcs = new();
     private readonly HybridFormBridge _bridge = new();
@@ -33,6 +33,7 @@ public abstract class WizardFormPage<TResult> : ContentPage, IFormPage<TResult>,
 #endif
     private View? _webView;
     private bool _isOnLastStep;
+    private bool _isClosed;
 
     protected abstract string FormTitle { get; }
     protected virtual string DefaultSubmitText => "Create";
@@ -63,6 +64,8 @@ public abstract class WizardFormPage<TResult> : ContentPage, IFormPage<TResult>,
     }
 
     public Task<TResult?> GetResultAsync() => _tcs.Task;
+
+    public void OnNativeDismissed() => CloseWithResult(default);
 
     private void BuildPage()
     {
@@ -315,7 +318,7 @@ public abstract class WizardFormPage<TResult> : ContentPage, IFormPage<TResult>,
     private void RebuildHeaderActions()
     {
 #if MACOSAPP
-        HybridFormBridge.SyncMacHeaderActionButtons(_headerGrid, _bridge, ref _macHeaderButtons);
+        HybridFormBridge.SyncMacHeaderActionButtons(this, _headerGrid, _bridge, ref _macHeaderButtons);
 #else
         if (_headerActionsLayout == null)
             return;
@@ -326,55 +329,80 @@ public abstract class WizardFormPage<TResult> : ContentPage, IFormPage<TResult>,
             if (!action.IsVisible)
                 continue;
 
-            _headerActionsLayout.Children.Add(HybridFormBridge.CreateHeaderActionButton(_bridge, action));
+            _headerActionsLayout.Children.Add(HybridFormBridge.CreateHeaderActionButton(this, _bridge, action));
         }
 #endif
     }
 
     private async void OnBackClicked(object? sender, EventArgs e)
     {
-        await _bridge.RequestBackAsync();
+        try
+        {
+            await _bridge.RequestBackAsync();
+        }
+        catch (Exception ex)
+        {
+            await Dispatcher.DispatchAsync(() => DisplayAlert("Error", ex.Message, "OK"));
+        }
     }
 
     private async void OnPrimaryClicked(object? sender, EventArgs e)
     {
-        if (_isOnLastStep)
+        try
         {
-            try
+            if (_isOnLastStep)
             {
                 await _bridge.RequestSubmitAsync();
-                if (_bridge.PreventSubmitClose) return;
-                var result = (TResult?)_bridge.Result;
-                _bridgeHolder.Pop();
-                _tcs.TrySetResult(result);
+                await Dispatcher.DispatchAsync(() =>
+                {
+                    if (!_bridge.PreventSubmitClose)
+                        CloseWithResult((TResult?)_bridge.Result);
+                });
             }
-            catch (Exception ex)
-            {
-                await DisplayAlert("Error", ex.Message, "OK");
-            }
+            else
+                await _bridge.RequestNextAsync();
         }
-        else
+        catch (Exception ex)
         {
-            await _bridge.RequestNextAsync();
+            await Dispatcher.DispatchAsync(() => DisplayAlert("Error", ex.Message, "OK"));
         }
     }
 
-    private void OnCancelClicked(object? sender, EventArgs e)
+    private async void OnCancelClicked(object? sender, EventArgs e)
     {
-        _bridge.RequestCancel();
-        if (_bridge.PreventClose) return;
-        _bridgeHolder.Pop();
-        _tcs.TrySetResult(default);
+        try
+        {
+            await _bridge.RequestCancelAsync();
+            await Dispatcher.DispatchAsync(() =>
+            {
+                if (!_bridge.PreventClose)
+                    CloseWithResult(default);
+            });
+        }
+        catch (Exception ex)
+        {
+            await Dispatcher.DispatchAsync(() => DisplayAlert("Error", ex.Message, "OK"));
+        }
     }
 
     private void OnCloseRequested()
     {
         Dispatcher.Dispatch(() =>
         {
-            var result = (TResult?)_bridge.Result;
-            _bridgeHolder.Pop();
-            _tcs.TrySetResult(result);
+            CloseWithResult((TResult?)_bridge.Result);
         });
+    }
+
+    private void CloseWithResult(TResult? result)
+    {
+        if (_isClosed) return;
+        _isClosed = true;
+        ModalWebViewReadySignal.Ready -= OnBlazorReady;
+        _bridge.WizardStateChanged -= OnWizardStateChanged;
+        _bridge.HeaderActionsChanged -= OnHeaderActionsChanged;
+        _bridge.CloseRequested -= OnCloseRequested;
+        _bridgeHolder.Remove(_bridge);
+        _tcs.TrySetResult(result);
     }
 
     private void OnBlazorReady(double contentHeight)

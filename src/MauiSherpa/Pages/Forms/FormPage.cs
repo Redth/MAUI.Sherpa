@@ -11,13 +11,18 @@ public interface IFormPageBuildable
     void EnsureBuilt();
 }
 
+public interface INativeModalDismissible
+{
+    void OnNativeDismissed();
+}
+
 /// <summary>
 /// Base class for native MAUI form modal pages.
 /// Provides themed form layout with title, scrollable body, and Cancel/Submit footer.
 /// Uses DynamicResource bindings from FormTheme for light/dark mode support.
 /// Subclasses override BuildFormContent() and OnSubmitAsync().
 /// </summary>
-public abstract class FormPage<TResult> : ContentPage, IFormPage<TResult>, IFormPageBuildable
+public abstract class FormPage<TResult> : ContentPage, IFormPage<TResult>, IFormPageBuildable, INativeModalDismissible
 {
     private readonly TaskCompletionSource<TResult?> _tcs = new();
     private Button? _submitButton;
@@ -63,6 +68,8 @@ public abstract class FormPage<TResult> : ContentPage, IFormPage<TResult>, IForm
     }
 
     public Task<TResult?> GetResultAsync() => _tcs.Task;
+
+    public void OnNativeDismissed() => _tcs.TrySetResult(default);
 
     private void BuildPage()
     {
@@ -211,13 +218,16 @@ public abstract class FormPage<TResult> : ContentPage, IFormPage<TResult>, IForm
         }
         catch (Exception ex)
         {
-            _isSubmitting = false;
-            _submitButton.Text = SubmitButtonText;
-            _submitButton.IsEnabled = CanSubmit;
-            _submittingIndicator.IsRunning = false;
-            _submittingIndicator.IsVisible = false;
+            await Dispatcher.DispatchAsync(async () =>
+            {
+                _isSubmitting = false;
+                _submitButton.Text = SubmitButtonText;
+                _submitButton.IsEnabled = CanSubmit;
+                _submittingIndicator.IsRunning = false;
+                _submittingIndicator.IsVisible = false;
 
-            await DisplayAlert("Error", ex.Message, "OK");
+                await DisplayAlert("Error", ex.Message, "OK");
+            });
         }
     }
 

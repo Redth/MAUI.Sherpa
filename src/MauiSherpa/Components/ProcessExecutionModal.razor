@@ -8,11 +8,17 @@
 @inject ICopilotContextService CopilotContext
 @inject IJSRuntime JS
 @inject ProgressBridgeHolder BridgeHolder
+@inject IPlatformService PlatformInfo
 @implements IDisposable
 
 @if (IsVisible)
 {
-    <div class="process-content" id="process-modal">
+    <div class="process-modal-host @(PlatformInfo.IsLinux ? "process-modal-host-linux" : null)">
+    <div class="process-content" id="process-modal" role="dialog" aria-modal="true">
+        @if (PlatformInfo.IsLinux)
+        {
+            <h2 class="process-modal-title">@GetTitle()</h2>
+        }
         @if (CurrentView == ModalView.Confirmation)
         {
             <div class="confirmation-view">
@@ -101,10 +107,63 @@
                 </div>
             </div>
         }
+        @if (PlatformInfo.IsLinux)
+        {
+            <div class="process-modal-actions">
+                @if (CurrentView == ModalView.Confirmation)
+                {
+                    <button class="btn btn-secondary" @onclick="HandleCancelBeforeExecution">Cancel</button>
+                    <button class="btn btn-primary" @onclick="HandleExecute">
+                        @(Request?.ConfirmationButtonText ?? "Execute")
+                    </button>
+                }
+                else if (CurrentView == ModalView.Completed)
+                {
+                    @if (Result != null && !Result.Success && !Result.WasCancelled && !Result.WasKilled)
+                    {
+                        <button class="btn btn-secondary" @onclick="HandleTryWithCopilot">Try with Copilot</button>
+                    }
+                    <button class="btn btn-primary" @onclick="HandleClose">Close</button>
+                }
+            </div>
+        }
+    </div>
     </div>
 }
 
 <style>
+    .process-modal-host { display: contents; }
+
+    .process-modal-host-linux {
+        position: fixed;
+        inset: 0;
+        z-index: 10001;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1rem;
+        background: var(--modal-overlay, rgba(0, 0, 0, 0.5));
+    }
+
+    .process-modal-host-linux .process-content {
+        width: min(1000px, 100%);
+        height: min(500px, calc(100vh - 2rem));
+        background: var(--card-bg, #fff);
+        border: 1px solid var(--border-color, #e2e8f0);
+        border-radius: var(--card-radius, 1rem);
+        box-shadow: 0 1.5rem 4rem rgba(0, 0, 0, 0.25);
+    }
+
+    .process-modal-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 0.75rem;
+        flex-shrink: 0;
+        padding-top: 0.75rem;
+    }
+
+    .process-modal-title { margin: 0 0 1rem; font-size: 1.125rem; color: var(--text-primary); }
+
     .process-content {
         width: 100%;
         height: 100%;
@@ -354,8 +413,12 @@
     private DateTime _startTime;
     private bool _terminalInitialized;
     private bool _needsCompletedTerminal;
+    private bool _startAfterRender;
+    private bool _keyboardInitialized;
+    private bool _disposed;
     private CancellationTokenSource? _cts;
     private DotNetObjectReference<ProcessExecutionModal>? _dotNetRef;
+    private ProgressBridge? _progressBridge;
 
     private bool CanCancel => ProcessService.CurrentState == ProcessState.Running;
     private bool CanKill => ProcessService.CurrentState == ProcessState.Running || 
@@ -371,10 +434,10 @@
         _dotNetRef = DotNetObjectReference.Create(this);
 
         // Subscribe to native button clicks via bridge
-        var bridge = BridgeHolder.Current;
-        if (bridge != null)
+        _progressBridge = PlatformInfo.IsLinux ? null : BridgeHolder.Current;
+        if (_progressBridge != null)
         {
-            bridge.ButtonClicked += OnBridgeButtonClicked;
+            _progressBridge.ButtonClicked += OnBridgeButtonClicked;
         }
 
         // If already visible (timing: service fires before Blazor subscribes), catch up
@@ -386,6 +449,18 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (PlatformInfo.IsLinux && !_keyboardInitialized)
+        {
+            await JS.InvokeVoidAsync("modalInterop.initialize", "process-modal", _dotNetRef);
+            _keyboardInitialized = true;
+        }
+
+        if (_startAfterRender)
+        {
+            _startAfterRender = false;
+            await ExecuteProcessAsync();
+        }
+
         if (_needsCompletedTerminal && Result != null)
         {
             _needsCompletedTerminal = false;
@@ -448,16 +523,15 @@
 
     private void HandleShowRequested(ProcessRequest request)
     {
-        CurrentView = ModalService.RequiresConfirmation ? ModalView.Confirmation : ModalView.Running;
-        Result = null;
-        _terminalInitialized = false;
-        UpdateBridgeButtons();
-        InvokeAsync(StateHasChanged);
-
-        if (!ModalService.RequiresConfirmation)
+        _ = InvokeAsync(() =>
         {
-            _ = ExecuteProcessAsync();
-        }
+            CurrentView = ModalService.RequiresConfirmation ? ModalView.Confirmation : ModalView.Running;
+            Result = null;
+            _terminalInitialized = false;
+            _startAfterRender = !ModalService.RequiresConfirmation;
+            UpdateBridgeButtons();
+            StateHasChanged();
+        });
     }
 
     private async void HandleOutputReceived(object? sender, ProcessOutputEventArgs e)
@@ -540,6 +614,9 @@
             _elapsedTimer = null;
         }
 
+        if (_disposed)
+            return;
+
         if (_terminalInitialized)
         {
             await JS.InvokeVoidAsync("terminalInterop.dispose", "process-terminal");
@@ -576,12 +653,13 @@
             _ = JS.InvokeVoidAsync("terminalInterop.dispose", "process-terminal");
         }
         ModalService.Close();
-        BridgeHolder.Current?.RequestClose();
+        if (!PlatformInfo.IsLinux)
+            _progressBridge?.RequestClose();
     }
 
     private void UpdateBridgeButtons()
     {
-        var bridge = BridgeHolder.Current;
+        var bridge = _progressBridge;
         if (bridge == null) return;
 
         switch (CurrentView)
@@ -710,14 +788,23 @@
 
     public void Dispose()
     {
+        _disposed = true;
+        if (_keyboardInitialized)
+            _ = JS.InvokeVoidAsync("modalInterop.dispose", "process-modal");
         ModalService.OnShowRequested -= HandleShowRequested;
         ProcessService.OutputReceived -= HandleOutputReceived;
         ProcessService.StateChanged -= HandleStateChanged;
         _elapsedTimer?.Dispose();
+        if (PlatformInfo.IsLinux && _cts != null)
+        {
+            if (ProcessService.CurrentState == ProcessState.Running && ProcessService.ProcessId != null)
+                ProcessService.Cancel();
+            else if (ProcessService.ProcessId == null)
+                _cts.Cancel();
+        }
         _cts?.Dispose();
-        var bridge = BridgeHolder.Current;
-        if (bridge != null)
-            bridge.ButtonClicked -= OnBridgeButtonClicked;
+        if (_progressBridge != null)
+            _progressBridge.ButtonClicked -= OnBridgeButtonClicked;
         _dotNetRef?.Dispose();
     }
 }

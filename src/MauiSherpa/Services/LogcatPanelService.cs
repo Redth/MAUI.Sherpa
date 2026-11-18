@@ -14,7 +14,14 @@ public class DeviceInspectorService
     public event Action? StateChanged;
     public event Action<string>? DeviceChanged;
 
-    public void Open(string serial, string? deviceName = null, InspectorTab tab = InspectorTab.Logcat)
+    public Task OpenAsync(string serial, string? deviceName = null, InspectorTab tab = InspectorTab.Logcat) =>
+        NativeUiDispatcher.RunAsync(() =>
+        {
+            OpenCore(serial, deviceName, tab);
+            return Task.CompletedTask;
+        });
+
+    private void OpenCore(string serial, string? deviceName, InspectorTab tab)
     {
         ActiveSerial = serial;
         ActiveDeviceName = deviceName ?? serial;
@@ -52,7 +59,14 @@ public class DeviceInspectorService
             _window.Activated -= OnWindowActivated;
     }
 
-    public void SwitchDevice(string serial, string? deviceName = null)
+    public Task SwitchDeviceAsync(string serial, string? deviceName = null) =>
+        NativeUiDispatcher.RunAsync(() =>
+        {
+            SwitchDeviceCore(serial, deviceName);
+            return Task.CompletedTask;
+        });
+
+    private void SwitchDeviceCore(string serial, string? deviceName)
     {
         if (ActiveSerial == serial) return;
         ActiveSerial = serial;
@@ -76,7 +90,14 @@ public class DeviceInspectorService
     /// </summary>
     public string? PendingFilePath { get; set; }
 
-    public void Close()
+    public Task CloseAsync() =>
+        NativeUiDispatcher.RunAsync(() =>
+        {
+            CloseCore();
+            return Task.CompletedTask;
+        });
+
+    private void CloseCore()
     {
         IsOpen = false;
         ActiveSerial = null;

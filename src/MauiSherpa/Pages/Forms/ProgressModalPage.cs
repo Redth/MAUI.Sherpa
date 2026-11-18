@@ -16,10 +16,12 @@ namespace MauiSherpa.Pages.Forms;
 /// Used for progress/operation modals where the entire UI (including buttons) is in Blazor.
 /// The native modal sheet provides the frame; the BlazorWebView fills it.
 /// </summary>
-public class ProgressModalPage : ContentPage
+public class ProgressModalPage : ContentPage, INativeModalDismissible
 {
     private bool _built;
     private View? _webView;
+
+    public void OnNativeDismissed() => ModalWebViewReadySignal.Ready -= OnBlazorReady;
 
     public ProgressModalPage(string route, int minWidth = 600, int minHeight = 400)
     {

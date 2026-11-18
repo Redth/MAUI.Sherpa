@@ -15,6 +15,7 @@ public class ProcessModalService : IProcessModalService
 
     private readonly IProcessExecutionService _processService;
     private readonly ProgressBridgeHolder _bridgeHolder;
+    private readonly LinuxModalOverlayHosts _overlayHosts;
     private TaskCompletionSource<ProcessResult?>? _completionSource;
     private ProcessResult? _pendingResult;
 
@@ -27,12 +28,14 @@ public class ProcessModalService : IProcessModalService
     public ProcessRequest? CurrentRequest { get; private set; }
     public bool IsVisible { get; private set; }
     public bool RequiresConfirmation { get; private set; }
+    internal object? OverlayOwner { get; private set; }
     public ProcessResult? LastResult => _pendingResult;
 
-    public ProcessModalService(IProcessExecutionService processService, ProgressBridgeHolder bridgeHolder)
+    public ProcessModalService(IProcessExecutionService processService, ProgressBridgeHolder bridgeHolder, LinuxModalOverlayHosts overlayHosts)
     {
         _processService = processService;
         _bridgeHolder = bridgeHolder;
+        _overlayHosts = overlayHosts;
     }
 
     public async Task<ProcessResult?> ShowProcessAsync(ProcessRequest request, bool requireConfirmation = true)
@@ -47,15 +50,20 @@ public class ProcessModalService : IProcessModalService
         IsVisible = true;
         _pendingResult = null;
         _completionSource = new TaskCompletionSource<ProcessResult?>();
+#if LINUXGTK
+        OverlayOwner = _overlayHosts.CaptureOwner();
+#endif
 
         try
         {
             OnModalShown?.Invoke();
             OnShowRequested?.Invoke(request);
 
+            INavigation? activeNav = null;
+#if !LINUXGTK
             // Push native modal page
             var nav = Application.Current?.Windows.FirstOrDefault()?.Page?.Navigation;
-            INavigation? activeNav = nav;
+            activeNav = nav;
             if (nav != null)
             {
                 var modalWidth = GetModalWidth(Application.Current?.Windows.FirstOrDefault());
@@ -67,8 +75,13 @@ public class ProcessModalService : IProcessModalService
                     500);
                 await nav.PushModalAsync(page, animated: true);
             }
+#endif
 
+#if LINUXGTK
+            var result = await _completionSource.Task.ConfigureAwait(false);
+#else
             var result = await _completionSource.Task;
+#endif
 
             // Pop native modal page
             if (activeNav != null)
@@ -85,6 +98,8 @@ public class ProcessModalService : IProcessModalService
             // IsVisible stuck true forever, and every subsequent ShowProcessAsync call would
             // throw "A process modal is already being shown" -- silently, since callers await
             // this from fire-and-forget UI event handlers.
+            _completionSource = null;
+            OverlayOwner = null;
             IsVisible = false;
             CurrentRequest = null;
             OnModalClosed?.Invoke();
@@ -118,6 +133,12 @@ public class ProcessModalService : IProcessModalService
     {
         OnConfirmationResponse?.Invoke(false);
         _completionSource?.TrySetResult(null);
+    }
+
+    internal void CancelIfOwnedBy(object owner)
+    {
+        if (IsVisible && ReferenceEquals(OverlayOwner, owner))
+            _completionSource?.TrySetResult(null);
     }
 
     /// <summary>

@@ -10,6 +10,7 @@ namespace MauiSherpa.Services;
 public class MultiOperationModalService : IMultiOperationModalService
 {
     private readonly ProgressBridgeHolder _bridgeHolder;
+    private readonly LinuxModalOverlayHosts _overlayHosts;
     private TaskCompletionSource<MultiOperationResult>? _completionSource;
     private CancellationTokenSource? _cts;
 
@@ -27,15 +28,17 @@ public class MultiOperationModalService : IMultiOperationModalService
     public bool IsVisible { get; private set; }
     public bool IsRunning { get; private set; }
     public bool IsConfirming { get; private set; }
+    internal object? OverlayOwner { get; private set; }
     public List<OperationItemStatus> Operations { get; } = new();
     public int CurrentOperationIndex { get; private set; } = -1;
 
     private MultiOperationResult? _result;
     private List<OperationItem> _originalOperations = new();
 
-    public MultiOperationModalService(ProgressBridgeHolder bridgeHolder)
+    public MultiOperationModalService(ProgressBridgeHolder bridgeHolder, LinuxModalOverlayHosts overlayHosts)
     {
         _bridgeHolder = bridgeHolder;
+        _overlayHosts = overlayHosts;
     }
 
     public async Task<MultiOperationResult> RunAsync(
@@ -59,59 +62,77 @@ public class MultiOperationModalService : IMultiOperationModalService
         _cts = new CancellationTokenSource();
         _completionSource = new TaskCompletionSource<MultiOperationResult>();
 
-        // Store original operations for execution
-        _originalOperations = operations.ToList();
-
-        // Build operation status list
-        Operations.Clear();
-        foreach (var op in _originalOperations)
+        try
         {
-            Operations.Add(new OperationItemStatus
+#if LINUXGTK
+            OverlayOwner = _overlayHosts.CaptureOwner();
+#endif
+
+            // Store original operations for execution
+            _originalOperations = operations.ToList();
+
+            // Build operation status list
+            Operations.Clear();
+            foreach (var op in _originalOperations)
             {
-                Id = op.Id,
-                Name = op.Name,
-                Description = op.Description,
-                IsEnabled = op.IsEnabled,
-                CanDisable = op.CanDisable,
-                State = OperationItemState.Pending,
-                SecondaryOptions = op.SecondaryOptions?
-                    .Select(o => new OperationSecondaryOptionStatus
-                    {
-                        Id = o.Id,
-                        Label = o.Label,
-                        Enabled = o.DefaultEnabled
-                    })
-                    .ToList() ?? new List<OperationSecondaryOptionStatus>()
-            });
+                Operations.Add(new OperationItemStatus
+                {
+                    Id = op.Id,
+                    Name = op.Name,
+                    Description = op.Description,
+                    IsEnabled = op.IsEnabled,
+                    CanDisable = op.CanDisable,
+                    State = OperationItemState.Pending,
+                    SecondaryOptions = op.SecondaryOptions?
+                        .Select(o => new OperationSecondaryOptionStatus
+                        {
+                            Id = o.Id,
+                            Label = o.Label,
+                            Enabled = o.DefaultEnabled
+                        })
+                        .ToList() ?? new List<OperationSecondaryOptionStatus>()
+                });
+            }
+
+            OnModalShown?.Invoke();
+            OnShowRequested?.Invoke(title, description);
+
+            INavigation? activeNav = null;
+#if !LINUXGTK
+            // Push native modal page
+            var nav = Application.Current?.Windows.FirstOrDefault()?.Page?.Navigation;
+            activeNav = nav;
+            if (nav != null)
+            {
+                var page = new HybridProgressPage(_bridgeHolder, "/modal/multi-operation", title, 700, 500);
+                await nav.PushModalAsync(page, animated: true);
+            }
+#endif
+
+            // Wait for result (user closes modal)
+            var result = await _completionSource.Task;
+
+            // Pop native modal page
+            if (activeNav != null)
+            {
+                try { await activeNav.PopModalAsync(animated: true); } catch { }
+            }
+
+            return result;
         }
-
-        OnModalShown?.Invoke();
-        OnShowRequested?.Invoke(title, description);
-
-        // Push native modal page
-        var nav = Application.Current?.Windows.FirstOrDefault()?.Page?.Navigation;
-        INavigation? activeNav = nav;
-        if (nav != null)
+        finally
         {
-            var page = new HybridProgressPage(_bridgeHolder, "/modal/multi-operation", title, 700, 500);
-            await nav.PushModalAsync(page, animated: true);
+            _cts?.Dispose();
+            _cts = null;
+            _completionSource = null;
+            IsVisible = false;
+            IsRunning = false;
+            IsConfirming = false;
+            OverlayOwner = null;
+            Title = null;
+            Description = null;
+            OnModalClosed?.Invoke();
         }
-
-        // Wait for result (user closes modal)
-        var result = await _completionSource.Task;
-
-        // Pop native modal page
-        if (activeNav != null)
-        {
-            try { await activeNav.PopModalAsync(animated: true); } catch { }
-        }
-
-        IsVisible = false;
-        Title = null;
-        Description = null;
-        OnModalClosed?.Invoke();
-
-        return result;
     }
 
     /// <summary>
@@ -298,8 +319,6 @@ public class MultiOperationModalService : IMultiOperationModalService
         );
 
         _completionSource?.TrySetResult(result);
-        _cts?.Dispose();
-        _cts = null;
     }
 
     /// <summary>

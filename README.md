@@ -58,6 +58,9 @@ MAUI Sherpa is a desktop application for **macOS**, **Windows**, and **Linux** t
 
 ### 🍎 Apple Developer Tools (macOS only)
 - **Xcode Management**: Browse available Xcode versions, download directly from Apple with authenticated sign-in (SRP + 2FA), and install — all from within the app
+- **Xcode archives**: Supports `.xip` and Apple Encrypted Archives (`.aea`). While signed in, Sherpa checks for AEA downloads starting with Xcode 27.3 beta 2, using the original XIP link when an AEA download cannot be confirmed. AEA installation requires macOS with `archiveutil extractXcodeAEA` support; the XIP extractor setting does not affect AEA files. Refresh **Available** releases after signing in to check Apple's links. Failed or cancelled installations preserve the downloaded archive and report its location.
+- **Apple download sessions**: Saved logins are checked with Apple's Developer Downloads service on restoration, when opening or refreshing Xcode Management, and before AEA discovery or downloads. Rejected sessions prompt a new sign-in while preserving device trust; network or service failures retain the saved login and show that it could not be verified.
+- **Xcode installation status**: Installation dialogs include prerelease labels such as **Beta 2**. Moving Xcode and running first-launch setup share one administrator authorization. Extraction displays any status output emitted by the selected tool as it arrives; `archiveutil extractXcodeAEA` and `xip --expand` have no documented percentage-progress option, so extraction remains indeterminate rather than showing an estimated percentage.
 - **Simulators**: Manage iOS/iPadOS/tvOS/watchOS simulators with built-in inspector
 - **Bundle IDs**: Create and manage App IDs with capabilities editor
 - **Devices**: Register devices for development and ad-hoc distribution
@@ -255,6 +258,13 @@ This becomes available once the generated manifest is accepted into the upstream
 
 #### Linux
 Download AppImage, .deb, or Flatpak from the releases page for your architecture (x64 or arm64).
+
+If SDK or workload installation runs out of temporary space, launch Sherpa with `TMPDIR` set to a directory with enough free space. For example, replace the AppImage path below with the downloaded filename:
+
+```bash
+mkdir -p "$HOME/.cache/maui-sherpa-tmp"
+TMPDIR="$HOME/.cache/maui-sherpa-tmp" ./MAUI-Sherpa.AppImage
+```
 
 ### Apple Developer Tools Setup
 

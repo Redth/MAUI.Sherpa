@@ -55,6 +55,12 @@ public class App : Application
             Height = savedHeight,
         };
 
+#if LINUXGTK
+        window.HandlerChanged += (_, _) => Program.AttachLinuxToolbar(window);
+        if (window.Handler != null)
+            Program.AttachLinuxToolbar(window);
+#endif
+
 #if WINDOWS
         var toolbarService = _serviceProvider.GetRequiredService<IToolbarService>();
         var titleBarManager = new MauiSherpa.Services.WindowsTitleBarManager(

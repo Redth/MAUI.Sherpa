@@ -19,7 +19,7 @@ namespace MauiSherpa.Pages.Forms;
 /// Subclasses specify the Blazor route and submit button text.
 /// The embedded Blazor component communicates via HybridFormBridge.
 /// </summary>
-public abstract class HybridFormPage<TResult> : ContentPage, IFormPage<TResult>, IFormPageBuildable
+public abstract class HybridFormPage<TResult> : ContentPage, IFormPage<TResult>, IFormPageBuildable, INativeModalDismissible
 {
     private readonly TaskCompletionSource<TResult?> _tcs = new();
     private readonly HybridFormBridge _bridge = new();
@@ -83,6 +83,8 @@ public abstract class HybridFormPage<TResult> : ContentPage, IFormPage<TResult>,
     }
 
     public Task<TResult?> GetResultAsync() => _tcs.Task;
+
+    public void OnNativeDismissed() => CloseWithResult(default);
 
     /// <summary>
     /// Override to pass parameters to the Blazor component via the bridge.
@@ -287,45 +289,61 @@ public abstract class HybridFormPage<TResult> : ContentPage, IFormPage<TResult>,
         try
         {
             await _bridge.RequestSubmitAsync();
-            if (_bridge.PreventSubmitClose)
+            await Dispatcher.DispatchAsync(() =>
             {
-                _isSubmitting = false;
-                ApplyActionState();
-                return;
-            }
+                if (_bridge.PreventSubmitClose)
+                {
+                    _isSubmitting = false;
+                    ApplyActionState();
+                    return;
+                }
 
-            var result = (TResult?)_bridge.Result;
-            CloseWithResult(result);
+                var result = (TResult?)_bridge.Result;
+                CloseWithResult(result);
+            });
         }
         catch (Exception ex)
         {
-            _isSubmitting = false;
-            if (_bridge.HasActionState)
+            await Dispatcher.DispatchAsync(async () =>
             {
-                ApplyActionState();
-            }
-            else
-            {
-                _submitButton.Text = SubmitButtonText;
-                _submitButton.IsEnabled = _bridge.IsValid;
-                _submittingIndicator.IsRunning = false;
-                _submittingIndicator.IsVisible = false;
-            }
+                _isSubmitting = false;
+                if (_bridge.HasActionState)
+                {
+                    ApplyActionState();
+                }
+                else
+                {
+                    _submitButton.Text = SubmitButtonText;
+                    _submitButton.IsEnabled = _bridge.IsValid;
+                    _submittingIndicator.IsRunning = false;
+                    _submittingIndicator.IsVisible = false;
+                }
 
-            await DisplayAlert("Error", ex.Message, "OK");
+                await DisplayAlert("Error", ex.Message, "OK");
+            });
         }
     }
 
-    private void OnCancelClicked(object? sender, EventArgs e)
+    private async void OnCancelClicked(object? sender, EventArgs e)
     {
-        _bridge.RequestCancel();
-        if (_bridge.PreventClose)
+        try
         {
-            ApplyActionState();
-            return;
-        }
+            await _bridge.RequestCancelAsync();
+            await Dispatcher.DispatchAsync(() =>
+            {
+                if (_bridge.PreventClose)
+                {
+                    ApplyActionState();
+                    return;
+                }
 
-        CloseWithResult(default);
+                CloseWithResult(default);
+            });
+        }
+        catch (Exception ex)
+        {
+            await Dispatcher.DispatchAsync(() => DisplayAlert("Error", ex.Message, "OK"));
+        }
     }
 
     private void OnActionStateChanged()
@@ -361,7 +379,7 @@ public abstract class HybridFormPage<TResult> : ContentPage, IFormPage<TResult>,
     private void RebuildHeaderActions()
     {
 #if MACOSAPP
-        HybridFormBridge.SyncMacHeaderActionButtons(_headerGrid, _bridge, ref _macHeaderButtons);
+        HybridFormBridge.SyncMacHeaderActionButtons(this, _headerGrid, _bridge, ref _macHeaderButtons);
 #else
         if (_headerActionsLayout == null)
             return;
@@ -372,7 +390,7 @@ public abstract class HybridFormPage<TResult> : ContentPage, IFormPage<TResult>,
             if (!action.IsVisible)
                 continue;
 
-            _headerActionsLayout.Children.Add(HybridFormBridge.CreateHeaderActionButton(_bridge, action));
+            _headerActionsLayout.Children.Add(HybridFormBridge.CreateHeaderActionButton(this, _bridge, action));
         }
 #endif
     }
@@ -429,10 +447,12 @@ public abstract class HybridFormPage<TResult> : ContentPage, IFormPage<TResult>,
             return;
 
         _isClosed = true;
+        ModalWebViewReadySignal.Ready -= OnBlazorReady;
         _bridge.ActionStateChanged -= OnActionStateChanged;
         _bridge.ActionFocusRequested -= OnActionFocusRequested;
+        _bridge.HeaderActionsChanged -= OnHeaderActionsChanged;
         _bridge.CloseRequested -= OnCloseRequested;
-        _bridgeHolder.Pop();
+        _bridgeHolder.Remove(_bridge);
         _tcs.TrySetResult(result);
     }
 

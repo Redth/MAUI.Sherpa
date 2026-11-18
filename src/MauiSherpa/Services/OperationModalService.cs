@@ -10,6 +10,7 @@ namespace MauiSherpa.Services;
 public class OperationModalService : IOperationModalService
 {
     private readonly ProgressBridgeHolder _bridgeHolder;
+    private readonly LinuxModalOverlayHosts _overlayHosts;
     private TaskCompletionSource<OperationResult>? _completionSource;
     private OperationResult? _pendingResult;
 
@@ -27,6 +28,7 @@ public class OperationModalService : IOperationModalService
     public bool IsVisible { get; private set; }
     public bool IsRunning { get; private set; }
     public bool CanCancel { get; private set; }
+    internal object? OverlayOwner { get; private set; }
     public OperationState CurrentState { get; private set; } = OperationState.Pending;
     public string? CurrentStatus { get; private set; }
     public int? CurrentProgress { get; private set; }
@@ -34,9 +36,10 @@ public class OperationModalService : IOperationModalService
 
     private CancellationTokenSource? _cts;
 
-    public OperationModalService(ProgressBridgeHolder bridgeHolder)
+    public OperationModalService(ProgressBridgeHolder bridgeHolder, LinuxModalOverlayHosts overlayHosts)
     {
         _bridgeHolder = bridgeHolder;
+        _overlayHosts = overlayHosts;
     }
 
     public async Task<OperationResult> RunAsync(
@@ -45,9 +48,9 @@ public class OperationModalService : IOperationModalService
         Func<IOperationContext, Task<bool>> operation,
         bool canCancel = true)
     {
-        if (IsRunning)
+        if (IsVisible)
         {
-            throw new InvalidOperationException("An operation is already running");
+            throw new InvalidOperationException("An operation modal is already being shown");
         }
 
         // Reset state
@@ -64,103 +67,121 @@ public class OperationModalService : IOperationModalService
         _cts = new CancellationTokenSource();
         _completionSource = new TaskCompletionSource<OperationResult>();
 
-        OnModalShown?.Invoke();
-        OnShowRequested?.Invoke(title, description, canCancel);
-        OnStateChanged?.Invoke(CurrentState);
-
-        // Push native modal page
-        var nav = Application.Current?.Windows.FirstOrDefault()?.Page?.Navigation;
-        INavigation? activeNav = nav;
-        if (nav != null)
-        {
-            var page = new HybridProgressPage(_bridgeHolder, "/modal/operation", title, 600, 550);
-            await nav.PushModalAsync(page, animated: true);
-        }
-
-        var startTime = DateTime.Now;
-        var context = new OperationContext(this, _cts.Token);
-
         try
         {
-            context.LogInfo($"Starting: {description}");
-            
-            var success = await operation(context);
-            var duration = DateTime.Now - startTime;
+#if LINUXGTK
+            OverlayOwner = _overlayHosts.CaptureOwner();
+#endif
 
-            CurrentState = success ? OperationState.Completed : OperationState.Failed;
+            OnModalShown?.Invoke();
+            OnShowRequested?.Invoke(title, description, canCancel);
             OnStateChanged?.Invoke(CurrentState);
 
-            if (success)
+            INavigation? activeNav = null;
+#if !LINUXGTK
+            // Push native modal page
+            var nav = Application.Current?.Windows.FirstOrDefault()?.Page?.Navigation;
+            activeNav = nav;
+            if (nav != null)
             {
-                context.LogSuccess("Operation completed successfully");
+                var page = new HybridProgressPage(_bridgeHolder, "/modal/operation", title, 600, 550);
+                await nav.PushModalAsync(page, animated: true);
             }
-            else
+#endif
+
+            var startTime = DateTime.Now;
+            var context = new OperationContext(this, _cts.Token);
+
+            try
             {
-                context.LogError("Operation failed");
+                context.LogInfo($"Starting: {description}");
+
+                var success = await operation(context);
+                var duration = DateTime.Now - startTime;
+
+                CurrentState = success ? OperationState.Completed : OperationState.Failed;
+                OnStateChanged?.Invoke(CurrentState);
+
+                if (success)
+                {
+                    context.LogSuccess("Operation completed successfully");
+                }
+                else
+                {
+                    context.LogError("Operation failed");
+                }
+
+                _pendingResult = new OperationResult(
+                    success,
+                    success ? "Operation completed successfully" : "Operation failed",
+                    duration,
+                    CurrentState,
+                    LogEntries.ToList()
+                );
+            }
+            catch (OperationCanceledException)
+            {
+                var duration = DateTime.Now - startTime;
+                CurrentState = OperationState.Cancelled;
+                OnStateChanged?.Invoke(CurrentState);
+                context.LogWarning("Operation was cancelled");
+
+                _pendingResult = new OperationResult(
+                    false,
+                    "Operation was cancelled",
+                    duration,
+                    OperationState.Cancelled,
+                    LogEntries.ToList()
+                );
+            }
+            catch (Exception ex)
+            {
+                var duration = DateTime.Now - startTime;
+                CurrentState = OperationState.Failed;
+                OnStateChanged?.Invoke(CurrentState);
+                context.LogError($"Error: {ex.Message}");
+
+                _pendingResult = new OperationResult(
+                    false,
+                    ex.Message,
+                    duration,
+                    OperationState.Failed,
+                    LogEntries.ToList()
+                );
+            }
+            finally
+            {
+                IsRunning = false;
+                // Notify UI after IsRunning flips so modal can switch from spinner to result state.
+                OnStateChanged?.Invoke(CurrentState);
+                _cts?.Dispose();
+                _cts = null;
             }
 
-            _pendingResult = new OperationResult(
-                success,
-                success ? "Operation completed successfully" : "Operation failed",
-                duration,
-                CurrentState,
-                LogEntries.ToList()
-            );
-        }
-        catch (OperationCanceledException)
-        {
-            var duration = DateTime.Now - startTime;
-            CurrentState = OperationState.Cancelled;
-            OnStateChanged?.Invoke(CurrentState);
-            context.LogWarning("Operation was cancelled");
+            // Wait for user to close the modal
+            var result = await _completionSource.Task;
 
-            _pendingResult = new OperationResult(
-                false,
-                "Operation was cancelled",
-                duration,
-                OperationState.Cancelled,
-                LogEntries.ToList()
-            );
-        }
-        catch (Exception ex)
-        {
-            var duration = DateTime.Now - startTime;
-            CurrentState = OperationState.Failed;
-            OnStateChanged?.Invoke(CurrentState);
-            context.LogError($"Error: {ex.Message}");
+            // Pop native modal page
+            if (activeNav != null)
+            {
+                try { await activeNav.PopModalAsync(animated: true); } catch { }
+            }
 
-            _pendingResult = new OperationResult(
-                false,
-                ex.Message,
-                duration,
-                OperationState.Failed,
-                LogEntries.ToList()
-            );
+            return result;
         }
         finally
         {
-            IsRunning = false;
-            // Notify UI after IsRunning flips so modal can switch from spinner to result state.
-            OnStateChanged?.Invoke(CurrentState);
             _cts?.Dispose();
             _cts = null;
+            _completionSource = null;
+            _pendingResult = null;
+            IsVisible = false;
+            IsRunning = false;
+            OverlayOwner = null;
+            Title = null;
+            Description = null;
+            OnModalClosed?.Invoke();
         }
-
-        // Wait for user to close the modal
-        var result = await _completionSource.Task;
-
-        // Pop native modal page
-        if (activeNav != null)
-        {
-            try { await activeNav.PopModalAsync(animated: true); } catch { }
-        }
-
-        IsVisible = false;
-        Title = null;
-        Description = null;
-        OnModalClosed?.Invoke();
-
-        return result;
     }
 
     /// <summary>

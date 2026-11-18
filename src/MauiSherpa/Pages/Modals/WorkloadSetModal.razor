@@ -247,17 +247,18 @@
 </style>
 
 @code {
+    private HybridFormBridge? _bridge;
     private DotnetWorkloadInventory? inventory;
     private string? selectedVersion;
     private bool showPreviews;
 
     protected override void OnInitialized()
     {
-        var bridge = BridgeHolder.Current;
-        if (bridge == null)
+        _bridge = BridgeHolder.Current;
+        if (_bridge == null)
             return;
-        inventory = bridge.Parameters.GetValueOrDefault("Inventory") as DotnetWorkloadInventory;
-        selectedVersion = bridge.Parameters.GetValueOrDefault("InitialVersion") as string;
+        inventory = _bridge.Parameters.GetValueOrDefault("Inventory") as DotnetWorkloadInventory;
+        selectedVersion = _bridge.Parameters.GetValueOrDefault("InitialVersion") as string;
         if (string.IsNullOrWhiteSpace(selectedVersion) &&
             inventory?.UpdateMode == DotnetWorkloadUpdateMode.WorkloadSet)
         {
@@ -271,8 +272,8 @@
         if (!VisibleVersions().Any(version =>
                 string.Equals(version.Version, selectedVersion, StringComparison.OrdinalIgnoreCase)))
             selectedVersion = null;
-        bridge.SubmitRequested += OnSubmit;
-        bridge.CancelRequested += OnCancel;
+        _bridge.SubmitRequested += OnSubmit;
+        _bridge.CancelRequested += OnCancel;
         UpdateBridge();
     }
 
@@ -289,11 +290,10 @@
 
     private void UpdateBridge()
     {
-        var bridge = BridgeHolder.Current;
-        if (bridge == null)
+        if (_bridge == null)
             return;
-        bridge.Result = selectedVersion;
-        bridge.SetValid(
+        _bridge.Result = selectedVersion;
+        _bridge.SetValid(
             !string.IsNullOrWhiteSpace(selectedVersion) &&
             !IsCurrentVersion(selectedVersion));
         StateHasChanged();
@@ -314,9 +314,8 @@
 
     private void OnCancel()
     {
-        var bridge = BridgeHolder.Current;
-        if (bridge != null)
-            bridge.Result = null;
+        if (_bridge != null)
+            _bridge.Result = null;
     }
 
     private static string ModeLabel(DotnetWorkloadUpdateMode mode) => mode switch
@@ -328,10 +327,9 @@
 
     public void Dispose()
     {
-        var bridge = BridgeHolder.Current;
-        if (bridge == null)
+        if (_bridge == null)
             return;
-        bridge.SubmitRequested -= OnSubmit;
-        bridge.CancelRequested -= OnCancel;
+        _bridge.SubmitRequested -= OnSubmit;
+        _bridge.CancelRequested -= OnCancel;
     }
 }

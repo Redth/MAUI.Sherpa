@@ -948,14 +948,14 @@
         var path = Path.Combine(savedSession.DirectoryPath, primary.FileName);
         if (path.EndsWith(".speedscope.json", StringComparison.OrdinalIgnoreCase))
         {
-            ViewerService.OpenSpeedscope(path);
+            await ViewerService.OpenSpeedscopeAsync(path);
         }
         else if (path.EndsWith(".nettrace", StringComparison.OrdinalIgnoreCase))
         {
             var converted = await ArtifactConverter.ConvertToSpeedscopeAsync(path);
             if (string.IsNullOrWhiteSpace(converted) || !File.Exists(converted))
                 throw new InvalidOperationException("The trace could not be converted to Speedscope format.");
-            ViewerService.OpenSpeedscope(converted);
+            await ViewerService.OpenSpeedscopeAsync(converted);
         }
         else
         {

@@ -1278,8 +1278,37 @@ public record XcodeRelease(
     string? ReleaseNotesUrl,
     long? FileSizeBytes,
     IReadOnlyList<XcodeReleaseSdk> Sdks,
-    IReadOnlyList<XcodeReleaseCompiler> Compilers
-);
+    IReadOnlyList<XcodeReleaseCompiler> Compilers,
+    int? BetaNumber = null,
+    bool IsReleaseCandidate = false
+)
+{
+    public string? PrereleaseLabel => IsReleaseCandidate ? "RC" :
+        BetaNumber is { } betaNumber ? $"Beta {betaNumber}" : IsBeta ? "Beta" : null;
+    public string DisplayName => PrereleaseLabel is { } label ? $"Xcode {Version} {label}" : $"Xcode {Version}";
+    public string? ArchiveFileName => Path.GetFileName(ArchivePath);
+    public string? ArchiveExtension => Path.GetExtension(ArchiveFileName)?.ToLowerInvariant();
+
+    internal string? ArchivePath => GetArchivePath(DownloadUrl);
+
+    internal static string? GetArchivePath(string? downloadUrl)
+    {
+        if (!Uri.TryCreate(downloadUrl, UriKind.Absolute, out var uri))
+            return null;
+
+        if (uri.AbsolutePath == "/services-account/download")
+        {
+            foreach (var parameter in uri.Query.TrimStart('?').Split('&'))
+            {
+                var pair = parameter.Split('=', 2);
+                if (pair.Length == 2 && pair[0] == "path")
+                    return Uri.UnescapeDataString(pair[1]);
+            }
+        }
+
+        return Uri.UnescapeDataString(uri.AbsolutePath);
+    }
+}
 
 /// <summary>
 /// Service for discovering and switching Xcode versions
@@ -1327,14 +1356,20 @@ public interface IXcodeService
     Task<bool> UninstallXcodeAsync(string xcodeAppPath);
 
     /// <summary>
-    /// Download an Xcode release .xip from Apple's CDN
+    /// Download an Xcode release archive from Apple
     /// </summary>
     Task<bool> DownloadXcodeAsync(XcodeRelease release, string destinationPath, IProgress<XcodeDownloadProgress>? progress = null, CancellationToken ct = default);
 
     /// <summary>
-    /// Install a downloaded Xcode .xip archive (unxip, move to /Applications, run first-launch)
+    /// Validate archive format and extractor availability before downloading or installing.
+    /// Throws NotSupportedException with recovery instructions when extraction is unavailable.
     /// </summary>
-    Task<bool> InstallXcodeAsync(string xipPath, string? targetDirectory = null, IProgress<string>? progress = null, CancellationToken ct = default);
+    Task ValidateArchiveSupportAsync(string archivePath, CancellationToken ct = default);
+
+    /// <summary>
+    /// Install a downloaded Xcode .xip or .aea archive, move to /Applications, and run first-launch
+    /// </summary>
+    Task<bool> InstallXcodeAsync(string archivePath, string? targetDirectory = null, IProgress<string>? progress = null, CancellationToken ct = default);
 
     /// <summary>
     /// Compute the set of Sherpa-managed Xcode bundles whose names don't match the
@@ -1461,6 +1496,11 @@ public interface IAppleDownloadAuthService
     /// Whether there is a valid, unexpired session
     /// </summary>
     bool IsAuthenticated { get; }
+
+    /// <summary>
+    /// Explains a rejected or unverified Apple download session, if any.
+    /// </summary>
+    string? SessionValidationMessage { get; }
 
     /// <summary>
     /// The currently authenticated Apple ID, if any

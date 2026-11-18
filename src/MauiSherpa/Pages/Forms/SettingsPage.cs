@@ -17,7 +17,7 @@ namespace MauiSherpa.Pages.Forms;
 /// Native title + footer with Save/Cancel/Reset buttons,
 /// BlazorWebView for the full settings content.
 /// </summary>
-public class SettingsPage : ContentPage
+public class SettingsPage : ContentPage, INativeModalDismissible
 {
     private readonly HybridFormBridge _bridge = new();
     private readonly HybridFormBridgeHolder _bridgeHolder;
@@ -50,9 +50,12 @@ public class SettingsPage : ContentPage
 
     public void Complete(bool saved)
     {
-        _bridgeHolder.Pop();
+        ModalWebViewReadySignal.Ready -= OnBlazorReady;
+        _bridgeHolder.Remove(_bridge);
         _tcs?.TrySetResult(saved);
     }
+
+    public void OnNativeDismissed() => Complete(false);
 
     protected override void OnAppearing()
     {

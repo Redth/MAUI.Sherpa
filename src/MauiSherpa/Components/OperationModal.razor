@@ -7,11 +7,17 @@
 @inject ICopilotContextService CopilotContext
 @inject IJSRuntime JS
 @inject ProgressBridgeHolder BridgeHolder
+@inject IPlatformService PlatformInfo
 @implements IDisposable
 
 @if (ModalService.IsVisible)
 {
-    <div class="operation-content" id="operation-modal">
+    <div class="operation-modal-host @(PlatformInfo.IsLinux ? "operation-modal-host-linux" : null)">
+    <div class="operation-content" id="operation-modal" role="dialog" aria-modal="true">
+        @if (PlatformInfo.IsLinux)
+        {
+            <h2 class="operation-title">@ModalService.Title</h2>
+        }
         <div class="description">@ModalService.Description</div>
 
         <div class="log-section">
@@ -68,10 +74,65 @@
                 </div>
             </div>
         }
+
+        @if (PlatformInfo.IsLinux)
+        {
+            <div class="operation-actions">
+                @if (ModalService.IsRunning)
+                {
+                    @if (ModalService.CanCancel)
+                    {
+                        <button class="btn btn-secondary" @onclick="HandleCancel">Cancel</button>
+                    }
+                }
+                else
+                {
+                    @if (ModalService.CurrentState == OperationState.Failed)
+                    {
+                        <button class="btn btn-secondary" @onclick="HandleTryWithCopilot">
+                            <i class="fas fa-robot"></i> Try with Copilot
+                        </button>
+                    }
+                    <button class="btn btn-primary" @onclick="HandleClose">Close</button>
+                }
+            </div>
+        }
+    </div>
     </div>
 }
 
 <style>
+    .operation-modal-host { display: contents; }
+
+    .operation-modal-host-linux {
+        position: fixed;
+        inset: 0;
+        z-index: 10001;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1rem;
+        background: var(--modal-overlay, rgba(0, 0, 0, 0.5));
+    }
+
+    .operation-modal-host-linux .operation-content {
+        width: min(600px, 100%);
+        height: min(550px, calc(100vh - 2rem));
+        background: var(--card-bg, #fff);
+        border: 1px solid var(--border-color, #e2e8f0);
+        border-radius: var(--card-radius, 1rem);
+        box-shadow: 0 1.5rem 4rem rgba(0, 0, 0, 0.25);
+    }
+
+    .operation-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 0.75rem;
+        flex-shrink: 0;
+    }
+
+    .operation-title { margin: 0; font-size: 1.125rem; color: var(--text-primary); }
+
     .operation-content {
         width: 100%;
         height: 100%;
@@ -285,6 +346,8 @@
     private System.Timers.Timer? _elapsedTimer;
     private DateTime _startTime;
     private DotNetObjectReference<OperationModal>? _dotNetRef;
+    private ProgressBridge? _progressBridge;
+    private bool _keyboardInitialized;
     private string ElapsedTime { get; set; } = "00:00";
     private string Duration { get; set; } = "00:00";
 
@@ -297,9 +360,9 @@
         ModalService.OnProgressChanged += HandleProgressChanged;
         _dotNetRef = DotNetObjectReference.Create(this);
 
-        var bridge = BridgeHolder.Current;
-        if (bridge != null)
-            bridge.ButtonClicked += OnBridgeButtonClicked;
+        _progressBridge = PlatformInfo.IsLinux ? null : BridgeHolder.Current;
+        if (_progressBridge != null)
+            _progressBridge.ButtonClicked += OnBridgeButtonClicked;
 
         // Catch up if already visible
         if (ModalService.IsVisible)
@@ -310,8 +373,11 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        // No modalInterop needed — native modal handles focus
-        await Task.CompletedTask;
+        if (PlatformInfo.IsLinux && !_keyboardInitialized)
+        {
+            await JS.InvokeVoidAsync("modalInterop.initialize", "operation-modal", _dotNetRef);
+            _keyboardInitialized = true;
+        }
     }
 
     [JSInvokable]
@@ -323,20 +389,26 @@
 
     private void HandleShowRequested(string title, string description, bool canCancel)
     {
-        _startTime = DateTime.Now;
-        ElapsedTime = "00:00";
-
-        _elapsedTimer = new System.Timers.Timer(1000);
-        _elapsedTimer.Elapsed += (_, _) =>
+        _ = InvokeAsync(() =>
         {
-            var elapsed = DateTime.Now - _startTime;
-            ElapsedTime = elapsed.ToString(@"mm\:ss");
-            InvokeAsync(StateHasChanged);
-        };
-        _elapsedTimer.Start();
+            _startTime = DateTime.Now;
+            ElapsedTime = "00:00";
 
-        UpdateBridgeButtons();
-        InvokeAsync(StateHasChanged);
+            _elapsedTimer?.Dispose();
+            if (ModalService.IsRunning)
+            {
+                _elapsedTimer = new System.Timers.Timer(1000);
+                _elapsedTimer.Elapsed += (_, _) => _ = InvokeAsync(() =>
+                {
+                    ElapsedTime = (DateTime.Now - _startTime).ToString(@"mm\:ss");
+                    StateHasChanged();
+                });
+                _elapsedTimer.Start();
+            }
+
+            UpdateBridgeButtons();
+            StateHasChanged();
+        });
     }
 
     private void HandleLogEntry(OperationLogEntry entry)
@@ -352,15 +424,18 @@
 
     private void HandleStateChanged(OperationState state)
     {
-        if (state != OperationState.Running)
+        _ = InvokeAsync(() =>
         {
-            _elapsedTimer?.Stop();
-            _elapsedTimer?.Dispose();
-            _elapsedTimer = null;
-            Duration = (DateTime.Now - _startTime).ToString(@"mm\:ss\.fff");
-        }
-        UpdateBridgeButtons();
-        InvokeAsync(StateHasChanged);
+            if (state != OperationState.Running)
+            {
+                _elapsedTimer?.Stop();
+                _elapsedTimer?.Dispose();
+                _elapsedTimer = null;
+                Duration = (DateTime.Now - _startTime).ToString(@"mm\:ss\.fff");
+            }
+            UpdateBridgeButtons();
+            StateHasChanged();
+        });
     }
 
     private void HandleStatusChanged(string status)
@@ -391,12 +466,13 @@
     private void HandleClose()
     {
         ModalService.Close();
-        BridgeHolder.Current?.RequestClose();
+        if (!PlatformInfo.IsLinux)
+            _progressBridge?.RequestClose();
     }
 
     private void UpdateBridgeButtons()
     {
-        var bridge = BridgeHolder.Current;
+        var bridge = _progressBridge;
         if (bridge == null) return;
 
         if (ModalService.IsRunning)
@@ -519,15 +595,16 @@
 
     public void Dispose()
     {
+        if (_keyboardInitialized)
+            _ = JS.InvokeVoidAsync("modalInterop.dispose", "operation-modal");
         ModalService.OnShowRequested -= HandleShowRequested;
         ModalService.OnLogEntry -= HandleLogEntry;
         ModalService.OnStateChanged -= HandleStateChanged;
         ModalService.OnStatusChanged -= HandleStatusChanged;
         ModalService.OnProgressChanged -= HandleProgressChanged;
         _elapsedTimer?.Dispose();
-        var bridge = BridgeHolder.Current;
-        if (bridge != null)
-            bridge.ButtonClicked -= OnBridgeButtonClicked;
+        if (_progressBridge != null)
+            _progressBridge.ButtonClicked -= OnBridgeButtonClicked;
         _dotNetRef?.Dispose();
     }
 }
