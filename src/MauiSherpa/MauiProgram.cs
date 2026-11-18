@@ -111,11 +111,13 @@ public static class MauiProgram
         builder.Services.AddScoped<INavigationService, NavigationService>();
         builder.Services.AddSingleton<IDialogService, DialogService>();
         builder.Services.AddSingleton<IFileSystemService, FileSystemService>();
+#if !LINUXGTK
         builder.Services.AddSingleton<IPreferences>(_ => Preferences.Default);
-        builder.Services.AddSingleton<IIdentitySelectionStore, IdentitySelectionStore>();
         builder.Services.AddSingleton<ILauncher>(_ => Launcher.Default);
         builder.Services.AddSingleton<IClipboard>(_ => Clipboard.Default);
         builder.Services.AddSingleton<ISecureStorage>(_ => SecureStorage.Default);
+#endif
+        builder.Services.AddSingleton<IIdentitySelectionStore, IdentitySelectionStore>();
         builder.Services.AddSingleton<ILocalVaultIntroductionService, LocalVaultIntroductionService>();
         builder.Services.AddSingleton<SecureStorageService>();
         builder.Services.AddSingleton<ILegacySecureStorageService>(sp => sp.GetRequiredService<SecureStorageService>());
@@ -132,6 +134,7 @@ public static class MauiProgram
         builder.Services.AddTransient<IProcessExecutionService, ProcessExecutionService>();
         builder.Services.AddTransient<IMauiCliToolService, MauiCliToolService>();
         builder.Services.AddTransient<IMauiProfilingCliService, MauiProfilingCliService>();
+        builder.Services.AddSingleton<LinuxModalOverlayHosts>();
         builder.Services.AddSingleton<ProcessModalService>();
         builder.Services.AddSingleton<IProcessModalService>(sp => sp.GetRequiredService<ProcessModalService>());
         builder.Services.AddSingleton<OperationModalService>();

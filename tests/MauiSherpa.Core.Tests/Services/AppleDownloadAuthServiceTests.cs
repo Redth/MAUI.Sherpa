@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text.Json;
 using FluentAssertions;
 using MauiSherpa.Core.Interfaces;
 using MauiSherpa.Core.Services;
@@ -343,19 +344,20 @@ public class AppleDownloadAuthServiceTests
         storage["apple_download_appleid"].Should().Be("dev@example.com");
     }
 
-    [Fact]
-    public async Task ValidateSessionAsync_WhenUnauthorized_ClearsSessionButPreservesTrustCookiesAndAppleId()
+    [Theory]
+    [InlineData(HttpStatusCode.OK)]
+    [InlineData(HttpStatusCode.Unauthorized)]
+    public async Task ValidateSessionAsync_WhenDownloadsRejectSession_ClearsItEvenIfOlympusAcceptsIt(HttpStatusCode olympusStatus)
     {
         var storage = new Dictionary<string, string>();
         var secureStorage = CreateMockSecureStorage(storage);
-        var olympusStatus = HttpStatusCode.OK;
         var handler = new Mock<HttpMessageHandler>();
         handler.Protected()
             .Setup<Task<HttpResponseMessage>>(
                 "SendAsync",
                 ItExpr.Is<HttpRequestMessage>(r => r.RequestUri!.AbsoluteUri.Contains("olympus/v1/session")),
                 ItExpr.IsAny<CancellationToken>())
-            .ReturnsAsync(() => new HttpResponseMessage(olympusStatus)
+            .ReturnsAsync(() => new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent("""{"user":{"emailAddress":"dev@example.com"}}""")
             });
@@ -376,15 +378,97 @@ public class AppleDownloadAuthServiceTests
             new("DES542ffb", "trust-token", "idmsa.apple.com", "/", null, true, true)
         ]);
 
-        olympusStatus = HttpStatusCode.Unauthorized;
+        handler.Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.Is<HttpRequestMessage>(r => r.RequestUri!.AbsoluteUri.Contains("olympus/v1/session")),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(() => new HttpResponseMessage(olympusStatus));
         var valid = await service.ValidateSessionAsync();
 
         valid.Should().BeFalse();
         service.IsAuthenticated.Should().BeFalse();
         service.CurrentAppleId.Should().Be("dev@example.com");
+        service.SessionValidationMessage.Should().Contain("Sign in again");
         storage.Should().NotContainKey("apple_download_session");
         storage.Should().ContainKey("apple_download_trust_cookies");
         storage["apple_download_appleid"].Should().Be("dev@example.com");
+    }
+
+    [Theory]
+    [InlineData(200, """{"resultCode":1100}""")]
+    [InlineData(401, "")]
+    [InlineData(403, "")]
+    public async Task RestoredSession_WhenAppleRejectsDownloads_IsInvalidatedBeforeLocalExpiry(int statusCode, string body)
+    {
+        var (service, storage, handler) = CreateStoredSessionService(() =>
+            new HttpResponseMessage((HttpStatusCode)statusCode) { Content = new StringContent(body) });
+
+        var valid = await service.ValidateSessionAsync();
+
+        valid.Should().BeFalse();
+        service.IsAuthenticated.Should().BeFalse();
+        service.SessionValidationMessage.Should().Contain("Sign in again");
+        storage.Should().NotContainKey("apple_download_session");
+        handler.Protected().Verify("SendAsync", Times.Once(),
+            ItExpr.Is<HttpRequestMessage>(r => r.Method == HttpMethod.Post &&
+                r.RequestUri!.AbsolutePath.EndsWith("listDownloads.action")),
+            ItExpr.IsAny<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData(500, "")]
+    [InlineData(429, "")]
+    [InlineData(200, "<html>Service unavailable</html>")]
+    [InlineData(200, """{"resultCode":9999}""")]
+    [InlineData(200, """{"resultCode":"unexpected"}""")]
+    public async Task ValidateSessionAsync_WhenCheckIsInconclusive_PreservesLoginAndReportsUnverified(int statusCode, string body)
+    {
+        var (service, storage, _) = CreateStoredSessionService(() =>
+            new HttpResponseMessage((HttpStatusCode)statusCode) { Content = new StringContent(body) });
+
+        var valid = await service.ValidateSessionAsync();
+
+        valid.Should().BeFalse();
+        service.IsAuthenticated.Should().BeTrue();
+        storage.Should().ContainKey("apple_download_session");
+        service.SessionValidationMessage.Should().Contain("Could not verify");
+    }
+
+    [Fact]
+    public async Task ValidateSessionAsync_AfterNetworkFailure_CanVerifyPreservedSessionOnRetry()
+    {
+        var fail = true;
+        var (service, storage, _) = CreateStoredSessionService(() => fail
+            ? throw new HttpRequestException("Network unavailable")
+            : new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{"resultCode":0}""") });
+
+        (await service.ValidateSessionAsync()).Should().BeFalse();
+        service.IsAuthenticated.Should().BeTrue();
+        service.SessionValidationMessage.Should().Contain("Could not verify");
+
+        fail = false;
+        (await service.ValidateSessionAsync()).Should().BeTrue();
+        service.SessionValidationMessage.Should().BeNull();
+        storage.Should().ContainKey("apple_download_session");
+    }
+
+    private static (AppleDownloadAuthService Service, Dictionary<string, string> Storage, Mock<HttpMessageHandler> Handler)
+        CreateStoredSessionService(Func<HttpResponseMessage> response)
+    {
+        var session = new AppleAuthSession("dev@example.com", [], DateTime.UtcNow.AddDays(20));
+        var storage = new Dictionary<string, string>
+        {
+            ["apple_download_session"] = JsonSerializer.Serialize(session)
+        };
+        var handler = new Mock<HttpMessageHandler>(MockBehavior.Strict);
+        handler.Protected()
+            .Setup<Task<HttpResponseMessage>>("SendAsync",
+                ItExpr.Is<HttpRequestMessage>(r => r.RequestUri!.AbsolutePath.EndsWith("listDownloads.action")),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(response);
+        var service = new AppleDownloadAuthService(Mock.Of<ILoggingService>(), CreateMockSecureStorage(storage).Object, handler.Object);
+        return (service, storage, handler);
     }
 
     private static Mock<ISecureStorageService> CreateMockSecureStorage(Dictionary<string, string> backing)

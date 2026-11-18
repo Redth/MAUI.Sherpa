@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Net.Http;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using MauiSherpa.Core.Interfaces;
@@ -120,6 +121,8 @@ public class XcodeService : IXcodeService
             _logger.LogInformation("Fetching available Xcode releases from xcodereleases.com...");
             var json = await _httpClient.GetStringAsync(XcodeReleasesUrl);
             var releases = ParseXcodeReleases(json);
+            if (_authService.IsAuthenticated)
+                releases = await DiscoverAeaDownloadsAsync(releases);
             _logger.LogInformation($"Fetched {releases.Count} Xcode releases");
             return releases;
         }
@@ -128,6 +131,109 @@ public class XcodeService : IXcodeService
             _logger.LogError($"Failed to fetch Xcode releases: {ex.Message}", ex);
             return [];
         }
+    }
+
+    private async Task<IReadOnlyList<XcodeRelease>> DiscoverAeaDownloadsAsync(IReadOnlyList<XcodeRelease> releases)
+    {
+        if (!releases.Any(release => GetAeaDownloadCandidate(release) != null))
+            return releases;
+
+        if (!await _authService.ValidateSessionAsync())
+            return releases;
+
+        using var client = _authService.CreateAuthenticatedHttpClient();
+        client.Timeout = TimeSpan.FromSeconds(20);
+        var result = new List<XcodeRelease>(releases.Count);
+        foreach (var release in releases)
+        {
+            var candidate = GetAeaDownloadCandidate(release);
+            if (candidate == null)
+            {
+                result.Add(release);
+                continue;
+            }
+
+            try
+            {
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                await EnsureDownloadAuthCookieAsync(client, XcodeRelease.GetArchivePath(candidate), timeout.Token);
+                using var request = new HttpRequestMessage(HttpMethod.Get, candidate);
+                request.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(0, 3);
+                using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
+                if (await IsAeaArchiveResponseAsync(response, timeout.Token))
+                {
+                    result.Add(release with
+                    {
+                        DownloadUrl = candidate,
+                        FileSizeBytes = response.Content.Headers.ContentRange?.Length ??
+                            (response.StatusCode == System.Net.HttpStatusCode.OK ? response.Content.Headers.ContentLength : null)
+                    });
+                    _logger.LogInformation($"Found AEA download for Xcode {release.Version} ({release.BuildNumber})");
+                    continue;
+                }
+
+                var responseUri = response.RequestMessage?.RequestUri;
+                _logger.LogInformation($"AEA download unavailable for Xcode {release.Version} ({release.BuildNumber}): HTTP {(int)response.StatusCode}, {response.Content.Headers.ContentType}, {responseUri?.Host}{responseUri?.AbsolutePath}. Keeping original download.");
+            }
+            catch (HttpRequestException ex)
+            {
+                _logger.LogWarning($"Could not check AEA download for Xcode {release.Version}: {ex.Message}. Keeping original download.");
+            }
+            catch (OperationCanceledException ex)
+            {
+                _logger.LogWarning($"AEA download check timed out for Xcode {release.Version}: {ex.Message}. Keeping original download.");
+            }
+            result.Add(release);
+        }
+        return result;
+    }
+
+    internal static string? GetAeaDownloadCandidate(XcodeRelease release)
+    {
+        if (!Version.TryParse(release.Version, out var version))
+            return null;
+        version = new Version(version.Major, version.Minor, Math.Max(0, version.Build));
+        if (version < new Version(27, 3, 0) ||
+            (version == new Version(27, 3, 0) && release.IsBeta && !release.IsReleaseCandidate && release.BetaNumber is not >= 2) ||
+            release.ArchiveExtension != ".xip" ||
+            !Uri.TryCreate(release.DownloadUrl, UriKind.Absolute, out var uri) ||
+            uri.Scheme != Uri.UriSchemeHttps ||
+            (uri.Host != "download.developer.apple.com" && uri.Host != "developer.apple.com") ||
+            release.ArchivePath is not { } archivePath ||
+            !archivePath.StartsWith("/Developer_Tools/", StringComparison.Ordinal))
+            return null;
+
+        var aeaPath = Path.ChangeExtension(archivePath, ".aea");
+        return new Uri(new Uri("https://download.developer.apple.com"), aeaPath).AbsoluteUri;
+    }
+
+    private async Task EnsureDownloadAuthCookieAsync(HttpClient client, string? archivePath, CancellationToken ct)
+    {
+        if (_authService.GetAllCookies()["ADCDownloadAuth"] != null || archivePath == null)
+            return;
+
+        var url = $"https://developerservices2.apple.com/services/download?path={Uri.EscapeDataString(archivePath)}";
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+        _logger.LogInformation($"developerservices2 download auth response: {(int)response.StatusCode}");
+    }
+
+    internal static async Task<bool> IsAeaArchiveResponseAsync(HttpResponseMessage response, CancellationToken ct = default)
+    {
+        if (response.StatusCode is not (System.Net.HttpStatusCode.OK or System.Net.HttpStatusCode.PartialContent))
+            return false;
+
+        await using var stream = await response.Content.ReadAsStreamAsync(ct);
+        var header = new byte[4];
+        var received = 0;
+        while (received < header.Length)
+        {
+            var read = await stream.ReadAsync(header.AsMemory(received), ct);
+            if (read == 0)
+                return false;
+            received += read;
+        }
+        return header.AsSpan().SequenceEqual("AEA1"u8);
     }
 
     public async Task<bool> SelectXcodeAsync(string xcodeAppPath)
@@ -299,47 +405,28 @@ public class XcodeService : IXcodeService
 
         try
         {
+            await ValidateArchiveSupportAsync(release.ArchiveFileName ?? "", ct);
             _logger.LogInformation($"Downloading Xcode {release.Version} from {release.DownloadUrl}...");
 
             if (!await _authService.ValidateSessionAsync())
             {
-                _logger.LogError("Apple Developer session is not valid. Sign in again to download Xcode.");
+                _logger.LogError(_authService.SessionValidationMessage ??
+                    "Apple Developer session is not valid. Sign in again to download Xcode.");
                 return false;
             }
 
             // Use the auth service's shared cookie jar — cookies from SRP auth + Olympus session
-            // are already there, and listDownloads.action will add ADCDownloadAuth
+            // and the Developer Downloads session check are already there.
             using var downloadClient = _authService.CreateAuthenticatedHttpClient();
 
-            // Step 1: POST to listDownloads.action (with no Content-Type: text/plain) to establish ADCDownloadAuth cookie
-            var listRequest = new HttpRequestMessage(HttpMethod.Post,
-                "https://developer.apple.com/services-account/QH65B2/downloadws/listDownloads.action");
-            listRequest.Headers.Add("Accept", "application/json");
+            // Fallback: if ADCDownloadAuth is still not in the cookie jar, request it via developerservices2
             try
             {
-                var listResponse = await downloadClient.SendAsync(listRequest, ct);
-                _logger.LogInformation($"listDownloads response: {(int)listResponse.StatusCode}");
+                await EnsureDownloadAuthCookieAsync(downloadClient, release.ArchivePath, ct);
             }
-            catch (Exception ex)
+            catch (HttpRequestException ex)
             {
-                _logger.LogWarning($"listDownloads failed (continuing): {ex.Message}");
-            }
-
-            // Fallback: if ADCDownloadAuth is still not in the cookie jar, request it via developerservices2
-            if (_authService.GetAllCookies()["ADCDownloadAuth"] == null
-                && Uri.TryCreate(release.DownloadUrl, UriKind.Absolute, out var downloadUri))
-            {
-                try
-                {
-                    var adcAuthUrl = $"https://developerservices2.apple.com/services/download?path={Uri.EscapeDataString(downloadUri.AbsolutePath)}";
-                    using var adcReq = new HttpRequestMessage(HttpMethod.Get, adcAuthUrl);
-                    using var adcResp = await downloadClient.SendAsync(adcReq, HttpCompletionOption.ResponseHeadersRead, ct);
-                    _logger.LogInformation($"developerservices2 download auth response: {(int)adcResp.StatusCode}");
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning($"developerservices2 download auth failed (continuing): {ex.Message}");
-                }
+                _logger.LogWarning($"developerservices2 download auth failed (continuing): {ex.Message}");
             }
 
             // Step 2: Download the file. We must handle redirects manually because
@@ -461,7 +548,7 @@ public class XcodeService : IXcodeService
         catch (OperationCanceledException)
         {
             _logger.LogInformation($"Xcode {release.Version} download cancelled");
-            return false;
+            throw;
         }
         catch (Exception ex)
         {
@@ -470,8 +557,25 @@ public class XcodeService : IXcodeService
         }
     }
 
+    public async Task ValidateArchiveSupportAsync(string archivePath, CancellationToken ct = default)
+    {
+        var extension = Path.GetExtension(archivePath);
+        if (extension.Equals(".xip", StringComparison.OrdinalIgnoreCase))
+            return;
+        if (!extension.Equals(".aea", StringComparison.OrdinalIgnoreCase))
+            throw new NotSupportedException("Unsupported Xcode archive format. Expected a .xip or .aea file.");
+
+        const string message = "Installing Xcode .aea archives requires macOS with archiveutil extractXcodeAEA support. Update macOS, or use a .xip download if Apple still provides one.";
+        if (!File.Exists("/usr/bin/archiveutil"))
+            throw new NotSupportedException(message);
+
+        var result = await RunProcessAsync("/usr/bin/archiveutil", ["extractXcodeAEA", "--help"], ct: ct);
+        if (result.exitCode != 0)
+            throw new NotSupportedException(message);
+    }
+
     public async Task<bool> InstallXcodeAsync(
-        string xipPath,
+        string archivePath,
         string? targetDirectory = null,
         IProgress<string>? progress = null,
         CancellationToken ct = default)
@@ -480,16 +584,23 @@ public class XcodeService : IXcodeService
 
         targetDirectory ??= "/Applications";
 
-        if (!File.Exists(xipPath))
+        if (!File.Exists(archivePath))
         {
-            _logger.LogError($"Xcode archive not found: {xipPath}");
+            _logger.LogError($"Xcode archive not found: {archivePath}");
             return false;
         }
 
+        string? expandDir = null;
+        string? stagedArchivePath = null;
         try
         {
-            var expandDir = Path.GetDirectoryName(xipPath) ?? Path.GetTempPath();
-            var extractor = await ResolveArchiveExtractionCommandAsync(xipPath);
+            await ValidateArchiveSupportAsync(archivePath, ct);
+            archivePath = Path.GetFullPath(archivePath);
+            // Keep the archive and output together: extractors may use the archive's parent or the working directory.
+            expandDir = Directory.CreateTempSubdirectory("maui-sherpa-xcode-").FullName;
+            stagedArchivePath = Path.Combine(expandDir, Path.GetFileName(archivePath));
+            File.Move(archivePath, stagedArchivePath);
+            var extractor = await ResolveArchiveExtractionCommandAsync(stagedArchivePath);
 
             if (extractor.FellBackToSystemXip)
             {
@@ -497,19 +608,22 @@ public class XcodeService : IXcodeService
                 progress?.Report("unxip is selected but was not found. Falling back to system xip...");
             }
 
-            progress?.Report(extractor.Preference == XcodeArchiveExtractorOptions.Unxip
-                ? "Unarchiving Xcode with unxip (faster, no signature verification)..."
-                : "Unarchiving Xcode with system xip (this can take a while)...");
+            progress?.Report(extractor.Extractor switch
+            {
+                XcodeArchiveExtractor.ArchiveUtil => "Extracting Xcode with archiveutil (this can take a while)...",
+                XcodeArchiveExtractor.Unxip => "Unarchiving Xcode with unxip (faster, no signature verification)...",
+                _ => "Unarchiving Xcode with system xip (this can take a while)..."
+            });
 
-            var expandResult = await RunProcessAsync(extractor.FileName, extractor.Arguments, expandDir);
+            var expandResult = await RunProcessAsync(extractor.FileName, extractor.Arguments, expandDir, ct, progress);
 
-            // xip expands into the current directory, so we need to look for Xcode*.app
             if (expandResult.exitCode != 0)
             {
                 _logger.LogError($"Failed to expand archive: {expandResult.error}");
                 progress?.Report($"Failed to unarchive: {expandResult.error}");
                 return false;
             }
+            ct.ThrowIfCancellationRequested();
 
             // Step 2: Find the expanded .app
             var expandedApps = Directory.GetDirectories(expandDir, "Xcode*.app");
@@ -536,46 +650,34 @@ public class XcodeService : IXcodeService
             var separator = await GetBundleSeparatorAsync();
             var destinationPath = ResolveManagedXcodeBundlePath(targetDirectory, version, buildNumber ?? "unknown", existingPaths, separator);
 
-            // Step 3: Move to target directory with admin privileges
-            progress?.Report($"Moving Xcode to {targetDirectory}...");
-            var moveResult = await RunElevatedShellScriptAsync($"""
-                source_path='{EscapeShellSingleQuotedString(xcodeApp)}'
-                destination_path='{EscapeShellSingleQuotedString(destinationPath)}'
-
-                if [ ! -d "$source_path" ]; then
-                    echo "Expanded Xcode app not found: $source_path" >&2
-                    exit 1
-                fi
-
-                mv "$source_path" "$destination_path"
-                """, ct);
+            progress?.Report($"Moving Xcode to {targetDirectory} and running first-launch setup (one administrator approval)...");
+            var moveResult = await RunElevatedShellScriptAsync(CreateInstallationScript(xcodeApp, destinationPath), ct);
 
             if (moveResult.exitCode != 0)
             {
-                _logger.LogError($"Failed to move Xcode: {moveResult.error}");
-                progress?.Report($"Failed to move Xcode: {moveResult.error}");
+                _logger.LogError($"Failed to install Xcode: {moveResult.error}");
+                progress?.Report($"Failed to install Xcode: {moveResult.error}");
                 return false;
             }
 
-            // Step 4: Run first-launch setup
-            progress?.Report("Running first-launch setup...");
-            var xcodebuild = Path.Combine(destinationPath, "Contents", "Developer", "usr", "bin", "xcodebuild");
-            if (File.Exists(xcodebuild))
+            if (moveResult.output.Contains(FirstLaunchFailureMarker, StringComparison.Ordinal))
             {
-                var firstLaunchResult = await RunElevatedShellScriptAsync($"""
-                    xcodebuild_path='{EscapeShellSingleQuotedString(xcodebuild)}'
-                    "$xcodebuild_path" -runFirstLaunch
-                    """, ct);
-                if (firstLaunchResult.exitCode != 0)
-                {
-                    _logger.LogWarning($"First-launch setup failed for {destinationPath}: {firstLaunchResult.error}");
-                    progress?.Report($"First-launch setup reported an error: {firstLaunchResult.error}");
-                }
+                _logger.LogWarning($"First-launch setup failed for {destinationPath}: {moveResult.output}");
+                progress?.Report("Xcode was installed, but first-launch setup failed. Open Xcode to complete setup.");
             }
 
             // Step 5: Cleanup archive
             progress?.Report("Cleaning up...");
-            try { File.Delete(xipPath); } catch { /* best effort */ }
+            try
+            {
+                File.Delete(stagedArchivePath);
+                stagedArchivePath = null;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                _logger.LogWarning($"Xcode installed but archive cleanup failed: {ex.Message}");
+                progress?.Report($"Xcode installed but archive cleanup failed: {ex.Message}");
+            }
 
             progress?.Report($"Xcode installed to {destinationPath}");
             _logger.LogInformation($"Installed Xcode to {destinationPath}");
@@ -585,13 +687,44 @@ public class XcodeService : IXcodeService
         {
             _logger.LogInformation("Xcode installation cancelled");
             progress?.Report("Installation cancelled");
-            return false;
+            throw;
         }
         catch (Exception ex)
         {
             _logger.LogError($"Failed to install Xcode: {ex.Message}", ex);
             progress?.Report($"Installation failed: {ex.Message}");
             return false;
+        }
+        finally
+        {
+            if (stagedArchivePath != null && File.Exists(stagedArchivePath))
+            {
+                try
+                {
+                    File.Move(stagedArchivePath, archivePath);
+                    progress?.Report($"Xcode archive preserved at {archivePath}");
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    _logger.LogError($"Could not restore Xcode archive from {stagedArchivePath}: {ex.Message}", ex);
+                    progress?.Report($"Xcode archive preserved at {stagedArchivePath}");
+                }
+            }
+            if (expandDir != null)
+            {
+                try
+                {
+                    if (!Directory.EnumerateFileSystemEntries(expandDir).Any())
+                        Directory.Delete(expandDir);
+                    else
+                        progress?.Report($"Extraction files preserved at {expandDir}");
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    _logger.LogWarning($"Could not clean extraction directory {expandDir}: {ex.Message}");
+                    progress?.Report($"Could not clean extraction directory {expandDir}: {ex.Message}");
+                }
+            }
         }
     }
 
@@ -1000,11 +1133,7 @@ public class XcodeService : IXcodeService
             psi.ArgumentList.Add("-e");
             psi.ArgumentList.Add(appleScript);
 
-            using var process = Process.Start(psi) ?? throw new InvalidOperationException("Failed to start osascript");
-            var output = await process.StandardOutput.ReadToEndAsync(ct);
-            var error = await process.StandardError.ReadToEndAsync(ct);
-            await process.WaitForExitAsync(ct);
-            return (process.ExitCode, output, error);
+            return await RunProcessAsync(psi, ct);
         }
         finally
         {
@@ -1018,6 +1147,27 @@ public class XcodeService : IXcodeService
             }
         }
     }
+
+    private const string FirstLaunchFailureMarker = "MAUI_SHERPA_XCODE_FIRST_LAUNCH_FAILED";
+
+    internal static string CreateInstallationScript(string sourcePath, string destinationPath) => $"""
+        source_path='{EscapeShellSingleQuotedString(sourcePath)}'
+        destination_path='{EscapeShellSingleQuotedString(destinationPath)}'
+
+        if [ ! -d "$source_path" ]; then
+            echo "Expanded Xcode app not found: $source_path" >&2
+            exit 1
+        fi
+
+        mv "$source_path" "$destination_path" || exit $?
+
+        xcodebuild_path="$destination_path/Contents/Developer/usr/bin/xcodebuild"
+        if [ -f "$xcodebuild_path" ]; then
+            if ! "$xcodebuild_path" -runFirstLaunch 2>&1; then
+                echo "{FirstLaunchFailureMarker}"
+            fi
+        fi
+        """;
 
     private static string? TryResolveDirectoryLinkTarget(string path)
     {
@@ -1113,23 +1263,28 @@ public class XcodeService : IXcodeService
     private static string EscapeAppleScriptDoubleQuotedString(string value) =>
         value.Replace("\\", "\\\\").Replace("\"", "\\\"");
 
-    internal static XcodeArchiveExtractionCommand CreateArchiveExtractionCommand(string xipPath, string? preference, string? unxipPath)
+    internal static XcodeArchiveExtractionCommand CreateArchiveExtractionCommand(string archivePath, string? preference, string? unxipPath)
     {
+        if (Path.GetExtension(archivePath).Equals(".aea", StringComparison.OrdinalIgnoreCase))
+            return new("/usr/bin/archiveutil", ["extractXcodeAEA", archivePath], XcodeArchiveExtractor.ArchiveUtil, false);
+        if (!Path.GetExtension(archivePath).Equals(".xip", StringComparison.OrdinalIgnoreCase))
+            throw new NotSupportedException("Unsupported Xcode archive format. Expected a .xip or .aea file.");
+
         var normalizedPreference = NormalizeArchiveExtractorPreference(preference);
         if (normalizedPreference == XcodeArchiveExtractorOptions.Unxip &&
             !string.IsNullOrWhiteSpace(unxipPath))
         {
             return new XcodeArchiveExtractionCommand(
                 FileName: unxipPath,
-                Arguments: $"\"{xipPath}\"",
-                Preference: normalizedPreference,
+                Arguments: [archivePath],
+                Extractor: XcodeArchiveExtractor.Unxip,
                 FellBackToSystemXip: false);
         }
 
         return new XcodeArchiveExtractionCommand(
             FileName: "xip",
-            Arguments: $"--expand \"{xipPath}\"",
-            Preference: XcodeArchiveExtractorOptions.SystemXip,
+            Arguments: ["--expand", archivePath],
+            Extractor: XcodeArchiveExtractor.SystemXip,
             FellBackToSystemXip: normalizedPreference == XcodeArchiveExtractorOptions.Unxip);
     }
 
@@ -1138,8 +1293,10 @@ public class XcodeService : IXcodeService
             ? XcodeArchiveExtractorOptions.Unxip
             : XcodeArchiveExtractorOptions.SystemXip;
 
-    private async Task<XcodeArchiveExtractionCommand> ResolveArchiveExtractionCommandAsync(string xipPath)
+    private async Task<XcodeArchiveExtractionCommand> ResolveArchiveExtractionCommandAsync(string archivePath)
     {
+        if (Path.GetExtension(archivePath).Equals(".aea", StringComparison.OrdinalIgnoreCase))
+            return CreateArchiveExtractionCommand(archivePath, null, null);
         var preference = XcodeArchiveExtractorOptions.SystemXip;
 
         try
@@ -1156,7 +1313,7 @@ public class XcodeService : IXcodeService
             ? await FindUnxipExecutableAsync()
             : null;
 
-        return CreateArchiveExtractionCommand(xipPath, preference, unxipPath);
+        return CreateArchiveExtractionCommand(archivePath, preference, unxipPath);
     }
 
     internal static string? FindBundledUnxipExecutable(string baseDirectory, string runtimeIdentifier)
@@ -1333,7 +1490,10 @@ public class XcodeService : IXcodeService
                     ReleaseNotesUrl: notesUrl,
                     FileSizeBytes: null,
                     Sdks: sdks,
-                    Compilers: compilers
+                    Compilers: compilers,
+                    BetaNumber: releaseInfo.TryGetProperty("beta", out var beta) && beta.TryGetInt32(out var betaNumber)
+                        ? betaNumber : null,
+                    IsReleaseCandidate: releaseInfo.TryGetProperty("rc", out _)
                 ));
             }
             catch
@@ -1360,21 +1520,74 @@ public class XcodeService : IXcodeService
         if (workingDirectory != null)
             psi.WorkingDirectory = workingDirectory;
 
-        using var process = Process.Start(psi) ?? throw new InvalidOperationException($"Failed to start {fileName}");
-        var output = await process.StandardOutput.ReadToEndAsync();
-        var error = await process.StandardError.ReadToEndAsync();
-        await process.WaitForExitAsync();
+        return await RunProcessAsync(psi, CancellationToken.None);
+    }
 
-        return (process.ExitCode, output, error);
+    internal static Task<(int exitCode, string output, string error)> RunProcessAsync(
+        string fileName, IReadOnlyList<string> arguments, string? workingDirectory = null, CancellationToken ct = default,
+        IProgress<string>? progress = null)
+    {
+        var psi = new ProcessStartInfo(fileName)
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+        foreach (var argument in arguments)
+            psi.ArgumentList.Add(argument);
+        if (workingDirectory != null)
+            psi.WorkingDirectory = workingDirectory;
+        return RunProcessAsync(psi, ct, progress);
+    }
+
+    private static async Task<(int exitCode, string output, string error)> RunProcessAsync(
+        ProcessStartInfo psi, CancellationToken ct, IProgress<string>? progress = null)
+    {
+        ct.ThrowIfCancellationRequested();
+        using var process = Process.Start(psi) ?? throw new InvalidOperationException($"Failed to start {psi.FileName}");
+        var output = ReadProcessOutputAsync(process.StandardOutput, progress);
+        var error = ReadProcessOutputAsync(process.StandardError, progress);
+        try
+        {
+            await process.WaitForExitAsync(ct);
+        }
+        catch (OperationCanceledException)
+        {
+            if (!process.HasExited)
+                process.Kill(entireProcessTree: true);
+            await process.WaitForExitAsync();
+            await Task.WhenAll(output, error);
+            throw;
+        }
+
+        return (process.ExitCode, await output, await error);
+    }
+
+    private static async Task<string> ReadProcessOutputAsync(StreamReader reader, IProgress<string>? progress)
+    {
+        if (progress == null)
+            return await reader.ReadToEndAsync();
+
+        var output = new StringBuilder();
+        while (await reader.ReadLineAsync() is { } line)
+        {
+            output.AppendLine(line);
+            if (!string.IsNullOrWhiteSpace(line))
+                progress.Report(line);
+        }
+        return output.ToString();
     }
 }
 
 internal readonly record struct XcodeArchiveExtractionCommand(
     string FileName,
-    string Arguments,
-    string Preference,
+    IReadOnlyList<string> Arguments,
+    XcodeArchiveExtractor Extractor,
     bool FellBackToSystemXip
 );
+
+internal enum XcodeArchiveExtractor { SystemXip, Unxip, ArchiveUtil }
 
 internal readonly record struct XcodeManagedDefaultState(
     string CanonicalAppPath,

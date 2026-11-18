@@ -15,7 +15,14 @@ public class SimInspectorService
     public event Action? StateChanged;
     public event Action<string>? DeviceChanged;
 
-    public void Open(string udid, string? simName = null, SimInspectorTab tab = SimInspectorTab.Logs, bool isPhysicalDevice = false)
+    public Task OpenAsync(string udid, string? simName = null, SimInspectorTab tab = SimInspectorTab.Logs, bool isPhysicalDevice = false) =>
+        NativeUiDispatcher.RunAsync(() =>
+        {
+            OpenCore(udid, simName, tab, isPhysicalDevice);
+            return Task.CompletedTask;
+        });
+
+    private void OpenCore(string udid, string? simName, SimInspectorTab tab, bool isPhysicalDevice)
     {
         ActiveUdid = udid;
         ActiveSimName = simName ?? udid;
@@ -55,7 +62,14 @@ public class SimInspectorService
             _window.Activated -= OnWindowActivated;
     }
 
-    public void SwitchDevice(string udid, string? simName = null)
+    public Task SwitchDeviceAsync(string udid, string? simName = null) =>
+        NativeUiDispatcher.RunAsync(() =>
+        {
+            SwitchDeviceCore(udid, simName);
+            return Task.CompletedTask;
+        });
+
+    private void SwitchDeviceCore(string udid, string? simName)
     {
         if (ActiveUdid == udid) return;
         ActiveUdid = udid;
@@ -73,7 +87,14 @@ public class SimInspectorService
         StateChanged?.Invoke();
     }
 
-    public void Close()
+    public Task CloseAsync() =>
+        NativeUiDispatcher.RunAsync(() =>
+        {
+            CloseCore();
+            return Task.CompletedTask;
+        });
+
+    private void CloseCore()
     {
         IsOpen = false;
         ActiveUdid = null;

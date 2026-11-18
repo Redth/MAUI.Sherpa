@@ -4,6 +4,7 @@
 @using MauiSherpa.Core.Interfaces
 @using MauiSherpa.Core.Services
 @using MauiSherpa.Core.Requests.Android
+@using MauiSherpa.Services
 @using Shiny.Mediator
 @inject SettingsViewModel ViewModel
 @inject IMediator Mediator
@@ -85,7 +86,7 @@
                 </div>
             </div>
             <div class="setting-item setting-item-start">
-                <label class="setting-label">Xcode Extractor</label>
+                <label class="setting-label">Xcode XIP Extractor</label>
                 <div class="setting-control setting-control-stack">
                     <select value="@xcodeArchiveExtractor" @onchange="OnXcodeArchiveExtractorChanged" class="setting-select-wide">
                         <option value="@XcodeArchiveExtractorOptions.SystemXip">System xip</option>
@@ -94,6 +95,7 @@
                     <div class="setting-description setting-description-block">
                         Use the system <code>xip</code> extractor for the safest default, or the bundled <code>unxip</code> helper for faster extraction.
                         <code>unxip</code> does not perform signature verification. If the bundled helper is unavailable, MauiSherpa falls back to <code>xip</code>.
+                        Apple Encrypted Archives (<code>.aea</code>) always use the system <code>archiveutil</code> tool.
                     </div>
                 </div>
             </div>
@@ -2184,14 +2186,7 @@
         if (identity != null)
             ModalParams.Set("Identity", identity);
 
-        var nav = Application.Current?.Windows.FirstOrDefault()?.Page?.Navigation;
-        if (nav == null) return;
-
-        var resultTask = ModalParams.WaitForResultAsync();
-        var page = new MauiSherpa.Pages.Forms.ProgressModalPage("/modal/apple-identity", 500, 550);
-        await nav.PushModalAsync(page, animated: true);
-        var result = await resultTask;
-        await nav.PopModalAsync(animated: true);
+        var result = await NativeModalPresenter.ShowProgressAsync(ModalParams, "/modal/apple-identity", 500, 550);
 
         if (result is AppleIdentity saved)
         {
@@ -2279,14 +2274,7 @@
         if (identity != null)
             ModalParams.Set("Identity", identity);
 
-        var nav = Application.Current?.Windows.FirstOrDefault()?.Page?.Navigation;
-        if (nav == null) return;
-
-        var resultTask = ModalParams.WaitForResultAsync();
-        var page = new MauiSherpa.Pages.Forms.ProgressModalPage("/modal/google-identity", 500, 550);
-        await nav.PushModalAsync(page, animated: true);
-        var result = await resultTask;
-        await nav.PopModalAsync(animated: true);
+        var result = await NativeModalPresenter.ShowProgressAsync(ModalParams, "/modal/google-identity", 500, 550);
 
         if (result is GoogleIdentity saved)
         {
@@ -2448,14 +2436,7 @@
         if (provider != null)
             ModalParams.Set("Provider", provider);
 
-        var nav = Application.Current?.Windows.FirstOrDefault()?.Page?.Navigation;
-        if (nav == null) return;
-
-        var resultTask = ModalParams.WaitForResultAsync();
-        var page = new MauiSherpa.Pages.Forms.ProgressModalPage("/modal/cloud-provider", 550, 550);
-        await nav.PushModalAsync(page, animated: true);
-        var result = await resultTask;
-        await nav.PopModalAsync(animated: true);
+        var result = await NativeModalPresenter.ShowProgressAsync(ModalParams, "/modal/cloud-provider", 550, 550);
 
         if (result is CloudSecretsProviderConfig saved)
         {
@@ -2572,14 +2553,7 @@
         if (publisher != null)
             ModalParams.Set("Publisher", publisher);
 
-        var nav = Application.Current?.Windows.FirstOrDefault()?.Page?.Navigation;
-        if (nav == null) return;
-
-        var resultTask = ModalParams.WaitForResultAsync();
-        var page = new MauiSherpa.Pages.Forms.ProgressModalPage("/modal/publisher", 550, 550);
-        await nav.PushModalAsync(page, animated: true);
-        var result = await resultTask;
-        await nav.PopModalAsync(animated: true);
+        var result = await NativeModalPresenter.ShowProgressAsync(ModalParams, "/modal/publisher", 550, 550);
 
         if (result is SecretsPublisherConfig saved)
         {
@@ -2632,14 +2606,7 @@
         {
             ModalParams.Clear();
 
-            var nav = Application.Current?.Windows.FirstOrDefault()?.Page?.Navigation;
-            if (nav == null) return;
-
-            var resultTask = ModalParams.WaitForResultAsync();
-            var page = new MauiSherpa.Pages.Forms.ProgressModalPage("/modal/export-settings", 500, 600);
-            await nav.PushModalAsync(page, animated: true);
-            await resultTask;
-            await nav.PopModalAsync(animated: true);
+            await NativeModalPresenter.ShowProgressAsync(ModalParams, "/modal/export-settings", 500, 600);
         }
         finally
         {
@@ -2657,14 +2624,7 @@
         {
             ModalParams.Clear();
 
-            var nav = Application.Current?.Windows.FirstOrDefault()?.Page?.Navigation;
-            if (nav == null) return;
-
-            var resultTask = ModalParams.WaitForResultAsync();
-            var page = new MauiSherpa.Pages.Forms.ProgressModalPage("/modal/import-settings", 500, 350);
-            await nav.PushModalAsync(page, animated: true);
-            var result = await resultTask;
-            await nav.PopModalAsync(animated: true);
+            var result = await NativeModalPresenter.ShowProgressAsync(ModalParams, "/modal/import-settings", 500, 350);
 
             if (result is BackupImportResult importResult)
             {
@@ -2813,13 +2773,6 @@
         ModalParams.Clear();
         ModalParams.Set("UpdateResult", updateResult);
 
-        var nav = Application.Current?.Windows.FirstOrDefault()?.Page?.Navigation;
-        if (nav == null) return;
-
-        var resultTask = ModalParams.WaitForResultAsync();
-        var page = new MauiSherpa.Pages.Forms.ProgressModalPage("/modal/update-available", 600, 500);
-        await nav.PushModalAsync(page, animated: true);
-        await resultTask;
-        await nav.PopModalAsync(animated: true);
+        await NativeModalPresenter.ShowProgressAsync(ModalParams, "/modal/update-available", 600, 500);
     }
 }

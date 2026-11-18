@@ -1,5 +1,3 @@
-using Microsoft.Maui.Controls;
-
 namespace MauiSherpa.Pages.Forms;
 
 /// <summary>
@@ -18,22 +16,51 @@ public record HybridHeaderAction(
 /// embedded Blazor component. The MAUI page listens for validation changes;
 /// the Blazor component sets validity and collects form data on submit.
 /// </summary>
-public class HybridFormBridge
+public partial class HybridFormBridge
 {
+    private SynchronizationContext? _callbackContext;
+    private SynchronizationContext? _cancelCallbackContext;
+    private Func<Task>? _submitRequested;
+    private Action? _cancelRequested;
+    private Func<Task>? _backRequested;
+    private Func<Task>? _nextRequested;
+    private Func<string, Task>? _actionRequested;
+
     /// <summary>Fired by the Blazor component when form validity changes.</summary>
     public event Action? ValidationChanged;
 
     /// <summary>Fired by the MAUI page when the native Submit button is clicked.</summary>
-    public event Func<Task>? SubmitRequested;
+    public event Func<Task>? SubmitRequested
+    {
+        add { CaptureCallbackContext(); _submitRequested += value; }
+        remove { _submitRequested -= value; }
+    }
 
     /// <summary>Fired by the MAUI page when the native Cancel button is clicked.</summary>
-    public event Action? CancelRequested;
+    public event Action? CancelRequested
+    {
+        add { _cancelCallbackContext ??= SynchronizationContext.Current; _cancelRequested += value; }
+        remove
+        {
+            _cancelRequested -= value;
+            if (_cancelRequested == null)
+                _cancelCallbackContext = null;
+        }
+    }
 
     /// <summary>Fired by the MAUI page when the native Back button is clicked (wizard).</summary>
-    public event Func<Task>? BackRequested;
+    public event Func<Task>? BackRequested
+    {
+        add { CaptureCallbackContext(); _backRequested += value; }
+        remove { _backRequested -= value; }
+    }
 
     /// <summary>Fired by the MAUI page when the native Next button is clicked (wizard).</summary>
-    public event Func<Task>? NextRequested;
+    public event Func<Task>? NextRequested
+    {
+        add { CaptureCallbackContext(); _nextRequested += value; }
+        remove { _nextRequested -= value; }
+    }
 
     /// <summary>Fired by the Blazor component when wizard button state changes.</summary>
     public event Action? WizardStateChanged;
@@ -128,143 +155,75 @@ public class HybridFormBridge
         HeaderActionsChanged?.Invoke();
     }
 
-    internal static Button CreateHeaderActionButton(HybridFormBridge bridge, HybridHeaderAction action)
-    {
-        var button = new Button
-        {
-            Text = action.FallbackText ?? string.Empty,
-            FontSize = 13,
-            BackgroundColor = Colors.Transparent,
-            BorderWidth = 0,
-            CornerRadius = 6,
-            Padding = new Thickness(8, 4),
-            WidthRequest = 32,
-            HeightRequest = 28,
-            MinimumWidthRequest = 32,
-            IsEnabled = action.IsEnabled,
-            IsVisible = action.IsVisible,
-            VerticalOptions = LayoutOptions.Center,
-        };
-        button.SetDynamicResource(Button.TextColorProperty, FormTheme.TextSecondary);
-        if (!string.IsNullOrEmpty(action.ToolTip))
-            ToolTipProperties.SetText(button, action.ToolTip);
-
-        button.Clicked += async (_, _) => await bridge.RequestActionAsync(action.Id);
-        return button;
-    }
-
-#if MACOSAPP
-    internal static void SyncMacHeaderActionButtons(
-        View? headerContainer,
-        HybridFormBridge bridge,
-        ref List<AppKit.NSButton>? macButtons)
-    {
-        if (macButtons != null)
-        {
-            foreach (var oldBtn in macButtons)
-            {
-                oldBtn.RemoveFromSuperview();
-                oldBtn.Dispose();
-            }
-            macButtons.Clear();
-        }
-
-        if (headerContainer?.Handler?.PlatformView is not AppKit.NSView containerView)
-            return;
-
-        var visibleActions = bridge.HeaderActions.Where(a => a.IsVisible).ToList();
-        if (visibleActions.Count == 0)
-            return;
-
-        macButtons ??= new List<AppKit.NSButton>();
-
-        var bounds = containerView.Bounds;
-        var containerWidth = bounds.Width > 0 ? bounds.Width : 540;
-        var containerHeight = bounds.Height > 0 ? bounds.Height : 56;
-
-        nfloat buttonWidth = 30;
-        nfloat buttonHeight = 26;
-        nfloat spacing = 6;
-        nfloat rightEdge = containerWidth - 24;
-        nfloat y = (nfloat)Math.Max(4, (containerHeight - buttonHeight) / 2 + 3);
-
-        var symbolConfig = AppKit.NSImageSymbolConfiguration.Create(13f, AppKit.NSFontWeight.Medium);
-
-        for (var i = visibleActions.Count - 1; i >= 0; i--)
-        {
-            var action = visibleActions[i];
-            var actionId = action.Id;
-            rightEdge -= buttonWidth;
-
-            var nsButton = AppKit.NSButton.CreateButton(action.FallbackText ?? string.Empty, () =>
-            {
-                _ = bridge.RequestActionAsync(actionId);
-            });
-            nsButton.BezelStyle = AppKit.NSBezelStyle.AccessoryBarAction;
-            nsButton.ControlSize = AppKit.NSControlSize.Regular;
-            nsButton.Enabled = action.IsEnabled;
-            if (!string.IsNullOrEmpty(action.ToolTip))
-                nsButton.ToolTip = action.ToolTip;
-
-            var symbol = AppKit.NSImage.GetSystemSymbol(action.Icon, null);
-            if (symbol != null)
-            {
-                if (symbolConfig != null)
-                    symbol = symbol.GetImage(symbolConfig) ?? symbol;
-                nsButton.Image = symbol;
-                nsButton.ImagePosition = AppKit.NSCellImagePosition.ImageOnly;
-                nsButton.Title = string.Empty;
-            }
-
-            nsButton.Frame = new CoreGraphics.CGRect(rightEdge, y, buttonWidth, buttonHeight);
-            nsButton.AutoresizingMask = AppKit.NSViewResizingMask.MinXMargin;
-
-            containerView.AddSubview(nsButton);
-            macButtons.Add(nsButton);
-
-            rightEdge -= spacing;
-        }
-    }
-#endif
-
     /// <summary>Fired by the MAUI page when a custom action button is clicked (e.g. "save", "reset").</summary>
-    public event Func<string, Task>? ActionRequested;
+    public event Func<string, Task>? ActionRequested
+    {
+        add { CaptureCallbackContext(); _actionRequested += value; }
+        remove { _actionRequested -= value; }
+    }
 
     /// <summary>Called by MAUI page when native submit button is pressed.</summary>
-    public async Task RequestSubmitAsync()
-    {
-        if (SubmitRequested != null)
-            await SubmitRequested.Invoke();
-    }
+    public Task RequestSubmitAsync() => InvokeCallbackAsync(_submitRequested);
 
     /// <summary>Called by MAUI page when a custom action button is pressed.</summary>
-    public async Task RequestActionAsync(string actionId)
+    public Task RequestActionAsync(string actionId)
     {
-        if (ActionRequested != null)
-            await ActionRequested.Invoke(actionId);
+        var callback = _actionRequested;
+        return InvokeCallbackAsync(callback == null ? null : () => callback(actionId));
     }
 
     /// <summary>Fired by the Blazor component to programmatically close the modal with a result.</summary>
     public event Action? CloseRequested;
 
     /// <summary>Called by MAUI page when native cancel button is pressed.</summary>
-    public void RequestCancel() => CancelRequested?.Invoke();
+    public Task RequestCancelAsync()
+    {
+        var callback = _cancelRequested;
+        return InvokeCallbackAsync(callback == null ? null : () =>
+        {
+            callback();
+            return Task.CompletedTask;
+        }, _cancelCallbackContext);
+    }
 
     /// <summary>Called by Blazor component to close the modal with the current Result.</summary>
     public void RequestClose() => CloseRequested?.Invoke();
 
     /// <summary>Called by MAUI page when native back button is pressed.</summary>
-    public async Task RequestBackAsync()
-    {
-        if (BackRequested != null)
-            await BackRequested.Invoke();
-    }
+    public Task RequestBackAsync() => InvokeCallbackAsync(_backRequested);
 
     /// <summary>Called by MAUI page when native next button is pressed.</summary>
-    public async Task RequestNextAsync()
+    public Task RequestNextAsync() => InvokeCallbackAsync(_nextRequested);
+
+    private void CaptureCallbackContext()
     {
-        if (NextRequested != null)
-            await NextRequested.Invoke();
+        // Native buttons can run on a different thread from the Blazor renderer.
+        _callbackContext ??= SynchronizationContext.Current;
+    }
+
+    private Task InvokeCallbackAsync(Func<Task>? callback, SynchronizationContext? fallbackContext = null)
+    {
+        if (callback == null)
+            return Task.CompletedTask;
+
+        var context = _callbackContext ?? fallbackContext;
+        if (context == null || SynchronizationContext.Current == context)
+            return callback();
+
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        context.Post(async _ =>
+        {
+            try
+            {
+                await callback();
+                completion.TrySetResult();
+            }
+            catch (Exception ex)
+            {
+                completion.TrySetException(ex);
+            }
+        }, null);
+        return completion.Task;
     }
 }
 
@@ -276,15 +235,41 @@ public class HybridFormBridge
 public class HybridFormBridgeHolder
 {
     private readonly Stack<HybridFormBridge> _stack = new();
+    private readonly object _gate = new();
 
-    public HybridFormBridge? Current => _stack.Count > 0 ? _stack.Peek() : null;
+    public HybridFormBridge? Current
+    {
+        get
+        {
+            lock (_gate)
+                return _stack.Count > 0 ? _stack.Peek() : null;
+        }
+    }
 
     /// <summary>Push a new bridge for a nested modal.</summary>
-    public void Push(HybridFormBridge bridge) => _stack.Push(bridge);
+    public void Push(HybridFormBridge bridge)
+    {
+        lock (_gate)
+            _stack.Push(bridge);
+    }
 
     /// <summary>Pop the current bridge when a modal closes, restoring the parent's.</summary>
     public void Pop()
     {
-        if (_stack.Count > 0) _stack.Pop();
+        lock (_gate)
+        {
+            if (_stack.Count > 0) _stack.Pop();
+        }
+    }
+
+    public void Remove(HybridFormBridge bridge)
+    {
+        lock (_gate)
+        {
+            var remaining = _stack.Where(item => !ReferenceEquals(item, bridge)).Reverse().ToArray();
+            _stack.Clear();
+            foreach (var item in remaining)
+                _stack.Push(item);
+        }
     }
 }

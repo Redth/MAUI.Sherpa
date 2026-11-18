@@ -7,11 +7,17 @@
 @inject ICopilotContextService CopilotContext
 @inject IJSRuntime JS
 @inject ProgressBridgeHolder BridgeHolder
+@inject IPlatformService PlatformInfo
 @implements IDisposable
 
 @if (ModalService.IsVisible)
 {
-    <div class="multi-op-content" id="multi-op-modal">
+    <div class="multi-op-host @(PlatformInfo.IsLinux ? "multi-op-host-linux" : null)">
+    <div class="multi-op-content" id="multi-op-modal" role="dialog" aria-modal="true">
+        @if (PlatformInfo.IsLinux)
+        {
+            <h2 class="multi-op-title">@ModalService.Title</h2>
+        }
         <p class="description">@ModalService.Description</p>
 
         <div class="operations-list">
@@ -151,10 +157,67 @@
                 <span class="progress-text">@CurrentProgress / @TotalEnabled</span>
             </div>
         }
+        @if (PlatformInfo.IsLinux)
+        {
+            <div class="multi-op-actions">
+                @if (ModalService.IsConfirming)
+                {
+                    <button class="btn btn-secondary" @onclick="HandleCancel">Cancel</button>
+                    <button class="btn btn-primary" @onclick="HandleStart" disabled="@(EnabledCount == 0)">
+                        Run @EnabledCount Operation@(EnabledCount != 1 ? "s" : "")
+                    </button>
+                }
+                else if (ModalService.IsRunning)
+                {
+                    <button class="btn btn-secondary" @onclick="HandleRequestCancel">Stop</button>
+                }
+                else
+                {
+                    @if (FailedCount > 0)
+                    {
+                        <button class="btn btn-secondary" @onclick="HandleTryWithCopilot">Try with Copilot</button>
+                    }
+                    <button class="btn btn-primary" @onclick="HandleClose">Close</button>
+                }
+            </div>
+        }
+    </div>
     </div>
 }
 
 <style>
+    .multi-op-host { display: contents; }
+
+    .multi-op-host-linux {
+        position: fixed;
+        inset: 0;
+        z-index: 10001;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1rem;
+        background: var(--modal-overlay, rgba(0, 0, 0, 0.5));
+    }
+
+    .multi-op-host-linux .multi-op-content {
+        width: min(700px, 100%);
+        height: min(500px, calc(100vh - 2rem));
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: var(--card-radius, 1rem);
+        box-shadow: 0 1.5rem 4rem rgba(0, 0, 0, 0.25);
+    }
+
+    .multi-op-title { margin: 0; font-size: 1.125rem; color: var(--text-primary); }
+
+    .multi-op-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 0.75rem;
+        margin-top: auto;
+        flex-shrink: 0;
+    }
+
     .multi-op-content {
         width: 100%;
         height: 100%;
@@ -439,6 +502,8 @@
     private System.Timers.Timer? _elapsedTimer;
     private DateTime _startTime;
     private DotNetObjectReference<MultiOperationModal>? _dotNetRef;
+    private ProgressBridge? _progressBridge;
+    private bool _keyboardInitialized;
     private string ElapsedTime { get; set; } = "00:00";
 
     private int EnabledCount => ModalService.Operations.Count(o => o.IsEnabled);
@@ -463,9 +528,9 @@
         ModalService.OnExecutionCompleted += HandleExecutionCompleted;
         _dotNetRef = DotNetObjectReference.Create(this);
 
-        var bridge = BridgeHolder.Current;
-        if (bridge != null)
-            bridge.ButtonClicked += OnBridgeButtonClicked;
+        _progressBridge = PlatformInfo.IsLinux ? null : BridgeHolder.Current;
+        if (_progressBridge != null)
+            _progressBridge.ButtonClicked += OnBridgeButtonClicked;
 
         // Catch up if already visible
         if (ModalService.IsVisible)
@@ -476,6 +541,12 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (PlatformInfo.IsLinux && !_keyboardInitialized)
+        {
+            await JS.InvokeVoidAsync("modalInterop.initialize", "multi-op-modal", _dotNetRef);
+            _keyboardInitialized = true;
+        }
+
         if (ModalService.IsRunning || HasResult)
         {
             try
@@ -486,26 +557,36 @@
         }
     }
 
+    [JSInvokable]
+    public void OnEscapePressed()
+    {
+        if (ModalService.IsConfirming)
+            HandleCancel();
+        else if (!ModalService.IsRunning)
+            HandleClose();
+    }
+
     private void HandleShowRequested(string title, string description)
     {
-        expandedOperations.Clear();
-        UpdateBridgeButtons();
-        InvokeAsync(StateHasChanged);
+        _ = InvokeAsync(() =>
+        {
+            expandedOperations.Clear();
+            UpdateBridgeButtons();
+            StateHasChanged();
+        });
     }
 
     private void HandleOperationStateChanged(OperationItemStatus status)
     {
-        // Auto-expand running operation, auto-collapse completed ones
-        if (status.State == OperationItemState.Running)
+        _ = InvokeAsync(() =>
         {
-            expandedOperations.Add(status.Id);
-        }
-        else if (status.State == OperationItemState.Completed && status.Log.Count == 0)
-        {
-            expandedOperations.Remove(status.Id);
-        }
-        
-        InvokeAsync(StateHasChanged);
+            if (status.State == OperationItemState.Running)
+                expandedOperations.Add(status.Id);
+            else if (status.State == OperationItemState.Completed && status.Log.Count == 0)
+                expandedOperations.Remove(status.Id);
+            UpdateBridgeButtons();
+            StateHasChanged();
+        });
     }
 
     private void HandleLogEntry(string operationId, OperationLogEntry entry)
@@ -515,26 +596,33 @@
 
     private void HandleExecutionStarted()
     {
-        _startTime = DateTime.Now;
-        _elapsedTimer = new System.Timers.Timer(1000);
-        _elapsedTimer.Elapsed += (_, _) =>
+        _ = InvokeAsync(() =>
         {
-            ElapsedTime = (DateTime.Now - _startTime).ToString(@"mm\:ss");
-            InvokeAsync(StateHasChanged);
-        };
-        _elapsedTimer.Start();
-        UpdateBridgeButtons();
-        InvokeAsync(StateHasChanged);
+            _startTime = DateTime.Now;
+            _elapsedTimer?.Dispose();
+            _elapsedTimer = new System.Timers.Timer(1000);
+            _elapsedTimer.Elapsed += (_, _) => _ = InvokeAsync(() =>
+            {
+                ElapsedTime = (DateTime.Now - _startTime).ToString(@"mm\:ss");
+                StateHasChanged();
+            });
+            _elapsedTimer.Start();
+            UpdateBridgeButtons();
+            StateHasChanged();
+        });
     }
 
     private void HandleExecutionCompleted()
     {
-        _elapsedTimer?.Stop();
-        _elapsedTimer?.Dispose();
-        _elapsedTimer = null;
-        ElapsedTime = (DateTime.Now - _startTime).ToString(@"mm\:ss\.f");
-        UpdateBridgeButtons();
-        InvokeAsync(StateHasChanged);
+        _ = InvokeAsync(() =>
+        {
+            _elapsedTimer?.Stop();
+            _elapsedTimer?.Dispose();
+            _elapsedTimer = null;
+            ElapsedTime = (DateTime.Now - _startTime).ToString(@"mm\:ss\.f");
+            UpdateBridgeButtons();
+            StateHasChanged();
+        });
     }
 
     private void ToggleExpanded(string operationId)
@@ -581,12 +669,14 @@
     private void HandleClose()
     {
         ModalService.Close();
-        BridgeHolder.Current?.RequestClose();
+        if (!PlatformInfo.IsLinux)
+            _progressBridge?.RequestClose();
     }
 
     private void UpdateBridgeButtons()
     {
-        var bridge = BridgeHolder.Current;
+        if (PlatformInfo.IsLinux) return;
+        var bridge = _progressBridge;
         if (bridge == null) return;
 
         if (ModalService.IsConfirming && !ModalService.IsRunning)
@@ -714,15 +804,16 @@
 
     public void Dispose()
     {
+        if (_keyboardInitialized)
+            _ = JS.InvokeVoidAsync("modalInterop.dispose", "multi-op-modal");
         ModalService.OnShowRequested -= HandleShowRequested;
         ModalService.OnOperationStateChanged -= HandleOperationStateChanged;
         ModalService.OnLogEntry -= HandleLogEntry;
         ModalService.OnExecutionStarted -= HandleExecutionStarted;
         ModalService.OnExecutionCompleted -= HandleExecutionCompleted;
         _elapsedTimer?.Dispose();
-        var bridge = BridgeHolder.Current;
-        if (bridge != null)
-            bridge.ButtonClicked -= OnBridgeButtonClicked;
+        if (_progressBridge != null)
+            _progressBridge.ButtonClicked -= OnBridgeButtonClicked;
         _dotNetRef?.Dispose();
     }
 }

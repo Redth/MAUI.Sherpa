@@ -15,7 +15,14 @@ public class DevFlowInspectorService
 
     public event Action? StateChanged;
 
-    public void Open(string agentId, string host, int port, string? appName = null, DevFlowInspectorTab tab = DevFlowInspectorTab.Tree)
+    public Task OpenAsync(string agentId, string host, int port, string? appName = null, DevFlowInspectorTab tab = DevFlowInspectorTab.Tree) =>
+        NativeUiDispatcher.RunAsync(() =>
+        {
+            OpenCore(agentId, host, port, appName, tab);
+            return Task.CompletedTask;
+        });
+
+    private void OpenCore(string agentId, string host, int port, string? appName, DevFlowInspectorTab tab)
     {
         ActiveAgentId = agentId;
         ActiveHost = host;
@@ -55,7 +62,14 @@ public class DevFlowInspectorService
         StateChanged?.Invoke();
     }
 
-    public void Close()
+    public Task CloseAsync() =>
+        NativeUiDispatcher.RunAsync(() =>
+        {
+            CloseCore();
+            return Task.CompletedTask;
+        });
+
+    private void CloseCore()
     {
         IsOpen = false;
         ActiveAgentId = null;
