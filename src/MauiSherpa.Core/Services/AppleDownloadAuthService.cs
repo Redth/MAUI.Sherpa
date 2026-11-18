@@ -21,6 +21,7 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
     private readonly ISecureStorageService _secureStorage;
     private readonly HttpClient _httpClient;
     private readonly CookieContainer _cookieContainer;
+    private readonly Task _restoreSessionTask;
 
     private AppleAuthSession? _session;
     private AppleAuthOptions? _pendingAuthOptions;
@@ -67,6 +68,7 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
     private static readonly int PadLength = NBytes.Length; // 256
 
     public bool IsAuthenticated => _session != null && _session.ExpiresAt > DateTime.UtcNow;
+    public string? SessionValidationMessage { get; private set; }
     public string? CurrentAppleId => _session?.AppleId ?? _pendingAppleId;
 
     public event Action? AuthStateChanged;
@@ -93,7 +95,7 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
         _httpClient.DefaultRequestHeaders.Add("Accept", "application/json, text/javascript, */*; q=0.01");
 
         // Try to restore session from secure storage
-        _ = TryRestoreSessionAsync();
+        _restoreSessionTask = TryRestoreSessionAsync();
     }
 
     public async Task<AppleAuthResult> AuthenticateAsync(string appleId, string password)
@@ -340,18 +342,12 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
 
     public async Task<bool> ValidateSessionAsync()
     {
+        await _restoreSessionTask;
         if (_session == null) return false;
-        if (_session.ExpiresAt <= DateTime.UtcNow)
-        {
-            await ClearPersistedSessionAsync();
-            _session = null;
-            AuthStateChanged?.Invoke();
-            return false;
-        }
 
         try
         {
-            var renewIfValid = ShouldRenewSession(_session, DateTime.UtcNow);
+            var renewIfValid = _session.ExpiresAt <= DateTime.UtcNow || ShouldRenewSession(_session, DateTime.UtcNow);
             return await ValidateSessionWithServerAsync(renewIfValid);
         }
         catch (Exception ex)
@@ -383,6 +379,7 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
     public async Task SignOutAsync()
     {
         _session = null;
+        SessionValidationMessage = null;
         _pendingAppleId = null;
         _pendingAuthOptions = null;
         _pendingSessionId = null;
@@ -1108,7 +1105,7 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
 
             // Fallback for Apple Developer accounts that can download Xcode on developer.apple.com
             // without belonging to an App Store Connect team (where olympus/v1/session returns 401/403).
-            if (await ValidateDeveloperDownloadsSessionAsync())
+            if (await ValidateDeveloperDownloadsSessionAsync() == true)
             {
                 return CreateSessionFromCurrentCookies(resolvedAppleId ?? "Apple Developer", DateTime.UtcNow);
             }
@@ -1147,36 +1144,49 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
         return null;
     }
 
-    private async Task<bool> ValidateDeveloperDownloadsSessionAsync()
+    private async Task<bool?> ValidateDeveloperDownloadsSessionAsync()
     {
         try
         {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
             using var listRequest = new HttpRequestMessage(HttpMethod.Post, DeveloperListDownloadsUrl);
             listRequest.Headers.Add("Accept", "application/json");
 
-            using var listResponse = await _httpClient.SendAsync(listRequest);
+            using var listResponse = await _httpClient.SendAsync(listRequest, timeout.Token);
             if (!listResponse.IsSuccessStatusCode)
-                return false;
-
-            var body = await listResponse.Content.ReadAsStringAsync();
-            using var doc = JsonDocument.Parse(body);
-            if (doc.RootElement.TryGetProperty("resultCode", out var rcProp)
-                && rcProp.ValueKind == JsonValueKind.Number
-                && rcProp.GetInt32() == 0)
             {
-                return true;
+                _logger.LogWarning($"Apple download session check returned HTTP {(int)listResponse.StatusCode}");
+                return listResponse.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden
+                    ? false
+                    : null;
             }
+
+            var body = await listResponse.Content.ReadAsStringAsync(timeout.Token);
+            using var doc = JsonDocument.Parse(body);
+            if (doc.RootElement.ValueKind == JsonValueKind.Object
+                && doc.RootElement.TryGetProperty("resultCode", out var rcProp)
+                && rcProp.ValueKind == JsonValueKind.Number
+                && rcProp.TryGetInt32(out var resultCode))
+            {
+                _logger.LogInformation($"Apple download session check resultCode: {resultCode}");
+                if (resultCode == 0)
+                    return true;
+                if (resultCode == 1100)
+                    return false;
+            }
+            _logger.LogWarning("Apple download session check returned an unrecognized response");
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or JsonException)
         {
             _logger.LogWarning($"Developer portal session check failed: {ex.Message}");
         }
 
-        return false;
+        return null;
     }
 
     private async Task PersistSessionAsync(AppleAuthSession session)
     {
+        SessionValidationMessage = null;
         try
         {
             var json = JsonSerializer.Serialize(session);
@@ -1242,28 +1252,13 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
             if (json == null) return;
 
             var session = JsonSerializer.Deserialize<AppleAuthSession>(json);
-            if (session != null && session.ExpiresAt > DateTime.UtcNow)
+            if (session != null)
             {
                 _session = session;
                 _pendingAppleId ??= session.AppleId;
                 RestoreCookies(session);
-                _logger.LogInformation($"Restored Apple session for {session.AppleId} until {session.ExpiresAt:u}");
-                AuthStateChanged?.Invoke();
-
-                if (ShouldRenewSession(session, DateTime.UtcNow))
-                    await ValidateSessionWithServerAsync(renewIfValid: true);
-            }
-            else if (session != null)
-            {
-                _session = session;
-                _pendingAppleId ??= session.AppleId;
-                RestoreCookies(session);
-
-                if (!await ValidateSessionWithServerAsync(renewIfValid: true))
-                {
-                    _session = null;
-                    _logger.LogInformation("Apple Developer session is locally expired and could not be refreshed");
-                }
+                _logger.LogInformation("Checking restored Apple download session with Apple");
+                await ValidateSessionWithServerAsync(renewIfValid: true);
             }
         }
         catch (Exception ex)
@@ -1307,39 +1302,47 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
 
     private async Task<bool> ValidateSessionWithServerAsync(bool renewIfValid)
     {
-        if (_session == null) return false;
+        var session = _session;
+        if (session == null) return false;
 
-        var request = new HttpRequestMessage(HttpMethod.Get, OlympusSessionUrl);
-        var response = await _httpClient.SendAsync(request);
-        if (response.IsSuccessStatusCode)
+        // App Store Connect can accept a session whose Developer Downloads authorization has expired.
+        var downloadSessionValid = await ValidateDeveloperDownloadsSessionAsync();
+        if (!ReferenceEquals(_session, session))
+            return false;
+
+        if (downloadSessionValid == true)
         {
             if (renewIfValid)
                 await RenewSessionFromCurrentCookiesAsync();
+            else if (SessionValidationMessage != null)
+            {
+                SessionValidationMessage = null;
+                AuthStateChanged?.Invoke();
+            }
 
             return true;
         }
 
-        if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+        if (downloadSessionValid == false)
         {
-            if (await ValidateDeveloperDownloadsSessionAsync())
-            {
-                if (renewIfValid)
-                    await RenewSessionFromCurrentCookiesAsync();
-
-                return true;
-            }
-
-            _pendingAppleId = _session.AppleId;
-            await PersistTrustCookiesAsync(_session.CookieDetails, DateTime.UtcNow);
+            _pendingAppleId = session.AppleId;
+            await PersistTrustCookiesAsync(session.CookieDetails, DateTime.UtcNow);
             ExpireShortLivedSessionCookies();
             await ClearPersistedSessionAsync(clearTrustAndAppleId: false);
             _session = null;
+            SessionValidationMessage = "Your Apple download session has expired or was rejected. Sign in again to check AEA availability and download Xcode.";
             AuthStateChanged?.Invoke();
-            _logger.LogInformation($"Apple Developer session validation failed with {(int)response.StatusCode}; cleared active session while preserving device trust cookies");
+            _logger.LogInformation("Apple rejected the download session; cleared active session while preserving device trust cookies");
             return false;
         }
 
-        _logger.LogWarning($"Apple Developer session validation returned {(int)response.StatusCode}; preserving saved session");
+        const string message = "Could not verify your Apple download session. Your saved login has been kept. Refresh to try again.";
+        if (SessionValidationMessage != message)
+        {
+            SessionValidationMessage = message;
+            AuthStateChanged?.Invoke();
+        }
+        _logger.LogWarning("Apple download session could not be verified; preserving saved session");
         return false;
     }
 
