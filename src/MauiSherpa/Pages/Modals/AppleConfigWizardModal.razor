@@ -84,6 +84,12 @@
                         <div class="option-label">iOS</div>
                         <div class="option-desc">iPhone &amp; iPad</div>
                     </div>
+                    <div class="option-card @(config.Platform == ApplePlatformType.tvOS ? "selected" : "")"
+                         @onclick="@(() => SelectPlatform(ApplePlatformType.tvOS))">
+                        <i class="fa-solid fa-tv"></i>
+                        <div class="option-label">tvOS</div>
+                        <div class="option-desc">Apple TV</div>
+                    </div>
                     <div class="option-card @(config.Platform == ApplePlatformType.MacCatalyst ? "selected" : "")"
                          @onclick="@(() => SelectPlatform(ApplePlatformType.MacCatalyst))">
                         <i class="fa-solid fa-laptop"></i>
@@ -897,6 +903,7 @@
         var platformMatch = config.Platform switch
         {
             ApplePlatformType.iOS => pt.StartsWith("IOS_"),
+            ApplePlatformType.tvOS => pt.StartsWith("TVOS_"),
             ApplePlatformType.MacCatalyst => pt.StartsWith("MAC_CATALYST_"),
             ApplePlatformType.macOS => pt.StartsWith("MAC_APP_"),
             _ => false
@@ -1012,10 +1019,10 @@
     private IEnumerable<(AppleDistributionType Type, string Name, string Description, string Icon)> GetAvailableDistributionTypes()
     {
         yield return (AppleDistributionType.Development, "Development", "Build and test on registered devices", "fa-solid fa-code");
-        if (config.Platform == ApplePlatformType.iOS)
+        if (config.Platform is ApplePlatformType.iOS or ApplePlatformType.tvOS)
             yield return (AppleDistributionType.AdHoc, "Ad Hoc", "Distribute to specific registered devices", "fa-solid fa-users");
         yield return (AppleDistributionType.AppStore, "App Store / TestFlight", "Submit to the App Store or TestFlight", "fa-brands fa-app-store");
-        if (config.Platform != ApplePlatformType.iOS)
+        if (config.Platform is ApplePlatformType.MacCatalyst or ApplePlatformType.macOS)
             yield return (AppleDistributionType.Direct, "Direct Distribution", "Distribute outside the App Store (notarized)", "fa-solid fa-box-open");
     }
 

@@ -78,6 +78,7 @@ public class AppleConfigVM
         ApplePlatformType.iOS => "iOS",
         ApplePlatformType.MacCatalyst => "Mac Catalyst",
         ApplePlatformType.macOS => "macOS",
+        ApplePlatformType.tvOS => "tvOS",
         _ => ""
     };
 
@@ -98,6 +99,7 @@ public class AppleConfigVM
             ApplePlatformType.iOS => "IOS",
             ApplePlatformType.MacCatalyst => "MACCATALYST",
             ApplePlatformType.macOS => "MACOS",
+            ApplePlatformType.tvOS => "TVOS",
             _ => Label.ToUpperInvariant().Replace(' ', '_').Replace('-', '_')
         };
         var distLabel = DistributionType switch

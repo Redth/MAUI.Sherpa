@@ -676,6 +676,7 @@ public class PublishProfileService : IPublishProfileService
             ApplePlatformType.iOS => "IOS",
             ApplePlatformType.MacCatalyst => "MACCATALYST",
             ApplePlatformType.macOS => "MACOS",
+            ApplePlatformType.tvOS => "TVOS",
             _ => SanitizeLabel(config.Label)
         };
         var distLabel = config.DistributionType switch

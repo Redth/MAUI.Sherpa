@@ -101,6 +101,7 @@
             <select @bind="filterPlatform" class="filter-select">
                 <option value="">All Platforms</option>
                 <option value="IOS">iOS</option>
+                <option value="TVOS">tvOS</option>
                 <option value="MAC_OS">macOS</option>
             </select>
         </div>
@@ -199,9 +200,9 @@
                         }
                         <div class="profile-badges">
                             <span class="badge badge-type">@FormatProfileType(profile.ProfileType)</span>
-                            @if (!string.IsNullOrEmpty(profile.Platform))
+                            @if (!string.IsNullOrEmpty(GetProfilePlatform(profile)))
                             {
-                                <span class="badge badge-platform">@profile.Platform</span>
+                                <span class="badge badge-platform">@AppleProfileTypes.GetPlatformLabel(GetProfilePlatform(profile))</span>
                             }
                             @if (isInvalid)
                             {
@@ -619,8 +620,8 @@
                     p.Name.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) ||
                     p.Uuid.Contains(searchQuery, StringComparison.OrdinalIgnoreCase))
         .Where(p => string.IsNullOrEmpty(filterState) || (p.State?.Equals(filterState, StringComparison.OrdinalIgnoreCase) ?? false))
-        .Where(p => string.IsNullOrEmpty(filterType) || (p.ProfileType?.Contains(filterType, StringComparison.OrdinalIgnoreCase) ?? false))
-        .Where(p => string.IsNullOrEmpty(filterPlatform) || (p.Platform?.Equals(filterPlatform, StringComparison.OrdinalIgnoreCase) ?? false))
+        .Where(p => string.IsNullOrEmpty(filterType) || (p.ProfileType?.Replace("_", "").Contains(filterType, StringComparison.OrdinalIgnoreCase) ?? false))
+        .Where(p => string.IsNullOrEmpty(filterPlatform) || GetProfilePlatform(p).Equals(filterPlatform, StringComparison.OrdinalIgnoreCase))
         .OrderByDescending(p => p.State?.Equals("ACTIVE", StringComparison.OrdinalIgnoreCase) ?? false) // Active first
         .ThenByDescending(p => p.ExpirationDate > DateTime.UtcNow) // Non-expired next
         .ThenBy(p => p.Name);
@@ -681,7 +682,7 @@
                     filterType = selectedIndex switch { 1 => "DEVELOPMENT", 2 => "ADHOC", 3 => "APPSTORE", _ => "" };
                     break;
                 case "platform":
-                    filterPlatform = selectedIndex switch { 1 => "IOS", 2 => "MAC_OS", _ => "" };
+                    filterPlatform = selectedIndex switch { 1 => "IOS", 2 => "TVOS", 3 => "MAC_OS", _ => "" };
                     break;
             }
             StateHasChanged();
@@ -771,6 +772,9 @@
     private bool IsCurrentIdentity(string identityId, int identityVersion) =>
         identityVersion == Volatile.Read(ref identitySelectionVersion) &&
         string.Equals(IdentityState.SelectedIdentity?.Id, identityId, StringComparison.Ordinal);
+
+    private static string GetProfilePlatform(AppleProfile profile) =>
+        AppleProfileTypes.GetPlatform(profile.ProfileType, profile.Platform);
 
     private string FormatProfileType(string profileType)
     {
@@ -1023,8 +1027,8 @@
                 filterState switch { "ACTIVE" => 1, "INVALID" => 2, _ => 0 }),
             new ToolbarFilter("type", "Type", ["All Types", "Development", "Ad Hoc", "App Store"],
                 filterType switch { "DEVELOPMENT" => 1, "ADHOC" => 2, "APPSTORE" => 3, _ => 0 }),
-            new ToolbarFilter("platform", "Platform", ["All Platforms", "iOS", "macOS"],
-                filterPlatform switch { "IOS" => 1, "MAC_OS" => 2, _ => 0 }));
+            new ToolbarFilter("platform", "Platform", ["All Platforms", "iOS", "tvOS", "macOS"],
+                filterPlatform switch { "IOS" => 1, "TVOS" => 2, "MAC_OS" => 3, _ => 0 }));
     }
 
     private bool AllVisibleSelected

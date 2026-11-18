@@ -776,6 +776,9 @@ public class CopilotToolsService : ICopilotToolsService
             new { Type = "IOS_APP_DEVELOPMENT", Platform = "iOS", Name = "Development", Description = "Run app on registered devices during development", RequiresDevices = true },
             new { Type = "IOS_APP_ADHOC", Platform = "iOS", Name = "Ad Hoc", Description = "Distribute to a limited number of registered devices", RequiresDevices = true },
             new { Type = "IOS_APP_STORE", Platform = "iOS", Name = "App Store", Description = "Submit to the App Store or TestFlight", RequiresDevices = false },
+            new { Type = "TVOS_APP_DEVELOPMENT", Platform = "tvOS", Name = "Development", Description = "Run app on registered Apple TVs during development", RequiresDevices = true },
+            new { Type = "TVOS_APP_ADHOC", Platform = "tvOS", Name = "Ad Hoc", Description = "Distribute to a limited number of registered Apple TVs", RequiresDevices = true },
+            new { Type = "TVOS_APP_STORE", Platform = "tvOS", Name = "App Store", Description = "Submit to the App Store or TestFlight", RequiresDevices = false },
             new { Type = "MAC_APP_DEVELOPMENT", Platform = "macOS", Name = "Development", Description = "Run app on registered Macs during development", RequiresDevices = true },
             new { Type = "MAC_APP_STORE", Platform = "macOS", Name = "Mac App Store", Description = "Submit to the Mac App Store", RequiresDevices = false },
             new { Type = "MAC_APP_DIRECT", Platform = "macOS", Name = "Direct Distribution", Description = "Distribute outside the Mac App Store (notarized)", RequiresDevices = false },
@@ -813,6 +816,7 @@ public class CopilotToolsService : ICopilotToolsService
 
             // Validate profile type
             var validTypes = new[] { "IOS_APP_DEVELOPMENT", "IOS_APP_ADHOC", "IOS_APP_STORE", "IOS_APP_INHOUSE",
+                "TVOS_APP_DEVELOPMENT", "TVOS_APP_ADHOC", "TVOS_APP_STORE", "TVOS_APP_INHOUSE",
                 "MAC_APP_DEVELOPMENT", "MAC_APP_STORE", "MAC_APP_DIRECT",
                 "MAC_CATALYST_APP_DEVELOPMENT", "MAC_CATALYST_APP_STORE", "MAC_CATALYST_APP_DIRECT" };
             
