@@ -1,0 +1,54 @@
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Services
+@inject LinuxModalOverlayHosts Hosts
+@inject OperationModalService OperationModal
+@inject ProcessModalService ProcessModal
+@inject MultiOperationModalService MultiOperationModal
+@implements IDisposable
+
+@if (OperationModal.IsVisible && Hosts.Owns(this, OperationModal.OverlayOwner, IsMainHost))
+{
+    <MauiSherpa.Components.OperationModal />
+}
+@if (ProcessModal.IsVisible && Hosts.Owns(this, ProcessModal.OverlayOwner, IsMainHost))
+{
+    <MauiSherpa.Components.ProcessExecutionModal />
+}
+@if (MultiOperationModal.IsVisible && Hosts.Owns(this, MultiOperationModal.OverlayOwner, IsMainHost))
+{
+    <MauiSherpa.Components.MultiOperationModal />
+}
+
+@code {
+    [Parameter] public bool IsMainHost { get; set; }
+
+    protected override void OnInitialized()
+    {
+        Hosts.Register(this);
+        Hosts.Changed += Refresh;
+        OperationModal.OnShowRequested += OperationShown;
+        OperationModal.OnModalClosed += Refresh;
+        ProcessModal.OnShowRequested += ProcessShown;
+        ProcessModal.OnModalClosed += Refresh;
+        MultiOperationModal.OnShowRequested += MultiOperationShown;
+        MultiOperationModal.OnModalClosed += Refresh;
+    }
+
+    private void OperationShown(string title, string description, bool canCancel) => Refresh();
+    private void ProcessShown(ProcessRequest request) => Refresh();
+    private void MultiOperationShown(string title, string description) => Refresh();
+    private void Refresh() => _ = InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        ProcessModal.CancelIfOwnedBy(this);
+        OperationModal.OnShowRequested -= OperationShown;
+        OperationModal.OnModalClosed -= Refresh;
+        ProcessModal.OnShowRequested -= ProcessShown;
+        ProcessModal.OnModalClosed -= Refresh;
+        MultiOperationModal.OnShowRequested -= MultiOperationShown;
+        MultiOperationModal.OnModalClosed -= Refresh;
+        Hosts.Changed -= Refresh;
+        Hosts.Unregister(this);
+    }
+}

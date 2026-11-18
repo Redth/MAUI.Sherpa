@@ -9,19 +9,26 @@ public class ProfilingViewerService
 {
     private readonly Dictionary<string, Window> _windows = new();
 
-    public void OpenSpeedscope(string filePath)
+    public Task OpenSpeedscopeAsync(string filePath)
     {
         var encodedPath = Uri.EscapeDataString(filePath);
-        OpenViewer("speedscope", $"/profiling/speedscope?file={encodedPath}",
+        return OpenViewerAsync("speedscope", $"/profiling/speedscope?file={encodedPath}",
             $"Trace — {Path.GetFileName(filePath)}", 1200, 700);
     }
 
-    public void OpenGcDump(string filePath)
+    public Task OpenGcDumpAsync(string filePath)
     {
         var encodedPath = Uri.EscapeDataString(filePath);
-        OpenViewer("gcdump", $"/profiling/gcdump?file={encodedPath}",
+        return OpenViewerAsync("gcdump", $"/profiling/gcdump?file={encodedPath}",
             $"GC Dump — {Path.GetFileName(filePath)}", 900, 600);
     }
+
+    private Task OpenViewerAsync(string viewerKey, string route, string title, int width, int height) =>
+        NativeUiDispatcher.RunAsync(() =>
+        {
+            OpenViewer(viewerKey, route, title, width, height);
+            return Task.CompletedTask;
+        });
 
     private void OpenViewer(string viewerKey, string route, string title, int width, int height)
     {

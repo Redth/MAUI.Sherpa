@@ -21,39 +21,43 @@ public class Program : GtkMauiApplication
             StartGSettingsThemeMonitor(themeService);
         }
 
-        // Wire up native GTK HeaderBar toolbar driven by IToolbarService
-        var toolbarService = Services.GetService<IToolbarService>();
-        var copilotContext = Services.GetService<ICopilotContextService>();
-        var themeForToolbar = Services.GetService<IThemeService>();
-        var appleIdentityService = Services.GetService<IAppleIdentityService>();
-        var appleIdentityState = Services.GetService<IAppleIdentityStateService>();
-        var googleIdentityService = Services.GetService<IGoogleIdentityService>();
-        var googleIdentityState = Services.GetService<IGoogleIdentityStateService>();
-        var formModalService = Services.GetService<IFormModalService>();
-        var bridgeHolder = Services.GetService<MauiSherpa.Pages.Forms.HybridFormBridgeHolder>();
-        if (toolbarService != null && copilotContext != null && themeForToolbar != null
-            && appleIdentityService != null && appleIdentityState != null
-            && googleIdentityService != null && googleIdentityState != null
-            && formModalService != null && bridgeHolder != null)
-        {
-            var mauiWindow = Microsoft.Maui.Controls.Application.Current?.Windows?.FirstOrDefault();
-            var gtkWindow = (mauiWindow as Window)?.Handler?.PlatformView as Gtk.Window;
-            if (gtkWindow != null)
-            {
-                _toolbarManager = new LinuxToolbarManager(
-                    toolbarService, copilotContext, themeForToolbar,
-                    appleIdentityService, appleIdentityState,
-                    googleIdentityService, googleIdentityState,
-                    formModalService, bridgeHolder);
-                _toolbarManager.AttachToWindow(gtkWindow);
-            }
-        }
-
         // Eagerly resolve CopilotModalService so its constructor subscribes
         // to context events before the Blazor app loads or user clicks Copilot button.
         Services.GetService<ICopilotModalService>();
 
 // DevFlow GTK agent removed temporarily (package conflict with new Microsoft.Maui.Platforms.Linux.Gtk4)
+    }
+
+    public static void AttachLinuxToolbar(Window window)
+    {
+        if (_toolbarManager != null || window.Handler?.PlatformView is not Gtk.Window gtkWindow)
+            return;
+
+        var services = Microsoft.Maui.Controls.Application.Current?.Handler?.MauiContext?.Services;
+        if (services == null)
+            return;
+
+        var toolbarService = services.GetService<IToolbarService>();
+        var copilotContext = services.GetService<ICopilotContextService>();
+        var themeForToolbar = services.GetService<IThemeService>();
+        var appleIdentityService = services.GetService<IAppleIdentityService>();
+        var appleIdentityState = services.GetService<IAppleIdentityStateService>();
+        var googleIdentityService = services.GetService<IGoogleIdentityService>();
+        var googleIdentityState = services.GetService<IGoogleIdentityStateService>();
+        var formModalService = services.GetService<IFormModalService>();
+        var bridgeHolder = services.GetService<MauiSherpa.Pages.Forms.HybridFormBridgeHolder>();
+        if (toolbarService == null || copilotContext == null || themeForToolbar == null
+            || appleIdentityService == null || appleIdentityState == null
+            || googleIdentityService == null || googleIdentityState == null
+            || formModalService == null || bridgeHolder == null)
+            return;
+
+        _toolbarManager = new LinuxToolbarManager(
+            toolbarService, copilotContext, themeForToolbar,
+            appleIdentityService, appleIdentityState,
+            googleIdentityService, googleIdentityState,
+            formModalService, bridgeHolder);
+        _toolbarManager.AttachToWindow(gtkWindow);
     }
 
     /// <summary>

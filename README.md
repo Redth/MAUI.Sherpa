@@ -259,6 +259,13 @@ This becomes available once the generated manifest is accepted into the upstream
 #### Linux
 Download AppImage, .deb, or Flatpak from the releases page for your architecture (x64 or arm64).
 
+If SDK or workload installation runs out of temporary space, launch Sherpa with `TMPDIR` set to a directory with enough free space. For example, replace the AppImage path below with the downloaded filename:
+
+```bash
+mkdir -p "$HOME/.cache/maui-sherpa-tmp"
+TMPDIR="$HOME/.cache/maui-sherpa-tmp" ./MAUI-Sherpa.AppImage
+```
+
 ### Apple Developer Tools Setup
 
 To use the Apple Developer tools, you'll need to configure your App Store Connect credentials:

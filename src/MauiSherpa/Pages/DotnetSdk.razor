@@ -18,6 +18,7 @@
 @inject IFormModalService FormModal
 @inject HybridFormBridgeHolder BridgeHolder
 @inject ModalParameterService ModalParams
+@inject IJSRuntime JS
 @implements IDisposable
 
 <div class="dotnet-sdk-page-header">
@@ -60,6 +61,72 @@
         </button>
     </div>
 </div>
+
+@if (showAddChannelModal)
+{
+    <div class="channel-picker-overlay">
+        <div class="channel-picker-dialog" id="channel-picker-dialog" role="dialog" aria-modal="true" aria-labelledby="channel-picker-title">
+            <header class="channel-picker-header">
+                <h2 id="channel-picker-title">Track an SDK channel</h2>
+            </header>
+            <div class="channel-picker-body">
+                <AddChannelModal />
+            </div>
+            <footer class="channel-picker-footer">
+                <button class="btn btn-secondary" @onclick="CancelAddChannelDialog">Cancel</button>
+                <button class="btn btn-primary"
+                        disabled="@(_addChannelBridge?.IsValid != true)"
+                        @onclick="InstallSelectedChannel">
+                    Install &amp; track
+                </button>
+            </footer>
+        </div>
+    </div>
+}
+
+@if (showWorkloadSetModal)
+{
+    <div class="workload-set-picker-overlay">
+        <div class="channel-picker-dialog" id="workload-set-picker-dialog" role="dialog" aria-modal="true" aria-labelledby="workload-set-picker-title">
+            <header class="channel-picker-header">
+                <h2 id="workload-set-picker-title">Change workload set</h2>
+            </header>
+            <div class="channel-picker-body">
+                <WorkloadSetModal />
+            </div>
+            <footer class="channel-picker-footer">
+                <button class="btn btn-secondary" @onclick="CancelWorkloadSetDialog">Cancel</button>
+                <button class="btn btn-primary"
+                        disabled="@(_workloadSetBridge?.IsValid != true)"
+                        @onclick="ReviewWorkloadSetChange">
+                    Review change
+                </button>
+            </footer>
+        </div>
+    </div>
+}
+
+@if (showWorkloadSelectionModal)
+{
+    <div class="workload-set-picker-overlay">
+        <div class="channel-picker-dialog workload-selection-dialog" id="workload-selection-dialog" role="dialog" aria-modal="true" aria-labelledby="workload-selection-title">
+            <header class="channel-picker-header">
+                <h2 id="workload-selection-title">Manage .NET workloads</h2>
+            </header>
+            <div class="channel-picker-body workload-selection-body">
+                <WorkloadSelectionModal />
+            </div>
+            <footer class="channel-picker-footer">
+                <button class="btn btn-secondary" @onclick="CancelWorkloadSelection">Cancel</button>
+                <button class="btn btn-primary"
+                        disabled="@(_workloadSelectionBridge?.IsValid != true)"
+                        @onclick="ApplyWorkloadSelection">
+                    Review &amp; apply changes
+                </button>
+            </footer>
+        </div>
+    </div>
+}
 
 @if (!string.IsNullOrEmpty(errorMessage))
 {
@@ -143,6 +210,43 @@
     private IReadOnlyList<DotnetUpdatePreview>? updatePreviews;
     private bool checkingUpdates;
     private bool updatesUnresolved;
+    private bool showAddChannelModal;
+    private HybridFormBridge? _addChannelBridge;
+    private bool showWorkloadSetModal;
+    private HybridFormBridge? _workloadSetBridge;
+    private bool showWorkloadSelectionModal;
+    private HybridFormBridge? _workloadSelectionBridge;
+    private DotNetObjectReference<DotnetSdk>? _dotNetRef;
+    private string? _keyboardModalId;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!PlatformInfo.IsLinux)
+            return;
+
+        var modalId = showAddChannelModal ? "channel-picker-dialog"
+            : showWorkloadSetModal ? "workload-set-picker-dialog"
+            : showWorkloadSelectionModal ? "workload-selection-dialog"
+            : null;
+        if (modalId == _keyboardModalId)
+            return;
+
+        if (_keyboardModalId != null)
+            await JS.InvokeVoidAsync("modalInterop.dispose", _keyboardModalId);
+        _keyboardModalId = modalId;
+        if (modalId != null)
+        {
+            _dotNetRef ??= DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("modalInterop.initialize", modalId, _dotNetRef);
+        }
+    }
+
+    [JSInvokable]
+    public Task OnEscapePressed() =>
+        showAddChannelModal ? CancelAddChannelDialog()
+        : showWorkloadSetModal ? CancelWorkloadSetDialog()
+        : showWorkloadSelectionModal ? CancelWorkloadSelection()
+        : Task.CompletedTask;
 
     private async Task OpenAddDialog()
     {
@@ -154,9 +258,63 @@
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList() ?? new List<string>();
 
+#if LINUXGTK
+        _addChannelBridge = new HybridFormBridge();
+        _addChannelBridge.Parameters["TrackedChannels"] = tracked;
+        _addChannelBridge.ValidationChanged += OnAddChannelValidationChanged;
+        BridgeHolder.Push(_addChannelBridge);
+        showAddChannelModal = true;
+        return;
+#else
         var channel = await FormModal.ShowAsync<string?>(new AddChannelPage(BridgeHolder, tracked));
         if (string.IsNullOrWhiteSpace(channel)) return;
 
+        await InstallChannelAsync(channel);
+#endif
+    }
+
+    private async Task InstallSelectedChannel()
+    {
+        var bridge = _addChannelBridge;
+        if (bridge?.IsValid != true)
+            return;
+
+        await bridge.RequestSubmitAsync();
+        if (bridge.PreventSubmitClose)
+            return;
+        if (bridge.Result is not string channel || string.IsNullOrWhiteSpace(channel))
+            return;
+
+        CloseAddChannelDialog();
+        await InstallChannelAsync(channel);
+    }
+
+    private async Task CancelAddChannelDialog()
+    {
+        if (_addChannelBridge != null)
+        {
+            await _addChannelBridge.RequestCancelAsync();
+            if (_addChannelBridge.PreventClose)
+                return;
+        }
+        CloseAddChannelDialog();
+    }
+
+    private void OnAddChannelValidationChanged() => InvokeAsync(StateHasChanged);
+
+    private void CloseAddChannelDialog()
+    {
+        if (_addChannelBridge == null)
+            return;
+
+        showAddChannelModal = false;
+        _addChannelBridge.ValidationChanged -= OnAddChannelValidationChanged;
+        BridgeHolder.Remove(_addChannelBridge);
+        _addChannelBridge = null;
+    }
+
+    private async Task InstallChannelAsync(string channel)
+    {
         // Tracked-channel installs never change the global default ("Terminal mode" is a one-time
         // global choice made by `dotnetup init`, not a per-channel setting), so terminalMode: false.
         var request = DotnetUp.InstallSdkRequest(channel, terminalMode: false);
@@ -426,10 +584,73 @@
             }
         }
 
-    private async Task OpenManageWorkloads(DotnetWorkloadInventory inventory)
+        private Task OpenManageWorkloads(DotnetWorkloadInventory inventory)
+        {
+#if LINUXGTK
+            _workloadSelectionBridge = new HybridFormBridge();
+            _workloadSelectionBridge.Parameters["Inventory"] = inventory;
+            _workloadSelectionBridge.ValidationChanged += OnWorkloadSelectionValidationChanged;
+            BridgeHolder.Push(_workloadSelectionBridge);
+            showWorkloadSelectionModal = true;
+            return Task.CompletedTask;
+#else
+            return OpenManageWorkloadsInNativeFormAsync(inventory);
+#endif
+        }
+
+#if !LINUXGTK
+        private async Task OpenManageWorkloadsInNativeFormAsync(DotnetWorkloadInventory inventory)
         {
             var selection = await FormModal.ShowAsync<WorkloadSelectionResult?>(
                 new WorkloadSelectionPage(BridgeHolder, inventory));
+            await ApplyWorkloadSelectionAsync(inventory, selection);
+        }
+#endif
+
+        private async Task ApplyWorkloadSelection()
+        {
+            var bridge = _workloadSelectionBridge;
+            if (bridge?.IsValid != true)
+                return;
+
+            await bridge.RequestSubmitAsync();
+            if (bridge.PreventSubmitClose)
+                return;
+            var inventory = bridge.Parameters["Inventory"] as DotnetWorkloadInventory;
+            var selection = bridge.Result as WorkloadSelectionResult;
+            CloseWorkloadSelectionDialog();
+            if (inventory != null)
+                await ApplyWorkloadSelectionAsync(inventory, selection);
+        }
+
+        private async Task CancelWorkloadSelection()
+        {
+            if (_workloadSelectionBridge != null)
+            {
+                await _workloadSelectionBridge.RequestCancelAsync();
+                if (_workloadSelectionBridge.PreventClose)
+                    return;
+            }
+            CloseWorkloadSelectionDialog();
+        }
+
+        private void OnWorkloadSelectionValidationChanged() => InvokeAsync(StateHasChanged);
+
+        private void CloseWorkloadSelectionDialog()
+        {
+            if (_workloadSelectionBridge == null)
+                return;
+
+            showWorkloadSelectionModal = false;
+            _workloadSelectionBridge.ValidationChanged -= OnWorkloadSelectionValidationChanged;
+            BridgeHolder.Remove(_workloadSelectionBridge);
+            _workloadSelectionBridge = null;
+        }
+
+        private async Task ApplyWorkloadSelectionAsync(
+            DotnetWorkloadInventory inventory,
+            WorkloadSelectionResult? selection)
+        {
             if (selection == null ||
                 (selection.InstallIds.Count == 0 && selection.UninstallIds.Count == 0))
                 return;
@@ -480,45 +701,96 @@
     private async Task OpenWorkloadSetPicker(
         DotnetWorkloadInventory inventory,
         string? initialVersion = null)
-        {
-            var version = await FormModal.ShowAsync<string?>(
-                new WorkloadSetPage(BridgeHolder, inventory, initialVersion));
-            if (string.IsNullOrWhiteSpace(version))
-                return;
+    {
+#if LINUXGTK
+        _workloadSetBridge = new HybridFormBridge();
+        _workloadSetBridge.Parameters["Inventory"] = inventory;
+        _workloadSetBridge.Parameters["InitialVersion"] = initialVersion;
+        _workloadSetBridge.ValidationChanged += OnWorkloadSetValidationChanged;
+        BridgeHolder.Push(_workloadSetBridge);
+        showWorkloadSetModal = true;
+#else
+        var version = await FormModal.ShowAsync<string?>(
+            new WorkloadSetPage(BridgeHolder, inventory, initialVersion));
+        if (string.IsNullOrWhiteSpace(version))
+            return;
+        await ApplyWorkloadSet(inventory, version);
+#endif
+    }
+
+    private void OnWorkloadSetValidationChanged() => InvokeAsync(StateHasChanged);
+
+    private async Task ReviewWorkloadSetChange()
+    {
+        var bridge = _workloadSetBridge;
+        if (bridge?.IsValid != true)
+            return;
+
+        await bridge.RequestSubmitAsync();
+        if (bridge.PreventSubmitClose)
+            return;
+        if (bridge.Result is not string version || string.IsNullOrWhiteSpace(version))
+            return;
+
+        var inventory = bridge.Parameters["Inventory"] as DotnetWorkloadInventory;
+        CloseWorkloadSetDialog();
+        if (inventory != null)
             await ApplyWorkloadSet(inventory, version);
-        }
+    }
 
-        private async Task ApplyWorkloadSet(
-            DotnetWorkloadInventory inventory,
-            string version)
+    private async Task CancelWorkloadSetDialog()
+    {
+        if (_workloadSetBridge != null)
         {
-            workloadBusy = true;
-            StateHasChanged();
-            try
-            {
-                var preview = await Workloads.GetWorkloadSetPreviewAsync(inventory.Target, version);
-                var request = Workloads.CreateUpdateSetRequest(inventory.Target, version);
-                request = request with
-                {
-                    ConfirmationDetails = BuildWorkloadSetConfirmationDetails(preview, inventory.UpdateMode)
-                };
-
-                await RunWorkloadProcess(
-                    request,
-                    inventory.Target,
-                    $"Workload set changed to {version}",
-                    "The workload-set update failed.");
-            }
-            catch (Exception ex)
-            {
-                await AlertService.ShowAlertAsync("Workload Preview Failed", ex.Message);
-            }
-            finally
-            {
-                workloadBusy = false;
-                StateHasChanged();
-            }
+            await _workloadSetBridge.RequestCancelAsync();
+            if (_workloadSetBridge.PreventClose)
+                return;
         }
+        CloseWorkloadSetDialog();
+    }
+
+    private void CloseWorkloadSetDialog()
+    {
+        if (_workloadSetBridge == null)
+            return;
+
+        showWorkloadSetModal = false;
+        _workloadSetBridge.ValidationChanged -= OnWorkloadSetValidationChanged;
+        BridgeHolder.Remove(_workloadSetBridge);
+        _workloadSetBridge = null;
+    }
+
+    private async Task ApplyWorkloadSet(
+        DotnetWorkloadInventory inventory,
+        string version)
+    {
+        workloadBusy = true;
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            var preview = await Workloads.GetWorkloadSetPreviewAsync(inventory.Target, version);
+            var request = Workloads.CreateUpdateSetRequest(inventory.Target, version);
+            request = request with
+            {
+                ConfirmationDetails = BuildWorkloadSetConfirmationDetails(preview, inventory.UpdateMode)
+            };
+
+            await RunWorkloadProcess(
+                request,
+                inventory.Target,
+                $"Workload set changed to {version}",
+                "The workload-set update failed.");
+        }
+        catch (Exception ex)
+        {
+            await AlertService.ShowAlertAsync("Workload Preview Failed", ex.Message);
+        }
+        finally
+        {
+            workloadBusy = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
 
     private async Task RepairWorkloads(DotnetWorkloadInventory inventory)
         {
@@ -544,7 +816,7 @@
         string failureMessage)
         {
             workloadBusy = true;
-            StateHasChanged();
+            await InvokeAsync(StateHasChanged);
             try
             {
                 var result = await ProcessModal.ShowProcessAsync(request);
@@ -564,7 +836,7 @@
             finally
             {
                 workloadBusy = false;
-                StateHasChanged();
+                await InvokeAsync(StateHasChanged);
             }
         }
     private async Task RunUpdateAll()
@@ -707,10 +979,91 @@
     public void Dispose()
     {
         ToolbarService.ToolbarItemClicked -= OnToolbarItemClicked;
+        CloseAddChannelDialog();
+        CloseWorkloadSetDialog();
+        CloseWorkloadSelectionDialog();
+        if (_keyboardModalId != null)
+            _ = JS.InvokeVoidAsync("modalInterop.dispose", _keyboardModalId);
+        _dotNetRef?.Dispose();
     }
 }
 
 <style>
+    .channel-picker-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 10003;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1rem;
+        background: var(--modal-overlay, rgba(0, 0, 0, 0.5));
+    }
+
+    .workload-set-picker-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 10003;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1rem;
+        background: var(--modal-overlay, rgba(0, 0, 0, 0.5));
+    }
+
+    .workload-selection-dialog {
+        width: min(820px, 100%);
+        height: min(700px, calc(100vh - 2rem));
+    }
+
+    .workload-selection-body {
+        display: flex;
+        flex: 1;
+        overflow: hidden;
+    }
+
+    .channel-picker-dialog {
+        display: flex;
+        flex-direction: column;
+        width: min(600px, 100%);
+        max-height: calc(100vh - 2rem);
+        overflow: hidden;
+        border: 1px solid var(--border-color);
+        border-radius: var(--card-radius, 1rem);
+        background: var(--card-bg);
+        box-shadow: 0 1.5rem 4rem rgba(0, 0, 0, 0.25);
+    }
+
+    .channel-picker-header,
+    .channel-picker-footer {
+        display: flex;
+        flex: 0 0 auto;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        padding: 0.875rem 1.25rem;
+    }
+
+    .channel-picker-header {
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .channel-picker-header h2 {
+        margin: 0;
+        font-size: 1.1rem;
+        color: var(--text-primary);
+    }
+
+    .channel-picker-body {
+        min-height: 0;
+        overflow: auto;
+    }
+
+    .channel-picker-footer {
+        justify-content: flex-end;
+        border-top: 1px solid var(--border-color);
+    }
+
     .dotnet-sdk-page-header {
         display: flex;
         align-items: center;
