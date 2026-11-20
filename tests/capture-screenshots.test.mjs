@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('../', import.meta.url));
 
 test('capture runner requires consent, preserves native pixels, and closes confirmed runs', { skip: process.platform === 'win32' }, async t => {
-    for (const scenario of ['confirmed', 'unconfirmed', 'low-dpi']) {
+    for (const scenario of ['confirmed', 'unconfirmed', 'low-dpi', 'android-sdk']) {
         await t.test(scenario, async () => {
             const directory = await mkdtemp(join(process.env.MAUI_SHERPA_TEST_ARTIFACTS || tmpdir(), 'sherpa-capture-'));
             const app = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
@@ -33,7 +33,20 @@ const state = {
 createInterface({input:process.stdin}).on('line', command => {
     appendFileSync(process.env.MOCK_LOG, command + '\\n');
     let output = 'true';
-    if (command.includes('JSON.stringify')) output = JSON.stringify(state);
+    if (command.includes("a.href='/android-sdk'")) {
+        state.route = '/android-sdk';
+        state.title = 'Android SDK Packages';
+        state.tabs = ['All (11)', 'Installed (8)', 'Available (3)'];
+        state.activeTab = 'All (11)';
+        state.fingerprint = 'sdk-all';
+    }
+    if (command.includes('const tab=Array.from')) {
+        state.activeTab = 'Installed (8)';
+        state.fingerprint = 'sdk-installed';
+        output = JSON.stringify({clicked:true});
+    } else if (command.includes('JSON.stringify')) {
+        output = JSON.stringify(state);
+    }
     if (command.startsWith('MAUI screenshot')) {
         const path = command.match(/--output "([^"]+)"/)[1];
         const image = Buffer.alloc(24);
@@ -51,7 +64,8 @@ createInterface({input:process.stdin}).on('line', command => {
                 const log = join(directory, 'commands.log');
                 const child = spawn(process.execPath, [
                     'build/capture-screenshots.mjs', '--agent-port', String(server.address().port),
-                    '--platform', 'macos', '--shots', 'dashboard', '--output', directory,
+                    '--platform', 'macos', '--shots', scenario === 'android-sdk' ? 'android-sdk' : 'dashboard',
+                    '--output', directory,
                     ...(scenario === 'unconfirmed' ? [] : ['--confirmed'])
                 ], {
                     cwd: root,
@@ -89,6 +103,10 @@ createInterface({input:process.stdin}).on('line', command => {
                     assert.deepEqual(report.pixelDimensions, { width: 2880, height: 1920 });
                     assert.deepEqual(report.requestedDimensions, { width: 1440, height: 960 });
                     assert.equal(report.shots[0].width, 2880);
+                    if (scenario === 'android-sdk') {
+                        assert.match(commands, /Installed \(/);
+                        assert.equal(report.shots[0].activeTab, 'Installed (8)');
+                    }
                 }
             } finally {
                 app.kill();

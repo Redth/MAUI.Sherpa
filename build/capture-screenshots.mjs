@@ -105,6 +105,8 @@ const stateExpression = `JSON.stringify((()=>{
     return {
         diagnostics:diagnostics?{...diagnostics.dataset}:null,
         route:location.pathname,title:document.querySelector('h1')?.innerText.trim(),
+        tabs:text('.tabs .tab'),
+        activeTab:text('.tabs .tab.active')[0]??null,
         loading:text('.loading-state,.loading-inline,.loading-card,.loading-indicator,.fa-spin,[aria-busy]:not([aria-busy=false])').length,
         errors:text('.error-bar,.error-message,.error-banner,.environment-error,.alert-danger,#blazor-error-ui'),
         blurred:Array.from(document.querySelectorAll('.demo-blur')).some(visible),
@@ -218,11 +220,20 @@ async function main() {
             await waitFor(state => state.diagnostics.theme === theme, 'native and web appearance');
             for (const shot of shots) {
                 await flow.evaluate(`(()=>{const a=document.createElement('a');a.href='/${shot.route}';document.body.appendChild(a);a.click();a.remove();return true})()`);
-                const state = await waitFor(
-                    state => state.route.replace(/\/$/, '') === `/${shot.route}`.replace(/\/$/, '') && state.title?.includes(headings[shot.id]),
+                let state = await waitFor(
+                    state => state.route.replace(/\/$/, '') === `/${shot.route}`.replace(/\/$/, '')
+                        && state.title?.includes(headings[shot.id])
+                        && (shot.id !== 'android-sdk' || state.tabs.some(tab => tab.startsWith('Installed ('))),
                     shot.id);
+                if (shot.id === 'android-sdk') {
+                    const clicked = JSON.parse(await flow.evaluate(`(()=>{const tab=Array.from(document.querySelectorAll('.tabs .tab')).find(e=>e.textContent.trim().startsWith('Installed ('));if(tab)tab.click();return JSON.stringify({clicked:!!tab})})()`));
+                    if (!clicked.clicked)
+                        throw new Error('The Android SDK Installed tab is unavailable.');
+                    state = await waitFor(state => state.activeTab?.startsWith('Installed ('), 'Android SDK Installed tab');
+                }
                 await flow.evaluate(`document.querySelector('main.content')?.scrollTo(0,0)`);
                 const entry = { id: shot.id, route: shot.route, heading: state.title, diagnostics: state.diagnostics };
+                if (shot.id === 'android-sdk') entry.activeTab = state.activeTab;
                 if (!values['check-only']) {
                     const path = join(directory, `${shot.id}.png`);
                     await screenshot(path);
