@@ -194,7 +194,7 @@ public class WindowsTitleBarManager : IDisposable
             };
             minimal.Children.Add(new Image
             {
-                Source = "sherpalogo.png",
+                Source = "sherpaicon.png",
                 HeightRequest = 28,
                 WidthRequest = 28,
                 VerticalOptions = LayoutOptions.Center,
@@ -225,7 +225,7 @@ public class WindowsTitleBarManager : IDisposable
         };
         leading.Children.Add(new Image
         {
-            Source = "sherpalogo.png",
+            Source = "sherpaicon.png",
             HeightRequest = 28,
             WidthRequest = 28,
             VerticalOptions = LayoutOptions.Center,

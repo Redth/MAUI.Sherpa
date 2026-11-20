@@ -180,9 +180,17 @@ All modals use `modalInterop.js` (`wwwroot/js/modalInterop.js`) for focus trappi
 Global `user-select: none` is applied on `*` to prevent accidental text selection in the hybrid app. Selectively re-enabled on: `input`, `textarea`, `select`, `code`, `pre`, `.mono`, `.terminal-output`, `.log-entry`, `.error-message`, `.chat-message`, and `.text-selectable`.
 
 ### Icons
-The Windows taskbar and executable use `Platforms/Windows/sherpa.ico`, a tightly framed,
-multi-resolution version of the shared app artwork. After changing `Resources/AppIcon/appicon.png`,
-regenerate it on Windows with `pwsh -File build/windows/Generate-Icon.ps1`.
+Set `build/icons/icon-set.txt` to `classic` (original artwork), `beanie` (Summit Beanie),
+`guide` (Summit Guide), or `mixed` (the default), then run `python3 build/icons/generate.py`.
+Regeneration requires Python 3 with Pillow and `rsvg-convert` from librsvg; normal builds
+use the checked-in outputs and do not require these tools. Commit the selector and regenerated
+assets together. Run the same command with `--check` to detect stale assets.
+
+Edit the artwork in `build/icons/`, not the generated files. Mixed uses the head for the
+Windows and GTK title bars, website favicon and navigation, Windows ICO frames up to 48 px,
+and macOS ICNS frames up to 32 pt (including Retina). Larger frames, the splash artwork,
+website hero, and README use the full-body guide. Linux packages use a single large icon.
+
 Windows toolbar action glyphs use native `FontIcon` controls rather than rasterized `FontImageSource` images to stay sharp at high DPI.
 
 Using Font Awesome. Example:
