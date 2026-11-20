@@ -52,6 +52,10 @@ heading, appearance, settled loading, no errors or privacy blur, no remote web
 resources, no Debug UI link, and no overflowing HTML sidebar before every shot.
 Native sidebar visibility must also be reviewed in the actual PNG.
 
+On Linux, DevFlow's GTK screenshot omits the native header bar, so the runner
+captures the full X11 window with `build/capture-gtk-window.py` (Python 3 and
+Pillow), cropping GTK's client-side shadow. Run the app with `GDK_BACKEND=x11`.
+
 Results are `<output>/<platform>/<theme>/<id>.png` plus `capture.json`, recording
 revision, dirty-worktree status, fixture version, platform, theme, and actual
 dimensions. Review both appearances; export the dark set as lossless 1× WebP
@@ -76,22 +80,11 @@ compositor at 100% display scale, with the DWM visible frame measured at
 1440 × 960. DevFlow still provided navigation, appearance, and readiness
 checks. The Android SDK capture uses the Installed tab.
 
-The earlier Linux set uses revision `6e6fbb1`, not Screenshot Mode. It was
-started on November 20, 2026 using the GTK head on Ubuntu
-26.04.1 / GNOME Wayland, with the app running through XWayland at 1× scale.
-The seven 1440 × 960 captures show Dashboard, Doctor, Profiling, the APNs
-form with its empty `.p8` key-file option selected, and, after Sherpa's
-[libsecret backend](secrets-storage.md#linux-os-secure-storage) unlocked the
-Local Vault, the empty Secrets root, the empty Publish Profiles list, and the
-default Firebase form. Doctor's paths are irreversibly masked.
-
-The remaining views in that earlier Linux set are pending: `android-sdk` and `android-devices`
-require an Android SDK; `keystores` shows an "OpenJDK not found" warning
-without a JDK; `dotnet-sdk` requires dotnetup; `app-inspector` has no reachable
-broker; and `certificates`, `profiles`, and `bundle-ids` show the App Store
-Connect credential prompt without a configured Apple identity. Screenshot Mode
-removes those prerequisites for the replacement set; preserve earlier Linux
-assets until the replacement captures have actually been reviewed.
+The fifteen Linux assets use the dark `website-v1` fixture set, captured at
+1440 × 960 from the real GTK window on Ubuntu 26.04.1 / GNOME Wayland, with the
+app running through XWayland (`GDK_BACKEND=x11`) at 1× scale. Both appearances
+were reviewed. In the light review set, the Doctor toolbar glyph is not retinted
+after the runtime theme switch; the dark website set is unaffected.
 
 ## Feature audit
 
@@ -117,8 +110,8 @@ Audit sources: `src/MauiSherpa/Components/MainLayout.razor`,
 `src/MauiSherpa.Core/Services/SecretsPublisherService.cs`, and the platform app
 heads. Local Apple tools are gated in `MainLayout.razor`; Apple account tools are
 not. GTK's Debug DevFlow agent and Blazor bridge are enabled with a compatible
-GTK package set. The GTK head compiles on macOS, but its actual Linux runtime
-and native sizing still require verification on Linux.
+GTK package set. The Linux runtime is verified: the agent connects and the
+runner captures every cross-platform view at the requested native size.
 
 ## Capture contract
 
@@ -298,13 +291,14 @@ with website/images/screenshots/macos/ as the visual reference.
 
 Build and run the actual GTK head:
 dotnet build src/MauiSherpa.LinuxGtk
-MAUI_SHERPA_SCREENSHOT_MODE=website-v1 MAUI_SHERPA_ENABLE_DEVFLOW=1 dotnet run --project src/MauiSherpa.LinuxGtk --no-build
+GDK_BACKEND=x11 MAUI_SHERPA_SCREENSHOT_MODE=website-v1 MAUI_SHERPA_ENABLE_DEVFLOW=1 dotnet run --project src/MauiSherpa.LinuxGtk --no-build
 The compatible Debug GTK DevFlow agent and Blazor bridge are enabled. Verify
 agent connectivity on Linux; do not use browser mockups or Computer Use as a
 substitute. Discover this Sherpa instance's port from a second terminal and run:
 node build/capture-screenshots.mjs --agent-port <port> --platform linux --output <outside-repo-directory> --theme both
-Report any GTK runtime/connectivity issue instead of silently publishing partial
-captures. The GTK build was checked on macOS, not its Linux runtime.
+The runner captures the X11 window (header bar included) with
+build/capture-gtk-window.py, which needs Python 3 and Pillow. Report any GTK
+runtime/connectivity issue instead of silently publishing partial captures.
 
 Match a 1440x960 logical-pixel window, dark app theme, 100% font scale, top scroll
 position, and the states in the shared capture table. Keep real Linux/GTK chrome

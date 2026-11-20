@@ -39,7 +39,10 @@
     {
         if (!ScreenshotMode.Current.IsEnabled || theme is not ("light" or "dark"))
             throw new InvalidOperationException("Screenshot appearance requires Screenshot Mode and light or dark.");
-        await Microsoft.Maui.ApplicationModel.MainThread.InvokeOnMainThreadAsync(() =>
+        // Essentials MainThread is unavailable on GTK; use the MAUI application dispatcher.
+        var dispatcher = Microsoft.Maui.Controls.Application.Current?.Dispatcher
+            ?? throw new InvalidOperationException("The MAUI application dispatcher is unavailable.");
+        await dispatcher.DispatchAsync(() =>
         {
             Theme.SetTheme(theme == "light" ? "Light" : "Dark");
             Theme.SetFontScale(1);

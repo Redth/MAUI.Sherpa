@@ -164,6 +164,21 @@ async function main() {
     try {
         await waitFor(() => true, 'Screenshot Mode initialization');
         await flow.command(`MAUI resize ${width} ${height}`);
+        // The GTK agent's screenshot omits the native header bar, so capture the X11 window instead.
+        const gtkProcessId = values.platform === 'linux' && !values['check-only']
+            ? (await (await fetch(`http://localhost:${values['agent-port']}/api/v1/agent/status`)).json()).app?.processId
+            : null;
+        if (values.platform === 'linux' && !values['check-only'] && !Number.isInteger(gtkProcessId))
+            throw new Error('The DevFlow agent did not report the GTK process ID.');
+        const screenshot = async path => {
+            if (gtkProcessId === null) {
+                await flow.command(`MAUI screenshot --output "${path}" --overwrite`);
+                return;
+            }
+            await delay(500);
+            const result = spawnSync('python3', [join(root, 'build', 'capture-gtk-window.py'), '--pid', String(gtkProcessId), '--output', path], { encoding: 'utf8' });
+            if (result.status !== 0) throw new Error(result.stderr || result.error?.message || 'GTK window capture failed');
+        };
         for (const theme of values.theme === 'both' ? ['dark', 'light'] : [values.theme]) {
             const directory = join(resolve(values.output), values.platform, theme);
             mkdirSync(directory, { recursive: true });
@@ -180,7 +195,7 @@ async function main() {
                 const entry = { id: shot.id, route: shot.route, heading: state.title, diagnostics: state.diagnostics };
                 if (!values['check-only']) {
                     const path = join(directory, `${shot.id}.png`);
-                    await flow.command(`MAUI screenshot --output "${path}" --overwrite`);
+                    await screenshot(path);
                     const image = readFileSync(path);
                     if (image.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a') throw new Error(`Not a PNG: ${path}`);
                     entry.width = image.readUInt32BE(16);
