@@ -21,8 +21,11 @@ public static class MacOSMauiProgram
 {
     public static MauiApp CreateMauiApp()
     {
+        var screenshotMode = MauiSherpa.Core.Screenshots.ScreenshotMode.Current;
+        screenshotMode.Initialize();
         // Migrate data from old paths
-        MigrateAppData();
+        if (!screenshotMode.IsEnabled)
+            MigrateAppData();
 
         var builder = MauiApp.CreateBuilder();
         builder
@@ -38,7 +41,7 @@ public static class MacOSMauiProgram
         // Sentry — DSN is injected at build time via -p:SentryDsn=... (see Directory.Build.props).
         // When no DSN is configured (e.g. local dev without the env var), Sentry is skipped.
         var sentryDsn = SentryConfig.GetDsn();
-        if (!string.IsNullOrWhiteSpace(sentryDsn))
+        if (!screenshotMode.IsEnabled && !string.IsNullOrWhiteSpace(sentryDsn))
         {
             builder.UseSentry(options =>
             {
@@ -263,7 +266,8 @@ public static class MacOSMauiProgram
         {
             cfg.UseMaui();
             cfg.UseBlazor();
-            cfg.AddMauiPersistentCache();
+            if (!screenshotMode.IsEnabled)
+                cfg.AddMauiPersistentCache();
             cfg.AddStandardAppSupportMiddleware();
         });
 
@@ -310,6 +314,12 @@ public static class MacOSMauiProgram
         builder.Logging.AddDebug();
 #endif
 
+        builder.Services.AddSingleton<IDevFlowDiscoveryService, DevFlowDiscoveryService>();
+        screenshotMode.RegisterServices(builder.Services);
+        builder.Services.AddScreenshotPlatformServices();
+        if (screenshotMode.IsEnabled)
+            builder.ConfigureMauiHandlers(handlers => handlers.AddHandler<
+                Microsoft.Maui.Platforms.MacOS.Controls.MacOSBlazorWebView, ScreenshotBlazorWebViewHandler>());
         return builder.Build();
     }
 

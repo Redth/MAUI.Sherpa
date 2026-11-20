@@ -48,13 +48,13 @@
     <div class="toolbar">
         @if (isSelectionMode)
         {
-            <button class="btn btn-primary" @onclick="BackUpSelectedAsync" disabled="@(selectedCertificateIds.Count == 0)">
+            <button data-screenshot-external class="btn btn-primary" @onclick="BackUpSelectedAsync" disabled="@(selectedCertificateIds.Count == 0)">
                 <i class="fas fa-cloud-arrow-up"></i> Back Up
             </button>
-            <button class="btn btn-secondary" @onclick="InstallSelectedAsync" disabled="@(selectedCertificateIds.Count == 0)">
+            <button data-screenshot-external class="btn btn-secondary" @onclick="InstallSelectedAsync" disabled="@(selectedCertificateIds.Count == 0)">
                 <i class="fas fa-download"></i> Install
             </button>
-            <button class="btn btn-secondary" @onclick="ExportSelectedAsync" disabled="@(selectedCertificateIds.Count == 0)" title="Export">
+            <button data-screenshot-external class="btn btn-secondary" @onclick="ExportSelectedAsync" disabled="@(selectedCertificateIds.Count == 0)" title="Export">
                 <i class="fas fa-file-export"></i> Export Selected...
             </button>
             <button class="btn btn-secondary" @onclick="CancelSelectionMode">
@@ -66,7 +66,7 @@
             <button class="btn btn-primary" @onclick="@(() => RefreshData(forceRefresh: true))" disabled="@isLoading">
                 <i class="fas @(isLoading ? "fa-spinner fa-spin" : "fa-sync-alt")"></i> Refresh
             </button>
-            <button class="btn btn-success" @onclick="ShowCreateDialog" disabled="@isLoading">
+            <button data-screenshot-external class="btn btn-success" @onclick="ShowCreateDialog" disabled="@isLoading">
                 <i class="fas fa-plus"></i> Create Certificate
             </button>
             <button class="btn btn-secondary" @onclick="BeginSelectionModeAsync" disabled="@isLoading">
@@ -176,8 +176,8 @@
         {
             @foreach (var cert in FilteredCertificates)
             {
-                var isExpired = cert.ExpirationDate < DateTime.UtcNow;
-                var isExpiringSoon = !isExpired && cert.ExpirationDate < DateTime.UtcNow.AddDays(30);
+                var isExpired = cert.ExpirationDate < AppClock.UtcNow;
+                var isExpiringSoon = !isExpired && cert.ExpirationDate < AppClock.UtcNow.AddDays(30);
                 var syncStatus = GetSyncStatus(cert);
                 
                 <div @key="cert.Id"
@@ -247,30 +247,30 @@
                                 UnavailableSourceReason="This certificate has no matching private key in Keychain and no provider copy. Import or install its private key before syncing." />
                             @if (syncStatus is SecretLocation.CloudOnly)
                             {
-                                <button class="btn btn-secondary btn-icon" @onclick="@(() => InstallLocally(cert))" title="Install private key locally">
+                                <button data-screenshot-external class="btn btn-secondary btn-icon" @onclick="@(() => InstallLocally(cert))" title="Install private key locally">
                                     <i class="fas fa-download"></i>
                                 </button>
                             }
                         }
-                        <button class="btn btn-secondary btn-icon" @onclick="@(() => ShowExportDialog(cert))" 
+                        <button data-screenshot-external class="btn btn-secondary btn-icon" @onclick="@(() => ShowExportDialog(cert))"
                                 disabled="@isLoading" title="Export">
                             <i class="fas fa-file-export"></i>
                         </button>
                         @if (!string.IsNullOrWhiteSpace(cert.SerialNumber) &&
                              syncStatus is SecretLocation.LocalOnly or SecretLocation.Both)
                         {
-                            <button class="btn btn-danger btn-icon" @onclick="@(() => DeleteLocalCertificate(cert))" title="Delete private key from Keychain">
+                            <button data-screenshot-external class="btn btn-danger btn-icon" @onclick="@(() => DeleteLocalCertificate(cert))" title="Delete private key from Keychain">
                                 <i class="fas fa-trash-alt"></i>
                             </button>
                         }
                         @if (!cert.IsLocalOnly)
                         {
-                            <button class="btn btn-secondary btn-icon" @onclick="@(() => RenewCertificate(cert))"
+                            <button data-screenshot-external class="btn btn-secondary btn-icon" @onclick="@(() => RenewCertificate(cert))"
                                     disabled="@isLoading" title="Renew… (replace this certificate and move its provisioning profiles)"
                                     aria-label="@($"Renew {cert.Name}")">
                                 <i class="fas fa-rotate"></i>
                             </button>
-                            <button class="btn btn-danger btn-icon" @onclick="@(() => RevokeCertificate(cert))"
+                            <button data-screenshot-external class="btn btn-danger btn-icon" @onclick="@(() => RevokeCertificate(cert))"
                                     disabled="@isLoading" title="Revoke">
                                 <i class="fas fa-ban"></i>
                             </button>
@@ -632,7 +632,7 @@
         .Where(c => string.IsNullOrEmpty(filterType) || (c.CertificateType?.Contains(filterType, StringComparison.OrdinalIgnoreCase) ?? false))
         .Where(c => string.IsNullOrEmpty(filterPlatform) || (c.Platform?.Contains(filterPlatform, StringComparison.OrdinalIgnoreCase) ?? false))
         .Where(c => string.IsNullOrEmpty(filterStatus) || GetCertStatus(c) == filterStatus)
-        .OrderByDescending(c => c.ExpirationDate > DateTime.UtcNow) // Valid first
+        .OrderByDescending(c => c.ExpirationDate > AppClock.UtcNow) // Valid first
         .ThenBy(c => c.ExpirationDate);
 
     private bool AllVisibleSelected
@@ -650,8 +650,8 @@
 
     private string GetCertStatus(AppleCertificate cert)
     {
-        if (cert.ExpirationDate < DateTime.UtcNow) return "expired";
-        if (cert.ExpirationDate < DateTime.UtcNow.AddDays(30)) return "expiring";
+        if (cert.ExpirationDate < AppClock.UtcNow) return "expired";
+        if (cert.ExpirationDate < AppClock.UtcNow.AddDays(30)) return "expiring";
         return "valid";
     }
 

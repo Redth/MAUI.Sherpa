@@ -55,7 +55,7 @@ else if (filteredSessions.Count == 0 && sessions.Count == 0)
         <span class="empty-icon"><i class="fas fa-chart-line" aria-hidden="true"></i></span>
         <h2>Capture your first profile</h2>
         <p>Choose a MAUI project and a running Android device, emulator, or booted iOS simulator. Sherpa handles the CLI command and saves every result.</p>
-        <button type="button" class="btn btn-primary empty-action" @onclick="StartCaptureAsync">
+        <button data-screenshot-external type="button" class="btn btn-primary empty-action" @onclick="StartCaptureAsync">
             <i class="fas fa-circle-dot" aria-hidden="true"></i>
             Capture profile
         </button>
@@ -81,7 +81,7 @@ else
                 var primaryArtifact = GetPrimaryArtifact(session);
                 <article class="session-card @(isExpanded ? "expanded" : "")">
                     <div class="session-card-header">
-                        <button type="button"
+                        <button data-screenshot-external type="button"
                                 class="session-card-main"
                                 aria-expanded="@(isExpanded ? "true" : "false")"
                                 @onclick="@(() => ToggleSessionExpand(session.Id))">
@@ -204,13 +204,13 @@ else
                             }
 
                             <div class="session-card-actions">
-                                <button type="button" class="btn btn-secondary btn-sm" @onclick="@(() => ExportSessionAsync(session))">
+                                <button data-screenshot-external type="button" class="btn btn-secondary btn-sm" @onclick="@(() => ExportSessionAsync(session))">
                                     <i class="fas fa-file-export" aria-hidden="true"></i> Export
                                 </button>
-                                <button type="button" class="btn btn-secondary btn-sm" @onclick="@(() => RevealSessionFolderAsync(session))">
+                                <button data-screenshot-external type="button" class="btn btn-secondary btn-sm" @onclick="@(() => RevealSessionFolderAsync(session))">
                                     <i class="fas fa-folder-open" aria-hidden="true"></i> Reveal
                                 </button>
-                                <button type="button" class="btn btn-danger btn-sm destructive-action" @onclick="@(() => DeleteSessionAsync(session))">
+                                <button data-screenshot-external type="button" class="btn btn-danger btn-sm destructive-action" @onclick="@(() => DeleteSessionAsync(session))">
                                     <i class="fas fa-trash" aria-hidden="true"></i> Delete
                                 </button>
                             </div>
@@ -748,6 +748,7 @@ else
     // Speedscope viewer — opens in a new window
     private async Task ViewInSpeedscope(string path)
     {
+        ScreenshotMode.BlockExternalAction("opening a profiling artifact");
         try
         {
             artifactErrors.Remove(path);
@@ -803,6 +804,7 @@ else
 
     private async Task RevealInFinderAsync(string path)
     {
+        ScreenshotMode.BlockExternalAction("revealing a profiling artifact");
         try
         {
             if (Platform.IsMacCatalyst || Platform.IsMacOS)

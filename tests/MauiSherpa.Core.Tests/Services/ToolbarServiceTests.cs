@@ -7,6 +7,23 @@ namespace MauiSherpa.Core.Tests.Services;
 public class ToolbarServiceTests
 {
     [Fact]
+    public void ScreenshotActionsCannotBeReenabledByPageUpdates()
+    {
+        var service = new ToolbarService(Screenshots.ScreenshotMode.Parse("website-v1", true));
+        service.SetItems(new ToolbarAction("create", "Create", "plus"), new ToolbarAction("refresh", "Refresh", "arrow.clockwise"));
+        service.SetItemEnabled("create", true);
+        var clicked = new List<string>();
+        service.ToolbarItemClicked += clicked.Add;
+
+        service.InvokeToolbarItemClicked("create");
+        service.InvokeToolbarItemClicked("refresh");
+
+        clicked.Should().Equal("refresh");
+        service.IsItemEnabled("create").Should().BeFalse();
+        service.CurrentItems[0].ToolTip.Should().Contain("Screenshot Mode");
+    }
+
+    [Fact]
     public void NotifyRouteChanged_UpdatesCurrentRouteBeforeNotifyingSubscribers()
     {
         var service = new ToolbarService();

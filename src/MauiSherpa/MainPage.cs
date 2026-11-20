@@ -39,9 +39,10 @@ public class MainPage : ContentPage
         // when installed in read-only directories like C:\Program Files\
         _blazorWebView.BlazorWebViewInitializing += (_, e) =>
         {
-            var webView2DataPath = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "MauiSherpa", "WebView2");
+            var mode = MauiSherpa.Core.Screenshots.ScreenshotMode.Current;
+            var webView2DataPath = mode.IsEnabled
+                ? Path.Combine(mode.DataDirectory, "WebView2")
+                : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MauiSherpa", "WebView2");
             Directory.CreateDirectory(webView2DataPath);
             e.UserDataFolder = webView2DataPath;
         };

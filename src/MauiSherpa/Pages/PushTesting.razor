@@ -290,7 +290,7 @@
                     <li class="@(HasDeviceToken ? "done" : "")"><i class="@CheckIcon(HasDeviceToken)"></i> Device token</li>
                     <li class="@(HasPayload ? "done" : "")"><i class="@CheckIcon(HasPayload)"></i> Payload</li>
                 </ul>
-                <button class="btn btn-primary push-send-btn" @onclick="SendPush" disabled="@(isSending || !IsValid)">
+                <button data-screenshot-external class="btn btn-primary push-send-btn" @onclick="SendPush" disabled="@(isSending || !IsValid)">
                     <i class="fas @(isSending ? "fa-spinner fa-spin" : "fa-paper-plane")"></i>
                     @(isSending ? "Sending…" : "Send Notification")
                 </button>
@@ -654,6 +654,7 @@
 
     async Task MoveP8FileToSecrets()
     {
+        ScreenshotMode.BlockExternalAction("importing an APNs key file");
         if (!File.Exists(p8FilePath))
         {
             ToastService.Show("P8 file not found.", ToastType.Error);
@@ -665,6 +666,7 @@
 
     async Task StoreP8FileAsSecretAsync(string path)
     {
+        ScreenshotMode.BlockExternalAction("reading an APNs key file");
         isImportingP8 = true;
         StateHasChanged();
 
@@ -761,6 +763,7 @@
 
     async Task SendPush()
     {
+        ScreenshotMode.BlockExternalAction("sending an APNs notification");
         if (!IsValid) return;
 
         isSending = true;

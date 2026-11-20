@@ -7,6 +7,7 @@
 @inject IAlertService AlertService
 @inject ILauncher AppLauncher
 @inject IToolbarService ToolbarService
+@inject IDevFlowDiscoveryService Discovery
 @implements IDisposable
 
 <h1><i class="fas fa-wand-magic-sparkles"></i> MAUI DevFlow Inspector</h1>
@@ -44,7 +45,7 @@
     {
         var supported = IsAgentSupported(agent);
         var outdated = IsAgentOutdated(agent);
-        <div class="agent-card @GetPlatformColorClass(agent.Platform) @(!supported ? "agent-unsupported" : "")"
+        <div data-screenshot-external class="agent-card @GetPlatformColorClass(agent.Platform) @(!supported ? "agent-unsupported" : "")"
              @onclick="@(() => { if (supported) OpenInspector(agent); })"
              title="@(outdated ? $"Agent version {agent.Version} is below minimum {MinSupportedAgentVersion}. Update MAUI DevFlow packages." : !supported ? $"Agent version {agent.Version} is not supported." : "")">
             <div class="agent-icon">
@@ -125,7 +126,7 @@
                 <input type="text" @bind="manualHost" placeholder="localhost" class="input-field broker-input direct-input" />
                 <span class="port-sep">:</span>
                 <input type="number" @bind="manualPort" placeholder="9223" class="input-field port-input direct-port" />
-                <button class="btn btn-secondary btn-sm" @onclick="ManualConnect">
+                <button data-screenshot-external class="btn btn-secondary btn-sm" @onclick="ManualConnect">
                     <i class="fas fa-arrow-right"></i>
                 </button>
             </div>
@@ -171,44 +172,9 @@
 
         try
         {
-            // Probe the user-entered port plus both standard broker ports (DevFlow 19223,
-            // Ailoha 19323) so users don't have to change the field for either toolchain.
-            var portsToTry = new List<int> { brokerPort };
-            foreach (var p in DevFlowAgentClient.DefaultBrokerPorts)
-                if (!portsToTry.Contains(p)) portsToTry.Add(p);
-
-            var probes = portsToTry
-                .Select(async port => (port, healthy: await DevFlowAgentClient.IsBrokerHealthyAsync(brokerHost, port)))
-                .ToList();
-            var probeResults = await Task.WhenAll(probes);
-            var healthyPorts = probeResults.Where(r => r.healthy).Select(r => r.port).ToList();
-
-            brokerConnected = healthyPorts.Count > 0;
-
-            if (healthyPorts.Count > 0)
-            {
-                var agentLists = await Task.WhenAll(healthyPorts.Select(p =>
-                    DevFlowAgentClient.GetBrokerAgentsAsync(brokerHost, p)));
-                agents = agentLists.SelectMany(a => a).ToList();
-
-                // Fetch version from each agent's status endpoint (parallel)
-                var tasks = agents.Select(async agent =>
-                {
-                    try
-                    {
-                        var client = new DevFlowAgentClient(brokerHost, agent.Port);
-                        var status = await client.GetStatusAsync();
-                        if (status?.Version != null)
-                            agent.Version = status.Version;
-                    }
-                    catch { /* agent unreachable */ }
-                });
-                await Task.WhenAll(tasks);
-            }
-            else
-            {
-                agents.Clear();
-            }
+            var result = await Discovery.DiscoverAsync(brokerHost, brokerPort);
+            brokerConnected = result.BrokerConnected;
+            agents = result.Agents.ToList();
         }
         catch
         {
@@ -245,10 +211,9 @@
 
     private async Task ManualConnect()
     {
-        var client = new DevFlowAgentClient(manualHost, manualPort);
         try
         {
-            var status = await client.GetStatusAsync();
+            var status = await Discovery.GetStatusAsync(manualHost, manualPort);
             if (status != null)
             {
                 var id = $"manual-{manualHost}-{manualPort}";
@@ -262,10 +227,6 @@
         catch
         {
             await AlertService.ShowToastAsync($"Connection failed: {manualHost}:{manualPort}");
-        }
-        finally
-        {
-            client.Dispose();
         }
     }
 
@@ -323,7 +284,7 @@
 
     private static string FormatTimeAgo(DateTimeOffset time)
     {
-        var elapsed = DateTimeOffset.UtcNow - time;
+        var elapsed = new DateTimeOffset(AppClock.UtcNow) - time;
         if (elapsed.TotalSeconds < 60) return "just now";
         if (elapsed.TotalMinutes < 60) return $"{(int)elapsed.TotalMinutes}m ago";
         if (elapsed.TotalHours < 24) return $"{(int)elapsed.TotalHours}h ago";

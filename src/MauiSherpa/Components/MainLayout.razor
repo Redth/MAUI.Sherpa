@@ -108,7 +108,7 @@
                 <span>App Inspector</span>
             </NavLink>
 
-            @if (isDebugBuild)
+            @if (isDebugBuild && !MauiSherpa.Core.Screenshots.ScreenshotMode.Current.IsEnabled)
             {
                 <NavLink class="nav-item" href="debug">
                     <i class="fas fa-bug nav-icon"></i>
@@ -197,14 +197,12 @@
             // Apply persisted font scale
             _ = SyncFontScaleAsync();
             
-            // Run settings migration in background
-            _ = RunMigrationAsync();
-
-            // Resume secure background work after the UI has initialized.
-            _ = BackgroundTasks.InitializeAsync();
-
-            // Start watching for ADB device changes
-            _ = DeviceWatcher.StartAsync();
+            if (!MauiSherpa.Core.Screenshots.ScreenshotMode.Current.IsEnabled)
+            {
+                _ = RunMigrationAsync();
+                _ = BackgroundTasks.InitializeAsync();
+                _ = DeviceWatcher.StartAsync();
+            }
 
             // Load demo mode setting
             _ = LoadDemoModeAsync();

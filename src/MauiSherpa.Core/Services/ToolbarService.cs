@@ -10,6 +10,15 @@ namespace MauiSherpa.Core.Services;
 /// </summary>
 public class ToolbarService : IToolbarService
 {
+    private readonly Screenshots.ScreenshotMode screenshotMode;
+
+    public ToolbarService() : this(Screenshots.ScreenshotMode.Current) { }
+
+    internal ToolbarService(Screenshots.ScreenshotMode screenshotMode) => this.screenshotMode = screenshotMode;
+
+    private bool IsScreenshotActionAllowed(string actionId) =>
+        !screenshotMode.IsEnabled || actionId is "refresh" or "select" or "cancel-selection" or "up-folder";
+
     private ToolbarAction[] _items = [];
     private ToolbarFilter[] _filters = [];
     private string? _searchPlaceholder;
@@ -30,7 +39,8 @@ public class ToolbarService : IToolbarService
 
     public void SetItems(params ToolbarAction[] items)
     {
-        _items = items;
+        _items = items.Select(item => IsScreenshotActionAllowed(item.Id) ? item
+            : item with { ToolTip = "Unavailable in Screenshot Mode: external actions are disabled." }).ToArray();
         _filters = [];
         _searchPlaceholder = null;
         _searchText = "";
@@ -105,7 +115,7 @@ public class ToolbarService : IToolbarService
             ToolbarChanged?.Invoke();
     }
 
-    public bool IsItemEnabled(string actionId) => !_disabledItems.Contains(actionId);
+    public bool IsItemEnabled(string actionId) => IsScreenshotActionAllowed(actionId) && !_disabledItems.Contains(actionId);
 
     public bool IsToolbarSuppressed { get; private set; }
 

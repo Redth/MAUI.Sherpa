@@ -5,13 +5,71 @@ The homepage's screenshot collection is defined in
 list for macOS, Windows, and Linux, including routes, captions, platform support,
 and paths to captures that actually exist.
 
-The November 20, 2026 refresh uses the app at revision `6e6fbb1`. The macOS
-reference set was captured through MAUI DevFlow from the AppKit head, in dark
-mode. These are real app captures with sensitive text redacted, not mockups.
-Older images in the parent screenshots directory remain for the README and
-detailed guides; they are not substituted for other platforms in the new gallery.
+## Screenshot Mode
 
-The Linux set was started on November 20, 2026 using the GTK head on Ubuntu
+Use a **Debug** build with `MAUI_SHERPA_SCREENSHOT_MODE=website-v1`.
+Restart to enter or leave this mode. Invalid scenarios and Release activation
+refuse to start rather than falling back to real data.
+
+The real pages and native chrome show the same fictional **Summit Labs / Trail
+Notes** environment on every platform. No SDK, JDK, devices, accounts, signing
+keys, or secrets need importing. Platform capabilities stay genuine: Xcode and
+local Apple simulators remain macOS-only.
+
+The mode uses in-memory settings, preferences, secure storage, and vault state,
+plus a separate per-run `MauiSherpa.Screenshots/<id>` directory for logs and
+WebView state. It skips migrations, telemetry, automatic updates, and background
+workers. External actions are disabled or explicitly blocked at service
+boundaries; a missing fixture read records an error and fails capture readiness.
+The WebView's existing Font Awesome, xterm, and Highlight.js assets are bundled
+locally, with their upstream licenses, so captures do not depend on CDNs.
+
+All heads start at **1440 × 960 logical pixels**, with a **250-pixel sidebar**,
+100% font scale, and dark appearance. This leaves the complete menu visible
+without scrolling. **Debug UI is hidden in Screenshot Mode only.** Ordinary
+Debug launches retain it. Use a display/workspace large enough for this size;
+the runner rejects incorrectly sized captures rather than cropping or stretching.
+
+Screenshot Mode is separate from **Demo Mode**, which blurs real data.
+The fixture settings keep Demo Mode off. Fictional labels stay readable; normal
+password/secret masking is preserved. Never import real data into a capture run.
+
+### Automated capture
+
+With Node.js 20+ and the MAUI CLI available, discover this Sherpa instance with
+`dotnet maui devflow wait` and use its returned port explicitly:
+
+```bash
+node build/capture-screenshots.mjs --agent-port <port> --platform macos \
+  --output <outside-repository-directory> --theme both
+```
+
+Use `windows` or `linux` for those native heads. `--theme both` captures dark and
+light in one persistent DevFlow batch, avoiding competing mutation leases.
+`--shots dashboard,doctor` selects views; `--check-only` verifies without saving
+PNGs. The runner consumes the manifest, verifies the fixture/platform, route,
+heading, appearance, settled loading, no errors or privacy blur, no remote web
+resources, no Debug UI link, and no overflowing HTML sidebar before every shot.
+Native sidebar visibility must also be reviewed in the actual PNG.
+
+Results are `<output>/<platform>/<theme>/<id>.png` plus `capture.json`, recording
+revision, dirty-worktree status, fixture version, platform, theme, and actual
+dimensions. Review both appearances; export the dark set as lossless 1× WebP
+for the current website. Retain the PNGs and reports outside the repository.
+Do not force-take another DevFlow client's mutation lease.
+
+### Current assets and earlier captures
+
+The seventeen macOS website assets now use the reviewed dark `website-v1`
+fixture set, captured at 1440 × 960 from the real AppKit window through MAUI
+DevFlow. Both dark and light PNG originals were reviewed. Platform capture
+metadata records the base revision and honestly marks the worktree as dirty:
+the Screenshot Mode implementation was not committed when captured.
+Older images in the parent screenshots directory remain for the README and
+detailed guides; they are not substituted for other platforms in the gallery.
+
+The earlier Linux set uses revision `6e6fbb1`, not Screenshot Mode. It was
+started on November 20, 2026 using the GTK head on Ubuntu
 26.04.1 / GNOME Wayland, with the app running through XWayland at 1× scale.
 The seven 1440 × 960 captures show Dashboard, Doctor, Profiling, the APNs
 form with its empty `.p8` key-file option selected, and, after Sherpa's
@@ -19,11 +77,13 @@ form with its empty `.p8` key-file option selected, and, after Sherpa's
 Local Vault, the empty Secrets root, the empty Publish Profiles list, and the
 default Firebase form. Doctor's paths are irreversibly masked.
 
-The remaining Linux views are pending: `android-sdk` and `android-devices`
+The remaining views in that earlier Linux set are pending: `android-sdk` and `android-devices`
 require an Android SDK; `keystores` shows an "OpenJDK not found" warning
 without a JDK; `dotnet-sdk` requires dotnetup; `app-inspector` has no reachable
 broker; and `certificates`, `profiles`, and `bundle-ids` show the App Store
-Connect credential prompt without a configured Apple identity.
+Connect credential prompt without a configured Apple identity. Screenshot Mode
+removes those prerequisites for the replacement set; preserve earlier Linux
+assets until the replacement captures have actually been reviewed.
 
 ## Feature audit
 
@@ -48,42 +108,38 @@ Audit sources: `src/MauiSherpa/Components/MainLayout.razor`,
 `src/MauiSherpa/Pages/`, `src/MauiSherpa.Core/Services/CloudSecretsProviderFactory.cs`,
 `src/MauiSherpa.Core/Services/SecretsPublisherService.cs`, and the platform app
 heads. Local Apple tools are gated in `MainLayout.razor`; Apple account tools are
-not. GTK's own DevFlow **agent integration is currently disabled** in
-`src/MauiSherpa.LinuxGtk/MauiSherpa.LinuxGtk.csproj`; this is separate from using
-Sherpa's App Inspector to inspect another app.
+not. GTK's Debug DevFlow agent and Blazor bridge are enabled with a compatible
+GTK package set. The GTK head compiles on macOS, but its actual Linux runtime
+and native sizing still require verification on Linux.
 
 ## Capture contract
 
 - Capture the native desktop app, including its real sidebar and toolbar. Do not
   use browser-rendered app mockups or put macOS chrome around another platform.
-- Use a roughly **1440 × 960 logical-pixel window**, **100% app font scale**,
+- Use a **1440 × 960 logical-pixel window**, **100% app font scale**,
   **dark app theme**, no open menus, and the content scrolled to the top.
-  Most current macOS exports are **1440 × 939 pixels**; Dashboard and Keystores
-  were recaptured at **1280 × 754** after a window-size change. DevFlow acknowledged
-  subsequent resize requests without changing the AppKit window. Other platforms
-  may include different title-bar heights; preserve aspect ratio and full native
-  chrome rather than stretching or cropping. Match content/state first.
+  Keep the entire native window and verify every menu element is visible without
+  scrolling. Do not stretch, crop, or substitute another platform's chrome.
 - Use the `id` from the manifest as the filename:
   `website/images/screenshots/<platform>/<id>.webp`. Platform keys are `macos`,
   `windows`, and `linux`.
 - Keep PNG originals outside the repository. Export lossless WebP at 1× logical
   resolution so text stays sharp without large Retina files.
-- Enable **Settings → Demo Mode** first. It does not cover every identifying
-  label:   also redact account names (including native toolbar identity selectors),
-  device/emulator names, signing names, bundle
-  identifiers, local paths/usernames, project names, secret names, and any visible
-  tokens. For public output, use opaque masking, not a reversible image layer.
+- Use **Screenshot Mode**, not Demo Mode, for new captures. Do not add redaction
+  CSS or replace DOM text. For exceptional captures outside Screenshot Mode,
+  enable Demo Mode and irreversibly mask every identifying label, native account
+  name, path, identifier, and token; privacy blur alone is not sufficient.
 - Read-only navigation only. Do not install SDKs, start/stop other sessions'
   devices, create/revoke signing assets, publish secrets, send push notifications,
   or delete data for a screenshot.
 - Wait for a page's loading state to finish. Record a blocker rather than
-  publishing a spinner, authentication error, or half-loaded view. An honest
-  empty state is acceptable when no safe sample data exists.
+  publishing a spinner, authentication error, half-loaded view, or unexpectedly
+  empty fixture list.
 - Do not inspect another session's live app just to populate the App Inspector.
   Its agent-list view is the baseline; detailed inspector captures require an
   explicitly approved demo target.
 - Review every exported image at full resolution before adding it to the manifest.
-  Restore temporary capture styles and the prior theme/window size afterward.
+  Close the isolated app when finished; ordinary preferences are not changed.
 
 ### Equivalent views
 
@@ -96,7 +152,7 @@ All rows use the top of the page, with no modal open.
 | `doctor` | `/doctor` | Completed analysis, summary and context; no repairs | All |
 | `android-sdk` | `/android-sdk` | Installed-package view, categories collapsed | All |
 | `android-devices` | `/devices` | Combined physical-device and emulator lists | All |
-| `keystores` | `/keystores` | Keystore list, values hidden | All |
+| `keystores` | `/keystores` | Fictional vault-backed keystores, passwords masked | All |
 | `xcode` | `/xcode-management` | Installed Xcode tab; no downloads or selection changes | macOS |
 | `apple-simulators` | `/apple-simulators` | Physical devices and simulator list; no device changes | macOS |
 | `certificates` | `/certificates` | Certificates list; no actions | All |
@@ -104,17 +160,17 @@ All rows use the top of the page, with no modal open.
 | `bundle-ids` | `/bundle-ids` | Identifier list; no capabilities dialog | All |
 | `secrets` | `/secrets` | Root folder, values hidden | All |
 | `publishing` | `/secrets/publish` | Publish-profile list; no review/publish action | All |
-| `profiling` | `/profiling` | Session list or honest first-capture empty state | All |
+| `profiling` | `/profiling` | Three saved fictional sessions; no capture/viewer opened | All |
 | `app-inspector` | `/devflow` | Connected-agent list, no agent opened | All |
-| `firebase-push` | `/firebase-push` | Default form, credentials/targets masked; never send | All |
-| `apple-push` | `/push-testing` | Default APNs form, credentials/targets masked; never send | All |
+| `firebase-push` | `/firebase-push` | Trail Notes Android project, topic and example message; never send | All |
+| `apple-push` | `/push-testing` | Trail Notes iOS project and example payload; never send | All |
 
 ### macOS build and DevFlow
 
 ```bash
 dotnet build src/MauiSherpa.MacOS -f net10.0-macos
-open -n --env MAUI_SHERPA_ENABLE_DEVFLOW=1 \
-  "src/MauiSherpa.MacOS/bin/Debug/net10.0-macos/osx-arm64/MAUI Sherpa.app"
+MAUI_SHERPA_SCREENSHOT_MODE=website-v1 MAUI_SHERPA_ENABLE_DEVFLOW=1 \
+  "src/MauiSherpa.MacOS/bin/Debug/net10.0-macos/osx-arm64/MAUI Sherpa.app/Contents/MacOS/MauiSherpa.MacOS"
 dotnet maui devflow wait --wait-platform macOS --timeout 30
 dotnet maui devflow list
 ```
@@ -139,9 +195,11 @@ for multiple mutations. Separate CLI invocations can encounter the previous
 invocation's mutation lease; do not force-take another client's lease. Batch
 expressions should use single quotes inside their outer double quotes.
 
-Verify readiness with the current heading and visible loading elements rather
-than fixed sleeps. Use screenshot-only CSS to mask additional sensitive text;
-remove it when finished. Do not replace real values with invented sample data.
+Prefer the checked-in runner for navigation and readiness checks. It switches
+appearance through the real theme service, including native chrome, rather
+than changing only CSS. The hidden `#screenshot-diagnostics` marker exposes the
+fixture version, platform, initialization state, theme, fixed clock, and blocked
+operations; it is absent from ordinary launches.
 
 ## Adding platform captures
 
@@ -183,19 +241,22 @@ changes. Add your platform-only changes to that branch and its existing PR.
 Use docs/SCREENSHOTS.md and website/screenshots.json from the website refresh,
 with website/images/screenshots/macos/ as the visual reference.
 
-Build the current Windows head:
-dotnet build src/MauiSherpa -f net10.0-windows10.0.19041.0
-Launch the built Debug app and use MAUI DevFlow for navigation and screenshots.
-Discover this Sherpa instance's port and target it explicitly. Prefer a single
-persistent DevFlow batch session so captures share a mutation lease.
+Build and launch the current Windows head from PowerShell:
+$env:MAUI_SHERPA_SCREENSHOT_MODE = "website-v1"
+$env:MAUI_SHERPA_ENABLE_DEVFLOW = "1"
+dotnet build src/MauiSherpa -f net10.0-windows10.0.19041.0 -t:Run
+Discover this Sherpa instance's port from a second terminal and run:
+node build/capture-screenshots.mjs --agent-port <port> --platform windows --output <outside-repo-directory> --theme both
+Verify the diagnostics identify website-v1 and Windows. Do not import accounts,
+SDKs, JDKs, devices, signing keys, or secrets. Do not upgrade packages for capture.
 
 Match a 1440x960 logical-pixel window, dark app theme, 100% font scale, top scroll
 position, and the states in the shared capture table. Keep real Windows/WinUI
 chrome. Capture all 15 cross-platform IDs; do not capture xcode or apple-simulators.
-Enable Demo Mode, then additionally mask identifying labels, paths, account and
-project names, bundle IDs, secret names, tokens, and signing names. Review every
-image for readable sensitive data. Use existing safe data or an honest empty
-state, never fabricated UI or production data created just for marketing.
+Use the shared fictional data with Demo Mode OFF. Debug UI should be absent and
+the whole menu visible without scrolling. Keep fictional labels readable; do
+not add blur, redaction CSS, DOM text replacements, or fake platform chrome.
+Review both appearances and use the dark set for the website.
 
 Navigate read-only: do not install/update SDKs or workloads, pair/start/stop
 devices owned by other sessions, create/revoke certificates, publish secrets,
@@ -210,7 +271,7 @@ and full native window chrome. Add only the reviewed Windows paths to each
 matching assets.windows entry in website/screenshots.json. Do not change macOS
 assets, captions, support declarations, or website design.
 
-Restore temporary UI preferences/styles. Run:
+Close the isolated app and clear both environment variables when finished. Run:
 node --test tests/website.test.mjs
 Return a contact sheet, the exact captured/missing IDs, dimensions, and any
 blockers. Commit only your Windows assets and manifest entries, rebase onto the
@@ -229,22 +290,24 @@ with website/images/screenshots/macos/ as the visual reference.
 
 Build and run the actual GTK head:
 dotnet build src/MauiSherpa.LinuxGtk
-dotnet run --project src/MauiSherpa.LinuxGtk --no-build
-Inspect the current integration first: Sherpa's GTK DevFlow agent packages and
-startup are currently disabled. Do not assume DevFlow can drive this app and do
-not enable/upgrade those packages as part of this task. If still disabled, use
-the desktop's native window capture and UI automation tools for the real GTK
-window. Sherpa's App Inspector page is still a valid feature to capture.
+MAUI_SHERPA_SCREENSHOT_MODE=website-v1 MAUI_SHERPA_ENABLE_DEVFLOW=1 dotnet run --project src/MauiSherpa.LinuxGtk --no-build
+The compatible Debug GTK DevFlow agent and Blazor bridge are enabled. Verify
+agent connectivity on Linux; do not use browser mockups or Computer Use as a
+substitute. Discover this Sherpa instance's port from a second terminal and run:
+node build/capture-screenshots.mjs --agent-port <port> --platform linux --output <outside-repo-directory> --theme both
+Report any GTK runtime/connectivity issue instead of silently publishing partial
+captures. The GTK build was checked on macOS, not its Linux runtime.
 
 Match a 1440x960 logical-pixel window, dark app theme, 100% font scale, top scroll
 position, and the states in the shared capture table. Keep real Linux/GTK chrome
 and record the distribution, desktop environment, and display scale. Capture
 all 15 cross-platform IDs; do not capture xcode or apple-simulators.
 
-Enable Demo Mode and additionally mask all identifying labels, local usernames
-and paths, account/project names, signing names, bundle IDs, secret names, and
-tokens. Review every image. Use existing safe data or honest empty states, never
-fabricated UI. Do not install/update SDKs or workloads, start/stop other sessions'
+Use shared fictional data with Demo Mode OFF. No SDK, JDK, devices, or account
+imports are needed. Debug UI should be absent and the full menu visible without
+scrolling. Keep fictional labels readable, with no redaction CSS or DOM text
+replacement. Review both appearances; use the dark set for the website. Do not
+install/update SDKs or workloads, start/stop other sessions'
 devices, create/revoke signing assets, publish secrets, send notifications, or
 delete anything. Record blocked/loading views instead of publishing them. Do
 not inspect another session's app to populate the inspector.
@@ -256,7 +319,7 @@ and the full native window. Add only reviewed Linux paths to each matching
 assets.linux entry in website/screenshots.json. Do not change macOS assets,
 captions, support declarations, app dependencies, or website design.
 
-Restore temporary UI preferences/styles. Run:
+Close the isolated app when finished. Run:
 node --test tests/website.test.mjs
 Return a contact sheet, captured/missing IDs, dimensions, and blockers. Commit
 only your Linux assets and manifest entries, rebase onto the latest

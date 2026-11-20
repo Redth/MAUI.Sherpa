@@ -32,6 +32,7 @@ public class ProfilingViewerService
 
     private void OpenViewer(string viewerKey, string route, string title, int width, int height)
     {
+        MauiSherpa.Core.Screenshots.ScreenshotMode.BlockExternalAction("opening a profiling artifact");
         if (_windows.TryGetValue(viewerKey, out var existing))
         {
             Application.Current?.CloseWindow(existing);

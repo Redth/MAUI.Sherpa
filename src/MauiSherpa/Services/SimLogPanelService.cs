@@ -24,6 +24,7 @@ public class SimInspectorService
 
     private void OpenCore(string udid, string? simName, SimInspectorTab tab, bool isPhysicalDevice)
     {
+        MauiSherpa.Core.Screenshots.ScreenshotMode.BlockExternalAction("opening a live simulator inspector");
         ActiveUdid = udid;
         ActiveSimName = simName ?? udid;
         ActiveTab = tab;
