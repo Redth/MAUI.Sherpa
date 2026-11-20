@@ -264,22 +264,41 @@ Use `@bind:event="oninput"` on inputs for this to work (requires `input` events,
 
 The project uses [MAUI DevFlow](https://github.com/dotnet/maui-labs/tree/main/src/DevFlow) from the unified `Microsoft.Maui.Cli` tool for AI-assisted debugging. Broker discovery is preferred; no `.mauidevflow` file is committed in this repo.
 
+Use the current upstream [debugging skill](https://github.com/dotnet/maui-labs/blob/main/.github/skills/maui-devflow-debug/SKILL.md)
+and [onboarding skill](https://github.com/dotnet/maui-labs/blob/main/.github/skills/maui-devflow-onboard/SKILL.md)
+as the source of truth. The local copies were refreshed from upstream revision
+`e626474c39ffa234b88200f8ee5aea99c999d853`; only the troubleshooting link is
+adapted to point back to the upstream repository. `maui devflow skills check`
+compares against the installed CLI bundle, which may lag upstream `main`.
+Prefer DevFlow `maui_*` MCP tools when available; otherwise use the CLI.
+Discover the intended app with `wait`/`list`, verify its identity with
+`agent status`, and pass its explicit port on subsequent commands.
+
 ```bash
-# Always run CLI commands from src/MauiSherpa/ for auto port detection
+# Discover the intended Sherpa instance, then use its returned port
 cd src/MauiSherpa
+dotnet maui devflow wait --wait-platform macOS --timeout 30
+dotnet maui devflow list
+dotnet maui devflow agent status --agent-port <port>
 
-# Check agent connectivity
-dotnet maui devflow ui status
-
-# Take screenshots
-dotnet maui devflow ui screenshot --output screen.png
+# Keep genuine HiDPI pixels (the default screenshot command downsamples to 1x)
+dotnet maui devflow ui screenshot --agent-port <port> --scale native --output screen.png
 
 # Blazor DOM snapshot (best for AI)
-dotnet maui devflow webview snapshot
+dotnet maui devflow webview snapshot --agent-port <port>
 
-# Inject dark/light mode for testing (avoids navigating to Settings)
-dotnet maui devflow webview Runtime evaluate "document.body.classList.remove('theme-light'); document.body.classList.add('theme-dark'); document.querySelector('.main-layout').classList.remove('theme-light'); document.querySelector('.main-layout').classList.add('theme-dark');"
+# Screenshot Mode: switch the actual app theme, including native chrome
+dotnet maui devflow webview Runtime evaluate \
+  "window.sherpaScreenshot.setAppearance('dark')" --agent-port <port>
 ```
+
+For website captures, follow [docs/SCREENSHOTS.md](docs/SCREENSHOTS.md).
+Once the isolated fixture app is ready, ask the user whether they are ready to
+leave it alone for the complete set. Wait for an explicit yes, then wait five
+seconds before focusing the window and capturing uninterrupted. Close that
+isolated app afterward. Never skip the readiness question or close another
+session's app. The runner rejects focus loss instead of publishing an
+inconsistent set.
 
 ## CI/CD
 

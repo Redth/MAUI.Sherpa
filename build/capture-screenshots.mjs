@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { spawn, spawnSync } from 'node:child_process';
 import { createInterface } from 'node:readline';
+import { createInterface as createPrompt } from 'node:readline/promises';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,6 +19,8 @@ const { values } = parseArgs({
         timeout: { type: 'string', default: '30' },
         width: { type: 'string', default: '1440' },
         height: { type: 'string', default: '960' },
+        'pixel-ratio': { type: 'string', default: '2' },
+        confirmed: { type: 'boolean', default: false },
         'check-only': { type: 'boolean', default: false },
         help: { type: 'boolean', default: false }
     }
@@ -102,6 +105,8 @@ const stateExpression = `JSON.stringify((()=>{
     return {
         diagnostics:diagnostics?{...diagnostics.dataset}:null,
         route:location.pathname,title:document.querySelector('h1')?.innerText.trim(),
+        tabs:text('.tabs .tab'),
+        activeTab:text('.tabs .tab.active')[0]??null,
         loading:text('.loading-state,.loading-inline,.loading-card,.loading-indicator,.fa-spin,[aria-busy]:not([aria-busy=false])').length,
         errors:text('.error-bar,.error-message,.error-banner,.environment-error,.alert-danger,#blazor-error-ui'),
         blurred:Array.from(document.querySelectorAll('.demo-blur')).some(visible),
@@ -114,7 +119,7 @@ const stateExpression = `JSON.stringify((()=>{
 
 async function main() {
     if (values.help) {
-        console.log('node build/capture-screenshots.mjs --agent-port PORT --platform macos|windows|linux --output DIRECTORY [--theme dark|light|both] [--shots dashboard,doctor] [--check-only] [--width 1440 --height 960]');
+        console.log('node build/capture-screenshots.mjs --agent-port PORT --platform macos|windows|linux --output DIRECTORY [--theme dark|light|both] [--shots dashboard,doctor] [--check-only] [--confirmed] [--width 1440 --height 960 --pixel-ratio 2]');
         return;
     }
     if (!/^\d+$/.test(values['agent-port'] ?? '') || !['macos', 'windows', 'linux'].includes(values.platform)
@@ -122,8 +127,11 @@ async function main() {
         throw new Error('Provide --agent-port, --platform, --output and a valid --theme. Use --help for usage.');
     const timeout = Number(values.timeout) * 1000;
     const width = Number(values.width), height = Number(values.height);
+    const pixelRatio = Number(values['pixel-ratio']);
     if (!Number.isFinite(timeout) || timeout <= 0 || !Number.isInteger(width) || !Number.isInteger(height) || width < 800 || height < 600)
         throw new Error('Use a positive timeout and integer dimensions of at least 800 x 600.');
+    if (!Number.isFinite(pixelRatio) || pixelRatio < 1 || !Number.isInteger(width * pixelRatio) || !Number.isInteger(height * pixelRatio))
+        throw new Error('Use a pixel ratio of at least 1 that produces integer pixel dimensions.');
     const manifest = JSON.parse(readFileSync(join(root, 'website', 'screenshots.json'), 'utf8'));
     const requested = values.shots?.split(',');
     const shots = manifest.shots.filter(shot => shot.platforms.includes(values.platform) && (!requested || requested.includes(shot.id)));
@@ -139,7 +147,8 @@ async function main() {
     const report = {
         revision: git('rev-parse', 'HEAD'), dirty: !!git('status', '--porcelain'),
         fixture: 'website-v1', platform: values.platform, theme: values.theme,
-        capturedAt: new Date().toISOString(), requestedDimensions: { width, height }, shots: []
+        capturedAt: new Date().toISOString(), requestedDimensions: { width, height },
+        pixelRatio, pixelDimensions: { width: width * pixelRatio, height: height * pixelRatio }, shots: []
     };
     const flow = new DevFlow(values['agent-port'], Math.max(timeout, 30000));
     const verify = state => {
@@ -147,6 +156,8 @@ async function main() {
             throw new Error(`Not the requested Screenshot Mode app: ${JSON.stringify(state.diagnostics)}`);
         if (state.diagnostics.violations !== '0' || state.errors.length || state.remoteResources.length || state.blurred || state.debugMenu || state.sidebarOverflow)
             throw new Error(`Unsafe capture state: ${JSON.stringify(state)}`);
+        if (state.diagnostics.interrupted === 'true')
+            throw new Error('The capture window lost focus. This set is interrupted; rerun it after the user is ready.');
     };
     const waitFor = async (predicate, label) => {
         const deadline = Date.now() + timeout;
@@ -161,23 +172,59 @@ async function main() {
         }
         throw new Error(`Timed out waiting for ${label}: ${JSON.stringify(state)}`);
     };
+    const getCaptureProcessId = async () => {
+        const response = await fetch(`http://localhost:${values['agent-port']}/api/v1/agent/status`, { signal: AbortSignal.timeout(timeout) });
+        if (!response.ok) throw new Error(`Agent status failed (${response.status}).`);
+        const processId = (await response.json()).app?.processId;
+        if (!Number.isInteger(processId))
+            throw new Error('The DevFlow agent did not report the capture process ID.');
+        return processId;
+    };
+    let ownsCapture = false;
+    let captureProcessId;
     try {
         await waitFor(() => true, 'Screenshot Mode initialization');
         await flow.command(`MAUI resize ${width} ${height}`);
-        // The GTK agent's screenshot omits the native header bar, so capture the X11 window instead.
-        const gtkProcessId = values.platform === 'linux' && !values['check-only']
-            ? (await (await fetch(`http://localhost:${values['agent-port']}/api/v1/agent/status`)).json()).app?.processId
-            : null;
-        if (values.platform === 'linux' && !values['check-only'] && !Number.isInteger(gtkProcessId))
-            throw new Error('The DevFlow agent did not report the GTK process ID.');
+        if (values.platform === 'windows') {
+            captureProcessId = await getCaptureProcessId();
+            const result = spawnSync('python', [
+                join(root, 'build', 'capture-windows-window.py'), '--pid', String(captureProcessId),
+                '--prepare', '--width', String(report.pixelDimensions.width),
+                '--height', String(report.pixelDimensions.height), '--pixel-ratio', String(pixelRatio)
+            ], { encoding: 'utf8' });
+            if (result.status !== 0) throw new Error(result.stderr || result.error?.message || 'Windows window preparation failed');
+        }
+        if (!values['check-only']) {
+            if (!values.confirmed) {
+                if (!process.stdin.isTTY)
+                    throw new Error('The app is ready. Ask the user to leave it untouched until capture finishes, then rerun with --confirmed only after they agree.');
+                const prompt = createPrompt({ input: process.stdin, output: process.stdout });
+                try {
+                    const answer = await prompt.question('The app is ready. Leave the focused window untouched until the full set finishes; it will close afterward. Ready? [yes/no] ');
+                    if (answer.trim().toLowerCase() !== 'yes')
+                        throw new Error('Capture cancelled; no screenshots were taken.');
+                } finally {
+                    prompt.close();
+                }
+            }
+            ownsCapture = true;
+            captureProcessId ??= await getCaptureProcessId();
+            console.log('Starting in 5 seconds. Please leave the app untouched until it closes.');
+            await delay(5000);
+            await flow.evaluate('window.sherpaScreenshot.beginCapture().then(()=>true)');
+        }
         const screenshot = async path => {
-            if (gtkProcessId === null) {
-                await flow.command(`MAUI screenshot --output "${path}" --overwrite`);
+            if (values.platform === 'macos') {
+                await flow.command(`MAUI screenshot --scale native --output "${path}" --overwrite`);
                 return;
             }
             await delay(500);
-            const result = spawnSync('python3', [join(root, 'build', 'capture-gtk-window.py'), '--pid', String(gtkProcessId), '--output', path], { encoding: 'utf8' });
-            if (result.status !== 0) throw new Error(result.stderr || result.error?.message || 'GTK window capture failed');
+            const windows = values.platform === 'windows';
+            const result = spawnSync(windows ? 'python' : 'python3', [
+                join(root, 'build', windows ? 'capture-windows-window.py' : 'capture-gtk-window.py'),
+                '--pid', String(captureProcessId), '--output', path
+            ], { encoding: 'utf8' });
+            if (result.status !== 0) throw new Error(result.stderr || result.error?.message || 'Native window capture failed');
         };
         for (const theme of values.theme === 'both' ? ['dark', 'light'] : [values.theme]) {
             const directory = join(resolve(values.output), values.platform, theme);
@@ -188,11 +235,20 @@ async function main() {
             await waitFor(state => state.diagnostics.theme === theme, 'native and web appearance');
             for (const shot of shots) {
                 await flow.evaluate(`(()=>{const a=document.createElement('a');a.href='/${shot.route}';document.body.appendChild(a);a.click();a.remove();return true})()`);
-                const state = await waitFor(
-                    state => state.route.replace(/\/$/, '') === `/${shot.route}`.replace(/\/$/, '') && state.title?.includes(headings[shot.id]),
+                let state = await waitFor(
+                    state => state.route.replace(/\/$/, '') === `/${shot.route}`.replace(/\/$/, '')
+                        && state.title?.includes(headings[shot.id])
+                        && (shot.id !== 'android-sdk' || state.tabs.some(tab => tab.startsWith('Installed ('))),
                     shot.id);
+                if (shot.id === 'android-sdk') {
+                    const clicked = JSON.parse(await flow.evaluate(`(()=>{const tab=Array.from(document.querySelectorAll('.tabs .tab')).find(e=>e.textContent.trim().startsWith('Installed ('));if(tab)tab.click();return JSON.stringify({clicked:!!tab})})()`));
+                    if (!clicked.clicked)
+                        throw new Error('The Android SDK Installed tab is unavailable.');
+                    state = await waitFor(state => state.activeTab?.startsWith('Installed ('), 'Android SDK Installed tab');
+                }
                 await flow.evaluate(`document.querySelector('main.content')?.scrollTo(0,0)`);
                 const entry = { id: shot.id, route: shot.route, heading: state.title, diagnostics: state.diagnostics };
+                if (shot.id === 'android-sdk') entry.activeTab = state.activeTab;
                 if (!values['check-only']) {
                     const path = join(directory, `${shot.id}.png`);
                     await screenshot(path);
@@ -200,8 +256,8 @@ async function main() {
                     if (image.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a') throw new Error(`Not a PNG: ${path}`);
                     entry.width = image.readUInt32BE(16);
                     entry.height = image.readUInt32BE(20);
-                    if (entry.width !== width || entry.height !== height)
-                        throw new Error(`Native screenshot is ${entry.width} x ${entry.height}, not ${width} x ${height}. Check display size/scaling.`);
+                    if (entry.width !== report.pixelDimensions.width || entry.height !== report.pixelDimensions.height)
+                        throw new Error(`Native screenshot is ${entry.width} x ${entry.height}, not ${report.pixelDimensions.width} x ${report.pixelDimensions.height} (${width} x ${height} at ${pixelRatio}x). Use the requested display scale; do not upscale the image.`);
                     entry.file = `${shot.id}.png`;
                 }
                 verify(JSON.parse(await flow.evaluate(stateExpression)));
@@ -211,7 +267,26 @@ async function main() {
             }
         }
     } finally {
-        await flow.close();
+        try {
+            if (ownsCapture) await flow.evaluate('window.sherpaScreenshot.closeCapture().then(()=>true)');
+        } finally {
+            await flow.close();
+        }
+        if (ownsCapture && captureProcessId) {
+            const deadline = Date.now() + 10000;
+            let running = true;
+            while (running && Date.now() < deadline) {
+                try {
+                    process.kill(captureProcessId, 0);
+                    await delay(100);
+                } catch (error) {
+                    if (error.code !== 'ESRCH') throw error;
+                    running = false;
+                }
+            }
+            if (running) throw new Error(`The isolated capture app (${captureProcessId}) did not exit after closing.`);
+            console.log('The isolated capture app has closed.');
+        }
     }
 }
 

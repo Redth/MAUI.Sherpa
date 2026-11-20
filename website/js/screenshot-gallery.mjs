@@ -1,4 +1,5 @@
 import { detectPlatform, readPlatformPreference, savePlatformPreference } from './platform.mjs';
+import { initScreenshotPicker } from './screenshot-picker.mjs';
 
 export function resolveCapture(manifest, platform, shotId) {
     const shot = manifest.shots.find(shot => shot.id === shotId);
@@ -29,7 +30,7 @@ export async function initScreenshotGallery() {
     const image = document.getElementById('tour-image');
     const openButton = document.getElementById('screenshot-open');
     const empty = document.getElementById('tour-empty');
-    const featureSelect = document.getElementById('screenshot-feature');
+    const picker = initScreenshotPicker(document.getElementById('screenshot-picker'), manifest.shots, selectShot);
     const shortcuts = document.getElementById('tour-shortcuts');
     const platformButtons = [...document.querySelectorAll('[data-platform]')];
     const emptyTitle = document.getElementById('tour-empty-title');
@@ -44,10 +45,6 @@ export async function initScreenshotGallery() {
     updateDownloads(preference || detected || 'macos');
 
     for (const shot of manifest.shots) {
-        const option = document.createElement('option');
-        option.value = shot.id;
-        option.textContent = shot.title;
-        featureSelect.append(option);
         if (shot.featured) {
             const button = document.createElement('button');
             button.type = 'button';
@@ -80,7 +77,7 @@ export async function initScreenshotGallery() {
         const { label, native } = manifest.platforms[platform];
         platformButtons.forEach(button => button.setAttribute('aria-pressed', String(button.dataset.platform === platform)));
         shortcuts.querySelectorAll('button').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.shot === shotId)));
-        featureSelect.value = shotId;
+        picker.select(shotId);
         document.getElementById('tour-title').textContent = shot.title;
         document.getElementById('tour-description').textContent = shot.description;
         document.getElementById('tour-platform-label').textContent = `${label} · ${native}`;
@@ -108,6 +105,9 @@ export async function initScreenshotGallery() {
         const preload = new Image();
         preload.onload = () => {
             if (generation !== loadGeneration) return;
+            image.width = preload.naturalWidth;
+            image.height = preload.naturalHeight;
+            stage.style.aspectRatio = `${preload.naturalWidth} / ${preload.naturalHeight}`;
             image.src = src;
             image.alt = `MAUI Sherpa on ${label}: ${shot.title}. ${shot.description}`;
             openButton.setAttribute('aria-label', `Enlarge ${label} ${shot.title} screenshot`);
@@ -126,7 +126,6 @@ export async function initScreenshotGallery() {
         shotId = id;
         render();
     }
-    featureSelect.addEventListener('change', () => selectShot(featureSelect.value));
     platformButtons.forEach(button => {
         button.addEventListener('click', () => {
             platform = button.dataset.platform;

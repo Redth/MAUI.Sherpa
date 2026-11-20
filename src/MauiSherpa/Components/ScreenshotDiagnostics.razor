@@ -9,6 +9,7 @@
      data-fixture="@ScreenshotMode.FixtureVersion"
      data-platform="@(Platform.IsWindows ? "windows" : Platform.IsMacOS || Platform.IsMacCatalyst ? "macos" : "linux")"
      data-ready="@ready.ToString().ToLowerInvariant()"
+     data-interrupted="@interrupted.ToString().ToLowerInvariant()"
      data-theme="@(Theme.IsDarkMode ? "dark" : "light")"
      data-violations="@ScreenshotMode.Current.Violations.Count"
      data-errors="@string.Join("; ", ScreenshotMode.Current.Violations)"
@@ -17,6 +18,62 @@
 @code {
     private bool ready;
     private DotNetObjectReference<ScreenshotDiagnostics>? reference;
+    private Microsoft.Maui.Controls.Window? captureWindow;
+    private bool interrupted;
+
+    [JSInvokable]
+    public async Task BeginCapture()
+    {
+        if (!ScreenshotMode.Current.IsEnabled)
+            throw new InvalidOperationException("Capture requires Screenshot Mode.");
+        var app = Microsoft.Maui.Controls.Application.Current
+            ?? throw new InvalidOperationException("The MAUI application is unavailable.");
+        await app.Dispatcher.DispatchAsync(() =>
+        {
+            captureWindow = app.Windows.Single();
+#if MACOSAPP
+            AppKit.NSApplication.SharedApplication.ActivateIgnoringOtherApps(true);
+            ((AppKit.NSWindow)captureWindow.Handler!.PlatformView!).MakeKeyAndOrderFront(null);
+#elif WINDOWS
+            ((Microsoft.UI.Xaml.Window)captureWindow.Handler!.PlatformView!).Activate();
+#elif LINUXGTK
+            ((Gtk.Window)captureWindow.Handler!.PlatformView!).Present();
+#else
+            app.ActivateWindow(captureWindow);
+#endif
+            interrupted = false;
+            captureWindow.Deactivated += OnCaptureDeactivated;
+        });
+        await InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public void CloseCapture()
+    {
+        if (!ScreenshotMode.Current.IsEnabled)
+            throw new InvalidOperationException("Closing a capture requires Screenshot Mode.");
+        var app = Microsoft.Maui.Controls.Application.Current
+            ?? throw new InvalidOperationException("The MAUI application is unavailable.");
+        // Let the interop response reach the runner before closing its connection.
+        app.Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(250), () =>
+        {
+#if MACOSAPP
+            AppKit.NSApplication.SharedApplication.Terminate(AppKit.NSApplication.SharedApplication);
+#elif WINDOWS
+            ((Microsoft.UI.Xaml.Window)app.Windows.Single().Handler!.PlatformView!).Close();
+#elif LINUXGTK
+            ((Gtk.Window)app.Windows.Single().Handler!.PlatformView!).Close();
+#else
+            app.CloseWindow(app.Windows.Single());
+#endif
+        });
+    }
+
+    private void OnCaptureDeactivated(object? sender, EventArgs e)
+    {
+        interrupted = true;
+        _ = InvokeAsync(StateHasChanged);
+    }
 
     protected override void OnInitialized()
     {
@@ -56,6 +113,8 @@
     private void OnViolationsChanged() => _ = InvokeAsync(StateHasChanged);
     public void Dispose()
     {
+        if (captureWindow is not null)
+            captureWindow.Deactivated -= OnCaptureDeactivated;
         ScreenshotMode.Current.ViolationsChanged -= OnViolationsChanged;
         Theme.ThemeChanged -= OnViolationsChanged;
         reference?.Dispose();
