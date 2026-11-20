@@ -58,6 +58,57 @@ flowchart LR
     KeyStore --> OS[OS secure storage: MAUI Sherpa Local Vault]
 ```
 
+## Linux OS secure storage
+
+The GTK head replaces the backend's `ISecureStorage` with Sherpa's
+`LinuxSecureStorage`, using libsecret and the desktop's freedesktop Secret
+Service (for example, GNOME Keyring). It uses the stable application attribute
+`codes.redth.mauisherpa`, schema `org.maui.gtk.securestorage.v2`, and `key`
+attributes, preserving existing app-scoped libsecret entries. Other platforms
+keep their existing storage registration.
+
+Linux needs `libsecret-1.so.0`, `libglib-2.0.so.0`, `libgobject-2.0.so.0`, a
+working D-Bus user session, and a Secret Service provider with a default
+collection. On Debian/Ubuntu the relevant packages are `libsecret-1-0` and
+`gnome-keyring`. Installing a library alone does not start or unlock a keyring.
+The desktop may prompt to unlock it; unavailable services, canceled access,
+locked matching items, and native failures are errors, never missing values
+or successful no-ops.
+
+There is **no Linux file fallback, including Debug builds**. Neither the GTK
+backend's old `secure_store.dat` / `secure_store.key` files nor Sherpa's
+`.secure-fallback.json` are read, imported, or deleted on Linux. Existing data
+that depends solely on those files needs an explicit recovery/migration plan;
+retain them until recovery is complete. A new keyring entry cannot decrypt a
+vault encrypted with a different old root key.
+
+Application attributes prevent accidental collisions, not access by other
+programs running as the same Linux user. Secret values are not stored in item
+labels or included in native-error messages. NUL-containing and malformed
+Unicode inputs are rejected before marshalling. Reads and writes run off the
+UI thread. The synchronous MAUI deletion methods can block on a keyring prompt;
+call them from a worker thread. Bulk deletion checks that all matches can be
+unlocked before deleting any and verifies absence afterward, but is not
+transactional: stop concurrent writers before credential cleanup.
+
+The implementation is adapted from [Redth/Plugins.Maui#1](https://github.com/Redth/Plugins.Maui/pull/1);
+the upstream MIT notices are in `third_party/linux-secure-storage/NOTICE.txt`
+and are included in Linux build/publish output.
+
+Focused tests are in `LinuxSecureStorageTests` and
+`LinuxSecureStorageIntegrationTests`. Native cases are skipped by default.
+Run them **only with a disposable HOME and private `dbus-run-session`**, with
+a provisioned GNOME keyring, never the everyday desktop keyring:
+
+- Set `SHERPA_SECURE_STORAGE_KEYRING_TEST=1` and filter `Category=Keyring` for
+  real round-trips, updates, persistence, concurrency, and scoped deletion.
+- In a separate disposable session without a graphical unlock prompter, set
+  `SHERPA_SECURE_STORAGE_LOCK_TEST=1` and filter `Category=LockedKeyring`.
+  This intentionally locks the entire default collection.
+- In a separate process with an intentionally nonexistent
+  `DBUS_SESSION_BUS_ADDRESS`, set `SHERPA_SECURE_STORAGE_NO_SERVICE_TEST=1`
+  and filter `Category=NoSecretService`.
+
 ## First-run Local Vault introduction
 
 The app offers and can select the built-in Local provider before the user answers the Local Vault introduction, but compatibility migrations and vault-backed app settings wait until the user explicitly enables Local Vault. `ILocalVaultIntroductionService` persists the current introduction version and decision in preferences:
