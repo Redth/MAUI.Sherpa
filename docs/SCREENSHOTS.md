@@ -68,6 +68,14 @@ the Screenshot Mode implementation was not committed when captured.
 Older images in the parent screenshots directory remain for the README and
 detailed guides; they are not substituted for other platforms in the gallery.
 
+The fifteen Windows assets use the reviewed dark `website-v1` fixture set from
+revision `14c31c1` with a clean worktree. Both dark and light PNG originals
+were reviewed. On this Windows setup, the DevFlow screenshot omitted the
+WebView and native title bar; capture therefore used the foreground Windows
+compositor at 100% display scale, with the DWM visible frame measured at
+1440 × 960. DevFlow still provided navigation, appearance, and readiness
+checks. The Android SDK capture uses the Installed tab.
+
 The earlier Linux set uses revision `6e6fbb1`, not Screenshot Mode. It was
 started on November 20, 2026 using the GTK head on Ubuntu
 26.04.1 / GNOME Wayland, with the app running through XWayland at 1× scale.
