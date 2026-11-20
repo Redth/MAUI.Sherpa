@@ -49,21 +49,20 @@ public class Program : GtkMauiApplication
 
         var toolbarService = services.GetService<IToolbarService>();
         var copilotContext = services.GetService<ICopilotContextService>();
-        var themeForToolbar = services.GetService<IThemeService>();
         var appleIdentityService = services.GetService<IAppleIdentityService>();
         var appleIdentityState = services.GetService<IAppleIdentityStateService>();
         var googleIdentityService = services.GetService<IGoogleIdentityService>();
         var googleIdentityState = services.GetService<IGoogleIdentityStateService>();
         var formModalService = services.GetService<IFormModalService>();
         var bridgeHolder = services.GetService<MauiSherpa.Pages.Forms.HybridFormBridgeHolder>();
-        if (toolbarService == null || copilotContext == null || themeForToolbar == null
+        if (toolbarService == null || copilotContext == null
             || appleIdentityService == null || appleIdentityState == null
             || googleIdentityService == null || googleIdentityState == null
             || formModalService == null || bridgeHolder == null)
             return;
 
         _toolbarManager = new LinuxToolbarManager(
-            toolbarService, copilotContext, themeForToolbar,
+            toolbarService, copilotContext,
             appleIdentityService, appleIdentityState,
             googleIdentityService, googleIdentityState,
             formModalService, bridgeHolder);
