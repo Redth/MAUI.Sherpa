@@ -176,10 +176,11 @@ public sealed class WindowsNavigationHostHandler : ViewHandler<WindowsNavigation
         AddItem(navigationView, "Profiling", "/profiling", WinUI.Symbol.ShowResults);
         AddItem(navigationView, "App Inspector", "/devflow", WinUI.Symbol.Find);
 #if DEBUG
-        AddItem(navigationView, "Debug UI", "/debug", WinUI.Symbol.Repair);
+        if (!MauiSherpa.Core.Screenshots.ScreenshotMode.Current.IsEnabled)
+            AddItem(navigationView, "Debug UI", "/debug", WinUI.Symbol.Repair);
 #endif
 
-        var savedWidth = Preferences.Default.Get(PaneWidthPreference, 0d);
+        var savedWidth = MauiContext!.Services.GetRequiredService<IPreferences>().Get(PaneWidthPreference, 0d);
         _hasCustomPaneWidth = double.IsFinite(savedWidth) && savedWidth > 0;
         _preferredPaneWidth = _hasCustomPaneWidth ? savedWidth : DefaultPaneWidth;
 
@@ -365,7 +366,7 @@ public sealed class WindowsNavigationHostHandler : ViewHandler<WindowsNavigation
         }
         else if (_hasCustomPaneWidth)
         {
-            Preferences.Default.Set(PaneWidthPreference, _preferredPaneWidth);
+            MauiContext!.Services.GetRequiredService<IPreferences>().Set(PaneWidthPreference, _preferredPaneWidth);
         }
         UpdateResizeIndicator();
     }
@@ -384,7 +385,7 @@ public sealed class WindowsNavigationHostHandler : ViewHandler<WindowsNavigation
         _preferredPaneWidth = ConstrainPaneWidth(NavigationView!.OpenPaneLength + delta);
         _hasCustomPaneWidth = true;
         UpdatePaneWidth();
-        Preferences.Default.Set(PaneWidthPreference, _preferredPaneWidth);
+        MauiContext!.Services.GetRequiredService<IPreferences>().Set(PaneWidthPreference, _preferredPaneWidth);
         args.Handled = true;
     }
 

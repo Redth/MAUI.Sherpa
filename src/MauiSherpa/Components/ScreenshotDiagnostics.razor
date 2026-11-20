@@ -1,0 +1,63 @@
+@using MauiSherpa.Core.Screenshots
+@inject MauiSherpa.Core.Interfaces.IPlatformService Platform
+@inject MauiSherpa.Core.Interfaces.IThemeService Theme
+@inject MauiSherpa.Core.Interfaces.IEncryptedSettingsService Settings
+@inject IJSRuntime JS
+@implements IDisposable
+
+<div id="screenshot-diagnostics" hidden
+     data-fixture="@ScreenshotMode.FixtureVersion"
+     data-platform="@(Platform.IsWindows ? "windows" : Platform.IsMacOS || Platform.IsMacCatalyst ? "macos" : "linux")"
+     data-ready="@ready.ToString().ToLowerInvariant()"
+     data-theme="@(Theme.IsDarkMode ? "dark" : "light")"
+     data-violations="@ScreenshotMode.Current.Violations.Count"
+     data-errors="@string.Join("; ", ScreenshotMode.Current.Violations)"
+     data-clock="@ScreenshotMode.ReferenceDate.ToString("O")"></div>
+
+@code {
+    private bool ready;
+    private DotNetObjectReference<ScreenshotDiagnostics>? reference;
+
+    protected override void OnInitialized()
+    {
+        ScreenshotMode.Current.ViolationsChanged += OnViolationsChanged;
+        Theme.ThemeChanged += OnViolationsChanged;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+        reference = DotNetObjectReference.Create(this);
+        await JS.InvokeVoidAsync("sherpaScreenshot.initialize", reference);
+        ready = true;
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public async Task SetAppearance(string theme)
+    {
+        if (!ScreenshotMode.Current.IsEnabled || theme is not ("light" or "dark"))
+            throw new InvalidOperationException("Screenshot appearance requires Screenshot Mode and light or dark.");
+        // Essentials MainThread is unavailable on GTK; use the MAUI application dispatcher.
+        var dispatcher = Microsoft.Maui.Controls.Application.Current?.Dispatcher
+            ?? throw new InvalidOperationException("The MAUI application dispatcher is unavailable.");
+        await dispatcher.DispatchAsync(() =>
+        {
+            Theme.SetTheme(theme == "light" ? "Light" : "Dark");
+            Theme.SetFontScale(1);
+        });
+        await Settings.UpdateSettingsAsync(s => s with
+        {
+            Preferences = s.Preferences with { Theme = theme == "light" ? "Light" : "Dark", FontScale = 1 }
+        });
+    }
+
+    private void OnViolationsChanged() => _ = InvokeAsync(StateHasChanged);
+    public void Dispose()
+    {
+        ScreenshotMode.Current.ViolationsChanged -= OnViolationsChanged;
+        Theme.ThemeChanged -= OnViolationsChanged;
+        reference?.Dispose();
+    }
+}

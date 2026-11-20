@@ -186,9 +186,25 @@ Regeneration requires Python 3 with Pillow and `rsvg-convert` from librsvg; norm
 use the checked-in outputs and do not require these tools. Commit the selector and regenerated
 assets together. Run the same command with `--check` to detect stale assets.
 
+The macOS app uses `Resources/AppIcon.icon`, Apple's layered Icon Composer format.
+The generator exports the selected mascot and the separate sun/mountain SVG layers
+from `build/icons/`; edit the background gradient and material settings in the
+package's `icon.json` or Icon Composer. Keep these layers unmasked and free of
+baked-in shadows, bevels, or highlights: macOS supplies Liquid Glass effects.
+Xcode 26+ compiles the package and generates backward-compatible bundled icons.
+The standalone ICNS export retains `build/icons/macos-background.svg` for legacy
+builds with `AppIcon` explicitly unset; it is not bundled alongside the Composer
+output. Other platforms and the website continue to use transparent artwork.
+Validate the generated artwork with
+`python3 -m unittest discover -s tests -p test_icon_generation.py`.
+
+Apple references: [App icons](https://developer.apple.com/design/human-interface-guidelines/app-icons)
+and [Icon Composer](https://developer.apple.com/documentation/xcode/creating-your-app-icon-using-icon-composer).
+
 Edit the artwork in `build/icons/`, not the generated files. Mixed uses the head for the
 Windows and GTK title bars, website favicon and navigation, Windows ICO frames up to 48 px,
-and macOS ICNS frames up to 32 pt (including Retina). Larger frames, the splash artwork,
+and standalone macOS ICNS frames up to 32 pt (including Retina). Larger frames,
+the native macOS Composer icon, the splash artwork,
 website hero, and README use the full-body guide. Linux packages use a single large icon.
 
 Windows toolbar action glyphs use native `FontIcon` controls rather than rasterized `FontImageSource` images to stay sharp at high DPI.

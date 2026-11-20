@@ -16,6 +16,11 @@ public class App : Application
     public App(IServiceProvider serviceProvider)
     {
         _serviceProvider = serviceProvider;
+        if (MauiSherpa.Core.Screenshots.ScreenshotMode.Current.IsEnabled)
+        {
+            UserAppTheme = AppTheme.Dark;
+            serviceProvider.GetRequiredService<IThemeService>().SetTheme("Dark");
+        }
         Pages.Forms.FormTheme.Register(this, serviceProvider.GetRequiredService<IThemeService>());
     }
 
@@ -34,9 +39,15 @@ public class App : Application
         savedWidth = DefaultWidth;
         savedHeight = DefaultHeight;
 #else
-        savedWidth = Preferences.Default.Get(PrefKeyWidth, DefaultWidth);
-        savedHeight = Preferences.Default.Get(PrefKeyHeight, DefaultHeight);
+        savedWidth = _serviceProvider.GetRequiredService<IPreferences>().Get(PrefKeyWidth, DefaultWidth);
+        savedHeight = _serviceProvider.GetRequiredService<IPreferences>().Get(PrefKeyHeight, DefaultHeight);
 #endif
+
+        if (MauiSherpa.Core.Screenshots.ScreenshotMode.Current.IsEnabled)
+        {
+            savedWidth = MauiSherpa.Core.Screenshots.ScreenshotMode.WindowWidth;
+            savedHeight = MauiSherpa.Core.Screenshots.ScreenshotMode.WindowHeight;
+        }
 
         // Clamp to reasonable bounds
         savedWidth = Math.Max(MinWidth, savedWidth);
@@ -130,7 +141,7 @@ public class App : Application
     
     private static CancellationTokenSource? _saveCts;
     
-    private static void OnWindowSizeChanged(object? sender, EventArgs e)
+    private void OnWindowSizeChanged(object? sender, EventArgs e)
     {
         if (sender is not Window window) return;
         
@@ -149,8 +160,8 @@ public class App : Application
             {
                 await Task.Delay(500, token);
 #if !LINUXGTK
-                Preferences.Default.Set(PrefKeyWidth, w);
-                Preferences.Default.Set(PrefKeyHeight, h);
+                _serviceProvider.GetRequiredService<IPreferences>().Set(PrefKeyWidth, w);
+                _serviceProvider.GetRequiredService<IPreferences>().Set(PrefKeyHeight, h);
 #endif
             }
             catch (TaskCanceledException) { }

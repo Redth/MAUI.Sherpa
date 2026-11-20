@@ -24,6 +24,7 @@ public class DevFlowInspectorService
 
     private void OpenCore(string agentId, string host, int port, string? appName, DevFlowInspectorTab tab)
     {
+        MauiSherpa.Core.Screenshots.ScreenshotMode.BlockExternalAction("opening a live app inspector");
         ActiveAgentId = agentId;
         ActiveHost = host;
         ActivePort = port;

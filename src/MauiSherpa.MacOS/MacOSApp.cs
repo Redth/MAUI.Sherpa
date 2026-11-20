@@ -1,6 +1,7 @@
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.Platforms.MacOS.Platform;
 using MauiSherpa.Core.Interfaces;
+using MauiSherpa.Core.Screenshots;
 using AppKit;
 using Foundation;
 
@@ -23,6 +24,11 @@ class MacOSApp : Application
     {
         _serviceProvider = serviceProvider;
         _preferences = serviceProvider.GetRequiredService<IPreferences>();
+        if (MauiSherpa.Core.Screenshots.ScreenshotMode.Current.IsEnabled)
+        {
+            UserAppTheme = AppTheme.Dark;
+            serviceProvider.GetRequiredService<IThemeService>().SetTheme("Dark");
+        }
         MauiSherpa.Pages.Forms.FormTheme.Register(this, serviceProvider.GetRequiredService<IThemeService>());
 
         // Global exception handlers to log crashes
@@ -57,6 +63,11 @@ class MacOSApp : Application
         var flyoutPage = CreateFlyoutPage(blazorPage);
 
         var window = new Window(flyoutPage);
+        if (ScreenshotMode.Current.IsEnabled)
+        {
+            window.Width = ScreenshotMode.WindowWidth;
+            window.Height = ScreenshotMode.WindowHeight;
+        }
 
         window.Destroying += OnMainWindowDestroying;
 
@@ -167,6 +178,17 @@ class MacOSApp : Application
         MacOSFlyoutPage.SetUseNativeSidebar(flyoutPage, true);
         _flyoutPage = flyoutPage;
 
+        var toolItems = new List<MacOSSidebarItem>
+        {
+            new() { Title = ".NET SDK Manager", SystemImage = "square.stack.3d.up.fill", Tag = "/dotnet-sdk" },
+            new() { Title = "Profiling", SystemImage = "chart.bar.xaxis", Tag = "/profiling" },
+            new() { Title = "App Inspector", SystemImage = "wand.and.stars", Tag = "/devflow" },
+        };
+#if DEBUG
+        if (!ScreenshotMode.Current.IsEnabled)
+            toolItems.Add(new() { Title = "Debug UI", SystemImage = "ant", Tag = "/debug" });
+#endif
+
         var sidebarItems = new List<MacOSSidebarItem>
         {
             new() { Title = "Dashboard", SystemImage = "house.fill", Tag = "/" },
@@ -208,15 +230,7 @@ class MacOSApp : Application
             new MacOSSidebarItem
             {
                 Title = "Tools",
-                Children = new List<MacOSSidebarItem>
-                {
-                    new() { Title = ".NET SDK Manager", SystemImage = "square.stack.3d.up.fill", Tag = "/dotnet-sdk" },
-                    new() { Title = "Profiling", SystemImage = "chart.bar.xaxis", Tag = "/profiling" },
-                    new() { Title = "App Inspector", SystemImage = "wand.and.stars", Tag = "/devflow" },
-#if DEBUG
-                    new() { Title = "Debug UI", SystemImage = "ant", Tag = "/debug" },
-#endif
-                }
+                Children = toolItems
             },
         };
 

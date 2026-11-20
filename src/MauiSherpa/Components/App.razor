@@ -7,6 +7,11 @@
 @inject LocalVaultIntroModalService LocalVaultIntroModal
 @implements IDisposable
 
+@if (MauiSherpa.Core.Screenshots.ScreenshotMode.Current.IsEnabled)
+{
+    <ScreenshotDiagnostics />
+}
+
 <Router AppAssembly="@typeof(App).Assembly">
     <Found Context="routeData">
         <RouteView RouteData="@routeData" DefaultLayout="@typeof(MainLayout)" />
@@ -31,6 +36,8 @@
 
     private async Task RunStartupDialogsAsync()
     {
+        if (MauiSherpa.Core.Screenshots.ScreenshotMode.Current.IsEnabled)
+            return;
         try
         {
             await Task.Delay(1000, _cts.Token);

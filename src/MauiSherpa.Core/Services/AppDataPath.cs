@@ -15,6 +15,8 @@ public static class AppDataPath
     /// </summary>
     public static string GetAppDataDirectory()
     {
+        if (Screenshots.ScreenshotMode.Current.IsEnabled)
+            return Screenshots.ScreenshotMode.Current.DataDirectory;
         if (_cachedPath != null)
             return _cachedPath;
 

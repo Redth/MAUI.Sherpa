@@ -6,7 +6,10 @@ using MauiSherpa.Core.Interfaces;
 using MauiSherpa.Core.Services;
 using MauiSherpa.Workloads.Services;
 #if LINUXGTK
-// DevFlow GTK usings removed temporarily (package conflict with new Microsoft.Maui.Platforms.Linux.Gtk4)
+#if DEBUG
+using Microsoft.Maui.DevFlow.Agent.Gtk;
+using Microsoft.Maui.DevFlow.Blazor.Gtk;
+#endif
 using Microsoft.Maui.Platforms.Linux.Gtk4.BlazorWebView;
 using Microsoft.Maui.Platforms.Linux.Gtk4.Essentials.Hosting;
 using Microsoft.Maui.Platforms.Linux.Gtk4.Hosting;
@@ -28,8 +31,11 @@ public static class MauiProgram
 {
     public static MauiApp CreateMauiApp()
     {
+        var screenshotMode = MauiSherpa.Core.Screenshots.ScreenshotMode.Current;
+        screenshotMode.Initialize();
         // Migrate data from old ~/.maui-sherpa/ to ~/Library/Application Support/MauiSherpa/
-        MigrateAppData();
+        if (!screenshotMode.IsEnabled)
+            MigrateAppData();
 
         var builder = MauiApp.CreateBuilder();
 #if LINUXGTK
@@ -58,7 +64,7 @@ public static class MauiProgram
         // Sentry — DSN is injected at build time via -p:SentryDsn=... (see Directory.Build.props).
         // When no DSN is configured (e.g. local dev without the env var), Sentry is skipped.
         var sentryDsn = SentryConfig.GetDsn();
-        if (!string.IsNullOrWhiteSpace(sentryDsn))
+        if (!screenshotMode.IsEnabled && !string.IsNullOrWhiteSpace(sentryDsn))
         {
             builder.UseSentry(options =>
             {
@@ -297,7 +303,8 @@ public static class MauiProgram
         {
             cfg.UseMaui();
             cfg.UseBlazor();
-            cfg.AddMauiPersistentCache(); // Use persistent cache (includes memory caching)
+            if (!screenshotMode.IsEnabled)
+                cfg.AddMauiPersistentCache(); // Use persistent cache (includes memory caching)
             cfg.AddStandardAppSupportMiddleware();
         });
         
@@ -337,9 +344,9 @@ public static class MauiProgram
 #if DEBUG
 #if !LINUXGTK
         builder.Services.AddBlazorWebViewDeveloperTools();
+#endif
         builder.AddMauiDevFlowAgent();
         builder.AddMauiBlazorDevFlowTools();
-#endif
         builder.Logging.AddDebug();
 #endif
 
@@ -359,6 +366,9 @@ public static class MauiProgram
 		};
 #endif
 
+        builder.Services.AddSingleton<IDevFlowDiscoveryService, DevFlowDiscoveryService>();
+        screenshotMode.RegisterServices(builder.Services);
+        builder.Services.AddScreenshotPlatformServices();
         return builder.Build();
     }
 

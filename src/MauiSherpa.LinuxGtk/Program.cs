@@ -3,6 +3,10 @@ using Microsoft.Maui.Hosting;
 using MauiSherpa.Core.Interfaces;
 using MauiSherpa.Services;
 using Microsoft.Maui.Platforms.Linux.Gtk4.Platform;
+#if DEBUG
+using Microsoft.Maui.DevFlow.Agent.Gtk;
+using Microsoft.Maui.DevFlow.Blazor.Gtk;
+#endif
 
 namespace MauiSherpa;
 
@@ -25,7 +29,13 @@ public class Program : GtkMauiApplication
         // to context events before the Blazor app loads or user clicks Copilot button.
         Services.GetService<ICopilotModalService>();
 
-// DevFlow GTK agent removed temporarily (package conflict with new Microsoft.Maui.Platforms.Linux.Gtk4)
+#if DEBUG
+        if (Microsoft.Maui.Controls.Application.Current is { } application)
+        {
+            application.StartDevFlowAgent();
+            Services.GetService<GtkBlazorWebViewDebugService>()?.WireBlazorCdpToAgent();
+        }
+#endif
     }
 
     public static void AttachLinuxToolbar(Window window)
@@ -109,6 +119,7 @@ public class Program : GtkMauiApplication
 
     public static void Main(string[] args)
     {
+        MauiSherpa.Core.Screenshots.ScreenshotMode.Current.Initialize();
         var app = new Program();
         app.Run(args);
     }

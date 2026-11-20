@@ -23,6 +23,7 @@ public class DeviceInspectorService
 
     private void OpenCore(string serial, string? deviceName, InspectorTab tab)
     {
+        MauiSherpa.Core.Screenshots.ScreenshotMode.BlockExternalAction("opening a live device inspector");
         ActiveSerial = serial;
         ActiveDeviceName = deviceName ?? serial;
         ActiveTab = tab;

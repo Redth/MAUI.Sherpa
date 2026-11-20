@@ -33,13 +33,13 @@
     <div class="toolbar">
         @if (isSelectionMode)
         {
-        <button class="btn btn-primary" @onclick="BackUpSelectedAsync" disabled="@(selectedProfileIds.Count == 0)">
+        <button data-screenshot-external class="btn btn-primary" @onclick="BackUpSelectedAsync" disabled="@(selectedProfileIds.Count == 0)">
             <i class="fas fa-cloud-arrow-up"></i> Back Up
         </button>
-        <button class="btn btn-secondary" @onclick="InstallSelectedAsync" disabled="@(selectedProfileIds.Count == 0)">
+        <button data-screenshot-external class="btn btn-secondary" @onclick="InstallSelectedAsync" disabled="@(selectedProfileIds.Count == 0)">
             <i class="fas fa-download"></i> Install
         </button>
-        <button class="btn btn-secondary" @onclick="ExportSelectedAsync" disabled="@(selectedProfileIds.Count == 0)">
+        <button data-screenshot-external class="btn btn-secondary" @onclick="ExportSelectedAsync" disabled="@(selectedProfileIds.Count == 0)">
             <i class="fas fa-file-export"></i> Export
         </button>
         <button class="btn btn-secondary" @onclick="CancelSelectionMode">
@@ -48,21 +48,21 @@
         }
         else
         {
-        <button class="btn btn-purple" @onclick="ShowCreateDialog" disabled="@isLoading">
+        <button data-screenshot-external class="btn btn-purple" @onclick="ShowCreateDialog" disabled="@isLoading">
             <i class="fas fa-plus"></i> Create Profile
         </button>
         <button class="btn btn-primary" @onclick="@(() => RefreshData(forceRefresh: true))" disabled="@isLoading">
             <i class="fas @(isLoading ? "fa-spinner fa-spin" : "fa-sync-alt")"></i> Refresh
         </button>
-        <button class="btn btn-secondary" @onclick="RevealProfilesFolder" disabled="@isLoading">
+        <button data-screenshot-external class="btn btn-secondary" @onclick="RevealProfilesFolder" disabled="@isLoading">
             <i class="fas fa-folder-open"></i> Profiles Folder
         </button>
-        <button class="btn btn-secondary" @onclick="ShowCleanupDialog" disabled="@isLoading">
+        <button data-screenshot-external class="btn btn-secondary" @onclick="ShowCleanupDialog" disabled="@isLoading">
             <i class="fas fa-broom"></i> Clean Up
         </button>
         @if (GetInstallableProfiles().Any())
         {
-            <button class="btn btn-success" @onclick="InstallAllProfiles" disabled="@isLoading">
+            <button data-screenshot-external class="btn btn-success" @onclick="InstallAllProfiles" disabled="@isLoading">
                 <i class="fas fa-download"></i> Install All (@GetInstallableProfiles().Count())
             </button>
         }
@@ -154,7 +154,7 @@
                     @if (profiles.Count == 0)
                     {
                         <span>Create a new profile to get started</span>
-                        <button class="btn btn-purple btn-empty-cta" @onclick="ShowCreateDialog">
+                        <button data-screenshot-external class="btn btn-purple btn-empty-cta" @onclick="ShowCreateDialog">
                             <i class="fas fa-plus"></i> Create Profile
                         </button>
                     }
@@ -169,8 +169,8 @@
         {
             @foreach (var profile in FilteredProfiles)
             {
-                var isExpired = profile.ExpirationDate < DateTime.UtcNow;
-                var isExpiringSoon = !isExpired && profile.ExpirationDate < DateTime.UtcNow.AddDays(30);
+                var isExpired = profile.ExpirationDate < AppClock.UtcNow;
+                var isExpiringSoon = !isExpired && profile.ExpirationDate < AppClock.UtcNow.AddDays(30);
                 var isInvalid = profile.State != "ACTIVE";
                 
                 <div class="profile-card @(isExpired || isInvalid ? "invalid" : isExpiringSoon ? "expiring" : "") @(selectedProfileIds.Contains(profile.Id) ? "selected" : "")">
@@ -231,10 +231,10 @@
                         <MauiSherpa.Components.SecretProviderPickerHost
                             @key="@($"profile-sync-{profile.Id}")"
                             Item="@(new SecretItemRef(SecretItemKind.ProvisioningProfile, profile.Id, profile.Name) { AppleIdentityId = profilesIdentityId })" />
-                        <button class="btn btn-secondary btn-icon" @onclick="@(() => ShowEditDialog(profile))" disabled="@isLoading" title="Edit">
+                        <button data-screenshot-external class="btn btn-secondary btn-icon" @onclick="@(() => ShowEditDialog(profile))" disabled="@isLoading" title="Edit">
                             <i class="fas fa-edit"></i>
                         </button>
-                        <button class="btn btn-secondary btn-icon" @onclick="@(() => DownloadProfile(profile))" disabled="@isLoading" title="Download">
+                        <button data-screenshot-external class="btn btn-secondary btn-icon" @onclick="@(() => DownloadProfile(profile))" disabled="@isLoading" title="Download">
                             <i class="fas fa-download"></i>
                         </button>
                         <div class="prof-dropdown">
@@ -244,17 +244,17 @@
                             @if (openDropdown == profile.Id)
                             {
                                 <div class="prof-dropdown-menu">
-                                    <button class="prof-dropdown-item" @onclick="@(() => { openDropdown = null; DownloadProfileTo(profile); })">
+                                    <button data-screenshot-external class="prof-dropdown-item" @onclick="@(() => { openDropdown = null; DownloadProfileTo(profile); })">
                                         <i class="fas fa-folder-open"></i> Download to...
                                     </button>
-                                    <button class="prof-dropdown-item" @onclick="@(() => { openDropdown = null; InstallProfile(profile); })">
+                                    <button data-screenshot-external class="prof-dropdown-item" @onclick="@(() => { openDropdown = null; InstallProfile(profile); })">
                                         <i class="fas fa-folder-plus"></i> Install to System
                                     </button>
-                                    <button class="prof-dropdown-item" @onclick="@(() => RevealInstalledProfile(profile))">
+                                    <button data-screenshot-external class="prof-dropdown-item" @onclick="@(() => RevealInstalledProfile(profile))">
                                         <i class="fas fa-magnifying-glass"></i> @RevealProfileLabel
                                     </button>
                                     <div class="prof-dropdown-divider"></div>
-                                    <button class="prof-dropdown-item danger" @onclick="@(() => { openDropdown = null; DeleteProfile(profile); })" disabled="@isLoading">
+                                    <button data-screenshot-external class="prof-dropdown-item danger" @onclick="@(() => { openDropdown = null; DeleteProfile(profile); })" disabled="@isLoading">
                                         <i class="fas fa-trash"></i> Delete
                                     </button>
                                 </div>
@@ -566,7 +566,7 @@
     // Get profiles that can be installed (active, not expired, matching current filters)
     private List<AppleProfile> GetInstallableProfiles() => FilteredProfiles
         .Where(p => p.State?.Equals("ACTIVE", StringComparison.OrdinalIgnoreCase) ?? false)
-        .Where(p => p.ExpirationDate > DateTime.UtcNow)
+        .Where(p => p.ExpirationDate > AppClock.UtcNow)
         .ToList();
 
     private void ToggleDropdown(string id)
@@ -623,7 +623,7 @@
         .Where(p => string.IsNullOrEmpty(filterType) || (p.ProfileType?.Replace("_", "").Contains(filterType, StringComparison.OrdinalIgnoreCase) ?? false))
         .Where(p => string.IsNullOrEmpty(filterPlatform) || GetProfilePlatform(p).Equals(filterPlatform, StringComparison.OrdinalIgnoreCase))
         .OrderByDescending(p => p.State?.Equals("ACTIVE", StringComparison.OrdinalIgnoreCase) ?? false) // Active first
-        .ThenByDescending(p => p.ExpirationDate > DateTime.UtcNow) // Non-expired next
+        .ThenByDescending(p => p.ExpirationDate > AppClock.UtcNow) // Non-expired next
         .ThenBy(p => p.Name);
 
     private void ClearFilters()

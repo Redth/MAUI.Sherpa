@@ -39,13 +39,13 @@ else
             <div class="toolbar-spacer"></div>
             @if (ViewModel.IsAuthenticated)
             {
-                <button class="btn btn-outline" @onclick="SignOut">
+                <button data-screenshot-external class="btn btn-outline" @onclick="SignOut">
                     <i class="fas fa-lock"></i> Sign Out
                 </button>
             }
             else
             {
-                <button class="btn btn-outline" @onclick="OpenAuthModal">
+                <button data-screenshot-external class="btn btn-outline" @onclick="OpenAuthModal">
                     <i class="fas fa-lock-open"></i> Sign In
                 </button>
             }
@@ -76,13 +76,13 @@ else
         <div class="auth-banner-actions">
             @if (ViewModel.IsAuthenticated)
             {
-                <button class="btn btn-outline" data-testid="apple-sign-out" @onclick="SignOut">
+                <button data-screenshot-external class="btn btn-outline" data-testid="apple-sign-out" @onclick="SignOut">
                     <i class="fas fa-lock"></i> Sign Out
                 </button>
             }
             else
             {
-                <button class="btn btn-primary" data-testid="apple-sign-in" @onclick="OpenAuthModal">
+                <button data-screenshot-external class="btn btn-primary" data-testid="apple-sign-in" @onclick="OpenAuthModal">
                     <i class="fas fa-lock-open"></i> Sign In
                 </button>
             }
@@ -166,13 +166,13 @@ else
                         <div class="xcode-card-actions">
                             @if (!xcode.IsSelected)
                             {
-                                <button class="btn btn-sm btn-outline" @onclick="() => SelectXcode(xcode)">
+                                <button data-screenshot-external class="btn btn-sm btn-outline" @onclick="() => SelectXcode(xcode)">
                                     <i class="fas fa-check-circle"></i> Select
                                 </button>
                             }
                             @if (!xcode.IsSelected && !xcode.IsDefault)
                             {
-                                <button class="btn btn-sm btn-danger-outline" @onclick="() => UninstallXcode(xcode)">
+                                <button data-screenshot-external class="btn btn-sm btn-danger-outline" @onclick="() => UninstallXcode(xcode)">
                                     <i class="fas fa-trash-alt"></i> Uninstall
                                 </button>
                             }
@@ -323,7 +323,7 @@ else
                                 }
                                 else if (ViewModel.IsAuthenticated)
                                 {
-                                    <button class="btn btn-sm btn-primary-sm" @onclick="() => DownloadAndInstall(release)" disabled="@(downloadingRelease != null)">
+                                    <button data-screenshot-external class="btn btn-sm btn-primary-sm" @onclick="() => DownloadAndInstall(release)" disabled="@(downloadingRelease != null)">
                                         <i class="fas fa-download"></i> Install
                                     </button>
                                 }
@@ -377,7 +377,7 @@ else
                         <span>@FormatBytes(ViewModel.TotalRuntimeStorageBytes) total</span>
                     }
                 </div>
-                <button class="btn btn-sm btn-primary-sm" @onclick="OpenRuntimePicker">
+                <button data-screenshot-external class="btn btn-sm btn-primary-sm" @onclick="OpenRuntimePicker">
                     @if (ViewModel.IsLoadingDownloadableRuntimes && ViewModel.DownloadableRuntimes.Count == 0)
                     {
                         <i class="fas fa-spinner fa-spin"></i>
@@ -454,7 +454,7 @@ else
                             <div class="xcode-card-actions">
                                 @if (runtime.Deletable)
                                 {
-                                    <button class="btn btn-sm btn-danger-outline" @onclick="() => DeleteRuntime(runtime)">
+                                    <button data-screenshot-external class="btn btn-sm btn-danger-outline" @onclick="() => DeleteRuntime(runtime)">
                                         <i class="fas fa-trash-alt"></i> Delete
                                     </button>
                                 }
@@ -1320,6 +1320,7 @@ else
     // ---- Helpers ----
     private void OpenUrl(string url)
     {
+        ScreenshotMode.BlockExternalAction("opening an Xcode URL");
         try
         {
             var psi = new System.Diagnostics.ProcessStartInfo("open", url) { UseShellExecute = false };
