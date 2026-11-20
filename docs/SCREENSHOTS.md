@@ -29,6 +29,9 @@ All heads start at **1440 × 960 logical pixels**, with a **250-pixel sidebar**,
 without scrolling. **Debug UI is hidden in Screenshot Mode only.** Ordinary
 Debug launches retain it. Use a display/workspace large enough for this size;
 the runner rejects incorrectly sized captures rather than cropping or stretching.
+Use **2× native display scale**, producing **2880 × 1920 image pixels** for this
+logical window. Increasing the window size or upscaling a 1× file is not a
+substitute for high-DPI rendering.
 
 Screenshot Mode is separate from **Demo Mode**, which blurs real data.
 The fixture settings keep Demo Mode off. Fictional labels stay readable; normal
@@ -44,6 +47,17 @@ node build/capture-screenshots.mjs --agent-port <port> --platform macos \
   --output <outside-repository-directory> --theme both
 ```
 
+The runner waits for fixture readiness, then asks whether the user is ready to
+leave the app untouched until the entire set finishes. After an explicit `yes`,
+it waits **five seconds**, focuses the native window, captures the set without
+further prompts, and closes the isolated app. Losing focus aborts the set;
+do not publish a mixture of active and inactive window chrome.
+
+An agent must ask with its user-question tool once the app is ready. Only after
+the user agrees may it pass `--confirmed` to avoid asking twice. For preparation,
+`--check-only --shots dashboard` verifies readiness without taking images,
+prompting, or closing the app. Do not pass `--confirmed` based on an earlier run.
+
 Use `windows` or `linux` for those native heads. `--theme both` captures dark and
 light in one persistent DevFlow batch, avoiding competing mutation leases.
 `--shots dashboard,doctor` selects views; `--check-only` verifies without saving
@@ -54,21 +68,39 @@ Native sidebar visibility must also be reviewed in the actual PNG.
 
 On Linux, DevFlow's GTK screenshot omits the native header bar, so the runner
 captures the full X11 window with `build/capture-gtk-window.py` (Python 3 and
-Pillow), cropping GTK's client-side shadow. Run the app with `GDK_BACKEND=x11`.
+Pillow), cropping GTK's client-side shadow. Run the app with
+`GDK_BACKEND=x11 GDK_SCALE=2` and a workspace large enough for 2880 × 1920
+physical pixels. On Windows, use 200% display scaling and a sufficiently large
+display. On macOS, use a Retina display.
 
 Results are `<output>/<platform>/<theme>/<id>.png` plus `capture.json`, recording
 revision, dirty-worktree status, fixture version, platform, theme, and actual
-dimensions. Review both appearances; export the dark set as lossless 1× WebP
-for the current website. Retain the PNGs and reports outside the repository.
+logical dimensions, pixel ratio, and actual pixel dimensions. DevFlow captures
+use `--scale native`; its default otherwise downsamples to 1×.
+Review both appearances; export the dark set as lossless 2× WebP:
+
+```bash
+python3 build/export-screenshots.py --platform macos \
+  --input <capture-output>/macos/dark --output website/images/screenshots/macos
+```
+
+The exporter preserves full resolution and alpha. For Windows 11 compositor
+captures, it removes the one-logical-pixel desktop fringe and masks the native
+eight-logical-pixel rounded corners, including decontaminating partially covered
+edge pixels. It does not color-key the app content or draw fake window chrome.
+`--pixel-ratio 1` is available only for cleaning existing legacy assets; new
+website captures must use 2×. Retain the PNGs and reports outside the repository.
 Do not force-take another DevFlow client's mutation lease.
 
 ### Current assets and earlier captures
 
 The seventeen macOS website assets now use the reviewed dark `website-v1`
-fixture set, captured at 1440 × 960 from the real AppKit window through MAUI
-DevFlow. Both dark and light PNG originals were reviewed. Platform capture
+fixture set. These captures retain the full 2880 × 1920 Retina pixels from the real
+1440 × 960 logical AppKit window through MAUI DevFlow. Both dark and light PNG
+originals were reviewed before export. The complete set was captured with the
+window focused after user confirmation and the five-second countdown. Platform capture
 metadata records the base revision and honestly marks the worktree as dirty:
-the Screenshot Mode implementation was not committed when captured.
+the capture changes were not committed when captured.
 Older images in the parent screenshots directory remain for the README and
 detailed guides; they are not substituted for other platforms in the gallery.
 
@@ -78,13 +110,18 @@ were reviewed. On this Windows setup, the DevFlow screenshot omitted the
 WebView and native title bar; capture therefore used the foreground Windows
 compositor at 100% display scale, with the DWM visible frame measured at
 1440 × 960. DevFlow still provided navigation, appearance, and readiness
-checks. The Android SDK capture uses the Installed tab.
+checks. The Android SDK capture uses the Installed tab. The checked-in Windows
+11 assets have been cleaned to preserve transparent native edges, but remain
+1× until a real Windows machine supplies a fresh 2× set. This macOS host cannot
+produce genuine Windows captures.
 
 The fifteen Linux assets use the dark `website-v1` fixture set, captured at
 1440 × 960 from the real GTK window on Ubuntu 26.04.1 / GNOME Wayland, with the
 app running through XWayland (`GDK_BACKEND=x11`) at 1× scale. Both appearances
 were reviewed. In the light review set, the Doctor toolbar glyph is not retinted
 after the runtime theme switch; the dark website set is unaffected.
+The checked-in Linux set also remains 1× pending recapture on a Linux host with
+`GDK_SCALE=2`; it has not been artificially enlarged.
 
 ## Feature audit
 
@@ -124,8 +161,9 @@ runner captures every cross-platform view at the requested native size.
 - Use the `id` from the manifest as the filename:
   `website/images/screenshots/<platform>/<id>.webp`. Platform keys are `macos`,
   `windows`, and `linux`.
-- Keep PNG originals outside the repository. Export lossless WebP at 1× logical
-  resolution so text stays sharp without large Retina files.
+- Keep PNG originals outside the repository. Export lossless WebP at **2× native
+  resolution**, preserving alpha and all 2880 × 1920 pixels. Never resize a 1×
+  source to claim 2× quality.
 - Use **Screenshot Mode**, not Demo Mode, for new captures. Do not add redaction
   CSS or replace DOM text. For exceptional captures outside Screenshot Mode,
   enable Demo Mode and irreversibly mask every identifying label, native account
@@ -188,7 +226,7 @@ dotnet maui devflow agent status --agent-port <port>
 dotnet maui devflow ui resize 1440 960 --agent-port <port>
 dotnet maui devflow webview Runtime evaluate \
   "document.querySelector('a[href=\"dotnet-sdk\"]').click()" --agent-port <port>
-dotnet maui devflow ui screenshot --agent-port <port> --output <private-output.png>
+dotnet maui devflow ui screenshot --agent-port <port> --scale native --output <private-output.png>
 ```
 
 Prefer one persistent `dotnet maui devflow batch --agent-port <port>` session
@@ -204,7 +242,7 @@ operations; it is absent from ordinary launches.
 
 ## Adding platform captures
 
-The shared integration branch is **`redth-website-refresh`**. Both platform
+The shared integration branch is **`redth-website-screenshot-quality`**. Both platform
 handoffs should add their captures to that branch and its existing pull request,
 not open competing website-refresh PRs. Pull the latest branch before starting
 and rebase your platform-only commits onto its latest remote state before
@@ -237,7 +275,7 @@ messages. No website code change is needed when new assets are registered.
 
 ```text
 Capture the Windows equivalent of MAUI Sherpa's refreshed macOS website set.
-Check out the existing shared branch redth-website-refresh and pull its latest
+Check out the existing shared branch redth-website-screenshot-quality and pull its latest
 changes. Add your platform-only changes to that branch and its existing PR.
 Use docs/SCREENSHOTS.md and website/screenshots.json from the website refresh,
 with website/images/screenshots/macos/ as the visual reference.
@@ -265,7 +303,17 @@ send notifications, or delete anything. Record unavailable or loading views as
 blockers rather than publishing an error screen. Do not inspect someone else's
 running app to populate the inspector.
 
-Save lossless 1x WebP files as:
+Wait until the isolated app is ready, then ask the user whether they are ready
+to leave the focused window untouched for the complete set. Wait for an explicit
+yes and five seconds before capturing. Use --confirmed only after that answer.
+Close the isolated app when done. If focus is lost, discard and repeat the set
+after a new readiness confirmation.
+
+Use 200% Windows display scaling: the 1440x960 logical window must produce
+2880x1920 native pixels. Keep those pixels; do not upscale a 1x capture.
+Export lossless 2x WebP files with build/export-screenshots.py --platform windows.
+It preserves transparency and removes the Windows 11 compositor desktop fringe.
+Save files as:
 website/images/screenshots/windows/<manifest-id>.webp
 Keep PNG originals private and outside the repository. Preserve aspect ratio
 and full native window chrome. Add only the reviewed Windows paths to each
@@ -276,7 +324,7 @@ Close the isolated app and clear both environment variables when finished. Run:
 node --test tests/website.test.mjs
 Return a contact sheet, the exact captured/missing IDs, dimensions, and any
 blockers. Commit only your Windows assets and manifest entries, rebase onto the
-latest origin/redth-website-refresh, and push to that existing shared branch.
+latest origin/redth-website-screenshot-quality, and push to that existing shared branch.
 Do not force-push, overwrite another platform's entries, or open another PR.
 ```
 
@@ -284,14 +332,14 @@ Do not force-push, overwrite another platform's entries, or open another PR.
 
 ```text
 Capture the Linux equivalent of MAUI Sherpa's refreshed macOS website set.
-Check out the existing shared branch redth-website-refresh and pull its latest
+Check out the existing shared branch redth-website-screenshot-quality and pull its latest
 changes. Add your platform-only changes to that branch and its existing PR.
 Use docs/SCREENSHOTS.md and website/screenshots.json from the website refresh,
 with website/images/screenshots/macos/ as the visual reference.
 
 Build and run the actual GTK head:
 dotnet build src/MauiSherpa.LinuxGtk
-GDK_BACKEND=x11 MAUI_SHERPA_SCREENSHOT_MODE=website-v1 MAUI_SHERPA_ENABLE_DEVFLOW=1 dotnet run --project src/MauiSherpa.LinuxGtk --no-build
+GDK_BACKEND=x11 GDK_SCALE=2 MAUI_SHERPA_SCREENSHOT_MODE=website-v1 MAUI_SHERPA_ENABLE_DEVFLOW=1 dotnet run --project src/MauiSherpa.LinuxGtk --no-build
 The compatible Debug GTK DevFlow agent and Blazor bridge are enabled. Verify
 agent connectivity on Linux; do not use browser mockups or Computer Use as a
 substitute. Discover this Sherpa instance's port from a second terminal and run:
@@ -314,7 +362,16 @@ devices, create/revoke signing assets, publish secrets, send notifications, or
 delete anything. Record blocked/loading views instead of publishing them. Do
 not inspect another session's app to populate the inspector.
 
-Save lossless 1x WebP files as:
+Wait until the isolated app is ready, then ask the user whether they are ready
+to leave the focused window untouched for the complete set. Wait for an explicit
+yes and five seconds before capturing. Use --confirmed only after that answer.
+Close the isolated app when done. If focus is lost, discard and repeat the set
+after a new readiness confirmation.
+
+Use GDK_SCALE=2: the 1440x960 logical window must produce 2880x1920 native pixels.
+Keep those pixels; do not upscale a 1x capture.
+Export lossless 2x WebP files with build/export-screenshots.py --platform linux.
+Save files as:
 website/images/screenshots/linux/<manifest-id>.webp
 Keep PNG originals private and outside the repository. Preserve aspect ratio
 and the full native window. Add only reviewed Linux paths to each matching
@@ -325,6 +382,6 @@ Close the isolated app when finished. Run:
 node --test tests/website.test.mjs
 Return a contact sheet, captured/missing IDs, dimensions, and blockers. Commit
 only your Linux assets and manifest entries, rebase onto the latest
-origin/redth-website-refresh, and push to that existing shared branch. Do not
+origin/redth-website-screenshot-quality, and push to that existing shared branch. Do not
 force-push, overwrite another platform's entries, or open another PR.
 ```

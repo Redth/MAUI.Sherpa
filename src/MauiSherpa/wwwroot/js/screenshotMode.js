@@ -1,6 +1,8 @@
 window.sherpaScreenshot = {
     initialize(reference) {
         this.setAppearance = theme => reference.invokeMethodAsync('SetAppearance', theme);
+        this.beginCapture = () => reference.invokeMethodAsync('BeginCapture');
+        this.closeCapture = () => reference.invokeMethodAsync('CloseCapture');
         const disableExternalActions = () => {
             for (const button of document.querySelectorAll('[data-screenshot-external]')) {
                 if (!button.disabled) button.disabled = true;
