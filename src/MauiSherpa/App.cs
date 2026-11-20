@@ -104,6 +104,10 @@ public class App : Application
 
         window.Created += (s, e) =>
         {
+#if WINDOWS
+            if (window.Handler?.PlatformView is Microsoft.UI.Xaml.Window nativeWindow)
+                nativeWindow.AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "sherpa.ico"));
+#endif
 #if MACCATALYST
             // Hide the titlebar title and toolbar.
             var uiApp = UIKit.UIApplication.SharedApplication;
