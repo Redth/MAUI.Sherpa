@@ -131,7 +131,7 @@ public class LocalSecretsKeyStore : ILocalSecretsKeyStore, ILocalVaultAccessServ
 
     private async Task<string?> GetStoredKeyAsync(string key)
     {
-#if DEBUG
+#if DEBUG && !LINUXGTK
         var developmentValue = await _legacySecureStorage.GetAsync(key);
         if (!string.IsNullOrWhiteSpace(developmentValue))
             return developmentValue;
@@ -149,15 +149,19 @@ public class LocalSecretsKeyStore : ILocalSecretsKeyStore, ILocalVaultAccessServ
     private async Task StoreKeyAsync(string key, string value)
     {
         await _secureStorage.SetAsync(key, value);
-#if DEBUG
+#if DEBUG && !LINUXGTK
         await _legacySecureStorage.SetAsync(key, value);
 #endif
     }
 
     private async Task RemoveStoredKeyAsync(string key)
     {
+#if LINUXGTK
+        await Task.Run(() => _secureStorage.Remove(key));
+#else
         _secureStorage.Remove(key);
-#if DEBUG
+#endif
+#if DEBUG && !LINUXGTK
         await _legacySecureStorage.RemoveAsync(key);
 #endif
     }
