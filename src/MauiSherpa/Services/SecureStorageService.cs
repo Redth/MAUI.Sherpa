@@ -1,11 +1,12 @@
 using MauiSherpa.Core.Interfaces;
 using System.Text.Json;
+using Microsoft.Maui.Storage;
 
 namespace MauiSherpa.Services;
 
 /// <summary>
 /// Secure storage service that uses platform Keychain/DPAPI when available,
-/// with a fallback to local JSON file for debugging scenarios where entitlements aren't configured.
+/// with a local JSON fallback for non-Linux debugging scenarios without signing entitlements.
 /// </summary>
 public class SecureStorageService : ILegacySecureStorageService
 {
@@ -20,19 +21,21 @@ public class SecureStorageService : ILegacySecureStorageService
     {
         _secureStorage = secureStorage;
         _alertService = alertService;
-        _fallbackPath = Path.Combine(
-            MauiSherpa.Core.Services.AppDataPath.GetAppDataDirectory(),
-            ".secure-fallback.json");
+        _fallbackPath = OperatingSystem.IsLinux() ? string.Empty : Path.Combine(
+            MauiSherpa.Core.Services.AppDataPath.GetAppDataDirectory(), ".secure-fallback.json");
 
 #if DEBUG
         // Debug builds use ad-hoc signing with a different code signature each build,
         // so macOS Keychain entries become inaccessible after rebuild. Always use fallback.
-        _usesFallback = true;
+        _usesFallback = !OperatingSystem.IsLinux();
 #endif
     }
 
     public async Task<string?> GetAsync(string key)
     {
+        if (OperatingSystem.IsLinux())
+            return await _secureStorage.GetAsync(key);
+
         // Try SecureStorage first
         if (!_usesFallback)
         {
@@ -64,6 +67,12 @@ public class SecureStorageService : ILegacySecureStorageService
 
     public async Task SetAsync(string key, string value)
     {
+        if (OperatingSystem.IsLinux())
+        {
+            await _secureStorage.SetAsync(key, value);
+            return;
+        }
+
         // Try SecureStorage first
         if (!_usesFallback)
         {
@@ -93,6 +102,12 @@ public class SecureStorageService : ILegacySecureStorageService
 
     public async Task RemoveAsync(string key)
     {
+        if (OperatingSystem.IsLinux())
+        {
+            await Task.Run(() => _secureStorage.Remove(key));
+            return;
+        }
+
         // Try SecureStorage first
         if (!_usesFallback)
         {

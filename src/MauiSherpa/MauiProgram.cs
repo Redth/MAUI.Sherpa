@@ -10,6 +10,7 @@ using MauiSherpa.Workloads.Services;
 using Microsoft.Maui.Platforms.Linux.Gtk4.BlazorWebView;
 using Microsoft.Maui.Platforms.Linux.Gtk4.Essentials.Hosting;
 using Microsoft.Maui.Platforms.Linux.Gtk4.Hosting;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 #else
 #if DEBUG
 using Microsoft.Maui.DevFlow.Agent;
@@ -40,6 +41,8 @@ public static class MauiProgram
                 fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");
                 fonts.AddFont("OpenSans-Semibold.ttf", "OpenSansSemibold");
             });
+        builder.Services.RemoveAll<ISecureStorage>();
+        builder.Services.AddSingleton<ISecureStorage>(_ => new LinuxSecureStorage("codes.redth.mauisherpa"));
 #else
         builder
             .UseMauiApp<App>()
