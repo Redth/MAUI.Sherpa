@@ -64,7 +64,8 @@ light in one persistent DevFlow batch, avoiding competing mutation leases.
 PNGs. The runner consumes the manifest, verifies the fixture/platform, route,
 heading, appearance, settled loading, no errors or privacy blur, no remote web
 resources, no Debug UI link, and no overflowing HTML sidebar before every shot.
-Native sidebar visibility must also be reviewed in the actual PNG.
+It selects the Installed tab for Android SDK packages. Native sidebar visibility
+must also be reviewed in the actual PNG.
 
 On Linux, DevFlow's GTK screenshot omits the native header bar, so the runner
 captures the full X11 window with `build/capture-gtk-window.py` (Python 3 and
@@ -115,13 +116,14 @@ checks. The Android SDK capture uses the Installed tab. The checked-in Windows
 1× until a real Windows machine supplies a fresh 2× set. This macOS host cannot
 produce genuine Windows captures.
 
-The fifteen Linux assets use the dark `website-v1` fixture set, captured at
-1440 × 960 from the real GTK window on Ubuntu 26.04.1 / GNOME Wayland, with the
-app running through XWayland (`GDK_BACKEND=x11`) at 1× scale. Both appearances
-were reviewed. In the light review set, the Doctor toolbar glyph is not retinted
-after the runtime theme switch; the dark website set is unaffected.
-The checked-in Linux set also remains 1× pending recapture on a Linux host with
-`GDK_SCALE=2`; it has not been artificially enlarged.
+The fifteen Linux assets use the reviewed dark `website-v1` fixture set, with
+the native GTK sidebar and theme-aware toolbar icons from current `main`.
+The real GTK window was rendered on Ubuntu 26.04.1 using `GDK_SCALE=2` on an
+isolated 3840 × 2160 X11 virtual display (Xvfb, Openbox, and xcompmgr). Both
+appearances were reviewed; the exported images retain all 2880 × 1920 native
+pixels and the GTK window's transparent edges. The complete set was captured
+after user confirmation and the five-second countdown. Capture metadata records
+the revision and the dirty worktree used for the runner changes.
 
 ## Feature audit
 
