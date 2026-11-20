@@ -506,14 +506,35 @@ public class WindowsTitleBarManager : IDisposable
         };
         if (fluentIcon is { } icon)
         {
-            btn.ImageSource = new FontImageSource
+#if WINDOWS
+            btn.HandlerChanged += (_, _) =>
             {
-                Glyph = GetEnumDescription(icon),
-                FontFamily = "FluentIcons",
-                Size = 16,
-                Color = Foreground,
+                if (btn.Handler?.PlatformView is not Microsoft.UI.Xaml.Controls.Button platformButton)
+                    return;
+
+                var content = new Microsoft.UI.Xaml.Controls.StackPanel
+                {
+                    Orientation = Microsoft.UI.Xaml.Controls.Orientation.Horizontal,
+                    Spacing = 6,
+                    VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Center,
+                };
+                content.Children.Add(new Microsoft.UI.Xaml.Controls.FontIcon
+                {
+                    Glyph = GetEnumDescription(icon),
+                    FontFamily = _serviceProvider.GetRequiredService<IFontManager>()
+                        .GetFontFamily(Microsoft.Maui.Font.OfSize("FluentIcons", 16)),
+                    FontSize = 16,
+                    VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Center,
+                });
+                content.Children.Add(new Microsoft.UI.Xaml.Controls.TextBlock
+                {
+                    Text = action.Label,
+                    FontSize = btn.FontSize,
+                    VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Center,
+                });
+                platformButton.Content = content;
             };
-            btn.ContentLayout = new Button.ButtonContentLayout(Button.ButtonContentLayout.ImagePosition.Left, 6);
+#endif
         }
 
         ToolTipProperties.SetText(btn, action.ToolTip ?? action.Label);
@@ -523,10 +544,26 @@ public class WindowsTitleBarManager : IDisposable
         return btn;
     }
 
-    private Button CreateCopilotButton()
+    private ImageButton CreateCopilotButton()
     {
-        var btn = CreateIconButton("Copilot", "toolbar-copilot", _copilotContext.ToggleOverlay);
-        btn.ImageSource = _isDark ? "ghcp_icon_white.png" : "ghcp_icon_dark.png";
+        var btn = new ImageButton
+        {
+            Source = _isDark ? "ghcp_icon_white.png" : "ghcp_icon_dark.png",
+            Aspect = Aspect.AspectFit,
+            WidthRequest = 32,
+            HeightRequest = 32,
+            Padding = new Thickness(5),
+            BackgroundColor = Colors.Transparent,
+            BorderColor = Colors.Transparent,
+            BorderWidth = 0,
+            CornerRadius = 4,
+            VerticalOptions = LayoutOptions.Center,
+            AutomationId = "toolbar-copilot",
+        };
+        ToolTipProperties.SetText(btn, "Copilot");
+        SemanticProperties.SetDescription(btn, "Copilot");
+        btn.Clicked += (_, _) => _copilotContext.ToggleOverlay();
+        ApplyHoverEffect(btn, Colors.Transparent, ControlHover, Colors.Transparent);
         return btn;
     }
 
@@ -735,9 +772,10 @@ public class WindowsTitleBarManager : IDisposable
         return attr?.Description ?? string.Empty;
     }
 
-    private static void ApplyHoverEffect(Button btn, Color normalBg, Color hoverBg, Color normalBorder, Color? hoverBorder = null)
+    private static void ApplyHoverEffect(View btn, Color normalBg, Color hoverBg, Color normalBorder, Color? hoverBorder = null)
     {
 #if WINDOWS
+        var borderColorProperty = btn is ImageButton ? ImageButton.BorderColorProperty : Button.BorderColorProperty;
         btn.HandlerChanged += (s, e) =>
         {
             if (btn.Handler?.PlatformView is Microsoft.UI.Xaml.Controls.Button platformBtn)
@@ -745,12 +783,12 @@ public class WindowsTitleBarManager : IDisposable
                 platformBtn.PointerEntered += (_, _) =>
                 {
                     btn.BackgroundColor = hoverBg;
-                    if (hoverBorder != null) btn.BorderColor = hoverBorder;
+                    if (hoverBorder != null) btn.SetValue(borderColorProperty, hoverBorder);
                 };
                 platformBtn.PointerExited += (_, _) =>
                 {
                     btn.BackgroundColor = normalBg;
-                    btn.BorderColor = normalBorder;
+                    btn.SetValue(borderColorProperty, normalBorder);
                 };
             }
         };

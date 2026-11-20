@@ -180,6 +180,11 @@ All modals use `modalInterop.js` (`wwwroot/js/modalInterop.js`) for focus trappi
 Global `user-select: none` is applied on `*` to prevent accidental text selection in the hybrid app. Selectively re-enabled on: `input`, `textarea`, `select`, `code`, `pre`, `.mono`, `.terminal-output`, `.log-entry`, `.error-message`, `.chat-message`, and `.text-selectable`.
 
 ### Icons
+The Windows taskbar and executable use `Platforms/Windows/sherpa.ico`, a tightly framed,
+multi-resolution version of the shared app artwork. After changing `Resources/AppIcon/appicon.png`,
+regenerate it on Windows with `pwsh -File build/windows/Generate-Icon.ps1`.
+Windows toolbar action glyphs use native `FontIcon` controls rather than rasterized `FontImageSource` images to stay sharp at high DPI.
+
 Using Font Awesome. Example:
 ```razor
 <i class="fa-solid fa-check text-success"></i>

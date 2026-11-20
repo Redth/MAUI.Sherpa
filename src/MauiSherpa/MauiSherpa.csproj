@@ -40,7 +40,13 @@
 
   <PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">
     <ApplicationManifest>Platforms\Windows\app.manifest</ApplicationManifest>
+    <ApplicationIcon>Platforms\Windows\sherpa.ico</ApplicationIcon>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="Platforms\Windows\sherpa.ico" TargetPath="sherpa.ico"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="AathifMahir.Maui.MauiIcons.Fluent" />
@@ -79,6 +85,21 @@
   <Import Project="..\..\build\ShinyAgentsStaticAssets.targets" />
 
   <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk.Razor" />
+
+  <!-- The WebView serves from the single-file extraction directory, not the publish folder.
+       Include generated scoped CSS and package assets as well as the app's own wwwroot files. -->
+  <Target Name="BundleWindowsStaticWebAssets"
+          AfterTargets="PrepareForBundle"
+          Condition="'$(PublishSingleFile)' == 'true'">
+    <ItemGroup>
+      <_SherpaStaticWebAssetsToBundle Include="@(_MauiStaticWebAssetWithTargetPath)"
+                                    Exclude="@(FilesToBundle->'%(FullPath)')"
+                                    Condition="'%(_MauiStaticWebAssetWithTargetPath.AssetRole)' != 'Alternative'">
+        <RelativePath>%(_MauiStaticWebAssetWithTargetPath.TargetPath)</RelativePath>
+      </_SherpaStaticWebAssetsToBundle>
+      <FilesToBundle Include="@(_SherpaStaticWebAssetsToBundle)" />
+    </ItemGroup>
+  </Target>
 
   <!-- Keep the Windows head as a no-op elsewhere without replacing the real SDK targets on
        Windows. A conditional import prevents the no-op target declarations from being evaluated. -->
