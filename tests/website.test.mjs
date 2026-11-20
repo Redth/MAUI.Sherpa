@@ -46,6 +46,16 @@ test('missing platform captures never silently return another platforms image', 
     assert.equal(resolveCapture(manifest, 'macos', 'dashboard').state, 'ready');
 });
 
+test('screenshot URLs change when a platform receives new captures', () => {
+    const updated = structuredClone(manifest);
+    updated.platforms.macos.capture.capturedAt = '2026-11-21T10:00:00.000Z';
+    const original = resolveCapture(manifest, 'macos', 'dashboard');
+    const next = resolveCapture(updated, 'macos', 'dashboard');
+    assert.notEqual(original.src, next.src);
+    assert.equal(new URL(next.src, 'https://example.com/').searchParams.get('v'), updated.platforms.macos.capture.capturedAt);
+    assert.equal(resolveCapture(updated, 'windows', 'dashboard').src, resolveCapture(manifest, 'windows', 'dashboard').src);
+});
+
 test('macOS-only tools are distinguished from captures that have not been supplied yet', () => {
     assert.equal(resolveCapture(manifest, 'windows', 'xcode').state, 'unsupported');
     assert.equal(resolveCapture(manifest, 'linux', 'apple-simulators').state, 'unsupported');

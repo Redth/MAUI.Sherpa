@@ -4,6 +4,9 @@ The homepage's screenshot collection is defined in
 [`website/screenshots.json`](../website/screenshots.json). It is the shared shot
 list for macOS, Windows, and Linux, including routes, captions, platform support,
 and paths to captures that actually exist.
+The gallery revalidates this manifest and versions image requests using each
+platform's `capture.capturedAt`; update that metadata when replacing captures so
+returning visitors receive the new images.
 
 ## Screenshot Mode
 

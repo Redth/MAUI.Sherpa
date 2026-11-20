@@ -6,7 +6,9 @@ export function resolveCapture(manifest, platform, shotId) {
     if (!shot || !Object.hasOwn(manifest.platforms, platform)) throw new Error('Unknown screenshot or platform.');
     if (!shot.platforms.includes(platform)) return { state: 'unsupported', shot };
     const src = shot.assets[platform];
-    return { state: src ? 'ready' : 'pending', shot, src };
+    if (!src) return { state: 'pending', shot };
+    const version = manifest.platforms[platform].capture.capturedAt;
+    return { state: 'ready', shot, src: `${src}?v=${encodeURIComponent(version)}` };
 }
 
 export function initialPlatform(manifest, preference, detected) {
@@ -19,7 +21,7 @@ export async function initScreenshotGallery() {
     const stage = document.getElementById('screenshot-stage');
     if (!stage) return;
     const notice = document.getElementById('tour-notice');
-    const response = await fetch('screenshots.json');
+    const response = await fetch('screenshots.json', { cache: 'no-cache' });
     if (!response.ok) throw new Error(`Screenshot inventory request failed (${response.status}).`);
     const manifest = await response.json();
     const detected = detectPlatform(navigator);
