@@ -14,6 +14,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 APP = "src/MauiSherpa"
 GTK = "src/MauiSherpa.LinuxGtk/Resources"
+MAC_ICON = "src/MauiSherpa.MacOS/Resources/AppIcon.icon"
 SETS = {
     "classic": ("classic", "classic"),
     "beanie": ("summit-beanie", "summit-beanie"),
@@ -28,6 +29,12 @@ MAC_FRAMES = (
     (b"ic08", 256, 1), (b"ic14", 256, 2),
     (b"ic09", 512, 1), (b"ic10", 512, 2),
 )
+
+
+def png_bytes(image):
+    output = BytesIO()
+    image.save(output, format="PNG", optimize=True)
+    return output.getvalue()
 
 
 class Artwork:
@@ -45,8 +52,8 @@ class Artwork:
         return Image.open(BytesIO(self.source)).convert("RGBA")
 
     @cached_property
-    def windows_box(self):
-        # Match the original taskbar framing: fit the visible artwork into 95% of the square.
+    def square_box(self):
+        # Fit visible artwork into 95% of a square, independent of source padding.
         alpha = self.image.getchannel("A")
         x1, y1, x2, y2 = alpha.point(lambda value: 255 if value > 16 else 0).getbbox()
         half = max(x2 - x1, y2 - y1) / 1.9
@@ -56,11 +63,9 @@ class Artwork:
     def png(self, size, *, windows=False):
         if not windows and self.image.size == (size, size):
             return self.source
-        box = self.windows_box if windows else None
+        box = self.square_box if windows else None
         scaled = self.image.resize((size, size), Image.Resampling.LANCZOS, box=box)
-        output = BytesIO()
-        scaled.save(output, format="PNG", optimize=True)
-        return output.getvalue()
+        return png_bytes(scaled)
 
 
 def windows_icon(small, large):
@@ -75,13 +80,38 @@ def windows_icon(small, large):
     return struct.pack("<HHH", 0, 1, len(frames)) + b"".join(entries + frames)
 
 
+def mac_artwork(artwork, background, *, compact):
+    image = background.copy()
+    size = 708 if compact else 740
+    foreground = artwork.image.resize(
+        (size, size), Image.Resampling.LANCZOS, box=artwork.square_box
+    )
+    image.alpha_composite(foreground, ((1024 - size) // 2, 152 if compact else 126))
+    return image
+
+
 def mac_icon(small, large):
+    background = Artwork("macos-background").image
+    small_image = mac_artwork(small, background, compact=True)
+    large_image = mac_artwork(large, background, compact=False)
     frames = []
     for kind, points, scale in MAC_FRAMES:
         # 32pt at 2x is still a small icon; choose by logical size, not pixel count.
-        png = (small if points <= 32 else large).png(points * scale)
+        image = small_image if points <= 32 else large_image
+        size = points * scale
+        png = png_bytes(image.resize((size, size), Image.Resampling.LANCZOS))
         frames.append(struct.pack(">4sI", kind, len(png) + 8) + png)
     return struct.pack(">4sI", b"icns", 8 + sum(map(len, frames))) + b"".join(frames)
+
+
+def mac_composer_artwork(artwork):
+    # Composer uses unmasked, full-bleed layers; macOS supplies its own inset.
+    image = Image.new("RGBA", (1024, 1024))
+    foreground = artwork.image.resize(
+        (920, 920), Image.Resampling.LANCZOS, box=artwork.square_box
+    )
+    image.alpha_composite(foreground, (52, 32))
+    return png_bytes(image)
 
 
 def assets(icon_set):
@@ -95,6 +125,9 @@ def assets(icon_set):
         f"{APP}/Resources/Images/sherpaicon.png": small.png(96),
         f"{APP}/Platforms/Windows/sherpa.ico": windows_icon(small, large),
         "src/MauiSherpa.MacOS/Resources/AppIcon.icns": mac_icon(small, large),
+        f"{MAC_ICON}/Assets/01-sun.svg": (HERE / "macos-sun.svg").read_bytes(),
+        f"{MAC_ICON}/Assets/02-mountains.svg": (HERE / "macos-mountains.svg").read_bytes(),
+        f"{MAC_ICON}/Assets/03-sherpa.png": mac_composer_artwork(large),
         f"{GTK}/appicon-24.png": small.png(24),
         f"{GTK}/appicon-512.png": large.png(512),
         "website/images/sherpa-icon.png": small.png(64),
@@ -110,7 +143,7 @@ def main():
     icon_set = (HERE / "icon-set.txt").read_text(encoding="utf-8").strip()
     if icon_set not in SETS:
         parser.error(f"Invalid icon set {icon_set!r} in icon-set.txt. Choose: {', '.join(SETS)}.")
-    if icon_set != "classic" and not shutil.which("rsvg-convert"):
+    if not shutil.which("rsvg-convert"):
         parser.error("rsvg-convert (librsvg) is required to render the SVG artwork.")
 
     changed = []
@@ -119,6 +152,7 @@ def main():
         if not path.is_file() or path.read_bytes() != data:
             changed.append(relative_path)
             if not args.check:
+                path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(data)
     if args.check and changed:
         parser.exit(1, "Stale icons:\n" + "\n".join(changed) + "\nRun python3 build/icons/generate.py.\n")
