@@ -11,6 +11,20 @@ mode. These are real app captures with sensitive text redacted, not mockups.
 Older images in the parent screenshots directory remain for the README and
 detailed guides; they are not substituted for other platforms in the new gallery.
 
+The Linux set was started on November 20, 2026 using the GTK head on Ubuntu
+26.04.1 / GNOME Wayland, with the app running through XWayland at 1× scale.
+The seven 1440 × 960 captures show Dashboard, Doctor, Profiling, the APNs
+form with its empty `.p8` key-file option selected, and, after Sherpa's
+[libsecret backend](secrets-storage.md#linux-os-secure-storage) unlocked the
+Local Vault, the empty Secrets root, the empty Publish Profiles list, and the
+default Firebase form. Doctor's paths are irreversibly masked.
+
+The remaining Linux views are pending: `android-sdk` and `android-devices`
+require an Android SDK; `keystores` shows an "OpenJDK not found" warning
+without a JDK; `dotnet-sdk` requires dotnetup; `app-inspector` has no reachable
+broker; and `certificates`, `profiles`, and `bundle-ids` show the App Store
+Connect credential prompt without a configured Apple identity.
+
 ## Feature audit
 
 The old homepage omitted several substantial areas and showed separate Android
