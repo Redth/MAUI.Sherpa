@@ -172,11 +172,28 @@ async function main() {
         }
         throw new Error(`Timed out waiting for ${label}: ${JSON.stringify(state)}`);
     };
+    const getCaptureProcessId = async () => {
+        const response = await fetch(`http://localhost:${values['agent-port']}/api/v1/agent/status`, { signal: AbortSignal.timeout(timeout) });
+        if (!response.ok) throw new Error(`Agent status failed (${response.status}).`);
+        const processId = (await response.json()).app?.processId;
+        if (!Number.isInteger(processId))
+            throw new Error('The DevFlow agent did not report the capture process ID.');
+        return processId;
+    };
     let ownsCapture = false;
     let captureProcessId;
     try {
         await waitFor(() => true, 'Screenshot Mode initialization');
         await flow.command(`MAUI resize ${width} ${height}`);
+        if (values.platform === 'windows') {
+            captureProcessId = await getCaptureProcessId();
+            const result = spawnSync('python', [
+                join(root, 'build', 'capture-windows-window.py'), '--pid', String(captureProcessId),
+                '--prepare', '--width', String(report.pixelDimensions.width),
+                '--height', String(report.pixelDimensions.height), '--pixel-ratio', String(pixelRatio)
+            ], { encoding: 'utf8' });
+            if (result.status !== 0) throw new Error(result.stderr || result.error?.message || 'Windows window preparation failed');
+        }
         if (!values['check-only']) {
             if (!values.confirmed) {
                 if (!process.stdin.isTTY)
@@ -191,25 +208,23 @@ async function main() {
                 }
             }
             ownsCapture = true;
-            const response = await fetch(`http://localhost:${values['agent-port']}/api/v1/agent/status`, { signal: AbortSignal.timeout(timeout) });
-            if (!response.ok) throw new Error(`Agent status failed (${response.status}).`);
-            captureProcessId = (await response.json()).app?.processId;
-            if (!Number.isInteger(captureProcessId))
-                throw new Error('The DevFlow agent did not report the capture process ID.');
+            captureProcessId ??= await getCaptureProcessId();
             console.log('Starting in 5 seconds. Please leave the app untouched until it closes.');
             await delay(5000);
             await flow.evaluate('window.sherpaScreenshot.beginCapture().then(()=>true)');
         }
-        // The GTK agent's screenshot omits the native header bar, so capture the X11 window instead.
-        const gtkProcessId = values.platform === 'linux' && !values['check-only'] ? captureProcessId : null;
         const screenshot = async path => {
-            if (gtkProcessId === null) {
+            if (values.platform === 'macos') {
                 await flow.command(`MAUI screenshot --scale native --output "${path}" --overwrite`);
                 return;
             }
             await delay(500);
-            const result = spawnSync('python3', [join(root, 'build', 'capture-gtk-window.py'), '--pid', String(gtkProcessId), '--output', path], { encoding: 'utf8' });
-            if (result.status !== 0) throw new Error(result.stderr || result.error?.message || 'GTK window capture failed');
+            const windows = values.platform === 'windows';
+            const result = spawnSync(windows ? 'python' : 'python3', [
+                join(root, 'build', windows ? 'capture-windows-window.py' : 'capture-gtk-window.py'),
+                '--pid', String(captureProcessId), '--output', path
+            ], { encoding: 'utf8' });
+            if (result.status !== 0) throw new Error(result.stderr || result.error?.message || 'Native window capture failed');
         };
         for (const theme of values.theme === 'both' ? ['dark', 'light'] : [values.theme]) {
             const directory = join(resolve(values.output), values.platform, theme);

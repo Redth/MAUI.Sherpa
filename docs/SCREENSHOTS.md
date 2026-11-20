@@ -71,8 +71,13 @@ On Linux, DevFlow's GTK screenshot omits the native header bar, so the runner
 captures the full X11 window with `build/capture-gtk-window.py` (Python 3 and
 Pillow), cropping GTK's client-side shadow. Run the app with
 `GDK_BACKEND=x11 GDK_SCALE=2` and a workspace large enough for 2880 × 1920
-physical pixels. On Windows, use 200% display scaling and a sufficiently large
-display. On macOS, use a Retina display.
+physical pixels. On Windows, the runner uses Python 3 and Pillow to capture the
+foreground compositor frame, including the native title bar and WebView2. It
+invokes Python as `python`, compensates for invisible Windows resize borders when
+sizing the visible frame, and rejects another process's window or a window
+outside the display's usable area.
+Use 200% display scaling and a sufficiently large display. On macOS, use a Retina
+display.
 
 Results are `<output>/<platform>/<theme>/<id>.png` plus `capture.json`, recording
 revision, dirty-worktree status, fixture version, platform, theme, and actual
@@ -106,15 +111,17 @@ Older images in the parent screenshots directory remain for the README and
 detailed guides; they are not substituted for other platforms in the gallery.
 
 The fifteen Windows assets use the reviewed dark `website-v1` fixture set from
-revision `14c31c1` with a clean worktree. Both dark and light PNG originals
-were reviewed. On this Windows setup, the DevFlow screenshot omitted the
-WebView and native title bar; capture therefore used the foreground Windows
-compositor at 100% display scale, with the DWM visible frame measured at
-1440 × 960. DevFlow still provided navigation, appearance, and readiness
-checks. The Android SDK capture uses the Installed tab. The checked-in Windows
-11 assets have been cleaned to preserve transparent native edges, but remain
-1× until a real Windows machine supplies a fresh 2× set. This macOS host cannot
-produce genuine Windows captures.
+revision `94fd78b` with a dirty worktree. Both dark and light PNG originals
+and the exported dark images were reviewed. DevFlow provided navigation,
+appearance, and readiness checks; capture used the foreground Windows
+compositor at 200% display scale, with a 2880 × 1920 DWM visible frame.
+The Android SDK capture uses the Installed tab. The exported 2× lossless
+WebP assets retain transparent native edges.
+
+The Windows app was built with the explicitly approved, build-only override
+`-p:WindowsSdkPackageVersion=10.0.19041.87`: the default reference pack on
+the capture machine supplied WinRT.Runtime 2.2.0, while Sentry.Maui 7.0.1
+required 2.3.1. No repository package versions were changed.
 
 The fifteen Linux assets use the reviewed dark `website-v1` fixture set, with
 the native GTK sidebar and theme-aware toolbar icons from current `main`.

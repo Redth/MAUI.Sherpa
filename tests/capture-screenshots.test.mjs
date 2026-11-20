@@ -3,15 +3,15 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { createServer } from 'node:http';
-import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
+import { copyFile, mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 
-test('capture runner requires consent, preserves native pixels, and closes confirmed runs', { skip: process.platform === 'win32' }, async t => {
-    for (const scenario of ['confirmed', 'unconfirmed', 'low-dpi', 'android-sdk']) {
+test('capture runner requires consent, preserves native pixels, and closes confirmed runs', async t => {
+    for (const scenario of ['confirmed', 'unconfirmed', 'low-dpi', 'android-sdk', 'missing-installed-tab']) {
         await t.test(scenario, async () => {
             const directory = await mkdtemp(join(process.env.MAUI_SHERPA_TEST_ARTIFACTS || tmpdir(), 'sherpa-capture-'));
             const app = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
@@ -23,7 +23,7 @@ test('capture runner requires consent, preserves native pixels, and closes confi
             try {
                 const bin = join(directory, 'bin');
                 await mkdir(bin);
-                await writeFile(join(bin, 'dotnet'), `#!/usr/bin/env node
+                const mock = `#!/usr/bin/env node
 const { createInterface } = require('node:readline');
 const { appendFileSync, writeFileSync } = require('node:fs');
 const state = {
@@ -41,9 +41,12 @@ createInterface({input:process.stdin}).on('line', command => {
         state.fingerprint = 'sdk-all';
     }
     if (command.includes('const tab=Array.from')) {
-        state.activeTab = 'Installed (8)';
-        state.fingerprint = 'sdk-installed';
-        output = JSON.stringify({clicked:true});
+        const clicked = process.env.MOCK_MISSING_TAB !== '1';
+        if (clicked) {
+            state.activeTab = 'Installed (8)';
+            state.fingerprint = 'sdk-installed';
+        }
+        output = JSON.stringify({clicked});
     } else if (command.includes('JSON.stringify')) {
         output = JSON.stringify(state);
     }
@@ -58,21 +61,40 @@ createInterface({input:process.stdin}).on('line', command => {
     if (command.includes('closeCapture')) process.kill(Number(process.env.MOCK_PID),'SIGTERM');
     console.log(JSON.stringify({command,exit_code:0,output}));
 });
-`, { mode: 0o755 });
+`;
+                let bootstrap;
+                if (process.platform === 'win32') {
+                    await copyFile(process.execPath, join(bin, 'dotnet.exe'));
+                    const script = join(bin, 'dotnet-mock.cjs');
+                    bootstrap = join(bin, 'bootstrap.cjs');
+                    await writeFile(script, mock);
+                    await writeFile(bootstrap, `if (process.execPath.toLowerCase().endsWith('dotnet.exe')) {
+    const Module = require('node:module'), path = require('node:path'), resolve = Module._resolveFilename;
+    Module._resolveFilename = function(request, ...args) {
+        return path.basename(request) === 'maui' ? ${JSON.stringify(script)} : resolve.call(this, request, ...args);
+    };
+}\n`);
+                } else {
+                    await writeFile(join(bin, 'dotnet'), mock, { mode: 0o755 });
+                }
                 server.listen(0, '127.0.0.1');
                 await once(server, 'listening');
                 const log = join(directory, 'commands.log');
                 const child = spawn(process.execPath, [
                     'build/capture-screenshots.mjs', '--agent-port', String(server.address().port),
-                    '--platform', 'macos', '--shots', scenario === 'android-sdk' ? 'android-sdk' : 'dashboard',
+                    '--platform', 'macos', '--shots',
+                    scenario === 'android-sdk' ? 'android-sdk' : scenario === 'missing-installed-tab' ? 'dashboard,android-sdk' : 'dashboard',
                     '--output', directory,
+                    ...(scenario === 'missing-installed-tab' ? ['--timeout', '1'] : []),
                     ...(scenario === 'unconfirmed' ? [] : ['--confirmed'])
                 ], {
                     cwd: root,
                     env: {
                         ...process.env, PATH: `${bin}${delimiter}${process.env.PATH}`,
                         MOCK_LOG: log, MOCK_PID: String(app.pid),
-                        MOCK_WIDTH: scenario === 'low-dpi' ? '1440' : '2880'
+                        MOCK_WIDTH: scenario === 'low-dpi' ? '1440' : '2880',
+                        MOCK_MISSING_TAB: scenario === 'missing-installed-tab' ? '1' : '0',
+                        ...(bootstrap ? { NODE_OPTIONS: [process.env.NODE_OPTIONS, `--require="${bootstrap.replaceAll('\\', '\\\\')}"`].filter(Boolean).join(' ') } : {})
                     },
                     stdio: ['ignore', 'pipe', 'pipe']
                 });
@@ -81,7 +103,10 @@ createInterface({input:process.stdin}).on('line', command => {
                 child.stderr.on('data', chunk => { stderr += chunk; });
                 const started = Date.now();
                 const [code] = await once(child, 'exit');
-                const commands = await readFile(log, 'utf8');
+                const commands = await readFile(log, 'utf8').catch(error => {
+                    error.message += `\nRunner stderr: ${stderr}`;
+                    throw error;
+                });
                 if (scenario === 'unconfirmed') {
                     assert.equal(code, 1);
                     assert.match(stderr, /Ask the user/);
@@ -97,6 +122,10 @@ createInterface({input:process.stdin}).on('line', command => {
                 if (scenario === 'low-dpi') {
                     assert.equal(code, 1);
                     assert.match(stderr, /do not upscale/);
+                } else if (scenario === 'missing-installed-tab') {
+                    assert.equal(code, 1);
+                    assert.match(stderr, /The Android SDK Installed tab is unavailable/);
+                    assert.doesNotMatch(commands, /android-sdk\.png/);
                 } else {
                     assert.equal(code, 0, stderr);
                     const report = JSON.parse(await readFile(join(directory, 'macos/dark/capture.json'), 'utf8'));

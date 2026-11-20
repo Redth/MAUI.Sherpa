@@ -11,6 +11,11 @@ spec = importlib.util.spec_from_file_location(
 exporter = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(exporter)
 
+window_spec = importlib.util.spec_from_file_location(
+    "windows_capture", Path(__file__).resolve().parents[1] / "build" / "capture-windows-window.py")
+windows_capture = importlib.util.module_from_spec(window_spec)
+window_spec.loader.exec_module(windows_capture)
+
 
 class ScreenshotExportTests(unittest.TestCase):
     def test_gallery_assets_match_recorded_dimensions_and_windows_have_no_desktop_edge(self):
@@ -66,3 +71,22 @@ class ScreenshotExportTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Recapture at native display scale"):
                 exporter.export_image(source, destination, "linux", logical_size=(144, 96))
             self.assertFalse(destination.exists())
+
+    def test_windows_capture_rejects_other_windows_and_partial_frames(self):
+        frame = (100, 50, 2980, 1970)
+        work_area = (0, 0, 3840, 2080)
+        windows_capture.validate_window(42, 42, frame, work_area)
+        with self.assertRaisesRegex(RuntimeError, "not in the foreground"):
+            windows_capture.validate_window(42, 43, frame, work_area)
+        with self.assertRaisesRegex(RuntimeError, "usable area"):
+            windows_capture.validate_window(42, 42, frame, (0, 0, 3840, 1969))
+
+    def test_windows_capture_sizes_the_visible_frame_not_invisible_borders(self):
+        outer = (78, 78, 2958, 1998)
+        frame = (89, 78, 2947, 1987)
+        work_area = (0, 0, 3840, 2064)
+        self.assertEqual(
+            windows_capture.window_placement(outer, frame, work_area, 2880, 1920),
+            (469, 72, 2902, 1931))
+        with self.assertRaisesRegex(RuntimeError, "does not fit"):
+            windows_capture.window_placement(outer, frame, work_area, 3841, 1920)
