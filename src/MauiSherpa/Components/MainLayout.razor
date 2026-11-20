@@ -318,8 +318,9 @@
 
         route = route.Trim();
 
-        // Reject absolute URIs/schemes to avoid accidental external navigation
-        if (Uri.TryCreate(route, UriKind.Absolute, out _))
+        // Accept only app-relative paths to avoid accidental external navigation. Don't use
+        // Uri.TryCreate(UriKind.Absolute): on Unix it treats "/doctor" as an absolute file URI.
+        if (!route.StartsWith('/') || route.StartsWith("//") || route.Contains('\\'))
         {
             return;
         }
@@ -616,9 +617,10 @@
         color: #a0aec0;
     }
 
-    /* Native sidebars handle navigation on macOS and Windows. */
+    /* Native sidebars handle navigation on macOS, Windows and Linux. */
     .platform-macos .sidebar,
-    .platform-windows .sidebar {
+    .platform-windows .sidebar,
+    .platform-linux .sidebar {
         display: none;
     }
 

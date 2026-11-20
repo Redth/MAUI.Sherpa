@@ -89,6 +89,7 @@ public static class MauiProgram
         builder.ConfigureMauiHandlers(handlers =>
         {
             handlers.AddHandler<Microsoft.AspNetCore.Components.WebView.Maui.BlazorWebView, BlazorWebViewHandler>();
+            handlers.AddHandler<LinuxNavigationSidebar, LinuxNavigationSidebarHandler>();
         });
 #else
         builder.Services.AddMauiBlazorWebView();

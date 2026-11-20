@@ -13,7 +13,6 @@ public class LinuxToolbarManager
 {
     private readonly IToolbarService _toolbarService;
     private readonly ICopilotContextService _copilotContext;
-    private readonly IThemeService _themeService;
     private readonly IAppleIdentityService _appleIdentityService;
     private readonly IAppleIdentityStateService _appleIdentityState;
     private readonly IGoogleIdentityService _googleIdentityService;
@@ -27,7 +26,6 @@ public class LinuxToolbarManager
     private readonly List<Gtk.Widget> _retainedWidgets = new(); // prevent GC of removed GTK widgets
     private Gtk.SearchEntry? _searchEntry;
     private Gtk.Button? _copilotButton;
-    private Gtk.Image? _copilotImage;
     private Gtk.DropDown? _identityDropdown;
     private CancellationTokenSource? _identityCts;
     private bool _rebuildQueued;
@@ -62,19 +60,14 @@ public class LinuxToolbarManager
         ["fa-cog"] = "emblem-system-symbolic",
         ["fa-download"] = "document-save-symbolic",
         ["fa-sync-alt"] = "view-refresh-symbolic",
-    };
 
-    // Icons rendered from Font Awesome as PNGs (dark/white variants for theme support)
-    // Format: sfSymbol → (darkFile, whiteFile) relative to Resources/
-    private static readonly Dictionary<string, (string Dark, string White)> CustomIconMap = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ["fa-stethoscope"] = ("fa-stethoscope-24.png", "fa-stethoscope-white-24.png"),
+        // Bundled symbolic icons (Resources/icons) that GTK recolors for the active theme
+        ["fa-stethoscope"] = "sherpa-stethoscope-symbolic",
     };
 
     public LinuxToolbarManager(
         IToolbarService toolbarService,
         ICopilotContextService copilotContext,
-        IThemeService themeService,
         IAppleIdentityService appleIdentityService,
         IAppleIdentityStateService appleIdentityState,
         IGoogleIdentityService googleIdentityService,
@@ -84,7 +77,6 @@ public class LinuxToolbarManager
     {
         _toolbarService = toolbarService;
         _copilotContext = copilotContext;
-        _themeService = themeService;
         _appleIdentityService = appleIdentityService;
         _appleIdentityState = appleIdentityState;
         _googleIdentityService = googleIdentityService;
@@ -93,16 +85,18 @@ public class LinuxToolbarManager
         _bridgeHolder = bridgeHolder;
         _toolbarService.ToolbarChanged += OnToolbarChanged;
         _toolbarService.RouteChanged += OnRouteChanged;
-        _themeService.ThemeChanged += OnThemeChanged;
     }
 
     public void AttachToWindow(Gtk.Window window)
     {
         _window = window;
+        LinuxIconTheme.EnsureRegistered();
         _headerBar = Gtk.HeaderBar.New();
         _headerBar.SetShowTitleButtons(true);
         // Hide the window title text — app icon in the HeaderBar is sufficient
-        _headerBar.SetTitleWidget(Gtk.Label.New(""));
+        var titleLabel = Gtk.Label.New("");
+        _headerBar.SetTitleWidget(titleLabel);
+        _retainedWidgets.Add(titleLabel);
 
         // App icon on the far left with spacing
         var appIconPath = System.IO.Path.Combine(AppContext.BaseDirectory, "Resources", "appicon-24.png");
@@ -112,13 +106,13 @@ public class LinuxToolbarManager
             appIcon.SetMarginStart(4);
             appIcon.SetMarginEnd(4);
             _headerBar.PackStart(appIcon);
+            _retainedWidgets.Add(appIcon);
         }
 
         // Copilot button next to app icon
         _copilotButton = Gtk.Button.New();
         _copilotButton.SetTooltipText("GitHub Copilot");
-        _copilotImage = CreateCopilotIcon();
-        _copilotButton.SetChild(_copilotImage);
+        _copilotButton.SetIconName("sherpa-copilot-symbolic");
         _copilotButton.OnClicked += (s, _) => _copilotContext.ToggleOverlay();
         _headerBar.PackStart(_copilotButton);
 
@@ -128,42 +122,17 @@ public class LinuxToolbarManager
         settingsButton.SetTooltipText("Settings");
         settingsButton.OnClicked += (s, _) => OpenSettingsDialog();
         _headerBar.PackStart(settingsButton);
+        _retainedWidgets.Add(settingsButton);
 
         // Doctor button beside settings
         var doctorButton = Gtk.Button.New();
-        var doctorIconName = _themeService.IsDarkMode ? "fa-stethoscope-white-24.png" : "fa-stethoscope-24.png";
-        var doctorIconPath = System.IO.Path.Combine(AppContext.BaseDirectory, "Resources", doctorIconName);
-        if (System.IO.File.Exists(doctorIconPath))
-            doctorButton.SetChild(Gtk.Image.NewFromFile(doctorIconPath));
-        else
-            doctorButton.SetIconName("dialog-information-symbolic");
+        doctorButton.SetIconName("sherpa-stethoscope-symbolic");
         doctorButton.SetTooltipText("Doctor");
         doctorButton.OnClicked += (s, _) => _toolbarService.RequestNavigation("/doctor");
         _headerBar.PackStart(doctorButton);
+        _retainedWidgets.Add(doctorButton);
 
         _window.SetTitlebar(_headerBar);
-    }
-
-    private Gtk.Image CreateCopilotIcon()
-    {
-        var iconName = _themeService.IsDarkMode ? "ghcp-icon-white-24.png" : "ghcp-icon-24.png";
-        var iconPath = System.IO.Path.Combine(AppContext.BaseDirectory, "Resources", iconName);
-        if (System.IO.File.Exists(iconPath))
-            return Gtk.Image.NewFromFile(iconPath);
-        // Fallback to a standard icon
-        return Gtk.Image.NewFromIconName("user-available-symbolic");
-    }
-
-    private void OnThemeChanged()
-    {
-        if (_copilotButton == null) return;
-        var newImage = CreateCopilotIcon();
-        _copilotButton.SetChild(newImage);
-        if (_copilotImage != null) _retainedWidgets.Add(_copilotImage);
-        _copilotImage = newImage;
-
-        // Rebuild toolbar buttons so custom PNG icons update for theme
-        if (_headerBar != null) RebuildToolbar();
     }
 
     private void OnToolbarChanged()
@@ -360,17 +329,7 @@ public class LinuxToolbarManager
     {
         var button = Gtk.Button.New();
 
-        if (CustomIconMap.TryGetValue(action.SfSymbol, out var pngFiles))
-        {
-            var fileName = _themeService.IsDarkMode ? pngFiles.White : pngFiles.Dark;
-            var path = System.IO.Path.Combine(AppContext.BaseDirectory, "Resources", fileName);
-            if (System.IO.File.Exists(path))
-                button.SetChild(Gtk.Image.NewFromFile(path));
-            else
-                button.SetLabel(action.Label);
-            button.SetTooltipText(action.ToolTip ?? action.Label);
-        }
-        else if (IconMap.TryGetValue(action.SfSymbol, out var gtkIcon))
+        if (IconMap.TryGetValue(action.SfSymbol, out var gtkIcon))
         {
             button.SetIconName(gtkIcon);
             button.SetTooltipText(action.ToolTip ?? action.Label);

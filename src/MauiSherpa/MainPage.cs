@@ -59,6 +59,18 @@ public class MainPage : ContentPage
             Content = _blazorWebView
         };
         container.Children.Add(_navigationHost);
+#elif LINUXGTK
+        var linuxShell = new Grid
+        {
+            ColumnDefinitions =
+            {
+                new ColumnDefinition(new GridLength(LinuxNavigationSidebar.SidebarWidth)),
+                new ColumnDefinition(GridLength.Star),
+            }
+        };
+        linuxShell.Add(new LinuxNavigationSidebar(toolbarService), 0, 0);
+        linuxShell.Add(_blazorWebView, 1, 0);
+        container.Children.Add(linuxShell);
 #else
         container.Children.Add(_blazorWebView);
 #endif
