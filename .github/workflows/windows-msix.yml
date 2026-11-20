@@ -1,0 +1,312 @@
+name: Windows MSIX
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing stable release tag (vX.Y.Z or vX.Y.Z.R)'
+        required: true
+        type: string
+      publish:
+        description: 'Sign, attach to the existing release, and promote windows-latest'
+        required: false
+        default: false
+        type: boolean
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+      publish:
+        required: false
+        default: false
+        type: boolean
+
+permissions: {}
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  resolve-release:
+    name: Validate immutable release source
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      commit: ${{ steps.release.outputs.commit }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate tag, caller ref, and release
+        id: release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          PUBLISH: ${{ inputs.publish }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:RELEASE_TAG -cnotmatch '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:\.(0|[1-9][0-9]*))?$') {
+            throw 'Only stable numeric vX.Y.Z or vX.Y.Z.R tags are accepted.'
+          }
+          $parts = $env:RELEASE_TAG.Substring(1).Split('.')
+          foreach ($part in $parts) {
+            if ([long]$part -gt 65535) { throw 'MSIX version components must be <= 65535.' }
+          }
+          $commit = & git rev-parse --verify "refs/tags/$($env:RELEASE_TAG)^{commit}"
+          if ($LASTEXITCODE -ne 0 -or $commit -cnotmatch '^[0-9a-f]{40}$') {
+            throw 'The release tag must exist in this repository.'
+          }
+          if ($env:PUBLISH -eq 'true') {
+            if ($env:GITHUB_REF -ne 'refs/heads/main' -and $env:GITHUB_REF -cne "refs/tags/$($env:RELEASE_TAG)") {
+              throw 'Publishing must be invoked from main or the requested stable tag.'
+            }
+            if ($env:GITHUB_REF.StartsWith('refs/tags/') -and $env:GITHUB_SHA -cne $commit) {
+              throw 'The caller tag SHA does not match the requested release tag.'
+            }
+            & git merge-base --is-ancestor $commit refs/remotes/origin/main
+            if ($LASTEXITCODE -ne 0) { throw 'A published release must come from main history.' }
+            $json = & gh api --hostname github.com "repos/$env:GITHUB_REPOSITORY/releases/tags/$env:RELEASE_TAG"
+            if ($LASTEXITCODE -ne 0) { throw 'Create the versioned GitHub Release before publishing MSIX.' }
+            $release = $json | ConvertFrom-Json
+            if ($release.draft -or $release.prerelease -or $release.tag_name -cne $env:RELEASE_TAG) {
+              throw 'The target must be an existing, published stable release.'
+            }
+          }
+          "commit=$commit" >> $env:GITHUB_OUTPUT
+          "version=$($parts -join '.')" >> $env:GITHUB_OUTPUT
+
+  unsigned-build:
+    name: Unsigned MSIX (${{ matrix.arch }})
+    needs: resolve-release
+    if: >-
+      !cancelled() && (github.event_name == 'pull_request'
+      || (needs.resolve-release.result == 'success' && !inputs.publish))
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.sha || needs.resolve-release.outputs.commit }}
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Install MAUI workload
+        run: dotnet workload install maui --version 10.0.102
+      - name: Build unsigned package (never published)
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ github.event_name == 'pull_request' && '1.0.0' || needs.resolve-release.outputs.version }}
+          RELEASE_TAG: ${{ github.event_name == 'pull_request' && 'v1.0.0' || inputs.tag }}
+          ARCHITECTURE: ${{ matrix.arch }}
+        run: |
+          & ./build/windows/Build-Msix.ps1 `
+            -Version $env:RELEASE_VERSION -Architecture $env:ARCHITECTURE `
+            -Publisher 'CN=MAUI Sherpa' -ReleaseRepository $env:GITHUB_REPOSITORY `
+            -ReleaseTag $env:RELEASE_TAG `
+            -OutputDirectory (Join-Path $env:GITHUB_WORKSPACE "artifacts/msix/$env:ARCHITECTURE")
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-msix-unsigned-${{ matrix.arch }}
+          path: |
+            artifacts/msix/${{ matrix.arch }}/*.msix
+            artifacts/msix/${{ matrix.arch }}/*.appinstaller
+          if-no-files-found: error
+          retention-days: 7
+
+  release-build:
+    name: Release MSIX (${{ matrix.arch }})
+    needs: resolve-release
+    if: github.event_name != 'pull_request' && inputs.publish
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve-release.outputs.commit }}
+          persist-credentials: false
+      - name: Require production publisher
+        shell: pwsh
+        env:
+          WINDOWS_MSIX_PUBLISHER: ${{ vars.WINDOWS_MSIX_PUBLISHER }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_MSIX_PUBLISHER) -or $env:WINDOWS_MSIX_PUBLISHER -eq 'CN=MAUI Sherpa') {
+            throw 'Set repository variable WINDOWS_MSIX_PUBLISHER to the Azure signing certificate subject.'
+          }
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Install MAUI workload
+        run: dotnet workload install maui --version 10.0.102
+      - name: Build from validated release commit
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ needs.resolve-release.outputs.version }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          ARCHITECTURE: ${{ matrix.arch }}
+          WINDOWS_MSIX_PUBLISHER: ${{ vars.WINDOWS_MSIX_PUBLISHER }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+        run: |
+          & ./build/windows/Build-Msix.ps1 `
+            -Version $env:RELEASE_VERSION -Architecture $env:ARCHITECTURE `
+            -Publisher $env:WINDOWS_MSIX_PUBLISHER -ReleaseRepository $env:GITHUB_REPOSITORY `
+            -ReleaseTag $env:RELEASE_TAG -SentryDsn $env:SENTRY_DSN `
+            -OutputDirectory (Join-Path $env:GITHUB_WORKSPACE "artifacts/msix/$env:ARCHITECTURE")
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-msix-release-unsigned-${{ matrix.arch }}
+          path: |
+            artifacts/msix/${{ matrix.arch }}/*.msix
+            artifacts/msix/${{ matrix.arch }}/*.appinstaller
+          if-no-files-found: error
+          retention-days: 7
+
+  sign:
+    name: Azure sign MSIX (${{ matrix.arch }})
+    needs: [resolve-release, release-build]
+    if: github.event_name != 'pull_request' && inputs.publish
+    runs-on: windows-latest
+    # Configure required reviewers and allow only main / protected stable tags.
+    # Restrict the Azure federated identity to this repository's windows-release environment.
+    environment: windows-release
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, arm64]
+    env:
+      WINDOWS_MSIX_PUBLISHER: ${{ vars.WINDOWS_MSIX_PUBLISHER }}
+      AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      AZURE_ARTIFACT_SIGNING_ENDPOINT: ${{ vars.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
+      AZURE_ARTIFACT_SIGNING_ACCOUNT: ${{ vars.AZURE_ARTIFACT_SIGNING_ACCOUNT }}
+      AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE: ${{ vars.AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE }}
+    steps:
+      - name: Require complete production signing configuration
+        shell: pwsh
+        run: |
+          $required = @(
+            'WINDOWS_MSIX_PUBLISHER', 'AZURE_CLIENT_ID', 'AZURE_TENANT_ID',
+            'AZURE_SUBSCRIPTION_ID', 'AZURE_ARTIFACT_SIGNING_ENDPOINT',
+            'AZURE_ARTIFACT_SIGNING_ACCOUNT', 'AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE'
+          )
+          foreach ($name in $required) {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
+              throw "Required repository/environment variable is missing: $name"
+            }
+          }
+          if ($env:WINDOWS_MSIX_PUBLISHER -eq 'CN=MAUI Sherpa') { throw 'A placeholder publisher cannot be signed.' }
+          foreach ($name in @('AZURE_CLIENT_ID', 'AZURE_TENANT_ID', 'AZURE_SUBSCRIPTION_ID')) {
+            $null = [guid]::ParseExact([Environment]::GetEnvironmentVariable($name), 'D')
+          }
+          $endpoint = [uri]$env:AZURE_ARTIFACT_SIGNING_ENDPOINT
+          if (!$endpoint.IsAbsoluteUri -or $endpoint.Scheme -ne 'https') { throw 'Signing endpoint must use HTTPS.' }
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-msix-release-unsigned-${{ matrix.arch }}
+          path: artifacts/signing
+      - name: Azure login (OIDC only)
+        uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6 # v2.3.1
+        with:
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+      - name: Azure Artifact Signing
+        uses: azure/artifact-signing-action@b443cf8ea4124818d2ea9f043cba29fc3ec47b16 # v1.2.0
+        with:
+          endpoint: ${{ env.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ env.AZURE_ARTIFACT_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ env.AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE }}
+          files-folder: ${{ github.workspace }}\artifacts\signing
+          files-folder-filter: msix
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+          exclude-environment-credential: true
+          exclude-azure-cli-credential: false
+          cache-dependencies: false
+      - name: Verify package trust, timestamp, and publisher
+        shell: pwsh
+        env:
+          ARCHITECTURE: ${{ matrix.arch }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $package = Join-Path $env:GITHUB_WORKSPACE "artifacts/signing/MAUI-Sherpa.win-$env:ARCHITECTURE.msix"
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" |
+            Sort-Object { [version]$_.Directory.Parent.Name } -Descending | Select-Object -First 1
+          if (!$signtool) { throw 'Windows SDK signtool.exe was not found.' }
+          & $signtool.FullName verify /pa /all /v $package
+          if ($LASTEXITCODE -ne 0) { throw 'MSIX signature verification failed.' }
+          $signature = Get-AuthenticodeSignature -LiteralPath $package
+          if ($signature.Status -ne 'Valid' -or !$signature.TimeStamperCertificate -or
+              $signature.SignerCertificate.Subject -cne $env:WINDOWS_MSIX_PUBLISHER) {
+            throw 'A trusted, timestamped signature matching WINDOWS_MSIX_PUBLISHER is required.'
+          }
+          Get-FileHash -LiteralPath $package -Algorithm SHA256 | Format-List
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-msix-signed-${{ matrix.arch }}
+          path: |
+            artifacts/signing/*.msix
+            artifacts/signing/*.appinstaller
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    name: Publish immutable assets and promote stable channel
+    needs: [resolve-release, sign]
+    if: github.event_name != 'pull_request' && inputs.publish
+    runs-on: ubuntu-latest
+    environment: windows-release
+    permissions:
+      contents: write
+    # All callers share this lock; never cancel a partially completed promotion.
+    concurrency:
+      group: windows-msix-stable-channel
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve-release.outputs.commit }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: windows-msix-signed-*
+          path: artifacts/msix-release
+          merge-multiple: true
+      - name: Publish and promote verified artifacts
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_COMMIT: ${{ needs.resolve-release.outputs.commit }}
+          WINDOWS_MSIX_PUBLISHER: ${{ vars.WINDOWS_MSIX_PUBLISHER }}
+        run: |
+          & ./build/windows/Publish-AppInstallerChannel.ps1 `
+            -ReleaseRepository $env:GITHUB_REPOSITORY -ReleaseTag $env:RELEASE_TAG `
+            -ReleaseCommit $env:RELEASE_COMMIT -Publisher $env:WINDOWS_MSIX_PUBLISHER `
+            -ArtifactDirectory (Join-Path $env:GITHUB_WORKSPACE 'artifacts/msix-release')
