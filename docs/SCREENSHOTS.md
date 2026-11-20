@@ -1,194 +1,251 @@
-# Screenshot Capture Process
+# Website screenshots
 
-This document describes how to capture a complete set of screenshots for MAUI Sherpa's README and documentation.
+The homepage's screenshot collection is defined in
+[`website/screenshots.json`](../website/screenshots.json). It is the shared shot
+list for macOS, Windows, and Linux, including routes, captions, platform support,
+and paths to captures that actually exist.
 
-## Prerequisites
+The November 20, 2026 refresh uses the app at revision `6e6fbb1`. The macOS
+reference set was captured through MAUI DevFlow from the AppKit head, in dark
+mode. These are real app captures with sensitive text redacted, not mockups.
+Older images in the parent screenshots directory remain for the README and
+detailed guides; they are not substituted for other platforms in the new gallery.
 
-1. **MAUI DevFlow CLI** installed and configured (see `dotnet-tools.json`)
-2. **Android emulator** available (any API level at or above `SupportedOSPlatformVersion`)
-3. **iOS simulator** booted (e.g., iPhone 17 Pro)
-4. App built and running on Mac Catalyst
+## Feature audit
 
-## Setup
+The old homepage omitted several substantial areas and showed separate Android
+device/emulator pages that have since been combined.
 
-### Build and Launch
+| Area | Current product truth | Website treatment |
+|---|---|---|
+| Environment Doctor | Dependency checks, diagnostics, and repair actions | Retained; avoid promising a clean environment or automatic fixes for every issue |
+| .NET management | SDK/runtime channels through dotnetup, workload sets, project context | Added to feature overview and gallery |
+| Android | SDK packages, combined devices/emulators, USB/Wi-Fi pairing, inspection, keystores and PEPK export | Updated combined-device description and capture |
+| Apple local tools | Xcode installations/downloads, simulator runtimes, local Apple devices and simulators | Added Xcode; clearly macOS-only |
+| Apple account tools | Certificates/CSRs, bundle IDs/capabilities, registered devices, provisioning profiles | Distinguished from macOS-only local tools |
+| Secrets | Encrypted Local Vault and configurable cloud-provider copies | Added to feature overview |
+| Publishing | Reusable profiles, destination review, GitHub, GitLab, Gitea, Azure DevOps | Added; do not imply publishing occurs without review |
+| Profiling | MAUI CLI startup/interaction captures; trace and GC-dump viewers | Added; Android capture and macOS iOS-simulator capture restrictions stated |
+| Push testing | APNs and Firebase payload composition/testing | Added; capture never sends notifications |
+| App inspection | DevFlow agent discovery, visual tree/properties, network, logs, WebViews; device-specific tools; standalone inspector CLI | Retained, with current agent-list capture and existing guide links |
+| Copilot | In-app assistance with sign-in/access requirements | Retained with access caveat |
+
+Audit sources: `src/MauiSherpa/Components/MainLayout.razor`,
+`src/MauiSherpa/Pages/`, `src/MauiSherpa.Core/Services/CloudSecretsProviderFactory.cs`,
+`src/MauiSherpa.Core/Services/SecretsPublisherService.cs`, and the platform app
+heads. Local Apple tools are gated in `MainLayout.razor`; Apple account tools are
+not. GTK's own DevFlow **agent integration is currently disabled** in
+`src/MauiSherpa.LinuxGtk/MauiSherpa.LinuxGtk.csproj`; this is separate from using
+Sherpa's App Inspector to inspect another app.
+
+## Capture contract
+
+- Capture the native desktop app, including its real sidebar and toolbar. Do not
+  use browser-rendered app mockups or put macOS chrome around another platform.
+- Use a roughly **1440 × 960 logical-pixel window**, **100% app font scale**,
+  **dark app theme**, no open menus, and the content scrolled to the top.
+  Most current macOS exports are **1440 × 939 pixels**; Dashboard and Keystores
+  were recaptured at **1280 × 754** after a window-size change. DevFlow acknowledged
+  subsequent resize requests without changing the AppKit window. Other platforms
+  may include different title-bar heights; preserve aspect ratio and full native
+  chrome rather than stretching or cropping. Match content/state first.
+- Use the `id` from the manifest as the filename:
+  `website/images/screenshots/<platform>/<id>.webp`. Platform keys are `macos`,
+  `windows`, and `linux`.
+- Keep PNG originals outside the repository. Export lossless WebP at 1× logical
+  resolution so text stays sharp without large Retina files.
+- Enable **Settings → Demo Mode** first. It does not cover every identifying
+  label:   also redact account names (including native toolbar identity selectors),
+  device/emulator names, signing names, bundle
+  identifiers, local paths/usernames, project names, secret names, and any visible
+  tokens. For public output, use opaque masking, not a reversible image layer.
+- Read-only navigation only. Do not install SDKs, start/stop other sessions'
+  devices, create/revoke signing assets, publish secrets, send push notifications,
+  or delete data for a screenshot.
+- Wait for a page's loading state to finish. Record a blocker rather than
+  publishing a spinner, authentication error, or half-loaded view. An honest
+  empty state is acceptable when no safe sample data exists.
+- Do not inspect another session's live app just to populate the App Inspector.
+  Its agent-list view is the baseline; detailed inspector captures require an
+  explicitly approved demo target.
+- Review every exported image at full resolution before adding it to the manifest.
+  Restore temporary capture styles and the prior theme/window size afterward.
+
+### Equivalent views
+
+All rows use the top of the page, with no modal open.
+
+| ID / filename stem | Route | Reference state | Platforms |
+|---|---|---|---|
+| `dashboard` | `/` | Environment health cards and connected-device area | All |
+| `dotnet-sdk` | `/dotnet-sdk` | Tracked channels and installed components; groups collapsed | All |
+| `doctor` | `/doctor` | Completed analysis, summary and context; no repairs | All |
+| `android-sdk` | `/android-sdk` | Installed-package view, categories collapsed | All |
+| `android-devices` | `/devices` | Combined physical-device and emulator lists | All |
+| `keystores` | `/keystores` | Keystore list, values hidden | All |
+| `xcode` | `/xcode-management` | Installed Xcode tab; no downloads or selection changes | macOS |
+| `apple-simulators` | `/apple-simulators` | Physical devices and simulator list; no device changes | macOS |
+| `certificates` | `/certificates` | Certificates list; no actions | All |
+| `profiles` | `/profiles` | Provisioning-profile list; no actions | All |
+| `bundle-ids` | `/bundle-ids` | Identifier list; no capabilities dialog | All |
+| `secrets` | `/secrets` | Root folder, values hidden | All |
+| `publishing` | `/secrets/publish` | Publish-profile list; no review/publish action | All |
+| `profiling` | `/profiling` | Session list or honest first-capture empty state | All |
+| `app-inspector` | `/devflow` | Connected-agent list, no agent opened | All |
+| `firebase-push` | `/firebase-push` | Default form, credentials/targets masked; never send | All |
+| `apple-push` | `/push-testing` | Default APNs form, credentials/targets masked; never send | All |
+
+### macOS build and DevFlow
 
 ```bash
-cd src/MauiSherpa
-dotnet build -f net10.0-maccatalyst
-open "bin/Debug/net10.0-maccatalyst/maccatalyst-arm64/MAUI Sherpa.app"
+dotnet build src/MauiSherpa.MacOS -f net10.0-macos
+open -n --env MAUI_SHERPA_ENABLE_DEVFLOW=1 \
+  "src/MauiSherpa.MacOS/bin/Debug/net10.0-macos/osx-arm64/MAUI Sherpa.app"
+dotnet maui devflow wait --wait-platform macOS --timeout 30
+dotnet maui devflow list
 ```
 
-> **Important:** macOS `open` reuses a running app instance. If rebuilding, you must `kill` the old process first, then `open` the new binary. Check with `ps aux | grep MauiSherpa`.
+The environment variable is required by this app's Debug registration. Do not
+edit the app or upgrade DevFlow packages just to enable capture. If another
+instance is running, identify the exact process before restarting it, and do not
+close another session's app.
 
-### Verify Connectivity
+Use the port returned for **this** Sherpa instance on every command:
 
 ```bash
-cd src/MauiSherpa
-dotnet maui devflow ui status       # Agent connection
-dotnet maui devflow webview status  # CDP (Blazor WebView)
+dotnet maui devflow agent status --agent-port <port>
+dotnet maui devflow ui resize 1440 960 --agent-port <port>
+dotnet maui devflow webview Runtime evaluate \
+  "document.querySelector('a[href=\"dotnet-sdk\"]').click()" --agent-port <port>
+dotnet maui devflow ui screenshot --agent-port <port> --output <private-output.png>
 ```
 
-### Enable Demo Mode
+Prefer one persistent `dotnet maui devflow batch --agent-port <port>` session
+for multiple mutations. Separate CLI invocations can encounter the previous
+invocation's mutation lease; do not force-take another client's lease. Batch
+expressions should use single quotes inside their outer double quotes.
 
-Demo Mode blurs sensitive values (Apple identity keys, cloud secrets, device UDIDs, certificate serials, etc.) so screenshots are safe to share publicly.
+Verify readiness with the current heading and visible loading elements rather
+than fixed sleeps. Use screenshot-only CSS to mask additional sensitive text;
+remove it when finished. Do not replace real values with invented sample data.
 
-```bash
-# Navigate to Settings and enable Demo Mode toggle
-dotnet maui devflow webview Input dispatchClickEvent "a.nav-item[href='settings']"
-sleep 2
-dotnet maui devflow webview Input dispatchClickEvent ".toggle-switch"
-# Verify it's on:
-dotnet maui devflow webview Runtime evaluate "document.querySelector('.toggle-switch input[type=\"checkbox\"]').checked"
+## Adding platform captures
+
+The shared integration branch is **`redth-website-refresh`**. Both platform
+handoffs should add their captures to that branch and its existing pull request,
+not open competing website-refresh PRs. Pull the latest branch before starting
+and rebase your platform-only commits onto its latest remote state before
+pushing. Never force-push the shared branch.
+
+1. Follow the shared capture contract and table above.
+2. Add only reviewed files under the correct platform directory.
+3. Add that platform's path to the matching shot's `assets` object. For example:
+
+   ```json
+   "assets": {
+     "macos": "images/screenshots/macos/dashboard.webp",
+     "windows": "images/screenshots/windows/dashboard.webp"
+   }
+   ```
+
+4. Do not add `windows` or `linux` to macOS-only shots' `platforms` lists.
+5. Run `node --test tests/website.test.mjs`, then preview `website/` over HTTP.
+   Check platform switching, the download destination, enlargement, keyboard
+   navigation, and a reload with the platform preference saved.
+
+The gallery detects desktop OS locally in the browser, without sending the user
+agent anywhere. A manual selection is saved when browser storage is available.
+If an automatically detected platform has no captures, the gallery explicitly
+labels the macOS preview. An explicit selection never silently substitutes
+another platform's image. Missing views and macOS-only tools have distinct
+messages. No website code change is needed when new assets are registered.
+
+## Windows handoff prompt
+
+```text
+Capture the Windows equivalent of MAUI Sherpa's refreshed macOS website set.
+Check out the existing shared branch redth-website-refresh and pull its latest
+changes. Add your platform-only changes to that branch and its existing PR.
+Use docs/SCREENSHOTS.md and website/screenshots.json from the website refresh,
+with website/images/screenshots/macos/ as the visual reference.
+
+Build the current Windows head:
+dotnet build src/MauiSherpa -f net10.0-windows10.0.19041.0
+Launch the built Debug app and use MAUI DevFlow for navigation and screenshots.
+Discover this Sherpa instance's port and target it explicitly. Prefer a single
+persistent DevFlow batch session so captures share a mutation lease.
+
+Match a 1440x960 logical-pixel window, dark app theme, 100% font scale, top scroll
+position, and the states in the shared capture table. Keep real Windows/WinUI
+chrome. Capture all 15 cross-platform IDs; do not capture xcode or apple-simulators.
+Enable Demo Mode, then additionally mask identifying labels, paths, account and
+project names, bundle IDs, secret names, tokens, and signing names. Review every
+image for readable sensitive data. Use existing safe data or an honest empty
+state, never fabricated UI or production data created just for marketing.
+
+Navigate read-only: do not install/update SDKs or workloads, pair/start/stop
+devices owned by other sessions, create/revoke certificates, publish secrets,
+send notifications, or delete anything. Record unavailable or loading views as
+blockers rather than publishing an error screen. Do not inspect someone else's
+running app to populate the inspector.
+
+Save lossless 1x WebP files as:
+website/images/screenshots/windows/<manifest-id>.webp
+Keep PNG originals private and outside the repository. Preserve aspect ratio
+and full native window chrome. Add only the reviewed Windows paths to each
+matching assets.windows entry in website/screenshots.json. Do not change macOS
+assets, captions, support declarations, or website design.
+
+Restore temporary UI preferences/styles. Run:
+node --test tests/website.test.mjs
+Return a contact sheet, the exact captured/missing IDs, dimensions, and any
+blockers. Commit only your Windows assets and manifest entries, rebase onto the
+latest origin/redth-website-refresh, and push to that existing shared branch.
+Do not force-push, overwrite another platform's entries, or open another PR.
 ```
 
-### Set Dark Mode (Optional)
+## Linux handoff prompt
 
-```bash
-dotnet maui devflow webview Runtime evaluate "document.body.classList.remove('theme-light'); document.body.classList.add('theme-dark'); document.querySelector('.main-layout').classList.remove('theme-light'); document.querySelector('.main-layout').classList.add('theme-dark');"
+```text
+Capture the Linux equivalent of MAUI Sherpa's refreshed macOS website set.
+Check out the existing shared branch redth-website-refresh and pull its latest
+changes. Add your platform-only changes to that branch and its existing PR.
+Use docs/SCREENSHOTS.md and website/screenshots.json from the website refresh,
+with website/images/screenshots/macos/ as the visual reference.
+
+Build and run the actual GTK head:
+dotnet build src/MauiSherpa.LinuxGtk
+dotnet run --project src/MauiSherpa.LinuxGtk --no-build
+Inspect the current integration first: Sherpa's GTK DevFlow agent packages and
+startup are currently disabled. Do not assume DevFlow can drive this app and do
+not enable/upgrade those packages as part of this task. If still disabled, use
+the desktop's native window capture and UI automation tools for the real GTK
+window. Sherpa's App Inspector page is still a valid feature to capture.
+
+Match a 1440x960 logical-pixel window, dark app theme, 100% font scale, top scroll
+position, and the states in the shared capture table. Keep real Linux/GTK chrome
+and record the distribution, desktop environment, and display scale. Capture
+all 15 cross-platform IDs; do not capture xcode or apple-simulators.
+
+Enable Demo Mode and additionally mask all identifying labels, local usernames
+and paths, account/project names, signing names, bundle IDs, secret names, and
+tokens. Review every image. Use existing safe data or honest empty states, never
+fabricated UI. Do not install/update SDKs or workloads, start/stop other sessions'
+devices, create/revoke signing assets, publish secrets, send notifications, or
+delete anything. Record blocked/loading views instead of publishing them. Do
+not inspect another session's app to populate the inspector.
+
+Save lossless 1x WebP files as:
+website/images/screenshots/linux/<manifest-id>.webp
+Keep PNG originals private and outside the repository. Preserve aspect ratio
+and the full native window. Add only reviewed Linux paths to each matching
+assets.linux entry in website/screenshots.json. Do not change macOS assets,
+captions, support declarations, app dependencies, or website design.
+
+Restore temporary UI preferences/styles. Run:
+node --test tests/website.test.mjs
+Return a contact sheet, captured/missing IDs, dimensions, and blockers. Commit
+only your Linux assets and manifest entries, rebase onto the latest
+origin/redth-website-refresh, and push to that existing shared branch. Do not
+force-push, overwrite another platform's entries, or open another PR.
 ```
-
-### Start Devices
-
-- **Android emulator:** Navigate to the Android Devices page in the app and click the play button on an AVD, or use `android avd start --name <avd-name>` from CLI.
-- **iOS simulator:** Should already be booted (`xcrun simctl list devices booted`). If not, boot one from Apple Simulators page in the app.
-
-## Screenshot Naming Convention
-
-All screenshots use the prefix `MAUI.Sherpa_` and are saved to `docs/screenshots/`.
-
-**Pattern:** `MAUI.Sherpa_<PageOrDialog>[_<Step>].png`
-
-Examples:
-- `MAUI.Sherpa_Dashboard.png` — A page screenshot
-- `MAUI.Sherpa_Create_Profile_01.png` — Step 1 of a multi-step wizard
-- `MAUI.Sherpa_Inspector_Android_Logcat.png` — Inspector tab screenshot
-
-## Capture Commands
-
-### Navigation
-
-```bash
-# Navigate via sidebar link
-dotnet maui devflow webview Input dispatchClickEvent "a.nav-item[href='<page-href>']"
-
-# Page hrefs: (empty string)=Dashboard, doctor, settings, devices,
-#   android-sdk, keystores, apple-simulators, apple-devices, bundle-ids,
-#   certificates, profiles, root-certificates
-```
-
-### Take Screenshot
-
-```bash
-# Always wait 2-3 seconds after navigation/interaction before capturing
-sleep 2
-dotnet maui devflow ui screenshot --output docs/screenshots/MAUI.Sherpa_<Name>.png
-```
-
-### Fill Form Fields (Blazor)
-
-```bash
-# Use the native value setter pattern to trigger Blazor binding
-dotnet maui devflow webview Runtime evaluate "
-  const input = document.querySelector('<selector>');
-  Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(input, '<value>');
-  input.dispatchEvent(new Event('input', { bubbles: true }));
-"
-```
-
-### Scroll
-
-```bash
-# Blazor scrollable container is main.content, NOT document.body
-dotnet maui devflow webview Runtime evaluate "document.querySelector('main.content').scrollTo(0, <pixels>)"
-```
-
-## Screenshot Inventory
-
-### Pages (navigate to each via sidebar)
-
-| Screenshot | Page href | Notes |
-|------------|-----------|-------|
-| `Dashboard` | `""` | Landing page with quick actions |
-| `Doctor` | `doctor` | Before running check |
-| `Doctor_Results` | `doctor` | After running check (click Run button, wait) |
-| `Settings` | `settings` | Top of page showing Demo Mode toggle |
-| `Settings_02` | `settings` | Scrolled to show Apple Identities (blurred) |
-| `Android_SDK` | `android-sdk` | SDK packages list |
-| `Emulators` | `devices` | Emulator cards on the combined Android Devices page |
-| `Android_Devices` | `devices` | With emulator running for inspector button |
-| `Keystores` | `keystores` | Keystore cards |
-| `Apple_Simulators` | `apple-simulators` | Simulator list with booted sim |
-| `Apple_Devices` | `apple-devices` | Registered devices |
-| `Bundle_IDs` | `bundle-ids` | Bundle ID list |
-| `Certificates` | `certificates` | Certificate cards |
-| `Profiles` | `profiles` | Provisioning profiles list |
-| `Root_Certificates` | `root-certificates` | Root cert list |
-| `Copilot` | Open via FAB button (bottom-left) | Copilot overlay with suggestions |
-
-### Dialogs (open from toolbar or card buttons)
-
-| Screenshot | How to Open | Notes |
-|------------|-------------|-------|
-| `Create_Emulator` | Android Devices → toolbar `+` button | Fill name field |
-| `Create_Keystore` | Keystores → toolbar `+` button | Fill all form fields |
-| `Keystore_Signatures` | Keystores → fingerprint icon on card | Shows cert signatures |
-| `Keystore_PEPK` | Keystores → file-export icon on card | PEPK export dialog |
-| `Register_Device` | Apple Devices → toolbar `+` button | Fill UDID and name |
-| `Create_Simulator` | Apple Simulators → toolbar `+` button | Fill name |
-| `Register_Bundle_ID` | Bundle IDs → toolbar `+` button | Fill identifier and name |
-| `Bundle_Capabilities` | Bundle IDs → puzzle-piece icon on card | Capabilities editor |
-| `Create_Certificate` | Certificates → toolbar `+` button | Fill common name |
-| `Certificate_Export` | Certificates → file-export icon on card | Export dialog |
-| `Edit_Profile` | Profiles → edit icon on a profile card | Edit/regenerate dialog |
-| `Settings_Add_Identity` | Settings → Add Apple Identity button | Identity form |
-| `Settings_Add_Cloud` | Settings → Add Cloud Provider button | Cloud provider form |
-
-### Create Profile Wizard (5 steps)
-
-| Screenshot | Step | Action |
-|------------|------|--------|
-| `Create_Profile_01` | 1 - Type | Select "Development" |
-| `Create_Profile_02` | 2 - Bundle ID | Search "sherpa", select match |
-| `Create_Profile_03` | 3 - Certificates | Select compatible certs |
-| `Create_Profile_04` | 4 - Devices | Select some devices |
-| `Create_Profile_05` | 5 - Name | Review and name (do NOT click Create) |
-
-### CI Secrets Wizard (4 steps + publish sub-steps)
-
-| Screenshot | Step | Action |
-|------------|------|--------|
-| `CI_Secrets_01` | 1 - Platform | iOS selected by default |
-| `CI_Secrets_02` | 2 - Distribution | Select distribution type |
-| `CI_Secrets_03` | 3 - Resources | Select bundle, cert, profile |
-| `CI_Secrets_04` | 4 - Export | Shows secrets and export options |
-| `CI_Secrets_Publish_01` | Publish 1 | Select CI/CD Provider (GitHub) |
-| `CI_Secrets_Publish_02` | Publish 2 | Select Repository |
-| `CI_Secrets_Publish_03` | Publish 3 | Select secrets to publish (do NOT click Publish) |
-
-### Device Inspectors
-
-| Screenshot | Tab | Notes |
-|------------|-----|-------|
-| `Inspector_Android_Logcat` | Logcat | Open from Devices page → search icon on emulator card |
-| `Inspector_Android_Files` | Files | |
-| `Inspector_Android_Shell` | Shell | |
-| `Inspector_Android_Capture` | Capture | |
-| `Inspector_Android_Tools` | Tools | |
-| `Inspector_iOS_Logs` | Logs | Open from Apple Simulators page → search icon on booted sim |
-| `Inspector_iOS_Apps` | Apps | |
-| `Inspector_iOS_Capture` | Capture | |
-| `Inspector_iOS_Tools` | Tools | |
-
-## Important Notes
-
-- **Always wait** 2-3 seconds after navigating, clicking, or entering text before capturing a screenshot. The UI may be in a loading state.
-- **Never click final action buttons** on creation/publish dialogs during screenshot capture (don't create profiles, don't publish secrets, don't register devices).
-- **Demo Mode must be ON** for all screenshots to blur sensitive values.
-- For the Create Profile wizard, always select the bundle containing "sherpa" in the name.
-- **Audit for new pages/dialogs** before each screenshot session by diffing against the last release tag (e.g., `git diff v0.1.1..HEAD --name-only -- src/MauiSherpa/Pages/ src/MauiSherpa/Components/`).
-- **App relaunch gotcha:** After rebuilding, `open` on macOS reuses the old running instance. Kill the old PID first.
-
-## Updating the README
-
-After capturing all screenshots, update the `README.md` screenshots section. Each feature area should be in a `<details>` block with a summary title and the relevant screenshots as `<img>` tags referencing `docs/screenshots/MAUI.Sherpa_<Name>.png`.
