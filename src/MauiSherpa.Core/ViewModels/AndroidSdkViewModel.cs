@@ -9,6 +9,7 @@ public class AndroidSdkViewModel : ViewModelBase
     private readonly IAndroidSdkService _sdkService;
     private readonly IAndroidSdkSettingsService _sdkSettings;
     private readonly IMediator _mediator;
+    private readonly SemaphoreSlim _refreshGate = new(1, 1);
 
     public string Title => "Android SDK Management";
 
@@ -123,6 +124,9 @@ public class AndroidSdkViewModel : ViewModelBase
             else
             {
                 StatusMessage = "Android SDK not found. Choose an install location below to get started.";
+                InstalledPackages = [];
+                AvailablePackages = [];
+                Devices = [];
             }
         }
         catch (Exception ex)
@@ -137,6 +141,13 @@ public class AndroidSdkViewModel : ViewModelBase
     }
 
     public async Task RefreshPackagesAsync(bool forceRefresh = false)
+    {
+        await _refreshGate.WaitAsync();
+        try { await RefreshPackagesCoreAsync(forceRefresh); }
+        finally { _refreshGate.Release(); }
+    }
+
+    private async Task RefreshPackagesCoreAsync(bool forceRefresh)
     {
         if (!IsSdkInstalled) return;
 
@@ -162,6 +173,8 @@ public class AndroidSdkViewModel : ViewModelBase
             var (_, installed) = await installedTask;
             var (_, available) = await availableTask;
             var (_, devices) = await devicesTask;
+            if (SdkPath != _sdkService.SdkPath && _sdkService.SdkPath != null)
+                return;
             
             InstalledPackages = installed;
             AvailablePackages = available;

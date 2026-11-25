@@ -206,6 +206,8 @@ public interface IAndroidSdkService
 {
     string? SdkPath { get; }
     bool IsSdkInstalled { get; }
+    bool IsBusy { get; }
+    event Action? BusyChanged;
     
     Task<bool> DetectSdkAsync();
     Task<bool> SetSdkPathAsync(string path);
@@ -216,6 +218,7 @@ public interface IAndroidSdkService
     Task<bool> UninstallPackageAsync(string packagePath);
     Task<IReadOnlyList<DeviceInfo>> GetDevicesAsync();
     Task<bool> AcquireSdkAsync(string? targetPath = null, IProgress<string>? progress = null);
+    Task<bool> InstallSdkAsync(string targetPath, IProgress<string>? progress = null);
     
     // AVD/Emulator methods
     Task<IReadOnlyList<AvdInfo>> GetAvdsAsync();
@@ -540,11 +543,36 @@ public interface IProfilingSessionStorageService
 public interface IAndroidSdkSettingsService
 {
     string? CustomSdkPath { get; }
+    Task<IReadOnlyList<AndroidSdkLocation>> GetKnownLocationsAsync();
+    Task RememberLocationAsync(string path);
     Task<string?> GetEffectiveSdkPathAsync();
     Task SetCustomSdkPathAsync(string? path);
     Task ResetToDefaultAsync();
     Task InitializeAsync();
     event Action? SdkPathChanged;
+}
+
+public enum AndroidSdkLocationStatus { NotInstalled, Installed, Incomplete, Unrelated, Inaccessible }
+
+public record AndroidSdkLocation(string Path, string Label, AndroidSdkLocationStatus Status, bool IsActive = false, string? Error = null);
+
+public enum AndroidPathShell { Windows, Zsh, Bash, BashLogin, Sh, Fish }
+public enum AndroidPathScope { User, Machine }
+public record AndroidPathTool(string Name, string? SdkExecutable, string? ResolvedExecutable);
+public record AndroidPathOptions(AndroidPathShell Shell, AndroidPathScope Scope, bool IncludeBuildTools = false);
+public record AndroidPathPlan(
+    string SdkPath, AndroidPathOptions Options, string Target, IReadOnlyList<string> Directories,
+    IReadOnlyList<AndroidPathTool> Tools, string Preview, string OriginalContent, string UpdatedContent,
+    bool TargetExists, bool HasUtf8Bom, string? Warning = null, string? WindowsValueKind = null)
+{
+    public bool NeedsUpdate => OriginalContent != UpdatedContent;
+}
+public interface IAndroidSdkPathService
+{
+    AndroidPathShell DefaultShell { get; }
+    bool CanConfigureMachinePath { get; }
+    Task<AndroidPathPlan> CheckAsync(AndroidPathOptions options, CancellationToken cancellationToken = default);
+    Task ApplyAsync(AndroidPathPlan plan, CancellationToken cancellationToken = default);
 }
 
 public interface IOpenJdkSettingsService
@@ -5280,7 +5308,8 @@ public record ApnsPushResult(
 /// <summary>
 /// Represents a toolbar action that can be displayed in the native macOS toolbar.
 /// </summary>
-public record ToolbarAction(string Id, string Label, string SfSymbol, bool IsPrimary = true, string? ToolTip = null);
+public record ToolbarAction(string Id, string Label, string SfSymbol, bool IsPrimary = true, string? ToolTip = null,
+    IReadOnlyList<ToolbarAction>? MenuActions = null);
 
 /// <summary>Describes a filter dropdown for the native toolbar.</summary>
 public record ToolbarFilter(string Id, string Label, string[] Options, int SelectedIndex = 0);

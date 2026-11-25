@@ -39,8 +39,7 @@ public class ToolbarService : IToolbarService
 
     public void SetItems(params ToolbarAction[] items)
     {
-        _items = items.Select(item => IsScreenshotActionAllowed(item.Id) ? item
-            : item with { ToolTip = "Unavailable in Screenshot Mode: external actions are disabled." }).ToArray();
+        _items = items.Select(PrepareItem).ToArray();
         _filters = [];
         _searchPlaceholder = null;
         _searchText = "";
@@ -74,11 +73,20 @@ public class ToolbarService : IToolbarService
     public void InvokeToolbarItemClicked(string actionId)
     {
         // Native controls can outlive the page state that made them visible.
-        if (!_items.Any(item => item.Id == actionId) || !IsItemEnabled(actionId))
+        if (!AllActions.Any(item => item.Id == actionId) || !IsItemEnabled(actionId))
             return;
 
         ToolbarItemClicked?.Invoke(actionId);
     }
+
+    private IEnumerable<ToolbarAction> AllActions =>
+        _items.SelectMany(item => new[] { item }.Concat(item.MenuActions ?? []));
+
+    private ToolbarAction PrepareItem(ToolbarAction item) => item with
+    {
+        ToolTip = IsScreenshotActionAllowed(item.Id) ? item.ToolTip : "Unavailable in Screenshot Mode: external actions are disabled.",
+        MenuActions = item.MenuActions?.Select(PrepareItem).ToArray()
+    };
 
     public void NotifyRouteChanged(string route)
     {

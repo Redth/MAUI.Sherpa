@@ -110,6 +110,10 @@ internal sealed partial class ScreenshotServices
             ? [new(Fixtures.Simulators[0].Udid, "iPhone 17 Pro", "iPhone 17 Pro", "iOS", "arm64", "26.3", true, true, null, "Booted")]
             : []);
     string? IAndroidSdkSettingsService.CustomSdkPath => null;
+    bool IAndroidSdkService.IsBusy => false;
+    event Action? IAndroidSdkService.BusyChanged { add { } remove { } }
+    Task<IReadOnlyList<AndroidSdkLocation>> IAndroidSdkSettingsService.GetKnownLocationsAsync() =>
+        Read<IReadOnlyList<AndroidSdkLocation>>([new(Fixtures.AndroidRoot, "Android Studio / MAUI", AndroidSdkLocationStatus.Installed, true)]);
     Task<string?> IAndroidSdkSettingsService.GetEffectiveSdkPathAsync() => Read<string?>(Fixtures.AndroidRoot);
     Task IAndroidSdkSettingsService.InitializeAsync() => Task.CompletedTask;
     string? IOpenJdkSettingsService.CustomJdkPath => null;

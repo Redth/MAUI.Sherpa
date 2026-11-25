@@ -193,6 +193,7 @@
     </p>
     
     <div class="settings-container">
+        <MauiSherpa.Components.AndroidSdkContext />
         <div class="sdk-path-setting">
             <div class="sdk-path-info">
                 <div class="detail-item">
@@ -1992,21 +1993,13 @@
             return;
         }
 
-        if (!Directory.Exists(editableSdkPath))
-        {
-            var confirm = await AlertService.ShowConfirmAsync(
-                "Path Not Found",
-                $"The path '{editableSdkPath}' does not exist. Apply anyway?");
-            
-            if (!confirm) return;
-        }
-
         isLoadingSdk = true;
         StateHasChanged();
 
         try
         {
             await SdkSettings.SetCustomSdkPathAsync(editableSdkPath);
+            await SdkSettings.RememberLocationAsync(editableSdkPath);
             // Invalidate SDK path cache
             await Mediator.FlushStores("android:sdkpath");
             await AlertService.ShowToastAsync("SDK path updated");
@@ -2034,6 +2027,7 @@
         try
         {
             await SdkSettings.SetCustomSdkPathAsync(path);
+            await SdkSettings.RememberLocationAsync(path);
             // Invalidate SDK path cache
             await Mediator.FlushStores("android:sdkpath");
             await AlertService.ShowToastAsync("SDK path updated");

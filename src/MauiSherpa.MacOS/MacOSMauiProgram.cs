@@ -133,6 +133,7 @@ public static class MacOSMauiProgram
         builder.Services.AddSingleton<IAndroidSdkService, AndroidSdkService>();
         builder.Services.AddSingleton<IAndroidAdbService, AndroidAdbService>();
         builder.Services.AddSingleton<IAndroidSdkSettingsService, AndroidSdkSettingsService>();
+        builder.Services.AddSingleton<IAndroidSdkPathService, AndroidSdkPathService>();
         builder.Services.AddSingleton<IOpenJdkSettingsService, OpenJdkSettingsService>();
         builder.Services.AddSingleton<IKeystoreService, KeystoreService>();
         builder.Services.AddSingleton<IKeystoreSyncService, KeystoreSyncService>();

@@ -18,7 +18,7 @@
 @implements IDisposable
 
 <h1><i class="fas fa-cube"></i> Android SDK Packages</h1>
-
+<MauiSherpa.Components.AndroidSdkContext @ref="sdkContext" Changed="SdkChangedAsync" />
 
 
 @if (!PlatformInfo.HasNativeToolbar)
@@ -1204,6 +1204,7 @@ else if (!ViewModel.IsSdkInstalled)
     protected override async Task OnInitializedAsync()
     {
         ToolbarService.SetItems(
+            MauiSherpa.Components.AndroidSdkContext.Menu,
             new ToolbarAction("refresh", "Refresh", "arrow.clockwise"),
             new ToolbarAction("update-all", "Update Packages", "square.and.arrow.up")
         );
@@ -1216,7 +1217,8 @@ else if (!ViewModel.IsSdkInstalled)
         ToolbarService.SearchTextChanged += OnSearchTextChanged;
         ToolbarService.FilterChanged += OnFilterChanged;
 
-        await ViewModel.InitializeAsync();
+        try { await ViewModel.InitializeAsync(); }
+        catch (Exception ex) { await AlertService.ShowAlertAsync("Android SDK Unavailable", ex.Message); }
         await RefreshSetupStateAsync();
         hasInitialized = true;
     }
@@ -1444,40 +1446,15 @@ else if (!ViewModel.IsSdkInstalled)
 
     private async Task AcquireSdk()
     {
-        var targetPath = string.IsNullOrWhiteSpace(installSdkPath)
-            ? recommendedSdkPath
-            : installSdkPath;
+        if (sdkContext != null) await sdkContext.ChooseAsync(true);
+    }
 
-        if (string.IsNullOrWhiteSpace(targetPath))
-        {
-            await AlertService.ShowAlertAsync("Install Location Required", "Choose an install folder for the Android SDK first.");
-            return;
-        }
-
-        var result = await OperationModal.RunAsync(
-            "Install Android SDK",
-            $"Downloading and installing the Android SDK to {targetPath}...",
-            async ctx =>
-            {
-                ctx.LogInfo($"Target install path: {targetPath}");
-                if (!HasJdkConfigured)
-                {
-                    ctx.LogWarning("OpenJDK is not configured. Some Android tooling may require a JDK after installation.");
-                }
-
-                ctx.SetStatus("Initializing...");
-                var success = await ViewModel.AcquireSdkAsync(targetPath, new Progress<string>(msg =>
-                {
-                    ctx.LogInfo(msg);
-                    ctx.SetStatus(msg);
-                }));
-                return success;
-            });
-
-        if (result.Success)
-        {
-            await RefreshSetupStateAsync();
-        }
+    private MauiSherpa.Components.AndroidSdkContext? sdkContext;
+    private async Task SdkChangedAsync()
+    {
+        await ViewModel.DetectSdkAsync(forceRefresh: true);
+        await RefreshSetupStateAsync();
+        StateHasChanged();
     }
 
     private async Task BrowseInstallFolder()
