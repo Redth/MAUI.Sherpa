@@ -16,6 +16,8 @@ public class AdbDeviceWatcherService : IAdbDeviceWatcherService
     private CancellationTokenSource? _cts;
     private Task? _watchTask;
     private AdbdClient? _client;
+    private bool _started;
+    private readonly SemaphoreSlim _restartGate = new(1, 1);
 
     public IReadOnlyList<DeviceInfo> Devices
     {
@@ -34,18 +36,14 @@ public class AdbDeviceWatcherService : IAdbDeviceWatcherService
 
     public async Task StartAsync()
     {
-        if (IsWatching) return;
+        if (_started) return;
+        _started = true;
+        _sdkService.SdkPathChanged += OnSdkPathAvailable;
 
         _cts = new CancellationTokenSource();
 
         var sdkPath = _sdkService.SdkPath;
-        if (string.IsNullOrEmpty(sdkPath))
-        {
-            // Try to detect SDK ourselves
-            await _sdkService.DetectSdkAsync();
-            sdkPath = _sdkService.SdkPath;
-        }
-
+        await Task.CompletedTask;
         if (!string.IsNullOrEmpty(sdkPath))
         {
             _watchTask = WatchLoopAsync(sdkPath, _cts.Token);
@@ -55,23 +53,38 @@ public class AdbDeviceWatcherService : IAdbDeviceWatcherService
         {
             // SDK still not found — listen for it to become available later
             _logger.LogInformation("ADB device watcher waiting for SDK path...");
-            _sdkService.SdkPathChanged += OnSdkPathAvailable;
         }
     }
 
     private void OnSdkPathAvailable()
     {
-        _sdkService.SdkPathChanged -= OnSdkPathAvailable;
+        _ = RestartForSdkAsync();
+    }
 
-        var sdkPath = _sdkService.SdkPath;
-        if (string.IsNullOrEmpty(sdkPath) || _cts == null) return;
-
-        _logger.LogInformation("SDK path detected, starting ADB device watcher.");
-        _watchTask = WatchLoopAsync(sdkPath, _cts.Token);
+    private async Task RestartForSdkAsync()
+    {
+        await _restartGate.WaitAsync();
+        try
+        {
+            if (!_started) return;
+            _cts?.Cancel();
+            _client?.Disconnect();
+            if (_watchTask != null) await _watchTask;
+            _cts?.Dispose();
+            _client = null;
+            _cts = new CancellationTokenSource();
+            lock (_lock) _devices = [];
+            DevicesChanged?.Invoke([]);
+            if (_started && _sdkService.SdkPath is { } path)
+                _watchTask = WatchLoopAsync(path, _cts.Token);
+        }
+        catch (Exception ex) { _logger.LogError("Could not reconnect ADB watcher after SDK change.", ex); }
+        finally { _restartGate.Release(); }
     }
 
     public void Stop()
     {
+        _started = false;
         _sdkService.SdkPathChanged -= OnSdkPathAvailable;
         _cts?.Cancel();
         _client?.Disconnect();
@@ -144,6 +157,7 @@ public class AdbDeviceWatcherService : IAdbDeviceWatcherService
                     d.Model?.Replace('_', ' '),
                     d.Serial.StartsWith("emulator-")))
                 .ToList();
+            ct.ThrowIfCancellationRequested();
 
             lock (_lock)
             {

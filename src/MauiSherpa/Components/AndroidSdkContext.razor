@@ -1,0 +1,145 @@
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Pages.Forms
+@using MauiSherpa.Pages.Modals
+@inject IAndroidSdkService Sdk
+@inject IAndroidSdkSettingsService Settings
+@inject IToolbarService Toolbar
+@inject IFormModalService Forms
+@inject HybridFormBridgeHolder BridgeHolder
+@inject IOperationModalService Operations
+@inject IFileSystemService Files
+@inject IDialogService Dialogs
+@inject IAlertService Alerts
+@inject ILoggingService Logger
+@inject IPlatformService Platform
+@implements IDisposable
+
+<div class="sdk-context">
+    <div class="sdk-context-location" title="@LocationTitle">
+        <i class="fa-regular fa-folder" aria-hidden="true"></i>
+        <span class="sdk-context-label">Active SDK</span>
+        <span class="mono text-selectable sdk-context-path">@(Sdk.SdkPath ?? "No SDK selected")</span>
+    </div>
+    @if (!Platform.HasNativeToolbar)
+    {
+        <div class="sdk-context-actions">
+            @if (Sdk.SdkPath != null)
+            {
+                <button type="button" data-screenshot-external class="btn btn-outline btn-sm" @onclick="OpenFolder">@OpenLabel</button>
+                <button type="button" data-screenshot-external class="btn btn-outline btn-sm" @onclick="CopyAsync" aria-label="Copy active SDK path"><i class="fas fa-copy" aria-hidden="true"></i></button>
+            }
+            <button type="button" data-screenshot-external class="btn btn-secondary btn-sm" disabled="@(busy || Sdk.IsBusy)" @onclick="() => ChooseAsync(false)">Switch SDK...</button>
+            <button type="button" data-screenshot-external class="btn btn-secondary btn-sm" disabled="@(busy || Sdk.IsBusy)" @onclick="() => ChooseAsync(true)">Install SDK...</button>
+            <button type="button" data-screenshot-external class="btn btn-secondary btn-sm" disabled="@(busy || Sdk.SdkPath == null)" @onclick="ShowPathAsync">Check / Configure PATH...</button>
+        </div>
+    }
+</div>
+
+<style>
+    .sdk-context { margin: 0 0 16px; }
+    .sdk-context-location { display: flex; align-items: baseline; gap: 8px; color: var(--text-secondary); font-size: 12px; line-height: 1.5; }
+    .sdk-context-location > i { flex: none; font-size: 11px; }
+    .sdk-context-label { flex: none; font-weight: 500; }
+    .sdk-context-path { min-width: 0; overflow-wrap: anywhere; font-size: 11.5px; }
+    .sdk-context-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
+</style>
+
+@code {
+    [Parameter] public EventCallback Changed { get; set; }
+    private bool busy;
+    private string LocationTitle => Sdk.SdkPath == null ? "No Android SDK selected"
+        : $"{Sdk.SdkPath} ({(Settings.CustomSdkPath == null ? "Auto-detected" : "Selected")})";
+    private string OpenLabel => Platform.IsMacCatalyst || OperatingSystem.IsMacOS() ? "Show in Finder" : "Open Folder";
+    public static ToolbarAction Menu => new("android-sdk", "Android SDK", "shippingbox", MenuActions: [
+        new("sdk-switch", "Switch SDK...", "arrow.triangle.2.circlepath"),
+        new("sdk-install", "Install Android SDK...", "arrow.down.circle"),
+        new("sdk-open", "Open Active SDK Folder", "folder"),
+        new("sdk-copy", "Copy Active SDK Path", "doc.on.doc"),
+        new("sdk-path", "Check / Configure PATH...", "terminal")]);
+
+    protected override void OnInitialized()
+    {
+        Settings.SdkPathChanged += OnChanged;
+        Sdk.BusyChanged += OnBusyChanged;
+        Toolbar.ToolbarItemClicked += OnAction;
+        UpdateMenu();
+    }
+    private void OnBusyChanged() => _ = InvokeAsync(() => { UpdateMenu(); StateHasChanged(); });
+    private void UpdateMenu()
+    {
+        Toolbar.SetItemEnabled("sdk-switch", !busy && !Sdk.IsBusy);
+        Toolbar.SetItemEnabled("sdk-install", !busy && !Sdk.IsBusy);
+        Toolbar.SetItemEnabled("sdk-open", Sdk.SdkPath != null);
+        Toolbar.SetItemEnabled("sdk-copy", Sdk.SdkPath != null);
+        Toolbar.SetItemEnabled("sdk-path", !busy && !Sdk.IsBusy && Sdk.SdkPath != null);
+    }
+    private void OnChanged() => _ = InvokeAsync(async () => { UpdateMenu(); StateHasChanged(); await Changed.InvokeAsync(); });
+    private void OnAction(string id) => _ = InvokeAsync(async () =>
+    {
+        switch (id)
+        {
+            case "sdk-switch": await ChooseAsync(false); break;
+            case "sdk-install": await ChooseAsync(true); break;
+            case "sdk-open": OpenFolder(); break;
+            case "sdk-copy": await CopyAsync(); break;
+            case "sdk-path": await ShowPathAsync(); break;
+        }
+    });
+    private void OpenFolder()
+    {
+        try { if (Sdk.SdkPath is { } path) Files.RevealInFileManager(path); }
+        catch (Exception ex) { Logger.LogError("Could not open Android SDK folder.", ex); _ = Alerts.ShowAlertAsync("Could Not Open Folder", ex.Message); }
+    }
+    private async Task CopyAsync()
+    {
+        try { if (Sdk.SdkPath is { } path) await Dialogs.CopyToClipboardAsync(path); }
+        catch (Exception ex) { Logger.LogError("Could not copy Android SDK path.", ex); await Alerts.ShowAlertAsync("Could Not Copy Path", ex.Message); }
+    }
+    private async Task ShowPathAsync()
+    {
+        if (busy || Sdk.SdkPath == null) return;
+        busy = true;
+        UpdateMenu();
+        try { await Forms.ShowAsync<bool>(new AndroidSdkPathPage(BridgeHolder)); }
+        catch (Exception ex) { Logger.LogError("Could not open Android SDK PATH configuration.", ex); await Alerts.ShowAlertAsync("Android SDK PATH", ex.Message); }
+        finally { busy = false; UpdateMenu(); }
+    }
+    public async Task ChooseAsync(bool install)
+    {
+        if (busy || Sdk.IsBusy) return;
+        busy = true;
+        UpdateMenu();
+        try
+        {
+            var selection = await Forms.ShowAsync<AndroidSdkSelection>(new AndroidSdkLocationPage(BridgeHolder, install));
+            if (selection == null) return;
+            if (selection.Install)
+            {
+                var result = await Operations.RunAsync("Install Android SDK",
+                    $"Install Android command-line tools to {selection.Path}",
+                    async ctx =>
+                    {
+                        var progress = new Progress<string>(message => { ctx.LogInfo(message); ctx.SetStatus(message); });
+                        return await Sdk.InstallSdkAsync(selection.Path, progress);
+                    }, canCancel: false);
+                if (!result.Success) return;
+            }
+            await Settings.RememberLocationAsync(selection.Path);
+            if (!selection.Install || selection.Activate)
+                await Settings.SetCustomSdkPathAsync(selection.Path);
+            await Alerts.ShowToastAsync(selection.Install ? "Android SDK installed." : "Active Android SDK changed.");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError("Android SDK selection failed.", ex);
+            await Alerts.ShowAlertAsync("Android SDK", ex.Message);
+        }
+        finally { busy = false; UpdateMenu(); }
+    }
+    public void Dispose()
+    {
+        Settings.SdkPathChanged -= OnChanged;
+        Sdk.BusyChanged -= OnBusyChanged;
+        Toolbar.ToolbarItemClicked -= OnAction;
+    }
+}

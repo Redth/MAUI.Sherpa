@@ -4,9 +4,12 @@
 @using MauiSherpa.Core.Interfaces
 @inject DeviceInspectorService InspectorService
 @inject IAdbDeviceWatcherService DeviceWatcher
+@inject IAndroidSdkService Sdk
+@inject IAndroidSdkSettingsService SdkSettings
 @implements IDisposable
 
 <div class="inspector-page">
+    <div class="inspector-sdk-context">Active SDK: <span class="mono text-selectable">@(Sdk.SdkPath ?? "No SDK selected")</span></div>
     <div class="inspector-tabstrip">
         <div class="inspector-tabs">
             <button class="inspector-tab @(ActiveTab == InspectorTab.Logcat ? "active" : "")"
@@ -45,7 +48,7 @@
         </div>
     </div>
 
-    <div class="inspector-body">
+    <div class="inspector-body" @key="sdkRevision">
         @switch (ActiveTab)
         {
             case InspectorTab.Logcat:
@@ -71,6 +74,7 @@
 </div>
 
 <style>
+    .inspector-sdk-context { padding: 8px 16px; font-size: 12px; color: var(--text-secondary); overflow-wrap: anywhere; border-bottom: 1px solid var(--border-color); }
     .inspector-page {
         display: flex;
         flex-direction: column;
@@ -170,6 +174,7 @@
 
     protected override void OnInitialized()
     {
+        SdkSettings.SdkPathChanged += OnSdkChanged;
         ActiveTab = ParseTab(TabName);
         InspectorService.ActiveSerial = Serial;
         InspectorService.ActiveTab = ActiveTab;
@@ -240,7 +245,10 @@
 
     public void Dispose()
     {
+        SdkSettings.SdkPathChanged -= OnSdkChanged;
         DeviceWatcher.DevicesChanged -= OnDevicesChanged;
         InspectorService.StateChanged -= OnServiceStateChanged;
     }
+    private int sdkRevision;
+    private void OnSdkChanged() => _ = InvokeAsync(() => { sdkRevision++; StateHasChanged(); });
 }

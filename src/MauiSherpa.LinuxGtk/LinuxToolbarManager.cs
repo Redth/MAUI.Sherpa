@@ -197,6 +197,24 @@ public class LinuxToolbarManager
         {
             // Skip "settings" — we have a persistent gear button in the HeaderBar
             if (items[i].Id == "settings") continue;
+            if (items[i].MenuActions is { } children)
+            {
+                var menu = Gtk.MenuButton.New();
+                menu.SetLabel(items[i].Label);
+                var popover = Gtk.Popover.New();
+                var box = Gtk.Box.New(Gtk.Orientation.Vertical, 4);
+                foreach (var child in children)
+                {
+                    var menuActionButton = CreateButton(child);
+                    menuActionButton.OnClicked += (_, _) => popover.Popdown();
+                    box.Append(menuActionButton);
+                }
+                popover.SetChild(box);
+                menu.SetPopover(popover);
+                _headerBar!.PackEnd(menu);
+                _endWidgets.Add(menu);
+                continue;
+            }
 
             var button = CreateButton(items[i]);
             _headerBar!.PackEnd(button);

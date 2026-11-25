@@ -538,7 +538,27 @@ public class WindowsTitleBarManager : IDisposable
         }
 
         ToolTipProperties.SetText(btn, action.ToolTip ?? action.Label);
-        btn.Clicked += (_, _) => _toolbarService.InvokeToolbarItemClicked(action.Id);
+        if (action.MenuActions is { } children)
+        {
+            var menu = new MenuFlyout();
+            foreach (var child in children)
+            {
+                var id = child.Id;
+                var item = new MenuFlyoutItem { Text = child.Label, IsEnabled = _toolbarService.IsItemEnabled(id) };
+                item.Clicked += (_, _) => _toolbarService.InvokeToolbarItemClicked(id);
+                menu.Add(item);
+            }
+            FlyoutBase.SetContextFlyout(btn, menu);
+            btn.Clicked += (_, _) =>
+            {
+#if WINDOWS
+                if (btn.Handler?.PlatformView is Microsoft.UI.Xaml.FrameworkElement view)
+                    view.ContextFlyout?.ShowAt(view);
+#endif
+            };
+        }
+        else
+            btn.Clicked += (_, _) => _toolbarService.InvokeToolbarItemClicked(action.Id);
         ApplyVerticalCentering(btn);
         ApplyHoverEffect(btn, ControlBackground, ControlHover, ControlBorder);
         return btn;

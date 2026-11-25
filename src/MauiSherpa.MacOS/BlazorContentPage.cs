@@ -32,6 +32,8 @@ public class BlazorContentPage : ContentPage
     private MacOSMenuToolbarItem? _identityMenu;
     private MacOSMenuToolbarItem? _publishMenu;
     private MacOSMenuToolbarItem? _filterMenu;
+    private MacOSMenuToolbarItem? _sdkMenu;
+    private NSMenuToolbarItem? _nativeSdkMenu;
     private MacOSSearchToolbarItem? _searchItem;
     private NSMenuToolbarItem? _nativeIdentityMenu;
     private NSMenuToolbarItem? _nativeFilterMenu;
@@ -485,6 +487,25 @@ public class BlazorContentPage : ContentPage
         MacOSToolbarItem.SetIsVisible(_publishMenu, hasPublishWizard);
         MacOSToolbarItem.SetIsVisible(_filterMenu, hasFilter);
         MacOSToolbarItem.SetIsVisible(_searchItem, hasSearch);
+        var sdkAction = _toolbarService.CurrentItems.FirstOrDefault(a => a.Id == "android-sdk");
+        MacOSToolbarItem.SetIsVisible(_sdkMenu, sdkAction != null);
+        if (_nativeSdkMenu != null)
+        {
+            _nativeSdkMenu.Hidden = sdkAction == null;
+            if (sdkAction?.MenuActions != null)
+            {
+                var menu = new NSMenu { Title = sdkAction.Label };
+                foreach (var child in sdkAction.MenuActions)
+                {
+                    var id = child.Id;
+                    var item = new NSMenuItem(child.Label, (_, _) => _toolbarService.InvokeToolbarItemClicked(id))
+                    { Enabled = _toolbarService.IsItemEnabled(id) };
+                    menu.AddItem(item);
+                }
+                menu.AutoEnablesItems = false;
+                _nativeSdkMenu.Menu = menu;
+            }
+        }
 
         // Also directly set native Hidden on cached items (macOS 15+)
         if (_nativeIdentityMenu != null) _nativeIdentityMenu.Hidden = !hasIdentity;
@@ -558,10 +579,11 @@ public class BlazorContentPage : ContentPage
     /// </summary>
     void CacheNativeMenuItems(NSToolbar toolbar)
     {
-        if (_nativeIdentityMenu != null && _nativeFilterMenu != null && _nativePublishMenu != null) return;
+        if (_nativeIdentityMenu != null && _nativeFilterMenu != null && _nativePublishMenu != null && _nativeSdkMenu != null) return;
         foreach (var nsItem in toolbar.Items)
         {
             if (nsItem is not NSMenuToolbarItem m) continue;
+            if (m.Label == "Android SDK") { _nativeSdkMenu = m; continue; }
             if (IsFilterMenuItem(m))
                 _nativeFilterMenu = m;
             else if (IsPublishMenuItem(m))
@@ -1000,6 +1022,7 @@ public class BlazorContentPage : ContentPage
             _nativeIdentityMenu = null;
             _nativeFilterMenu = null;
             _nativePublishMenu = null;
+            _nativeSdkMenu = null;
             _nativeReleaseNotesItem = null;
             _releaseNotesButton = null;
 
@@ -1115,6 +1138,20 @@ public class BlazorContentPage : ContentPage
                 ShowsTitle = true,
                 ShowsIndicator = true,
             };
+            _sdkMenu = new MacOSMenuToolbarItem
+            {
+                Icon = "shippingbox",
+                Text = "Android SDK",
+                ShowsTitle = true,
+                ShowsIndicator = true,
+            };
+            foreach (var action in MauiSherpa.Components.AndroidSdkContext.Menu.MenuActions!)
+            {
+                var id = action.Id;
+                var item = new MacOSMenuItem { Text = action.Label };
+                item.Clicked += (_, _) => _toolbarService.InvokeToolbarItemClicked(id);
+                _sdkMenu.Items.Add(item);
+            }
             var filters = _toolbarService.CurrentFilters;
             if (filters.Count > 0)
             {
@@ -1190,6 +1227,7 @@ public class BlazorContentPage : ContentPage
             // [Filter/Provider] [Identity] [Publish] [Create] [Import] ← FlexibleSpace → [Search] [Refresh]
             var layout = new List<MacOSToolbarLayoutItem>();
             layout.Add(MacOSToolbarLayoutItem.Menu(_filterMenu));
+            layout.Add(MacOSToolbarLayoutItem.Menu(_sdkMenu));
             layout.Add(MacOSToolbarLayoutItem.Menu(_identityMenu));
             layout.Add(MacOSToolbarLayoutItem.Menu(_publishMenu));
             foreach (var item in leadingItems)

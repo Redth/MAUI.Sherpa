@@ -24,6 +24,7 @@
 @implements IDisposable
 
 <h1 class="visually-hidden">Android Devices &amp; Emulators</h1>
+<MauiSherpa.Components.AndroidSdkContext Changed="SdkChangedAsync" />
 
 <div class="device-section-heading">
     <h2 class="device-section-label"><i class="fas fa-mobile-alt" aria-hidden="true"></i> Physical Devices</h2>
@@ -185,6 +186,10 @@ else
                             @(isStarting ? "Starting" : instance != null ? "Running" : CanVerifyEmulatorState ? "Stopped" : "Unknown")
                         </span>
                         @if (emulator.Properties.TryGetValue("hw.cpu.arch", out var arch)) { <span class="badge badge-info">@arch</span> }
+                        @if (!HasSystemImage(emulator))
+                        {
+                            <span class="badge badge-warning">System image not installed in active SDK</span>
+                        }
                     </div>
                 </div>
                 @if (!isSelectionMode)
@@ -202,8 +207,8 @@ else
                         }
                         else
                         {
-                            <button data-screenshot-external class="btn btn-success btn-icon" @onclick="() => StartEmulator(emulator, false)" disabled="@(IsBusy || !CanVerifyEmulatorState)" title="Start" aria-label="Start @emulator.Name"><i class="fas fa-play"></i></button>
-                            <button data-screenshot-external class="btn btn-secondary btn-icon" @onclick="() => StartEmulator(emulator, true)" disabled="@(IsBusy || !CanVerifyEmulatorState)" title="Cold Boot" aria-label="Cold boot @emulator.Name"><i class="fas fa-snowflake"></i></button>
+                            <button data-screenshot-external class="btn btn-success btn-icon" @onclick="() => StartEmulator(emulator, false)" disabled="@(IsBusy || !CanVerifyEmulatorState || !HasSystemImage(emulator))" title="Start" aria-label="Start @emulator.Name"><i class="fas fa-play"></i></button>
+                            <button data-screenshot-external class="btn btn-secondary btn-icon" @onclick="() => StartEmulator(emulator, true)" disabled="@(IsBusy || !CanVerifyEmulatorState || !HasSystemImage(emulator))" title="Cold Boot" aria-label="Cold boot @emulator.Name"><i class="fas fa-snowflake"></i></button>
                         }
                         <button data-screenshot-external class="btn btn-danger btn-icon" @onclick="() => DeleteEmulator(emulator)" disabled="@(IsBusy || isStarting || !CanVerifyEmulatorState)"
                                 title="Delete emulator" aria-label="Delete @emulator.Name"><i class="fas fa-trash"></i></button>
@@ -328,6 +333,7 @@ else
     protected override async Task OnInitializedAsync()
     {
         ToolbarService.SetItems(
+            MauiSherpa.Components.AndroidSdkContext.Menu,
             new ToolbarAction("refresh", "Refresh", "arrow.clockwise"),
             new ToolbarAction("pair", "Pair Device", "link"),
             new ToolbarAction("create", "Create Emulator", "plus"));
@@ -336,7 +342,6 @@ else
         ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
         ToolbarService.SearchTextChanged += OnSearchTextChanged;
         ToolbarService.FilterChanged += OnFilterChanged;
-        SdkService.SdkPathChanged += OnSdkPathChanged;
         DeviceWatcher.DevicesChanged += OnDevicesChanged;
 
         try
@@ -349,7 +354,8 @@ else
             Logger.LogWarning($"Could not load demo mode preference: {ex.Message}");
         }
 
-        await SdkSettings.InitializeAsync();
+        try { await SdkSettings.InitializeAsync(); }
+        catch (Exception ex) { await AlertService.ShowAlertAsync("Android SDK Unavailable", ex.Message); }
         await Task.WhenAll(RefreshEmulators(), RefreshDevices());
     }
 
@@ -361,7 +367,8 @@ else
 
     private async Task RefreshEmulators(bool forceRefresh = false)
     {
-        if (isLoadingEmulators) return;
+        if (isLoadingEmulators) { emulatorRefreshPending |= forceRefresh; return; }
+        var sdkPath = SdkService.SdkPath;
         isLoadingEmulators = true;
         StateHasChanged();
         try
@@ -374,7 +381,10 @@ else
                 await Mediator.FlushStores("android:devices");
             }
             var (_, result) = await Mediator.Request(new GetEmulatorsRequest());
+            if (sdkPath != SdkService.SdkPath) { emulatorRefreshPending = true; return; }
             emulators = result?.ToList() ?? [];
+            var (_, images) = await Mediator.Request(new GetSystemImagesRequest());
+            installedSystemImages = images;
             selectedEmulators.IntersectWith(emulators.Select(e => e.Name));
             UpdateToolbarFilters();
         }
@@ -387,7 +397,20 @@ else
         {
             isLoadingEmulators = false;
             StateHasChanged();
+            if (emulatorRefreshPending)
+            {
+                emulatorRefreshPending = false;
+                await RefreshEmulators(true);
+            }
         }
+    }
+    private bool emulatorRefreshPending;
+    private IReadOnlyList<string> installedSystemImages = [];
+    private bool HasSystemImage(AvdInfo emulator)
+    {
+        if (!emulator.Properties.TryGetValue("image.sysdir.1", out var path)) return true;
+        var package = path.Replace('\\', '/').Trim('/').Replace('/', ';');
+        return installedSystemImages.Contains(package, StringComparer.Ordinal);
     }
 
     private async Task RefreshDevices()
@@ -757,7 +780,11 @@ else
         StateHasChanged();
     });
 
-    private void OnSdkPathChanged() => _ = InvokeAsync(RefreshAll);
+    private async Task SdkChangedAsync()
+    {
+        selectedEmulators.Clear();
+        await Task.WhenAll(RefreshEmulators(true), RefreshDevices());
+    }
     private void OnDevicesChanged(IReadOnlyList<DeviceInfo> ignored) => _ = InvokeAsync(RefreshDevices);
 
     public void Dispose()
@@ -765,7 +792,6 @@ else
         ToolbarService.ToolbarItemClicked -= OnToolbarItemClicked;
         ToolbarService.SearchTextChanged -= OnSearchTextChanged;
         ToolbarService.FilterChanged -= OnFilterChanged;
-        SdkService.SdkPathChanged -= OnSdkPathChanged;
         DeviceWatcher.DevicesChanged -= OnDevicesChanged;
         disposeCts.Cancel();
     }

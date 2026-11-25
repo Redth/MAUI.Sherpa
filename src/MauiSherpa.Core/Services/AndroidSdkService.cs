@@ -7,9 +7,13 @@ public class AndroidSdkService : IAndroidSdkService
 {
     private AndroidSdkManager? _sdkManager;
     private readonly ILoggingService _logger;
+    private readonly SemaphoreSlim _operationGate = new(1, 1);
+    private int _mutations;
 
     public string? SdkPath => _sdkManager?.Home?.FullName;
     public bool IsSdkInstalled => _sdkManager?.Home != null && Directory.Exists(_sdkManager.Home.FullName);
+    public bool IsBusy => Volatile.Read(ref _mutations) > 0;
+    public event Action? BusyChanged;
     
     public event Action? SdkPathChanged;
 
@@ -20,13 +24,14 @@ public class AndroidSdkService : IAndroidSdkService
 
     public Task<bool> DetectSdkAsync()
     {
-        return Task.Run(() =>
+        return RunSdkAsync(() =>
         {
             try
             {
-                _sdkManager = new AndroidSdkManager();
-                if (_sdkManager.Home != null)
+                var manager = new AndroidSdkManager();
+                if (manager.Home != null && AndroidSdkLocations.Inspect(manager.Home.FullName).Status == AndroidSdkLocationStatus.Installed)
                 {
+                    _sdkManager = manager;
                     _logger.LogInformation($"Android SDK detected at: {_sdkManager.Home.FullName}");
                     SdkPathChanged?.Invoke();
                     return true;
@@ -37,7 +42,6 @@ public class AndroidSdkService : IAndroidSdkService
             catch (Exception ex)
             {
                 _logger.LogWarning($"Android SDK not found: {ex.Message}");
-                _sdkManager = null;
                 return false;
             }
         });
@@ -45,20 +49,22 @@ public class AndroidSdkService : IAndroidSdkService
 
     public Task<bool> SetSdkPathAsync(string path)
     {
-        return Task.Run(() =>
+        return RunSdkAsync(() =>
         {
             try
             {
-                if (!Directory.Exists(path))
+                path = AndroidSdkLocations.Normalize(path);
+                if (AndroidSdkLocations.Inspect(path).Status != AndroidSdkLocationStatus.Installed)
                 {
                     _logger.LogError($"SDK path does not exist: {path}");
                     return false;
                 }
 
-                _sdkManager = new AndroidSdkManager(new DirectoryInfo(path));
+                var manager = new AndroidSdkManager(new DirectoryInfo(path));
                 
-                if (_sdkManager.Home != null)
+                if (manager.Home != null)
                 {
+                    _sdkManager = manager;
                     _logger.LogInformation($"Android SDK set to: {_sdkManager.Home.FullName}");
                     SdkPathChanged?.Invoke();
                     return true;
@@ -70,7 +76,6 @@ public class AndroidSdkService : IAndroidSdkService
             catch (Exception ex)
             {
                 _logger.LogError($"Failed to set SDK path: {ex.Message}", ex);
-                _sdkManager = null;
                 return false;
             }
         });
@@ -95,7 +100,7 @@ public class AndroidSdkService : IAndroidSdkService
 
     public Task<IReadOnlyList<SdkPackageInfo>> GetInstalledPackagesAsync()
     {
-        return Task.Run<IReadOnlyList<SdkPackageInfo>>(() =>
+        return RunSdkAsync<IReadOnlyList<SdkPackageInfo>>(() =>
         {
             if (_sdkManager == null)
                 return Array.Empty<SdkPackageInfo>();
@@ -130,7 +135,7 @@ public class AndroidSdkService : IAndroidSdkService
 
     public Task<IReadOnlyList<SdkPackageInfo>> GetAvailablePackagesAsync()
     {
-        return Task.Run<IReadOnlyList<SdkPackageInfo>>(() =>
+        return RunSdkAsync<IReadOnlyList<SdkPackageInfo>>(() =>
         {
             if (_sdkManager == null)
                 return Array.Empty<SdkPackageInfo>();
@@ -165,7 +170,7 @@ public class AndroidSdkService : IAndroidSdkService
 
     public Task<bool> InstallPackageAsync(string packagePath, IProgress<string>? progress = null)
     {
-        return Task.Run(() =>
+        return RunSdkAsync(() =>
         {
             if (_sdkManager == null)
             {
@@ -224,12 +229,12 @@ public class AndroidSdkService : IAndroidSdkService
                 progress?.Report($"Error: {ex.Message}");
                 return false;
             }
-        });
+        }, mutation: true);
     }
 
     public Task<bool> UninstallPackageAsync(string packagePath)
     {
-        return Task.Run(() =>
+        return RunSdkAsync(() =>
         {
             if (_sdkManager == null)
             {
@@ -248,12 +253,12 @@ public class AndroidSdkService : IAndroidSdkService
                 _logger.LogError($"Failed to uninstall package {packagePath}: {ex.Message}", ex);
                 return false;
             }
-        });
+        }, mutation: true);
     }
 
     public Task<IReadOnlyList<DeviceInfo>> GetDevicesAsync()
     {
-        return Task.Run<IReadOnlyList<DeviceInfo>>(() =>
+        return RunSdkAsync<IReadOnlyList<DeviceInfo>>(() =>
         {
             if (_sdkManager == null)
                 return Array.Empty<DeviceInfo>();
@@ -279,26 +284,37 @@ public class AndroidSdkService : IAndroidSdkService
 
     public Task<bool> AcquireSdkAsync(string? targetPath = null, IProgress<string>? progress = null)
     {
-        return Task.Run(async () =>
+        return AcquireAndActivateAsync(targetPath ?? GetRecommendedSdkPath(), progress);
+    }
+
+    private async Task<bool> AcquireAndActivateAsync(string targetPath, IProgress<string>? progress)
+    {
+        if (!await InstallSdkAsync(targetPath, progress)) return false;
+        return await SetSdkPathAsync(targetPath);
+    }
+
+    public Task<bool> InstallSdkAsync(string targetPath, IProgress<string>? progress = null)
+    {
+        return RunSdkAsync(async () =>
         {
             try
             {
                 progress?.Report("Downloading Android SDK...");
                 
-                if (string.IsNullOrEmpty(targetPath))
-                {
-                    targetPath = GetRecommendedSdkPath();
-                }
-
+                targetPath = AndroidSdkLocations.ValidateInstallTarget(targetPath);
                 Directory.CreateDirectory(targetPath);
+                var probe = Path.Combine(targetPath, $".sherpa-write-{Guid.NewGuid():N}");
+                await File.WriteAllTextAsync(probe, "");
+                File.Delete(probe);
                 progress?.Report($"Installing Android SDK to {targetPath}...");
 
-                _sdkManager = new AndroidSdkManager(new DirectoryInfo(targetPath));
-                await _sdkManager.Acquire();
+                var manager = new AndroidSdkManager(new DirectoryInfo(targetPath));
+                await manager.Acquire();
+                if (AndroidSdkLocations.Inspect(targetPath).Status != AndroidSdkLocationStatus.Installed)
+                    throw new InvalidOperationException("Installation did not produce usable Android command-line tools.");
                 
                 progress?.Report($"Android SDK installed at: {targetPath}");
                 _logger.LogInformation($"Acquired Android SDK at: {targetPath}");
-                SdkPathChanged?.Invoke();
                 return true;
             }
             catch (Exception ex)
@@ -307,7 +323,33 @@ public class AndroidSdkService : IAndroidSdkService
                 progress?.Report($"Failed to acquire SDK: {ex.Message}");
                 return false;
             }
-        });
+        }, mutation: true);
+    }
+
+    private Task<T> RunSdkAsync<T>(Func<T> operation, bool mutation = false) =>
+        RunSdkAsync(() => Task.FromResult(operation()), mutation);
+
+    private async Task<T> RunSdkAsync<T>(Func<Task<T>> operation, bool mutation = false)
+    {
+        if (mutation)
+        {
+            Interlocked.Increment(ref _mutations);
+            BusyChanged?.Invoke();
+        }
+        try
+        {
+            await _operationGate.WaitAsync();
+            try { return await Task.Run(operation); }
+            finally { _operationGate.Release(); }
+        }
+        finally
+        {
+            if (mutation)
+            {
+                Interlocked.Decrement(ref _mutations);
+                BusyChanged?.Invoke();
+            }
+        }
     }
 
     private static string GetRecommendedSdkPath()
@@ -337,7 +379,7 @@ public class AndroidSdkService : IAndroidSdkService
 
     public Task<IReadOnlyList<Interfaces.AvdInfo>> GetAvdsAsync()
     {
-        return Task.Run<IReadOnlyList<Interfaces.AvdInfo>>(() =>
+        return RunSdkAsync<IReadOnlyList<Interfaces.AvdInfo>>(() =>
         {
             if (_sdkManager == null)
                 return Array.Empty<Interfaces.AvdInfo>();
@@ -365,7 +407,7 @@ public class AndroidSdkService : IAndroidSdkService
 
     public Task<IReadOnlyList<AvdDeviceDefinition>> GetAvdDeviceDefinitionsAsync()
     {
-        return Task.Run<IReadOnlyList<AvdDeviceDefinition>>(() =>
+        return RunSdkAsync<IReadOnlyList<AvdDeviceDefinition>>(() =>
         {
             if (_sdkManager == null)
                 return Array.Empty<AvdDeviceDefinition>();
@@ -391,7 +433,7 @@ public class AndroidSdkService : IAndroidSdkService
 
     public Task<IReadOnlyList<string>> GetSystemImagesAsync()
     {
-        return Task.Run<IReadOnlyList<string>>(() =>
+        return RunSdkAsync<IReadOnlyList<string>>(() =>
         {
             if (_sdkManager == null)
                 return Array.Empty<string>();
@@ -414,7 +456,7 @@ public class AndroidSdkService : IAndroidSdkService
 
     public Task<IReadOnlyList<string>> GetAvdSkinsAsync()
     {
-        return Task.Run<IReadOnlyList<string>>(() =>
+        return RunSdkAsync<IReadOnlyList<string>>(() =>
         {
             if (_sdkManager?.Home == null)
                 return Array.Empty<string>();
@@ -443,7 +485,7 @@ public class AndroidSdkService : IAndroidSdkService
 
     public Task<bool> CreateAvdAsync(string name, string systemImage, EmulatorCreateOptions? options = null, IProgress<string>? progress = null)
     {
-        return Task.Run(() =>
+        return RunSdkAsync(() =>
         {
             if (_sdkManager == null)
             {
@@ -479,7 +521,7 @@ public class AndroidSdkService : IAndroidSdkService
                 progress?.Report($"Failed to create emulator: {ex.Message}");
                 return false;
             }
-        });
+        }, mutation: true);
     }
 
     private void ApplyAvdConfigSettings(string avdName, EmulatorCreateOptions options)
@@ -541,7 +583,7 @@ public class AndroidSdkService : IAndroidSdkService
 
     public Task<bool> DeleteAvdAsync(string name)
     {
-        return Task.Run(() =>
+        return RunSdkAsync(() =>
         {
             if (_sdkManager == null)
             {
@@ -575,12 +617,12 @@ public class AndroidSdkService : IAndroidSdkService
                 _logger.LogError($"Failed to delete AVD {name}: {ex.Message}", ex);
                 return false;
             }
-        });
+        }, mutation: true);
     }
 
     public Task<bool> StartEmulatorAsync(string avdName, bool coldBoot = false, IProgress<string>? progress = null)
     {
-        return Task.Run(() =>
+        return RunSdkAsync(() =>
         {
             if (_sdkManager == null)
             {
@@ -610,12 +652,12 @@ public class AndroidSdkService : IAndroidSdkService
                 progress?.Report($"Failed to start emulator: {ex.Message}");
                 return false;
             }
-        });
+        }, mutation: true);
     }
 
     public Task<bool> StopEmulatorAsync(string serial)
     {
-        return Task.Run(() =>
+        return RunSdkAsync(() =>
         {
             if (_sdkManager == null)
             {
@@ -634,6 +676,6 @@ public class AndroidSdkService : IAndroidSdkService
                 _logger.LogError($"Failed to stop emulator {serial}: {ex.Message}", ex);
                 return false;
             }
-        });
+        }, mutation: true);
     }
 }

@@ -1,0 +1,217 @@
+@page "/modal/android-sdk-location"
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Core.Services
+@using MauiSherpa.Pages.Forms
+@inject HybridFormBridgeHolder BridgeHolder
+@inject IAndroidSdkSettingsService Settings
+@inject IAndroidSdkService Sdk
+@inject IDialogService Dialogs
+@inject ILoggingService Logger
+@implements IDisposable
+
+<div class="sdk-location-dialog">
+    <div class="sdk-mode" role="group" aria-label="SDK action">
+        <button type="button" class="@(!install ? "selected" : "")" aria-pressed="@(!install)" @onclick="() => SetMode(false)">Use Existing</button>
+        <button type="button" class="@(install ? "selected" : "")" aria-pressed="@install" @onclick="() => SetMode(true)">Install New</button>
+    </div>
+    <p class="sdk-location-help">@(install ? "Install Android command-line tools in a new location." : "Choose the Android SDK for Sherpa's packages, devices, and emulators.")</p>
+    @if (loading)
+    {
+        <p role="status"><i class="fas fa-spinner fa-spin" aria-hidden="true"></i> Checking SDK locations...</p>
+    }
+    else
+    {
+        @if (!install)
+        {
+        <fieldset class="sdk-location-list">
+            <legend>SDK Locations</legend>
+            @foreach (var location in locations)
+            {
+                <label class="sdk-location-option @(selected == location.Path ? "selected" : "")">
+                    <span class="sdk-location-glyph" aria-hidden="true"><i class="fa-solid @(location.Status == AndroidSdkLocationStatus.Installed ? "fa-box-open" : "fa-folder")"></i></span>
+                    <span class="sdk-location-copy">
+                        <strong>@location.Label</strong>
+                        <span class="mono text-selectable">@location.Path</span>
+                    </span>
+                    <span class="sdk-location-status @(location.IsActive ? "is-active" : "")">@Status(location)</span>
+                    <input type="radio" name="sdk-location" checked="@(selected == location.Path)" @onchange="() => Select(location.Path)" aria-label="Select @location.Label" />
+                </label>
+            }
+        </fieldset>
+        }
+        else
+        {
+            <div class="sdk-install-location">
+                <label for="sdk-common-location">Install location</label>
+                <select id="sdk-common-location" value="@PresetPath" @onchange="OnPresetChanged">
+                    @foreach (var location in locations)
+                    {
+                        <option value="@location.Path">@location.Label — @Status(location)</option>
+                    }
+                    <option value="">Custom location</option>
+                </select>
+            </div>
+        }
+        <div class="sdk-custom-path">
+            <label for="sdk-custom-folder">@(install ? "Target folder" : "Use another location")</label>
+            <div class="sdk-custom-row">
+                <input id="sdk-custom-folder" class="mono" value="@selected" @oninput="OnPathInput" placeholder="Enter an absolute folder path" />
+                <button type="button" class="sdk-browse" @onclick="BrowseAsync"><i class="fas fa-folder-open" aria-hidden="true"></i> Browse...</button>
+            </div>
+        </div>
+        @if (install)
+        {
+            <label class="sdk-activate"><input type="checkbox" @bind="activate" /> Use this SDK after installation</label>
+        }
+        @if (!string.IsNullOrEmpty(error))
+        {
+            <p class="error-message" role="alert">@error</p>
+        }
+        <p class="sdk-footnote"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> Only Sherpa uses this selection. Android Studio and project settings stay unchanged.</p>
+    }
+</div>
+
+<style>
+    .sdk-location-dialog { --sdk-accent: var(--accent-purple); --sdk-accent-ink: #6b46c1; --sdk-list-bg: #F7F7F7; --sdk-separator: #E0E0E0; padding: 14px 24px 22px; color: var(--text-primary); font-size: 13px; }
+    .theme-dark .sdk-location-dialog { --sdk-accent-ink: #d6bcfa; --sdk-list-bg: #2C2C2C; --sdk-separator: #454545; }
+    .sdk-location-dialog button { font-family: inherit; line-height: 1.2; }
+    .sdk-mode { display: inline-flex; padding: 3px; gap: 2px; background: var(--bg-tertiary); border-radius: 8px; }
+    .sdk-mode button { padding: 5px 14px; border: 0; border-radius: 6px; background: transparent; color: var(--text-secondary); font-size: 12px; font-weight: 500; cursor: pointer; }
+    .sdk-mode button.selected { background: var(--input-bg); color: var(--text-primary); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+    .sdk-mode button:hover:not(.selected) { color: var(--text-primary); }
+    .sdk-location-help { color: var(--text-secondary); line-height: 1.4; margin: 12px 0 18px; }
+    .sdk-location-list { border: 0; padding: 0; margin: 0; min-width: 0; }
+    .sdk-location-list legend { font-size: 13px; font-weight: 600; margin-bottom: 7px; padding-left: 2px; }
+    .sdk-location-option { position: relative; display: flex; align-items: center; gap: 12px; padding: 11px 12px; background: var(--sdk-list-bg); cursor: pointer; }
+    .sdk-location-option:first-of-type { border-radius: 10px 10px 0 0; }
+    .sdk-location-option:last-of-type { border-radius: 0 0 10px 10px; }
+    .sdk-location-option:only-of-type { border-radius: 10px; }
+    .sdk-location-option + .sdk-location-option::before { content: ""; position: absolute; height: 1px; top: 0; left: 0; right: 0; background: var(--sdk-separator); }
+    .sdk-location-option:hover { background: var(--bg-hover); }
+    .sdk-location-option.selected { background: color-mix(in srgb, var(--sdk-accent) 9%, var(--sdk-list-bg)); }
+    .sdk-location-glyph { display: grid; place-items: center; flex: none; width: 32px; height: 32px; border-radius: 8px; background: var(--bg-tertiary); color: var(--text-secondary); font-size: 15px; }
+    .sdk-location-option.selected .sdk-location-glyph { background: color-mix(in srgb, var(--sdk-accent) 16%, transparent); color: var(--sdk-accent-ink); }
+    .sdk-location-copy { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 3px; }
+    .sdk-location-copy strong { font-size: 13px; font-weight: 600; }
+    .sdk-location-copy .mono { overflow-wrap: anywhere; color: var(--text-secondary); font-size: 11.5px; }
+    .sdk-location-status { flex: none; font-size: 11.5px; color: var(--text-secondary); white-space: nowrap; }
+    .sdk-location-status.is-active { color: var(--sdk-accent-ink); }
+    .sdk-location-option input[type=radio] { appearance: auto; flex: none; width: 14px; height: 14px; margin: 0; accent-color: var(--sdk-accent); }
+    .sdk-custom-path { margin-top: 20px; }
+    .sdk-install-location { margin-top: 18px; }
+    .sdk-install-location label { display: block; margin: 0 0 7px 2px; font-size: 13px; font-weight: 600; }
+    .sdk-install-location select { width: 100%; box-sizing: border-box; height: 30px; padding: 0 8px; border: 1px solid var(--input-border); border-radius: 6px; font-size: 12px; color: var(--text-primary); background: var(--input-bg); }
+    .sdk-custom-path > label { display: block; font-size: 13px; font-weight: 600; margin: 0 0 7px 2px; }
+    .sdk-custom-row { display: flex; gap: 8px; }
+    .sdk-custom-row input { height: 28px; box-sizing: border-box; flex: 1; min-width: 0; padding: 0 8px; color: var(--text-primary); background: var(--input-bg); border: 1px solid var(--input-border); border-radius: 6px; font-size: 12px; }
+    .sdk-browse { height: 28px; padding: 0 11px; border: 1px solid var(--input-border); border-radius: 6px; background: var(--input-bg); color: var(--text-primary); font-size: 12px; font-weight: 500; cursor: pointer; white-space: nowrap; }
+    .sdk-browse:hover { border-color: var(--text-muted); }
+    .sdk-browse i { margin-right: 4px; font-size: 11px; }
+    .sdk-activate { display: flex; align-items: center; gap: 8px; margin-top: 16px; font-size: 12px; }
+    .sdk-activate input { appearance: auto; accent-color: var(--sdk-accent); }
+    .sdk-footnote { display: flex; align-items: baseline; gap: 7px; color: var(--text-secondary); font-size: 11.5px; line-height: 1.45; margin: 18px 2px 0; }
+    .sdk-footnote i { flex: none; }
+    .sdk-location-dialog :focus-visible { outline: 2px solid var(--sdk-accent); outline-offset: 2px; }
+    @@media (max-width: 540px) { .sdk-location-option { flex-wrap: wrap; } .sdk-location-status { margin-left: 44px; } .sdk-custom-row { flex-wrap: wrap; } }
+</style>
+
+@code {
+    private HybridFormBridge? bridge;
+    private IReadOnlyList<AndroidSdkLocation> locations = [];
+    private AndroidSdkLocation? selection;
+    private string selected = "";
+    private string existingPath = "", installPath = "";
+    private string PresetPath => locations.Any(l => l.Path == selected) ? selected : "";
+    private string? error;
+    private bool install, activate = true, loading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        bridge = BridgeHolder.Current;
+        if (bridge == null) throw new InvalidOperationException("Android SDK dialog bridge is unavailable.");
+        install = bridge.Parameters.TryGetValue("Install", out var value) && value is true;
+        bridge.PreventSubmitClose = true;
+        bridge.SubmitRequested += SubmitAsync;
+        Sdk.BusyChanged += OnBusyChanged;
+        try
+        {
+            locations = await Settings.GetKnownLocationsAsync();
+            existingPath = (locations.FirstOrDefault(l => l.IsActive) ??
+                locations.FirstOrDefault(l => l.Status == AndroidSdkLocationStatus.Installed))?.Path ?? "";
+            installPath = (locations.FirstOrDefault(l => l.Status == AndroidSdkLocationStatus.NotInstalled) ??
+                locations.FirstOrDefault())?.Path ?? "";
+            selected = install ? installPath : existingPath;
+        }
+        catch (Exception ex) { error = ex.Message; Logger.LogError("Could not discover Android SDK locations.", ex); }
+        loading = false;
+        Validate();
+    }
+
+    private void SetMode(bool value)
+    {
+        if (value == install) return;
+        install = value;
+        selected = install ? installPath : existingPath;
+        Validate();
+    }
+    private void Select(string path)
+    {
+        selected = path;
+        if (install) installPath = path; else existingPath = path;
+        Validate();
+    }
+    private void OnPresetChanged(ChangeEventArgs args) => Select(args.Value?.ToString() ?? "");
+    private void OnPathInput(ChangeEventArgs args) => Select(args.Value?.ToString() ?? "");
+    private void OnBusyChanged() => _ = InvokeAsync(() => { Validate(); StateHasChanged(); });
+    private void Validate()
+    {
+        selection = null;
+        error = null;
+        try
+        {
+            if (loading) return;
+            if (Sdk.IsBusy) throw new InvalidOperationException("Wait for the current Android SDK operation to finish.");
+            selection = AndroidSdkLocations.Inspect(selected);
+            if (install)
+            {
+                AndroidSdkLocations.ValidateInstallTarget(selected);
+            }
+            else if (selection.Status != AndroidSdkLocationStatus.Installed)
+            {
+                throw new InvalidOperationException("Choose a folder containing Android command-line tools, or install an SDK.");
+            }
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or IOException or UnauthorizedAccessException)
+        { error = ex.Message; }
+        finally
+        {
+            bridge?.SetActionState(!loading && selection != null && error == null,
+                actionText: install ? "Install SDK" : "Use This SDK");
+        }
+    }
+
+    private async Task BrowseAsync()
+    {
+        try { if (await Dialogs.PickFolderAsync("Choose Android SDK folder") is { Length: > 0 } path) Select(path); }
+        catch (Exception ex) { error = ex.Message; Logger.LogError("Could not choose SDK folder.", ex); }
+    }
+    private Task SubmitAsync()
+    {
+        Validate();
+        if (error == null && selection != null)
+        {
+            bridge!.Result = new AndroidSdkSelection(selection.Path, install, activate);
+            bridge.RequestClose();
+        }
+        return Task.CompletedTask;
+    }
+    private static string Status(AndroidSdkLocation l) => l.IsActive ? "Active" : l.Status switch
+    {
+        AndroidSdkLocationStatus.Installed => "SDK found",
+        AndroidSdkLocationStatus.NotInstalled => "Not installed",
+        AndroidSdkLocationStatus.Incomplete => "Incomplete",
+        AndroidSdkLocationStatus.Inaccessible => "Cannot access",
+        _ => "Other files"
+    };
+    public void Dispose() { Sdk.BusyChanged -= OnBusyChanged; if (bridge != null) bridge.SubmitRequested -= SubmitAsync; }
+}

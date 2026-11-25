@@ -7,6 +7,33 @@ namespace MauiSherpa.Core.Tests.Services;
 public class ToolbarServiceTests
 {
     [Fact]
+    public void MenuActions_RespectEnabledStateAndPageChanges()
+    {
+        var service = new ToolbarService();
+        service.SetItems(new ToolbarAction("sdk", "Android SDK", "shippingbox", MenuActions: [
+            new("sdk-switch", "Switch", "folder"), new("sdk-install", "Install", "plus")]));
+        var clicked = new List<string>();
+        service.ToolbarItemClicked += clicked.Add;
+        service.SetItemEnabled("sdk-install", false);
+        service.InvokeToolbarItemClicked("sdk-switch");
+        service.InvokeToolbarItemClicked("sdk-install");
+        service.ClearItems();
+        service.InvokeToolbarItemClicked("sdk-switch");
+        clicked.Should().Equal("sdk-switch");
+    }
+
+    [Fact]
+    public void ScreenshotMode_BlocksNestedExternalActions()
+    {
+        var service = new ToolbarService(Screenshots.ScreenshotMode.Parse("website-v1", true));
+        service.SetItems(new ToolbarAction("sdk", "SDK", "folder", MenuActions: [new("sdk-install", "Install", "plus")]));
+        var invoked = false;
+        service.ToolbarItemClicked += _ => invoked = true;
+        service.InvokeToolbarItemClicked("sdk-install");
+        invoked.Should().BeFalse();
+        service.CurrentItems[0].MenuActions![0].ToolTip.Should().Contain("Screenshot Mode");
+    }
+    [Fact]
     public void ScreenshotActionsCannotBeReenabledByPageUpdates()
     {
         var service = new ToolbarService(Screenshots.ScreenshotMode.Parse("website-v1", true));

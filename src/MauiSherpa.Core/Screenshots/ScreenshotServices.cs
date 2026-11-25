@@ -219,6 +219,8 @@ internal sealed partial class ScreenshotServices : IDialogService, IFileSystemSe
     Task IProfilingSessionStorageService.ExportSessionAsync(string sessionId, string outputZipPath, CancellationToken ct) => throw mode.Blocked("IProfilingSessionStorageService.ExportSessionAsync");
     Task<ProfilingSessionManifest?> IProfilingSessionStorageService.ImportSessionAsync(string zipPath, CancellationToken ct) => throw mode.Blocked("IProfilingSessionStorageService.ImportSessionAsync");
     Task IAndroidSdkSettingsService.SetCustomSdkPathAsync(string? path) => throw mode.Blocked("IAndroidSdkSettingsService.SetCustomSdkPathAsync");
+    Task IAndroidSdkSettingsService.RememberLocationAsync(string path) => throw mode.Blocked("IAndroidSdkSettingsService.RememberLocationAsync");
+    Task<bool> IAndroidSdkService.InstallSdkAsync(string targetPath, IProgress<string>? progress) => throw mode.Blocked("IAndroidSdkService.InstallSdkAsync");
     Task IAndroidSdkSettingsService.ResetToDefaultAsync() => throw mode.Blocked("IAndroidSdkSettingsService.ResetToDefaultAsync");
     event Action? IAndroidSdkSettingsService.SdkPathChanged
     {
