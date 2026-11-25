@@ -1,0 +1,405 @@
+@using System.Globalization
+@using System.Net.Http
+@using System.Text.Json
+@using System.Text.Json.Serialization
+@implements IDisposable
+
+<div class="trace-layout">
+    <div class="trace-header">
+        <div class="trace-title">
+            <i class="fas fa-bars-staggered"></i>
+            <span>Startup trace</span>
+            @if (trace?.FirstPageMs is double firstPage)
+            {
+                <span class="trace-headline">@FormatMs(firstPage) process → first page</span>
+            }
+        </div>
+        <div class="trace-actions">
+            @if (trace != null)
+            {
+                <span class="trace-pill">@trace.Spans.Count spans · @trace.TraceCount traces</span>
+                <div class="trace-segmented">
+                    <button class="@(zoomSpan == null ? "active" : "")" @onclick="() => zoomSpan = null">Full startup</button>
+                    <button class="@(zoomSpan != null ? "active" : "")" disabled="@(selected == null)" @onclick="ZoomToSelection"
+                            title="Zoom to the selected span and its children">Zoom to selection</button>
+                </div>
+            }
+            <button class="btn-icon" title="Reload spans" @onclick="LoadAsync"><i class="fas fa-arrows-rotate @(loading ? "fa-spin" : "")"></i></button>
+        </div>
+    </div>
+
+    @if (error != null)
+    {
+        <div class="trace-empty">
+            <i class="fas fa-circle-info"></i>
+            <div>
+                <strong>No trace data</strong>
+                <p>@error</p>
+            </div>
+        </div>
+    }
+    else if (trace == null)
+    {
+        <div class="trace-empty"><i class="fas fa-spinner fa-spin"></i> Loading spans…</div>
+    }
+    else
+    {
+        <div class="trace-note">
+            Spans come from separate traces and are aligned on process start; nesting follows each span's parent ID.
+        </div>
+        <div class="trace-body">
+            <div class="trace-grid">
+                <div class="trace-row trace-axis-row">
+                    <div class="trace-label trace-axis-label">Span</div>
+                    <div class="trace-lane trace-axis">
+                        @foreach (var tick in Ticks().Where(t => (t - windowStart) / (windowEnd - windowStart) < 0.94))
+                        {
+                            <span class="trace-tick" style="left:@Pct(tick)">@FormatTick(tick)</span>
+                        }
+                    </div>
+                    <div class="trace-duration trace-axis-label">Duration</div>
+                </div>
+                @foreach (var row in trace.Rows)
+                {
+                    var s = row.Span;
+                    var visible = s.EndMs >= windowStart && s.StartMs <= windowEnd;
+                    <div class="trace-row @(selected == s ? "selected" : "") @(visible ? "" : "dimmed")" @onclick="() => Select(s)">
+                        <div class="trace-label" style="padding-left:@((0.6 + row.Depth * 1.1).ToString(CultureInfo.InvariantCulture))rem" title="@s.Name">
+                            <span class="trace-dot @Category(s)"></span>
+                            <span class="trace-label-text">
+                                <span class="trace-label-name">@FriendlyName(s.Name)</span>
+                                <span class="trace-label-sub">@s.Name</span>
+                            </span>
+                        </div>
+                        <div class="trace-lane">
+                            @foreach (var tick in Ticks())
+                            {
+                                <span class="trace-gridline" style="left:@Pct(tick)"></span>
+                            }
+                            @if (visible)
+                            {
+                                if (s.DurationMs < 1)
+                                {
+                                    <span class="trace-marker @Category(s)" style="left:@Pct(s.StartMs)" title="@s.Name · @FormatMs(s.DurationMs)"></span>
+                                }
+                                else
+                                {
+                                    <span class="trace-bar @Category(s)" style="left:@Pct(Math.Max(s.StartMs, windowStart));width:@Width(s)"
+                                          title="@s.Name · @FormatMs(s.DurationMs)"></span>
+                                }
+                            }
+                        </div>
+                        <div class="trace-duration">@FormatMs(s.DurationMs)</div>
+                    </div>
+                }
+            </div>
+
+            <div class="trace-legend">
+                <span><span class="trace-dot app"></span> App</span>
+                <span><span class="trace-dot runtime"></span> .NET for Android runtime</span>
+                <span><span class="trace-dot activity"></span> Activity callback</span>
+                <span><span class="trace-marker-legend"></span> &lt; 1 ms</span>
+            </div>
+
+            @if (selected != null)
+            {
+                <div class="trace-details">
+                    <div class="trace-details-title">
+                        <span class="trace-dot @Category(selected)"></span>
+                        <strong>@FriendlyName(selected.Name)</strong>
+                        <code>@selected.Name</code>
+                    </div>
+                    <dl>
+                        <dt>Start</dt><dd>+@FormatMs(selected.StartMs) after process start</dd>
+                        <dt>Duration</dt><dd>@FormatMs(selected.DurationMs)</dd>
+                        <dt>Source</dt><dd>@selected.Source</dd>
+                        <dt>Trace ID</dt><dd><code>@selected.TraceId</code></dd>
+                        <dt>Span ID</dt><dd><code>@selected.SpanId</code></dd>
+                        <dt>Parent</dt><dd>@(selected.ParentSpanId is { } p ? (trace.ById.TryGetValue(p, out var parent) ? parent.Name : p) : "— (root)")</dd>
+                        @foreach (var tag in selected.Tags)
+                        {
+                            <dt>@tag.Key</dt><dd>@tag.Value</dd>
+                        }
+                    </dl>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    const string SpansPath = "/api/v1/ext/com.microsoft.android.telemetry/spans";
+
+    [Parameter] public InspectorUiClient Client { get; set; } = null!;
+
+    readonly HttpClient http = new () { Timeout = TimeSpan.FromSeconds (10) };
+    TraceModel? trace;
+    TraceSpan? selected;
+    TraceSpan? zoomSpan;
+    string? error;
+    bool loading;
+
+    double windowStart => zoomSpan is { } z ? Math.Max (0, z.StartMs - SubtreeDuration (z) * 0.05) : 0;
+    double windowEnd => zoomSpan is { } z ? z.StartMs + SubtreeDuration (z) * 1.05 : trace?.EndMs ?? 1;
+
+    protected override Task OnInitializedAsync () => LoadAsync ();
+
+    async Task LoadAsync ()
+    {
+        loading = true;
+        try {
+            var response = await http.GetAsync (Client.BaseUrl + SpansPath);
+            if (!response.IsSuccessStatusCode) {
+                error = $"The app does not expose {SpansPath} (HTTP {(int) response.StatusCode}). Register the Android telemetry DevFlow extension in the app to see startup spans.";
+                trace = null;
+                return;
+            }
+            var dto = await response.Content.ReadFromJsonAsync<SpansResponse> ();
+            trace = TraceModel.Create (dto ?? new SpansResponse ());
+            error = trace.Spans.Count == 0 ? "The app returned no spans yet." : null;
+            selected = selected is null ? null : trace.Spans.FirstOrDefault (s => s.SpanId == selected.SpanId);
+            zoomSpan = zoomSpan is null ? null : trace.Spans.FirstOrDefault (s => s.SpanId == zoomSpan.SpanId);
+        } catch (Exception ex) {
+            error = $"Could not load spans: {ex.Message}";
+            trace = null;
+        } finally {
+            loading = false;
+        }
+    }
+
+    void Select (TraceSpan span) => selected = selected == span ? null : span;
+
+    void ZoomToSelection () => zoomSpan = selected;
+
+    double SubtreeDuration (TraceSpan span)
+    {
+        var end = span.EndMs;
+        foreach (var child in trace?.Spans.Where (s => s.ParentSpanId == span.SpanId) ?? [])
+            end = Math.Max (end, child.StartMs + SubtreeDuration (child));
+        return Math.Max (end - span.StartMs, 1);
+    }
+
+    IEnumerable<double> Ticks ()
+    {
+        var range = windowEnd - windowStart;
+        var step = NiceStep (range / 5);
+        for (var t = Math.Ceiling (windowStart / step) * step; t <= windowEnd; t += step)
+            yield return t;
+    }
+
+    static double NiceStep (double raw)
+    {
+        var magnitude = Math.Pow (10, Math.Floor (Math.Log10 (Math.Max (raw, 0.001))));
+        foreach (var m in new[] { 1, 2, 2.5, 5, 10 })
+            if (raw <= m * magnitude)
+                return m * magnitude;
+        return 10 * magnitude;
+    }
+
+    string Pct (double ms) => ((ms - windowStart) / (windowEnd - windowStart) * 100).ToString ("0.###", CultureInfo.InvariantCulture) + "%";
+
+    string Width (TraceSpan s)
+    {
+        var start = Math.Max (s.StartMs, windowStart);
+        var end = Math.Min (s.EndMs, windowEnd);
+        var pct = Math.Max ((end - start) / (windowEnd - windowStart) * 100, 0.3);
+        return pct.ToString ("0.###", CultureInfo.InvariantCulture) + "%";
+    }
+
+    string FormatTick (double ms) => Invariant (ms, windowEnd - windowStart < 20 ? "0.#" : "0") + " ms";
+
+    static string FormatMs (double ms) => ms switch {
+        < 0.1 => Invariant (ms * 1000, "0") + " µs",
+        < 10 => Invariant (ms, "0.00") + " ms",
+        < 1000 => Invariant (ms, "0.0") + " ms",
+        _ => Invariant (ms, "0") + " ms",
+    };
+
+    static string Invariant (double value, string format) => value.ToString (format, CultureInfo.InvariantCulture);
+
+    static string Category (TraceSpan s)
+    {
+        if (s.Name.StartsWith ("android.activity.", StringComparison.Ordinal))
+            return "activity";
+        if (s.Source.StartsWith ("Microsoft.Android", StringComparison.Ordinal) || s.Source.StartsWith ("Mono.Android", StringComparison.Ordinal))
+            return "runtime";
+        return "app";
+    }
+
+    static string FriendlyName (string name)
+    {
+        var parts = name.Split ('.');
+        var tail = parts.Length > 2 ? string.Join (" ", parts.Skip (parts.Length - 2)) : string.Join (" ", parts);
+        if (name.StartsWith ("android.runtime.", StringComparison.Ordinal) && parts.Length == 3)
+            tail = "runtime " + parts [2];
+        tail = string.Join (" ", tail.Replace ('_', ' ').Split (' ').Select (w => w is "jni" or "gc" or "ui" or "gpu" ? w.ToUpperInvariant () : w));
+        return tail.Length == 0 ? name : char.ToUpperInvariant (tail [0]) + tail [1..];
+    }
+
+    public void Dispose () => http.Dispose ();
+
+    sealed class SpansResponse
+    {
+        [JsonPropertyName ("processStartUtc")] public DateTimeOffset? ProcessStartUtc { get; set; }
+        [JsonPropertyName ("firstPageLoadedUtc")] public DateTimeOffset? FirstPageLoadedUtc { get; set; }
+        [JsonPropertyName ("spans")] public List<SpanDto> Spans { get; set; } = [];
+    }
+
+    sealed class SpanDto
+    {
+        [JsonPropertyName ("source")] public string? Source { get; set; }
+        [JsonPropertyName ("name")] public string? Name { get; set; }
+        [JsonPropertyName ("traceId")] public string? TraceId { get; set; }
+        [JsonPropertyName ("spanId")] public string? SpanId { get; set; }
+        [JsonPropertyName ("parentSpanId")] public string? ParentSpanId { get; set; }
+        [JsonPropertyName ("startUtc")] public DateTimeOffset StartUtc { get; set; }
+        [JsonPropertyName ("durationMs")] public double DurationMs { get; set; }
+        [JsonPropertyName ("tags")] public Dictionary<string, JsonElement>? Tags { get; set; }
+    }
+
+    sealed class TraceSpan
+    {
+        public required string Name { get; init; }
+        public required string Source { get; init; }
+        public required string TraceId { get; init; }
+        public required string SpanId { get; init; }
+        public string? ParentSpanId { get; init; }
+        public double StartMs { get; init; }
+        public double DurationMs { get; init; }
+        public double EndMs => StartMs + DurationMs;
+        public List<KeyValuePair<string, string>> Tags { get; init; } = [];
+    }
+
+    sealed record TraceRow (TraceSpan Span, int Depth);
+
+    sealed class TraceModel
+    {
+        public List<TraceSpan> Spans { get; } = [];
+        public List<TraceRow> Rows { get; } = [];
+        public Dictionary<string, TraceSpan> ById { get; } = new ();
+        public double? FirstPageMs { get; private set; }
+        public double EndMs { get; private set; }
+        public int TraceCount => Spans.Select (s => s.TraceId).Distinct ().Count ();
+
+        public static TraceModel Create (SpansResponse dto)
+        {
+            var model = new TraceModel ();
+            if (dto.Spans.Count == 0)
+                return model;
+
+            var origin = dto.ProcessStartUtc ?? dto.Spans.Min (s => s.StartUtc);
+            foreach (var s in dto.Spans) {
+                var span = new TraceSpan {
+                    Name = s.Name ?? "(unnamed)",
+                    Source = s.Source ?? "",
+                    TraceId = s.TraceId ?? "",
+                    SpanId = s.SpanId ?? Guid.NewGuid ().ToString ("N"),
+                    ParentSpanId = string.IsNullOrEmpty (s.ParentSpanId) ? null : s.ParentSpanId,
+                    StartMs = (s.StartUtc - origin).TotalMilliseconds,
+                    DurationMs = s.DurationMs,
+                    Tags = s.Tags?.Select (t => new KeyValuePair<string, string> (t.Key, t.Value.ToString ())).ToList () ?? [],
+                };
+                model.Spans.Add (span);
+                model.ById [span.SpanId] = span;
+            }
+
+            if (dto.FirstPageLoadedUtc is { } firstPage)
+                model.FirstPageMs = (firstPage - origin).TotalMilliseconds;
+            model.EndMs = Math.Max (model.Spans.Max (s => s.EndMs), model.FirstPageMs ?? 0) * 1.03;
+
+            var children = model.Spans
+                .Where (s => s.ParentSpanId != null && model.ById.ContainsKey (s.ParentSpanId))
+                .ToLookup (s => s.ParentSpanId!);
+            void Add (TraceSpan span, int depth)
+            {
+                model.Rows.Add (new TraceRow (span, depth));
+                foreach (var child in children [span.SpanId].OrderBy (c => c.StartMs))
+                    Add (child, depth + 1);
+            }
+            foreach (var root in model.Spans.Where (s => s.ParentSpanId == null || !model.ById.ContainsKey (s.ParentSpanId)).OrderBy (s => s.StartMs))
+                Add (root, 0);
+            return model;
+        }
+    }
+}
+
+<style>
+    .trace-layout { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+    .trace-header {
+        display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;
+        padding: 0.5rem 0.75rem; background: var(--bg-secondary); border-bottom: 1px solid var(--border-color);
+        font-size: 0.85rem; font-weight: 600;
+    }
+    .trace-title, .trace-actions { display: inline-flex; align-items: center; gap: 0.5rem; }
+    .trace-headline { font-weight: 500; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+    .trace-pill {
+        font-size: 0.7rem; font-weight: 500; padding: 0.1rem 0.45rem; border-radius: 999px;
+        border: 1px solid var(--border-color); color: var(--text-secondary);
+    }
+    .trace-segmented { display: inline-flex; border: 1px solid var(--border-color); border-radius: 6px; overflow: hidden; }
+    .trace-segmented button {
+        background: none; border: none; color: var(--text-secondary); font-size: 0.72rem; padding: 0.2rem 0.6rem; cursor: pointer;
+    }
+    .trace-segmented button + button { border-left: 1px solid var(--border-color); }
+    .trace-segmented button.active { background: var(--bg-tertiary); color: var(--text-primary); }
+    .trace-segmented button:disabled { opacity: 0.45; cursor: default; }
+    .trace-layout .btn-icon {
+        background: none; border: none; color: var(--text-secondary); cursor: pointer; padding: 0.25rem 0.4rem; border-radius: 4px;
+    }
+    .trace-layout .btn-icon:hover { color: var(--text-primary); background: var(--bg-tertiary); }
+    .trace-note { padding: 0.4rem 0.75rem; font-size: 0.72rem; color: var(--text-secondary); border-bottom: 1px solid var(--border-color); }
+    .trace-body { flex: 1; overflow: auto; padding-bottom: 1rem; }
+    .trace-empty { display: flex; gap: 0.75rem; padding: 1.5rem; color: var(--text-secondary); font-size: 0.85rem; }
+    .trace-empty p { margin: 0.25rem 0 0; }
+
+    .trace-grid { min-width: 720px; }
+    .trace-row {
+        display: grid; grid-template-columns: minmax(220px, 30%) 1fr 84px; align-items: stretch;
+        border-bottom: 1px solid color-mix(in srgb, var(--border-color) 55%, transparent); cursor: pointer;
+    }
+    .trace-row:hover { background: var(--bg-secondary); }
+    .trace-row.selected { background: color-mix(in srgb, var(--accent-color, #3b82f6) 14%, transparent); }
+    .trace-row.dimmed { opacity: 0.4; }
+    .trace-axis-row { position: sticky; top: 0; z-index: 2; background: var(--bg-primary); cursor: default; }
+    .trace-axis-row:hover { background: var(--bg-primary); }
+    .trace-axis-label { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-secondary); padding: 0.35rem 0.6rem; }
+    .trace-label { display: flex; align-items: center; gap: 0.45rem; padding: 0.3rem 0.6rem; min-width: 0; }
+    .trace-label-text { display: flex; flex-direction: column; min-width: 0; }
+    .trace-label-name { font-size: 0.8rem; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .trace-label-sub {
+        font-size: 0.66rem; color: var(--text-secondary); font-family: var(--font-mono, ui-monospace, monospace);
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .trace-duration {
+        display: flex; align-items: center; justify-content: flex-end; padding: 0 0.75rem;
+        font-size: 0.75rem; font-variant-numeric: tabular-nums; color: var(--text-secondary);
+    }
+    .trace-lane { position: relative; min-height: 2.3rem; margin: 0 0.5rem; }
+    .trace-axis { min-height: 1.6rem; }
+    .trace-tick {
+        position: absolute; top: 0.4rem; transform: translateX(-50%); font-size: 0.66rem; color: var(--text-secondary);
+        font-variant-numeric: tabular-nums; white-space: nowrap;
+    }
+    .trace-gridline { position: absolute; top: 0; bottom: 0; width: 1px; background: color-mix(in srgb, var(--border-color) 60%, transparent); }
+    .trace-bar { position: absolute; top: 50%; height: 0.85rem; transform: translateY(-50%); border-radius: 3px; min-width: 2px; }
+    .trace-marker { position: absolute; top: 50%; width: 0.6rem; height: 0.6rem; transform: translate(-50%, -50%) rotate(45deg); border-radius: 1px; }
+    .trace-marker-legend {
+        display: inline-block; width: 0.5rem; height: 0.5rem; transform: rotate(45deg); background: var(--text-secondary); margin-right: 0.25rem;
+    }
+    .trace-dot { display: inline-block; flex: none; width: 0.55rem; height: 0.55rem; border-radius: 2px; }
+    .trace-bar.app, .trace-marker.app, .trace-dot.app { background: #8b5cf6; }
+    .trace-bar.runtime, .trace-marker.runtime, .trace-dot.runtime { background: #3b82f6; }
+    .trace-bar.activity, .trace-marker.activity, .trace-dot.activity { background: #10b981; }
+    .trace-legend { display: flex; gap: 1rem; padding: 0.6rem 0.75rem; font-size: 0.72rem; color: var(--text-secondary); }
+    .trace-legend > span { display: inline-flex; align-items: center; gap: 0.3rem; }
+
+    .trace-details {
+        margin: 0.25rem 0.75rem; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-secondary);
+        font-size: 0.78rem;
+    }
+    .trace-details-title { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; }
+    .trace-details-title code { color: var(--text-secondary); font-size: 0.72rem; }
+    .trace-details dl { display: grid; grid-template-columns: max-content 1fr; gap: 0.25rem 1rem; margin: 0; }
+    .trace-details dt { color: var(--text-secondary); }
+    .trace-details dd { margin: 0; word-break: break-all; font-variant-numeric: tabular-nums; }
+</style>
