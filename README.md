@@ -290,6 +290,9 @@ To use the Copilot integration:
 
 ## 🛠️ Building from Source
 
+Use the .NET 11 SDK and matching MAUI workloads. macOS builds require Xcode 27.2.
+The GTK head targets plain `net11.0`; the AppKit head targets `net11.0-macos`.
+
 ```bash
 # Clone the repository
 git clone https://github.com/Redth/MAUI.Sherpa.git
@@ -299,10 +302,10 @@ cd MAUI.Sherpa
 dotnet restore
 
 # Build for macOS (AppKit)
-dotnet build src/MauiSherpa.MacOS -f net10.0-macos
+dotnet build src/MauiSherpa.MacOS -f net11.0-macos
 
 # Build for Windows (Windows only)
-dotnet build src/MauiSherpa -f net10.0-windows10.0.19041.0
+dotnet build src/MauiSherpa -f net11.0-windows10.0.19041.0
 
 # Run tests
 dotnet test

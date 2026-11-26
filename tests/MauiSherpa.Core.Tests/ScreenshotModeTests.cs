@@ -38,6 +38,7 @@ public class ScreenshotModeTests
         var services = new ServiceCollection();
         services.AddSingleton(platform.Object);
         services.AddSingleton<IAndroidSdkService>(_ => throw new Exception("Production SDK service was instantiated"));
+        services.AddSingleton<IAndroidSdkPathService>(_ => throw new Exception("Production PATH service was instantiated"));
         services.AddSingleton<EncryptedSettingsService>(_ => throw new Exception("Production settings were instantiated"));
         services.AddSingleton<IBackgroundTaskHandler>(_ => throw new Exception("Production worker was instantiated"));
         var mode = ScreenshotMode.Parse("website-v1", true);
@@ -138,6 +139,25 @@ public class ScreenshotModeTests
             revoke.Should().Throw<InvalidOperationException>().WithMessage("*Screenshot Mode blocked*");
             inspect.Should().Throw<InvalidOperationException>().WithMessage("*Screenshot Mode blocked*");
             mode.Violations.Should().HaveCount(4);
+        }
+    }
+
+    [Fact]
+    public void AndroidPathConfigurationIsIsolatedAndBlocked()
+    {
+        var (mode, services) = Create(mac: true);
+        using (services)
+        {
+            var paths = services.GetRequiredService<IAndroidSdkPathService>();
+            paths.DefaultShell.Should().Be(AndroidPathShell.Zsh);
+            paths.CanConfigureMachinePath.Should().BeFalse();
+            var options = new AndroidPathOptions(AndroidPathShell.Zsh, AndroidPathScope.User);
+            Action check = () => paths.CheckAsync(options);
+            Action apply = () => paths.ApplyAsync(new AndroidPathPlan(
+                "/sample/sdk", options, "/sample/.zshrc", [], [], "", "", "", false, false));
+            check.Should().Throw<InvalidOperationException>().WithMessage("*IAndroidSdkPathService.CheckAsync*");
+            apply.Should().Throw<InvalidOperationException>().WithMessage("*IAndroidSdkPathService.ApplyAsync*");
+            mode.Violations.Should().HaveCount(2);
         }
     }
 

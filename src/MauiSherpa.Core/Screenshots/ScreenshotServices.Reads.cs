@@ -5,7 +5,7 @@ using MauiSherpa.Workloads.Models;
 
 namespace MauiSherpa.Core.Screenshots;
 
-internal sealed partial class ScreenshotServices : IOpenJdkService
+internal sealed partial class ScreenshotServices : IAndroidSdkPathService, IOpenJdkService
 {
     private ScreenshotFixtures Fixtures => fixtures;
     private bool IsAppleHost => platform.IsMacOS || platform.IsMacCatalyst;
@@ -24,6 +24,14 @@ internal sealed partial class ScreenshotServices : IOpenJdkService
 
     private static Task<T> Read<T>(T value) => Task.FromResult(value);
     private static Task<IReadOnlyList<T>> List<T>(IEnumerable<T> values) => Read<IReadOnlyList<T>>(values.ToArray());
+
+    AndroidPathShell IAndroidSdkPathService.DefaultShell =>
+        platform.IsWindows ? AndroidPathShell.Windows : IsAppleHost ? AndroidPathShell.Zsh : AndroidPathShell.Bash;
+    bool IAndroidSdkPathService.CanConfigureMachinePath => false;
+    Task<AndroidPathPlan> IAndroidSdkPathService.CheckAsync(AndroidPathOptions options, CancellationToken cancellationToken) =>
+        throw mode.Blocked("IAndroidSdkPathService.CheckAsync");
+    Task IAndroidSdkPathService.ApplyAsync(AndroidPathPlan plan, CancellationToken cancellationToken) =>
+        throw mode.Blocked("IAndroidSdkPathService.ApplyAsync");
 
     Task<MauiSherpaSettings> IEncryptedSettingsService.GetSettingsAsync() => Read(settings);
     Task IEncryptedSettingsService.SaveSettingsAsync(MauiSherpaSettings value)

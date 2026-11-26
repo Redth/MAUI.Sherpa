@@ -332,11 +332,16 @@ else
 
     protected override async Task OnInitializedAsync()
     {
-        ToolbarService.SetItems(
+        var pairAction = new ToolbarAction("pair", "Pair Device", "link");
+        var createAction = new ToolbarAction("create", "Create Emulator", "plus");
+        ToolbarAction[] deviceActions = PlatformInfo.IsWindows || PlatformInfo.IsLinux
+            ? [new("device-actions", "Devices & Emulators", "iphone",
+                ToolTip: "Pair Device or Create Emulator", MenuActions: [pairAction, createAction])]
+            : [pairAction, createAction];
+        ToolbarService.SetItems([
             MauiSherpa.Components.AndroidSdkContext.Menu,
             new ToolbarAction("refresh", "Refresh", "arrow.clockwise"),
-            new ToolbarAction("pair", "Pair Device", "link"),
-            new ToolbarAction("create", "Create Emulator", "plus"));
+            ..deviceActions]);
         ToolbarService.SetSearch("Search emulators...");
         UpdateToolbarFilters();
         ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
