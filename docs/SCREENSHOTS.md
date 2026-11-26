@@ -219,9 +219,9 @@ All rows use the top of the page, with no modal open.
 ### macOS build and DevFlow
 
 ```bash
-dotnet build src/MauiSherpa.MacOS -f net10.0-macos
+dotnet build src/MauiSherpa.MacOS -f net11.0-macos
 MAUI_SHERPA_SCREENSHOT_MODE=website-v1 MAUI_SHERPA_ENABLE_DEVFLOW=1 \
-  "src/MauiSherpa.MacOS/bin/Debug/net10.0-macos/osx-arm64/MAUI Sherpa.app/Contents/MacOS/MauiSherpa.MacOS"
+  "src/MauiSherpa.MacOS/bin/Debug/net11.0-macos/osx-arm64/MAUI Sherpa.app/Contents/MacOS/MauiSherpa.MacOS"
 dotnet maui devflow wait --wait-platform macOS --timeout 30
 dotnet maui devflow list
 ```
@@ -295,7 +295,7 @@ with website/images/screenshots/macos/ as the visual reference.
 Build and launch the current Windows head from PowerShell:
 $env:MAUI_SHERPA_SCREENSHOT_MODE = "website-v1"
 $env:MAUI_SHERPA_ENABLE_DEVFLOW = "1"
-dotnet build src/MauiSherpa -f net10.0-windows10.0.19041.0 -t:Run
+dotnet build src/MauiSherpa -f net11.0-windows10.0.19041.0 -t:Run
 Discover this Sherpa instance's port from a second terminal and run:
 node build/capture-screenshots.mjs --agent-port <port> --platform windows --output <outside-repo-directory> --theme both
 Verify the diagnostics identify website-v1 and Windows. Do not import accounts,
