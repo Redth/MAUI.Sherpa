@@ -28,6 +28,7 @@ public static class MacOSMauiProgram
             MigrateAppData();
 
         var builder = MauiApp.CreateBuilder();
+        builder.Services.AddMauiBlazorWebView();
         builder
             .UseMauiAppMacOS<MacOSApp>()
             .AddMacOSBlazorWebView()
@@ -65,8 +66,6 @@ public static class MacOSMauiProgram
         {
             handlers.AddHandler<FlyoutPage, NativeSidebarFlyoutPageHandler>();
         });
-
-        builder.Services.AddMauiBlazorWebView();
 
         // Debug logging service
         var debugLogService = new DebugLogService();
