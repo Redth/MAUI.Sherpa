@@ -47,14 +47,24 @@ public class LinuxToolbarManager
     {
         // SF Symbols used by pages
         ["arrow.clockwise"] = "view-refresh-symbolic",
+        ["arrow.triangle.2.circlepath"] = "view-refresh-symbolic",
         ["wifi"] = "network-wireless-signal-excellent-symbolic",
         ["plus"] = "list-add-symbolic",
         ["plus.circle"] = "list-add-symbolic",
+        ["link"] = "insert-link-symbolic",
+        ["iphone"] = "sherpa-mobile-screen-button-symbolic",
+        ["shippingbox"] = "sherpa-cube-symbolic",
+        ["folder"] = "folder-open-symbolic",
+        ["folder.badge.plus"] = "folder-new-symbolic",
+        ["arrow.up"] = "go-up-symbolic",
+        ["pencil"] = "document-edit-symbolic",
+        ["xmark"] = "window-close-symbolic",
         ["trash"] = "edit-delete-symbolic",
         ["checkmark"] = "object-select-symbolic",
+        ["checkmark.circle"] = "object-select-symbolic",
         ["square.and.arrow.down"] = "document-save-symbolic",
         ["square.and.arrow.up"] = "document-send-symbolic",
-        ["wand.and.stars"] = "go-up-symbolic",
+        ["record.circle"] = "media-record-symbolic",
 
         // Font Awesome names mapped to GTK icons
         ["fa-cog"] = "emblem-system-symbolic",
@@ -200,12 +210,20 @@ public class LinuxToolbarManager
             if (items[i].MenuActions is { } children)
             {
                 var menu = Gtk.MenuButton.New();
-                menu.SetLabel(items[i].Label);
+                if (IconMap.TryGetValue(items[i].SfSymbol, out var menuIcon))
+                {
+                    menu.SetIconName(menuIcon);
+                    menu.SetAlwaysShowArrow(true);
+                }
+                else
+                    menu.SetLabel(items[i].Label);
+                menu.SetTooltipText(items[i].ToolTip ?? items[i].Label);
+                menu.SetSensitive(_toolbarService.IsItemEnabled(items[i].Id));
                 var popover = Gtk.Popover.New();
                 var box = Gtk.Box.New(Gtk.Orientation.Vertical, 4);
                 foreach (var child in children)
                 {
-                    var menuActionButton = CreateButton(child);
+                    var menuActionButton = CreateButton(child, showLabel: true);
                     menuActionButton.OnClicked += (_, _) => popover.Popdown();
                     box.Append(menuActionButton);
                 }
@@ -343,20 +361,20 @@ public class LinuxToolbarManager
         });
     }
 
-    private Gtk.Button CreateButton(ToolbarAction action)
+    private Gtk.Button CreateButton(ToolbarAction action, bool showLabel = false)
     {
         var button = Gtk.Button.New();
 
-        if (IconMap.TryGetValue(action.SfSymbol, out var gtkIcon))
+        if (!showLabel && IconMap.TryGetValue(action.SfSymbol, out var gtkIcon))
         {
             button.SetIconName(gtkIcon);
-            button.SetTooltipText(action.ToolTip ?? action.Label);
         }
         else
         {
             button.SetLabel(action.Label);
         }
 
+        button.SetTooltipText(action.ToolTip ?? action.Label);
         button.SetSensitive(_toolbarService.IsItemEnabled(action.Id));
 
         var capturedId = action.Id;

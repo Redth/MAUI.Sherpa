@@ -487,14 +487,17 @@ public class WindowsTitleBarManager : IDisposable
     private Button CreateActionButton(ToolbarAction action)
     {
         var fluentIcon = MapSfSymbolToFluentIcon(action.SfSymbol);
+        var iconOnly = fluentIcon != null && action.SfSymbol is not
+            ("mountain.2" or "doc.badge.plus" or "archivebox" or "wand.and.stars");
         var btn = new Button
         {
-            Text = action.Label,
+            Text = iconOnly ? "" : action.Label,
             FontSize = 13,
             TextColor = Foreground,
             HeightRequest = 32,
+            WidthRequest = iconOnly ? (action.MenuActions != null ? 52 : 36) : -1,
             MinimumWidthRequest = 36,
-            Padding = new Thickness(10, 0),
+            Padding = new Thickness(iconOnly ? 8 : 10, 0),
             BackgroundColor = ControlBackground,
             BorderColor = ControlBorder,
             BorderWidth = 1,
@@ -526,18 +529,33 @@ public class WindowsTitleBarManager : IDisposable
                     FontSize = 16,
                     VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Center,
                 });
-                content.Children.Add(new Microsoft.UI.Xaml.Controls.TextBlock
+                if (!iconOnly)
                 {
-                    Text = action.Label,
-                    FontSize = btn.FontSize,
-                    VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Center,
-                });
+                    content.Children.Add(new Microsoft.UI.Xaml.Controls.TextBlock
+                    {
+                        Text = action.Label,
+                        FontSize = btn.FontSize,
+                        VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Center,
+                    });
+                }
+                if (action.MenuActions != null)
+                {
+                    content.Children.Add(new Microsoft.UI.Xaml.Controls.FontIcon
+                    {
+                        Glyph = GetEnumDescription(FluentIcons.ChevronDown16),
+                        FontFamily = _serviceProvider.GetRequiredService<IFontManager>()
+                            .GetFontFamily(Microsoft.Maui.Font.OfSize("FluentIcons", 12)),
+                        FontSize = 12,
+                        VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Center,
+                    });
+                }
                 platformButton.Content = content;
             };
 #endif
         }
 
         ToolTipProperties.SetText(btn, action.ToolTip ?? action.Label);
+        SemanticProperties.SetDescription(btn, action.Label);
         if (action.MenuActions is { } children)
         {
             var menu = new MenuFlyout();
@@ -763,6 +781,9 @@ public class WindowsTitleBarManager : IDisposable
         "wifi" => FluentIcons.Wifi420,
         "plus" => FluentIcons.Add20,
         "plus.circle" => FluentIcons.AddCircle20,
+        "link" => FluentIcons.Link20,
+        "iphone" => FluentIcons.Phone20,
+        "shippingbox" => FluentIcons.Box20,
         "folder" => FluentIcons.FolderOpen20,
         "folder.badge.plus" => FluentIcons.FolderAdd20,
         "mountain.2" => FluentIcons.BookOpen20,
@@ -773,6 +794,7 @@ public class WindowsTitleBarManager : IDisposable
         "pencil" => FluentIcons.Edit20,
         "xmark" => FluentIcons.Dismiss20,
         "checkmark" => FluentIcons.Checkmark20,
+        "checkmark.circle" => FluentIcons.CheckmarkCircle20,
         "magnifyingglass" => FluentIcons.Search20,
         "gear" or "fa-cog" => FluentIcons.Settings20,
         "doc.on.doc" => FluentIcons.DocumentCopy20,

@@ -204,6 +204,8 @@ the native macOS Composer icon, the splash artwork,
 website hero, and README use the full-body guide. Linux packages use a single large icon.
 
 Windows toolbar action glyphs use native `FontIcon` controls rather than rasterized `FontImageSource` images to stay sharp at high DPI.
+Windows and GTK toolbar actions use icon-only buttons with descriptive tooltips for familiar actions (add, refresh/update, import/export, edit, delete, select, cancel, and folder navigation). Keep labels for ambiguous actions such as release notes and artifact/session imports, and keep menu entries labeled. Windows icon-only buttons retain the action label as their accessible name.
+On Windows and GTK, Pair Device and Create Emulator share a device-icon dropdown; Android SDK commands use a package-icon dropdown. Icon-only menu buttons include a dropdown arrow.
 
 Using Font Awesome. Example:
 ```razor
