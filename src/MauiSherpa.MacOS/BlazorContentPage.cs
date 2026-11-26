@@ -106,6 +106,7 @@ public class BlazorContentPage : ContentPage
         });
 
         Content = _blazorWebView;
+        WebViewAutoresizeWorkaround.Attach(_blazorWebView);
 
         // Always show the Copilot button in the sidebar trailing area
         var initialCopilot = CreateCopilotToolbarItem();
@@ -123,22 +124,6 @@ public class BlazorContentPage : ContentPage
                 Dispatcher.Dispatch(AddTitlebarDragOverlay);
             }
         };
-
-        // TEMP-DIAG
-        Dispatcher.StartTimer(TimeSpan.FromSeconds(10), () =>
-        {
-            void Dump(AppKit.NSView v, int d)
-            {
-                Console.WriteLine($"[Sherpa-tree] {new string(' ', d * 2)}{v.GetType().Name} frame={v.Frame} hidden={v.Hidden} alpha={v.AlphaValue} layerOp={v.Layer?.Opacity}");
-                if (d < 12)
-                    foreach (var c in v.Subviews) Dump(c, d + 1);
-            }
-            var wk = _blazorWebView.Handler?.PlatformView as AppKit.NSView;
-            Console.WriteLine($"[Sherpa-tree] wk={wk?.GetType().Name} window={wk?.Window != null} super={wk?.Superview?.GetType().Name}");
-            var root = wk?.Window?.ContentView;
-            if (root != null) Dump(root, 0);
-            return false;
-        });
 
         // Safety timeout for loading overlay
         Dispatcher.StartTimer(TimeSpan.FromSeconds(15), () =>
@@ -165,7 +150,6 @@ public class BlazorContentPage : ContentPage
         // content view and the page renders blank. Only overlay once the web view has a container.
         var superview = webViewNative.Superview;
         if (superview == null) return;
-        Console.WriteLine($"[Sherpa] AddNativeLoadingOverlay: existing={_loadingOverlay != null}, superview={superview.GetType().Name}");
 
         // HandlerChanged can fire more than once. HideSplash only removes the overlay we still
         // track, so an untracked earlier overlay would cover the web view permanently.
@@ -208,7 +192,8 @@ public class BlazorContentPage : ContentPage
         // Use KVC to disable it so the native window background is visible.
         webView.SetValueForKey(NSObject.FromObject(false), new NSString("drawsBackground"));
 
-        // TEMP-EXPERIMENT: don't hide
+        // Also hide the native view until Blazor is ready — prevents dark flash
+        webView.Hidden = true;
     }
 
     private TitlebarDragView? _dragOverlay;
