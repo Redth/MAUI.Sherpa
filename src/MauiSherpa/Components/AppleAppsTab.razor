@@ -17,20 +17,21 @@
     <div class="sim-apps-toolbar">
         <input type="text" placeholder="Search apps..." @bind="searchQuery" @bind:event="oninput" class="sim-apps-search" />
         <div class="sim-apps-filter">
-            <select @bind="filterType">
-                <option value="">All Types</option>
-                <option value="User">User</option>
-                <option value="System">System</option>
-            </select>
+            <SherpaSelect TValue="string"
+                          Value="@filterType"
+                          ValueChanged="@((string? value) => filterType = value ?? string.Empty)"
+                          Options="AppTypeOptions"
+                          AriaLabel="Filter Apple apps by type"
+                          Compact="true" />
         </div>
         @if (IsSimulator)
         {
             <button class="btn btn-success btn-sm" @onclick="InstallApp" disabled="@isLoading">
-                <i class="fas fa-plus"></i> Install .app
+                <i class="fa-solid fa-plus"></i> Install .app
             </button>
         }
         <button class="btn btn-primary btn-sm" @onclick="() => LoadApps(forceRefresh: true)" disabled="@isLoading">
-            <i class="fas @(isLoading ? "fa-spinner fa-spin" : "fa-sync-alt")"></i>
+            <i class="fa-solid @(isLoading ? "fa-spinner fa-spin" : "fa-sync-alt")"></i>
         </button>
     </div>
 
@@ -38,20 +39,20 @@
         @if (isLoading && simApps.Count == 0 && physicalApps.Count == 0)
         {
             <div class="sim-apps-empty">
-                <i class="fas fa-spinner fa-spin"></i> Loading installed apps...
+                <i class="fa-solid fa-spinner fa-spin"></i> Loading installed apps...
             </div>
         }
         else if (IsSimulator && !FilteredSimApps.Any())
         {
             <div class="sim-apps-empty">
-                <i class="fas fa-box-open"></i>
+                <i class="fa-solid fa-box-open"></i>
                 <span>No apps found</span>
             </div>
         }
         else if (!IsSimulator && !FilteredPhysicalApps.Any())
         {
             <div class="sim-apps-empty">
-                <i class="fas fa-box-open"></i>
+                <i class="fa-solid fa-box-open"></i>
                 <span>No apps found</span>
             </div>
         }
@@ -62,14 +63,14 @@
                 var isUserApp = app.ApplicationType != "System";
                 <div class="sim-app-row @(isUserApp ? "user-app" : "")">
                     <div class="sim-app-icon">
-                        <i class="fas @(isUserApp ? "fa-cube" : "fa-mobile-screen")"></i>
+                        <i class="fa-solid @(isUserApp ? "fa-cube" : "fa-mobile-screen")"></i>
                     </div>
                     <div class="sim-app-details">
                         <div class="sim-app-name">@app.Name</div>
                         <div class="sim-app-bundle-id">
                             @app.BundleId
                             <button class="btn-copy-inline" @onclick="@(() => CopyToClipboard(app.BundleId))" title="Copy Bundle ID">
-                                <i class="fas fa-copy"></i>
+                                <i class="fa-solid fa-copy"></i>
                             </button>
                         </div>
                         @if (!string.IsNullOrEmpty(app.Version))
@@ -82,21 +83,21 @@
                     </div>
                     <div class="sim-app-actions">
                         <button class="btn btn-sm btn-secondary" @onclick="@(() => LaunchSimApp(app))" title="Launch">
-                            <i class="fas fa-play"></i>
+                            <i class="fa-solid fa-play"></i>
                         </button>
                         <button class="btn btn-sm btn-secondary" @onclick="@(() => TerminateSimApp(app))" title="Terminate">
-                            <i class="fas fa-stop"></i>
+                            <i class="fa-solid fa-stop"></i>
                         </button>
                         @if (!string.IsNullOrEmpty(app.DataContainerPath))
                         {
                             <button class="btn btn-sm btn-secondary" @onclick="@(() => RevealSimContainer(app))" title="Reveal data container in Finder">
-                                <i class="fas fa-folder-open"></i>
+                                <i class="fa-solid fa-folder-open"></i>
                             </button>
                         }
                         @if (isUserApp)
                         {
                             <button class="btn btn-sm btn-danger" @onclick="@(() => UninstallSimApp(app))" title="Uninstall">
-                                <i class="fas fa-trash"></i>
+                                <i class="fa-solid fa-trash"></i>
                             </button>
                         }
                     </div>
@@ -110,14 +111,14 @@
                 var isUserApp = !app.AppType.Contains("System", StringComparison.OrdinalIgnoreCase);
                 <div class="sim-app-row @(isUserApp ? "user-app" : "")">
                     <div class="sim-app-icon">
-                        <i class="fas @(isUserApp ? "fa-cube" : "fa-mobile-screen")"></i>
+                        <i class="fa-solid @(isUserApp ? "fa-cube" : "fa-mobile-screen")"></i>
                     </div>
                     <div class="sim-app-details">
                         <div class="sim-app-name">@app.Name</div>
                         <div class="sim-app-bundle-id">
                             @app.BundleId
                             <button class="btn-copy-inline" @onclick="@(() => CopyToClipboard(app.BundleId))" title="Copy Bundle ID">
-                                <i class="fas fa-copy"></i>
+                                <i class="fa-solid fa-copy"></i>
                             </button>
                         </div>
                         @if (!string.IsNullOrEmpty(app.Version))
@@ -130,12 +131,12 @@
                     </div>
                     <div class="sim-app-actions">
                         <button class="btn btn-sm btn-secondary" @onclick="@(() => LaunchPhysicalApp(app))" title="Launch">
-                            <i class="fas fa-play"></i>
+                            <i class="fa-solid fa-play"></i>
                         </button>
                         @if (isUserApp)
                         {
                             <button class="btn btn-sm btn-secondary" @onclick="@(() => DownloadContainer(app))" disabled="@(downloadingBundleId == app.BundleId)" title="Download app container">
-                                <i class="fas @(downloadingBundleId == app.BundleId ? "fa-spinner fa-spin" : "fa-download")"></i>
+                                <i class="fa-solid @(downloadingBundleId == app.BundleId ? "fa-spinner fa-spin" : "fa-download")"></i>
                             </button>
                         }
                     </div>
@@ -164,7 +165,7 @@
         flex: 1;
         padding: 0.3125rem 0.625rem;
         border: 1px solid var(--border-color);
-        border-radius: 0.3125rem;
+        border-radius: var(--radius-xs);
         font-size: 0.75rem;
         background: var(--bg-tertiary);
         color: var(--text-primary);
@@ -173,7 +174,7 @@
     .sim-apps-filter select {
         padding: 0.3125rem 0.5rem;
         border: 1px solid var(--border-color);
-        border-radius: 0.3125rem;
+        border-radius: var(--radius-xs);
         font-size: 0.75rem;
         background: var(--bg-tertiary);
         color: var(--text-primary);
@@ -212,12 +213,12 @@
     .btn-copy-inline {
         background: none; border: none; color: var(--text-secondary);
         cursor: pointer; padding: 1px 0.25rem; font-size: 0.5625rem;
-        border-radius: 3px; transition: all 0.15s;
+        border-radius: var(--radius-xs); transition: all 0.15s;
     }
     .btn-copy-inline:hover { color: var(--accent-primary); background: var(--bg-tertiary); }
 
     .sim-app-type-badge { flex-shrink: 0; }
-    .badge { padding: 2px 0.5rem; border-radius: 0.625rem; font-size: 0.625rem; font-weight: 500; }
+    .badge { padding: 2px 0.5rem; border-radius: var(--radius-pill); font-size: 0.625rem; font-weight: 500; }
     .badge-user { background: var(--status-success-bg); color: var(--status-success-text); }
     .badge-system { background: var(--bg-tertiary); color: var(--text-secondary); }
 
@@ -230,13 +231,13 @@
     }
     .sim-apps-empty i { font-size: 1.75rem; }
 
-    .sim-apps-tab .btn { padding: 0.375rem 0.875rem; border: none; border-radius: 0.3125rem; font-size: 0.75rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3125rem; transition: all 0.15s; }
+    .sim-apps-tab .btn { padding: 0.375rem 0.875rem; border: none; border-radius: var(--radius-xs); font-size: 0.75rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3125rem; transition: all 0.15s; }
     .sim-apps-tab .btn i { font-size: 0.6875rem; }
     .sim-apps-tab .btn-sm { padding: 0.25rem 0.5rem; font-size: 0.6875rem; }
     .sim-apps-tab .btn-primary { background: var(--accent-primary); color: white; }
-    .sim-apps-tab .btn-success { background: var(--accent-success, #48bb78); color: white; }
+    .sim-apps-tab .btn-success { background: var(--accent-success); color: white; }
     .sim-apps-tab .btn-secondary { background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border-color); }
-    .sim-apps-tab .btn-danger { background: var(--accent-danger, #f56565); color: white; }
+    .sim-apps-tab .btn-danger { background: var(--accent-danger); color: white; }
     .sim-apps-tab .btn:hover:not(:disabled) { filter: brightness(1.1); }
     .sim-apps-tab .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>
@@ -248,6 +249,12 @@
     private bool isLoading;
     private string searchQuery = "";
     private string filterType = "";
+    private static readonly IReadOnlyList<SherpaSelectOption<string>> AppTypeOptions =
+    [
+        new("", "All Types"),
+        new("User", "User"),
+        new("System", "System")
+    ];
     private string? downloadingBundleId;
     private List<SimulatorApp> simApps = new();
     private List<PhysicalDeviceApp> physicalApps = new();

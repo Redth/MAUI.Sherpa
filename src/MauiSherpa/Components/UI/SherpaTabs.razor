@@ -1,0 +1,121 @@
+@if (Variant == SherpaTabVariant.Inspector)
+{
+    <div class="@InspectorCssClass">
+        <div class="sherpa-tabs" role="tablist" aria-label="@AriaLabel">
+            @foreach (var item in Items)
+            {
+                @RenderTab(item)
+            }
+        </div>
+        @if (TrailingContent is not null)
+        {
+            <div class="sherpa-row-actions">@TrailingContent</div>
+        }
+    </div>
+}
+else
+{
+    <div class="@StandardCssClass" role="tablist" aria-label="@AriaLabel">
+        @foreach (var item in Items)
+        {
+            @RenderTab(item)
+        }
+    </div>
+}
+
+@code {
+    [Parameter]
+    public IReadOnlyList<SherpaTabItem> Items { get; set; } =
+        Array.Empty<SherpaTabItem>();
+
+    [Parameter]
+    public string? ActiveKey { get; set; }
+
+    [Parameter]
+    public EventCallback<string> ActiveKeyChanged { get; set; }
+
+    [Parameter]
+    public SherpaTabVariant Variant { get; set; } = SherpaTabVariant.Standard;
+
+    [Parameter]
+    public RenderFragment? TrailingContent { get; set; }
+
+    [Parameter]
+    public string? AriaLabel { get; set; }
+
+    [Parameter]
+    public string? Class { get; set; }
+
+    private string StandardCssClass =>
+        string.Join(
+            " ",
+            new[] { "sherpa-tabs", Class }
+                .Where(cssClass => !string.IsNullOrWhiteSpace(cssClass)));
+
+    private string InspectorCssClass =>
+        string.Join(
+            " ",
+            new[] { "sherpa-inspector-strip", Class }
+                .Where(cssClass => !string.IsNullOrWhiteSpace(cssClass)));
+
+    private RenderFragment RenderTab(SherpaTabItem item) => builder =>
+    {
+        var isActive = string.Equals(
+            ActiveKey,
+            item.Key,
+            StringComparison.Ordinal);
+
+        builder.OpenElement(0, "button");
+        builder.AddAttribute(1, "type", "button");
+        builder.AddAttribute(2, "class", $"sherpa-tab {(isActive ? "active" : null)}");
+        builder.AddAttribute(3, "role", "tab");
+        builder.AddAttribute(4, "aria-selected", isActive.ToString().ToLowerInvariant());
+        builder.AddAttribute(5, "disabled", item.Disabled);
+        builder.AddAttribute(
+            6,
+            "onclick",
+            EventCallback.Factory.Create(this, () => SelectAsync(item)));
+
+        if (!string.IsNullOrWhiteSpace(item.Icon))
+        {
+            builder.OpenElement(7, "i");
+            builder.AddAttribute(8, "class", EnsureFixedWidth(item.Icon));
+            builder.AddAttribute(9, "aria-hidden", "true");
+            builder.CloseElement();
+        }
+
+        builder.OpenElement(10, "span");
+        builder.AddContent(11, item.Label);
+        builder.CloseElement();
+
+        if (item.Count is not null)
+        {
+            builder.OpenElement(12, "span");
+            builder.AddAttribute(13, "class", "sherpa-tab-count");
+            builder.AddContent(14, item.Count);
+            builder.CloseElement();
+        }
+
+        if (item.HasAttentionDot)
+        {
+            builder.OpenElement(15, "span");
+            builder.AddAttribute(16, "class", $"sherpa-dot {item.AttentionDotClass}");
+            builder.AddAttribute(17, "title", item.AttentionTitle);
+            builder.AddAttribute(18, "aria-hidden", "true");
+            builder.CloseElement();
+        }
+
+        builder.CloseElement();
+    };
+
+    private Task SelectAsync(SherpaTabItem item) =>
+        item.Disabled
+            ? Task.CompletedTask
+            : ActiveKeyChanged.InvokeAsync(item.Key);
+
+    private static string EnsureFixedWidth(string icon) =>
+        icon.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Contains("fa-fw", StringComparer.Ordinal)
+                ? icon
+                : $"{icon} fa-fw";
+}

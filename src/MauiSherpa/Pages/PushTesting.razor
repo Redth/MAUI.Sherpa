@@ -96,13 +96,14 @@
                                     }
                                     else
                                     {
-                                        <select class="push-input" @bind="selectedIdentityId" @bind:after="MarkDirty">
-                                            <option value="">Select an identity…</option>
-                                            @foreach (var identity in identities)
-                                            {
-                                                <option value="@identity.Id">@identity.Name (Key: @identity.KeyId)</option>
-                                            }
-                                        </select>
+                                        <SherpaSelect TValue="string"
+                                                      Value="@selectedIdentityId"
+                                                      ValueChanged="OnIdentitySelected"
+                                                      Options="IdentityOptions"
+                                                      LeadingIcon="fa-brands fa-apple"
+                                                      AriaLabel="Select an Apple identity"
+                                                      Searchable="true"
+                                                      Class="push-input" />
                                     }
                                 </div>
                             }
@@ -209,12 +210,13 @@
                         </div>
                         <div class="push-field">
                             <label>Push type</label>
-                            <select class="push-input" @bind="pushType" @bind:after="MarkDirty">
-                                @foreach (var (value, label) in PushTypes)
-                                {
-                                    <option value="@value">@label</option>
-                                }
-                            </select>
+                            <SherpaSelect TValue="string"
+                                          Value="@pushType"
+                                          ValueChanged="OnPushTypeSelected"
+                                          Options="PushTypeOptions"
+                                          LeadingIcon="fa-solid fa-layer-group"
+                                          AriaLabel="Select push type"
+                                          Class="push-input" />
                         </div>
                         <div class="push-field">
                             <label>Expiration <span class="push-optional">seconds</span></label>
@@ -316,12 +318,35 @@
         ("pushtotalk", "Push to Talk"),
         ("location", "Location")
     ];
+    static readonly IReadOnlyList<SherpaSelectOption<string>> PushTypeOptions =
+        PushTypes.Select(type => new SherpaSelectOption<string>(type.Value, type.Label)).ToArray();
 
     bool isUnlockingLocalVault;
     bool RequiresLocalVaultAccess => LocalVaultAccess.GetState().RequiresUserAction;
     PushProjectBar? projectBar;
     List<AppleIdentity> identities = new();
     PushProject? activeProject;
+    IReadOnlyList<SherpaSelectOption<string>> IdentityOptions =>
+    [
+        new("", "Select an identity…"),
+        .. identities.Select(identity => new SherpaSelectOption<string>(
+            identity.Id,
+            identity.Name,
+            $"Key: {identity.KeyId}",
+            "fa-brands fa-apple"))
+    ];
+
+    void OnIdentitySelected(string? value)
+    {
+        selectedIdentityId = value ?? "";
+        MarkDirty();
+    }
+
+    void OnPushTypeSelected(string? value)
+    {
+        pushType = value ?? "alert";
+        MarkDirty();
+    }
 
     // Auth
     string authMode = "identity";

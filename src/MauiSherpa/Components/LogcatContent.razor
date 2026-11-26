@@ -15,23 +15,23 @@
             @if (LogcatService.IsRunning)
             {
                 <button class="btn btn-sm btn-danger" @onclick="StopLogcat">
-                    <i class="fas fa-stop"></i> Stop
+                    <i class="fa-solid fa-stop"></i> Stop
                 </button>
             }
             else
             {
                 <button class="btn btn-sm btn-success" @onclick="StartLogcat">
-                    <i class="fas fa-play"></i> Start
+                    <i class="fa-solid fa-play"></i> Start
                 </button>
             }
             <button class="btn btn-sm btn-secondary" @onclick="ClearLogcat">
-                <i class="fas fa-trash-alt"></i> Clear
+                <i class="fa-solid fa-trash-alt"></i> Clear
             </button>
             <button class="btn btn-sm @(isPaused ? "btn-warning" : "btn-secondary")" @onclick="TogglePause">
-                <i class="fas @(isPaused ? "fa-play" : "fa-pause")"></i> @(isPaused ? "Resume" : "Pause")
+                <i class="fa-solid @(isPaused ? "fa-play" : "fa-pause")"></i> @(isPaused ? "Resume" : "Pause")
             </button>
             <button class="btn btn-sm @(autoScroll ? "btn-primary" : "btn-secondary")" @onclick="ToggleAutoScroll">
-                <i class="fas fa-arrow-down"></i> Auto-scroll
+                <i class="fa-solid fa-arrow-down"></i> Auto-scroll
             </button>
         </div>
         <div class="toolbar-right">
@@ -45,15 +45,12 @@
     <div class="logcat-filters">
         <div class="filter-group">
             <label>Level</label>
-            <select @bind="filterLevel" @bind:after="ApplyFilters">
-                <option value="">All</option>
-                <option value="Verbose">V - Verbose</option>
-                <option value="Debug">D - Debug</option>
-                <option value="Info">I - Info</option>
-                <option value="Warning">W - Warning</option>
-                <option value="Error">E - Error</option>
-                <option value="Fatal">F - Fatal</option>
-            </select>
+            <SherpaSelect TValue="string"
+                          Value="@filterLevel"
+                          ValueChanged="OnFilterLevelChanged"
+                          Options="LogLevelOptions"
+                          AriaLabel="Minimum logcat level"
+                          Compact="true" />
         </div>
         <div class="filter-group filter-grow">
             <label>Tag</label>
@@ -70,7 +67,7 @@
         @if (HasActiveFilters)
         {
             <button class="btn btn-sm btn-ghost" @onclick="ClearFilters">
-                <i class="fas fa-times"></i> Clear
+                <i class="fa-solid fa-times"></i> Clear
             </button>
         }
     </div>
@@ -141,16 +138,16 @@
         gap: 0.375rem;
         background: var(--bg-tertiary);
         padding: 2px 0.5rem 2px 0.625rem;
-        border-radius: 1.25rem;
+        border-radius: var(--radius-pill);
         border: 1px solid var(--border-color);
         cursor: pointer;
         transition: border-color 0.15s;
     }
     .device-selector:focus-within {
-        border-color: var(--accent-primary, #4299e1);
+        border-color: var(--accent);
     }
     .device-selector-icon {
-        color: #3ddc84;
+        color: var(--status-success-fg);
         font-size: 0.8125rem;
         flex-shrink: 0;
         pointer-events: none;
@@ -182,13 +179,13 @@
         display: inline-block;
         width: 0.5rem;
         height: 0.5rem;
-        background: #48bb78;
-        border-radius: 50%;
+        background: var(--accent-success);
+        border-radius: var(--radius-pill);
         margin-left: 0.375rem;
         animation: pulse 1.5s ease-in-out infinite;
     }
     .streaming-dot.paused {
-        background: #ed8936;
+        background: var(--status-warning-fg);
         animation: none;
     }
 
@@ -225,7 +222,7 @@
         border: 1px solid var(--border-color);
         color: var(--text-primary);
         padding: 0.25rem 0.5rem;
-        border-radius: 0.25rem;
+        border-radius: var(--radius-xs);
         font-size: 0.75rem;
         font-family: 'Consolas', 'Monaco', monospace;
     }
@@ -239,7 +236,7 @@
     .logcat-grid-container {
         flex: 1;
         overflow: hidden;
-        background: var(--bg-primary, #1a1a2e);
+        background: var(--surface-canvas);
     }
     .logcat-grid {
         display: flex;
@@ -279,9 +276,9 @@
         z-index: 5;
     }
     .col-resizer:hover, .col-resizer:active {
-        background: var(--accent-primary, #4299e1);
+        background: var(--accent);
         opacity: 0.4;
-        border-radius: 2px;
+        border-radius: var(--radius-xs);
     }
     .grid-body {
         flex: 1;
@@ -317,16 +314,16 @@
         height: 18px;
         line-height: 18px;
         text-align: center;
-        border-radius: 3px;
+        border-radius: var(--radius-xs);
         font-weight: 700;
         font-size: 0.6875rem;
     }
-    .level-v { background: #4a5568; color: #a0aec0; }
-    .level-d { background: #2b6cb0; color: #bee3f8; }
-    .level-i { background: #276749; color: #c6f6d5; }
-    .level-w { background: #975a16; color: #fefcbf; }
-    .level-e { background: #9b2c2c; color: #fed7d7; }
-    .level-f { background: #702459; color: #fed7e2; }
+    .level-v { background: var(--text-muted); color: var(--text-muted); }
+    .level-d { background: var(--status-info-fg); color: var(--status-info-bg); }
+    .level-i { background: var(--status-success-fg); color: var(--status-success-bg); }
+    .level-w { background: var(--status-warning-fg); color: var(--status-warning-bg); }
+    .level-e { background: var(--status-error-fg); color: var(--status-error-bg); }
+    .level-f { background: var(--status-error-fg); color: var(--status-error-bg); }
 
     /* Row level tinting */
     .row-verbose { }
@@ -337,14 +334,14 @@
     .row-fatal { background: rgba(183, 62, 137, 0.12); }
 
     /* Buttons */
-    .logcat-page .btn { padding: 0.375rem 0.875rem; border: none; border-radius: 0.3125rem; font-size: 0.75rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3125rem; transition: all 0.15s; }
+    .logcat-page .btn { padding: 0.375rem 0.875rem; border: none; border-radius: var(--radius-xs); font-size: 0.75rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3125rem; transition: all 0.15s; }
     .logcat-page .btn i { font-size: 0.6875rem; }
     .logcat-page .btn-sm { padding: 0.25rem 0.5rem; font-size: 0.6875rem; }
     .logcat-page .btn-primary { background: var(--accent-primary); color: white; }
     .logcat-page .btn-secondary { background: var(--btn-secondary-bg); color: var(--text-secondary); border: none; }
-    .logcat-page .btn-success { background: #48bb78; color: white; }
-    .logcat-page .btn-danger { background: #f56565; color: white; }
-    .logcat-page .btn-warning { background: #ed8936; color: white; }
+    .logcat-page .btn-success { background: var(--accent-success); color: white; }
+    .logcat-page .btn-danger { background: var(--accent-danger); color: white; }
+    .logcat-page .btn-warning { background: var(--status-warning-fg); color: white; }
     .logcat-page .btn-ghost { background: transparent; color: var(--text-muted); }
     .logcat-page .btn:hover:not(:disabled) { filter: brightness(1.1); }
     .logcat-page .btn:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -387,9 +384,25 @@
     private string filterTag = "";
     private string filterPid = "";
     private string filterText = "";
+    private static readonly IReadOnlyList<SherpaSelectOption<string>> LogLevelOptions =
+    [
+        new("", "All"),
+        new("Verbose", "V - Verbose"),
+        new("Debug", "D - Debug"),
+        new("Info", "I - Info"),
+        new("Warning", "W - Warning"),
+        new("Error", "E - Error"),
+        new("Fatal", "F - Fatal")
+    ];
 
     private bool HasActiveFilters => !string.IsNullOrEmpty(filterLevel) || !string.IsNullOrEmpty(filterTag)
         || !string.IsNullOrEmpty(filterPid) || !string.IsNullOrEmpty(filterText);
+
+    private void OnFilterLevelChanged(string? value)
+    {
+        filterLevel = value ?? string.Empty;
+        ApplyFilters();
+    }
 
     // Stream
     private CancellationTokenSource? _streamCts;

@@ -17,7 +17,7 @@
     <p class="sdk-location-help">@(install ? "Install Android command-line tools in a new location." : "Choose which Android SDK Sherpa uses for packages, devices, and emulators, or remove ones you no longer need.")</p>
     @if (loading)
     {
-        <p role="status"><i class="fas fa-spinner fa-spin" aria-hidden="true"></i> Checking SDK locations...</p>
+        <p role="status"><i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i> Checking SDK locations...</p>
     }
     else
     {
@@ -63,20 +63,20 @@
         {
             <div class="sdk-install-location">
                 <label for="sdk-common-location">Install location</label>
-                <select id="sdk-common-location" value="@PresetPath" @onchange="OnPresetChanged">
-                    @foreach (var location in locations)
-                    {
-                        <option value="@location.Path">@location.Label — @Status(location)</option>
-                    }
-                    <option value="">Custom location</option>
-                </select>
+                <SherpaSelect TValue="string"
+                              Id="sdk-common-location"
+                              Value="@PresetPath"
+                              ValueChanged="OnPresetChanged"
+                              Options="LocationOptions"
+                              AriaLabel="Install location"
+                              Class="sherpa-select-full" />
             </div>
         }
         <div class="sdk-custom-path">
             <label for="sdk-custom-folder">@(install ? "Target folder" : "Use another location")</label>
             <div class="sdk-custom-row">
                 <input id="sdk-custom-folder" class="mono" value="@selected" @oninput="OnPathInput" placeholder="Enter an absolute folder path" />
-                <button type="button" class="sdk-browse" @onclick="BrowseAsync"><i class="fas fa-folder-open" aria-hidden="true"></i> Browse...</button>
+                <button type="button" class="sdk-browse" @onclick="BrowseAsync"><i class="fa-solid fa-folder-open" aria-hidden="true"></i> Browse...</button>
             </div>
         </div>
         @if (install)
@@ -92,24 +92,24 @@
 </div>
 
 <style>
-    .sdk-location-dialog { --sdk-accent: var(--accent-purple); --sdk-accent-ink: #6b46c1; --sdk-list-bg: #F7F7F7; --sdk-separator: #E0E0E0; padding: 14px 24px 22px; color: var(--text-primary); font-size: 13px; }
-    .theme-dark .sdk-location-dialog { --sdk-accent-ink: #d6bcfa; --sdk-list-bg: #2C2C2C; --sdk-separator: #454545; }
+    .sdk-location-dialog { --sdk-accent: var(--accent-purple); --sdk-accent-ink: var(--accent); --sdk-list-bg: var(--surface-card); --sdk-separator: var(--border-subtle); padding: 14px 24px 22px; color: var(--text-primary); font-size: 13px; }
+    .theme-dark .sdk-location-dialog { --sdk-accent-ink: var(--accent-soft); --sdk-list-bg: var(--surface-card); --sdk-separator: var(--border-control); }
     .sdk-location-dialog button { font-family: inherit; line-height: 1.2; }
-    .sdk-mode { display: inline-flex; padding: 3px; gap: 2px; background: var(--bg-tertiary); border-radius: 8px; }
-    .sdk-mode button { padding: 5px 14px; border: 0; border-radius: 6px; background: transparent; color: var(--text-secondary); font-size: 12px; font-weight: 500; cursor: pointer; }
+    .sdk-mode { display: inline-flex; padding: 3px; gap: 2px; background: var(--bg-tertiary); border-radius: var(--radius-md); }
+    .sdk-mode button { padding: 5px 14px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text-secondary); font-size: 12px; font-weight: 500; cursor: pointer; }
     .sdk-mode button.selected { background: var(--input-bg); color: var(--text-primary); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
     .sdk-mode button:hover:not(.selected) { color: var(--text-primary); }
     .sdk-location-help { color: var(--text-secondary); line-height: 1.4; margin: 12px 0 18px; }
     .sdk-location-list { border: 0; padding: 0; margin: 0; min-width: 0; }
     .sdk-location-list legend { font-size: 13px; font-weight: 600; margin-bottom: 7px; padding-left: 2px; }
     .sdk-location-option { position: relative; display: flex; align-items: center; gap: 12px; padding: 11px 12px; background: var(--sdk-list-bg); cursor: pointer; }
-    .sdk-location-option:first-of-type { border-radius: 10px 10px 0 0; }
-    .sdk-location-option:last-of-type { border-radius: 0 0 10px 10px; }
-    .sdk-location-option:only-of-type { border-radius: 10px; }
+    .sdk-location-option:first-of-type { border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
+    .sdk-location-option:last-of-type { border-radius: 0 0 var(--radius-lg) var(--radius-lg); }
+    .sdk-location-option:only-of-type { border-radius: var(--radius-lg); }
     .sdk-location-option + .sdk-location-option::before { content: ""; position: absolute; height: 1px; top: 0; left: 0; right: 0; background: var(--sdk-separator); }
     .sdk-location-option:hover { background: var(--bg-hover); }
     .sdk-location-option.selected { background: color-mix(in srgb, var(--sdk-accent) 9%, var(--sdk-list-bg)); }
-    .sdk-location-glyph { display: grid; place-items: center; flex: none; width: 32px; height: 32px; border-radius: 8px; background: var(--bg-tertiary); color: var(--text-secondary); font-size: 15px; }
+    .sdk-location-glyph { display: grid; place-items: center; flex: none; width: 32px; height: 32px; border-radius: var(--radius-md); background: var(--bg-tertiary); color: var(--text-secondary); font-size: 15px; }
     .sdk-location-option.selected .sdk-location-glyph { background: color-mix(in srgb, var(--sdk-accent) 16%, transparent); color: var(--sdk-accent-ink); }
     .sdk-location-copy { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 3px; }
     .sdk-location-copy strong { font-size: 13px; font-weight: 600; }
@@ -130,11 +130,11 @@
     .sdk-custom-path { margin-top: 20px; }
     .sdk-install-location { margin-top: 18px; }
     .sdk-install-location label { display: block; margin: 0 0 7px 2px; font-size: 13px; font-weight: 600; }
-    .sdk-install-location select { width: 100%; box-sizing: border-box; height: 30px; padding: 0 8px; border: 1px solid var(--input-border); border-radius: 6px; font-size: 12px; color: var(--text-primary); background: var(--input-bg); }
+    .sdk-install-location select { width: 100%; box-sizing: border-box; height: 30px; padding: 0 8px; border: 1px solid var(--input-border); border-radius: var(--radius-sm); font-size: 12px; color: var(--text-primary); background: var(--input-bg); }
     .sdk-custom-path > label { display: block; font-size: 13px; font-weight: 600; margin: 0 0 7px 2px; }
     .sdk-custom-row { display: flex; gap: 8px; }
-    .sdk-custom-row input { height: 28px; box-sizing: border-box; flex: 1; min-width: 0; padding: 0 8px; color: var(--text-primary); background: var(--input-bg); border: 1px solid var(--input-border); border-radius: 6px; font-size: 12px; }
-    .sdk-browse { height: 28px; padding: 0 11px; border: 1px solid var(--input-border); border-radius: 6px; background: var(--input-bg); color: var(--text-primary); font-size: 12px; font-weight: 500; cursor: pointer; white-space: nowrap; }
+    .sdk-custom-row input { height: 28px; box-sizing: border-box; flex: 1; min-width: 0; padding: 0 8px; color: var(--text-primary); background: var(--input-bg); border: 1px solid var(--input-border); border-radius: var(--radius-sm); font-size: 12px; }
+    .sdk-browse { height: 28px; padding: 0 11px; border: 1px solid var(--input-border); border-radius: var(--radius-sm); background: var(--input-bg); color: var(--text-primary); font-size: 12px; font-weight: 500; cursor: pointer; white-space: nowrap; }
     .sdk-browse:hover { border-color: var(--text-muted); }
     .sdk-browse i { margin-right: 4px; font-size: 11px; }
     .sdk-activate { display: flex; align-items: center; gap: 8px; margin-top: 16px; font-size: 12px; }
@@ -152,6 +152,15 @@
     private string selected = "";
     private string existingPath = "", installPath = "";
     private string PresetPath => locations.Any(l => l.Path == selected) ? selected : "";
+    private IReadOnlyList<SherpaSelectOption<string>> LocationOptions =>
+        locations
+            .Select(location => new SherpaSelectOption<string>(
+                location.Path,
+                $"{location.Label} — {Status(location)}",
+                location.Path,
+                "fa-solid fa-folder"))
+            .Append(new SherpaSelectOption<string>("", "Custom location", Icon: "fa-solid fa-pen"))
+            .ToArray();
     private string? error;
     private bool install, activate = true, loading = true, deleting;
     private string? confirmDelete;
@@ -191,7 +200,7 @@
         if (install) installPath = path; else existingPath = path;
         Validate();
     }
-    private void OnPresetChanged(ChangeEventArgs args) => Select(args.Value?.ToString() ?? "");
+    private void OnPresetChanged(string? value) => Select(value ?? "");
     private void OnPathInput(ChangeEventArgs args) => Select(args.Value?.ToString() ?? "");
     private void OnBusyChanged() => _ = InvokeAsync(() => { Validate(); StateHasChanged(); });
     private void Validate()

@@ -12,7 +12,7 @@
     <!-- Push Notifications -->
     <div class="tool-section">
         <div class="tool-header">
-            <i class="fas fa-bell"></i>
+            <i class="fa-solid fa-bell"></i>
             <span>Push Notification</span>
         </div>
         <div class="tool-body">
@@ -26,7 +26,7 @@
             </div>
             <div class="tool-actions">
                 <button class="btn btn-sm btn-primary" @onclick="SendPush" disabled="@(isSendingPush || string.IsNullOrWhiteSpace(pushBundleId))">
-                    <i class="fas @(isSendingPush ? "fa-spinner fa-spin" : "fa-paper-plane")"></i> Send
+                    <i class="fa-solid @(isSendingPush ? "fa-spinner fa-spin" : "fa-paper-plane")"></i> Send
                 </button>
             </div>
         </div>
@@ -35,7 +35,7 @@
     <!-- Location Simulation -->
     <div class="tool-section">
         <div class="tool-header">
-            <i class="fas fa-map-marker-alt"></i>
+            <i class="fa-solid fa-map-marker-alt"></i>
             <span>Location Simulation</span>
         </div>
         <div class="tool-body">
@@ -58,10 +58,10 @@
             </div>
             <div class="tool-actions">
                 <button class="btn btn-sm btn-primary" @onclick="SetLocation" disabled="@isSettingLocation">
-                    <i class="fas @(isSettingLocation ? "fa-spinner fa-spin" : "fa-location-arrow")"></i> Set
+                    <i class="fa-solid @(isSettingLocation ? "fa-spinner fa-spin" : "fa-location-arrow")"></i> Set
                 </button>
                 <button class="btn btn-sm btn-secondary" @onclick="ClearLocation" disabled="@isSettingLocation">
-                    <i class="fas fa-times"></i> Clear
+                    <i class="fa-solid fa-times"></i> Clear
                 </button>
             </div>
 
@@ -71,7 +71,7 @@
                 <label>Route Playback (KML/GPX)</label>
                 <div class="tool-route-row">
                     <button class="btn btn-sm btn-secondary" @onclick="PickRouteFile" disabled="@SimulatorService.IsPlayingRoute">
-                        <i class="fas fa-file-upload"></i> Load File
+                        <i class="fa-solid fa-file-upload"></i> Load File
                     </button>
                     @if (routeFileName != null)
                     {
@@ -91,13 +91,13 @@
                         @if (SimulatorService.IsPlayingRoute)
                         {
                             <button class="btn btn-sm btn-danger" @onclick="StopRoute">
-                                <i class="fas fa-stop"></i> Stop
+                                <i class="fa-solid fa-stop"></i> Stop
                             </button>
                         }
                         else
                         {
                             <button class="btn btn-sm btn-success" @onclick="PlayRoute">
-                                <i class="fas fa-play"></i> Play
+                                <i class="fa-solid fa-play"></i> Play
                             </button>
                         }
                     </div>
@@ -109,7 +109,7 @@
     <!-- Status Bar Overrides -->
     <div class="tool-section">
         <div class="tool-header">
-            <i class="fas fa-signal"></i>
+            <i class="fa-solid fa-signal"></i>
             <span>Status Bar Override</span>
         </div>
         <div class="tool-body">
@@ -120,16 +120,13 @@
                 </div>
                 <div class="tool-field">
                     <label>Network</label>
-                    <select class="tool-input" @bind="statusNetwork">
-                        <option value="">Default</option>
-                        <option value="wifi">WiFi</option>
-                        <option value="5g">5G</option>
-                        <option value="5g+">5G+</option>
-                        <option value="lte">LTE</option>
-                        <option value="4g">4G</option>
-                        <option value="3g">3G</option>
-                        <option value="hide">Hide</option>
-                    </select>
+                    <SherpaSelect TValue="string"
+                                  Value="@statusNetwork"
+                                  ValueChanged="@((string? value) => statusNetwork = value ?? string.Empty)"
+                                  Options="NetworkOptions"
+                                  AriaLabel="Status bar network"
+                                  Compact="true"
+                                  Class="sherpa-select-full" />
                 </div>
             </div>
             <div class="tool-row-inline">
@@ -139,43 +136,43 @@
                 </div>
                 <div class="tool-field">
                     <label>Battery State</label>
-                    <select class="tool-input" @bind="statusBatteryState">
-                        <option value="">Default</option>
-                        <option value="charged">Charged</option>
-                        <option value="charging">Charging</option>
-                        <option value="discharging">Discharging</option>
-                    </select>
+                    <SherpaSelect TValue="string"
+                                  Value="@statusBatteryState"
+                                  ValueChanged="@((string? value) => statusBatteryState = value ?? string.Empty)"
+                                  Options="BatteryStateOptions"
+                                  AriaLabel="Status bar battery state"
+                                  Compact="true"
+                                  Class="sherpa-select-full" />
                 </div>
             </div>
             <div class="tool-row-inline">
                 <div class="tool-field">
                     <label>WiFi Bars</label>
-                    <select class="tool-input" @bind="statusWifiBars">
-                        <option value="">Default</option>
-                        <option value="0">0</option>
-                        <option value="1">1</option>
-                        <option value="2">2</option>
-                        <option value="3">3</option>
-                    </select>
+                    <SherpaSelect TValue="string"
+                                  Value="@statusWifiBars"
+                                  ValueChanged="@((string? value) => statusWifiBars = value ?? string.Empty)"
+                                  Options="WifiBarOptions"
+                                  AriaLabel="Status bar WiFi bars"
+                                  Compact="true"
+                                  Class="sherpa-select-full" />
                 </div>
                 <div class="tool-field">
                     <label>Cell Bars</label>
-                    <select class="tool-input" @bind="statusCellBars">
-                        <option value="">Default</option>
-                        <option value="0">0</option>
-                        <option value="1">1</option>
-                        <option value="2">2</option>
-                        <option value="3">3</option>
-                        <option value="4">4</option>
-                    </select>
+                    <SherpaSelect TValue="string"
+                                  Value="@statusCellBars"
+                                  ValueChanged="@((string? value) => statusCellBars = value ?? string.Empty)"
+                                  Options="CellBarOptions"
+                                  AriaLabel="Status bar cellular bars"
+                                  Compact="true"
+                                  Class="sherpa-select-full" />
                 </div>
             </div>
             <div class="tool-actions">
                 <button class="btn btn-sm btn-primary" @onclick="ApplyStatusBar" disabled="@isApplyingStatus">
-                    <i class="fas @(isApplyingStatus ? "fa-spinner fa-spin" : "fa-check")"></i> Apply
+                    <i class="fa-solid @(isApplyingStatus ? "fa-spinner fa-spin" : "fa-check")"></i> Apply
                 </button>
                 <button class="btn btn-sm btn-secondary" @onclick="ClearStatusBar" disabled="@isApplyingStatus">
-                    <i class="fas fa-times"></i> Clear
+                    <i class="fa-solid fa-times"></i> Clear
                 </button>
             </div>
         </div>
@@ -184,7 +181,7 @@
     <!-- Deep Links -->
     <div class="tool-section">
         <div class="tool-header">
-            <i class="fas fa-external-link-alt"></i>
+            <i class="fa-solid fa-external-link-alt"></i>
             <span>Deep Links</span>
         </div>
         <div class="tool-body">
@@ -195,17 +192,17 @@
             <div class="tool-actions">
                 <button class="btn btn-sm btn-primary" @onclick="OpenDeepLink"
                         disabled="@(isOpeningLink || string.IsNullOrWhiteSpace(deepLinkUrl))">
-                    <i class="fas @(isOpeningLink ? "fa-spinner fa-spin" : "fa-rocket")"></i> Launch
+                    <i class="fa-solid @(isOpeningLink ? "fa-spinner fa-spin" : "fa-rocket")"></i> Launch
                 </button>
                 <button class="btn btn-sm btn-secondary" @onclick="ValidateAasa"
                         disabled="@(isValidatingLink || string.IsNullOrWhiteSpace(deepLinkUrl))">
-                    <i class="fas @(isValidatingLink ? "fa-spinner fa-spin" : "fa-shield-alt")"></i> Validate AASA
+                    <i class="fa-solid @(isValidatingLink ? "fa-spinner fa-spin" : "fa-shield-alt")"></i> Validate AASA
                 </button>
             </div>
             @if (IsNonWebScheme(deepLinkUrl))
             {
                 <div class="deep-link-warning">
-                    <i class="fas fa-triangle-exclamation"></i>
+                    <i class="fa-solid fa-triangle-exclamation"></i>
                     <span>Custom URL scheme detected. AASA validation requires an <code>https://</code> URL. Launch will still attempt to open the scheme on the simulator.</span>
                 </div>
             }
@@ -213,7 +210,7 @@
             {
                 <div class="validation-result @(aasaResult.Valid ? "success" : aasaResult.Found ? "warning" : "error")">
                     <div class="validation-status">
-                        <i class="fas @(aasaResult.Valid ? "fa-check-circle" : aasaResult.Found ? "fa-exclamation-triangle" : "fa-times-circle")"></i>
+                        <i class="fa-solid @(aasaResult.Valid ? "fa-check-circle" : aasaResult.Found ? "fa-exclamation-triangle" : "fa-times-circle")"></i>
                         @if (aasaResult.Valid)
                         {
                             <span>AASA found &mdash; @aasaResult.Apps.Count app(s) configured@(aasaResult.Signed ? " (signed)" : "")</span>
@@ -265,31 +262,31 @@
         gap: 0.5rem;
     }
     .sim-tools-tab .tool-section { flex-shrink: 0; }
-    .sim-tools-tab .btn { padding: 0.375rem 0.875rem; border: none; border-radius: 0.3125rem; font-size: 0.75rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3125rem; transition: all 0.15s; }
+    .sim-tools-tab .btn { padding: 0.375rem 0.875rem; border: none; border-radius: var(--radius-xs); font-size: 0.75rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3125rem; transition: all 0.15s; }
     .sim-tools-tab .btn i { font-size: 0.6875rem; }
     .sim-tools-tab .btn-sm { padding: 0.25rem 0.5rem; font-size: 0.6875rem; }
     .sim-tools-tab .btn-primary { background: var(--accent-primary); color: white; }
     .sim-tools-tab .btn-secondary { background: var(--btn-secondary-bg); color: var(--text-secondary); border: none; }
-    .sim-tools-tab .btn-success { background: #22c55e; color: white; }
-    .sim-tools-tab .btn-danger { background: #ef4444; color: white; }
+    .sim-tools-tab .btn-success { background: var(--status-success-dot); color: white; }
+    .sim-tools-tab .btn-danger { background: var(--status-error-dot); color: white; }
     .sim-tools-tab .btn-ghost { background: transparent; color: var(--accent-primary); border: 1px solid var(--border-color); font-size: 0.625rem; padding: 2px 0.375rem; }
     .sim-tools-tab .btn-ghost:hover { background: var(--bg-tertiary); }
     .sim-tools-tab .btn:hover:not(:disabled) { filter: brightness(1.1); }
     .sim-tools-tab .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
     .tool-section {
-        background: var(--bg-secondary, #fff);
-        border: 1px solid var(--border-color, #e2e8f0);
-        border-radius: 0.5rem;
+        background: var(--bg-secondary, white);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-md);
         overflow: hidden;
     }
     .tool-header {
         display: flex; align-items: center; gap: 0.375rem;
         padding: 0.375rem 0.625rem;
-        background: var(--bg-tertiary, #edf2f7);
+        background: var(--surface-well);
         font-size: 0.75rem; font-weight: 600;
         color: var(--text-primary);
-        border-bottom: 1px solid var(--border-color, #e2e8f0);
+        border-bottom: 1px solid var(--border-subtle);
     }
     .tool-header i { font-size: 0.6875rem; color: var(--text-secondary); }
     .tool-body { padding: 0.5rem 0.625rem; display: flex; flex-direction: column; gap: 0.375rem; }
@@ -303,16 +300,16 @@
 
     .tool-input {
         padding: 0.25rem 0.5rem; font-size: 0.75rem;
-        border: 1px solid var(--border-color); border-radius: 0.25rem;
-        background: var(--bg-primary, #fff); color: var(--text-primary);
+        border: 1px solid var(--border-color); border-radius: var(--radius-xs);
+        background: var(--bg-primary, white); color: var(--text-primary);
         outline: none; width: 100%; box-sizing: border-box;
     }
     .tool-input:focus { border-color: var(--accent-primary); }
 
     .tool-textarea {
         padding: 0.25rem 0.5rem; font-size: 0.6875rem; font-family: 'Consolas', 'Monaco', monospace;
-        border: 1px solid var(--border-color); border-radius: 0.25rem;
-        background: var(--bg-primary, #fff); color: var(--text-primary);
+        border: 1px solid var(--border-color); border-radius: var(--radius-xs);
+        background: var(--bg-primary, white); color: var(--text-primary);
         outline: none; resize: vertical; width: 100%; box-sizing: border-box;
     }
     .tool-textarea:focus { border-color: var(--accent-primary); }
@@ -324,24 +321,24 @@
     .route-file-name { font-size: 0.6875rem; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 180px; }
     .route-actions { display: flex; align-items: flex-end; }
 
-    .validation-result { margin-top: 0.375rem; padding: 0.5rem; border-radius: 0.375rem; font-size: 0.6875rem; border: 1px solid var(--border-color); }
+    .validation-result { margin-top: 0.375rem; padding: 0.5rem; border-radius: var(--radius-sm); font-size: 0.6875rem; border: 1px solid var(--border-color); }
     .validation-result.success { background: rgba(34,197,94,0.08); border-color: rgba(34,197,94,0.3); }
     .validation-result.warning { background: rgba(234,179,8,0.08); border-color: rgba(234,179,8,0.3); }
     .validation-result.error { background: rgba(239,68,68,0.08); border-color: rgba(239,68,68,0.3); }
     .validation-status { display: flex; align-items: center; gap: 0.375rem; font-weight: 600; }
-    .validation-status .fa-check-circle { color: #22c55e; }
-    .validation-status .fa-exclamation-triangle { color: #eab308; }
-    .validation-status .fa-times-circle { color: #ef4444; }
+    .validation-status .fa-check-circle { color: var(--status-success-dot); }
+    .validation-status .fa-exclamation-triangle { color: var(--status-warning-dot); }
+    .validation-status .fa-times-circle { color: var(--status-error-dot); }
     .validation-entries { margin-top: 0.375rem; display: flex; flex-direction: column; gap: 0.25rem; }
-    .validation-entry { padding: 0.25rem 0.375rem; background: var(--bg-tertiary); border-radius: 0.25rem; }
+    .validation-entry { padding: 0.25rem 0.375rem; background: var(--bg-tertiary); border-radius: var(--radius-xs); }
     .validation-entry strong { color: var(--text-primary); }
     .validation-paths { color: var(--text-secondary); margin-left: 0.375rem; }
     .validation-raw { margin-top: 0.375rem; }
     .validation-raw summary { cursor: pointer; color: var(--text-secondary); font-size: 0.625rem; }
-    .validation-raw pre { margin: 0.25rem 0 0; padding: 0.375rem; background: var(--bg-tertiary); border-radius: 0.25rem; font-size: 0.625rem; overflow-x: auto; max-height: 200px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; }
-    .deep-link-warning { margin-top: 0.375rem; padding: 0.375rem 0.5rem; border-radius: 0.375rem; font-size: 0.6875rem; background: rgba(234,179,8,0.08); border: 1px solid rgba(234,179,8,0.3); color: var(--text-primary); display: flex; gap: 0.375rem; align-items: flex-start; }
-    .deep-link-warning .fa-triangle-exclamation { color: #eab308; margin-top: 2px; }
-    .deep-link-warning code { background: var(--bg-tertiary); padding: 0 0.25rem; border-radius: 0.1875rem; font-size: 0.625rem; }
+    .validation-raw pre { margin: 0.25rem 0 0; padding: 0.375rem; background: var(--bg-tertiary); border-radius: var(--radius-xs); font-size: 0.625rem; overflow-x: auto; max-height: 200px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; }
+    .deep-link-warning { margin-top: 0.375rem; padding: 0.375rem 0.5rem; border-radius: var(--radius-sm); font-size: 0.6875rem; background: rgba(234,179,8,0.08); border: 1px solid rgba(234,179,8,0.3); color: var(--text-primary); display: flex; gap: 0.375rem; align-items: flex-start; }
+    .deep-link-warning .fa-triangle-exclamation { color: var(--status-warning-dot); margin-top: 2px; }
+    .deep-link-warning code { background: var(--bg-tertiary); padding: 0 0.25rem; border-radius: var(--radius-xs); font-size: 0.625rem; }
 </style>
 
 @code {
@@ -376,6 +373,41 @@
     private string statusWifiBars = "";
     private string statusCellBars = "";
     private bool isApplyingStatus;
+    private static readonly IReadOnlyList<SherpaSelectOption<string>> NetworkOptions =
+    [
+        new("", "Default"),
+        new("wifi", "WiFi"),
+        new("5g", "5G"),
+        new("5g+", "5G+"),
+        new("lte", "LTE"),
+        new("4g", "4G"),
+        new("3g", "3G"),
+        new("hide", "Hide")
+    ];
+    private static readonly IReadOnlyList<SherpaSelectOption<string>> BatteryStateOptions =
+    [
+        new("", "Default"),
+        new("charged", "Charged"),
+        new("charging", "Charging"),
+        new("discharging", "Discharging")
+    ];
+    private static readonly IReadOnlyList<SherpaSelectOption<string>> WifiBarOptions =
+    [
+        new("", "Default"),
+        new("0", "0"),
+        new("1", "1"),
+        new("2", "2"),
+        new("3", "3")
+    ];
+    private static readonly IReadOnlyList<SherpaSelectOption<string>> CellBarOptions =
+    [
+        new("", "Default"),
+        new("0", "0"),
+        new("1", "1"),
+        new("2", "2"),
+        new("3", "3"),
+        new("4", "4")
+    ];
 
     private IDisposable? _sub;
 

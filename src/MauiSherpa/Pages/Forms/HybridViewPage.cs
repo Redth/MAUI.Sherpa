@@ -63,7 +63,7 @@ public abstract class HybridViewPage : ContentPage, INativeModalDismissible
             Text = FormTitle,
             FontSize = 18,
             FontAttributes = FontAttributes.Bold,
-            Margin = new Thickness(28, 24, 28, 12),
+            Margin = new Thickness(24, 18, 24, 12),
         };
         titleLabel.SetDynamicResource(Label.TextColorProperty, FormTheme.TextPrimary);
 
@@ -109,20 +109,21 @@ public abstract class HybridViewPage : ContentPage, INativeModalDismissible
         {
             Text = "Close",
             FontSize = 13,
-            BackgroundColor = Colors.Transparent,
-            BorderWidth = 0,
-            CornerRadius = 5,
+            BorderWidth = 1,
+            CornerRadius = FormTheme.ControlCornerRadius,
             Padding = new Thickness(14, 4),
-            HeightRequest = 30,
+            HeightRequest = FormTheme.ActionButtonHeight,
         };
-        closeButton.SetDynamicResource(Button.TextColorProperty, FormTheme.AccentPrimary);
+        closeButton.SetDynamicResource(Button.BackgroundColorProperty, FormTheme.SecondaryButtonBg);
+        closeButton.SetDynamicResource(Button.BorderColorProperty, FormTheme.ButtonOutlineBorder);
+        closeButton.SetDynamicResource(Button.TextColorProperty, FormTheme.TextPrimary);
         closeButton.Clicked += OnCloseClicked;
 
         var footerLayout = new HorizontalStackLayout
         {
             Spacing = 12,
             HorizontalOptions = LayoutOptions.End,
-            Margin = new Thickness(28, 12, 28, 24),
+            Margin = new Thickness(24, 12, 24, 18),
             Children = { closeButton },
         };
 
@@ -139,6 +140,7 @@ public abstract class HybridViewPage : ContentPage, INativeModalDismissible
             Padding = 0,
             RowSpacing = 0,
         };
+        grid.SetDynamicResource(Grid.BackgroundColorProperty, FormTheme.PageBg);
 
         Grid.SetRow(titleLabel, 0);
         Grid.SetRow(headerSeparator, 1);

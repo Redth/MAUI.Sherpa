@@ -1,0 +1,402 @@
+@typeparam TValue
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<div class="@RootCssClass"
+     id="@_rootId"
+     style="@Style"
+     data-open="@_isOpen.ToString().ToLowerInvariant()"
+     @onkeydown="HandleKeyDownAsync">
+    <button type="button"
+            class="sherpa-select-trigger"
+            data-popover-trigger
+            aria-label="@(AriaLabel ?? Placeholder)"
+            aria-haspopup="listbox"
+            aria-expanded="@_isOpen.ToString().ToLowerInvariant()"
+            aria-controls="@_listboxId"
+            disabled="@Disabled"
+            @onclick="ToggleAsync">
+        @if (!string.IsNullOrWhiteSpace(SelectedOption?.DotCssClass))
+        {
+            <span class="sherpa-dot @SelectedOption.DotCssClass" aria-hidden="true"></span>
+        }
+        else if (!string.IsNullOrWhiteSpace(SelectedIcon))
+        {
+            <i class="@EnsureFixedWidth(SelectedIcon)" aria-hidden="true"></i>
+        }
+        <span class="sherpa-select-value">@(SelectedOption?.Label ?? Placeholder)</span>
+        <i class="fa-solid fa-chevron-down" aria-hidden="true"></i>
+    </button>
+
+    @if (_isOpen)
+    {
+        <div class="sherpa-select-menu"
+             id="@_listboxId"
+             tabindex="-1"
+             data-popover-panel
+             data-popover-initial-focus="@(IsSearchable ? null : "")"
+             data-popover-align="@(AlignEnd ? "end" : "start")"
+             data-popover-match-width="true"
+             role="listbox"
+             aria-label="@(AriaLabel ?? Placeholder)">
+            @if (IsSearchable)
+            {
+                <div class="sherpa-select-search">
+                    <i class="fa-solid fa-magnifying-glass fa-fw" aria-hidden="true"></i>
+                    <input type="search"
+                           value="@_searchText"
+                           placeholder="@SearchPlaceholder"
+                           aria-label="@SearchPlaceholder"
+                           data-popover-initial-focus
+                           @oninput="HandleSearchInput" />
+                </div>
+            }
+
+            @if (FilteredOptions.Count == 0)
+            {
+                <div class="sherpa-select-empty">No matching options</div>
+            }
+            else
+            {
+                @foreach (var group in GroupedOptions)
+                {
+                    @if (HasGroups && !string.IsNullOrWhiteSpace(group.Key))
+                    {
+                        <div class="sherpa-select-group-label">@group.Key</div>
+                    }
+
+                    @foreach (var indexedOption in group)
+                    {
+                        var option = indexedOption.Option;
+                        var isSelected = IsSelected(option);
+                        var isFocused = indexedOption.Index == _focusedIndex;
+                        <button type="button"
+                                class="sherpa-select-option @(isFocused ? "focused" : null)"
+                                role="option"
+                                aria-selected="@isSelected.ToString().ToLowerInvariant()"
+                                disabled="@option.Disabled"
+                                @onclick="() => SelectAsync(option)">
+                            @if (!string.IsNullOrWhiteSpace(option.DotCssClass))
+                            {
+                                <span class="sherpa-dot @option.DotCssClass" aria-hidden="true"></span>
+                            }
+                            else if (!string.IsNullOrWhiteSpace(option.Icon))
+                            {
+                                <i class="@EnsureFixedWidth(option.Icon)" aria-hidden="true"></i>
+                            }
+                            <span class="sherpa-row-stack">
+                                <span class="sherpa-select-option-title">@option.Label</span>
+                                @if (!string.IsNullOrWhiteSpace(option.Description))
+                                {
+                                    <span class="sherpa-select-option-desc">@option.Description</span>
+                                }
+                            </span>
+                            @if (isSelected)
+                            {
+                                <i class="fa-solid fa-check sherpa-select-check" aria-hidden="true"></i>
+                            }
+                        </button>
+                    }
+                }
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private readonly string _listboxId = $"sherpa-select-listbox-{Guid.NewGuid():N}";
+    private string _rootId = $"sherpa-select-{Guid.NewGuid():N}";
+    private DotNetObjectReference<SherpaSelect<TValue>>? _dotNetReference;
+    private IJSObjectReference? _interopModule;
+    private bool _interopBound;
+    private bool _isOpen;
+    private bool _restoreFocus;
+    private int _focusedIndex = -1;
+    private string _searchText = string.Empty;
+
+    [Parameter]
+    public TValue? Value { get; set; }
+
+    [Parameter]
+    public EventCallback<TValue?> ValueChanged { get; set; }
+
+    [Parameter]
+    public IReadOnlyList<SherpaSelectOption<TValue>> Options { get; set; } =
+        Array.Empty<SherpaSelectOption<TValue>>();
+
+    [Parameter]
+    public string Placeholder { get; set; } = "Select...";
+
+    [Parameter]
+    public string? LeadingIcon { get; set; }
+
+    [Parameter]
+    public string? AriaLabel { get; set; }
+
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    [Parameter]
+    public bool Compact { get; set; }
+
+    [Parameter]
+    public bool? Searchable { get; set; }
+
+    [Parameter]
+    public string SearchPlaceholder { get; set; } = "Filter...";
+
+    [Parameter]
+    public bool AlignEnd { get; set; }
+
+    [Parameter]
+    public string? Class { get; set; }
+
+    [Parameter]
+    public string? Style { get; set; }
+
+    [Parameter]
+    public string? Id { get; set; }
+
+    private SherpaSelectOption<TValue>? SelectedOption =>
+        Options.FirstOrDefault(IsSelected);
+
+    private string? SelectedIcon => SelectedOption?.Icon ?? LeadingIcon;
+
+    private bool IsSearchable => Searchable ?? Options.Count >= 10;
+
+    private string RootCssClass =>
+        string.Join(
+            " ",
+            new[] { "sherpa-select", Compact ? "sherpa-select-sm" : null, Class }
+                .Where(cssClass => !string.IsNullOrWhiteSpace(cssClass)));
+
+    private IReadOnlyList<SherpaSelectOption<TValue>> FilteredOptions =>
+        string.IsNullOrWhiteSpace(_searchText)
+            ? Options
+            : Options.Where(MatchesSearch).ToArray();
+
+    private bool HasGroups => FilteredOptions.Any(option =>
+        !string.IsNullOrWhiteSpace(option.Group));
+
+    private IEnumerable<IGrouping<string, IndexedOption>> GroupedOptions =>
+        FilteredOptions
+            .Select((option, index) => new IndexedOption(index, option))
+            .GroupBy(item => item.Option.Group?.Trim() ?? string.Empty);
+
+    protected override void OnInitialized()
+    {
+        if (!string.IsNullOrWhiteSpace(Id))
+            _rootId = Id;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _interopModule = await JS.InvokeAsync<IJSObjectReference>(
+                "import",
+                "./js/mauiSherpaPopovers.js");
+        }
+
+        if (_isOpen && !_interopBound && _interopModule is not null)
+        {
+            _dotNetReference ??= DotNetObjectReference.Create(this);
+            await _interopModule.InvokeVoidAsync("bindPopover", _rootId, _dotNetReference);
+            _interopBound = true;
+        }
+        else if (_isOpen && _interopModule is not null)
+        {
+            await _interopModule.InvokeVoidAsync("positionPopover", _rootId);
+        }
+        else if (!_isOpen && _restoreFocus && _interopModule is not null)
+        {
+            _restoreFocus = false;
+            await _interopModule.InvokeVoidAsync("focusTrigger", _rootId);
+        }
+    }
+
+    private async Task ToggleAsync()
+    {
+        if (Disabled)
+            return;
+
+        if (_isOpen)
+        {
+            await CloseAsync(restoreFocus: true);
+            return;
+        }
+
+        _searchText = string.Empty;
+        _isOpen = true;
+        ResetFocusedIndex();
+    }
+
+    private async Task SelectAsync(SherpaSelectOption<TValue> option)
+    {
+        if (!_isOpen || option.Disabled)
+            return;
+
+        await CloseAsync(restoreFocus: true);
+        await ValueChanged.InvokeAsync(option.Value);
+    }
+
+    private void HandleSearchInput(ChangeEventArgs eventArgs)
+    {
+        _searchText = eventArgs.Value?.ToString() ?? string.Empty;
+        ResetFocusedIndex();
+    }
+
+    private async Task HandleKeyDownAsync(KeyboardEventArgs eventArgs)
+    {
+        if (Disabled)
+            return;
+
+        if (!_isOpen)
+        {
+            if (eventArgs.Key is "ArrowDown" or "ArrowUp" or "Home" or "End")
+                await ToggleAsync();
+            return;
+        }
+
+        switch (eventArgs.Key)
+        {
+            case "ArrowDown":
+                MoveFocus(1);
+                break;
+            case "ArrowUp":
+                MoveFocus(-1);
+                break;
+            case "Home":
+                FocusBoundary(fromStart: true);
+                break;
+            case "End":
+                FocusBoundary(fromStart: false);
+                break;
+            case "Enter":
+                var options = FilteredOptions;
+                if (_focusedIndex >= 0 &&
+                    _focusedIndex < options.Count &&
+                    !options[_focusedIndex].Disabled)
+                {
+                    await SelectAsync(options[_focusedIndex]);
+                }
+                break;
+            case "Escape":
+                await CloseAsync(restoreFocus: true);
+                break;
+        }
+    }
+
+    private void MoveFocus(int direction)
+    {
+        var options = FilteredOptions;
+        if (options.Count == 0)
+        {
+            _focusedIndex = -1;
+            return;
+        }
+
+        var index = _focusedIndex;
+        for (var attempt = 0; attempt < options.Count; attempt++)
+        {
+            index = (index + direction + options.Count) % options.Count;
+            if (!options[index].Disabled)
+            {
+                _focusedIndex = index;
+                return;
+            }
+        }
+
+        _focusedIndex = -1;
+    }
+
+    private void FocusBoundary(bool fromStart)
+    {
+        var options = FilteredOptions;
+        var indexes = fromStart
+            ? Enumerable.Range(0, options.Count)
+            : Enumerable.Range(0, options.Count).Reverse();
+        _focusedIndex = indexes.FirstOrDefault(
+            index => !options[index].Disabled,
+            -1);
+    }
+
+    private void ResetFocusedIndex()
+    {
+        var options = FilteredOptions;
+        _focusedIndex = options
+            .Select((option, index) => new { option, index })
+            .Where(item => !item.option.Disabled)
+            .OrderByDescending(item => IsSelected(item.option))
+            .Select(item => item.index)
+            .FirstOrDefault(-1);
+    }
+
+    private bool MatchesSearch(SherpaSelectOption<TValue> option)
+    {
+        return Contains(option.Label, _searchText) ||
+            Contains(option.Description, _searchText) ||
+            Contains(option.Group, _searchText);
+    }
+
+    private bool IsSelected(SherpaSelectOption<TValue> option) =>
+        EqualityComparer<TValue>.Default.Equals(Value!, option.Value);
+
+    private static bool Contains(string? value, string searchText) =>
+        value?.Contains(searchText, StringComparison.OrdinalIgnoreCase) == true;
+
+    private static string EnsureFixedWidth(string icon) =>
+        icon.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Contains("fa-fw", StringComparer.Ordinal)
+                ? icon
+                : $"{icon} fa-fw";
+
+    [JSInvokable]
+    public Task CloseFromJavaScript(bool restoreFocus) =>
+        CloseAsync(restoreFocus);
+
+    private async Task CloseAsync(bool restoreFocus)
+    {
+        if (!_isOpen)
+            return;
+
+        _isOpen = false;
+        _restoreFocus = restoreFocus;
+        _searchText = string.Empty;
+        _focusedIndex = -1;
+
+        if (_interopBound && _interopModule is not null)
+        {
+            await _interopModule.InvokeVoidAsync("unbindPopover", _rootId);
+            _interopBound = false;
+        }
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            if (_interopModule is not null)
+            {
+                await _interopModule.InvokeVoidAsync("unbindPopover", _rootId);
+                await _interopModule.DisposeAsync();
+            }
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+        catch (JSException ex) when (ex.Message.Contains(
+            "does not exist (has it been disposed?)",
+            StringComparison.Ordinal))
+        {
+        }
+
+        _dotNetReference?.Dispose();
+    }
+
+    private sealed record IndexedOption(
+        int Index,
+        SherpaSelectOption<TValue> Option);
+}

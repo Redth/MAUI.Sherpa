@@ -168,7 +168,7 @@
 
 @code {
     private string ThemeClass => ThemeService.IsDarkMode ? "theme-dark" : "theme-light";
-    private string PlatformClass => PlatformInfo.IsMacOS ? "platform-macos" : PlatformInfo.IsWindows ? "platform-windows" : PlatformInfo.IsMacCatalyst ? "platform-mac" : "platform-linux";
+    private string PlatformClass => PlatformInfo.IsMacOS || PlatformInfo.IsMacCatalyst ? "platform-macos" : PlatformInfo.IsWindows ? "platform-windows" : "platform-linux";
     private bool isDemoMode;
 
 #if DEBUG
@@ -268,9 +268,9 @@
         {
             var cls = ThemeService.IsDarkMode ? "theme-dark" : "theme-light";
             if (PlatformInfo.IsMacOS)
-                await JS.InvokeVoidAsync("eval", $"document.body.className = '{cls}'; document.body.style.backgroundColor='transparent';");
+                await JS.InvokeVoidAsync("eval", $"document.body.className = '{cls} {PlatformClass}'; document.body.style.backgroundColor='transparent';");
             else
-                await JS.InvokeVoidAsync("eval", $"document.body.className = '{cls}'");
+                await JS.InvokeVoidAsync("eval", $"document.body.className = '{cls} {PlatformClass}'");
         }
         catch { }
     }
@@ -559,40 +559,6 @@
         -webkit-app-region: drag;
     }
 
-    /* Light theme (default) */
-    .theme-light {
-        --bg-primary: #FFFFFF;
-        --bg-secondary: #ffffff;
-        --bg-tertiary: #ECECEC;
-        --text-primary: #2d3748;
-        --text-secondary: #4a5568;
-        --text-muted: #718096;
-        --border-color: #EBEBEB;
-        --card-bg: #F7F7F7;
-        --card-shadow: none;
-        --input-bg: #ffffff;
-        --input-border: #e2e8f0;
-        --hover-bg: #F0F0F0;
-        --accent-bg: #faf5ff;
-    }
-
-    /* Dark theme */
-    .theme-dark {
-        --bg-primary: #1E1E1E;
-        --bg-secondary: #2C2C2C;
-        --bg-tertiary: #424242;
-        --text-primary: #e2e8f0;
-        --text-secondary: #cbd5e0;
-        --text-muted: #a0aec0;
-        --border-color: #24292B;
-        --card-bg: #383838;
-        --card-shadow: none;
-        --input-bg: #2d3748;
-        --input-border: #4a5568;
-        --hover-bg: #4E4E4E;
-        --accent-bg: #312e81;
-    }
-
     .theme-dark .sidebar {
         background-color: #171923;
     }
@@ -691,25 +657,6 @@
 
     .platform-linux .platform-hide-macos {
         display: none;
-    }
-
-    /* macOS: use system font and scale down to match native proportions */
-    .platform-macos {
-        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", system-ui, sans-serif;
-        font-size: 13px;
-        -webkit-font-smoothing: antialiased;
-    }
-
-    .platform-macos h1, .platform-macos .page-header h1 {
-        font-size: 1.35rem;
-    }
-
-    .platform-macos h2 {
-        font-size: 1.15rem;
-    }
-
-    .platform-macos h3 {
-        font-size: 1rem;
     }
 
     .linux-local-vault-intro-host {

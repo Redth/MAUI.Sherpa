@@ -101,17 +101,30 @@ else
             <i class="fas fa-search"></i>
             <input type="search" placeholder="Search emulators..." aria-label="Search emulators" @bind="searchQuery" @bind:event="oninput" />
         </div>
-        <select class="filter-select" aria-label="Filter by state" @bind="filterState">
-            <option value="">All States</option><option value="Running">Running</option><option value="Stopped">Stopped</option>
-        </select>
-        <select class="filter-select" aria-label="Filter by device type" @bind="filterFamily">
-            <option value="">All Devices</option>
-            @foreach (var family in EmulatorFamilies) { <option value="@family">@family</option> }
-        </select>
-        <select class="filter-select" aria-label="Filter by Android version" @bind="filterTarget">
-            <option value="">All Versions</option>
-            @foreach (var target in EmulatorTargets) { <option value="@target">@target</option> }
-        </select>
+        <SherpaSelect TValue="string"
+                      Value="@filterState"
+                      ValueChanged="@(value => filterState = value ?? "")"
+                      Options="StateFilterOptions"
+                      LeadingIcon="fa-solid fa-circle-dot"
+                      AriaLabel="Filter by state"
+                      Compact="true"
+                      Class="filter-select" />
+        <SherpaSelect TValue="string"
+                      Value="@filterFamily"
+                      ValueChanged="@(value => filterFamily = value ?? "")"
+                      Options="FamilyFilterOptions"
+                      LeadingIcon="fa-solid fa-mobile-screen"
+                      AriaLabel="Filter by device type"
+                      Compact="true"
+                      Class="filter-select" />
+        <SherpaSelect TValue="string"
+                      Value="@filterTarget"
+                      ValueChanged="@(value => filterTarget = value ?? "")"
+                      Options="TargetFilterOptions"
+                      LeadingIcon="fa-brands fa-android"
+                      AriaLabel="Filter by Android version"
+                      Compact="true"
+                      Class="filter-select" />
     </div>
 }
 
@@ -248,16 +261,15 @@ else
     .toolbar, .filter-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; margin-bottom: 1rem; }
     .search-box { position: relative; flex: 1; min-width: 12rem; }
     .search-box i { position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--text-muted); }
-    .search-box input, .filter-select { width: 100%; padding: 0.5rem 0.75rem; border: 1px solid var(--border-color); border-radius: 0.375rem; background: var(--bg-secondary); color: var(--text-primary); }
+    .search-box input { width: 100%; padding: 0.5rem 0.75rem; border: 1px solid var(--border-control); border-radius: var(--radius-md); background: var(--surface-control); color: var(--text-primary); }
     .search-box input { padding-left: 2.25rem; }
     .filter-select { width: auto; max-width: 15rem; }
     .device-list { display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.75rem; }
-    .device-card { display: flex; align-items: center; gap: 1rem; padding: 0.875rem; background: var(--card-bg); border-radius: var(--card-radius); border-left: 0.25rem solid transparent; }
-    .device-card.running { border-left-color: var(--accent-success); }
-    .device-card.starting { border-left-color: var(--accent-warning); background: var(--status-warning-bg); }
+    .device-card { display: flex; align-items: center; gap: 1rem; padding: 0.875rem; background: var(--card-bg); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); }
+    .device-card.starting { background: var(--status-warning-bg); }
     .device-card.selectable { cursor: pointer; }
     .device-card.selected { outline: 2px solid var(--accent-primary); outline-offset: -2px; }
-    .device-icon { width: 42px; height: 42px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; position: relative; border-radius: 12px; font-size: 1.25rem; background: var(--status-success-bg); color: var(--status-success-text); }
+    .device-icon { width: 42px; height: 42px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; position: relative; border-radius: var(--radius-md); font-size: 1.25rem; background: var(--status-success-bg); color: var(--status-success-text); }
     .brand-overlay { position: absolute; right: 3px; bottom: 3px; font-size: 0.7rem; color: var(--text-muted); }
     .device-details { flex: 1; min-width: 0; }
     .device-name { font-weight: 600; color: var(--text-primary); overflow-wrap: anywhere; }
@@ -267,21 +279,21 @@ else
     .btn-copy { background: none; border: none; color: var(--text-secondary); cursor: pointer; padding: 2px 0.375rem; }
     .btn-copy:hover { color: var(--accent-primary); }
     .device-badges { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; }
-    .badge { padding: 2px 0.625rem; border-radius: 0.75rem; font-size: 0.75rem; font-weight: 500; }
+    .badge { padding: 2px 0.625rem; border-radius: var(--radius-pill); font-size: 0.75rem; font-weight: 500; }
     .badge-success { background: var(--status-success-bg); color: var(--status-success-text); }
     .badge-info, .badge-transport { background: var(--status-info-bg); color: var(--status-info-text); }
     .badge-warning { background: var(--status-warning-bg); color: var(--status-warning-text); }
     .badge-stopped { background: var(--bg-tertiary); color: var(--text-secondary); }
     .device-actions, .selection-actions { display: flex; align-items: center; gap: 0.25rem; }
-    .btn-icon { width: 2rem; height: 2rem; padding: 0; display: inline-flex; align-items: center; justify-content: center; border-radius: 0.375rem; }
+    .btn-icon { width: 2rem; height: 2rem; padding: 0; display: inline-flex; align-items: center; justify-content: center; border-radius: var(--radius-sm); }
     .btn-icon i { margin: 0; font-size: 0.8125rem; }
-    .device-warning { display: flex; align-items: center; gap: 0.625rem; margin: 0.75rem 0; padding: 0.75rem 1rem; border-radius: 0.375rem; background: var(--status-warning-bg); color: var(--status-warning-text); }
+    .device-warning { display: flex; align-items: center; gap: 0.625rem; margin: 0.75rem 0; padding: 0.75rem 1rem; border: 1px solid var(--status-warning-border); border-radius: var(--radius-lg); background: var(--status-warning-bg); color: var(--status-warning-text); }
     .device-warning span { flex: 1; }
     .empty-hint { margin: 0.75rem 0; color: var(--text-muted); font-size: 0.875rem; }
-    .empty-state { padding: 2.5rem; text-align: center; background: var(--card-bg); border-radius: var(--card-radius); }
+    .empty-state { padding: 2.5rem; text-align: center; background: var(--card-bg); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); }
     .empty-title { font-weight: 600; color: var(--text-primary); }
     .empty-description { margin-top: 0.5rem; font-size: 0.875rem; color: var(--text-muted); }
-    .selection-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; padding: 0.75rem; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 0.5rem; }
+    .selection-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; padding: 0.75rem; background: var(--surface-well); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); }
     .select-all { display: flex; align-items: center; gap: 0.5rem; color: var(--text-primary); }
     .selection-count { flex: 1; color: var(--text-secondary); font-size: 0.875rem; }
     .selection-actions { gap: 0.5rem; }
@@ -309,6 +321,27 @@ else
     private string filterState = "";
     private string filterFamily = "";
     private string filterTarget = "";
+
+    private static readonly IReadOnlyList<SherpaSelectOption<string>> StateFilterOptions =
+    [
+        new("", "All States"),
+        new("Running", "Running", DotCssClass: "sherpa-dot-success"),
+        new("Stopped", "Stopped", DotCssClass: "sherpa-dot-muted")
+    ];
+
+    private IReadOnlyList<SherpaSelectOption<string>> FamilyFilterOptions =>
+    [
+        new("", "All Devices"),
+        .. EmulatorFamilies.Select(family =>
+            new SherpaSelectOption<string>(family, family))
+    ];
+
+    private IReadOnlyList<SherpaSelectOption<string>> TargetFilterOptions =>
+    [
+        new("", "All Versions"),
+        .. EmulatorTargets.Select(target =>
+            new SherpaSelectOption<string>(target, target))
+    ];
 
     private bool IsBusy => isLoadingEmulators || isOperating;
     private bool HasUnknownEmulatorIdentities => runningEmulators.Any(e => string.IsNullOrEmpty(e.AvdName));

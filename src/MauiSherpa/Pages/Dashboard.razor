@@ -17,36 +17,36 @@
 
 <div class="dashboard-header">
     <div>
-        <h1><i class="fas fa-home"></i> @ViewModel.Title</h1>
+        <h1><i class="fa-solid fa-house fa-fw"></i> @ViewModel.Title</h1>
         <p class="welcome">@ViewModel.WelcomeMessage</p>
     </div>
 </div>
 
 <div class="environment-section">
     <div class="section-heading">
-        <h2><i class="fas fa-gauge-high"></i> Development Environment</h2>
+        <h2><i class="fa-solid fa-gauge-high fa-fw"></i> Development Environment</h2>
         <div class="section-actions">
             <button class="icon-action" @onclick="RunDoctorAsync" disabled="@isDoctorLoading" title="Refresh environment">
-                <i class="fas fa-rotate @(isDoctorLoading ? "fa-spin" : null)"></i>
+                <i class="fa-solid fa-rotate fa-fw @(isDoctorLoading ? "fa-spin" : null)"></i>
             </button>
             <a class="text-action" href="doctor">View Doctor</a>
         </div>
     </div>
 
     <div class="environment-grid" aria-busy="@isDoctorLoading">
-        @EnvironmentCard("fab fa-microsoft", ".NET", GetDotNetVersion(), GetDotNetDetail(), GetCategoryStatus(DependencyCategory.DotNetSdk))
+        @EnvironmentCard("fa-brands fa-microsoft", ".NET", GetDotNetVersion(), GetDotNetDetail(), GetCategoryStatus(DependencyCategory.DotNetSdk))
         @if (PlatformInfo.IsMacCatalyst || PlatformInfo.IsMacOS)
         {
-            @EnvironmentCard("fab fa-apple", "Xcode", GetDependencyVersion(DependencyCategory.Xcode, "Xcode"), GetDependencyMessage(DependencyCategory.Xcode, "Xcode"), GetCategoryStatus(DependencyCategory.Xcode))
+            @EnvironmentCard("fa-brands fa-apple", "Xcode", GetDependencyVersion(DependencyCategory.Xcode, "Xcode"), GetDependencyMessage(DependencyCategory.Xcode, "Xcode"), GetCategoryStatus(DependencyCategory.Xcode))
         }
-        @EnvironmentCard("fab fa-java", "JDK", GetDependencyVersion(DependencyCategory.Jdk, "JDK"), GetDependencyMessage(DependencyCategory.Jdk, "JDK"), GetCategoryStatus(DependencyCategory.Jdk))
-        @EnvironmentCard("fab fa-android", "Android SDK", GetAndroidVersion(), GetAndroidDetail(), GetCategoryStatus(DependencyCategory.AndroidSdk))
+        @EnvironmentCard("fa-brands fa-java", "JDK", GetDependencyVersion(DependencyCategory.Jdk, "JDK"), GetDependencyMessage(DependencyCategory.Jdk, "JDK"), GetCategoryStatus(DependencyCategory.Jdk))
+        @EnvironmentCard("fa-brands fa-android", "Android SDK", GetAndroidVersion(), GetAndroidDetail(), GetCategoryStatus(DependencyCategory.AndroidSdk))
     </div>
 
     @if (!string.IsNullOrEmpty(doctorError))
     {
         <div class="environment-error" role="status">
-            <i class="fas fa-circle-exclamation"></i>
+            <i class="fa-solid fa-circle-exclamation fa-fw"></i>
             <span>Environment check failed. @doctorError</span>
             <button class="text-action" @onclick="RunDoctorAsync">Retry</button>
         </div>
@@ -54,7 +54,7 @@
     else if (doctorReport is not null && (doctorReport.HasErrors || doctorReport.HasWarnings))
     {
         <div class="attention-summary">
-            <i class="fas fa-triangle-exclamation"></i>
+            <i class="fa-solid fa-triangle-exclamation fa-fw"></i>
             <div class="attention-content">
                 <strong>@GetHealthSummary()</strong>
                 <span>@string.Join(" · ", GetAttentionItems().Select(item => item.Name))</span>
@@ -66,7 +66,7 @@
 
 @* Connected Devices & Simulators *@
 <div class="devices-section">
-    <h2><i class="fas fa-plug"></i> Connected Devices</h2>
+    <h2><i class="fa-solid fa-plug fa-fw"></i> Connected Devices</h2>
     <div class="devices-grid">
         @{
             var snapshot = DeviceMonitor.Current;
@@ -78,15 +78,15 @@
         {
             <div class="device-card">
                 <div class="device-card-icon platform-android">
-                    <i class="fas fa-mobile-alt"></i>
-                    <i class="fab fa-android brand-overlay"></i>
+                    <i class="fa-solid fa-mobile-screen-button"></i>
+                    <i class="fa-brands fa-android brand-overlay"></i>
                 </div>
                 <div class="device-card-info">
                     <div class="device-card-name">@(device.Model ?? device.Serial)</div>
                     <div class="device-card-detail">Android Device</div>
                 </div>
                 <button class="device-card-action" @onclick='() => DeviceInspector.OpenAsync(device.Serial, device.Model ?? device.Serial)' title="Inspect">
-                    <i class="fas fa-search"></i>
+                    <i class="fa-solid fa-magnifying-glass fa-fw"></i>
                 </button>
             </div>
         }
@@ -95,15 +95,15 @@
         {
             <div class="device-card">
                 <div class="device-card-icon platform-android">
-                    <i class="fas fa-mobile-alt"></i>
-                    <i class="fab fa-android brand-overlay"></i>
+                    <i class="fa-solid fa-mobile-screen-button"></i>
+                    <i class="fa-brands fa-android brand-overlay"></i>
                 </div>
                 <div class="device-card-info">
                     <div class="device-card-name">@(emu.Model ?? emu.Serial)</div>
                     <div class="device-card-detail">Android Emulator</div>
                 </div>
                 <button class="device-card-action" @onclick='() => DeviceInspector.OpenAsync(emu.Serial, emu.Model ?? emu.Serial)' title="Inspect">
-                    <i class="fas fa-search"></i>
+                    <i class="fa-solid fa-magnifying-glass fa-fw"></i>
                 </button>
             </div>
         }
@@ -112,15 +112,15 @@
         {
             <div class="device-card">
                 <div class="device-card-icon platform-apple">
-                    <i class="fas @GetAppleFormFactorIcon(device.Platform, device.Name)"></i>
-                    <i class="fab fa-apple brand-overlay"></i>
+                    <i class="fa-solid @GetAppleFormFactorIcon(device.Platform, device.Name)"></i>
+                    <i class="fa-brands fa-apple brand-overlay"></i>
                 </div>
                 <div class="device-card-info">
                     <div class="device-card-name">@device.Name</div>
                     <div class="device-card-detail">@device.ModelName — @FriendlyPlatform(device.Platform) @device.OsVersion</div>
                 </div>
                 <button class="device-card-action" @onclick='() => SimInspector.OpenAsync(device.Identifier, device.Name, SimInspectorTab.Apps, isPhysicalDevice: true)' title="Inspect">
-                    <i class="fas fa-search"></i>
+                    <i class="fa-solid fa-magnifying-glass fa-fw"></i>
                 </button>
             </div>
         }
@@ -129,15 +129,15 @@
         {
             <div class="device-card">
                 <div class="device-card-icon platform-apple">
-                    <i class="fas @GetAppleFormFactorIcon(sim.Platform, sim.Name)"></i>
-                    <i class="fab fa-apple brand-overlay"></i>
+                    <i class="fa-solid @GetAppleFormFactorIcon(sim.Platform, sim.Name)"></i>
+                    <i class="fa-brands fa-apple brand-overlay"></i>
                 </div>
                 <div class="device-card-info">
                     <div class="device-card-name">@sim.Name</div>
                     <div class="device-card-detail">@FriendlyPlatform(sim.Platform) @sim.OsVersion</div>
                 </div>
                 <button class="device-card-action" @onclick='() => SimInspector.OpenAsync(sim.Identifier, sim.Name)' title="Inspect">
-                    <i class="fas fa-search"></i>
+                    <i class="fa-solid fa-magnifying-glass fa-fw"></i>
                 </button>
             </div>
         }
@@ -145,7 +145,7 @@
         @if (!hasAny)
         {
             <div class="devices-empty">
-                <i class="fas fa-plug"></i>
+                <i class="fa-solid fa-plug fa-fw"></i>
                 <span>No devices connected or simulators running</span>
             </div>
         }
@@ -212,12 +212,12 @@
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        border-radius: 0.5rem;
+        border-radius: var(--radius-md);
     }
 
     .icon-action:hover, .text-action:hover { background: var(--bg-hover); }
     .icon-action:disabled { cursor: default; opacity: 0.55; }
-    .text-action { padding: 0.35rem 0.5rem; border-radius: 0.4rem; font-size: 0.8rem; font-weight: 600; }
+    .text-action { padding: 0.35rem 0.5rem; border-radius: var(--radius-sm); font-size: 0.8rem; font-weight: 600; }
 
     .environment-grid {
         display: grid;
@@ -229,19 +229,25 @@
         min-width: 0;
         min-height: 112px;
         padding: 1rem;
-        background: var(--card-bg);
-        border: 1px solid var(--border-color);
-        border-left: 4px solid var(--border-color);
-        border-radius: 0.875rem;
+        background: var(--surface-card);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
         overflow: hidden;
     }
 
-    .environment-card.status-ok { border-left-color: var(--accent-success); }
-    .environment-card.status-warning { border-left-color: var(--accent-warning); }
-    .environment-card.status-error { border-left-color: var(--accent-danger); }
-    .environment-card.status-loading { border-left-color: var(--text-muted); }
-
     .environment-card-header { display: flex; align-items: center; gap: 0.5rem; color: var(--text-muted); font-size: 0.75rem; font-weight: 600; }
+    .environment-icon {
+        width: 2rem;
+        height: 2rem;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: var(--radius-md);
+        background: var(--accent-soft);
+        color: var(--accent);
+    }
+    .environment-label { flex: 1; color: var(--text-primary); }
+    .environment-status { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.7rem; color: var(--text-secondary); }
     .environment-card-value { margin-top: 0.55rem; color: var(--text-primary); font-size: 1.1rem; font-weight: 650; }
     .environment-card-detail { margin-top: 0.25rem; color: var(--text-muted); font-size: 0.72rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -251,9 +257,10 @@
         gap: 0.5rem;
         margin-top: 0.625rem;
         padding: 0.625rem 0.75rem;
-        border-radius: 0.5rem;
+        border-radius: var(--radius-md);
         color: var(--text-secondary);
-        background: var(--bg-tertiary);
+        background: var(--surface-well);
+        border: 1px solid var(--border-hairline);
         font-size: 0.8rem;
     }
 
@@ -275,9 +282,9 @@
         align-items: center;
         gap: 0.625rem;
         padding: 0.75rem 1.25rem;
-        background: var(--card-bg);
-        border: none;
-        border-radius: 0.75rem;
+        background: var(--surface-card);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
         text-decoration: none;
         color: var(--text-primary);
         font-size: inherit;
@@ -291,10 +298,6 @@
         border-color: var(--text-muted);
         transform: translateY(-1px);
     }
-
-    .action-btn.doctor { border-left: 3px solid var(--accent-success); }
-    .action-btn.settings { border-left: 3px solid var(--text-muted); }
-    .action-btn.copilot { border-left: 3px solid var(--accent-purple); }
 
     .action-icon { font-size: 1rem; opacity: 0.8; }
 
@@ -329,15 +332,16 @@
         align-items: center;
         gap: 0.75rem;
         padding: 0.75rem 1rem;
-        background: var(--card-bg);
-        border-radius: 0.75rem;
+        background: var(--surface-card);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
         transition: border-color 0.15s;
     }
 
     .device-card-icon {
         width: 36px;
         height: 36px;
-        border-radius: 10px;
+        border-radius: var(--radius-md);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -351,40 +355,24 @@
         bottom: 2px;
         right: 2px;
         font-size: 0.55rem;
-        color: #999;
+        color: var(--text-muted);
         opacity: 1;
         line-height: 1;
     }
 
-    :global(.theme-dark) .device-card-icon .brand-overlay {
-        color: #888;
-    }
-
     .device-card-icon.platform-android {
-        background: rgba(34, 197, 94, 0.12);
-        color: #22c55e;
+        background: var(--status-success-bg);
+        color: var(--status-success-fg);
     }
 
     .device-card-icon.platform-apple {
-        background: rgba(147, 51, 234, 0.12);
-        color: #9333ea;
+        background: var(--accent-soft);
+        color: var(--accent);
     }
 
     .device-card-icon.platform-windows {
-        background: rgba(59, 130, 246, 0.12);
-        color: #3b82f6;
-    }
-
-    :global(.theme-dark) .device-card-icon.platform-android {
-        color: #4ade80;
-    }
-
-    :global(.theme-dark) .device-card-icon.platform-apple {
-        color: #c084fc;
-    }
-
-    :global(.theme-dark) .device-card-icon.platform-windows {
-        color: #60a5fa;
+        background: var(--status-info-bg);
+        color: var(--status-info-fg);
     }
 
     .device-card-info {
@@ -409,7 +397,7 @@
     .device-card-action {
         width: 30px;
         height: 30px;
-        border-radius: 0.5rem;
+        border-radius: var(--radius-md);
         border: none;
         background: transparent;
         color: var(--text-muted);
@@ -436,8 +424,9 @@
         padding: 1.25rem;
         color: var(--text-muted);
         font-size: 0.875rem;
-        background: var(--bg-tertiary);
-        border-radius: 0.75rem;
+        background: var(--surface-well);
+        border: 1px solid var(--border-hairline);
+        border-radius: var(--radius-lg);
     }
 
     .devices-empty i {
@@ -499,7 +488,14 @@
     }
 
     private RenderFragment EnvironmentCard(string icon, string label, string value, string detail, DependencyStatusType? status) => @<div class="environment-card @GetStatusClass(status)" title="@detail">
-            <div class="environment-card-header"><i class="@icon"></i><span>@label</span></div>
+            <div class="environment-card-header">
+                <span class="environment-icon"><i class="@($"{icon} fa-fw")"></i></span>
+                <span class="environment-label">@label</span>
+                <span class="environment-status">
+                    <span class="sherpa-dot @GetStatusDotClass(status)" aria-hidden="true"></span>
+                    <span>@GetStatusLabel(status)</span>
+                </span>
+            </div>
             <div class="environment-card-value">@value</div>
             <div class="environment-card-detail">@detail</div>
         </div>;
@@ -550,6 +546,22 @@
         DependencyStatusType.Warning => "status-warning",
         DependencyStatusType.Ok or DependencyStatusType.Info => "status-ok",
         _ => "status-loading"
+    };
+
+    private string GetStatusDotClass(DependencyStatusType? status) => status switch
+    {
+        DependencyStatusType.Error => "sherpa-dot-danger",
+        DependencyStatusType.Warning => "sherpa-dot-warning",
+        DependencyStatusType.Ok or DependencyStatusType.Info => "sherpa-dot-success",
+        _ => "sherpa-dot-muted"
+    };
+
+    private string GetStatusLabel(DependencyStatusType? status) => status switch
+    {
+        DependencyStatusType.Error => "Needs attention",
+        DependencyStatusType.Warning => "Warning",
+        DependencyStatusType.Ok or DependencyStatusType.Info => "Ready",
+        _ => "Checking"
     };
 
     private string GetHealthSummary() => doctorReport is null

@@ -5,11 +5,11 @@
     {
         <div class="workload-inline-head">
             <div class="workload-title">
-                <i class="fas fa-puzzle-piece" aria-hidden="true"></i>
+                <i class="fa-solid fa-puzzle-piece fa-fw" aria-hidden="true"></i>
                 <strong>Workloads</strong>
                 @if (Loading)
                 {
-                    <span class="workload-summary"><i class="fas fa-spinner fa-spin" aria-hidden="true"></i> Reading state...</span>
+                    <span class="workload-summary"><i class="fa-solid fa-spinner fa-spin fa-fw" aria-hidden="true"></i> Reading state...</span>
                 }
                 else if (Inventories.Count == 0)
                 {
@@ -38,11 +38,11 @@
                 @onclick="ToggleExpanded"
                 aria-expanded="@expanded">
             <div class="workload-title">
-                <i class="fas fa-puzzle-piece" aria-hidden="true"></i>
+                <i class="fa-solid fa-puzzle-piece fa-fw" aria-hidden="true"></i>
                 <strong>Workloads</strong>
                 @if (Loading)
                 {
-                    <span class="workload-summary"><i class="fas fa-spinner fa-spin"></i> Reading state...</span>
+                    <span class="workload-summary"><i class="fa-solid fa-spinner fa-spin fa-fw"></i> Reading state...</span>
                 }
                 else if (Inventories.Count == 0)
                 {
@@ -62,7 +62,7 @@
                     }
                 }
             </div>
-            <i class="fas fa-chevron-right workload-chevron @(expanded ? "expanded" : "")" aria-hidden="true"></i>
+            <i class="fa-solid fa-chevron-right fa-fw workload-chevron @(expanded ? "expanded" : "")" aria-hidden="true"></i>
         </button>
     }
 
@@ -71,7 +71,7 @@
         <div class="workload-card-body">
             @if (Loading)
             {
-                <div class="workload-loading"><i class="fas fa-spinner fa-spin"></i> Reading workload state...</div>
+                <div class="workload-loading"><i class="fa-solid fa-spinner fa-spin fa-fw"></i> Reading workload state...</div>
             }
             else if (Inventories.Count == 0)
             {
@@ -100,7 +100,7 @@
                                 }
                                 @if (inventory.Diagnostics.Count > 0)
                                 {
-                                    <i class="fas fa-circle-exclamation diagnostic" title="@string.Join(Environment.NewLine, inventory.Diagnostics)"></i>
+                                    <i class="fa-solid fa-circle-exclamation fa-fw diagnostic" title="@string.Join(Environment.NewLine, inventory.Diagnostics)"></i>
                                 }
                             </div>
                             <div class="workload-meta">
@@ -147,18 +147,18 @@
                                     @onclick="@(() => RepairRequested.InvokeAsync(inventory))"
                                     disabled="@(Busy || inventory.InstalledWorkloads.Count == 0)"
                                     title="@(inventory.InstalledWorkloads.Count == 0 ? "No installed workloads to repair" : "Repair installed workloads")">
-                                <i class="fas fa-screwdriver-wrench"></i>
+                                <i class="fa-solid fa-screwdriver-wrench fa-fw"></i>
                             </button>
                             <button data-screenshot-external class="btn btn-secondary btn-sm"
                                     @onclick="@(() => ManageRequested.InvokeAsync(inventory))"
                                     disabled="@(Busy || (effectiveWorkloads.Count == 0 && inventory.InstallableWorkloads.Count == 0))">
-                                <i class="fas fa-list-check"></i> <span>Workloads</span>
+                                <i class="fa-solid fa-list-check fa-fw"></i> <span>Workloads</span>
                             </button>
                             <button data-screenshot-external class="btn btn-secondary btn-sm segmented-action"
                                     @onclick="@(() => ChangeSetRequested.InvokeAsync(inventory))"
                                     disabled="@(Busy || inventory.AvailableSetVersions.Count == 0)">
                                 <span class="segmented-action-main">
-                                    <i class="fas fa-layer-group"></i>
+                                    <i class="fa-solid fa-layer-group fa-fw"></i>
                                     <span>Sets</span>
                                 </span>
                                 @if (inventory.UpdateAvailable)
@@ -166,7 +166,7 @@
                                     <span class="segmented-action-update"
                                           title="A workload set update is available"
                                           aria-label="Update available">
-                                        <i class="fas fa-arrow-up"></i>
+                                        <i class="fa-solid fa-arrow-up fa-fw"></i>
                                     </span>
                                 }
                             </button>
@@ -182,14 +182,15 @@
     .workload-card {
         margin-top: 0.45rem;
         margin-bottom: 0.4rem;
-        border-radius: var(--card-radius);
-        background: var(--card-bg);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
+        background: var(--surface-card);
         overflow: hidden;
     }
 
     .workload-card--inline {
         margin: 0;
-        border-top: 1px solid var(--border-color);
+        border-top: 1px solid var(--border-hairline);
         border-radius: 0;
         background: transparent;
         overflow: visible;
@@ -197,8 +198,8 @@
 
     .workload-inline-head {
         padding: 0.55rem 1rem;
-        border-bottom: 1px solid var(--border-color);
-        background: var(--card-bg);
+        border-bottom: 1px solid var(--border-hairline);
+        background: var(--surface-well);
     }
 
     .workload-card-head {
@@ -218,7 +219,7 @@
     }
 
     .workload-card-head:hover {
-        background: var(--bg-tertiary);
+        background: var(--surface-well);
     }
 
     .workload-title {
@@ -259,8 +260,8 @@
         align-items: center;
         gap: 0;
         padding: 0;
-        border: 1px solid var(--border-color);
-        border-radius: 999px;
+        border: 1px solid var(--border-hairline);
+        border-radius: var(--radius-pill);
         overflow: hidden;
     }
 
@@ -271,14 +272,14 @@
 
     .summary-sdk {
         color: var(--status-success-text);
-        background: var(--bg-tertiary);
+        background: var(--surface-well);
         font-weight: 600;
     }
 
     .summary-workload {
         color: var(--text-inverse);
-        background: color-mix(in srgb, var(--accent-purple) 80%, var(--text-primary));
-        border-left: 1px solid var(--border-color);
+        background: color-mix(in srgb, var(--accent) 80%, var(--text-primary));
+        border-left: 1px solid var(--border-hairline);
         font-weight: 600;
     }
 
@@ -288,13 +289,14 @@
     }
 
     .badge-workload-set {
-        color: var(--accent-purple);
-        background: color-mix(in srgb, var(--accent-purple) 12%, var(--card-bg));
-        border: 1px solid color-mix(in srgb, var(--accent-purple) 35%, var(--border-color));
+        color: var(--accent);
+        background: var(--accent-soft);
+        border: 1px solid var(--accent-border);
     }
 
     .workload-card-body {
-        border-top: 1px solid var(--border-color);
+        border-top: 1px solid var(--border-hairline);
+        background: var(--surface-well);
     }
 
     .workload-card--inline .workload-card-body {
@@ -303,11 +305,11 @@
 
     .workload-card--inline .workload-row {
         padding: 0.65rem 1rem;
-        background: color-mix(in srgb, var(--bg-tertiary) 35%, var(--card-bg));
+        background: var(--surface-well);
     }
 
     .workload-card--inline .workload-row + .workload-row {
-        border-top: 1px solid var(--border-color);
+        border-top: 1px solid var(--border-hairline);
     }
 
     .workload-row {
@@ -318,7 +320,7 @@
     }
 
     .workload-row + .workload-row {
-        border-top: 1px solid var(--border-color);
+        border-top: 1px solid var(--border-hairline);
     }
 
     .workload-target {
@@ -359,8 +361,8 @@
 
     .workload-chip {
         padding: 0.12rem 0.42rem;
-        border-radius: 999px;
-        background: var(--bg-tertiary);
+        border-radius: var(--radius-pill);
+        background: var(--surface-card);
         color: var(--text-secondary);
         font-size: 0.68rem;
     }
@@ -407,7 +409,7 @@
     .segmented-action-update {
         justify-content: center;
         padding: 0.32rem 0.48rem;
-        border-left: 1px solid var(--border-color);
+        border-left: 1px solid var(--border-hairline);
         background: var(--status-info-bg);
         color: var(--status-info-text);
     }
@@ -438,7 +440,7 @@
         display: inline-flex;
         align-items: center;
         padding: 2px 0.5rem;
-        border-radius: 999px;
+        border-radius: var(--radius-pill);
         font-size: 0.68rem;
         font-weight: 500;
         white-space: nowrap;

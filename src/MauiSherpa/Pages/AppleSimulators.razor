@@ -154,29 +154,34 @@ else
             </div>
         </div>
         <div class="filter-group">
-            <select @bind="filterState" class="filter-select">
-                <option value="">All States</option>
-                <option value="Booted">Booted</option>
-                <option value="Shutdown">Shutdown</option>
-            </select>
+            <SherpaSelect TValue="string"
+                          Value="@filterState"
+                          ValueChanged="@(value => filterState = value ?? "")"
+                          Options="StateFilterOptions"
+                          LeadingIcon="fa-solid fa-circle-dot"
+                          AriaLabel="Filter by simulator state"
+                          Compact="true"
+                          Class="filter-select" />
         </div>
         <div class="filter-group">
-            <select @bind="filterFamily" class="filter-select">
-                <option value="">All Devices</option>
-                @foreach (var family in productFamilies)
-                {
-                    <option value="@family">@family</option>
-                }
-            </select>
+            <SherpaSelect TValue="string"
+                          Value="@filterFamily"
+                          ValueChanged="@(value => filterFamily = value ?? "")"
+                          Options="FamilyFilterOptions"
+                          LeadingIcon="fa-solid fa-mobile-screen"
+                          AriaLabel="Filter by device family"
+                          Compact="true"
+                          Class="filter-select" />
         </div>
         <div class="filter-group">
-            <select @bind="filterRuntime" class="filter-select">
-                <option value="">All Runtimes</option>
-                @foreach (var rt in runtimeNames)
-                {
-                    <option value="@rt">@rt</option>
-                }
-            </select>
+            <SherpaSelect TValue="string"
+                          Value="@filterRuntime"
+                          ValueChanged="@(value => filterRuntime = value ?? "")"
+                          Options="RuntimeFilterOptions"
+                          LeadingIcon="fa-brands fa-apple"
+                          AriaLabel="Filter by runtime"
+                          Compact="true"
+                          Class="filter-select" />
         </div>
     </div>
     }
@@ -374,7 +379,7 @@ else
         text-align: center;
         padding: 3.75rem 1.25rem;
         background: var(--status-error-bg);
-        border-radius: 0.75rem;
+        border-radius: var(--radius-lg);
         border: 1px solid var(--accent-danger);
     }
 
@@ -399,21 +404,7 @@ else
         background: var(--card-bg);
     }
 
-    .filter-select {
-        padding: 0.5rem 0.75rem;
-        border: 1px solid var(--border-color);
-        border-radius: var(--card-radius, 1rem);
-        font-size: 0.875rem;
-        background: var(--card-bg);
-        color: var(--text-primary);
-        min-width: 160px;
-    }
-
-    .filter-select:focus {
-        outline: none;
-        border-color: var(--accent-primary);
-        box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.1);
-    }
+    .filter-select { min-width: 160px; }
 
     .btn i { font-size: 0.75rem; }
 
@@ -439,39 +430,30 @@ else
 
     .simulator-card {
         background: var(--card-bg);
-        border-radius: var(--card-radius);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
         padding: 0.875rem;
         display: flex;
         align-items: center;
         gap: 1rem;
-        border-left: 0.25rem solid transparent;
-    }
-
-    .simulator-card.running {
-        border-left-color: var(--accent-success);
     }
 
     .simulator-card.starting {
-        border-left-color: var(--accent-warning);
         background: var(--status-warning-bg);
     }
 
     .simulator-icon {
         width: 42px;
         height: 42px;
-        border-radius: 12px;
+        border-radius: var(--radius-md);
         display: flex;
         align-items: center;
         justify-content: center;
         font-size: 1.25rem;
-        background: rgba(147, 51, 234, 0.12);
-        color: #9333ea;
+        background: var(--accent-soft);
+        color: var(--accent);
         position: relative;
         flex-shrink: 0;
-    }
-
-    :global(.theme-dark) .simulator-icon {
-        color: #c084fc;
     }
 
     .simulator-icon .brand-overlay {
@@ -479,12 +461,8 @@ else
         bottom: 3px;
         right: 3px;
         font-size: 0.7rem;
-        color: #999;
+        color: var(--text-muted);
         line-height: 1;
-    }
-
-    :global(.theme-dark) .simulator-icon .brand-overlay {
-        color: #888;
     }
 
     .simulator-details {
@@ -553,7 +531,7 @@ else
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        border-radius: 0.375rem;
+        border-radius: var(--radius-sm);
         font-size: 0.8125rem;
     }
     .btn.btn-icon i { font-size: 0.8125rem; margin: 0; }
@@ -599,8 +577,8 @@ else
     .sim-dropdown-item:hover:not(:disabled) { background: var(--bg-tertiary); }
     .sim-dropdown-item:disabled { opacity: 0.4; cursor: not-allowed; }
     .sim-dropdown-item i { font-size: 0.75rem; width: 0.875rem; text-align: center; color: var(--text-secondary); }
-    .sim-dropdown-item.danger { color: var(--accent-danger, #e53e3e); }
-    .sim-dropdown-item.danger i { color: var(--accent-danger, #e53e3e); }
+    .sim-dropdown-item.danger { color: var(--accent-danger); }
+    .sim-dropdown-item.danger i { color: var(--accent-danger); }
     .sim-dropdown-divider {
         height: 1px;
         background: var(--border-color);
@@ -609,7 +587,7 @@ else
 
     .badge {
         padding: 2px 0.625rem;
-        border-radius: 0.75rem;
+        border-radius: var(--radius-pill);
         font-size: 0.75rem;
         font-weight: 500;
     }
@@ -683,6 +661,27 @@ else
     private string filterState = "";
     private string filterFamily = "";
     private string filterRuntime = "";
+
+    private static readonly IReadOnlyList<SherpaSelectOption<string>> StateFilterOptions =
+    [
+        new("", "All States"),
+        new("Booted", "Booted", DotCssClass: "sherpa-dot-success"),
+        new("Shutdown", "Shutdown", DotCssClass: "sherpa-dot-muted")
+    ];
+
+    private IReadOnlyList<SherpaSelectOption<string>> FamilyFilterOptions =>
+    [
+        new("", "All Devices"),
+        .. productFamilies.Select(family =>
+            new SherpaSelectOption<string>(family, family))
+    ];
+
+    private IReadOnlyList<SherpaSelectOption<string>> RuntimeFilterOptions =>
+    [
+        new("", "All Runtimes"),
+        .. runtimeNames.Select(runtime =>
+            new SherpaSelectOption<string>(runtime, runtime))
+    ];
 
     private IEnumerable<string> productFamilies => simulators
         .Where(s => !string.IsNullOrEmpty(s.ProductFamily))

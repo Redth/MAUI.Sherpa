@@ -83,27 +83,36 @@
             <input type="text" @bind="searchQuery" @bind:event="oninput" placeholder="Search profiles..." />
             @if (!string.IsNullOrEmpty(searchQuery))
             {
-                <button class="clear-btn" @onclick="@(() => searchQuery = "")">×</button>
+                <button class="clear-btn" @onclick="@(() => searchQuery = "")" aria-label="Clear profile search">
+                    <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+                </button>
             }
         </div>
         <div class="filter-chips">
-            <select @bind="filterState" class="filter-select">
-                <option value="">All States</option>
-                <option value="ACTIVE">Active</option>
-                <option value="INVALID">Invalid</option>
-            </select>
-            <select @bind="filterType" class="filter-select">
-                <option value="">All Types</option>
-                <option value="DEVELOPMENT">Development</option>
-                <option value="ADHOC">Ad Hoc</option>
-                <option value="APPSTORE">App Store</option>
-            </select>
-            <select @bind="filterPlatform" class="filter-select">
-                <option value="">All Platforms</option>
-                <option value="IOS">iOS</option>
-                <option value="TVOS">tvOS</option>
-                <option value="MAC_OS">macOS</option>
-            </select>
+            <SherpaSelect TValue="string"
+                          Value="@filterState"
+                          ValueChanged="@(value => filterState = value ?? "")"
+                          Options="StateFilterOptions"
+                          LeadingIcon="fa-solid fa-circle-dot"
+                          AriaLabel="Filter by profile state"
+                          Compact="true"
+                          Class="filter-select" />
+            <SherpaSelect TValue="string"
+                          Value="@filterType"
+                          ValueChanged="@(value => filterType = value ?? "")"
+                          Options="ProfileTypeFilterOptions"
+                          LeadingIcon="fa-solid fa-id-card"
+                          AriaLabel="Filter by profile type"
+                          Compact="true"
+                          Class="filter-select" />
+            <SherpaSelect TValue="string"
+                          Value="@filterPlatform"
+                          ValueChanged="@(value => filterPlatform = value ?? "")"
+                          Options="PlatformFilterOptions"
+                          LeadingIcon="fa-brands fa-apple"
+                          AriaLabel="Filter by platform"
+                          Compact="true"
+                          Class="filter-select" />
         </div>
         @if (HasActiveFilters)
         {
@@ -173,23 +182,24 @@
                 var isExpiringSoon = !isExpired && profile.ExpirationDate < AppClock.UtcNow.AddDays(30);
                 var isInvalid = profile.State != "ACTIVE";
                 
-                <div class="profile-card @(isExpired || isInvalid ? "invalid" : isExpiringSoon ? "expiring" : "") @(selectedProfileIds.Contains(profile.Id) ? "selected" : "")">
+                <div class="profile-card @(isExpired || isInvalid ? "invalid" : isExpiringSoon ? "expiring" : "") @(selectedProfileIds.Contains(profile.Id) ? "selected" : "") @(isSelectionMode ? "selectable" : "")"
+                     @onclick="@(() => { if (isSelectionMode) ToggleProfileSelection(profile.Id, !selectedProfileIds.Contains(profile.Id)); })">
                     @if (isSelectionMode)
                     {
-                        <label class="profile-select">
+                        <label class="profile-select" @onclick:stopPropagation="true">
                             <input type="checkbox"
                                    aria-label="@($"Select {profile.Name}")"
                                    checked="@selectedProfileIds.Contains(profile.Id)"
                                    @onchange="@(e => ToggleProfileSelection(profile.Id, e.Value is bool selected && selected))" />
                         </label>
                     }
-                    <div class="profile-icon"><i class="fas fa-id-card"></i></div>
+                    <div class="profile-icon"><i class="fa-solid fa-id-card"></i></div>
                     <div class="profile-details">
                         <div class="profile-name"><span>@profile.Name</span></div>
                         <div class="profile-uuid">
                             <span class="@(demoMode ? "demo-blur" : "")">@profile.Uuid</span>
-                            <button class="btn-copy" @onclick="@(() => CopyToClipboard(profile.Uuid))" title="Copy to clipboard">
-                                <i class="fas fa-copy"></i>
+                            <button class="btn-copy" @onclick:stopPropagation="true" @onclick="@(() => CopyToClipboard(profile.Uuid))" title="Copy to clipboard">
+                                <i class="fa-regular fa-copy"></i>
                             </button>
                         </div>
                         @if (!string.IsNullOrEmpty(profile.BundleId))
@@ -273,10 +283,10 @@
 
     .toolbar { margin-bottom: 1rem; display: flex; gap: 0.75rem; align-items: center; }
     .toolbar-spacer { flex: 1; }
-    .error-bar { background: var(--status-error-bg); color: var(--status-error-text); padding: 0.75rem 1rem; border-radius: 0.75rem; margin-bottom: 1rem; }
+    .error-bar { background: var(--status-error-bg); color: var(--status-error-text); padding: 0.75rem 1rem; border: 1px solid var(--status-error-border); border-radius: var(--radius-lg); margin-bottom: 1rem; }
 
-    .btn-purple { background: #8b5cf6; color: white; }
-    .btn-purple:hover:not(:disabled) { background: #7c3aed; }
+    .btn-purple { background: var(--accent); color: var(--text-inverse); }
+    .btn-purple:hover:not(:disabled) { background: var(--accent-hover); }
 
     /* Filter Section Styles */
     .filter-section {
@@ -361,21 +371,7 @@
         flex-wrap: wrap;
     }
 
-    .filter-select {
-        padding: 0.5rem 0.75rem;
-        border: 1px solid var(--border-color);
-        border-radius: 0.375rem;
-        font-size: 0.8125rem;
-        background: var(--card-bg);
-        color: var(--text-primary);
-        cursor: pointer;
-        min-width: 120px;
-    }
-
-    .filter-select:focus {
-        outline: none;
-        border-color: var(--accent-primary);
-    }
+    .filter-select { min-width: 120px; }
 
     .clear-filters-btn {
         padding: 0.5rem 0.75rem;
@@ -423,23 +419,25 @@
     .prof-dropdown-item:hover:not(:disabled) { background: var(--bg-tertiary); }
     .prof-dropdown-item:disabled { opacity: 0.4; cursor: not-allowed; }
     .prof-dropdown-item i { font-size: 0.75rem; width: 0.875rem; text-align: center; color: var(--text-secondary); }
-    .prof-dropdown-item.danger { color: var(--accent-danger, #e53e3e); }
-    .prof-dropdown-item.danger i { color: var(--accent-danger, #e53e3e); }
+    .prof-dropdown-item.danger { color: var(--accent-danger); }
+    .prof-dropdown-item.danger i { color: var(--accent-danger); }
     .prof-dropdown-divider { height: 1px; background: var(--border-color); margin: 0.25rem 0; }
 
     .profile-list { display: flex; flex-direction: column; gap: 0.75rem; }
 
     .profile-card {
         background: var(--card-bg);
-        border-radius: var(--card-radius);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
         padding: 0.875rem;
         display: flex;
         align-items: flex-start;
         gap: 1rem;
-        border-left: 0.25rem solid var(--accent-success);
     }
 
-    .profile-card.invalid { border-left-color: #f56565; opacity: 0.7; }
+    .profile-card.invalid { opacity: 0.7; }
+    .profile-card.selectable { cursor: pointer; }
+    .profile-card.selectable:hover { background: var(--surface-card-hover); }
     .profile-card.selected { box-shadow: 0 0 0 2px var(--accent-primary); }
 
     .profile-select {
@@ -479,16 +477,14 @@
         font-size: 0.8125rem;
         white-space: nowrap;
     }
-    .profile-card.expiring { border-left-color: var(--accent-warning); }
-
-    .profile-icon { font-size: 1.5rem; color: #6b46c1; }
+    .profile-icon { font-size: 1.5rem; color: var(--accent); }
     .profile-icon i { font-size: 1.25rem; }
     .profile-details { flex: 1; }
     .profile-name { font-weight: 600; font-size: 1rem; color: var(--text-primary); }
     .profile-uuid { 
         font-family: monospace; 
         font-size: 0.6875rem; 
-        color: #a0aec0; 
+        color: var(--text-muted);
         margin-top: 0.25rem;
         display: flex;
         align-items: center;
@@ -512,7 +508,7 @@
     .btn-copy {
         background: none;
         border: none;
-        color: #a0aec0;
+        color: var(--text-muted);
         cursor: pointer;
         padding: 2px 0.375rem;
         font-size: 0.75rem;
@@ -525,16 +521,16 @@
         background: var(--bg-hover);
     }
 
-    .badge { padding: 2px 0.625rem; border-radius: 0.75rem; font-size: 0.75rem; font-weight: 500; }
-    .badge-type { background: #faf5ff; color: #6b46c1; }
-    .badge-platform { background: #bee3f8; color: #2c5282; }
+    .badge { padding: 2px 0.625rem; border-radius: var(--radius-pill); font-size: 0.75rem; font-weight: 500; }
+    .badge-type { background: var(--accent-soft); color: var(--accent); }
+    .badge-platform { background: var(--status-info-bg); color: var(--status-info-text); }
     .badge-valid { background: var(--status-success-bg); color: var(--status-success-text); }
     .badge-expiring { background: var(--status-warning-bg); color: var(--status-warning-text); }
     .badge-expired { background: var(--status-error-bg); color: var(--status-error-text); }
     .badge-invalid { background: var(--status-error-bg); color: var(--status-error-text); }
 
     .empty-state { background: var(--card-bg); border-radius: var(--card-radius); padding: 3.75rem 2.5rem; text-align: center; }
-    .empty-icon { font-size: 48px; margin-bottom: 1rem; color: #a0aec0; }
+    .empty-icon { font-size: 48px; margin-bottom: 1rem; color: var(--text-muted); }
     .empty-icon i { font-size: 48px; }
     .empty-title { font-size: 1.125rem; font-weight: 600; color: var(--text-primary); margin-bottom: 0.5rem; }
     .empty-description { color: var(--text-muted); font-size: 0.875rem; display: flex; flex-direction: column; align-items: center; gap: 1rem; }
@@ -556,6 +552,26 @@
     private string filterState = "";
     private string filterType = "";
     private string filterPlatform = "";
+    private static readonly IReadOnlyList<SherpaSelectOption<string>> StateFilterOptions =
+    [
+        new("", "All States"),
+        new("ACTIVE", "Active", DotCssClass: "sherpa-dot-success"),
+        new("INVALID", "Invalid", DotCssClass: "sherpa-dot-danger")
+    ];
+    private static readonly IReadOnlyList<SherpaSelectOption<string>> ProfileTypeFilterOptions =
+    [
+        new("", "All Types"),
+        new("DEVELOPMENT", "Development"),
+        new("ADHOC", "Ad Hoc"),
+        new("APPSTORE", "App Store")
+    ];
+    private static readonly IReadOnlyList<SherpaSelectOption<string>> PlatformFilterOptions =
+    [
+        new("", "All Platforms"),
+        new("IOS", "iOS", Icon: "fa-brands fa-apple"),
+        new("TVOS", "tvOS", Icon: "fa-brands fa-apple"),
+        new("MAC_OS", "macOS", Icon: "fa-brands fa-apple")
+    ];
 
     private bool HasActiveFilters => !string.IsNullOrEmpty(searchQuery) || 
                                       !string.IsNullOrEmpty(filterState) || 

@@ -71,7 +71,7 @@
                                         class="btn-secondary fastlane-import-button"
                                         disabled="@isAuthenticating"
                                         @onclick="() => ImportFastlaneSession(session)">
-                                    <i class="fas fa-file-import"></i>
+                                    <i class="fa-solid fa-file-import"></i>
                                     Import fastlane session for @session.AppleId
                                 </button>
                             }
@@ -98,16 +98,13 @@
                     {
                         <div class="form-group">
                             <label>Verification method</label>
-                            <select @bind="selectedPhoneIndex" @bind:after="OnPhoneSelectionChanged" disabled="@isAuthenticating">
-                                @if (twoFactorOptions.CanUseTrustedDevice)
-                                {
-                                    <option value="-1">Trusted Device</option>
-                                }
-                                @for (var i = 0; i < twoFactorOptions.TrustedPhoneNumbers.Count; i++)
-                                {
-                                    <option value="@i">SMS: @twoFactorOptions.TrustedPhoneNumbers[i].PhoneNumber</option>
-                                }
-                            </select>
+                            <SherpaSelect TValue="int"
+                                          Value="@selectedPhoneIndex"
+                                          ValueChanged="OnPhoneSelectionChanged"
+                                          Options="VerificationMethodOptions"
+                                          AriaLabel="Verification method"
+                                          Disabled="@isAuthenticating"
+                                          Class="sherpa-select-full" />
                         </div>
                     }
 
@@ -146,7 +143,7 @@
             else
             {
                 <div class="step-content account-locked">
-                    <div class="locked-icon" aria-hidden="true"><i class="fas fa-lock"></i></div>
+                    <div class="locked-icon" aria-hidden="true"><i class="fa-solid fa-lock"></i></div>
                     <h3>Your Apple Account sign-in is locked</h3>
                     <p class="step-description">
                         Apple locked automated sign-in for <strong>@lockedAppleId</strong> as a security precaution.
@@ -157,7 +154,7 @@
                     @if (!string.IsNullOrEmpty(authError))
                     {
                         <div class="apple-said">
-                            <i class="fas fa-quote-left" aria-hidden="true"></i>
+                            <i class="fa-solid fa-quote-left" aria-hidden="true"></i>
                             <span>@authError</span>
                         </div>
                     }
@@ -173,7 +170,7 @@
                                 </span>
                             </div>
                             <button type="button" class="btn-primary web-signin-cta" @onclick="OpenWebSignInAsync">
-                                <i class="fab fa-apple"></i> Open Apple Web Sign-In
+                                <i class="fa-brands fa-apple"></i> Open Apple Web Sign-In
                             </button>
                         </div>
                     }
@@ -185,7 +182,7 @@
                                 <span>Open <code>appleid.apple.com</code> and sign in with the same Apple ID and password.</span>
                             </div>
                             <button type="button" class="btn-secondary unlock-link" @onclick="() => OpenAppleIdSite()">
-                                <i class="fas fa-arrow-up-right-from-square"></i> appleid.apple.com
+                                <i class="fa-solid fa-arrow-up-right-from-square"></i> appleid.apple.com
                             </button>
                         </li>
                         <li>
@@ -204,7 +201,7 @@
                                 <span>Also sign in at <code>developer.apple.com</code> to make sure that surface is unlocked as well.</span>
                             </div>
                             <button type="button" class="btn-secondary unlock-link" @onclick="() => OpenDeveloperSite()">
-                                <i class="fas fa-arrow-up-right-from-square"></i> developer.apple.com
+                                <i class="fa-solid fa-arrow-up-right-from-square"></i> developer.apple.com
                             </button>
                         </li>
                         <li>
@@ -216,7 +213,7 @@
                     </ol>
 
                     <div class="unlock-note">
-                        <i class="fas fa-circle-info" aria-hidden="true"></i>
+                        <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
                         <span>
                             Only use <code>iforgot.apple.com</code> / a full password reset as a last resort &mdash; it's not always
                             required, and it will require you to sign back in everywhere with the new password.
@@ -228,7 +225,7 @@
             @if (currentStep != AuthStep.AccountLocked && !string.IsNullOrEmpty(authError))
             {
                 <div class="auth-error">
-                    <i class="fas fa-exclamation-circle"></i>
+                    <i class="fa-solid fa-exclamation-circle"></i>
                     <span>@authError</span>
                 </div>
             }
@@ -249,6 +246,26 @@
     private bool supportsWebSignIn;
     private AppleAuthOptions? twoFactorOptions;
     private int selectedPhoneIndex = -1;
+    private IReadOnlyList<SherpaSelectOption<int>> VerificationMethodOptions
+    {
+        get
+        {
+            var options = new List<SherpaSelectOption<int>>();
+            if (twoFactorOptions?.CanUseTrustedDevice == true)
+                options.Add(new(-1, "Trusted Device", Icon: "fa-solid fa-mobile-screen"));
+
+            if (twoFactorOptions is not null)
+            {
+                options.AddRange(twoFactorOptions.TrustedPhoneNumbers.Select((phone, index) =>
+                    new SherpaSelectOption<int>(
+                        index,
+                        $"SMS: {phone.PhoneNumber}",
+                        Icon: "fa-solid fa-message")));
+            }
+
+            return options;
+        }
+    }
     private List<FastlaneSessionInfo> fastlaneSessions = new();
     private string lockedAppleId = string.Empty;
     private readonly string[] otpDigits = new string[OtpLength];
@@ -491,8 +508,9 @@
         otpAutoSubmitted = false;
     }
 
-    private async Task OnPhoneSelectionChanged()
+    private async Task OnPhoneSelectionChanged(int value)
     {
+        selectedPhoneIndex = value;
         UpdateWizardState();
         await RequestSmsForSelectedPhone();
     }
@@ -744,13 +762,13 @@
     .step-number {
         width: 28px;
         height: 28px;
-        border-radius: 50%;
+        border-radius: var(--radius-pill);
         display: flex;
         align-items: center;
         justify-content: center;
         font-size: 12px;
         font-weight: 600;
-        background: var(--bg-tertiary, #e2e8f0);
+        background: var(--border-subtle);
         color: var(--text-muted);
     }
 
@@ -760,7 +778,7 @@
     }
 
     .step.completed .step-number {
-        background: var(--accent-success, #22c55e);
+        background: var(--status-success-dot);
         color: white;
     }
 
@@ -823,8 +841,8 @@
     .form-group select {
         width: 100%;
         padding: 10px 12px;
-        border: 1px solid var(--input-border, #e2e8f0);
-        border-radius: 6px;
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-sm);
         background: var(--input-bg, white);
         color: var(--text-primary);
         font-size: 14px;
@@ -858,8 +876,8 @@
         width: 42px;
         height: 52px;
         padding: 0;
-        border: 1px solid var(--input-border, #e2e8f0);
-        border-radius: 8px;
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-md);
         background: var(--input-bg, white);
         color: var(--text-primary);
         font-size: 22px;
@@ -897,9 +915,9 @@
         margin-top: -4px;
         margin-bottom: 16px;
         padding: 12px 14px;
-        border-radius: 10px;
+        border-radius: var(--radius-lg);
         border: 1px dashed var(--border-color);
-        background: var(--bg-tertiary, #f8fafc);
+        background: var(--surface-card);
     }
 
     .fastlane-import-hint {
@@ -929,7 +947,7 @@
         gap: 8px;
         margin-top: 8px;
         padding: 12px 14px;
-        border-radius: 10px;
+        border-radius: var(--radius-lg);
         background: var(--status-error-bg);
         color: var(--status-error-text);
         font-size: 13px;
@@ -951,13 +969,13 @@
         width: 40px;
         height: 40px;
         margin: 0 auto 8px;
-        border-radius: 50%;
+        border-radius: var(--radius-pill);
         display: flex;
         align-items: center;
         justify-content: center;
         font-size: 18px;
         background: var(--status-warning-bg, rgba(245, 158, 11, 0.15));
-        color: var(--status-warning-text, #b45309);
+        color: var(--status-warning-fg);
     }
 
     .apple-said {
@@ -966,8 +984,8 @@
         gap: 8px;
         margin: 0 0 12px 0;
         padding: 8px 12px;
-        border-radius: 8px;
-        background: var(--bg-tertiary, #f8fafc);
+        border-radius: var(--radius-md);
+        background: var(--surface-card);
         color: var(--text-secondary);
         font-size: 12px;
         font-style: italic;
@@ -980,9 +998,9 @@
         gap: 10px;
         margin: 0 0 14px 0;
         padding: 12px 14px;
-        border-radius: 10px;
-        border: 1px solid var(--accent-primary, #6366f1);
-        background: var(--bg-tertiary, #f8fafc);
+        border-radius: var(--radius-lg);
+        border: 1px solid var(--accent);
+        background: var(--surface-card);
         text-align: left;
     }
 
@@ -1009,9 +1027,9 @@
         justify-content: center;
         gap: 8px;
         padding: 8px 14px;
-        border-radius: 6px;
+        border-radius: var(--radius-sm);
         border: none;
-        background: var(--accent-primary, #6366f1);
+        background: var(--accent);
         color: white;
         font-size: 13px;
         font-weight: 600;
@@ -1045,7 +1063,7 @@
         flex-shrink: 0;
         width: 22px;
         height: 22px;
-        border-radius: 50%;
+        border-radius: var(--radius-pill);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -1089,8 +1107,8 @@
         align-items: flex-start;
         gap: 8px;
         padding: 10px 12px;
-        border-radius: 8px;
-        background: var(--bg-tertiary, #f8fafc);
+        border-radius: var(--radius-md);
+        background: var(--surface-card);
         color: var(--text-muted);
         font-size: 12px;
         text-align: left;

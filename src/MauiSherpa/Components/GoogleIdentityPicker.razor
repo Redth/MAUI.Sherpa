@@ -11,14 +11,14 @@
 {
     <div class="vault-access-card">
         <div class="vault-access-content">
-            <i class="fas fa-key"></i>
+            <span class="sherpa-icon-well sherpa-icon-well-accent"><i class="fa-solid fa-key fa-fw"></i></span>
             <div>
                 <strong>Unlock Local Vault to use Google services</strong>
                 <p>Google service account credentials are stored in the Local Vault. Grant access to continue.</p>
             </div>
         </div>
         <button class="btn btn-primary" @onclick="UnlockLocalVaultAsync" disabled="@isUnlocking">
-            <i class="fas @(isUnlocking ? "fa-spinner fa-spin" : "fa-unlock")"></i> Unlock Local Vault
+            <i class="fa-solid fa-fw @(isUnlocking ? "fa-spinner fa-spin" : "fa-unlock")"></i> Unlock Local Vault
         </button>
     </div>
 }
@@ -30,25 +30,26 @@ else if (identities.Count == 0)
 {
     <div class="no-identity-container">
         <div class="no-identity-icon">
-            <i class="fab fa-google"></i>
+            <i class="fa-brands fa-google" aria-hidden="true"></i>
         </div>
         <h2>No Google Service Account</h2>
         <p>Configure your Google Cloud / Firebase service account credentials to send push notifications and manage your projects.</p>
         <button class="btn btn-primary" @onclick="GoToSettings">
-            <i class="fas fa-cog"></i> Configure in Settings
+            <i class="fa-solid fa-gear fa-fw"></i> Configure in Settings
         </button>
     </div>
 }
 else
 {
     <div class="identity-picker">
-        <label><i class="fab fa-google"></i> Google Identity:</label>
-        <select @bind="selectedIdentityId" @bind:after="OnSelectionChanged">
-            @foreach (var identity in identities)
-            {
-                <option value="@identity.Id">@identity.Name (@identity.ProjectId)</option>
-            }
-        </select>
+        <label><i class="fa-brands fa-google fa-fw"></i> Google Identity:</label>
+        <SherpaSelect TValue="string"
+                      Value="@selectedIdentityId"
+                      ValueChanged="OnIdentitySelected"
+                      Options="@IdentityOptions"
+                      LeadingIcon="fa-brands fa-google"
+                      AriaLabel="Google identity"
+                      Class="identity-select" />
     </div>
 }
 
@@ -58,8 +59,9 @@ else
         align-items: center;
         gap: 0.75rem;
         padding: 0.75rem 1rem;
-        background: var(--bg-tertiary);
-        border-radius: 0.5rem;
+        background: var(--surface-well);
+        border: 1px solid var(--border-hairline);
+        border-radius: var(--radius-md);
         margin-bottom: 1.25rem;
     }
 
@@ -72,21 +74,9 @@ else
         gap: 0.5rem;
     }
 
-    .identity-picker select {
+    .identity-picker .identity-select {
         flex: 1;
         max-width: 300px;
-        padding: 0.5rem 0.75rem;
-        border: 1px solid var(--border-color);
-        border-radius: 0.375rem;
-        font-size: 0.875rem;
-        background: var(--card-bg);
-        color: var(--text-primary);
-    }
-
-    .identity-picker select:focus {
-        outline: none;
-        border-color: var(--accent-primary);
-        box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.1);
     }
 
     .no-identity-container {
@@ -95,18 +85,19 @@ else
         align-items: center;
         justify-content: center;
         padding: 3.75rem 2.5rem;
-        background: var(--bg-tertiary);
-        border-radius: 0.75rem;
-        border: 2px dashed var(--border-color);
+        background: var(--surface-card);
+        border-radius: var(--radius-lg);
+        border: 1px solid var(--border-subtle);
         text-align: center;
         margin: 1.25rem 0;
     }
 
     .no-identity-icon {
-        width: 80px;
-        height: 80px;
-        border-radius: 50%;
-        background: linear-gradient(135deg, #4285f4 0%, #34a853 50%, #fbbc05 100%);
+        width: 56px;
+        height: 56px;
+        border-radius: var(--radius-lg);
+        background: var(--accent-soft);
+        border: 1px solid var(--accent-border);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -114,8 +105,8 @@ else
     }
 
     .no-identity-icon i {
-        font-size: 2.5rem;
-        color: white;
+        font-size: 1.75rem;
+        color: var(--accent);
     }
 
     .no-identity-container h2 {
@@ -141,9 +132,9 @@ else
         gap: 0.5rem;
     }
 
-    .vault-access-card { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: 1rem; margin: 1rem 0; background: var(--card-bg); border-radius: var(--card-radius); }
+    .vault-access-card { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: 1rem; margin: 1rem 0; background: var(--surface-card); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); }
     .vault-access-content { display: flex; align-items: flex-start; gap: 0.875rem; color: var(--text-secondary); }
-    .vault-access-content i { color: var(--accent-primary); margin-top: 0.125rem; }
+    .vault-access-content > i { color: var(--accent); margin-top: 0.125rem; }
     .vault-access-content strong { display: block; color: var(--text-primary); margin-bottom: 0.25rem; }
     .vault-access-content p { margin: 0; color: var(--text-muted); font-size: 0.875rem; }
 </style>
@@ -154,6 +145,12 @@ else
     private bool isUnlocking;
 
     private bool RequiresLocalVaultAccess => LocalVaultAccess.GetState().RequiresUserAction;
+    private IReadOnlyList<SherpaSelectOption<string>> IdentityOptions =>
+        identities.Select(identity => new SherpaSelectOption<string>(
+            identity.Id,
+            $"{identity.Name} ({identity.ProjectId})",
+            identity.ClientEmail,
+            "fa-brands fa-google")).ToArray();
 
     protected override async Task OnInitializedAsync()
     {
@@ -242,6 +239,12 @@ else
     {
         var identity = identities.FirstOrDefault(i => i.Id == selectedIdentityId);
         IdentityState.SetSelectedIdentity(identity);
+    }
+
+    private void OnIdentitySelected(string? identityId)
+    {
+        selectedIdentityId = identityId ?? "";
+        OnSelectionChanged();
     }
 
     private void HandleExternalSelectionChange()

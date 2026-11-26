@@ -48,13 +48,13 @@
 
                         <div class="project-picker">
                             <div class="path-field">
-                                <i class="fas fa-file-code" aria-hidden="true"></i>
+                                <i class="fa-solid fa-file-code" aria-hidden="true"></i>
                                 <span class="mono @(string.IsNullOrWhiteSpace(projectPath) ? "placeholder" : "")">
                                     @(string.IsNullOrWhiteSpace(projectPath) ? "Choose a .csproj" : projectPath)
                                 </span>
                             </div>
                             <button type="button" class="btn btn-secondary control-button" @onclick="BrowseProjectAsync">
-                                <i class="fas fa-folder-open" aria-hidden="true"></i>
+                                <i class="fa-solid fa-folder-open" aria-hidden="true"></i>
                                 Browse
                             </button>
                         </div>
@@ -62,13 +62,15 @@
                         @if (recentProjectPaths.Count > 0)
                         {
                             <label class="field-label" for="recent-project">Recent project</label>
-                            <select id="recent-project" class="form-control mono" value="@projectPath" @onchange="SelectRecentProject">
-                                <option value="">Choose from recent sessions...</option>
-                                @foreach (var recentPath in recentProjectPaths)
-                                {
-                                    <option value="@recentPath">@recentPath</option>
-                                }
-                            </select>
+                            <SherpaSelect TValue="string"
+                                          Id="recent-project"
+                                          Value="@projectPath"
+                                          ValueChanged="SelectRecentProject"
+                                          Options="RecentProjectOptions"
+                                          Placeholder="Choose from recent sessions..."
+                                          AriaLabel="Recent project"
+                                          Searchable="true"
+                                          Class="sherpa-select-full mono" />
                         }
                     </section>
 
@@ -87,24 +89,24 @@
                                     role="radio"
                                     aria-checked="@(selectedMode == MauiProfileMode.Startup ? "true" : "false")"
                                     @onclick="@(() => SelectMode(MauiProfileMode.Startup))">
-                                <span class="choice-icon"><i class="fas fa-rocket" aria-hidden="true"></i></span>
+                                <span class="choice-icon"><i class="fa-solid fa-rocket" aria-hidden="true"></i></span>
                                 <span class="choice-copy">
                                     <strong>Startup</strong>
                                     <small>Record from launch until the first MAUI UI is ready.</small>
                                 </span>
-                                <i class="fas fa-circle-check selection-check" aria-hidden="true"></i>
+                                <i class="fa-solid fa-circle-check selection-check" aria-hidden="true"></i>
                             </button>
                             <button type="button"
                                     class="choice-card @(selectedMode == MauiProfileMode.Interaction ? "selected" : "")"
                                     role="radio"
                                     aria-checked="@(selectedMode == MauiProfileMode.Interaction ? "true" : "false")"
                                     @onclick="@(() => SelectMode(MauiProfileMode.Interaction))">
-                                <span class="choice-icon"><i class="fas fa-hand-pointer" aria-hidden="true"></i></span>
+                                <span class="choice-icon"><i class="fa-solid fa-hand-pointer" aria-hidden="true"></i></span>
                                 <span class="choice-copy">
                                     <strong>Interaction</strong>
                                     <small>Launch first, then begin and stop recording when ready.</small>
                                 </span>
-                                <i class="fas fa-circle-check selection-check" aria-hidden="true"></i>
+                                <i class="fa-solid fa-circle-check selection-check" aria-hidden="true"></i>
                             </button>
                         </div>
                     </section>
@@ -122,7 +124,7 @@
                                     class="btn btn-secondary icon-text-button"
                                     disabled="@isRefreshingDevices"
                                     @onclick="RefreshDevicesAsync">
-                                <i class="fas @(isRefreshingDevices ? "fa-spinner fa-spin" : "fa-arrows-rotate")" aria-hidden="true"></i>
+                                <i class="fa-solid @(isRefreshingDevices ? "fa-spinner fa-spin" : "fa-arrows-rotate")" aria-hidden="true"></i>
                                 Refresh
                             </button>
                         </div>
@@ -130,25 +132,25 @@
                         @if (!string.IsNullOrWhiteSpace(deviceError))
                         {
                             <div class="inline-message error" role="alert">
-                                <i class="fas fa-circle-exclamation" aria-hidden="true"></i>
+                                <i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i>
                                 <span>@deviceError</span>
                             </div>
                         }
                         else if (devices.Count == 0)
                         {
                             <div class="target-empty">
-                                <i class="fas fa-mobile-screen" aria-hidden="true"></i>
+                                <i class="fa-solid fa-mobile-screen" aria-hidden="true"></i>
                                 <div>
                                     <strong>No running targets found</strong>
                                     <p>Start an Android target or boot an iOS simulator, then refresh.</p>
                                 </div>
                                 <div class="recovery-actions">
                                     <button type="button" class="btn btn-secondary" @onclick="@(() => OpenTargetManagerAsync("/devices"))">
-                                        <i class="fab fa-android" aria-hidden="true"></i>
+                                        <i class="fa-brands fa-android" aria-hidden="true"></i>
                                         Android emulators
                                     </button>
                                     <button type="button" class="btn btn-secondary" @onclick="@(() => OpenTargetManagerAsync("/apple-simulators"))">
-                                        <i class="fab fa-apple" aria-hidden="true"></i>
+                                        <i class="fa-brands fa-apple" aria-hidden="true"></i>
                                         Apple simulators
                                     </button>
                                 </div>
@@ -166,13 +168,13 @@
                                             aria-checked="@(selected ? "true" : "false")"
                                             @onclick="@(() => SelectDevice(device))">
                                         <span class="target-platform">
-                                            <i class="fab @(IsAndroid(device) ? "fa-android" : "fa-apple")" aria-hidden="true"></i>
+                                            <i class="fa-brands @(IsAndroid(device) ? "fa-android" : "fa-apple")" aria-hidden="true"></i>
                                         </span>
                                         <span class="target-copy">
                                             <strong>@device.Name</strong>
                                             <small>@GetDeviceDescription(device)</small>
                                         </span>
-                                        <i class="fas fa-circle-check selection-check" aria-hidden="true"></i>
+                                        <i class="fa-solid fa-circle-check selection-check" aria-hidden="true"></i>
                                     </button>
                                 }
                             </div>
@@ -197,12 +199,12 @@
                                         role="radio"
                                         aria-checked="@(selected ? "true" : "false")"
                                         @onclick="@(() => SelectFormat(format))">
-                                    <i class="fas @GetFormatIcon(format)" aria-hidden="true"></i>
+                                    <i class="fa-solid @GetFormatIcon(format)" aria-hidden="true"></i>
                                     <span>
                                         <strong>@GetFormatName(format)</strong>
                                         <small>@GetFormatDescription(format)</small>
                                     </span>
-                                    <i class="fas fa-circle-check selection-check" aria-hidden="true"></i>
+                                    <i class="fa-solid fa-circle-check selection-check" aria-hidden="true"></i>
                                 </button>
                             }
                         </div>
@@ -210,7 +212,7 @@
                         @if (selectedFormat == MauiProfileOutputFormat.Mibc)
                         {
                             <div class="inline-message warning">
-                                <i class="fas fa-clock" aria-hidden="true"></i>
+                                <i class="fa-solid fa-clock" aria-hidden="true"></i>
                                 <span>The first MIBC capture may take several minutes while the CLI prepares <span class="mono">dotnet-pgo</span>.</span>
                             </div>
                         }
@@ -218,27 +220,33 @@
 
                     <details class="advanced-section">
                         <summary>
-                            <span><i class="fas fa-sliders" aria-hidden="true"></i> Advanced options</span>
-                            <i class="fas fa-chevron-down chevron" aria-hidden="true"></i>
+                            <span><i class="fa-solid fa-sliders" aria-hidden="true"></i> Advanced options</span>
+                            <i class="fa-solid fa-chevron-down chevron" aria-hidden="true"></i>
                         </summary>
                         <div class="advanced-content">
                             <div class="advanced-grid">
                                 <div class="field-group">
                                     <label class="field-label" for="configuration">Configuration</label>
-                                    <select id="configuration" class="form-control" @bind="configuration" @bind:after="OnOptionsChanged">
-                                        <option value="Release">Release</option>
-                                        <option value="Debug">Debug</option>
-                                    </select>
+                                    <SherpaSelect TValue="string"
+                                                  Id="configuration"
+                                                  Value="@configuration"
+                                                  ValueChanged="OnConfigurationChanged"
+                                                  Options="ConfigurationOptions"
+                                                  AriaLabel="Build configuration"
+                                                  Class="sherpa-select-full" />
                                 </div>
 
                                 @if (selectedMode == MauiProfileMode.Startup)
                                 {
                                     <div class="field-group">
                                         <label class="field-label" for="stop-condition">Stop startup capture</label>
-                                        <select id="stop-condition" class="form-control" @bind="useFixedDuration" @bind:after="OnOptionsChanged">
-                                            <option value="false">When first UI is ready</option>
-                                            <option value="true">After a fixed duration</option>
-                                        </select>
+                                        <SherpaSelect TValue="bool"
+                                                      Id="stop-condition"
+                                                      Value="@useFixedDuration"
+                                                      ValueChanged="OnStopConditionChanged"
+                                                      Options="StopConditionOptions"
+                                                      AriaLabel="Stop startup capture"
+                                                      Class="sherpa-select-full" />
                                     </div>
 
                                     @if (useFixedDuration)
@@ -281,7 +289,7 @@
                                 <div class="command-heading">
                                     <span>Command preview</span>
                                     <button type="button" class="copy-button" disabled="@(!CanPreviewCommand)" @onclick="CopyCommandAsync" title="Copy command">
-                                        <i class="fas fa-copy" aria-hidden="true"></i>
+                                        <i class="fa-solid fa-copy" aria-hidden="true"></i>
                                         Copy
                                     </button>
                                 </div>
@@ -344,7 +352,7 @@
                 else if (profileState == MauiProfileRunState.Recording)
                 {
                     <div class="instruction-card recording-card">
-                        <span class="instruction-number"><i class="fas fa-circle" aria-hidden="true"></i></span>
+                        <span class="instruction-number"><i class="fa-solid fa-circle" aria-hidden="true"></i></span>
                         <div>
                             <strong>Recording interaction</strong>
                             <p>Perform the interaction now. Choose <strong>Stop recording</strong> when you are done.</p>
@@ -372,7 +380,7 @@
         else if (viewState == CaptureViewState.Completed && savedSession is not null)
         {
             <div class="result-view">
-                <div class="result-icon success"><i class="fas fa-check" aria-hidden="true"></i></div>
+                <div class="result-icon success"><i class="fa-solid fa-check" aria-hidden="true"></i></div>
                 <span class="eyebrow">Profile saved</span>
                 <h2>@savedSession.Name</h2>
                 <p>The capture is in your Sherpa profiling library.</p>
@@ -380,7 +388,7 @@
                 @if (executionResult?.Profile?.RecoveredFromDisk == true)
                 {
                     <div class="inline-message warning result-note">
-                        <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
+                        <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
                         <span>The MAUI CLI wrote this capture but crashed while reporting the result, so Sherpa recovered it from the output folder. The profile itself is complete.</span>
                     </div>
                 }
@@ -396,7 +404,7 @@
                     @foreach (var artifact in savedSession.Artifacts)
                     {
                         <div class="result-artifact">
-                            <i class="fas @GetArtifactIcon(artifact.FileName)" aria-hidden="true"></i>
+                            <i class="fa-solid @GetArtifactIcon(artifact.FileName)" aria-hidden="true"></i>
                             <span>
                                 <strong>@(artifact.DisplayName ?? artifact.FileName)</strong>
                                 <small>@artifact.FileName @FormatArtifactSize(artifact.SizeBytes)</small>
@@ -408,7 +416,7 @@
                 @if (savedSession.MauiProfile?.Format != MauiProfileOutputFormat.Mibc)
                 {
                     <button type="button" class="btn btn-secondary result-secondary" @onclick="RevealPrimaryArtifact">
-                        <i class="fas fa-folder-open" aria-hidden="true"></i>
+                        <i class="fa-solid fa-folder-open" aria-hidden="true"></i>
                         Reveal file
                     </button>
                 }
@@ -417,7 +425,7 @@
         else if (viewState == CaptureViewState.Failed)
         {
             <div class="result-view failure-view">
-                <div class="result-icon error"><i class="fas fa-exclamation" aria-hidden="true"></i></div>
+                <div class="result-icon error"><i class="fa-solid fa-exclamation" aria-hidden="true"></i></div>
                 <span class="eyebrow">Profile not captured</span>
                 <h2>@(cliError?.Message ?? failureMessage ?? "The MAUI CLI could not complete the profile.")</h2>
 
@@ -427,7 +435,7 @@
                         <strong>How to recover</strong>
                         @foreach (var step in remediation.ManualSteps)
                         {
-                            <p><i class="fas fa-arrow-right" aria-hidden="true"></i> @step</p>
+                            <p><i class="fa-solid fa-arrow-right" aria-hidden="true"></i> @step</p>
                         }
                         @if (!string.IsNullOrWhiteSpace(remediation.Command))
                         {
@@ -482,6 +490,23 @@
     private int durationSeconds = 15;
     private bool noBuild;
     private bool isInitializing = true;
+    private IReadOnlyList<SherpaSelectOption<string>> RecentProjectOptions =>
+        recentProjectPaths
+            .Select(path => new SherpaSelectOption<string>(
+                path,
+                path,
+                Icon: "fa-solid fa-file-code"))
+            .ToArray();
+    private static readonly IReadOnlyList<SherpaSelectOption<string>> ConfigurationOptions =
+    [
+        new("Release", "Release"),
+        new("Debug", "Debug")
+    ];
+    private static readonly IReadOnlyList<SherpaSelectOption<bool>> StopConditionOptions =
+    [
+        new(false, "When first UI is ready"),
+        new(true, "After a fixed duration")
+    ];
     private bool isRefreshingDevices;
     private bool isChangingTool;
     private bool cancelRequested;
@@ -577,13 +602,13 @@
         if (toolStatus?.State == MauiCliToolState.Missing)
         {
             <div class="tool-card">
-                <span class="tool-icon"><i class="fas fa-terminal" aria-hidden="true"></i></span>
+                <span class="tool-icon"><i class="fa-solid fa-terminal" aria-hidden="true"></i></span>
                 <div>
                     <strong>Install the MAUI CLI</strong>
                     <p>Sherpa uses the global <span class="mono">Microsoft.Maui.Cli</span> tool for zero-touch app profiling.</p>
                 </div>
                 <button type="button" class="btn btn-primary control-button" disabled="@isChangingTool" @onclick="InstallOrUpdateToolAsync">
-                    <i class="fas @(isChangingTool ? "fa-spinner fa-spin" : "fa-download")" aria-hidden="true"></i>
+                    <i class="fa-solid @(isChangingTool ? "fa-spinner fa-spin" : "fa-download")" aria-hidden="true"></i>
                     Install
                 </button>
             </div>
@@ -591,13 +616,13 @@
         else if (toolStatus?.State == MauiCliToolState.UpdateRequired)
         {
             <div class="tool-card warning">
-                <span class="tool-icon"><i class="fas fa-arrow-up" aria-hidden="true"></i></span>
+                <span class="tool-icon"><i class="fa-solid fa-arrow-up" aria-hidden="true"></i></span>
                 <div>
                     <strong>Update the MAUI CLI</strong>
                     <p>@toolStatus.Message</p>
                 </div>
                 <button type="button" class="btn btn-primary control-button" disabled="@isChangingTool" @onclick="InstallOrUpdateToolAsync">
-                    <i class="fas @(isChangingTool ? "fa-spinner fa-spin" : "fa-arrows-rotate")" aria-hidden="true"></i>
+                    <i class="fa-solid @(isChangingTool ? "fa-spinner fa-spin" : "fa-arrows-rotate")" aria-hidden="true"></i>
                     Update
                 </button>
             </div>
@@ -605,14 +630,14 @@
         else if (toolStatus?.IsAvailable == true)
         {
             <div class="tool-ready">
-                <i class="fas fa-circle-check" aria-hidden="true"></i>
+                <i class="fa-solid fa-circle-check" aria-hidden="true"></i>
                 <span>MAUI CLI @(string.IsNullOrWhiteSpace(toolStatus.Version) ? "ready" : toolStatus.Version)</span>
             </div>
         }
         else if (!string.IsNullOrWhiteSpace(failureMessage))
         {
             <div class="inline-message error" role="alert">
-                <i class="fas fa-circle-exclamation" aria-hidden="true"></i>
+                <i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i>
                 <span>@failureMessage</span>
             </div>
         }
@@ -662,12 +687,23 @@
         UpdateActionState();
     }
 
-    private void SelectRecentProject(ChangeEventArgs args)
+    private void SelectRecentProject(string? value)
     {
-        var value = args.Value?.ToString();
         if (!string.IsNullOrWhiteSpace(value))
             projectPath = value;
         UpdateActionState();
+    }
+
+    private void OnConfigurationChanged(string? value)
+    {
+        configuration = value ?? "Release";
+        OnOptionsChanged();
+    }
+
+    private void OnStopConditionChanged(bool value)
+    {
+        useFixedDuration = value;
+        OnOptionsChanged();
     }
 
     private void SelectMode(MauiProfileMode mode)
@@ -1292,7 +1328,7 @@
         height: 1.5rem;
         border: 3px solid color-mix(in srgb, var(--accent-primary) 22%, transparent);
         border-top-color: var(--accent-primary);
-        border-radius: 50%;
+        border-radius: var(--radius-pill);
         animation: spin 0.8s linear infinite;
         flex-shrink: 0;
     }
@@ -1315,7 +1351,7 @@
         padding: 0.7rem;
         margin-bottom: 0.7rem;
         border: 1px solid var(--border-color);
-        border-radius: 0.7rem;
+        border-radius: var(--radius-lg);
         background: var(--card-bg);
     }
 
@@ -1328,7 +1364,7 @@
         height: 2.1rem;
         display: grid;
         place-items: center;
-        border-radius: 0.55rem;
+        border-radius: var(--radius-lg);
         color: var(--accent-primary);
         background: color-mix(in srgb, var(--accent-primary) 14%, transparent);
         font-size: 0.9rem;
@@ -1366,7 +1402,7 @@
         display: grid;
         place-items: center;
         flex-shrink: 0;
-        border-radius: 50%;
+        border-radius: var(--radius-pill);
         background: color-mix(in srgb, var(--accent-primary) 15%, transparent);
         color: var(--accent-primary);
         font-size: 0.68rem;
@@ -1398,7 +1434,7 @@
         padding: 0 0.65rem;
         overflow: hidden;
         border: 1px solid var(--border-color);
-        border-radius: 0.55rem;
+        border-radius: var(--radius-lg);
         background: var(--bg-secondary);
     }
 
@@ -1433,7 +1469,7 @@
         padding: 0.45rem 0.6rem;
         color: var(--text-primary);
         border: 1px solid var(--border-color);
-        border-radius: 0.55rem;
+        border-radius: var(--radius-lg);
         background: var(--bg-secondary);
     }
 
@@ -1461,7 +1497,7 @@
         color: var(--text-primary);
         text-align: left;
         border: 1px solid var(--border-color);
-        border-radius: 0.65rem;
+        border-radius: var(--radius-lg);
         background: var(--card-bg);
         cursor: pointer;
         transition: border-color 160ms ease, background-color 160ms ease;
@@ -1498,7 +1534,7 @@
         display: grid;
         place-items: center;
         flex-shrink: 0;
-        border-radius: 0.5rem;
+        border-radius: var(--radius-md);
         color: var(--accent-primary);
         background: color-mix(in srgb, var(--accent-primary) 13%, transparent);
         font-size: 0.82rem;
@@ -1558,7 +1594,7 @@
         gap: 0.6rem;
         padding: 0.7rem;
         border: 1px dashed var(--border-color);
-        border-radius: 0.65rem;
+        border-radius: var(--radius-lg);
         background: var(--bg-secondary);
     }
 
@@ -1601,7 +1637,7 @@
         gap: 0.45rem;
         margin: 0.55rem 0 0 2rem;
         padding: 0.55rem 0.65rem;
-        border-radius: 0.55rem;
+        border-radius: var(--radius-lg);
         font-size: 0.73rem;
         line-height: 1.4;
     }
@@ -1633,7 +1669,7 @@
     .details-panel {
         margin-top: 0.5rem;
         border: 1px solid var(--border-color);
-        border-radius: 0.65rem;
+        border-radius: var(--radius-lg);
         background: var(--bg-secondary);
         overflow: hidden;
     }
@@ -1704,7 +1740,7 @@
         gap: 0.5rem;
         padding: 0.55rem 0.6rem;
         border: 1px solid var(--border-color);
-        border-radius: 0.6rem;
+        border-radius: var(--radius-lg);
         cursor: pointer;
     }
 
@@ -1730,7 +1766,7 @@
     .command-preview {
         margin-top: 0.75rem;
         border: 1px solid var(--border-color);
-        border-radius: 0.6rem;
+        border-radius: var(--radius-lg);
         overflow: hidden;
     }
 
@@ -1793,7 +1829,7 @@
         display: grid;
         place-items: center;
         flex-shrink: 0;
-        border-radius: 1rem;
+        border-radius: var(--radius-xl);
         background: color-mix(in srgb, var(--accent-primary) 12%, var(--card-bg));
     }
 
@@ -1804,7 +1840,7 @@
     .record-dot {
         width: 1.1rem;
         height: 1.1rem;
-        border-radius: 50%;
+        border-radius: var(--radius-pill);
         background: var(--accent-danger);
         box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent-danger) 35%, transparent);
         animation: record-pulse 1.5s ease-out infinite;
@@ -1834,7 +1870,7 @@
         gap: 1px;
         margin: 0.5rem 0 1.1rem;
         border: 1px solid var(--border-color);
-        border-radius: 0.75rem;
+        border-radius: var(--radius-lg);
         background: var(--border-color);
         overflow: hidden;
     }
@@ -1870,7 +1906,7 @@
         padding: 1rem;
         margin: 1rem 0;
         border: 1px solid color-mix(in srgb, var(--accent-primary) 42%, var(--border-color));
-        border-radius: 0.75rem;
+        border-radius: var(--radius-lg);
         background: color-mix(in srgb, var(--accent-primary) 8%, var(--bg-secondary));
     }
 
@@ -1885,7 +1921,7 @@
         display: grid;
         place-items: center;
         flex-shrink: 0;
-        border-radius: 50%;
+        border-radius: var(--radius-pill);
         color: var(--text-inverse);
         background: var(--accent-primary);
         font-size: 0.75rem;
@@ -1934,7 +1970,7 @@
         display: grid;
         place-items: center;
         margin-bottom: 1rem;
-        border-radius: 50%;
+        border-radius: var(--radius-pill);
         font-size: 1.35rem;
     }
 
@@ -1969,7 +2005,7 @@
         padding: 0.75rem;
         text-align: left;
         border: 1px solid var(--border-color);
-        border-radius: 0.65rem;
+        border-radius: var(--radius-lg);
         background: var(--bg-secondary);
     }
 
@@ -1993,7 +2029,7 @@
         margin-top: 1.2rem;
         padding: 1rem;
         text-align: left;
-        border-radius: 0.7rem;
+        border-radius: var(--radius-lg);
         background: color-mix(in srgb, var(--accent-warning) 10%, var(--bg-secondary));
     }
 

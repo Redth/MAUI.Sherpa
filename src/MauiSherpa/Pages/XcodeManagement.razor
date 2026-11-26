@@ -89,25 +89,11 @@ else
         </div>
     </div>
 
-    <div class="tabs">
-        <button class="tab @(activeTab == "installed" ? "active" : "")" @onclick="@(() => SwitchTab("installed"))">
-            <i class="fas fa-hdd"></i> Installed (@ViewModel.InstalledXcodes.Count)
-        </button>
-        <button class="tab @(activeTab == "available" ? "active" : "")" @onclick="@(() => SwitchTab("available"))">
-            <i class="fas fa-cloud-download-alt"></i> Available
-            @if (ViewModel.AvailableReleases.Count > 0)
-            {
-                <span class="tab-count">(@filteredReleases.Count)</span>
-            }
-        </button>
-        <button class="tab @(activeTab == "runtimes" ? "active" : "")" @onclick="@(() => SwitchTab("runtimes"))">
-            <i class="fas fa-layer-group"></i> Runtimes
-            @if (hasLoadedRuntimeData)
-            {
-                <span class="tab-count">(@filteredRuntimeStorage.Count)</span>
-            }
-        </button>
-    </div>
+    <SherpaTabs Items="XcodeTabs"
+                ActiveKey="@activeTab"
+                ActiveKeyChanged="SwitchTab"
+                Variant="SherpaTabVariant.Standard"
+                AriaLabel="Xcode management views" />
 
     @* ====== INSTALLED TAB ====== *@
     @if (activeTab == "installed")
@@ -479,7 +465,7 @@ else
         text-align: center;
         padding: 3.75rem 1.25rem;
         background: var(--status-error-bg);
-        border-radius: 0.75rem;
+        border-radius: var(--radius-lg);
         border: 1px solid var(--accent-danger);
     }
     .not-supported .warning-icon { font-size: 48px; margin-bottom: 1rem; color: var(--accent-warning); }
@@ -503,7 +489,8 @@ else
         margin-bottom: 1rem;
         background: var(--status-warning-bg);
         color: var(--status-warning-text);
-        border-radius: var(--card-radius);
+        border: 1px solid var(--status-warning-border);
+        border-radius: var(--radius-lg);
     }
 
     .auth-banner-icon {
@@ -572,41 +559,13 @@ else
         }
     }
 
-    /* Tabs */
-    .tabs {
-        display: flex;
-        gap: 0.25rem;
-        margin-bottom: 1rem;
-        border-bottom: 2px solid var(--border-color);
-    }
-    .tab {
-        padding: 0.75rem 1.25rem;
-        background: transparent;
-        border: none;
-        cursor: pointer;
-        color: var(--text-muted);
-        font-size: 0.875rem;
-        border-bottom: 2px solid transparent;
-        margin-bottom: -2px;
-        transition: all 0.2s ease;
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-    }
-    .tab:hover { color: var(--accent-primary); }
-    .tab.active {
-        color: var(--accent-primary);
-        border-bottom-color: var(--accent-primary);
-        font-weight: 600;
-    }
-    .tab-count { opacity: 0.7; }
-
     /* Loading & Empty States */
     .loading-state, .empty-state {
         text-align: center;
         padding: 3rem 1.5rem;
         background: var(--card-bg);
-        border-radius: var(--card-radius);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
     }
     .loading-spinner { font-size: 2rem; color: var(--accent-primary); margin-bottom: 1rem; }
     .loading-title, .empty-state h3 { font-size: 1.125rem; font-weight: 600; color: var(--text-primary); margin-bottom: 0.5rem; }
@@ -622,7 +581,8 @@ else
         gap: 1rem;
         padding: 1rem 1.25rem;
         background: var(--card-bg);
-        border-radius: var(--card-radius);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
         transition: all 0.15s ease;
     }
     .xcode-card.selected { background: var(--status-success-bg); }
@@ -898,6 +858,12 @@ else
     private bool showBetas;
     private bool hasInitialized;
     private bool hasLoadedRuntimeData;
+    private IReadOnlyList<SherpaTabItem> XcodeTabs =>
+    [
+        new("installed", "Installed", "fa-solid fa-hard-drive", ViewModel.InstalledXcodes.Count),
+        new("available", "Available", "fa-solid fa-cloud-arrow-down", filteredReleases.Count),
+        new("runtimes", "Runtimes", "fa-solid fa-layer-group", hasLoadedRuntimeData ? filteredRuntimeStorage.Count : null)
+    ];
 
     // Download/Install state
     private XcodeRelease? downloadingRelease;

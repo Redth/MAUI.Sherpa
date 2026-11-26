@@ -301,13 +301,13 @@
                         }
                         else
                         {
-                            <select class="form-control compact" @bind="config.NotarizationAppleIdSecretKey">
-                                <option value="">— None —</option>
-                                @foreach (var secret in managedSecrets)
-                                {
-                                    <option value="@secret.Key">@secret.Key</option>
-                                }
-                            </select>
+                            <SherpaSelect TValue="string"
+                                          Value="@config.NotarizationAppleIdSecretKey"
+                                          ValueChanged="@((string? value) => config.NotarizationAppleIdSecretKey = value ?? string.Empty)"
+                                          Options="ManagedSecretOptions"
+                                          AriaLabel="Apple ID managed secret"
+                                          Searchable="true"
+                                          Class="sherpa-select-full" />
                         }
                     </div>
                     <div class="form-field">
@@ -325,13 +325,13 @@
                         }
                         else
                         {
-                            <select class="form-control compact" @bind="config.NotarizationPasswordSecretKey">
-                                <option value="">— None —</option>
-                                @foreach (var secret in managedSecrets)
-                                {
-                                    <option value="@secret.Key">@secret.Key</option>
-                                }
-                            </select>
+                            <SherpaSelect TValue="string"
+                                          Value="@config.NotarizationPasswordSecretKey"
+                                          ValueChanged="@((string? value) => config.NotarizationPasswordSecretKey = value ?? string.Empty)"
+                                          Options="ManagedSecretOptions"
+                                          AriaLabel="App-specific password managed secret"
+                                          Searchable="true"
+                                          Class="sherpa-select-full" />
                         }
                     </div>
                     <div class="form-field">
@@ -349,13 +349,13 @@
                         }
                         else
                         {
-                            <select class="form-control compact" @bind="config.NotarizationTeamIdSecretKey">
-                                <option value="">— None —</option>
-                                @foreach (var secret in managedSecrets)
-                                {
-                                    <option value="@secret.Key">@secret.Key</option>
-                                }
-                            </select>
+                            <SherpaSelect TValue="string"
+                                          Value="@config.NotarizationTeamIdSecretKey"
+                                          ValueChanged="@((string? value) => config.NotarizationTeamIdSecretKey = value ?? string.Empty)"
+                                          Options="ManagedSecretOptions"
+                                          AriaLabel="Team ID managed secret"
+                                          Searchable="true"
+                                          Class="sherpa-select-full" />
                         }
                     </div>
                 </div>
@@ -393,9 +393,9 @@
         font-size: 10px;
         font-weight: 500;
         color: var(--text-muted);
-        background: var(--bg-tertiary, #e2e8f0);
+        background: var(--border-subtle);
         padding: 2px 6px;
-        border-radius: 0.25rem;
+        border-radius: var(--radius-xs);
         margin-left: 6px;
         vertical-align: middle;
     }
@@ -419,25 +419,25 @@
     .step-indicator .step-number {
         width: 28px;
         height: 28px;
-        border-radius: 50%;
+        border-radius: var(--radius-pill);
         display: flex;
         align-items: center;
         justify-content: center;
         font-size: 12px;
         font-weight: 600;
-        background: var(--bg-tertiary, #e2e8f0);
+        background: var(--border-subtle);
         color: var(--text-muted);
         transition: all 0.2s;
     }
 
     .step-indicator .step.active .step-number {
-        background: var(--accent-color, #3b82f6);
-        color: #fff;
+        background: var(--accent);
+        color: white;
     }
 
     .step-indicator .step.completed .step-number {
-        background: var(--success-color, #22c55e);
-        color: #fff;
+        background: var(--status-success-dot);
+        color: white;
     }
 
     .step-indicator .step-label {
@@ -454,7 +454,7 @@
     .step-indicator .step-line {
         flex: 1;
         height: 2px;
-        background: var(--bg-tertiary, #e2e8f0);
+        background: var(--border-subtle);
         margin: 0 4px;
         margin-bottom: 18px;
         min-width: 16px;
@@ -462,7 +462,7 @@
     }
 
     .step-indicator .step-line.active {
-        background: var(--success-color, #22c55e);
+        background: var(--status-success-dot);
     }
 
     .step-header-row {
@@ -478,12 +478,12 @@
     .btn-text-action {
         background: none;
         border: none;
-        color: var(--accent-color, #3b82f6);
+        color: var(--accent);
         font-size: 13px;
         font-weight: 500;
         cursor: pointer;
         padding: 6px 12px;
-        border-radius: 6px;
+        border-radius: var(--radius-sm);
     }
 
     .btn-text-action:hover {
@@ -501,8 +501,8 @@
         flex: 1;
         min-width: 120px;
         padding: 16px;
-        border-radius: 0.75rem;
-        background: var(--card-bg, #fff);
+        border-radius: var(--radius-lg);
+        background: var(--card-bg, white);
         border: 2px solid transparent;
         cursor: pointer;
         text-align: center;
@@ -514,7 +514,7 @@
     }
 
     .option-card.selected {
-        border-color: var(--accent-color, #3b82f6);
+        border-color: var(--accent);
         background: rgba(59, 130, 246, 0.08);
     }
 
@@ -524,7 +524,7 @@
     }
 
     .option-card.selected i {
-        color: var(--accent-color, #3b82f6);
+        color: var(--accent);
     }
 
     .option-label {
@@ -552,15 +552,15 @@
         align-items: center;
         gap: 10px;
         padding: 10px 12px;
-        border-radius: 0.75rem;
-        background: var(--card-bg, #fff);
+        border-radius: var(--radius-lg);
+        background: var(--card-bg, white);
         border: 2px solid transparent;
         cursor: pointer;
         transition: all 0.15s;
     }
 
     .cert-item.selected {
-        border-color: var(--accent-color, #3b82f6);
+        border-color: var(--accent);
         background: rgba(59, 130, 246, 0.08);
     }
 
@@ -569,7 +569,7 @@
     }
 
     .cert-item input[type="radio"] {
-        accent-color: var(--accent-color, #3b82f6);
+        accent-color: var(--accent);
         margin: 0;
     }
 
@@ -601,28 +601,28 @@
         font-size: 10px;
         font-weight: 500;
         padding: 2px 8px;
-        border-radius: 10px;
+        border-radius: var(--radius-lg);
         white-space: nowrap;
         flex-shrink: 0;
     }
 
     .sync-badge.synced {
-        color: var(--success-color, #22c55e);
+        color: var(--status-success-dot);
         background: rgba(34, 197, 94, 0.1);
     }
 
     .sync-badge.local-only {
-        color: var(--accent-color, #3b82f6);
+        color: var(--accent);
         background: rgba(59, 130, 246, 0.1);
     }
 
     .sync-badge.cloud-only {
-        color: var(--warning-color, #f59e0b);
+        color: var(--status-warning-dot);
         background: rgba(245, 158, 11, 0.1);
     }
 
     .sync-badge.no-key {
-        color: var(--danger-color, #ef4444);
+        color: var(--status-error-dot);
         background: rgba(239, 68, 68, 0.08);
         opacity: 0.7;
     }
@@ -673,11 +673,11 @@
     .btn-toggle-source {
         background: none;
         border: none;
-        color: var(--accent-color, #3b82f6);
+        color: var(--accent);
         font-size: 11px;
         cursor: pointer;
         padding: 2px 6px;
-        border-radius: 4px;
+        border-radius: var(--radius-xs);
         display: flex;
         align-items: center;
         gap: 4px;
@@ -711,7 +711,7 @@
     }
 
     .config-toggle input[type="checkbox"] {
-        accent-color: var(--accent-color, #3b82f6);
+        accent-color: var(--accent);
     }
 </style>
 
@@ -719,6 +719,13 @@
     private AppleConfigVM config = new();
     private List<AppleIdentity> appleIdentities = new();
     private List<ManagedSecret> managedSecrets = new();
+    private IReadOnlyList<SherpaSelectOption<string>> ManagedSecretOptions =>
+        new[] { new SherpaSelectOption<string>("", "— None —") }
+            .Concat(managedSecrets.Select(secret => new SherpaSelectOption<string>(
+                secret.Key,
+                secret.Key,
+                Icon: "fa-solid fa-key")))
+            .ToArray();
     private List<AppleCertificate> certificates = new();
     private List<AppleProfile> profiles = new();
     private List<LocalSigningIdentity> localIdentities = new();

@@ -17,7 +17,10 @@
 
 @code {
     private string ThemeClass => ThemeService.IsDarkMode ? "theme-dark" : "theme-light";
-    private string PlatformClass => PlatformInfo.IsMacOS ? "platform-macos" : PlatformInfo.IsWindows ? "platform-windows" : "";
+    private string PlatformClass => PlatformInfo.IsMacOS || PlatformInfo.IsMacCatalyst ? "platform-macos" : PlatformInfo.IsWindows ? "platform-windows" : PlatformInfo.IsLinux ? "platform-linux" : "";
+    private string CanvasColor => ThemeService.IsDarkMode
+        ? PlatformInfo.IsWindows ? "#202020" : PlatformInfo.IsLinux ? "#242424" : "#1e1e1e"
+        : PlatformInfo.IsWindows ? "#f3f3f3" : "#ffffff";
 
     protected override void OnInitialized()
     {
@@ -72,8 +75,11 @@
         try
         {
             var cls = ThemeService.IsDarkMode ? "theme-dark" : "theme-light";
-            var bg = ThemeService.IsDarkMode ? "#242628" : "#FFFFFF";
-            await JS.InvokeVoidAsync("eval", $"document.body.className = '{cls}'; document.body.style.backgroundColor='{bg}';");
+            await JS.InvokeVoidAsync("eval", $@"
+                document.body.className = '{cls} {PlatformClass}';
+                document.documentElement.style.backgroundColor = '{CanvasColor}';
+                document.body.style.backgroundColor = '{CanvasColor}';
+                document.getElementById('app')?.style.setProperty('background-color', '{CanvasColor}');");
         }
         catch { }
     }
@@ -93,12 +99,13 @@
         background: transparent;
         color: var(--text-primary);
         overflow-y: auto;
+        overscroll-behavior: contain;
         padding: 0;
         margin: 0;
     }
 
-    .modal-layout.theme-dark {
-        --bg-primary: #242628;
+    .modal-layout:has(.operation-content, .process-content, .multi-op-content) {
+        overflow: hidden;
     }
 
     html, body, #app {
@@ -108,9 +115,4 @@
         background: transparent;
     }
 
-    .platform-macos .modal-layout {
-        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
-        font-size: 13px;
-        -webkit-font-smoothing: antialiased;
-    }
 </style>

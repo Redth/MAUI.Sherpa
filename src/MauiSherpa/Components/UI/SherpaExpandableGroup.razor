@@ -1,0 +1,77 @@
+<section class="@RootCssClass">
+    <button type="button"
+            class="sherpa-accordion-trigger"
+            aria-expanded="@Expanded.ToString().ToLowerInvariant()"
+            @onclick="ToggleAsync">
+        @if (!string.IsNullOrWhiteSpace(Icon))
+        {
+            <i class="@EnsureFixedWidth(Icon)" aria-hidden="true"></i>
+        }
+        @if (HeaderContent is not null)
+        {
+            <span class="sherpa-accordion-header-content">@HeaderContent</span>
+        }
+        else
+        {
+            <span class="sherpa-row-stack">
+                <span class="sherpa-accordion-title">@Title</span>
+                @if (!string.IsNullOrWhiteSpace(Subtitle))
+                {
+                    <span class="sherpa-accordion-subtitle">@Subtitle</span>
+                }
+            </span>
+        }
+        @if (HeaderBadges is not null)
+        {
+            <span class="sherpa-accordion-badges">@HeaderBadges</span>
+        }
+        <i class="fa-solid fa-chevron-right sherpa-accordion-chevron" aria-hidden="true"></i>
+    </button>
+    @if (Expanded)
+    {
+        <div class="sherpa-accordion-body">@ChildContent</div>
+    }
+</section>
+
+@code {
+    [Parameter]
+    public string Title { get; set; } = string.Empty;
+
+    [Parameter]
+    public string? Subtitle { get; set; }
+
+    [Parameter]
+    public string? Icon { get; set; }
+
+    [Parameter]
+    public RenderFragment? HeaderContent { get; set; }
+
+    [Parameter]
+    public RenderFragment? HeaderBadges { get; set; }
+
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    [Parameter]
+    public bool Expanded { get; set; }
+
+    [Parameter]
+    public EventCallback<bool> ExpandedChanged { get; set; }
+
+    [Parameter]
+    public string? Class { get; set; }
+
+    private string RootCssClass =>
+        string.Join(
+            " ",
+            new[] { "sherpa-card", "sherpa-accordion", Class }
+                .Where(cssClass => !string.IsNullOrWhiteSpace(cssClass)));
+
+    private Task ToggleAsync() => ExpandedChanged.InvokeAsync(!Expanded);
+
+    private static string EnsureFixedWidth(string icon) =>
+        icon.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Contains("fa-fw", StringComparer.Ordinal)
+                ? icon
+                : $"{icon} fa-fw";
+}

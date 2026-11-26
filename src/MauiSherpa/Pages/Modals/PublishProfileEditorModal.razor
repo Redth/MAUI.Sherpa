@@ -198,7 +198,9 @@
                                                                            @onchange="@(e => UpdateDestination(config.KeyMappings, defaultKey, dest, e.Value?.ToString() ?? ""))" />
                                                                     @if (destinations.Count > 1)
                                                                     {
-                                                                        <button class="chip-remove" @onclick="@(() => RemoveDestination(config.KeyMappings, defaultKey, dest))">×</button>
+                                                                        <button class="chip-remove" aria-label="Remove destination" @onclick="@(() => RemoveDestination(config.KeyMappings, defaultKey, dest))">
+                                                                            <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+                                                                        </button>
                                                                     }
                                                                     else
                                                                     {
@@ -294,7 +296,9 @@
                                                                        @onchange="@(e => UpdateDestination(config.KeyMappings, defaultKey, dest, e.Value?.ToString() ?? ""))" />
                                                                 @if (destinations.Count > 1)
                                                                 {
-                                                                    <button class="chip-remove" @onclick="@(() => RemoveDestination(config.KeyMappings, defaultKey, dest))">×</button>
+                                                                    <button class="chip-remove" aria-label="Remove destination" @onclick="@(() => RemoveDestination(config.KeyMappings, defaultKey, dest))">
+                                                                        <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+                                                                    </button>
                                                                 }
                                                                 else
                                                                 {
@@ -358,13 +362,13 @@
                                     </label>
                                     @if (!string.IsNullOrEmpty(config.KeystoreId) || config.ShowKeystorePicker)
                                     {
-                                        <select class="form-control compact" @bind="config.KeystoreId">
-                                            <option value="">— Select —</option>
-                                            @foreach (var ks in keystores)
-                                            {
-                                                <option value="@ks.Id">@ks.Alias (@ks.KeystoreType)</option>
-                                            }
-                                        </select>
+                                        <SherpaSelect TValue="string"
+                                                      Value="@config.KeystoreId"
+                                                      ValueChanged="@((string? value) => config.KeystoreId = string.IsNullOrEmpty(value) ? null : value)"
+                                                      Options="KeystoreOptions"
+                                                      AriaLabel="Android keystore"
+                                                      Searchable="true"
+                                                      Class="sherpa-select-full" />
                                     }
                                 </div>
 
@@ -389,7 +393,9 @@
                                                                        @onchange="@(e => UpdateDestination(config.KeyMappings, defaultKey, dest, e.Value?.ToString() ?? ""))" />
                                                                 @if (destinations.Count > 1)
                                                                 {
-                                                                    <button class="chip-remove" @onclick="@(() => RemoveDestination(config.KeyMappings, defaultKey, dest))">×</button>
+                                                                    <button class="chip-remove" aria-label="Remove destination" @onclick="@(() => RemoveDestination(config.KeyMappings, defaultKey, dest))">
+                                                                        <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+                                                                    </button>
                                                                 }
                                                                 else
                                                                 {
@@ -486,7 +492,9 @@
                                                                        @onchange="@(e => UpdateDestination(config.KeyMappings, defaultKey, dest, e.Value?.ToString() ?? ""))" />
                                                                 @if (destinations.Count > 1)
                                                                 {
-                                                                    <button class="chip-remove" @onclick="@(() => RemoveDestination(config.KeyMappings, defaultKey, dest))">×</button>
+                                                                    <button class="chip-remove" aria-label="Remove destination" @onclick="@(() => RemoveDestination(config.KeyMappings, defaultKey, dest))">
+                                                                        <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+                                                                    </button>
                                                                 }
                                                                 else
                                                                 {
@@ -550,7 +558,9 @@
                                                        @oninput="@(e => { var idx = mapping.DestinationKeys.IndexOf(dest); if (idx >= 0) mapping.DestinationKeys[idx] = e.Value?.ToString() ?? ""; })" />
                                                 @if (mapping.DestinationKeys.Count > 1)
                                                 {
-                                                    <button class="chip-remove" @onclick="@(() => mapping.DestinationKeys.Remove(dest))">×</button>
+                                                    <button class="chip-remove" aria-label="Remove destination" @onclick="@(() => mapping.DestinationKeys.Remove(dest))">
+                                                        <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+                                                    </button>
                                                 }
                                                 else
                                                 {
@@ -590,7 +600,7 @@
         align-items: center;
         justify-content: center;
         z-index: 1200;
-        border-radius: 0.5rem;
+        border-radius: var(--radius-md);
     }
 
     .saving-indicator {
@@ -604,16 +614,16 @@
 
     .saving-indicator i {
         font-size: 18px;
-        color: var(--accent-color, #3b82f6);
+        color: var(--accent);
     }
 
     .editor-tabs {
         display: flex;
         gap: 4px;
         margin-bottom: 16px;
-        background: var(--bg-tertiary, #e2e8f0);
+        background: var(--border-subtle);
         padding: 4px;
-        border-radius: 0.75rem;
+        border-radius: var(--radius-lg);
         flex-shrink: 0;
     }
 
@@ -622,7 +632,7 @@
         padding: 10px 14px;
         border: none;
         background: transparent;
-        border-radius: 0.5rem;
+        border-radius: var(--radius-md);
         cursor: pointer;
         font-size: 13px;
         font-weight: 500;
@@ -640,7 +650,7 @@
     }
 
     .editor-tab.active {
-        background: var(--card-bg, #fff);
+        background: var(--card-bg, white);
         color: var(--text-primary);
         box-shadow: 0 1px 3px rgba(0,0,0,0.08);
     }
@@ -679,17 +689,17 @@
 
     .form-control {
         padding: 8px 12px;
-        border: 1px solid var(--border-color, #d1d5db);
-        border-radius: 0.375rem;
+        border: 1px solid var(--border-control);
+        border-radius: var(--radius-sm);
         font-size: 13px;
-        background: var(--input-bg, #fff);
+        background: var(--input-bg, white);
         color: var(--text-primary);
         outline: none;
         transition: border-color 0.15s, box-shadow 0.15s;
     }
 
     .form-control:focus {
-        border-color: var(--accent-color, #3b82f6);
+        border-color: var(--accent);
         box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
     }
 
@@ -736,10 +746,10 @@
         align-items: center;
         gap: 6px;
         padding: 8px 16px;
-        background: var(--accent-color, #3b82f6);
+        background: var(--accent);
         color: white;
         border: none;
-        border-radius: 0.375rem;
+        border-radius: var(--radius-sm);
         font-size: 13px;
         font-weight: 500;
         cursor: pointer;
@@ -778,7 +788,7 @@
         border: none;
         cursor: pointer;
         padding: 4px 6px;
-        border-radius: 0.25rem;
+        border-radius: var(--radius-xs);
         color: var(--text-muted);
         transition: all 0.15s;
     }
@@ -789,13 +799,13 @@
     }
 
     .btn-icon-action.danger:hover {
-        color: var(--danger-color, #ef4444);
+        color: var(--status-error-dot);
     }
 
     /* Config card */
     .config-card {
-        background: var(--card-bg, #fff);
-        border-radius: 0.75rem;
+        background: var(--card-bg, white);
+        border-radius: var(--radius-lg);
         overflow: hidden;
     }
 
@@ -805,7 +815,7 @@
         justify-content: space-between;
         padding: 10px 14px;
         background: transparent;
-        border-bottom: 1px solid var(--border-color, #e2e8f0);
+        border-bottom: 1px solid var(--border-subtle);
         gap: 8px;
     }
 
@@ -818,11 +828,11 @@
         color: var(--text-primary);
         outline: none;
         padding: 2px 4px;
-        border-radius: 0.25rem;
+        border-radius: var(--radius-xs);
     }
 
     .config-label-input:focus {
-        background: var(--input-bg, #fff);
+        background: var(--input-bg, white);
         box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
     }
 
@@ -854,7 +864,7 @@
     }
 
     .config-toggle input[type="checkbox"] {
-        accent-color: var(--accent-color, #3b82f6);
+        accent-color: var(--accent);
     }
 
     /* Key mappings */
@@ -883,7 +893,7 @@
         flex-direction: column;
         gap: 3px;
         padding: 6px 0;
-        border-bottom: 1px solid var(--border-color, #e2e8f0);
+        border-bottom: 1px solid var(--border-subtle);
     }
 
     .key-mapping-row:last-child {
@@ -911,19 +921,19 @@
 
     .dest-input {
         flex: 1;
-        border: 1px solid var(--border-color, #d1d5db);
-        background: var(--input-bg, #fff);
+        border: 1px solid var(--border-control);
+        background: var(--input-bg, white);
         font-size: 11px;
         font-family: monospace;
         color: var(--text-primary);
         outline: none;
         padding: 4px 6px;
-        border-radius: 0.25rem;
+        border-radius: var(--radius-xs);
         min-width: 0;
     }
 
     .dest-input:focus {
-        border-color: var(--accent-color, #3b82f6);
+        border-color: var(--accent);
     }
 
     .btn-placeholder {
@@ -942,13 +952,13 @@
     }
 
     .chip-remove:hover {
-        color: var(--danger-color, #ef4444);
+        color: var(--status-error-dot);
     }
 
     .btn-add-dest {
         background: none;
-        border: 1px dashed var(--border-color, #d1d5db);
-        border-radius: 0.375rem;
+        border: 1px dashed var(--border-control);
+        border-radius: var(--radius-sm);
         color: var(--text-muted);
         cursor: pointer;
         padding: 4px 8px;
@@ -957,8 +967,8 @@
     }
 
     .btn-add-dest:hover {
-        border-color: var(--accent-color, #3b82f6);
-        color: var(--accent-color, #3b82f6);
+        border-color: var(--accent);
+        color: var(--accent);
     }
 
     /* Empty state */
@@ -989,14 +999,14 @@
         align-items: center;
         padding: 0;
         gap: 0;
-        border: 1px solid var(--border-color, #d1d5db);
-        border-radius: 0.375rem;
-        background: var(--input-bg, #fff);
+        border: 1px solid var(--border-control);
+        border-radius: var(--radius-sm);
+        background: var(--input-bg, white);
         transition: border-color 0.15s, box-shadow 0.15s;
     }
 
     .search-box:focus-within {
-        border-color: var(--accent-color, #3b82f6);
+        border-color: var(--accent);
         box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
     }
 
@@ -1011,7 +1021,7 @@
         width: 100%;
         padding: 4px 26px 4px 26px;
         border: none;
-        border-radius: 0.375rem;
+        border-radius: var(--radius-sm);
         font-size: 13px;
         background: transparent;
         color: var(--text-primary);
@@ -1038,8 +1048,8 @@
     .selection-list {
         max-height: 200px;
         overflow-y: auto;
-        border: 1px solid var(--border-color, #d1d5db);
-        border-radius: 0.75rem;
+        border: 1px solid var(--border-control);
+        border-radius: var(--radius-lg);
         margin-top: 8px;
     }
 
@@ -1054,7 +1064,7 @@
         padding: 10px 14px;
         cursor: pointer;
         transition: background 0.1s;
-        border-bottom: 1px solid var(--border-color-light, #f1f5f9);
+        border-bottom: 1px solid var(--surface-well);
     }
 
     .selection-item:last-child {
@@ -1067,7 +1077,7 @@
 
     .selection-item input[type="radio"] {
         margin-top: 2px;
-        accent-color: var(--accent-color, #3b82f6);
+        accent-color: var(--accent);
     }
 
     .item-content {
@@ -1105,8 +1115,8 @@
     }
 
     .secret-picker-dialog {
-        background: var(--card-bg, #fff);
-        border-radius: 0.75rem;
+        background: var(--card-bg, white);
+        border-radius: var(--radius-lg);
         width: 460px;
         max-height: 70vh;
         display: flex;
@@ -1120,7 +1130,7 @@
         justify-content: space-between;
         align-items: center;
         padding: 12px 16px;
-        border-bottom: 1px solid var(--border-color, #e2e8f0);
+        border-bottom: 1px solid var(--border-subtle);
         font-size: 14px;
         font-weight: 600;
         color: var(--text-primary);
@@ -1185,23 +1195,23 @@
         font-size: 10px;
         font-weight: 600;
         padding: 2px 6px;
-        border-radius: 0.25rem;
+        border-radius: var(--radius-xs);
         white-space: nowrap;
     }
 
     .badge.platform {
         background: rgba(59, 130, 246, 0.12);
-        color: var(--accent-color, #3b82f6);
+        color: var(--accent);
     }
 
     .badge.distribution {
         background: rgba(34, 197, 94, 0.12);
-        color: var(--success-color, #22c55e);
+        color: var(--status-success-dot);
     }
 
     .badge.warning {
         background: rgba(245, 158, 11, 0.12);
-        color: var(--warning-color, #f59e0b);
+        color: var(--status-warning-dot);
     }
 
     .config-summary {
@@ -1247,6 +1257,14 @@
     private List<AndroidConfigVM> androidConfigs = new();
     private List<GoogleIdentityConfigVM> googleIdentityConfigs = new();
     private List<AndroidKeystore> keystores = new();
+    private IReadOnlyList<SherpaSelectOption<string>> KeystoreOptions =>
+        new[] { new SherpaSelectOption<string>("", "— Select —") }
+            .Concat(keystores.Select(keystore => new SherpaSelectOption<string>(
+                keystore.Id,
+                keystore.Alias,
+                keystore.KeystoreType.ToString(),
+                "fa-solid fa-key")))
+            .ToArray();
     private List<GoogleIdentity> googleIdentities = new();
 
     // Secrets

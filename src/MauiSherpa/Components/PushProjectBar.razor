@@ -10,13 +10,15 @@
         <span class="push-project-icon"><i class="fas fa-folder-open"></i></span>
 
         <div class="push-project-fields">
-            <select class="push-input push-project-select" value="@selectedProjectId" @onchange="OnProjectDropdownChanged" title="Switch project">
-                <option value="__new__">+ New Project</option>
-                @foreach (var project in projects)
-                {
-                    <option value="@project.Id">@project.Name</option>
-                }
-            </select>
+            <SherpaSelect TValue="string"
+                          Value="@selectedProjectId"
+                          ValueChanged="OnProjectDropdownChanged"
+                          Options="ProjectOptions"
+                          LeadingIcon="fa-solid fa-folder-open"
+                          AriaLabel="Switch push project"
+                          Compact="true"
+                          Searchable="true"
+                          Class="push-input push-project-select" />
             <input type="text" class="push-input push-project-name" placeholder="Project name"
                    value="@projectName"
                    @oninput="OnNameInput" />
@@ -56,7 +58,8 @@
     .push-project-bar {
         margin-bottom: 1.5rem;
         padding: 0.75rem 0.85rem;
-        border-radius: var(--card-radius);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
         background: var(--card-bg);
     }
 
@@ -74,7 +77,7 @@
         flex-shrink: 0;
         width: 2.25rem;
         height: 2.25rem;
-        border-radius: 0.75rem;
+        border-radius: var(--radius-md);
         background: var(--accent-bg);
         color: var(--accent-primary);
         font-size: 0.9rem;
@@ -186,9 +189,16 @@
         projects = (await ProjectService.GetProjectsAsync(Platform)).ToList();
     }
 
-    private async Task OnProjectDropdownChanged(ChangeEventArgs e)
+    private IReadOnlyList<SherpaSelectOption<string>> ProjectOptions =>
+    [
+        new("__new__", "New Project", Icon: "fa-solid fa-plus"),
+        .. projects.Select(project =>
+            new SherpaSelectOption<string>(project.Id, project.Name, Icon: "fa-solid fa-folder"))
+    ];
+
+    private async Task OnProjectDropdownChanged(string? selectedValue)
     {
-        var value = e.Value?.ToString() ?? "__new__";
+        var value = selectedValue ?? "__new__";
 
         if (IsDirty)
         {
@@ -199,6 +209,7 @@
             if (!discard) return;
         }
 
+        selectedProjectId = value;
         if (value == "__new__")
         {
             await ActiveProjectChanged.InvokeAsync(null);

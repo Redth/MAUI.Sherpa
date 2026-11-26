@@ -87,7 +87,9 @@
                     <p>Configure a secrets provider in Settings to securely store signing certificates and private keys. Use a cloud provider to sync across machines.</p>
                 </div>
             </div>
-            <button type="button" class="btn-close" @onclick="DismissSyncHint" title="Dismiss">×</button>
+            <button type="button" class="btn-close" @onclick="DismissSyncHint" title="Dismiss" aria-label="Dismiss sync hint">
+                <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+            </button>
         </div>
     }
 
@@ -100,28 +102,36 @@
             <input type="text" @bind="searchQuery" @bind:event="oninput" placeholder="Search certificates..." />
             @if (!string.IsNullOrEmpty(searchQuery))
             {
-                <button class="clear-btn" @onclick="@(() => searchQuery = "")">×</button>
+                <button class="clear-btn" @onclick="@(() => searchQuery = "")" aria-label="Clear certificate search">
+                    <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+                </button>
             }
         </div>
         <div class="filter-chips">
-            <select @bind="filterType" class="filter-select">
-                <option value="">All Types</option>
-                <option value="DEVELOPMENT">Development</option>
-                <option value="DISTRIBUTION">Distribution</option>
-                <option value="DEVELOPER_ID">Developer ID</option>
-                <option value="DEVELOPER_ID_INSTALLER">Developer ID Installer</option>
-            </select>
-            <select @bind="filterPlatform" class="filter-select">
-                <option value="">All Platforms</option>
-                <option value="IOS">iOS</option>
-                <option value="MAC">macOS</option>
-            </select>
-            <select @bind="filterStatus" class="filter-select">
-                <option value="">All Status</option>
-                <option value="valid">Valid</option>
-                <option value="expiring">Expiring Soon</option>
-                <option value="expired">Expired</option>
-            </select>
+            <SherpaSelect TValue="string"
+                          Value="@filterType"
+                          ValueChanged="@(value => filterType = value ?? "")"
+                          Options="CertificateTypeFilterOptions"
+                          LeadingIcon="fa-solid fa-certificate"
+                          AriaLabel="Filter by certificate type"
+                          Compact="true"
+                          Class="filter-select" />
+            <SherpaSelect TValue="string"
+                          Value="@filterPlatform"
+                          ValueChanged="@(value => filterPlatform = value ?? "")"
+                          Options="PlatformFilterOptions"
+                          LeadingIcon="fa-brands fa-apple"
+                          AriaLabel="Filter by platform"
+                          Compact="true"
+                          Class="filter-select" />
+            <SherpaSelect TValue="string"
+                          Value="@filterStatus"
+                          ValueChanged="@(value => filterStatus = value ?? "")"
+                          Options="StatusFilterOptions"
+                          LeadingIcon="fa-solid fa-circle-dot"
+                          AriaLabel="Filter by certificate status"
+                          Compact="true"
+                          Class="filter-select" />
         </div>
         @if (HasActiveFilters)
         {
@@ -289,7 +299,7 @@
     h1 { margin-bottom: 1.25rem; font-size: 1.75rem; color: var(--text-primary); }
 
     .toolbar { margin-bottom: 1rem; display: flex; gap: 0.75rem; flex-wrap: wrap; }
-    .error-bar { background: var(--status-error-bg); color: var(--status-error-text); padding: 0.75rem 1rem; border-radius: 0.75rem; margin-bottom: 1rem; }
+    .error-bar { background: var(--status-error-bg); color: var(--status-error-text); padding: 0.75rem 1rem; border: 1px solid var(--status-error-border); border-radius: var(--radius-lg); margin-bottom: 1rem; }
 
     /* Info Alert */
     .alert-info {
@@ -415,20 +425,7 @@
         flex-wrap: wrap;
     }
 
-    .filter-select {
-        padding: 0.5rem 0.75rem;
-        border: 1px solid var(--border-color);
-        border-radius: 0.375rem;
-        font-size: 0.8125rem;
-        background: var(--card-bg);
-        cursor: pointer;
-        min-width: 120px;
-    }
-
-    .filter-select:focus {
-        outline: none;
-        border-color: var(--accent-primary);
-    }
+    .filter-select { min-width: 120px; }
 
     .clear-filters-btn {
         padding: 0.5rem 0.75rem;
@@ -462,20 +459,19 @@
 
     .cert-card {
         background: var(--card-bg);
-        border-radius: var(--card-radius);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
         padding: 0.875rem;
         display: flex;
         align-items: flex-start;
         gap: 1rem;
-        border-left: 0.25rem solid var(--accent-success);
     }
 
-    .cert-card.expired { border-left-color: #f56565; opacity: 0.7; }
-    .cert-card.expiring { border-left-color: var(--accent-warning); }
+    .cert-card.expired { opacity: 0.7; }
     .cert-card.selected { box-shadow: 0 0 0 2px var(--accent-primary); }
     .cert-card.selectable { cursor: pointer; }
 
-    .cert-icon { font-size: 1.5rem; color: #6b46c1; }
+    .cert-icon { font-size: 1.5rem; color: var(--accent); }
     .cert-icon i { font-size: 1.25rem; }
     .cert-details { flex: 1; }
     .cert-name { font-weight: 600; font-size: 1rem; color: var(--text-primary); }
@@ -532,7 +528,7 @@
     .btn-copy {
         background: none;
         border: none;
-        color: #a0aec0;
+        color: var(--text-muted);
         cursor: pointer;
         padding: 2px 0.375rem;
         font-size: 0.75rem;
@@ -545,10 +541,10 @@
         background: var(--bg-hover);
     }
 
-    .badge { padding: 2px 0.625rem; border-radius: 0.75rem; font-size: 0.75rem; font-weight: 500; }
-    .badge-type { background: #faf5ff; color: #6b46c1; }
+    .badge { padding: 2px 0.625rem; border-radius: var(--radius-pill); font-size: 0.75rem; font-weight: 500; }
+    .badge-type { background: var(--accent-soft); color: var(--accent); }
     .badge-local-only { background: var(--sync-local-bg); color: var(--sync-local-text); }
-    .badge-platform { background: #bee3f8; color: #2c5282; }
+    .badge-platform { background: var(--status-info-bg); color: var(--status-info-text); }
     .badge-valid { background: var(--status-success-bg); color: var(--status-success-text); }
     .badge-expiring { background: var(--status-warning-bg); color: var(--status-warning-text); }
     .badge-expired { background: var(--status-error-bg); color: var(--status-error-text); }
@@ -558,10 +554,10 @@
     .badge-sync-local { background: var(--sync-local-bg); color: var(--sync-local-text); }
     .badge-sync-cloud { background: var(--sync-cloud-bg); color: var(--sync-cloud-text); }
     .badge-sync-none { background: var(--sync-none-bg); color: var(--sync-none-text); }
-    .text-sync-both { color: #22c55e; }
-    .text-sync-local { color: #3b82f6; }
-    .text-sync-cloud { color: #eab308; }
-    .text-sync-none { color: #6b7280; }
+    .text-sync-both { color: var(--status-success-fg); }
+    .text-sync-local { color: var(--status-info-fg); }
+    .text-sync-cloud { color: var(--status-warning-fg); }
+    .text-sync-none { color: var(--text-muted); }
     
     /* Sync dropdown menu */
     .cert-dropdown-menu {
@@ -587,11 +583,11 @@
     .cert-dropdown-item:hover:not(.disabled) { background: var(--bg-tertiary); }
     .cert-dropdown-item.disabled { color: var(--text-muted); cursor: default; opacity: 0.5; }
     .cert-dropdown-item i { font-size: 0.75rem; width: 0.875rem; text-align: center; color: var(--text-secondary); }
-    .cert-dropdown-item.danger { color: var(--accent-danger, #e53e3e); }
-    .cert-dropdown-item.danger i { color: var(--accent-danger, #e53e3e); }
+    .cert-dropdown-item.danger { color: var(--accent-danger); }
+    .cert-dropdown-item.danger i { color: var(--accent-danger); }
 
     .empty-state { background: var(--card-bg); border-radius: var(--card-radius); padding: 3.75rem 2.5rem; text-align: center; }
-    .empty-icon { font-size: 48px; margin-bottom: 1rem; color: #a0aec0; }
+    .empty-icon { font-size: 48px; margin-bottom: 1rem; color: var(--text-muted); }
     .empty-icon i { font-size: 48px; }
     .empty-title { font-size: 1.125rem; font-weight: 600; color: var(--text-primary); margin-bottom: 0.5rem; }
     .empty-description { color: var(--text-muted); font-size: 0.875rem; }
@@ -610,6 +606,27 @@
     private string filterType = "";
     private string filterPlatform = "";
     private string filterStatus = "";
+    private static readonly IReadOnlyList<SherpaSelectOption<string>> CertificateTypeFilterOptions =
+    [
+        new("", "All Types"),
+        new("DEVELOPMENT", "Development"),
+        new("DISTRIBUTION", "Distribution"),
+        new("DEVELOPER_ID", "Developer ID"),
+        new("DEVELOPER_ID_INSTALLER", "Developer ID Installer")
+    ];
+    private static readonly IReadOnlyList<SherpaSelectOption<string>> PlatformFilterOptions =
+    [
+        new("", "All Platforms"),
+        new("IOS", "iOS", Icon: "fa-brands fa-apple"),
+        new("MAC", "macOS", Icon: "fa-brands fa-apple")
+    ];
+    private static readonly IReadOnlyList<SherpaSelectOption<string>> StatusFilterOptions =
+    [
+        new("", "All Status"),
+        new("valid", "Valid", DotCssClass: "sherpa-dot-success"),
+        new("expiring", "Expiring Soon", DotCssClass: "sherpa-dot-warning"),
+        new("expired", "Expired", DotCssClass: "sherpa-dot-danger")
+    ];
     private bool isSelectionMode;
     private readonly HashSet<string> selectedCertificateIds = new(StringComparer.Ordinal);
     private IReadOnlyList<LocalSigningIdentity> localIdentities = Array.Empty<LocalSigningIdentity>();

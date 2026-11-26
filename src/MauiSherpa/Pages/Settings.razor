@@ -34,7 +34,7 @@
 
 @if (!PlatformInfo.HasNativeToolbar)
 {
-<h1><i class="fas fa-cog"></i> @ViewModel.Title</h1>
+<h1><i class="fa-solid fa-gear fa-fw"></i> @ViewModel.Title</h1>
 }
 
 <div class="settings-section">
@@ -44,11 +44,11 @@
             <div class="setting-item">
                 <label class="setting-label">Theme</label>
                 <div class="setting-control setting-control-end">
-                    <select value="@ViewModel.Theme" @onchange="OnThemeChanged">
-                        <option value="System">System</option>
-                        <option value="Light">Light</option>
-                        <option value="Dark">Dark</option>
-                    </select>
+                    <SherpaSegmentedControl TValue="string"
+                                            Value="@ViewModel.Theme"
+                                            ValueChanged="OnThemeSelectedAsync"
+                                            Options="@ThemeSegmentOptions"
+                                            AriaLabel="Theme" />
                 </div>
             </div>
             <div class="setting-item">
@@ -68,14 +68,14 @@
                 <div class="setting-control setting-control-end">
                     <div class="font-scale-control">
                         <button class="btn-scale" @onclick="DecreaseFontScale" disabled="@(ViewModel.FontScale <= 0.8)" title="Decrease font size">
-                            <i class="fas fa-minus"></i>
+                            <i class="fa-solid fa-minus fa-fw"></i>
                         </button>
                         <input type="range" min="0.8" max="1.5" step="0.05"
                                value="@ViewModel.FontScale"
                                @oninput="OnFontScaleInput"
                                class="font-scale-slider" />
                         <button class="btn-scale" @onclick="IncreaseFontScale" disabled="@(ViewModel.FontScale >= 1.5)" title="Increase font size">
-                            <i class="fas fa-plus"></i>
+                            <i class="fa-solid fa-plus fa-fw"></i>
                         </button>
                         <span class="font-scale-label">@($"{ViewModel.FontScale * 100:F0}%")</span>
                     </div>
@@ -84,10 +84,13 @@
             <div class="setting-item setting-item-start">
                 <label class="setting-label">Xcode XIP Extractor</label>
                 <div class="setting-control setting-control-stack">
-                    <select value="@xcodeArchiveExtractor" @onchange="OnXcodeArchiveExtractorChanged" class="setting-select-wide">
-                        <option value="@XcodeArchiveExtractorOptions.SystemXip">System xip</option>
-                        <option value="@XcodeArchiveExtractorOptions.Unxip">unxip</option>
-                    </select>
+                    <SherpaSelect TValue="string"
+                                  Value="@xcodeArchiveExtractor"
+                                  ValueChanged="OnXcodeArchiveExtractorChanged"
+                                  Options="@XcodeArchiveExtractorSelectOptions"
+                                  LeadingIcon="fa-solid fa-file-zipper"
+                                  AriaLabel="Xcode XIP extractor"
+                                  Class="setting-select-wide" />
                     <div class="setting-description setting-description-block">
                         Use the system <code>xip</code> extractor for the safest default, or the bundled <code>unxip</code> helper for faster extraction.
                         <code>unxip</code> does not perform signature verification. If the bundled helper is unavailable, MauiSherpa falls back to <code>xip</code>.
@@ -98,10 +101,14 @@
             <div class="setting-item setting-item-start">
                 <label class="setting-label">Xcode Bundle Naming</label>
                 <div class="setting-control setting-control-stack">
-                    <select value="@xcodeBundleSeparator" @onchange="OnXcodeBundleSeparatorChanged" class="setting-select-wide" disabled="@isNormalizingBundles">
-                        <option value="@XcodeBundleSeparatorOptions.Underscore">Xcode_26.3.app (underscore &mdash; GitHub runner-images style)</option>
-                        <option value="@XcodeBundleSeparatorOptions.Hyphen">Xcode-26.3.app (hyphen &mdash; xcodes / Xcodes.app style)</option>
-                    </select>
+                    <SherpaSelect TValue="string"
+                                  Value="@xcodeBundleSeparator"
+                                  ValueChanged="OnXcodeBundleSeparatorChanged"
+                                  Options="@XcodeBundleSeparatorSelectOptions"
+                                  LeadingIcon="fa-solid fa-tag"
+                                  AriaLabel="Xcode bundle naming"
+                                  Disabled="@isNormalizingBundles"
+                                  Class="setting-select-wide" />
                     <div class="setting-description setting-description-block">
                         Separator used when Sherpa renames managed Xcode installs in <code>/Applications</code>.
                         Changing this will scan for existing bundles using the other format and offer to rename them.
@@ -112,10 +119,13 @@
             <div class="setting-item setting-item-start">
                 <label class="setting-label">Xcode Selection</label>
                 <div class="setting-control setting-control-stack">
-                    <select value="@xcodeSelectionAction" @onchange="OnXcodeSelectionActionChanged" class="setting-select-wide">
-                        <option value="@XcodeSelectionActionOptions.None">Do not rename bundles; only update xcode-select</option>
-                        <option value="@XcodeSelectionActionOptions.Rename">Rename selected bundle to /Applications/Xcode.app</option>
-                    </select>
+                    <SherpaSelect TValue="string"
+                                  Value="@xcodeSelectionAction"
+                                  ValueChanged="OnXcodeSelectionActionChanged"
+                                  Options="@XcodeSelectionActionSelectOptions"
+                                  LeadingIcon="fa-solid fa-code-branch"
+                                  AriaLabel="Xcode selection behavior"
+                                  Class="setting-select-wide" />
                     <div class="setting-description setting-description-block">
                         Matches Xcodes.app's Active/Select behavior. Rename mode makes the selected bundle the real <code>/Applications/Xcode.app</code>.
                         Do nothing mode leaves installed bundles in place and selects their full path.
@@ -134,12 +144,13 @@
                 <div class="setting-item setting-item-start">
                     <label class="setting-label">Provisioning Profiles Folder</label>
                     <div class="setting-control setting-control-stack">
-                        <select value="@provisioningProfilesDirectory" @onchange="OnProvisioningProfilesDirectoryChanged" class="setting-select-wide">
-                            <option value="@ProvisioningProfilesDirectoryOptions.Auto">Auto (based on selected Xcode)</option>
-                            <option value="@ProvisioningProfilesDirectoryOptions.Xcode16AndLater">Xcode 16+ folder</option>
-                            <option value="@ProvisioningProfilesDirectoryOptions.Xcode15AndEarlier">Xcode 15 and earlier folder</option>
-                            <option value="@ProvisioningProfilesDirectoryOptions.Both">Both folders</option>
-                        </select>
+                        <SherpaSelect TValue="string"
+                                      Value="@provisioningProfilesDirectory"
+                                      ValueChanged="OnProvisioningProfilesDirectoryChanged"
+                                      Options="@ProvisioningProfilesDirectorySelectOptions"
+                                      LeadingIcon="fa-solid fa-folder-tree"
+                                      AriaLabel="Provisioning profiles folder"
+                                      Class="setting-select-wide" />
                         <div class="setting-description setting-description-block">
                             Auto uses <code>~/Library/Developer/Xcode/UserData/Provisioning Profiles</code> for Xcode 16+
                             and the legacy <code>~/Library/MobileDevice/Provisioning Profiles</code> folder for older Xcode versions.
@@ -154,10 +165,10 @@
             @if (!PlatformInfo.HasNativeToolbar)
             {
             <button class="btn btn-primary" @onclick="SaveSettings">
-                <i class="fas fa-save"></i> Save Settings
+                <i class="fa-solid fa-floppy-disk fa-fw"></i> Save Settings
             </button>
             <button class="btn btn-secondary" @onclick="ResetSettings">
-                <i class="fas fa-undo"></i> Reset to Defaults
+                <i class="fa-solid fa-rotate-left fa-fw"></i> Reset to Defaults
             </button>
             }
         </div>
@@ -171,7 +182,7 @@
                         @if (updateResult?.UpdateAvailable == true && updateResult.LatestRelease != null)
                         {
                             <button class="btn btn-sm btn-update-available" @onclick="ShowUpdateDialog">
-                                <i class="fas fa-arrow-circle-up"></i>
+                                <i class="fa-solid fa-circle-up fa-fw"></i>
                                 Upgrade to @(updateResult.LatestRelease.TagName)
                             </button>
                         }
@@ -183,7 +194,7 @@
 </div>
 
 <div class="settings-section" id="settings-apple-identities">
-    <h2><i class="fab fa-apple"></i> Apple Identities</h2>
+    <h2><i class="fa-brands fa-apple fa-fw"></i> Apple Identities</h2>
     <p class="section-description">
         Configure App Store Connect API credentials for managing Apple Developer resources.
         <a href="https://appstoreconnect.apple.com/access/integrations/api" target="_blank" @onclick='() => OpenUrl("https://appstoreconnect.apple.com/access/integrations/api")' @onclick:preventDefault>Get API keys</a>
@@ -205,18 +216,18 @@
                 <div class="connected-list-item">
                     <div class="identity-header">
                         <div class="identity-info">
-                            <i class="fas fa-id-badge identity-icon"></i>
+                            <i class="fa-regular fa-id-badge fa-fw identity-icon"></i>
                             <span class="identity-name"><span class="@(demoMode ? "demo-blur" : "")">@identity.Name</span></span>
                         </div>
                         <div class="identity-actions">
                             <button class="btn btn-sm btn-secondary" @onclick="@(() => TestIdentity(identity))" title="Test Connection">
-                                <i class="fas fa-plug"></i> Test
+                                <i class="fa-solid fa-plug fa-fw"></i> Test
                             </button>
                             <button class="btn btn-sm btn-secondary" @onclick="@(() => EditIdentity(identity))" title="Edit">
-                                <i class="fas fa-edit"></i> Edit
+                                <i class="fa-solid fa-pen fa-fw"></i> Edit
                             </button>
-                            <button class="btn btn-sm btn-danger" @onclick="@(() => DeleteIdentity(identity))" title="Delete">
-                                <i class="fas fa-trash"></i> Delete
+                            <button class="btn btn-sm btn-danger-soft" @onclick="@(() => DeleteIdentity(identity))" title="Delete">
+                                <i class="fa-solid fa-trash fa-fw"></i> Delete
                             </button>
                         </div>
                     </div>
@@ -226,7 +237,7 @@
                             <span class="detail-value mono copyable">
                                 <span class="@(demoMode ? "demo-blur" : "")">@identity.KeyId</span>
                                 <button class="btn-copy" @onclick="@(() => CopyToClipboard(identity.KeyId))" title="Copy to clipboard">
-                                    <i class="fas fa-copy"></i>
+                                    <i class="fa-solid fa-copy fa-fw"></i>
                                 </button>
                             </span>
                         </div>
@@ -235,7 +246,7 @@
                             <span class="detail-value mono copyable">
                                 <span class="@(demoMode ? "demo-blur" : "")">@identity.IssuerId</span>
                                 <button class="btn-copy" @onclick="@(() => CopyToClipboard(identity.IssuerId))" title="Copy to clipboard">
-                                    <i class="fas fa-copy"></i>
+                                    <i class="fa-solid fa-copy fa-fw"></i>
                                 </button>
                             </span>
                         </div>
@@ -247,13 +258,13 @@
     
     <div class="section-add-action">
         <button class="btn btn-success" @onclick="ShowAddIdentityDialog">
-            <i class="fas fa-plus"></i> Add Apple Identity
+            <i class="fa-solid fa-plus fa-fw"></i> Add Apple Identity
         </button>
     </div>
 </div>
 
 <div class="settings-section" id="settings-google-identities">
-    <h2><i class="fab fa-google"></i> Google Identities</h2>
+    <h2><i class="fa-brands fa-google fa-fw"></i> Google Identities</h2>
     <p class="section-description">
         Configure Google Cloud / Firebase service account credentials for push notifications and project management.
         <a href="https://console.firebase.google.com/project/_/settings/serviceaccounts/adminsdk" target="_blank" @onclick='() => OpenUrl("https://console.firebase.google.com/project/_/settings/serviceaccounts/adminsdk")' @onclick:preventDefault>Get service account JSON</a>
@@ -275,18 +286,18 @@
                 <div class="connected-list-item">
                     <div class="identity-header">
                         <div class="identity-info">
-                            <i class="fab fa-google identity-icon"></i>
+                            <i class="fa-brands fa-google fa-fw identity-icon"></i>
                             <span class="identity-name"><span class="@(demoMode ? "demo-blur" : "")">@identity.Name</span></span>
                         </div>
                         <div class="identity-actions">
                             <button class="btn btn-sm btn-secondary" @onclick="@(() => TestGoogleIdentity(identity))" title="Test Connection">
-                                <i class="fas fa-plug"></i> Test
+                                <i class="fa-solid fa-plug fa-fw"></i> Test
                             </button>
                             <button class="btn btn-sm btn-secondary" @onclick="@(() => EditGoogleIdentity(identity))" title="Edit">
-                                <i class="fas fa-edit"></i> Edit
+                                <i class="fa-solid fa-pen fa-fw"></i> Edit
                             </button>
-                            <button class="btn btn-sm btn-danger" @onclick="@(() => DeleteGoogleIdentity(identity))" title="Delete">
-                                <i class="fas fa-trash"></i> Delete
+                            <button class="btn btn-sm btn-danger-soft" @onclick="@(() => DeleteGoogleIdentity(identity))" title="Delete">
+                                <i class="fa-solid fa-trash fa-fw"></i> Delete
                             </button>
                         </div>
                     </div>
@@ -307,19 +318,19 @@
     
     <div class="section-add-action">
         <button class="btn btn-success" @onclick="ShowAddGoogleIdentityDialog">
-            <i class="fas fa-plus"></i> Add Google Identity
+            <i class="fa-solid fa-plus fa-fw"></i> Add Google Identity
         </button>
     </div>
 </div>
 
 <div class="settings-section">
-    <h2><i class="fas fa-vault"></i> Secrets Storage</h2>
+    <h2><i class="fa-solid fa-vault fa-fw"></i> Secrets Storage</h2>
     <p class="section-description">
         Store app secrets, signing certificates, and publish profiles securely.
         Local Vault keeps encrypted copies on this machine; cloud providers can sync across machines and CI/CD pipelines.
     </p>
     <div class="provider-defaults-notice" role="note">
-        <i class="fas fa-circle-info"></i>
+        <i class="fa-solid fa-circle-info fa-fw"></i>
         <span><strong>Defaults apply only to new items.</strong> Changing them does not move, copy, or remove anything already stored.</span>
     </div>
 
@@ -327,14 +338,14 @@
     {
         <div class="vault-access-card">
             <div class="vault-access-content">
-                <i class="fas fa-key"></i>
+                <i class="fa-solid fa-key fa-fw"></i>
                 <div>
                     <strong>Local Vault access is disabled</strong>
                     <p>MAUI Sherpa cannot access the Local Vault key in OS secure storage. Grant access to use Local secrets on this Mac.</p>
                 </div>
             </div>
             <button class="btn btn-primary" @onclick="GrantLocalVaultAccessAsync" disabled="@isGrantingLocalVaultAccess">
-                <i class="fas @(isGrantingLocalVaultAccess ? "fa-spinner fa-spin" : "fa-unlock")"></i> Grant Access
+                <i class="fa-solid fa-fw @(isGrantingLocalVaultAccess ? "fa-spinner fa-spin" : "fa-unlock")"></i> Grant Access
             </button>
         </div>
     }
@@ -361,21 +372,21 @@
                             @if (!string.IsNullOrEmpty(providerUrl))
                             {
                                 <a href="@providerUrl" target="_blank" class="provider-link" title="Open in browser" @onclick="() => OpenUrl(providerUrl)" @onclick:preventDefault>
-                                    <i class="fas fa-external-link-alt"></i>
+                                    <i class="fa-solid fa-arrow-up-right-from-square fa-fw"></i>
                                 </a>
                             }
                         </div>
                         <div class="provider-actions">
                             <button class="btn btn-sm btn-secondary" @onclick="@(() => TestProvider(provider))" title="Test Connection">
-                                <i class="fas fa-plug"></i> Test
+                                <i class="fa-solid fa-plug fa-fw"></i> Test
                             </button>
                             @if (!IsBuiltInLocalProvider(provider))
                             {
                                 <button class="btn btn-sm btn-secondary" @onclick="@(() => EditProvider(provider))" title="Edit">
-                                    <i class="fas fa-edit"></i> Edit
+                                    <i class="fa-solid fa-pen fa-fw"></i> Edit
                                 </button>
-                                <button class="btn btn-sm btn-danger" @onclick="@(() => DeleteProvider(provider))" title="Delete">
-                                    <i class="fas fa-trash"></i> Delete
+                                <button class="btn btn-sm btn-danger-soft" @onclick="@(() => DeleteProvider(provider))" title="Delete">
+                                    <i class="fa-solid fa-trash fa-fw"></i> Delete
                                 </button>
                             }
                         </div>
@@ -470,14 +481,14 @@
     
     <div class="section-add-action">
         <button class="btn btn-success" @onclick="ShowAddProviderDialog">
-            <i class="fas fa-plus"></i> Add Secrets Provider
+            <i class="fa-solid fa-plus fa-fw"></i> Add Secrets Provider
         </button>
     </div>
 </div>
 
 <!-- CI/CD Secret Publishers Section -->
 <div class="settings-section">
-    <h2><i class="fas fa-rocket"></i> CI/CD Secret Publishers</h2>
+    <h2><i class="fa-solid fa-rocket fa-fw"></i> CI/CD Secret Publishers</h2>
     <p class="section-description">
         Publish signing secrets directly to your CI/CD platforms for automated builds.
         Secrets will be encrypted and stored as repository secrets.
@@ -504,13 +515,13 @@
                         </div>
                         <div class="provider-actions">
                             <button class="btn btn-sm btn-secondary" @onclick="@(() => TestPublisher(publisher))" title="Test Connection">
-                                <i class="fas fa-plug"></i> Test
+                                <i class="fa-solid fa-plug fa-fw"></i> Test
                             </button>
                             <button class="btn btn-sm btn-secondary" @onclick="@(() => EditPublisher(publisher))" title="Edit">
-                                <i class="fas fa-edit"></i> Edit
+                                <i class="fa-solid fa-pen fa-fw"></i> Edit
                             </button>
-                            <button class="btn btn-sm btn-danger" @onclick="@(() => DeletePublisher(publisher))" title="Delete">
-                                <i class="fas fa-trash"></i> Delete
+                            <button class="btn btn-sm btn-danger-soft" @onclick="@(() => DeletePublisher(publisher))" title="Delete">
+                                <i class="fa-solid fa-trash fa-fw"></i> Delete
                             </button>
                         </div>
                     </div>
@@ -552,14 +563,14 @@
     
     <div class="section-add-action">
         <button class="btn btn-success" @onclick="ShowAddPublisherDialog">
-            <i class="fas fa-plus"></i> Add CI/CD Publisher
+            <i class="fa-solid fa-plus fa-fw"></i> Add CI/CD Publisher
         </button>
     </div>
 </div>
 
 <!-- Backup & Restore Section -->
 <div class="settings-section">
-    <h2><i class="fas fa-shield-alt"></i> Backup & Restore</h2>
+    <h2><i class="fa-solid fa-shield-halved fa-fw"></i> Backup & Restore</h2>
     <p class="section-description">
         Export your settings to a password-protected file for backup or transfer to another machine.
         All sensitive data (API keys, tokens) are encrypted using AES-256-GCM.
@@ -568,7 +579,7 @@
     <div class="backup-actions">
         <div class="backup-action-card">
                 <div class="backup-icon export">
-                    <i class="fas fa-download"></i>
+                    <i class="fa-solid fa-download fa-fw"></i>
                 </div>
                 <div class="backup-info">
                     <h3>Export Settings</h3>
@@ -577,12 +588,12 @@
                 <button class="btn btn-primary" @onclick="ShowExportDialog" disabled="@isExporting">
                     @if (isExporting)
                     {
-                        <i class="fas fa-spinner fa-spin"></i>
+                        <i class="fa-solid fa-spinner fa-spin fa-fw"></i>
                         <span>Exporting...</span>
                     }
                     else
                     {
-                        <i class="fas fa-file-export"></i>
+                        <i class="fa-solid fa-file-export fa-fw"></i>
                         <span>Export</span>
                     }
                 </button>
@@ -590,7 +601,7 @@
             
             <div class="backup-action-card">
                 <div class="backup-icon import">
-                    <i class="fas fa-upload"></i>
+                    <i class="fa-solid fa-upload fa-fw"></i>
                 </div>
                 <div class="backup-info">
                     <h3>Import Settings</h3>
@@ -599,12 +610,12 @@
                 <button class="btn btn-secondary" @onclick="ShowImportDialog" disabled="@isImporting">
                     @if (isImporting)
                     {
-                        <i class="fas fa-spinner fa-spin"></i>
+                        <i class="fa-solid fa-spinner fa-spin fa-fw"></i>
                         <span>Importing...</span>
                     }
                     else
                     {
-                        <i class="fas fa-file-import"></i>
+                        <i class="fa-solid fa-file-import fa-fw"></i>
                         <span>Import</span>
                     }
                 </button>
@@ -639,7 +650,7 @@
     .settings-section h2 > i {
         width: 2rem;
         height: 2rem;
-        border-radius: 0.75rem;
+        border-radius: var(--radius-lg);
         display: inline-flex;
         align-items: center;
         justify-content: center;
@@ -694,22 +705,23 @@
         padding: 0.25rem 0.625rem;
         font-size: 0.75rem;
         font-weight: 600;
-        background: rgba(52, 211, 153, 0.15);
-        color: var(--accent-success, #34d399);
-        border: 1px solid rgba(52, 211, 153, 0.3);
-        border-radius: 0.375rem;
+        background: var(--status-success-bg);
+        color: var(--status-success-fg);
+        border: 1px solid var(--status-success-border);
+        border-radius: var(--radius-sm);
         cursor: pointer;
         transition: all 0.2s ease;
     }
     .btn-update-available:hover {
-        background: rgba(52, 211, 153, 0.25);
-        border-color: rgba(52, 211, 153, 0.5);
+        background: var(--status-success-bg);
+        border-color: var(--status-success-fg);
     }
 
     .settings-container {
-        background: var(--card-bg);
+        background: var(--surface-card);
         padding: 1rem 1.25rem;
-        border-radius: var(--card-radius);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
     }
 
     .setting-group { margin-bottom: 1.5rem; }
@@ -722,7 +734,7 @@
         column-gap: 1.5rem;
         row-gap: 0.5rem;
         padding: 1rem 0;
-        border-bottom: 1px solid var(--border-color-light);
+        border-bottom: 1px solid var(--border-hairline);
     }
 
     .setting-item:first-child { padding-top: 0; }
@@ -774,8 +786,8 @@
     .setting-description code {
         display: inline-block;
         padding: 0.08rem 0.35rem;
-        border-radius: 0.35rem;
-        background: var(--bg-tertiary);
+        border-radius: var(--radius-xs);
+        background: var(--surface-well);
         color: var(--text-primary);
         font-size: 0.8rem;
     }
@@ -784,30 +796,18 @@
     .toggle-switch input { opacity: 0; width: 0; height: 0; }
     .toggle-slider {
         position: absolute; cursor: pointer; inset: 0;
-        background-color: var(--bg-tertiary); border-radius: 24px;
+        background-color: var(--surface-well); border: 1px solid var(--border-control); border-radius: var(--radius-pill);
         transition: background-color 0.2s;
     }
     .toggle-slider::before {
         content: ""; position: absolute; height: 18px; width: 18px;
-        left: 3px; bottom: 3px; background: white; border-radius: 50%;
+        left: 3px; bottom: 3px; background: var(--surface-control); border-radius: var(--radius-pill);
         transition: transform 0.2s;
     }
     .toggle-switch input:checked + .toggle-slider { background-color: var(--accent-primary); }
     .toggle-switch input:checked + .toggle-slider::before { transform: translateX(20px); }
 
-    .setting-item select {
-        padding: 0.5rem 0.75rem;
-        border: 1px solid var(--border-color);
-        border-radius: 0.375rem;
-        font-size: 0.875rem;
-        cursor: pointer;
-        min-width: 150px;
-        background: var(--bg-secondary);
-        color: var(--text-primary);
-    }
-    .setting-select-wide { min-width: 220px; }
-
-    .setting-item select:focus { outline: none; border-color: var(--accent-primary); }
+    .setting-select-wide { min-width: min(100%, 320px); }
 
     .font-scale-control {
         display: flex;
@@ -820,8 +820,8 @@
         height: 0.375rem;
         -webkit-appearance: none;
         appearance: none;
-        background: var(--bg-tertiary);
-        border-radius: 3px;
+        background: var(--surface-well);
+        border-radius: var(--radius-xs);
         outline: none;
         cursor: pointer;
     }
@@ -831,11 +831,11 @@
         appearance: none;
         width: 1.25rem;
         height: 1.25rem;
-        border-radius: 50%;
-        background: var(--accent-primary);
+        border-radius: var(--radius-pill);
+        background: var(--accent);
         cursor: pointer;
-        border: 2px solid var(--bg-secondary);
-        box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+        border: 2px solid var(--surface-control);
+        box-shadow: none;
     }
 
     .btn-scale {
@@ -844,9 +844,9 @@
         justify-content: center;
         width: 2rem;
         height: 2rem;
-        border: 1px solid var(--border-color);
-        border-radius: 0.375rem;
-        background: var(--bg-secondary);
+        border: 1px solid var(--border-control);
+        border-radius: var(--radius-sm);
+        background: var(--surface-control);
         color: var(--text-primary);
         cursor: pointer;
         font-size: 0.875rem;
@@ -897,8 +897,9 @@
 
     /* Connected list pattern - items share one card with separators */
     .connected-list {
-        background: var(--card-bg);
-        border-radius: var(--card-radius);
+        background: var(--surface-card);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
         overflow: hidden;
     }
 
@@ -915,11 +916,11 @@
         left: 1.25rem;
         right: 1.25rem;
         height: 1px;
-        background: var(--border-color-light);
+        background: var(--border-hairline);
     }
 
     .connected-list-item.active {
-        box-shadow: inset 4px 0 0 var(--accent-primary);
+        background: var(--accent-soft);
     }
 
     .section-add-action {
@@ -927,9 +928,9 @@
     }
 
     .identity-card {
-        border-radius: 0.5rem;
+        border-radius: var(--radius-md);
         padding: 1rem;
-        background: var(--bg-tertiary);
+        background: var(--surface-well);
         box-shadow: none;
     }
 
@@ -954,8 +955,8 @@
         align-items: center;
         justify-content: center;
         font-size: 1.15rem;
-        border-radius: 0.625rem;
-        background: var(--bg-tertiary);
+        border-radius: var(--radius-md);
+        background: var(--surface-well);
         color: var(--text-secondary);
     }
 
@@ -1004,33 +1005,33 @@
     .btn-copy {
         background: none;
         border: none;
-        color: #a0aec0;
+        color: var(--text-muted);
         cursor: pointer;
         padding: 2px 0.375rem;
         font-size: 0.75rem;
-        border-radius: 0.25rem;
+        border-radius: var(--radius-xs);
         transition: all 0.15s;
         flex-shrink: 0;
     }
     .btn-copy:hover {
         color: var(--accent-primary);
-        background: var(--bg-tertiary);
+        background: var(--surface-well);
     }
 
     .btn-reveal {
         background: none;
         border: none;
-        color: #a0aec0;
+        color: var(--text-muted);
         cursor: pointer;
         padding: 2px 0.375rem;
         font-size: 0.75rem;
-        border-radius: 0.25rem;
+        border-radius: var(--radius-xs);
         transition: all 0.15s;
         flex-shrink: 0;
     }
     .btn-reveal:hover {
         color: var(--accent-primary);
-        background: var(--bg-tertiary);
+        background: var(--surface-well);
     }
 
     .empty-identities {
@@ -1051,8 +1052,9 @@
         gap: 1rem;
         padding: 1rem;
         margin-bottom: 1rem;
-        background: var(--card-bg);
-        border-radius: var(--card-radius, 1rem);
+        background: var(--surface-card);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
     }
     .vault-access-content {
         display: flex;
@@ -1082,8 +1084,8 @@
         margin-bottom: 1rem;
         color: var(--text-secondary);
         background: var(--accent-bg);
-        border: 1px solid var(--border-color);
-        border-radius: 0.625rem;
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-md);
         font-size: 0.8125rem;
         line-height: 1.45;
     }
@@ -1108,9 +1110,9 @@
     
     .provider-card {
         border: 1px solid transparent;
-        border-radius: 0.5rem;
+        border-radius: var(--radius-md);
         padding: 1rem;
-        background: var(--bg-tertiary);
+        background: var(--surface-well);
         transition: border-color 0.2s;
     }
     .provider-card.active {
@@ -1138,8 +1140,8 @@
         align-items: center;
         justify-content: center;
         font-size: 1.15rem;
-        border-radius: 0.625rem;
-        background: var(--bg-tertiary);
+        border-radius: var(--radius-md);
+        background: var(--surface-well);
         color: var(--text-secondary);
     }
     
@@ -1153,23 +1155,24 @@
         color: var(--text-muted);
         font-size: 0.875rem;
         padding: 0.25rem;
-        border-radius: 0.25rem;
+        border-radius: var(--radius-xs);
         transition: color 0.2s, background 0.2s;
         text-decoration: none;
     }
 
     .provider-link:hover {
         color: var(--accent-primary);
-        background: rgba(66, 153, 225, 0.1);
+        background: var(--accent-soft);
     }
     
     .active-badge {
-        background: var(--accent-primary);
-        color: white;
+        background: var(--accent-soft);
+        color: var(--accent);
+        border: 1px solid var(--accent-border);
         font-size: 0.6875rem;
         font-weight: 500;
         padding: 2px 0.5rem;
-        border-radius: 0.625rem;
+        border-radius: var(--radius-pill);
     }
     
     .provider-actions {
@@ -1188,8 +1191,9 @@
     .provider-defaults {
         margin: 1rem 0 0;
         padding: 0.875rem;
-        border: 1px solid var(--border-color);
-        border-radius: 0.625rem;
+        border: 1px solid var(--border-hairline);
+        border-radius: var(--radius-md);
+        background: var(--surface-well);
     }
 
     .provider-defaults legend {
@@ -1224,7 +1228,7 @@
     .provider-default-option:focus-within {
         outline: 2px solid var(--accent-primary);
         outline-offset: 2px;
-        border-radius: 0.25rem;
+        border-radius: var(--radius-xs);
     }
 
     /* Backup & Restore Styles */
@@ -1239,14 +1243,15 @@
         align-items: center;
         gap: 1.25rem;
         padding: 1.25rem;
-        background: var(--card-bg);
-        border-radius: var(--card-radius, 1rem);
+        background: var(--surface-card);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
     }
 
     .backup-icon {
         width: 56px;
         height: 56px;
-        border-radius: 0.75rem;
+        border-radius: var(--radius-lg);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -1255,13 +1260,15 @@
     }
 
     .backup-icon.export {
-        background: linear-gradient(135deg, #4299e1, #3182ce);
-        color: white;
+        background: var(--status-info-bg);
+        color: var(--status-info-fg);
+        border: 1px solid var(--status-info-border);
     }
 
     .backup-icon.import {
-        background: linear-gradient(135deg, #48bb78, #38a169);
-        color: white;
+        background: var(--status-success-bg);
+        color: var(--status-success-fg);
+        border: 1px solid var(--status-success-border);
     }
 
     .backup-info {
@@ -1292,6 +1299,34 @@
     }
     
     private bool demoMode = false;
+    private static readonly IReadOnlyList<SherpaSegmentOption<string>> ThemeSegmentOptions =
+    [
+        new("System", "System", "fa-solid fa-circle-half-stroke", "Follow the operating system appearance"),
+        new("Light", "Light", "fa-solid fa-sun", "Use the light appearance"),
+        new("Dark", "Dark", "fa-solid fa-moon", "Use the dark appearance")
+    ];
+    private static readonly IReadOnlyList<SherpaSelectOption<string>> XcodeArchiveExtractorSelectOptions =
+    [
+        new(XcodeArchiveExtractorOptions.SystemXip, "System xip", "Safest default with Apple signature verification", "fa-solid fa-shield-halved"),
+        new(XcodeArchiveExtractorOptions.Unxip, "unxip", "Faster bundled extractor without signature verification", "fa-solid fa-gauge-high")
+    ];
+    private static readonly IReadOnlyList<SherpaSelectOption<string>> XcodeBundleSeparatorSelectOptions =
+    [
+        new(XcodeBundleSeparatorOptions.Underscore, "Xcode_26.3.app", "Underscore · GitHub runner-images style", "fa-solid fa-underscore"),
+        new(XcodeBundleSeparatorOptions.Hyphen, "Xcode-26.3.app", "Hyphen · xcodes and Xcodes.app style", "fa-solid fa-minus")
+    ];
+    private static readonly IReadOnlyList<SherpaSelectOption<string>> XcodeSelectionActionSelectOptions =
+    [
+        new(XcodeSelectionActionOptions.None, "Only update xcode-select", "Keep installed bundle names unchanged", "fa-solid fa-location-arrow"),
+        new(XcodeSelectionActionOptions.Rename, "Rename selected bundle", "Use /Applications/Xcode.app for the active bundle", "fa-solid fa-pen-to-square")
+    ];
+    private static readonly IReadOnlyList<SherpaSelectOption<string>> ProvisioningProfilesDirectorySelectOptions =
+    [
+        new(ProvisioningProfilesDirectoryOptions.Auto, "Auto", "Choose the folder for the selected Xcode version", "fa-solid fa-wand-magic-sparkles"),
+        new(ProvisioningProfilesDirectoryOptions.Xcode16AndLater, "Xcode 16+ folder", "Use Xcode's UserData provisioning profiles folder", "fa-solid fa-folder"),
+        new(ProvisioningProfilesDirectoryOptions.Xcode15AndEarlier, "Xcode 15 and earlier folder", "Use the legacy MobileDevice folder", "fa-solid fa-folder"),
+        new(ProvisioningProfilesDirectoryOptions.Both, "Both folders", "Install profiles in both locations for compatibility", "fa-solid fa-copy")
+    ];
     private string xcodeArchiveExtractor = XcodeArchiveExtractorOptions.SystemXip;
     private string xcodeBundleSeparator = XcodeBundleSeparatorOptions.Underscore;
     private string xcodeSelectionAction = XcodeSelectionActionOptions.Rename;
@@ -1483,11 +1518,12 @@
         });
     }
 
-    private void OnThemeChanged(ChangeEventArgs e)
+    private Task OnThemeSelectedAsync(string? value)
     {
-        var theme = e.Value?.ToString() ?? "System";
+        var theme = value ?? "System";
         ViewModel.Theme = theme;
         ThemeService.SetTheme(theme);
+        return Task.CompletedTask;
     }
 
     private async Task OnDemoModeChanged(ChangeEventArgs e)
@@ -1499,14 +1535,14 @@
         });
     }
 
-    private void OnXcodeArchiveExtractorChanged(ChangeEventArgs e)
+    private void OnXcodeArchiveExtractorChanged(string? value)
     {
-        xcodeArchiveExtractor = NormalizeXcodeArchiveExtractor(e.Value?.ToString());
+        xcodeArchiveExtractor = NormalizeXcodeArchiveExtractor(value);
     }
 
-    private void OnXcodeSelectionActionChanged(ChangeEventArgs e)
+    private void OnXcodeSelectionActionChanged(string? value)
     {
-        xcodeSelectionAction = NormalizeXcodeSelectionAction(e.Value?.ToString());
+        xcodeSelectionAction = NormalizeXcodeSelectionAction(value);
         if (xcodeSelectionAction == XcodeSelectionActionOptions.Rename)
             xcodeCreateSymlinkOnSelect = false;
     }
@@ -1516,14 +1552,14 @@
         xcodeCreateSymlinkOnSelect = xcodeSelectionAction == XcodeSelectionActionOptions.None && e.Value is true;
     }
 
-    private void OnProvisioningProfilesDirectoryChanged(ChangeEventArgs e)
+    private void OnProvisioningProfilesDirectoryChanged(string? value)
     {
-        provisioningProfilesDirectory = NormalizeProvisioningProfilesDirectory(e.Value?.ToString());
+        provisioningProfilesDirectory = NormalizeProvisioningProfilesDirectory(value);
     }
 
-    private async Task OnXcodeBundleSeparatorChanged(ChangeEventArgs e)
+    private async Task OnXcodeBundleSeparatorChanged(string? value)
     {
-        var newValue = NormalizeXcodeBundleSeparator(e.Value?.ToString());
+        var newValue = NormalizeXcodeBundleSeparator(value);
         if (newValue == xcodeBundleSeparator) return;
         xcodeBundleSeparator = newValue;
 
@@ -1821,15 +1857,15 @@
     
     private string GetProviderIcon(CloudSecretsProviderType type) => type switch
     {
-        CloudSecretsProviderType.Local => "fas fa-database",
-        CloudSecretsProviderType.Infisical => "fas fa-shield-alt",
-        CloudSecretsProviderType.AzureKeyVault => "fas fa-key",
-        CloudSecretsProviderType.AwsSecretsManager => "fab fa-aws",
-        CloudSecretsProviderType.GoogleSecretManager => "fab fa-google",
-        CloudSecretsProviderType.OnePassword => "fas fa-lock",
-        CloudSecretsProviderType.Vaultwarden => "fas fa-vault",
-        CloudSecretsProviderType.AzureDevOps => "fab fa-microsoft",
-        _ => "fas fa-lock"
+        CloudSecretsProviderType.Local => "fa-solid fa-database",
+        CloudSecretsProviderType.Infisical => "fa-solid fa-shield-halved",
+        CloudSecretsProviderType.AzureKeyVault => "fa-solid fa-key",
+        CloudSecretsProviderType.AwsSecretsManager => "fa-brands fa-aws",
+        CloudSecretsProviderType.GoogleSecretManager => "fa-brands fa-google",
+        CloudSecretsProviderType.OnePassword => "fa-solid fa-lock",
+        CloudSecretsProviderType.Vaultwarden => "fa-solid fa-vault",
+        CloudSecretsProviderType.AzureDevOps => "fa-brands fa-microsoft",
+        _ => "fa-solid fa-lock"
     };
 
     private static bool IsBuiltInLocalProvider(CloudSecretsProviderConfig provider) =>

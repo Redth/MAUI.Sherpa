@@ -22,8 +22,9 @@ export function ensureStylesheets(...hrefs) {
 
 /**
  * Pins an open popover panel to its trigger using viewport coordinates.
- * The panel is right-aligned with the trigger when there is room and clamped
- * into the viewport otherwise, so triggers near an edge stay fully visible.
+ * The panel is right-aligned by default. Panels can opt into start alignment
+ * and trigger-width matching with data attributes, and are always clamped
+ * into the viewport so triggers near an edge stay fully visible.
  * Fixed positioning also escapes the `overflow-x: hidden` on the page content.
  */
 export function positionPopover(rootId) {
@@ -38,14 +39,30 @@ export function positionPopover(rootId) {
     panel.style.inset = "auto";
 
     const triggerRect = trigger.getBoundingClientRect();
-    const panelRect = panel.getBoundingClientRect();
     const viewportWidth = document.documentElement.clientWidth;
     const viewportHeight = document.documentElement.clientHeight;
+    const availableWidth = Math.max(0, viewportWidth - (POPOVER_VIEWPORT_MARGIN * 2));
+    const availableHeight = Math.max(0, viewportHeight - (POPOVER_VIEWPORT_MARGIN * 2));
+    const matchWidth = panel.dataset.popoverMatchWidth === "true";
+    const alignStart = panel.dataset.popoverAlign !== "end";
+
+    panel.style.boxSizing = "border-box";
+    panel.style.maxWidth = `${availableWidth}px`;
+    panel.style.maxHeight = `${availableHeight}px`;
+    panel.style.minWidth = matchWidth
+        ? `${Math.min(triggerRect.width, availableWidth)}px`
+        : "";
+    panel.style.overflowY = panel.scrollHeight > availableHeight ? "auto" : "";
+
+    const panelRect = panel.getBoundingClientRect();
 
     const maxLeft = viewportWidth - POPOVER_VIEWPORT_MARGIN - panelRect.width;
+    const desiredLeft = alignStart
+        ? triggerRect.left
+        : triggerRect.right - panelRect.width;
     const left = Math.max(
         POPOVER_VIEWPORT_MARGIN,
-        Math.min(triggerRect.right - panelRect.width, maxLeft));
+        Math.min(desiredLeft, maxLeft));
 
     let top = triggerRect.bottom + POPOVER_VIEWPORT_MARGIN;
     if (top + panelRect.height > viewportHeight - POPOVER_VIEWPORT_MARGIN) {
@@ -93,13 +110,30 @@ export function bindPopover(rootId, dotNetReference) {
         close(true);
     };
 
+    const onNavigationKeyDown = event => {
+        if (root.dataset.open !== "true") {
+            return;
+        }
+
+        if (["ArrowDown", "ArrowUp", "Home", "End", "Enter"].includes(event.key)) {
+            event.preventDefault();
+        }
+    };
+
     const onReposition = () => positionPopover(rootId);
 
+    root.addEventListener("keydown", onNavigationKeyDown);
     document.addEventListener("pointerdown", onPointerDown, true);
     document.addEventListener("keydown", onKeyDown, true);
     document.addEventListener("scroll", onReposition, true);
     window.addEventListener("resize", onReposition);
-    popoverBindings.set(rootId, { onPointerDown, onKeyDown, onReposition });
+    popoverBindings.set(rootId, {
+        root,
+        onPointerDown,
+        onKeyDown,
+        onNavigationKeyDown,
+        onReposition
+    });
 
     positionPopover(rootId);
 
@@ -116,6 +150,7 @@ export function unbindPopover(rootId) {
         return;
     }
 
+    binding.root.removeEventListener("keydown", binding.onNavigationKeyDown);
     document.removeEventListener("pointerdown", binding.onPointerDown, true);
     document.removeEventListener("keydown", binding.onKeyDown, true);
     document.removeEventListener("scroll", binding.onReposition, true);

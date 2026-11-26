@@ -20,34 +20,70 @@ public static class FormTheme
     public const string CardBg = "FormCardBg";
     public const string Separator = "FormSeparator";
     public const string AccentPrimary = "FormAccentPrimary";
+    public const string AccentPrimaryText = "FormAccentPrimaryText";
     public const string AccentDanger = "FormAccentDanger";
+    public const string SecondaryButtonBg = "FormSecondaryButtonBg";
     public const string ButtonOutlineBorder = "FormButtonOutlineBorder";
 
-    // Light theme values (from app.css :root)
+    // Platform-adaptive values matching DESIGN.md and app.css.
+#if WINDOWS
+    static readonly Color LightPageBg = Color.FromArgb("#F3F3F3");
+    static readonly Color LightCardBg = Color.FromArgb("#FFFFFF");
+    static readonly Color LightAccentPrimary = Color.FromArgb("#7C3AED");
+    static readonly Color LightAccentPrimaryText = Color.FromArgb("#FFFFFF");
+    static readonly Color LightSecondaryButtonBg = Color.FromArgb("#FFFFFF");
+    static readonly Color DarkPageBg = Color.FromArgb("#202020");
+    static readonly Color DarkCardBg = Color.FromArgb("#2B2B2B");
+    static readonly Color DarkAccentPrimary = Color.FromArgb("#B794F4");
+    static readonly Color DarkAccentPrimaryText = Color.FromArgb("#14101F");
+    static readonly Color DarkSecondaryButtonBg = Color.FromArgb("#323235");
+    public static int ControlCornerRadius => 4;
+    public static int ActionButtonHeight => 32;
+#elif LINUXGTK
     static readonly Color LightPageBg = Color.FromArgb("#FFFFFF");
-    static readonly Color LightTextPrimary = Color.FromArgb("#2d3748");
-    static readonly Color LightTextSecondary = Color.FromArgb("#4a5568");
-    static readonly Color LightTextMuted = Color.FromArgb("#718096");
-    static readonly Color LightInputBg = Color.FromArgb("#ffffff");
-    static readonly Color LightInputBorder = Color.FromArgb("#e2e8f0");
-    static readonly Color LightCardBg = Color.FromArgb("#F7F7F7");
-    static readonly Color LightSeparator = Color.FromArgb("#E0E0E0");
-    static readonly Color LightAccentPrimary = Color.FromArgb("#9f7aea");
-    static readonly Color LightAccentDanger = Color.FromArgb("#e53e3e");
-    static readonly Color LightButtonOutlineBorder = Color.FromArgb("#e2e8f0");
+    static readonly Color LightCardBg = Color.FromArgb("#FFFFFF");
+    static readonly Color LightAccentPrimary = Color.FromArgb("#3584E4");
+    static readonly Color LightAccentPrimaryText = Color.FromArgb("#FFFFFF");
+    static readonly Color LightSecondaryButtonBg = Color.FromArgb("#F0F0F2");
+    static readonly Color DarkPageBg = Color.FromArgb("#242424");
+    static readonly Color DarkCardBg = Color.FromArgb("#303030");
+    static readonly Color DarkAccentPrimary = Color.FromArgb("#78AEED");
+    static readonly Color DarkAccentPrimaryText = Color.FromArgb("#0E1A2B");
+    static readonly Color DarkSecondaryButtonBg = Color.FromArgb("#3A3A3A");
+    public static int ControlCornerRadius => 8;
+    public static int ActionButtonHeight => 34;
+#else
+    static readonly Color LightPageBg = Color.FromArgb("#FFFFFF");
+    static readonly Color LightCardBg = Color.FromArgb("#F7F7F8");
+    static readonly Color LightAccentPrimary = Color.FromArgb("#007AFF");
+    static readonly Color LightAccentPrimaryText = Color.FromArgb("#FFFFFF");
+    static readonly Color LightSecondaryButtonBg = Color.FromArgb("#FFFFFF");
+    static readonly Color DarkPageBg = Color.FromArgb("#1E1E1E");
+    static readonly Color DarkCardBg = Color.FromArgb("#272729");
+    static readonly Color DarkAccentPrimary = Color.FromArgb("#0A84FF");
+    static readonly Color DarkAccentPrimaryText = Color.FromArgb("#FFFFFF");
+    static readonly Color DarkSecondaryButtonBg = Color.FromArgb("#323235");
+    public static int ControlCornerRadius => 8;
+    public static int ActionButtonHeight => 30;
+#endif
 
-    // Dark theme values (from app.css .theme-dark)
-    static readonly Color DarkPageBg = Color.FromArgb("#242628");
-    static readonly Color DarkTextPrimary = Color.FromArgb("#e2e8f0");
-    static readonly Color DarkTextSecondary = Color.FromArgb("#cbd5e0");
-    static readonly Color DarkTextMuted = Color.FromArgb("#a0aec0");
-    static readonly Color DarkInputBg = Color.FromArgb("#374151");
-    static readonly Color DarkInputBorder = Color.FromArgb("#4a5568");
-    static readonly Color DarkCardBg = Color.FromArgb("#2C2C2C");
-    static readonly Color DarkSeparator = Color.FromArgb("#454545");
-    static readonly Color DarkAccentPrimary = Color.FromArgb("#b794f4");
-    static readonly Color DarkAccentDanger = Color.FromArgb("#fc8181");
-    static readonly Color DarkButtonOutlineBorder = Color.FromArgb("#4a5568");
+    static readonly Color LightTextPrimary = Color.FromArgb("#18181B");
+    static readonly Color LightTextSecondary = Color.FromArgb("#52525B");
+    static readonly Color LightTextMuted = Color.FromArgb("#6B6B76");
+    static readonly Color LightInputBg = Color.FromArgb("#FFFFFF");
+    static readonly Color LightInputBorder = Color.FromArgb("#DCDCE0");
+    static readonly Color LightSeparator = Color.FromArgb("#E8E8EC");
+    static readonly Color LightAccentDanger = Color.FromArgb("#DC2626");
+    static readonly Color LightButtonOutlineBorder = Color.FromArgb("#D4D4D8");
+
+    static readonly Color DarkTextPrimary = Color.FromArgb("#F4F4F5");
+    static readonly Color DarkTextSecondary = Color.FromArgb("#C4C4CC");
+    static readonly Color DarkTextMuted = Color.FromArgb("#9898A3");
+    static readonly Color DarkInputBg = Color.FromArgb("#323235");
+    static readonly Color DarkInputBorder = Color.FromArgb("#434347");
+    static readonly Color DarkSeparator = Color.FromArgb("#323236");
+    static readonly Color DarkAccentDanger = Color.FromArgb("#F87171");
+    static readonly Color DarkButtonOutlineBorder = Color.FromArgb("#434347");
 
     /// <summary>
     /// Register form theme colors into the app's ResourceDictionary
@@ -74,7 +110,9 @@ public static class FormTheme
         resources[CardBg] = dark ? DarkCardBg : LightCardBg;
         resources[Separator] = dark ? DarkSeparator : LightSeparator;
         resources[AccentPrimary] = dark ? DarkAccentPrimary : LightAccentPrimary;
+        resources[AccentPrimaryText] = dark ? DarkAccentPrimaryText : LightAccentPrimaryText;
         resources[AccentDanger] = dark ? DarkAccentDanger : LightAccentDanger;
+        resources[SecondaryButtonBg] = dark ? DarkSecondaryButtonBg : LightSecondaryButtonBg;
         resources[ButtonOutlineBorder] = dark ? DarkButtonOutlineBorder : LightButtonOutlineBorder;
     }
 }

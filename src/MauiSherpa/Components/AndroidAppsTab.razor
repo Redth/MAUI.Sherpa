@@ -10,21 +10,22 @@
 <div class="android-apps-tab">
     <div class="android-apps-toolbar">
         <div class="search-box" style="flex: 1;">
-            <i class="fas fa-search"></i>
+            <i class="fa-solid fa-search"></i>
             <input type="text" placeholder="Search packages..." @bind="searchQuery" @bind:event="oninput" />
         </div>
         <div class="android-apps-filter">
-            <select @bind="filterType">
-                <option value="">All Types</option>
-                <option value="User">User</option>
-                <option value="System">System</option>
-            </select>
+            <SherpaSelect TValue="string"
+                          Value="@filterType"
+                          ValueChanged="@((string? value) => filterType = value ?? string.Empty)"
+                          Options="AppTypeOptions"
+                          AriaLabel="Filter Android packages by type"
+                          Compact="true" />
         </div>
         <button class="btn btn-success btn-sm" @onclick="InstallApk" disabled="@isLoading">
-            <i class="fas fa-plus"></i> Install .apk
+            <i class="fa-solid fa-plus"></i> Install .apk
         </button>
         <button class="btn btn-primary btn-sm" @onclick="() => LoadPackages(forceRefresh: true)" disabled="@isLoading">
-            <i class="fas @(isLoading ? "fa-spinner fa-spin" : "fa-sync-alt")"></i>
+            <i class="fa-solid @(isLoading ? "fa-spinner fa-spin" : "fa-sync-alt")"></i>
         </button>
     </div>
 
@@ -32,13 +33,13 @@
         @if (isLoading && packages.Count == 0)
         {
             <div class="android-apps-empty">
-                <i class="fas fa-spinner fa-spin"></i> Loading installed packages...
+                <i class="fa-solid fa-spinner fa-spin"></i> Loading installed packages...
             </div>
         }
         else if (!FilteredPackages.Any())
         {
             <div class="android-apps-empty">
-                <i class="fas fa-box-open"></i>
+                <i class="fa-solid fa-box-open"></i>
                 <span>No packages found</span>
             </div>
         }
@@ -49,13 +50,13 @@
                 var isUserApp = !pkg.IsSystemApp;
                 <div class="android-app-row @(isUserApp ? "user-app" : "")">
                     <div class="android-app-icon">
-                        <i class="fas @(isUserApp ? "fa-cube" : "fa-mobile-screen")"></i>
+                        <i class="fa-solid @(isUserApp ? "fa-cube" : "fa-mobile-screen")"></i>
                     </div>
                     <div class="android-app-details">
                         <div class="android-app-name">@pkg.PackageName</div>
                         <div class="android-app-meta">
                             <button class="btn-copy-inline" @onclick="@(() => CopyToClipboard(pkg.PackageName))" title="Copy package name">
-                                <i class="fas fa-copy"></i>
+                                <i class="fa-solid fa-copy"></i>
                             </button>
                             @if (!string.IsNullOrEmpty(pkg.VersionName))
                             {
@@ -68,21 +69,21 @@
                     </div>
                     <div class="android-app-actions">
                         <button class="btn btn-sm btn-secondary" @onclick="@(() => LaunchApp(pkg))" title="Launch">
-                            <i class="fas fa-play"></i>
+                            <i class="fa-solid fa-play"></i>
                         </button>
                         <button class="btn btn-sm btn-secondary" @onclick="@(() => ForceStopApp(pkg))" title="Force Stop">
-                            <i class="fas fa-stop"></i>
+                            <i class="fa-solid fa-stop"></i>
                         </button>
                         <button class="btn btn-sm btn-secondary" @onclick="@(() => ClearAppData(pkg))" title="Clear Data">
-                            <i class="fas fa-eraser"></i>
+                            <i class="fa-solid fa-eraser"></i>
                         </button>
                         <button class="btn btn-sm btn-secondary" @onclick="@(() => BrowseDataDir(pkg))" title="Browse data directory">
-                            <i class="fas fa-folder-open"></i>
+                            <i class="fa-solid fa-folder-open"></i>
                         </button>
                         @if (isUserApp)
                         {
                             <button class="btn btn-sm btn-danger" @onclick="@(() => UninstallApp(pkg))" title="Uninstall">
-                                <i class="fas fa-trash"></i>
+                                <i class="fa-solid fa-trash"></i>
                             </button>
                         }
                     </div>
@@ -110,7 +111,7 @@
     .android-apps-filter select {
         padding: 0.3125rem 0.5rem;
         border: 1px solid var(--border-color);
-        border-radius: 0.3125rem;
+        border-radius: var(--radius-xs);
         font-size: 0.75rem;
         background: var(--bg-tertiary);
         color: var(--text-primary);
@@ -149,12 +150,12 @@
     .btn-copy-inline {
         background: none; border: none; color: var(--text-secondary);
         cursor: pointer; padding: 1px 0.25rem; font-size: 0.5625rem;
-        border-radius: 3px; transition: all 0.15s;
+        border-radius: var(--radius-xs); transition: all 0.15s;
     }
     .btn-copy-inline:hover { color: var(--accent-primary); background: var(--bg-tertiary); }
 
     .android-app-type-badge { flex-shrink: 0; }
-    .badge { padding: 2px 0.5rem; border-radius: 0.625rem; font-size: 0.625rem; font-weight: 500; }
+    .badge { padding: 2px 0.5rem; border-radius: var(--radius-pill); font-size: 0.625rem; font-weight: 500; }
     .badge-user { background: var(--status-success-bg); color: var(--status-success-text); }
     .badge-system { background: var(--bg-tertiary); color: var(--text-secondary); }
 
@@ -167,13 +168,13 @@
     }
     .android-apps-empty i { font-size: 1.75rem; }
 
-    .android-apps-tab .btn { padding: 0.375rem 0.875rem; border: none; border-radius: 0.3125rem; font-size: 0.75rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3125rem; transition: all 0.15s; }
+    .android-apps-tab .btn { padding: 0.375rem 0.875rem; border: none; border-radius: var(--radius-xs); font-size: 0.75rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3125rem; transition: all 0.15s; }
     .android-apps-tab .btn i { font-size: 0.6875rem; }
     .android-apps-tab .btn-sm { padding: 0.25rem 0.5rem; font-size: 0.6875rem; }
     .android-apps-tab .btn-primary { background: var(--accent-primary); color: white; }
-    .android-apps-tab .btn-success { background: var(--accent-success, #48bb78); color: white; }
+    .android-apps-tab .btn-success { background: var(--accent-success); color: white; }
     .android-apps-tab .btn-secondary { background: var(--btn-secondary-bg); color: var(--text-secondary); border: none; }
-    .android-apps-tab .btn-danger { background: var(--accent-danger, #f56565); color: white; }
+    .android-apps-tab .btn-danger { background: var(--accent-danger); color: white; }
     .android-apps-tab .btn:hover:not(:disabled) { filter: brightness(1.1); }
     .android-apps-tab .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>
@@ -184,6 +185,12 @@
     private bool isLoading;
     private string searchQuery = "";
     private string filterType = "";
+    private static readonly IReadOnlyList<SherpaSelectOption<string>> AppTypeOptions =
+    [
+        new("", "All Types"),
+        new("User", "User"),
+        new("System", "System")
+    ];
     private List<AndroidPackageInfo> packages = new();
 
     private IEnumerable<AndroidPackageInfo> FilteredPackages => packages
