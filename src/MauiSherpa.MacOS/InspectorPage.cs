@@ -26,7 +26,6 @@ public class InspectorPage : ContentPage
             ComponentType = rootComponentType ?? typeof(Components.App)
         });
         Content = blazorWebView;
-        WebViewAutoresizeWorkaround.Attach(blazorWebView);
     }
 
     protected override void OnAppearing()
