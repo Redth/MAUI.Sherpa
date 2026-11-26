@@ -180,7 +180,7 @@ internal sealed class AndroidAdbRunner : IAndroidAdbRunner
     {
         ct.ThrowIfCancellationRequested();
         if (!File.Exists(adbPath))
-            throw new AndroidAdbException("Android platform-tools was not found. Install it from SDK Packages.");
+            throw new AndroidAdbException("Android platform-tools was not found. Install it from SDK & JDK.");
 
         var startInfo = new ProcessStartInfo(adbPath)
         {

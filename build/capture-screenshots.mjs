@@ -28,7 +28,7 @@ const { values } = parseArgs({
 
 const headings = {
     dashboard: 'Dashboard', 'dotnet-sdk': '.NET SDK Manager', doctor: 'Environment Doctor',
-    'android-sdk': 'Android SDK Packages', 'android-devices': 'Android Devices',
+    'android-sdk': 'Android SDK & JDK', 'android-devices': 'Android Devices',
     keystores: 'Keystores', xcode: 'Xcode', 'apple-simulators': 'Apple Devices',
     certificates: 'Certificates', profiles: 'Provisioning Profiles', 'bundle-ids': 'Bundle',
     secrets: 'Secrets', publishing: 'Publish Profiles', profiling: 'Profiling',

@@ -198,7 +198,7 @@ class MacOSApp : Application
                 Children = new List<MacOSSidebarItem>
                 {
                     new() { Title = "Devices & Emulators", SystemImage = "iphone", Tag = "/devices" },
-                    new() { Title = "SDK Packages", SystemImage = "cube", Tag = "/android-sdk" },
+                    new() { Title = "SDK & JDK", SystemImage = "cube", Tag = "/android-sdk" },
                     new() { Title = "Keystores", SystemImage = "key", Tag = "/keystores" },
                     new() { Title = "Push Testing", SystemImage = "paperplane", Tag = "/firebase-push" },
                 }
