@@ -95,14 +95,10 @@ public static class MacOSMauiProgram
         builder.Services.AddSingleton<ILocalVaultStore, SqlCipherLocalVaultStore>();
         builder.Services.AddSingleton<IThemeService, MacOSThemeService>();
 
-        // macOS Essentials — AddMacOSEssentials() sets the .Default statics via reflection,
-        // but MAUI's TryAddSingleton may have already captured the portable stubs.
-        // Re-register with factories that resolve to the updated .Default values at runtime.
-        builder.Services.AddSingleton<IPreferences>(_ => Preferences.Default);
+        // macOS Essentials — AddMacOSEssentials() registers IPreferences, ILauncher,
+        // IClipboard, and ISecureStorage directly in DI; avoid overriding them with
+        // .Default statics which resolve to portable stubs.
         builder.Services.AddSingleton<IIdentitySelectionStore, IdentitySelectionStore>();
-        builder.Services.AddSingleton<ILauncher>(_ => Launcher.Default);
-        builder.Services.AddSingleton<IClipboard>(_ => Clipboard.Default);
-        builder.Services.AddSingleton<ISecureStorage>(_ => SecureStorage.Default);
         builder.Services.AddSingleton<ILocalVaultIntroductionService, LocalVaultIntroductionService>();
 
         // Toolbar service for native macOS toolbar integration
