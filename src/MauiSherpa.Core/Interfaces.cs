@@ -545,6 +545,7 @@ public interface IAndroidSdkSettingsService
     string? CustomSdkPath { get; }
     Task<IReadOnlyList<AndroidSdkLocation>> GetKnownLocationsAsync();
     Task RememberLocationAsync(string path);
+    Task DeleteLocationAsync(string path);
     Task<string?> GetEffectiveSdkPathAsync();
     Task SetCustomSdkPathAsync(string? path);
     Task ResetToDefaultAsync();
@@ -583,6 +584,23 @@ public interface IOpenJdkSettingsService
     Task ResetToDefaultAsync();
     Task InitializeAsync();
     event Action? JdkPathChanged;
+}
+
+public record OpenJdkRelease(int MajorVersion, string Version, Uri DownloadUrl);
+public record OpenJdkInstallation(string Path, string Version, bool IsMicrosoft, bool IsManaged, bool IsActive);
+public record OpenJdkUpdate(OpenJdkInstallation Installed, OpenJdkRelease Available);
+
+public interface IOpenJdkService
+{
+    IReadOnlyList<OpenJdkUpdate> AvailableUpdates { get; }
+    string? UpdateCheckError { get; }
+    event Action? UpdatesChanged;
+    Task<IReadOnlyList<OpenJdkRelease>> GetReleasesAsync(bool forceRefresh = false, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<OpenJdkInstallation>> GetInstallationsAsync(CancellationToken cancellationToken = default);
+    Task<string> InstallAsync(int majorVersion, IProgress<string>? progress = null, CancellationToken cancellationToken = default);
+    Task UninstallAsync(string path, CancellationToken cancellationToken = default);
+    Task CheckForUpdatesAsync(CancellationToken cancellationToken = default);
+    void StartUpdateChecks();
 }
 
 public record SdkPackageInfo(

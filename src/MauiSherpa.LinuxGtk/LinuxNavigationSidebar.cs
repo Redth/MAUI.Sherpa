@@ -57,7 +57,7 @@ public sealed class LinuxNavigationSidebarHandler : GtkViewHandler<LinuxNavigati
 
         AddHeader("Android", "sherpa-android-symbolic");
         AddItem("Devices & Emulators", "/devices", "sherpa-mobile-screen-button-symbolic");
-        AddItem("SDK Packages", "/android-sdk", "sherpa-cube-symbolic");
+        AddItem("SDK & JDK", "/android-sdk", "sherpa-cube-symbolic");
         AddItem("Keystores", "/keystores", "sherpa-key-symbolic");
         AddItem("Push Testing", "/firebase-push", "sherpa-paper-plane-symbolic");
 

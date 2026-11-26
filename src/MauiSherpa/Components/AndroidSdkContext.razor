@@ -12,8 +12,11 @@
 @inject IAlertService Alerts
 @inject ILoggingService Logger
 @inject IPlatformService Platform
+@inject MauiSherpa.Services.OpenJdkModalService OpenJdkModal
 @implements IDisposable
 
+@if (ShowHeader)
+{
 <div class="sdk-context">
     <div class="sdk-context-location" title="@LocationTitle">
         <i class="fa-regular fa-folder" aria-hidden="true"></i>
@@ -25,8 +28,8 @@
         <div class="sdk-context-actions">
             @if (Sdk.SdkPath != null)
             {
-                <button type="button" data-screenshot-external class="btn btn-outline btn-sm" @onclick="OpenFolder">@OpenLabel</button>
-                <button type="button" data-screenshot-external class="btn btn-outline btn-sm" @onclick="CopyAsync" aria-label="Copy active SDK path"><i class="fas fa-copy" aria-hidden="true"></i></button>
+                <button type="button" data-screenshot-external class="btn btn-secondary btn-sm" @onclick="OpenFolder">@OpenLabel</button>
+                <button type="button" data-screenshot-external class="btn btn-secondary btn-sm" @onclick="CopyAsync" aria-label="Copy active SDK path"><i class="fas fa-copy" aria-hidden="true"></i></button>
             }
             <button type="button" data-screenshot-external class="btn btn-secondary btn-sm" disabled="@(busy || Sdk.IsBusy)" @onclick="() => ChooseAsync(false)">Switch SDK...</button>
             <button type="button" data-screenshot-external class="btn btn-secondary btn-sm" disabled="@(busy || Sdk.IsBusy)" @onclick="() => ChooseAsync(true)">Install SDK...</button>
@@ -34,6 +37,7 @@
         </div>
     }
 </div>
+}
 
 <style>
     .sdk-context { margin: 0 0 16px; }
@@ -46,6 +50,7 @@
 
 @code {
     [Parameter] public EventCallback Changed { get; set; }
+    [Parameter] public bool ShowHeader { get; set; } = true;
     private bool busy;
     private string LocationTitle => Sdk.SdkPath == null ? "No Android SDK selected"
         : $"{Sdk.SdkPath} ({(Settings.CustomSdkPath == null ? "Auto-detected" : "Selected")})";
@@ -95,7 +100,7 @@
         try { if (Sdk.SdkPath is { } path) await Dialogs.CopyToClipboardAsync(path); }
         catch (Exception ex) { Logger.LogError("Could not copy Android SDK path.", ex); await Alerts.ShowAlertAsync("Could Not Copy Path", ex.Message); }
     }
-    private async Task ShowPathAsync()
+    public async Task ShowPathAsync()
     {
         if (busy || Sdk.SdkPath == null) return;
         busy = true;
@@ -115,6 +120,7 @@
             if (selection == null) return;
             if (selection.Install)
             {
+                if (!await OpenJdkModal.EnsureAsync()) return;
                 var result = await Operations.RunAsync("Install Android SDK",
                     $"Install Android command-line tools to {selection.Path}",
                     async ctx =>

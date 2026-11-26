@@ -17,158 +17,45 @@
 @inject IPlatformService PlatformInfo
 @implements IDisposable
 
-<h1><i class="fas fa-cube"></i> Android SDK Packages</h1>
-<MauiSherpa.Components.AndroidSdkContext @ref="sdkContext" Changed="SdkChangedAsync" />
+<h1><i class="fas fa-cube"></i> Android SDK &amp; JDK</h1>
+<MauiSherpa.Components.AndroidSdkContext @ref="sdkContext" ShowHeader="false" Changed="SdkChangedAsync" />
 
-
-@if (!PlatformInfo.HasNativeToolbar)
-{
-<div class="toolbar">
-    @if (!ViewModel.IsSdkInstalled)
-    {
-    <button data-screenshot-external class="btn btn-success" @onclick="AcquireSdk" disabled="@ViewModel.IsLoading">
-            <i class="fas fa-download"></i> @(ViewModel.IsLoading ? "Installing..." : "Install Android SDK")
-        </button>
-    }
-    else
-    {
-        <button class="btn btn-primary" @onclick="RefreshData" disabled="@ViewModel.IsLoading">
-            <i class="fas fa-sync-alt"></i> @(ViewModel.IsLoading ? "Loading..." : "Refresh")
-        </button>
-        <button data-screenshot-external class="btn btn-success" @onclick="UpdatePackages" disabled="@ViewModel.IsLoading">
-            <i class="fas fa-arrow-up"></i> Update Packages
-            @if (GetUpdatablePackages().Any())
-            {
-                <span class="toolbar-update-count">@GetUpdatablePackages().Count()</span>
-            }
-        </button>
-    }
-</div>
-}
-
-@if ((ViewModel.IsLoading || !hasInitialized) && !ViewModel.IsSdkInstalled)
+@if (!hasInitialized)
 {
     <div class="loading-state">
         <div class="loading-spinner">
             <i class="fas fa-cube"></i>
         </div>
-        <div class="loading-title">Loading SDK Packages</div>
-        <div class="loading-description">Discovering installed and available packages...</div>
+        <div class="loading-title">Checking Android tooling</div>
+        <div class="loading-description">Looking for Java and the Android SDK...</div>
     </div>
 }
-else if (!ViewModel.IsSdkInstalled)
+else
 {
-    <div class="setup-card content-card">
-        <div class="setup-card-header">
-            <div class="setup-card-icon">
-                <i class="fab fa-android"></i>
-            </div>
-            <div class="setup-card-copy">
-                <h3>Android SDK not installed yet</h3>
-                <p>Set up the Android command-line tools here so you can browse packages, install platforms, and manage emulators from MAUI Sherpa.</p>
-            </div>
-        </div>
+    <MauiSherpa.Components.AndroidToolchainSummary Setup="@(!IsReady)"
+        ManageSdk="() => ChooseSdkAsync(false)"
+        InstallSdk="() => ChooseSdkAsync(true)"
+        ConfigurePath="ConfigurePathAsync"
+        Changed="SdkChangedAsync" />
+}
 
-        <div class="setup-card-grid">
-            <div class="setup-status-card missing">
-                <div class="setup-status-icon"><i class="fas fa-box-open"></i></div>
-                <div>
-                    <div class="setup-status-title">Android SDK</div>
-                    <div class="setup-status-text">Not currently installed</div>
-                </div>
-            </div>
-
-            <div class="setup-status-card @(HasJdkConfigured ? "ready" : "warning")">
-                <div class="setup-status-icon">
-                    <i class="fas @(HasJdkConfigured ? "fa-check-circle" : "fa-exclamation-triangle")"></i>
-                </div>
-                <div>
-                    <div class="setup-status-title">OpenJDK</div>
-                    <div class="setup-status-text">
-                        @if (HasJdkConfigured)
-                        {
-                            <span>Ready at <span class="mono text-selectable">@detectedJdkPath</span></span>
-                        }
-                        else
-                        {
-                            <span>Not configured yet. Some Android SDK tools need Java to work properly.</span>
-                        }
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="setup-path-section">
-            <label class="setup-label">Install location</label>
-            <div class="setup-path-row">
-                <input type="text"
-                       class="setup-path-input mono"
-                       @bind="installSdkPath"
-                       @bind:event="oninput"
-                       placeholder="Choose a folder for the Android SDK"
-                       disabled="@ViewModel.IsLoading" />
-                <button data-screenshot-external class="btn btn-secondary" @onclick="BrowseInstallFolder" disabled="@ViewModel.IsLoading">
-                    <i class="fas fa-folder-open"></i> Browse
-                </button>
-            </div>
-            <div class="setup-help-text">
-                Recommended default: <span class="mono text-selectable">@recommendedSdkPath</span>
-            </div>
-        </div>
-
-        @if (!HasJdkConfigured)
+@if (IsReady && !PlatformInfo.HasNativeToolbar)
+{
+<div class="toolbar">
+    <button class="btn btn-primary" @onclick="RefreshData" disabled="@ViewModel.IsLoading">
+        <i class="fas fa-sync-alt"></i> @(ViewModel.IsLoading ? "Loading..." : "Refresh")
+    </button>
+    <button data-screenshot-external class="btn btn-success" @onclick="UpdatePackages" disabled="@ViewModel.IsLoading">
+        <i class="fas fa-arrow-up"></i> Update Packages
+        @if (GetUpdatablePackages().Any())
         {
-            <div class="setup-warning-banner">
-                <div class="setup-warning-copy">
-                    <strong>OpenJDK is also recommended for a complete Android setup.</strong>
-                    <span>Configure a JDK before or after installation so tools like <code>sdkmanager</code> and <code>keytool</code> work reliably.</span>
-                </div>
-                <div class="setup-warning-actions">
-                    <a class="btn btn-secondary btn-sm" href="/settings">
-                        <i class="fas fa-sliders-h"></i> JDK Settings
-                    </a>
-                    <a class="btn btn-outline btn-sm" href="/doctor">
-                        <i class="fas fa-stethoscope"></i> Environment Doctor
-                    </a>
-                </div>
-            </div>
+            <span class="toolbar-update-count">@GetUpdatablePackages().Count()</span>
         }
-
-        <div class="setup-actions">
-            <button data-screenshot-external class="btn btn-success" @onclick="AcquireSdk" disabled="@ViewModel.IsLoading || string.IsNullOrWhiteSpace(installSdkPath)">
-                <i class="fas fa-download"></i> @(ViewModel.IsLoading ? "Installing..." : "Install Android SDK")
-            </button>
-            <a class="btn btn-outline" href="/settings">
-                <i class="fas fa-cog"></i> Advanced Settings
-            </a>
-            <a class="btn btn-outline" href="/doctor">
-                <i class="fas fa-tools"></i> Run Doctor
-            </a>
-        </div>
-
-        <div class="setup-status-note">@ViewModel.StatusMessage</div>
-    </div>
+    </button>
+</div>
 }
 
-@if (hasInitialized && ViewModel.IsSdkInstalled && !HasJdkConfigured)
-{
-    <div class="setup-warning-banner" style="margin-bottom: 1rem;">
-        <div class="setup-warning-copy">
-            <strong>OpenJDK is not configured.</strong>
-            <span>Android package management can require a working JDK. Configure it in Settings if installs or updates are failing.</span>
-        </div>
-        <div class="setup-warning-actions">
-            <a class="btn btn-secondary btn-sm" href="/settings">
-                <i class="fas fa-sliders-h"></i> JDK Settings
-            </a>
-            <a class="btn btn-outline btn-sm" href="/doctor">
-                <i class="fas fa-stethoscope"></i> Environment Doctor
-            </a>
-        </div>
-    </div>
-}
-
-@if (ViewModel.IsSdkInstalled)
+@if (IsReady)
 {
     <div class="tabs">
         <button class="tab @(activeTab == "all" ? "active" : "")" @onclick="@(() => activeTab = "all")">
@@ -510,158 +397,6 @@ else if (!ViewModel.IsSdkInstalled)
     .toolbar {
         margin-bottom: 1rem;
         display: flex;
-        align-items: center;
-    }
-
-    .setup-card {
-        padding: 1.5rem;
-        margin-bottom: 1rem;
-        display: flex;
-        flex-direction: column;
-        gap: 1rem;
-    }
-
-    .setup-card-header {
-        display: flex;
-        gap: 1rem;
-        align-items: flex-start;
-    }
-
-    .setup-card-icon {
-        width: 3rem;
-        height: 3rem;
-        border-radius: 0.875rem;
-        background: var(--bg-tertiary);
-        color: var(--accent-primary);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 1.4rem;
-        flex-shrink: 0;
-    }
-
-    .setup-card-copy h3 {
-        margin: 0 0 0.375rem 0;
-        font-size: 1.2rem;
-    }
-
-    .setup-card-copy p {
-        margin: 0;
-        line-height: 1.5;
-    }
-
-    .setup-card-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-        gap: 0.75rem;
-    }
-
-    .setup-status-card {
-        display: flex;
-        align-items: flex-start;
-        gap: 0.75rem;
-        padding: 0.875rem 1rem;
-        border-radius: 0.75rem;
-        background: var(--bg-secondary);
-    }
-
-    .setup-status-card.ready {
-        background: var(--status-success-bg);
-        border-color: var(--status-success-text);
-    }
-
-    .setup-status-card.warning,
-    .setup-status-card.missing {
-        background: var(--status-warning-bg);
-        border-color: var(--border-color);
-    }
-
-    .setup-status-icon {
-        font-size: 1rem;
-        margin-top: 0.1rem;
-        color: var(--text-primary);
-    }
-
-    .setup-status-title {
-        font-weight: 600;
-        color: var(--text-primary);
-        margin-bottom: 0.2rem;
-    }
-
-    .setup-status-text {
-        color: var(--text-secondary);
-        font-size: 0.875rem;
-        line-height: 1.4;
-    }
-
-    .setup-path-section {
-        display: flex;
-        flex-direction: column;
-        gap: 0.5rem;
-    }
-
-    .setup-label {
-        font-size: 0.8125rem;
-        font-weight: 700;
-        letter-spacing: 0.04em;
-        text-transform: uppercase;
-        color: var(--text-muted);
-    }
-
-    .setup-path-row {
-        display: flex;
-        gap: 0.75rem;
-        flex-wrap: wrap;
-    }
-
-    .setup-path-input {
-        flex: 1;
-        min-width: 260px;
-        padding: 0.75rem 0.9rem;
-        border-radius: 0.5rem;
-        border: 1px solid var(--border-color);
-        box-sizing: border-box;
-    }
-
-    .setup-path-input:focus {
-        outline: none;
-        border-color: var(--accent-primary);
-        box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.12);
-    }
-
-    .setup-help-text,
-    .setup-status-note {
-        font-size: 0.875rem;
-        color: var(--text-secondary);
-    }
-
-    .setup-warning-banner {
-        display: flex;
-        justify-content: space-between;
-        gap: 1rem;
-        padding: 0.9rem 1rem;
-        border-radius: 0.75rem;
-        background: var(--status-warning-bg);
-        border: 1px solid var(--border-color);
-        flex-wrap: wrap;
-    }
-
-    .setup-warning-copy {
-        display: flex;
-        flex-direction: column;
-        gap: 0.25rem;
-        max-width: 46rem;
-    }
-
-    .setup-warning-copy strong {
-        color: var(--text-primary);
-    }
-
-    .setup-warning-actions,
-    .setup-actions {
-        display: flex;
-        gap: 0.75rem;
-        flex-wrap: wrap;
         align-items: center;
     }
 
@@ -1074,8 +809,6 @@ else if (!ViewModel.IsSdkInstalled)
     private string activeTab = "all";
     private HashSet<string> expandedGroups = new();
     private bool hasInitialized = false;
-    private string recommendedSdkPath = "";
-    private string installSdkPath = "";
     private string? detectedJdkPath;
 
     // Filter state
@@ -1083,6 +816,7 @@ else if (!ViewModel.IsSdkInstalled)
     private string filterCategory = "";
     private string filterUpdates = "";
     private bool HasJdkConfigured => !string.IsNullOrWhiteSpace(detectedJdkPath);
+    private bool IsReady => ViewModel.IsSdkInstalled && HasJdkConfigured;
 
     private bool HasActiveFilters => !string.IsNullOrEmpty(searchQuery) || 
                                       !string.IsNullOrEmpty(filterCategory) || 
@@ -1216,20 +950,29 @@ else if (!ViewModel.IsSdkInstalled)
         ToolbarService.ToolbarItemClicked += OnToolbarItemClicked;
         ToolbarService.SearchTextChanged += OnSearchTextChanged;
         ToolbarService.FilterChanged += OnFilterChanged;
+        JdkSettings.JdkPathChanged += OnJdkPathChanged;
 
-        try { await ViewModel.InitializeAsync(); }
+        try
+        {
+            await SdkSettings.InitializeAsync();
+            await ViewModel.InitializeAsync();
+        }
         catch (Exception ex) { await AlertService.ShowAlertAsync("Android SDK Unavailable", ex.Message); }
         await RefreshSetupStateAsync();
         hasInitialized = true;
     }
 
+    private void UpdateToolbarState()
+    {
+        ToolbarService.SetItemEnabled("refresh", IsReady);
+        ToolbarService.SetItemEnabled("update-all", IsReady);
+    }
+
     private async Task RefreshSetupStateAsync()
     {
-        recommendedSdkPath = await SdkService.GetDefaultSdkPathAsync() ?? "";
-        installSdkPath = ViewModel.SdkPath ?? SdkSettings.CustomSdkPath ?? recommendedSdkPath;
-
         await JdkSettings.InitializeAsync();
         detectedJdkPath = await JdkSettings.GetEffectiveJdkPathAsync();
+        UpdateToolbarState();
     }
 
     private void OnSearchTextChanged(string text)
@@ -1263,9 +1006,9 @@ else if (!ViewModel.IsSdkInstalled)
             {
                 case "refresh":
                     ToolbarService.SetItemEnabled("refresh", false);
-                    try { await RefreshData(); } finally { ToolbarService.SetItemEnabled("refresh", true); }
+                    try { await RefreshData(); } finally { UpdateToolbarState(); }
                     break;
-                case "update-all":
+                case "update-all" when IsReady:
                     await UpdatePackages();
                     break;
             }
@@ -1275,6 +1018,7 @@ else if (!ViewModel.IsSdkInstalled)
 
     public void Dispose()
     {
+        JdkSettings.JdkPathChanged -= OnJdkPathChanged;
         ToolbarService.ToolbarItemClicked -= OnToolbarItemClicked;
         ToolbarService.SearchTextChanged -= OnSearchTextChanged;
         ToolbarService.FilterChanged -= OnFilterChanged;
@@ -1444,26 +1188,23 @@ else if (!ViewModel.IsSdkInstalled)
         );
     }
 
-    private async Task AcquireSdk()
+    private async Task ChooseSdkAsync(bool install)
     {
-        if (sdkContext != null) await sdkContext.ChooseAsync(true);
+        if (sdkContext != null) await sdkContext.ChooseAsync(install);
+    }
+
+    private async Task ConfigurePathAsync()
+    {
+        if (sdkContext != null) await sdkContext.ShowPathAsync();
     }
 
     private MauiSherpa.Components.AndroidSdkContext? sdkContext;
+    private void OnJdkPathChanged() => _ = InvokeAsync(SdkChangedAsync);
     private async Task SdkChangedAsync()
     {
         await ViewModel.DetectSdkAsync(forceRefresh: true);
         await RefreshSetupStateAsync();
         StateHasChanged();
-    }
-
-    private async Task BrowseInstallFolder()
-    {
-        var path = await DialogService.PickFolderAsync("Select Android SDK Install Location");
-        if (!string.IsNullOrWhiteSpace(path))
-        {
-            installSdkPath = path;
-        }
     }
 
     private async Task InstallPackage(string packagePath)

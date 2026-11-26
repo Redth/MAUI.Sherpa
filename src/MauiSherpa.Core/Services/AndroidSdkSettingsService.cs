@@ -138,6 +138,29 @@ public class AndroidSdkSettingsService : IAndroidSdkSettingsService
         finally { _gate.Release(); }
     }
 
+    public async Task DeleteLocationAsync(string path)
+    {
+        await _gate.WaitAsync();
+        try
+        {
+            if (_sdkService.IsBusy)
+                throw new InvalidOperationException("Wait for the current Android SDK operation to finish before deleting an SDK.");
+            var location = AndroidSdkLocations.Inspect(path, activePath: _sdkService.SdkPath);
+            if (location.IsActive)
+                throw new InvalidOperationException("Choose another SDK before deleting the active one.");
+            if (location.Status != AndroidSdkLocationStatus.Installed)
+                throw new InvalidOperationException("Only folders containing an Android SDK can be deleted here.");
+            AndroidSdkLocations.ValidateDeleteTarget(location.Path);
+            await Task.Run(() => Directory.Delete(location.Path, true));
+            var json = await _storage.GetAsync(KnownPathsKey);
+            var history = json == null ? [] : JsonSerializer.Deserialize<string[]>(json) ?? [];
+            await _storage.SetAsync(KnownPathsKey, JsonSerializer.Serialize(
+                history.Where(p => !AndroidSdkLocations.PathComparer.Equals(p, location.Path))));
+            _logger.LogInformation($"Deleted Android SDK at {location.Path}");
+        }
+        finally { _gate.Release(); }
+    }
+
     private async Task FlushSdkCachesAsync()
     {
         if (_mediator == null) return;

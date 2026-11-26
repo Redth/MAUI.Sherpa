@@ -1,0 +1,282 @@
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Core.Services
+@inject IAndroidSdkService Sdk
+@inject IAndroidSdkSettingsService SdkSettings
+@inject IOpenJdkSettingsService JdkSettings
+@inject IOpenJdkService Jdks
+@inject MauiSherpa.Services.OpenJdkModalService JdkModal
+@inject IPlatformService Platform
+@inject IAndroidSdkPathService PathService
+@inject IDialogService Dialogs
+@inject IAlertService Alerts
+@inject ILoggingService Logger
+@implements IDisposable
+
+<section class="toolchain @(Setup ? "is-setup" : "")" aria-label="Android toolchain">
+    @if (Setup)
+    {
+        <div class="toolchain-intro">
+            <h2>Set up Android tooling</h2>
+            <p>Sherpa needs Java and the Android SDK before it can manage packages, devices, and emulators. Install the recommended versions now and change them any time.</p>
+        </div>
+    }
+    <div class="toolchain-list">
+        <div class="toolchain-row @(jdkPath == null && !loading ? "is-missing" : "")">
+            <span class="toolchain-glyph is-java" aria-hidden="true"><i class="fab fa-java"></i></span>
+            <div class="toolchain-copy">
+                <div class="toolchain-title">
+                    <strong>OpenJDK</strong>
+                    @if (jdk != null)
+                    {
+                        <span class="toolchain-chip">@jdk.Version</span>
+                        <span class="toolchain-meta">@(jdk.IsMicrosoft ? "Microsoft" : "Other vendor")</span>
+                    }
+                    else if (jdkPath != null)
+                    {
+                        <span class="toolchain-meta">Version unknown</span>
+                    }
+                </div>
+                @if (loading) { <span class="toolchain-detail" role="status">Checking Java...</span> }
+                else if (jdkPath == null) { <span class="toolchain-detail">Not installed. Microsoft OpenJDK @OpenJdkService.RecommendedMajorVersion is recommended for Android.</span> }
+                else { @PathLine(jdkPath, "OpenJDK") }
+                @if (jdkError != null) { <span class="toolchain-error" role="alert">@jdkError</span> }
+            </div>
+            <div class="toolchain-actions">
+                @if (jdkPath == null)
+                {
+                    <button id="install-openjdk" type="button" data-screenshot-external class="btn btn-primary btn-sm" disabled="@(loading || busy)" @onclick="() => ShowJdkAsync(true, null)">
+                        <i class="fas fa-download" aria-hidden="true"></i> Install OpenJDK...
+                    </button>
+                }
+                else
+                {
+                    @if (update != null)
+                    {
+                        <button id="update-openjdk" type="button" data-screenshot-external class="btn btn-primary btn-sm" disabled="@busy" title="Update OpenJDK to @update.Available.Version" aria-label="Update OpenJDK to @update.Available.Version" @onclick="() => ShowJdkAsync(true, update.Available.MajorVersion)">
+                            <i class="fas fa-circle-arrow-up" aria-hidden="true"></i> @update.Available.Version
+                        </button>
+                    }
+                    <button id="manage-openjdk" type="button" data-screenshot-external class="btn btn-secondary btn-sm" disabled="@busy" @onclick="() => ShowJdkAsync(false, null)">Manage...</button>
+                }
+            </div>
+        </div>
+        <div class="toolchain-row @(Sdk.SdkPath == null && !loading ? "is-missing" : "")">
+            <span class="toolchain-glyph is-android" aria-hidden="true"><i class="fab fa-android"></i></span>
+            <div class="toolchain-copy">
+                <div class="toolchain-title">
+                    <strong>Android SDK</strong>
+                    @if (sdkVersion != null)
+                    {
+                        <span class="toolchain-chip">@sdkVersion</span>
+                        <span class="toolchain-meta">Command-line tools</span>
+                    }
+                    else if (Sdk.SdkPath != null)
+                    {
+                        <span class="toolchain-meta">Command-line tools</span>
+                    }
+                </div>
+                @if (loading) { <span class="toolchain-detail" role="status">Checking Android SDK...</span> }
+                else if (Sdk.SdkPath == null) { <span class="toolchain-detail">Not installed. Sherpa installs the latest command-line tools in the standard location.</span> }
+                else { @PathLine(Sdk.SdkPath, "Android SDK") }
+            </div>
+            <div class="toolchain-actions">
+                @if (Sdk.SdkPath == null)
+                {
+                    <button id="install-android-sdk" type="button" data-screenshot-external class="btn btn-primary btn-sm" disabled="@(loading || busy || Sdk.IsBusy)" @onclick="InstallSdk">
+                        <i class="fas fa-download" aria-hidden="true"></i> Install Android SDK...
+                    </button>
+                }
+                else
+                {
+                    @if (ConfigurePath.HasDelegate && pathMissing.Count > 0)
+                    {
+                        <button id="fix-android-path" type="button" data-screenshot-external class="btn btn-fix btn-sm" disabled="@(busy || Sdk.IsBusy)"
+                                title="@($"Not on your terminal PATH: {string.Join(", ", pathMissing)}")" @onclick="ConfigurePathAsync">
+                            <i class="fas fa-wrench" aria-hidden="true"></i> Fix PATH...
+                        </button>
+                    }
+                    else if (ConfigurePath.HasDelegate && !Platform.HasNativeToolbar)
+                    {
+                        <button type="button" data-screenshot-external class="btn btn-secondary btn-sm" disabled="@(busy || Sdk.IsBusy)" @onclick="ConfigurePathAsync">PATH...</button>
+                    }
+                    <button id="manage-android-sdk" type="button" data-screenshot-external class="btn btn-secondary btn-sm" disabled="@(busy || Sdk.IsBusy)" @onclick="ManageSdk">Manage...</button>
+                }
+            </div>
+        </div>
+    </div>
+</section>
+
+<style>
+    .toolchain { margin: 0 0 20px; color: var(--text-primary); }
+    .toolchain.is-setup { max-width: 760px; margin: 8px 0 24px; }
+    .toolchain-intro h2 { margin: 0 0 6px; font-size: 1.125rem; font-weight: 600; text-wrap: balance; }
+    .toolchain-intro p { margin: 0 0 18px; max-width: 62ch; color: var(--text-secondary); font-size: 13px; line-height: 1.5; }
+    .toolchain-list { background: var(--card-bg); border-radius: 12px; overflow: hidden; }
+    .toolchain-row { position: relative; display: flex; align-items: center; gap: 14px; padding: 12px 14px; }
+    .toolchain-row + .toolchain-row::before { content: ""; position: absolute; top: 0; left: 60px; right: 0; height: 1px; background: var(--border-color); }
+    .toolchain.is-setup .toolchain-row { padding: 16px 18px; }
+    .toolchain.is-setup .toolchain-row + .toolchain-row::before { left: 68px; }
+    .toolchain-glyph { display: grid; place-items: center; flex: none; width: 32px; height: 32px; border-radius: 8px; font-size: 17px; }
+    .toolchain-glyph.is-java { background: color-mix(in srgb, #e76f00 14%, transparent); color: #c25d00; }
+    .toolchain-glyph.is-android { background: color-mix(in srgb, #3ddc84 18%, transparent); color: #1f8a4f; }
+    .theme-dark .toolchain-glyph.is-java { color: #ffa552; }
+    .theme-dark .toolchain-glyph.is-android { color: #5fe39b; }
+    .toolchain-row.is-missing .toolchain-glyph { background: var(--bg-tertiary); color: var(--text-muted); }
+    .toolchain-copy { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 3px; }
+    .toolchain-title { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 13px; }
+    .toolchain-title strong { font-weight: 600; }
+    .toolchain-chip { display: inline-flex; align-items: center; height: 18px; padding: 0 7px; border-radius: 9px; background: var(--bg-tertiary); color: var(--text-secondary); font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; align-self: center; }
+    .toolchain-path { display: flex; align-items: center; gap: 4px; min-width: 0; }
+    .toolchain-path .toolchain-detail { color: var(--text-muted); }
+    .toolchain-copy-btn { display: grid; place-items: center; flex: none; width: 22px; height: 22px; padding: 0; border: none; border-radius: 5px; background: none; color: var(--text-muted); font-size: 11px; cursor: pointer; opacity: 0.7; transition: opacity 0.15s, background 0.15s, color 0.15s; }
+    .toolchain-copy-btn:hover, .toolchain-copy-btn:focus-visible { opacity: 1; background: var(--bg-tertiary); color: var(--text-primary); }
+    .toolchain-copy-btn.is-copied { opacity: 1; color: var(--accent-success); }
+    .toolchain-meta { color: var(--text-muted); font-size: 11.5px; }
+    .toolchain-detail { color: var(--text-secondary); font-size: 12px; line-height: 1.45; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .toolchain-row.is-missing .toolchain-detail { white-space: normal; }
+    .toolchain-detail.mono { font-size: 11.5px; }
+    .toolchain-error { color: var(--accent-danger); font-size: 11.5px; overflow-wrap: anywhere; }
+    .toolchain-actions { display: flex; flex: none; align-items: center; gap: 8px; }
+    .toolchain-actions .btn i { margin-right: 4px; }
+    @@media (max-width: 600px) { .toolchain-row { flex-wrap: wrap; } .toolchain-actions { width: 100%; justify-content: flex-end; } }
+</style>
+
+@code {
+    [Parameter] public bool Setup { get; set; }
+    [Parameter] public EventCallback ManageSdk { get; set; }
+    [Parameter] public EventCallback InstallSdk { get; set; }
+    [Parameter] public EventCallback ConfigurePath { get; set; }
+    [Parameter] public EventCallback Changed { get; set; }
+
+    private string? jdkPath, jdkError, sdkVersion, loadedSdkPath;
+    private OpenJdkInstallation? jdk;
+    private OpenJdkUpdate? update;
+    private bool loading = true, busy;
+    private IReadOnlyList<string> pathMissing = [];
+    private string? pathCheckedFor;
+    private int pathCheckVersion;
+
+    protected override async Task OnInitializedAsync()
+    {
+        JdkSettings.JdkPathChanged += OnChanged;
+        SdkSettings.SdkPathChanged += OnChanged;
+        Jdks.UpdatesChanged += OnUpdatesChanged;
+        Sdk.BusyChanged += OnBusyChanged;
+        await LoadAsync();
+    }
+
+    protected override void OnParametersSet()
+    {
+        if (!loading && Sdk.SdkPath != loadedSdkPath) LoadSdkVersion();
+    }
+
+    public async Task LoadAsync()
+    {
+        jdkError = null;
+        try
+        {
+            jdkPath = await JdkSettings.GetEffectiveJdkPathAsync();
+            jdk = jdkPath == null ? null : (await Jdks.GetInstallationsAsync()).FirstOrDefault(i => i.IsActive);
+        }
+        catch (Exception ex) { jdkError = ex.Message; Logger.LogError("Could not read OpenJDK selection.", ex); }
+        LoadSdkVersion();
+        UpdateJdkUpdate();
+        loading = false;
+    }
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (!loading && Sdk.SdkPath != pathCheckedFor) _ = CheckPathAsync();
+    }
+
+    private async Task CheckPathAsync()
+    {
+        var sdkPath = pathCheckedFor = Sdk.SdkPath;
+        var version = ++pathCheckVersion;
+        IReadOnlyList<string> missing = [];
+        if (sdkPath != null)
+        {
+            try
+            {
+                var plan = await PathService.CheckAsync(new(PathService.DefaultShell, AndroidPathScope.User));
+                missing = plan.Tools.Where(t => t.SdkExecutable != null && !SamePath(t.SdkExecutable, t.ResolvedExecutable)).Select(t => t.Name).ToList();
+            }
+            catch (Exception ex) { Logger.LogWarning($"Could not check Android tools on PATH: {ex.Message}"); }
+        }
+        if (version != pathCheckVersion) return;
+        pathMissing = missing;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private static bool SamePath(string a, string? b)
+    {
+        if (b == null) return false;
+        try { a = System.IO.Path.GetFullPath(a); b = System.IO.Path.GetFullPath(b); } catch { }
+        return string.Equals(a, b, OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+    }
+
+    private string? copiedPath;
+
+    private RenderFragment PathLine(string path, string label) =>
+        @<div class="toolchain-path">
+            <span class="toolchain-detail mono text-selectable" title="@path">@path</span>
+            <button type="button" class="toolchain-copy-btn @(copiedPath == path ? "is-copied" : "")"
+                    title="@(copiedPath == path ? "Copied" : $"Copy {label} path")" aria-label="@($"Copy {label} path")"
+                    @onclick="() => CopyPathAsync(path, label)">
+                <i class="fas @(copiedPath == path ? "fa-check" : "fa-copy")" aria-hidden="true"></i>
+            </button>
+        </div>;
+
+    private async Task CopyPathAsync(string path, string label)
+    {
+        try
+        {
+            await Dialogs.CopyToClipboardAsync(path);
+            copiedPath = path;
+            StateHasChanged();
+            await Task.Delay(1500);
+            if (copiedPath == path) { copiedPath = null; StateHasChanged(); }
+        }
+        catch (Exception ex) { Logger.LogError($"Could not copy {label} path.", ex); await Alerts.ShowAlertAsync("Could Not Copy Path", ex.Message); }
+    }
+
+    private async Task ConfigurePathAsync()
+    {
+        await ConfigurePath.InvokeAsync();
+        pathCheckedFor = null;
+        await CheckPathAsync();
+    }
+
+    private void LoadSdkVersion()
+    {
+        loadedSdkPath = Sdk.SdkPath;
+        sdkVersion = AndroidSdkLocations.GetCommandLineToolsVersion(loadedSdkPath);
+    }
+
+    private void UpdateJdkUpdate() =>
+        update = jdkPath == null ? null : Jdks.AvailableUpdates.FirstOrDefault(u => u.Installed.IsActive || u.Installed.Path == jdkPath);
+
+    private void OnChanged() => _ = InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); });
+    private void OnUpdatesChanged() => _ = InvokeAsync(() => { UpdateJdkUpdate(); jdkError ??= Jdks.UpdateCheckError; StateHasChanged(); });
+    private void OnBusyChanged() => _ = InvokeAsync(StateHasChanged);
+
+    private async Task ShowJdkAsync(bool install, int? major)
+    {
+        busy = true;
+        try
+        {
+            await JdkModal.ShowAsync(install, major);
+            await LoadAsync();
+            await Changed.InvokeAsync();
+        }
+        finally { busy = false; }
+    }
+
+    public void Dispose()
+    {
+        JdkSettings.JdkPathChanged -= OnChanged;
+        SdkSettings.SdkPathChanged -= OnChanged;
+        Jdks.UpdatesChanged -= OnUpdatesChanged;
+        Sdk.BusyChanged -= OnBusyChanged;
+    }
+}

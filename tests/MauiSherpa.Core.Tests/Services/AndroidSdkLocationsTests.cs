@@ -21,6 +21,34 @@ public class AndroidSdkLocationsTests : IDisposable
     }
 
     [Fact]
+    public void GetCommandLineToolsVersion_PrefersLatestChannel()
+    {
+        var sdk = CreateSdk("versioned");
+        File.WriteAllText(Path.Combine(sdk, "cmdline-tools", "latest", "source.properties"), "Pkg.Desc=Android SDK Command-line Tools\nPkg.Revision=19.0\n");
+        Directory.CreateDirectory(Path.Combine(sdk, "cmdline-tools", "20.0"));
+        File.WriteAllText(Path.Combine(sdk, "cmdline-tools", "20.0", "source.properties"), "Pkg.Revision=20.0\n");
+        AndroidSdkLocations.GetCommandLineToolsVersion(sdk).Should().Be("19.0");
+        AndroidSdkLocations.GetCommandLineToolsVersion(Path.Combine(root, "missing")).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task DeleteLocation_RemovesInactiveSdkButNeverTheActiveOne()
+    {
+        var active = CreateSdk("active");
+        var old = CreateSdk("old");
+        var sdk = new Mock<IAndroidSdkService>();
+        sdk.SetupGet(s => s.SdkPath).Returns(active);
+        var storage = new Mock<ISecureStorageService>();
+        var settings = new AndroidSdkSettingsService(sdk.Object, storage.Object, Mock.Of<ILoggingService>());
+
+        await settings.Invoking(s => s.DeleteLocationAsync(active)).Should().ThrowAsync<InvalidOperationException>().WithMessage("*active*");
+        await settings.DeleteLocationAsync(old);
+
+        Directory.Exists(old).Should().BeFalse();
+        Directory.Exists(active).Should().BeTrue();
+    }
+
+    [Fact]
     public void Inspect_DistinguishesSdkEmptyIncompleteAndUnrelatedFolders()
     {
         AndroidSdkLocations.Inspect(CreateSdk("sdk")).Status.Should().Be(AndroidSdkLocationStatus.Installed);
@@ -123,7 +151,7 @@ public class AndroidSdkLocationsTests : IDisposable
     [Fact]
     public async Task FailedInstallation_DoesNotReplaceActiveManager()
     {
-        var service = new AndroidSdkService(Mock.Of<ILoggingService>());
+        var service = new AndroidSdkService(Mock.Of<ILoggingService>(), Mock.Of<IOpenJdkSettingsService>());
         var path = CreateSdk("active");
         (await service.SetSdkPathAsync(path)).Should().BeTrue();
         var previous = service.SdkPath;

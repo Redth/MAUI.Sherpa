@@ -7,6 +7,8 @@ public class AndroidSdkService : IAndroidSdkService
 {
     private AndroidSdkManager? _sdkManager;
     private readonly ILoggingService _logger;
+    private readonly IOpenJdkSettingsService _jdkSettings;
+    private string? _managerJdkPath;
     private readonly SemaphoreSlim _operationGate = new(1, 1);
     private int _mutations;
 
@@ -17,9 +19,10 @@ public class AndroidSdkService : IAndroidSdkService
     
     public event Action? SdkPathChanged;
 
-    public AndroidSdkService(ILoggingService logger)
+    public AndroidSdkService(ILoggingService logger, IOpenJdkSettingsService jdkSettings)
     {
         _logger = logger;
+        _jdkSettings = jdkSettings;
     }
 
     public Task<bool> DetectSdkAsync()
@@ -299,6 +302,8 @@ public class AndroidSdkService : IAndroidSdkService
         {
             try
             {
+                if (await _jdkSettings.GetEffectiveJdkPathAsync() == null)
+                    throw new InvalidOperationException("Install or select OpenJDK before installing the Android SDK.");
                 progress?.Report("Downloading Android SDK...");
                 
                 targetPath = AndroidSdkLocations.ValidateInstallTarget(targetPath);
@@ -339,7 +344,17 @@ public class AndroidSdkService : IAndroidSdkService
         try
         {
             await _operationGate.WaitAsync();
-            try { return await Task.Run(operation); }
+            try
+            {
+                var jdkPath = await _jdkSettings.GetEffectiveJdkPathAsync();
+                if (_managerJdkPath != jdkPath)
+                {
+                    if (_sdkManager?.Home != null)
+                        _sdkManager = await Task.Run(() => new AndroidSdkManager(_sdkManager.Home));
+                    _managerJdkPath = jdkPath;
+                }
+                return await Task.Run(operation);
+            }
             finally { _operationGate.Release(); }
         }
         finally
