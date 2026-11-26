@@ -11,10 +11,12 @@
 
 <div class="jdk-dialog">
     <div class="jdk-header">
-        <div class="jdk-mode" role="group" aria-label="OpenJDK action">
-            <button type="button" class="@(!install ? "selected" : "")" aria-pressed="@(!install)" disabled="@loading" @onclick="() => SetModeAsync(false)">Installed</button>
-            <button type="button" class="@(install ? "selected" : "")" aria-pressed="@install" disabled="@loading" @onclick="() => SetModeAsync(true)">Install New</button>
-        </div>
+        <SherpaSegmentedControl TValue="bool"
+                                Value="@install"
+                                ValueChanged="@(v => SetModeAsync(v == true))"
+                                Options="ModeOptions"
+                                AriaLabel="OpenJDK action"
+                                Class="jdk-mode" />
         <button id="refresh-openjdk" type="button" class="jdk-refresh" title="Refresh OpenJDK" disabled="@loading" @onclick="() => LoadAsync(true)">
             <i class="fa-solid fa-rotate @(loading ? "fa-spin" : "")" aria-hidden="true"></i> Refresh
         </button>
@@ -108,18 +110,15 @@
 </div>
 
 <style>
-    .jdk-dialog { padding: 14px 24px 22px; color: var(--text-primary); font-size: 13px; }
+    .jdk-dialog { padding: 16px 24px; color: var(--text-primary); font-size: 13px; }
     .jdk-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
     .jdk-refresh { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 32px; padding: 0 10px; flex: none; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text-secondary); font: inherit; font-size: 12px; font-weight: 500; cursor: pointer; white-space: nowrap; }
     .jdk-refresh:hover:not(:disabled) { background: var(--surface-well); color: var(--text-primary); }
-    .jdk-mode { display: inline-flex; gap: 2px; padding: 3px; border-radius: var(--radius-md); background: var(--surface-well); }
-    .jdk-mode button { padding: 5px 14px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text-secondary); font: inherit; font-size: 12px; cursor: pointer; }
-    .jdk-mode button.selected { background: var(--surface-control); color: var(--text-primary); }
     .jdk-dialog button:disabled { opacity: .55; cursor: default; }
     .jdk-help { color: var(--text-secondary); line-height: 1.5; margin: 12px 0 18px; }
     .jdk-options { border: 0; padding: 0; margin: 0; min-width: 0; }
-    .jdk-options legend, .jdk-folder-label { font-weight: 600; margin-bottom: 8px; }
-    .jdk-option-list { overflow: hidden; border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); }
+    .jdk-options legend, .jdk-folder-label { font-size: var(--font-size-xs); font-weight: 600; color: var(--text-primary); margin-bottom: 8px; }
+    .jdk-option-list { max-height: 300px; overflow-y: auto; overscroll-behavior: contain; border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); background: var(--surface-card); }
     .jdk-option { display: flex; align-items: center; gap: 12px; padding: 12px; background: var(--surface-well); cursor: pointer; }
     .jdk-option + .jdk-option { border-top: 1px solid var(--border-hairline); }
     .jdk-option:hover { background: var(--surface-card-hover); }
@@ -133,12 +132,13 @@
     .jdk-row-icon:hover:not(:disabled) { background: var(--status-error-bg); color: var(--status-error-fg); }
     .jdk-row-confirm { display: flex; flex: none; gap: 6px; }
     .jdk-row-btn { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 10px; border: 1px solid var(--border-control); border-radius: var(--radius-sm); background: var(--surface-control); color: var(--text-primary); font: inherit; font-size: 12px; font-weight: 500; cursor: pointer; }
-    .jdk-row-btn.is-danger { border-color: transparent; background: var(--status-error-fg); color: var(--status-error-ink); }
-    .jdk-row-btn.is-danger:hover:not(:disabled) { background: color-mix(in srgb, var(--status-error-fg) 84%, var(--surface-control)); }
+    .jdk-row-btn.is-danger { border-color: transparent; background: transparent; color: var(--status-error-fg); }
+    .jdk-row-btn.is-danger:hover:not(:disabled) { background: var(--status-error-bg); }
     .jdk-remove-warning { display: flex; align-items: baseline; gap: 7px; margin: 10px 2px 0; color: var(--status-warning-fg); font-size: 11.5px; line-height: 1.45; }
     .jdk-folder-label { display: block; margin-top: 20px; }
-    .jdk-folder-row { display: flex; gap: 8px; }
-    .jdk-folder-row input { flex: 1; min-width: 0; border: 1px solid var(--border-control); border-radius: var(--radius-sm); background: var(--surface-control); color: var(--text-primary); padding: 5px 8px; font-size: 12px; }
+    .jdk-folder-row { display: flex; }
+    .jdk-folder-row input { flex: 1; min-width: 0; border: 1px solid var(--border-control); border-radius: var(--radius-md) 0 0 var(--radius-md); background: var(--surface-control); color: var(--text-primary); padding: 5px 8px; font-size: 12px; }
+    .jdk-folder-row .btn { margin-left: -1px; border-radius: 0 var(--radius-md) var(--radius-md) 0; }
     .jdk-footer { margin-top: 18px; }
     .jdk-footer p { margin: 0; color: var(--text-secondary); font-size: 11.5px; line-height: 1.5; }
     .jdk-dialog :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -155,6 +155,11 @@
     private int major = OpenJdkService.RecommendedMajorVersion;
     private string path = "";
     private string? error;
+    private IReadOnlyList<SherpaSegmentOption<bool>> ModeOptions =>
+    [
+        new(false, "Installed", "fa-solid fa-box-open", Disabled: loading),
+        new(true, "Install New", "fa-solid fa-download", Disabled: loading)
+    ];
 
     protected override async Task OnInitializedAsync()
     {
@@ -166,7 +171,7 @@
         path = await Settings.GetEffectiveJdkPathAsync() ?? "";
         await LoadAsync();
     }
-    private async Task SetModeAsync(bool value) { install = value; await LoadAsync(); }
+    private async Task SetModeAsync(bool? value) { install = value ?? false; await LoadAsync(); }
     private async Task LoadAsync(bool force = false)
     {
         loading = true;

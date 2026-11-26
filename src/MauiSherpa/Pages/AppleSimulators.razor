@@ -40,9 +40,9 @@ else
 </div>
 @if (physicalDevicesError != null)
 {
-    <div class="physical-device-error" role="alert">
-        @physicalDevicesError
-        <button class="btn btn-secondary" @onclick="RefreshPhysicalDevices" disabled="@isLoadingDevices">Retry</button>
+    <div class="physical-device-error sherpa-banner sherpa-banner-danger" role="alert">
+        <div><i class="fa-solid fa-triangle-exclamation fa-fw" aria-hidden="true"></i> @physicalDevicesError</div>
+        <button class="btn btn-secondary btn-sm" @onclick="RefreshPhysicalDevices" disabled="@isLoadingDevices">Retry</button>
     </div>
 }
 @if (isLoadingDevices)
@@ -55,57 +55,56 @@ else if (physicalDevices.Count == 0 && physicalDevicesError == null)
 }
 else
 {
-    <div class="simulator-list">
+    <div class="simulator-list sherpa-list">
         @foreach (var device in physicalDevices)
         {
-            <div class="simulator-card @(device.IsConnected ? "running" : "")">
-                <div class="simulator-icon">
+            <div class="simulator-card sherpa-list-row @(device.IsConnected ? "running" : "")">
+                <div class="simulator-icon sherpa-icon-well sherpa-icon-well-apple">
                     <i class="fa-solid @GetPhysicalDeviceIcon(device)"></i>
-                    <i class="fa-brands fa-apple brand-overlay"></i>
+                    <span class="sherpa-brand-badge"><i class="fa-brands fa-apple"></i></span>
                 </div>
-                <div class="simulator-details">
-                    <div class="simulator-name">@device.Name</div>
-                    <div class="simulator-info">
-                        <span>@device.Model</span>
-                        <span>• @device.Platform @device.OsVersion</span>
-                    </div>
-                    <div class="simulator-udid">
-                        <span class="@(demoMode ? "demo-blur" : "")">@device.Udid</span>
-                        <button class="btn-copy" @onclick="@(() => CopyToClipboard(device.Udid))" title="Copy UDID">
-                            <i class="fa-solid fa-copy"></i>
-                        </button>
-                    </div>
-                    <div class="simulator-badges">
-                        <span class="badge @(device.IsConnected ? "badge-success" : "badge-shutdown")">@(device.IsConnected ? "Connected" : "Offline / not verified")</span>
-                        <span class="badge @(device.IsPaired ? "badge-success" : "badge-warning")">@(device.IsPaired ? "Paired" : device.PairingState == "unpaired" ? "Not paired" : "Pairing unknown")</span>
+                <div class="simulator-details sherpa-row-stack">
+                    <div class="simulator-name sherpa-row-title">
+                        <span>@device.Name</span>
+                        <span class="sherpa-badge @(device.IsConnected ? "sherpa-badge-success" : "sherpa-badge-neutral")">
+                            <span class="sherpa-dot @(device.IsConnected ? "sherpa-dot-success" : "sherpa-dot-muted")"></span>
+                            @(device.IsConnected ? "Connected" : "Offline / not verified")
+                        </span>
+                        <span class="sherpa-badge @(device.IsPaired ? "sherpa-badge-success" : "sherpa-badge-warning")">@(device.IsPaired ? "Paired" : device.PairingState == "unpaired" ? "Not paired" : "Pairing unknown")</span>
                         @if (device.IsConnected)
                         {
-                            <span class="badge badge-transport">
+                            <span class="sherpa-badge sherpa-badge-neutral">
                                 <i class="@(device.IsWired ? "fa-brands fa-usb" : device.IsWireless ? "fa-solid fa-wifi" : "fa-solid fa-question-circle")" aria-hidden="true"></i> @device.TransportLabel
                             </span>
                         }
                         @if (device.DeveloperModeStatus == "disabled")
                         {
-                            <span class="badge badge-warning">Developer Mode off</span>
+                            <span class="sherpa-badge sherpa-badge-warning">Developer Mode off</span>
                         }
                     </div>
+                    <div class="simulator-udid sherpa-row-sub mono">
+                        <span>@device.Model · @device.Platform @device.OsVersion · <span class="@(demoMode ? "demo-blur" : "")">@device.Udid</span></span>
+                        <button class="btn btn-ghost btn-icon btn-sm btn-copy" @onclick="@(() => CopyToClipboard(device.Udid))" title="Copy UDID" aria-label="@($"Copy UDID for {device.Name}")">
+                            <i class="fa-regular fa-copy"></i>
+                        </button>
+                    </div>
                 </div>
-                <div class="simulator-actions">
-                    <button data-screenshot-external class="btn btn-secondary btn-icon" @onclick="() => ShowPairing(device.Identifier)" disabled="@isUnpairing" title="Pair or check connection" aria-label="@($"Pair or check connection for {device.Name}")">
+                <div class="simulator-actions sherpa-row-actions">
+                    <button data-screenshot-external class="btn btn-secondary btn-icon btn-sm" @onclick="() => ShowPairing(device.Identifier)" disabled="@isUnpairing" title="Pair or check connection" aria-label="@($"Pair or check connection for {device.Name}")">
                         <i class="fa-solid fa-link"></i>
                     </button>
-                    <button data-screenshot-external class="btn btn-info btn-icon" @onclick="@(() => SimInspector.OpenAsync(device.Identifier, device.Name, SimInspectorTab.Logs, isPhysicalDevice: true))" disabled="@(!device.IsPaired || !device.IsConnected)" title="Logs">
+                    <button data-screenshot-external class="btn btn-info btn-icon btn-sm" @onclick="@(() => SimInspector.OpenAsync(device.Identifier, device.Name, SimInspectorTab.Logs, isPhysicalDevice: true))" disabled="@(!device.IsPaired || !device.IsConnected)" title="Logs">
                         <i class="fa-solid fa-scroll"></i>
                     </button>
-                    <button data-screenshot-external class="btn btn-secondary btn-icon" @onclick="@(() => SimInspector.OpenAsync(device.Identifier, device.Name, SimInspectorTab.Apps, isPhysicalDevice: true))" disabled="@(!device.IsPaired || !device.IsConnected)" title="Apps">
+                    <button data-screenshot-external class="btn btn-secondary btn-icon btn-sm" @onclick="@(() => SimInspector.OpenAsync(device.Identifier, device.Name, SimInspectorTab.Apps, isPhysicalDevice: true))" disabled="@(!device.IsPaired || !device.IsConnected)" title="Apps">
                         <i class="fa-solid fa-th-large"></i>
                     </button>
-                    <button data-screenshot-external class="btn btn-secondary btn-icon" @onclick="@(() => InstallAppOnDevice(device))" disabled="@(!device.IsPaired || !device.IsConnected || device.DeveloperModeStatus == "disabled")" title="Install App">
+                    <button data-screenshot-external class="btn btn-secondary btn-icon btn-sm" @onclick="@(() => InstallAppOnDevice(device))" disabled="@(!device.IsPaired || !device.IsConnected || device.DeveloperModeStatus == "disabled")" title="Install App">
                         <i class="fa-solid fa-download"></i>
                     </button>
                     @if (device.IsPaired)
                     {
-                        <button data-screenshot-external class="btn btn-danger btn-icon" @onclick="() => UnpairDevice(device)" disabled="@(isUnpairing || showPairing)" title="Unpair device" aria-label="@($"Unpair {device.Name}")">
+                        <button data-screenshot-external class="btn btn-ghost-danger btn-icon btn-sm" @onclick="() => UnpairDevice(device)" disabled="@(isUnpairing || showPairing)" title="Unpair device" aria-label="@($"Unpair {device.Name}")">
                             <i class="fa-solid fa-unlink"></i>
                         </button>
                     }
@@ -189,14 +188,14 @@ else
 
 @if (isSelectionMode)
 {
-    <div class="simulator-selection-bar">
+    <div class="sherpa-selection-bar">
         <label class="simulator-select-all">
             <input type="checkbox" checked="@AllVisibleSimulatorsSelected"
                    disabled="@(isLoading || isDeletingSimulator || !SelectableSimulators.Any())"
                    @onchange="ToggleAllVisibleSimulators" />
             <span>Select all shown</span>
         </label>
-        <span class="simulator-selection-count" role="status">
+        <span class="simulator-selection-count sherpa-badge sherpa-badge-accent" role="status">
             @selectedSimulatorIds.Count selected
             @if (HiddenSelectionCount > 0)
             {
@@ -204,8 +203,8 @@ else
             }
         </span>
         <div class="simulator-selection-actions">
-            <button class="btn btn-secondary" @onclick="CancelSelectionMode" disabled="@isDeletingSimulator">Cancel Selection</button>
-            <button data-screenshot-external class="btn btn-danger" @onclick="DeleteSelectedSimulators"
+            <button class="btn btn-ghost btn-sm" @onclick="CancelSelectionMode" disabled="@isDeletingSimulator">Cancel Selection</button>
+            <button data-screenshot-external class="btn btn-danger-soft btn-sm" @onclick="DeleteSelectedSimulators"
                     disabled="@(isLoading || isDeletingSimulator || selectedSimulatorIds.Count == 0)">
                 <i class="fa-solid fa-trash"></i> Delete Selected
             </button>
@@ -213,7 +212,7 @@ else
     </div>
 }
 
-<div class="simulator-list">
+<div class="simulator-list sherpa-list">
     @if (isLoading && simulators.Count == 0)
     {
         <div class="loading-state">
@@ -247,7 +246,7 @@ else
             var isBooted = sim.State == "Booted";
             var isBooting = bootingSimulators.Contains(sim.Udid);
             <div @key="sim.Udid"
-                 class="simulator-card @(isBooted ? "running" : "") @(isBooting ? "starting" : "") @(selectedSimulatorIds.Contains(sim.Udid) ? "selected" : "") @(isSelectionMode && !isLoading && !isDeletingSimulator && !isBooting ? "selectable" : "")"
+                 class="simulator-card sherpa-list-row @(isBooted ? "running" : "") @(isBooting ? "starting" : "") @(selectedSimulatorIds.Contains(sim.Udid) ? "selected" : "") @(isSelectionMode && !isLoading && !isDeletingSimulator && !isBooting ? "selectable sherpa-list-row-interactive" : "")"
                  @onclick="() => { if (isSelectionMode) ToggleSimulatorSelection(sim.Udid, !selectedSimulatorIds.Contains(sim.Udid)); }">
                 @if (isSelectionMode)
                 {
@@ -258,7 +257,7 @@ else
                                @onchange="e => ToggleSimulatorSelection(sim.Udid, e.Value is true)" />
                     </label>
                 }
-                <div class="simulator-icon">
+                <div class="simulator-icon sherpa-icon-well sherpa-icon-well-apple">
                     @if (isBooting)
                     {
                         <span class="spinner-large"></span>
@@ -267,77 +266,75 @@ else
                     {
                         <i class="fa-solid @GetDeviceIcon(sim.ProductFamily)"></i>
                     }
-                    <i class="fa-brands fa-apple brand-overlay"></i>
+                    <span class="sherpa-brand-badge"><i class="fa-brands fa-apple"></i></span>
                 </div>
-                <div class="simulator-details">
-                    <div class="simulator-name">@sim.Name</div>
-                    <div class="simulator-info">
+                <div class="simulator-details sherpa-row-stack">
+                    <div class="simulator-name sherpa-row-title">
+                        <span>@sim.Name</span>
+                        @if (isBooting)
+                        {
+                            <span class="sherpa-badge sherpa-badge-warning"><span class="sherpa-dot sherpa-dot-warning"></span> Booting...</span>
+                        }
+                        else if (isBooted)
+                        {
+                            <span class="sherpa-badge sherpa-badge-success"><span class="sherpa-dot sherpa-dot-success"></span> Booted</span>
+                        }
+                        else
+                        {
+                            <span class="sherpa-badge sherpa-badge-neutral"><span class="sherpa-dot sherpa-dot-muted"></span> Shutdown</span>
+                        }
+                        @if (!sim.IsAvailable)
+                        {
+                            <span class="sherpa-badge sherpa-badge-warning">Unavailable</span>
+                        }
+                    </div>
+                    <div class="simulator-udid sherpa-row-sub mono">
                         @if (!string.IsNullOrEmpty(sim.Runtime))
                         {
                             <span>@sim.Runtime</span>
                         }
                         @if (!string.IsNullOrEmpty(sim.ProductFamily))
                         {
-                            <span>• @sim.ProductFamily</span>
+                            <span>· @sim.ProductFamily</span>
                         }
-                    </div>
-                    <div class="simulator-udid">
-                        <span class="@(demoMode ? "demo-blur" : "")">@sim.Udid</span>
-                        <button class="btn-copy" @onclick="@(() => CopyToClipboard(sim.Udid))" @onclick:stopPropagation="true" title="Copy UDID">
-                            <i class="fa-solid fa-copy"></i>
+                        <span>· <span class="@(demoMode ? "demo-blur" : "")">@sim.Udid</span></span>
+                        <button class="btn btn-ghost btn-icon btn-sm btn-copy" @onclick="@(() => CopyToClipboard(sim.Udid))" @onclick:stopPropagation="true" title="Copy UDID" aria-label="@($"Copy UDID for {sim.Name}")">
+                            <i class="fa-regular fa-copy"></i>
                         </button>
-                    </div>
-                    <div class="simulator-badges">
-                        @if (isBooting)
-                        {
-                            <span class="badge badge-starting">Booting...</span>
-                        }
-                        else if (isBooted)
-                        {
-                            <span class="badge badge-success">Booted</span>
-                        }
-                        else
-                        {
-                            <span class="badge badge-shutdown">Shutdown</span>
-                        }
-                        @if (!sim.IsAvailable)
-                        {
-                            <span class="badge badge-warning">Unavailable</span>
-                        }
                     </div>
                 </div>
                 @if (!isSelectionMode)
                 {
-                <div class="simulator-actions">
+                <div class="simulator-actions sherpa-row-actions">
                     @if (isBooting)
                     {
-                        <button class="btn btn-secondary btn-icon" disabled>
+                        <button class="btn btn-secondary btn-icon btn-sm" disabled>
                             <i class="fa-solid fa-spinner fa-spin"></i>
                         </button>
                     }
                     else if (isBooted)
                     {
-                        <button data-screenshot-external class="btn btn-info btn-icon" @onclick="@(() => SimInspector.OpenAsync(sim.Udid, sim.Name))" title="Logs">
+                        <button data-screenshot-external class="btn btn-info btn-icon btn-sm" @onclick="@(() => SimInspector.OpenAsync(sim.Udid, sim.Name))" title="Logs">
                             <i class="fa-solid fa-scroll"></i>
                         </button>
-                        <button data-screenshot-external class="btn btn-secondary btn-icon" @onclick="@(() => SimInspector.OpenAsync(sim.Udid, sim.Name, SimInspectorTab.Apps))" title="Inspect">
+                        <button data-screenshot-external class="btn btn-secondary btn-icon btn-sm" @onclick="@(() => SimInspector.OpenAsync(sim.Udid, sim.Name, SimInspectorTab.Apps))" title="Inspect">
                             <i class="fa-solid fa-search"></i>
                         </button>
-                        <button data-screenshot-external class="btn btn-warning btn-icon" @onclick="@(() => ShutdownSimulator(sim))" disabled="@isLoading" title="Shutdown">
+                        <button data-screenshot-external class="btn btn-warning btn-icon btn-sm" @onclick="@(() => ShutdownSimulator(sim))" disabled="@isLoading" title="Shutdown">
                             <i class="fa-solid fa-stop"></i>
                         </button>
                     }
                     else
                     {
-                        <button data-screenshot-external class="btn btn-success btn-icon" @onclick="@(() => BootSimulator(sim))" disabled="@(isLoading || isDeletingSimulator || !sim.IsAvailable)" title="Boot">
+                        <button data-screenshot-external class="btn btn-success btn-icon btn-sm" @onclick="@(() => BootSimulator(sim))" disabled="@(isLoading || isDeletingSimulator || !sim.IsAvailable)" title="Boot">
                             <i class="fa-solid fa-play"></i>
                         </button>
                     }
-                    <button data-screenshot-external class="btn btn-danger btn-icon" @onclick="() => DeleteSimulator(sim)" disabled="@(isLoading || isDeletingSimulator || isBooting)" title="Delete simulator" aria-label="@($"Delete {sim.Name}")">
+                    <button data-screenshot-external class="btn btn-ghost-danger btn-icon btn-sm" @onclick="() => DeleteSimulator(sim)" disabled="@(isLoading || isDeletingSimulator || isBooting)" title="Delete simulator" aria-label="@($"Delete {sim.Name}")">
                         <i class="fa-solid fa-trash"></i>
                     </button>
                     <div class="sim-dropdown">
-                        <button class="btn btn-secondary btn-icon sim-dropdown-toggle" @onclick="@(() => ToggleDropdown(sim.Udid))" @onclick:stopPropagation="true" title="More actions">
+                        <button class="btn btn-ghost btn-icon btn-sm sim-dropdown-toggle" @onclick="@(() => ToggleDropdown(sim.Udid))" @onclick:stopPropagation="true" title="More actions">
                             <i class="fa-solid fa-ellipsis-v"></i>
                         </button>
                         @if (openDropdownId == sim.Udid)
@@ -366,15 +363,14 @@ else
 } @* end else IsSupported *@
 
 <style>
-    .simulator-selection-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 0.75rem; padding: 0.75rem; margin-bottom: 0.75rem; background: var(--card-bg); border-radius: var(--card-radius); color: var(--text-primary); }
-    .simulator-selection-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 0.75rem; }
+    .simulator-selection-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 0.75rem; margin-left: auto; }
     .simulator-select-all { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; }
-    .simulator-selection-count { flex: 1; font-size: 0.875rem; color: var(--text-secondary); }
+    .simulator-selection-count { white-space: nowrap; }
     .simulator-select { display: flex; align-items: center; justify-content: center; padding: 0.5rem; cursor: pointer; }
     .simulator-select input, .simulator-select-all input { width: 1rem; height: 1rem; accent-color: var(--accent-primary); cursor: pointer; }
     .simulator-card.selectable { cursor: pointer; }
-    .simulator-card.selected { outline: 2px solid var(--accent-primary); outline-offset: -2px; }
-    .physical-device-error { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.875rem; margin-bottom: 0.75rem; color: var(--accent-danger); background: var(--status-error-bg); border: 1px solid var(--accent-danger); border-radius: 0.5rem; }
+    .simulator-card.selected { background: color-mix(in srgb, var(--accent-soft) 55%, var(--surface-card)); }
+    .physical-device-error { align-items: center; justify-content: space-between; margin-bottom: 0.75rem; }
     .not-supported {
         text-align: center;
         padding: 3.75rem 1.25rem;
@@ -399,14 +395,13 @@ else
         gap: 0.75rem;
         margin-bottom: 1.25rem;
         flex-wrap: wrap;
-        padding: 0.75rem 1rem;
-        border-radius: var(--card-radius);
-        background: var(--card-bg);
+        padding: 10px 14px;
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
+        background: var(--surface-card);
     }
 
     .filter-select { min-width: 160px; }
-
-    .btn i { font-size: 0.75rem; }
 
     .spinner-large {
         display: inline-block;
@@ -423,118 +418,44 @@ else
     }
 
     .simulator-list {
-        display: flex;
-        flex-direction: column;
-        gap: 0.75rem;
+        margin-bottom: 1.25rem;
     }
 
     .simulator-card {
-        background: var(--card-bg);
-        border: 1px solid var(--border-subtle);
-        border-radius: var(--radius-lg);
-        padding: 0.875rem;
-        display: flex;
         align-items: center;
-        gap: 1rem;
+        background: transparent;
+        border: 0;
+        border-radius: 0;
+        box-shadow: none;
     }
 
     .simulator-card.starting {
-        background: var(--status-warning-bg);
-    }
-
-    .simulator-icon {
-        width: 42px;
-        height: 42px;
-        border-radius: var(--radius-md);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 1.25rem;
-        background: var(--accent-soft);
-        color: var(--accent);
-        position: relative;
-        flex-shrink: 0;
-    }
-
-    .simulator-icon .brand-overlay {
-        position: absolute;
-        bottom: 3px;
-        right: 3px;
-        font-size: 0.7rem;
-        color: var(--text-muted);
-        line-height: 1;
+        background: color-mix(in srgb, var(--status-warning-bg) 55%, var(--surface-card));
     }
 
     .simulator-details {
-        flex: 1;
+        min-width: 0;
     }
 
     .simulator-name {
-        font-weight: 600;
-        font-size: 1rem;
-        color: var(--text-primary);
-    }
-
-    .simulator-info {
-        font-size: 0.8125rem;
-        color: var(--text-muted);
-        margin-top: 0.25rem;
-    }
-
-    .simulator-info span {
-        margin-right: 0.5rem;
+        display: flex;
+        align-items: center;
+        gap: 6px;
     }
 
     .simulator-udid {
-        font-family: 'Consolas', 'Monaco', monospace;
-        font-size: 0.6875rem;
-        color: var(--text-muted);
-        margin-top: 2px;
         display: flex;
         align-items: center;
-        gap: 0.375rem;
+        gap: 6px;
     }
 
     .btn-copy {
-        background: none;
-        border: none;
-        color: var(--text-secondary);
-        cursor: pointer;
-        padding: 2px 0.375rem;
-        font-size: 0.6875rem;
-        border-radius: 0.25rem;
-        transition: all 0.15s;
+        width: 20px;
+        min-width: 20px;
+        height: 20px;
+        min-height: 20px;
         flex-shrink: 0;
     }
-    .btn-copy:hover {
-        color: var(--accent-primary);
-        background: var(--bg-tertiary);
-    }
-
-    .simulator-badges {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.5rem;
-        margin-top: 0.5rem;
-    }
-
-    .simulator-actions, .sim-actions {
-        display: flex;
-        gap: 0.25rem;
-        align-items: center;
-    }
-
-    .btn.btn-icon {
-        width: 2rem;
-        height: 2rem;
-        padding: 0;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        border-radius: var(--radius-sm);
-        font-size: 0.8125rem;
-    }
-    .btn.btn-icon i { font-size: 0.8125rem; margin: 0; }
 
     /* ── Dropdown ── */
     .sim-dropdown {

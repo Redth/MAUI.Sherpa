@@ -12,7 +12,7 @@
 
 <h1><i class="fa-solid fa-fw fa-wand-magic-sparkles"></i> MAUI DevFlow Inspector</h1>
 
-<div class="broker-card">
+<div class="broker-card sherpa-banner sherpa-banner-info">
     <div class="connection-row">
         <label>Broker</label>
         <input type="text" @bind="brokerHost" placeholder="localhost" class="input-field broker-input" />
@@ -40,7 +40,7 @@
     </div>
 </div>
 
-<div class="agent-grid">
+<div class="agent-grid sherpa-list">
     @foreach (var agent in agents)
     {
         var supported = IsAgentSupported(agent);
@@ -48,7 +48,7 @@
         <div data-screenshot-external class="agent-card @GetPlatformColorClass(agent.Platform) @(!supported ? "agent-unsupported" : "")"
              @onclick="@(() => { if (supported) OpenInspector(agent); })"
              title="@(outdated ? $"Agent version {agent.Version} is below minimum {MinSupportedAgentVersion}. Update MAUI DevFlow packages." : !supported ? $"Agent version {agent.Version} is not supported." : "")">
-            <div class="agent-icon">
+            <div class="agent-icon sherpa-icon-well">
                 <i class="fa-solid fa-fw @GetPlatformIcon(agent.Platform)"></i>
                 <i class="fa-brands fa-fw @GetBrandIcon(agent.Platform) brand-overlay"></i>
             </div>
@@ -99,7 +99,7 @@
     @if (agents.Count == 0)
     {
         <div class="agent-card hint-card">
-            <div class="agent-icon hint-icon">
+            <div class="agent-icon sherpa-icon-well hint-icon">
                 <i class="fa-solid fa-fw fa-wand-magic-sparkles"></i>
             </div>
             <div class="agent-info">
@@ -117,7 +117,7 @@
     }
 
     <div class="agent-card direct-connect-card" @onclick:stopPropagation>
-        <div class="agent-icon direct-icon">
+        <div class="agent-icon sherpa-icon-well direct-icon">
             <i class="fa-solid fa-fw fa-plug"></i>
         </div>
         <div class="agent-info">
@@ -306,6 +306,7 @@
 
 <style>
     .broker-card {
+        display: block;
         background: var(--status-info-bg);
         border: 1px solid var(--status-info-border);
         border-radius: var(--radius-lg);
@@ -472,9 +473,13 @@
     }
 
     .agent-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
-        gap: 1rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+        overflow: hidden;
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
+        background: var(--surface-card);
     }
 
     .agent-card {
@@ -482,12 +487,14 @@
         align-items: center;
         gap: 0.75rem;
         padding: 0.75rem 1rem;
-        background: var(--surface-card);
-        border: 1px solid var(--border-subtle);
-        border-radius: var(--radius-lg);
+        background: transparent;
+        border: 0;
+        border-radius: 0;
         cursor: pointer;
         transition: all 0.2s ease;
     }
+    .agent-card + .agent-card { border-top: 1px solid var(--border-hairline); }
+    .agent-card:hover:not(.agent-unsupported):not(.hint-card):not(.direct-connect-card) { background: var(--surface-card-hover); }
 
     /* Unsupported (outdated) agent cards */
     .agent-card.agent-unsupported {

@@ -116,8 +116,8 @@
         align-items: center;
         justify-content: space-between;
         padding: 0.375rem 0.5rem;
-        background: var(--bg-secondary);
-        border-bottom: 1px solid var(--border-color);
+        background: var(--surface-card);
+        border-bottom: 1px solid var(--border-hairline);
         flex-shrink: 0;
     }
     .simlog-toolbar .toolbar-left {
@@ -156,8 +156,8 @@
         align-items: flex-end;
         gap: 0.5rem;
         padding: 0.3125rem 0.5rem;
-        background: var(--bg-secondary);
-        border-bottom: 1px solid var(--border-color);
+        background: var(--surface-card);
+        border-bottom: 1px solid var(--border-hairline);
         flex-shrink: 0;
     }
     .simlog-filters .filter-group {
@@ -166,25 +166,25 @@
         gap: 2px;
     }
     .simlog-filters .filter-group label {
-        font-size: 0.625rem;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        color: var(--text-muted);
+        font-size: var(--font-size-xs);
+        letter-spacing: 0.02em;
+        color: var(--text-primary);
         font-weight: 600;
     }
     .simlog-filters .filter-grow { flex: 1; }
     .simlog-filters .filter-group input, .simlog-filters .filter-group select {
-        background: var(--bg-tertiary);
-        border: 1px solid var(--border-color);
+        background: var(--surface-control);
+        border: 1px solid var(--border-control);
         color: var(--text-primary);
         padding: 0.25rem 0.5rem;
         border-radius: var(--radius-xs);
         font-size: 0.75rem;
-        font-family: 'Consolas', 'Monaco', monospace;
+        font-family: var(--font-mono);
     }
     .simlog-filters .filter-group input:focus, .simlog-filters .filter-group select:focus {
         outline: none;
-        border-color: var(--accent-primary);
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px var(--accent-ring);
     }
 
     /* Grid */
@@ -197,18 +197,18 @@
         display: flex;
         flex-direction: column;
         height: 100%;
-        font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+        font-family: var(--font-mono);
         font-size: 0.75rem;
+        font-variant-numeric: tabular-nums;
     }
     .simlog-grid .grid-header {
         display: flex;
         padding: 0.25rem 0;
-        background: var(--bg-tertiary);
-        border-bottom: 2px solid var(--border-color);
+        background: var(--surface-well);
+        border-bottom: 1px solid var(--border-strong);
         font-weight: 700;
         font-size: 0.6875rem;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
+        letter-spacing: 0.02em;
         color: var(--text-secondary);
         flex-shrink: 0;
     }
@@ -239,6 +239,7 @@
         flex: 1;
         overflow-y: auto;
         overflow-x: hidden;
+        overscroll-behavior: contain;
     }
     .simlog-grid .grid-row {
         display: flex;
@@ -264,20 +265,19 @@
 
     /* Level badges */
     .simlog-grid .level-badge {
-        display: inline-block;
-        width: 1.25rem;
+        display: inline-grid;
+        place-items: center;
+        width: 1.2rem;
         height: 18px;
-        line-height: 18px;
-        text-align: center;
         border-radius: var(--radius-xs);
+        border: 1px solid transparent;
         font-weight: 700;
         font-size: 0.6875rem;
     }
-    .simlog-grid .level-default { background: var(--text-muted); color: var(--text-muted); }
-    .simlog-grid .level-info { background: var(--status-success-fg); color: var(--status-success-bg); }
-    .simlog-grid .level-debug { background: var(--status-info-fg); color: var(--status-info-bg); }
-    .simlog-grid .level-error { background: var(--status-error-fg); color: var(--status-error-bg); }
-    .simlog-grid .level-fault { background: var(--status-error-fg); color: var(--status-error-bg); }
+    .simlog-grid .level-default { border-color: var(--border-control); background: var(--surface-well); color: var(--text-secondary); }
+    .simlog-grid .level-info { border-color: var(--status-success-border); background: var(--status-success-bg); color: var(--status-success-fg); }
+    .simlog-grid .level-debug { border-color: var(--status-info-border); background: var(--status-info-bg); color: var(--status-info-fg); }
+    .simlog-grid .level-error, .simlog-grid .level-fault { border-color: var(--status-error-border); background: var(--status-error-bg); color: var(--status-error-fg); }
 
     /* Row level tinting */
     .simlog-grid .row-default { }
@@ -298,6 +298,7 @@
     .simlog-page .btn-ghost { background: transparent; color: var(--text-muted); }
     .simlog-page .btn:hover:not(:disabled) { filter: brightness(1.1); }
     .simlog-page .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .simlog-page :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 </style>
 
 @code {
@@ -626,9 +627,9 @@
     {
         SimulatorLogLevel.Default => "D",
         SimulatorLogLevel.Info => "I",
-        SimulatorLogLevel.Debug => "G",
+        SimulatorLogLevel.Debug => "V",
         SimulatorLogLevel.Error => "E",
-        SimulatorLogLevel.Fault => "F",
+        SimulatorLogLevel.Fault => "E",
         _ => "?"
     };
 

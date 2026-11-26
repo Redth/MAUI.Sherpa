@@ -132,18 +132,18 @@
 
     @if (isSelectionMode)
     {
-        <div class="selection-bar">
+        <div class="sherpa-selection-bar">
             <label class="select-all-checkbox">
                 <input type="checkbox"
                        checked="@AllVisibleSelected"
                        @onchange="ToggleAllVisible" />
                 <span>Select all profiles shown</span>
             </label>
-            <span class="selection-count">@selectedProfileIds.Count selected</span>
+            <span class="selection-count sherpa-badge sherpa-badge-accent">@selectedProfileIds.Count selected</span>
         </div>
     }
 
-    <div class="profile-list">
+    <div class="profile-list sherpa-list">
         @if (isLoading && profiles.Count == 0)
         {
             <div class="loading-state">
@@ -182,7 +182,7 @@
                 var isExpiringSoon = !isExpired && profile.ExpirationDate < AppClock.UtcNow.AddDays(30);
                 var isInvalid = profile.State != "ACTIVE";
                 
-                <div class="profile-card @(isExpired || isInvalid ? "invalid" : isExpiringSoon ? "expiring" : "") @(selectedProfileIds.Contains(profile.Id) ? "selected" : "") @(isSelectionMode ? "selectable" : "")"
+                <div class="profile-card sherpa-list-row @(isExpired || isInvalid ? "invalid" : isExpiringSoon ? "expiring" : "") @(selectedProfileIds.Contains(profile.Id) ? "selected" : "") @(isSelectionMode ? "selectable sherpa-list-row-interactive" : "")"
                      @onclick="@(() => { if (isSelectionMode) ToggleProfileSelection(profile.Id, !selectedProfileIds.Contains(profile.Id)); })">
                     @if (isSelectionMode)
                     {
@@ -193,62 +193,61 @@
                                    @onchange="@(e => ToggleProfileSelection(profile.Id, e.Value is bool selected && selected))" />
                         </label>
                     }
-                    <div class="profile-icon"><i class="fa-solid fa-id-card"></i></div>
-                    <div class="profile-details">
-                        <div class="profile-name"><span>@profile.Name</span></div>
-                        <div class="profile-uuid">
-                            <span class="@(demoMode ? "demo-blur" : "")">@profile.Uuid</span>
-                            <button class="btn-copy" @onclick:stopPropagation="true" @onclick="@(() => CopyToClipboard(profile.Uuid))" title="Copy to clipboard">
-                                <i class="fa-regular fa-copy"></i>
-                            </button>
-                        </div>
-                        @if (!string.IsNullOrEmpty(profile.BundleId))
-                        {
-                            <div class="profile-bundle-id">
-                                <i class="fa-solid fa-cube"></i> <span>@profile.BundleId</span>
-                            </div>
-                        }
-                        <div class="profile-badges">
-                            <span class="badge badge-type">@FormatProfileType(profile.ProfileType)</span>
+                    <div class="profile-icon sherpa-icon-well sherpa-icon-well-apple">
+                        <i class="fa-solid fa-id-card"></i>
+                        <span class="sherpa-brand-badge"><i class="fa-brands fa-apple"></i></span>
+                    </div>
+                    <div class="profile-details sherpa-row-stack">
+                        <div class="profile-name sherpa-row-title">
+                            <span>@profile.Name</span>
+                            <span class="sherpa-badge sherpa-badge-neutral">@FormatProfileType(profile.ProfileType)</span>
                             @if (!string.IsNullOrEmpty(GetProfilePlatform(profile)))
                             {
-                                <span class="badge badge-platform">@AppleProfileTypes.GetPlatformLabel(GetProfilePlatform(profile))</span>
+                                <span class="sherpa-badge sherpa-badge-neutral">@AppleProfileTypes.GetPlatformLabel(GetProfilePlatform(profile))</span>
                             }
                             @if (isInvalid)
                             {
-                                <span class="badge badge-invalid">@profile.State</span>
+                                <span class="sherpa-badge sherpa-badge-danger"><span class="sherpa-dot sherpa-dot-danger"></span> @profile.State</span>
                             }
                             else if (isExpired)
                             {
-                                <span class="badge badge-expired">Expired</span>
+                                <span class="sherpa-badge sherpa-badge-danger"><span class="sherpa-dot sherpa-dot-danger"></span> Expired</span>
                             }
                             else if (isExpiringSoon)
                             {
-                                <span class="badge badge-expiring">Expiring Soon</span>
+                                <span class="sherpa-badge sherpa-badge-warning"><span class="sherpa-dot sherpa-dot-warning"></span> Expiring Soon</span>
                             }
                             else
                             {
-                                <span class="badge badge-valid">Active</span>
+                                <span class="sherpa-badge sherpa-badge-success"><span class="sherpa-dot sherpa-dot-success"></span> Active</span>
                             }
                         </div>
-                        <div class="profile-expiry">
-                            Expires: @profile.ExpirationDate.ToString("MMM dd, yyyy")
+                        <div class="profile-uuid sherpa-row-sub mono">
+                            <span class="@(demoMode ? "demo-blur" : "")">@profile.Uuid</span>
+                            <button class="btn btn-ghost btn-icon btn-sm btn-copy" @onclick:stopPropagation="true" @onclick="@(() => CopyToClipboard(profile.Uuid))" title="Copy UUID" aria-label="@($"Copy UUID for {profile.Name}")">
+                                <i class="fa-regular fa-copy"></i>
+                            </button>
+                            @if (!string.IsNullOrEmpty(profile.BundleId))
+                            {
+                                <span>· @profile.BundleId</span>
+                            }
+                            <span>· Expires @profile.ExpirationDate.ToString("MMM dd, yyyy")</span>
                         </div>
                     </div>
                     @if (!isSelectionMode)
                     {
-                    <div class="profile-actions">
+                    <div class="profile-actions sherpa-row-actions">
                         <MauiSherpa.Components.SecretProviderPickerHost
                             @key="@($"profile-sync-{profile.Id}")"
                             Item="@(new SecretItemRef(SecretItemKind.ProvisioningProfile, profile.Id, profile.Name) { AppleIdentityId = profilesIdentityId })" />
-                        <button data-screenshot-external class="btn btn-secondary btn-icon" @onclick="@(() => ShowEditDialog(profile))" disabled="@isLoading" title="Edit">
+                        <button data-screenshot-external class="btn btn-secondary btn-icon btn-sm" @onclick="@(() => ShowEditDialog(profile))" disabled="@isLoading" title="Edit">
                             <i class="fa-solid fa-edit"></i>
                         </button>
-                        <button data-screenshot-external class="btn btn-secondary btn-icon" @onclick="@(() => DownloadProfile(profile))" disabled="@isLoading" title="Download">
+                        <button data-screenshot-external class="btn btn-secondary btn-icon btn-sm" @onclick="@(() => DownloadProfile(profile))" disabled="@isLoading" title="Download">
                             <i class="fa-solid fa-download"></i>
                         </button>
                         <div class="prof-dropdown">
-                            <button class="btn btn-secondary btn-icon prof-dropdown-toggle" @onclick="@(() => ToggleDropdown(profile.Id))" @onclick:stopPropagation="true" title="More actions">
+                            <button class="btn btn-ghost btn-icon btn-sm prof-dropdown-toggle" @onclick="@(() => ToggleDropdown(profile.Id))" @onclick:stopPropagation="true" title="More actions">
                                 <i class="fa-solid fa-ellipsis-v"></i>
                             </button>
                             @if (openDropdown == profile.Id)
@@ -279,8 +278,6 @@
 }
 
 <style>
-    h1 { margin-bottom: 1.25rem; font-size: 1.75rem; color: var(--text-primary); }
-
     .toolbar { margin-bottom: 1rem; display: flex; gap: 0.75rem; align-items: center; }
     .toolbar-spacer { flex: 1; }
     .error-bar { background: var(--status-error-bg); color: var(--status-error-text); padding: 0.75rem 1rem; border: 1px solid var(--status-error-border); border-radius: var(--radius-lg); margin-bottom: 1rem; }
@@ -290,11 +287,12 @@
 
     /* Filter Section Styles */
     .filter-section {
-        background: var(--card-bg);
-        border-radius: var(--card-radius);
-        padding: 1rem;
+        background: var(--surface-card);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
+        padding: 10px 14px;
         margin-bottom: 1rem;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        box-shadow: none;
         display: flex;
         flex-wrap: wrap;
         gap: 0.75rem;
@@ -302,7 +300,6 @@
     }
 
     .filter-section .search-box {
-        position: relative;
         flex: 1;
         min-width: 200px;
         margin: 0 !important;
@@ -310,26 +307,19 @@
 
     .filter-section .search-box input {
         width: 100%;
-        padding: 0.625rem 36px 0.625rem 36px;
-        border: 1px solid var(--border-color);
-        border-radius: 0.375rem;
-        font-size: 0.875rem;
+        padding: 0;
+        border: 0;
         box-sizing: border-box;
-        background: var(--input-bg);
+        background: transparent;
         color: var(--text-primary);
     }
 
     .filter-section .search-box input:focus {
         outline: none;
-        border-color: var(--accent-primary);
-        box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.15);
+        box-shadow: none;
     }
 
     .search-icon {
-        position: absolute;
-        left: 0.75rem;
-        top: 0;
-        bottom: 0;
         display: flex;
         align-items: center;
         font-size: 0.875rem;
@@ -346,24 +336,21 @@
     }
 
     .clear-btn {
-        position: absolute;
-        right: 0.5rem;
-        top: 50%;
-        transform: translateY(-50%);
-        background: var(--border-color);
-        border: none;
-        border-radius: 50%;
-        width: 1.25rem;
-        height: 1.25rem;
-        font-size: 0.875rem;
-        cursor: pointer;
-        display: flex;
+        display: inline-flex;
         align-items: center;
         justify-content: center;
+        width: 20px;
+        height: 20px;
+        padding: 0;
+        background: transparent;
+        border: none;
+        border-radius: var(--radius-sm);
+        font-size: 0.875rem;
+        cursor: pointer;
         color: var(--text-muted);
     }
 
-    .clear-btn:hover { background: var(--bg-hover); }
+    .clear-btn:hover { background: var(--surface-card-hover); }
 
     .filter-chips {
         display: flex;
@@ -389,17 +376,10 @@
     }
 
     .results-info {
-        font-size: 0.8125rem;
+        font-size: var(--font-size-xs);
         color: var(--text-muted);
-        margin-bottom: 0.75rem;
+        margin: 0 0 8px;
     }
-    .btn i { font-size: 0.75rem; }
-    .btn-icon {
-        width: 2rem; height: 2rem; padding: 0;
-        display: inline-flex; align-items: center; justify-content: center;
-        border-radius: 0.375rem; font-size: 0.8125rem;
-    }
-    .btn-icon i { font-size: 0.8125rem; margin: 0; }
 
     /* ── Dropdown ── */
     .prof-dropdown { position: relative; }
@@ -423,22 +403,20 @@
     .prof-dropdown-item.danger i { color: var(--accent-danger); }
     .prof-dropdown-divider { height: 1px; background: var(--border-color); margin: 0.25rem 0; }
 
-    .profile-list { display: flex; flex-direction: column; gap: 0.75rem; }
+    .profile-list { margin-bottom: 1.25rem; }
 
     .profile-card {
-        background: var(--card-bg);
-        border: 1px solid var(--border-subtle);
-        border-radius: var(--radius-lg);
-        padding: 0.875rem;
-        display: flex;
-        align-items: flex-start;
-        gap: 1rem;
+        align-items: center;
+        background: transparent;
+        border: 0;
+        border-radius: 0;
+        box-shadow: none;
     }
 
     .profile-card.invalid { opacity: 0.7; }
     .profile-card.selectable { cursor: pointer; }
     .profile-card.selectable:hover { background: var(--surface-card-hover); }
-    .profile-card.selected { box-shadow: 0 0 0 2px var(--accent-primary); }
+    .profile-card.selected { background: color-mix(in srgb, var(--accent-soft) 55%, var(--surface-card)); }
 
     .profile-select {
         display: flex;
@@ -452,17 +430,6 @@
         accent-color: var(--accent-primary);
     }
 
-    .selection-bar {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 1rem;
-        padding: 0.75rem 1rem;
-        margin-bottom: 0.75rem;
-        background: var(--card-bg);
-        border: 1px solid var(--border-color);
-        border-radius: var(--card-radius);
-    }
     .select-all-checkbox {
         display: flex;
         align-items: center;
@@ -477,48 +444,20 @@
         font-size: 0.8125rem;
         white-space: nowrap;
     }
-    .profile-icon { font-size: 1.5rem; color: var(--accent); }
-    .profile-icon i { font-size: 1.25rem; }
-    .profile-details { flex: 1; }
-    .profile-name { font-weight: 600; font-size: 1rem; color: var(--text-primary); }
-    .profile-uuid { 
-        font-family: monospace; 
-        font-size: 0.6875rem; 
-        color: var(--text-muted);
-        margin-top: 0.25rem;
+    .profile-details { min-width: 0; }
+    .profile-name {
         display: flex;
         align-items: center;
-        gap: 0.5rem;
+        gap: 6px;
     }
-    .profile-expiry { font-size: 0.8125rem; color: var(--text-muted); margin-top: 0.5rem; }
-    .profile-bundle-id {
-        font-size: 0.75rem;
-        color: var(--text-muted);
-        margin-top: 0.25rem;
-        font-family: monospace;
-        display: flex;
-        align-items: center;
-        gap: 0.375rem;
-    }
-    .profile-bundle-id i { font-size: 0.625rem; }
-    .profile-badges { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; }
-
-    .profile-actions { display: flex; gap: 0.25rem; align-items: center; }
+    .profile-uuid { display: flex; align-items: center; gap: 6px; }
 
     .btn-copy {
-        background: none;
-        border: none;
-        color: var(--text-muted);
-        cursor: pointer;
-        padding: 2px 0.375rem;
-        font-size: 0.75rem;
-        border-radius: 0.25rem;
-        transition: all 0.15s;
+        width: 20px;
+        min-width: 20px;
+        height: 20px;
+        min-height: 20px;
         flex-shrink: 0;
-    }
-    .btn-copy:hover {
-        color: var(--accent-primary);
-        background: var(--bg-hover);
     }
 
     .badge { padding: 2px 0.625rem; border-radius: var(--radius-pill); font-size: 0.75rem; font-weight: 500; }

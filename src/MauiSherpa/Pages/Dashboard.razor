@@ -45,21 +45,24 @@
 
     @if (!string.IsNullOrEmpty(doctorError))
     {
-        <div class="environment-error" role="status">
+        <div class="sherpa-banner sherpa-banner-danger environment-banner" role="status">
             <i class="fa-solid fa-circle-exclamation fa-fw"></i>
-            <span>Environment check failed. @doctorError</span>
-            <button class="text-action" @onclick="RunDoctorAsync">Retry</button>
+            <div class="environment-banner-copy">
+                <strong>Environment check failed</strong>
+                <span>@doctorError</span>
+            </div>
+            <button class="btn btn-ghost btn-sm" @onclick="RunDoctorAsync">Retry</button>
         </div>
     }
     else if (doctorReport is not null && (doctorReport.HasErrors || doctorReport.HasWarnings))
     {
-        <div class="attention-summary">
+        <div class="sherpa-banner @(doctorReport.HasErrors ? "sherpa-banner-danger" : "sherpa-banner-warning") environment-banner">
             <i class="fa-solid fa-triangle-exclamation fa-fw"></i>
-            <div class="attention-content">
+            <div class="environment-banner-copy">
                 <strong>@GetHealthSummary()</strong>
                 <span>@string.Join(" · ", GetAttentionItems().Select(item => item.Name))</span>
             </div>
-            <a class="text-action" href="doctor">Review issues</a>
+            <a class="btn btn-ghost btn-sm" href="doctor">Review issues</a>
         </div>
     }
 </div>
@@ -77,15 +80,15 @@
         @foreach (var device in snapshot.AndroidDevices)
         {
             <div class="device-card">
-                <div class="device-card-icon platform-android">
+                <div class="sherpa-icon-well sherpa-icon-well-android">
                     <i class="fa-solid fa-mobile-screen-button"></i>
-                    <i class="fa-brands fa-android brand-overlay"></i>
+                    <span class="sherpa-brand-badge"><i class="fa-brands fa-android"></i></span>
                 </div>
                 <div class="device-card-info">
                     <div class="device-card-name">@(device.Model ?? device.Serial)</div>
                     <div class="device-card-detail">Android Device</div>
                 </div>
-                <button class="device-card-action" @onclick='() => DeviceInspector.OpenAsync(device.Serial, device.Model ?? device.Serial)' title="Inspect">
+                <button class="btn btn-ghost btn-icon btn-sm" @onclick='() => DeviceInspector.OpenAsync(device.Serial, device.Model ?? device.Serial)' title="Inspect" aria-label="Inspect @(device.Model ?? device.Serial)">
                     <i class="fa-solid fa-magnifying-glass fa-fw"></i>
                 </button>
             </div>
@@ -94,15 +97,15 @@
         @foreach (var emu in snapshot.AndroidEmulators)
         {
             <div class="device-card">
-                <div class="device-card-icon platform-android">
+                <div class="sherpa-icon-well sherpa-icon-well-android">
                     <i class="fa-solid fa-mobile-screen-button"></i>
-                    <i class="fa-brands fa-android brand-overlay"></i>
+                    <span class="sherpa-brand-badge"><i class="fa-brands fa-android"></i></span>
                 </div>
                 <div class="device-card-info">
                     <div class="device-card-name">@(emu.Model ?? emu.Serial)</div>
                     <div class="device-card-detail">Android Emulator</div>
                 </div>
-                <button class="device-card-action" @onclick='() => DeviceInspector.OpenAsync(emu.Serial, emu.Model ?? emu.Serial)' title="Inspect">
+                <button class="btn btn-ghost btn-icon btn-sm" @onclick='() => DeviceInspector.OpenAsync(emu.Serial, emu.Model ?? emu.Serial)' title="Inspect" aria-label="Inspect @(emu.Model ?? emu.Serial)">
                     <i class="fa-solid fa-magnifying-glass fa-fw"></i>
                 </button>
             </div>
@@ -111,15 +114,15 @@
         @foreach (var device in snapshot.ApplePhysicalDevices)
         {
             <div class="device-card">
-                <div class="device-card-icon platform-apple">
+                <div class="sherpa-icon-well sherpa-icon-well-apple">
                     <i class="fa-solid @GetAppleFormFactorIcon(device.Platform, device.Name)"></i>
-                    <i class="fa-brands fa-apple brand-overlay"></i>
+                    <span class="sherpa-brand-badge"><i class="fa-brands fa-apple"></i></span>
                 </div>
                 <div class="device-card-info">
                     <div class="device-card-name">@device.Name</div>
                     <div class="device-card-detail">@device.ModelName — @FriendlyPlatform(device.Platform) @device.OsVersion</div>
                 </div>
-                <button class="device-card-action" @onclick='() => SimInspector.OpenAsync(device.Identifier, device.Name, SimInspectorTab.Apps, isPhysicalDevice: true)' title="Inspect">
+                <button class="btn btn-ghost btn-icon btn-sm" @onclick='() => SimInspector.OpenAsync(device.Identifier, device.Name, SimInspectorTab.Apps, isPhysicalDevice: true)' title="Inspect" aria-label="Inspect @device.Name">
                     <i class="fa-solid fa-magnifying-glass fa-fw"></i>
                 </button>
             </div>
@@ -128,15 +131,15 @@
         @foreach (var sim in snapshot.BootedSimulators)
         {
             <div class="device-card">
-                <div class="device-card-icon platform-apple">
+                <div class="sherpa-icon-well sherpa-icon-well-apple">
                     <i class="fa-solid @GetAppleFormFactorIcon(sim.Platform, sim.Name)"></i>
-                    <i class="fa-brands fa-apple brand-overlay"></i>
+                    <span class="sherpa-brand-badge"><i class="fa-brands fa-apple"></i></span>
                 </div>
                 <div class="device-card-info">
                     <div class="device-card-name">@sim.Name</div>
                     <div class="device-card-detail">@FriendlyPlatform(sim.Platform) @sim.OsVersion</div>
                 </div>
-                <button class="device-card-action" @onclick='() => SimInspector.OpenAsync(sim.Identifier, sim.Name)' title="Inspect">
+                <button class="btn btn-ghost btn-icon btn-sm" @onclick='() => SimInspector.OpenAsync(sim.Identifier, sim.Name)' title="Inspect" aria-label="Inspect @sim.Name">
                     <i class="fa-solid fa-magnifying-glass fa-fw"></i>
                 </button>
             </div>
@@ -153,14 +156,6 @@
 </div>
 
 <style>
-    h1 {
-        margin-bottom: 0.375rem;
-        font-size: 1.75rem;
-        color: var(--text-primary);
-    }
-
-    h1 i { color: var(--text-muted); }
-
     .dashboard-header {
         display: flex;
         align-items: flex-start;
@@ -169,33 +164,33 @@
     }
 
     p.welcome {
-        margin-bottom: 1.5rem;
-        font-size: 1rem;
-        color: var(--text-muted);
+        margin: 2px 0 18px;
+        font-size: var(--font-size-sm);
+        color: var(--text-secondary);
     }
 
-    .environment-section { margin-bottom: 2rem; }
+    .environment-section { margin-bottom: var(--space-6); }
 
     .section-heading {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        gap: 1rem;
-        margin-bottom: 0.75rem;
+        gap: var(--space-4);
+        margin-bottom: var(--space-2);
     }
 
     .section-heading h2 {
         margin: 0;
         display: flex;
         align-items: center;
-        gap: 0.5rem;
+        gap: var(--space-1);
         color: var(--text-primary);
-        font-size: 1.125rem;
-        font-weight: 600;
+        font-size: var(--font-size-h2);
+        font-weight: 650;
     }
 
-    .section-heading h2 i { color: var(--text-muted); font-size: 0.9rem; }
-    .section-actions { display: flex; align-items: center; gap: 0.5rem; }
+    .section-heading h2 i { color: var(--text-muted); font-size: var(--font-size-md); }
+    .section-actions { display: flex; align-items: center; gap: var(--space-1); }
 
     .icon-action, .text-action {
         border: none;
@@ -222,157 +217,101 @@
     .environment-grid {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-        gap: 0.625rem;
+        gap: var(--space-2);
     }
 
     .environment-card {
         min-width: 0;
-        min-height: 112px;
-        padding: 1rem;
+        padding: 14px;
         background: var(--surface-card);
         border: 1px solid var(--border-subtle);
         border-radius: var(--radius-lg);
         overflow: hidden;
     }
 
-    .environment-card-header { display: flex; align-items: center; gap: 0.5rem; color: var(--text-muted); font-size: 0.75rem; font-weight: 600; }
-    .environment-icon {
-        width: 2rem;
-        height: 2rem;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        border-radius: var(--radius-md);
-        background: var(--accent-soft);
-        color: var(--accent);
-    }
-    .environment-label { flex: 1; color: var(--text-primary); }
-    .environment-status { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.7rem; color: var(--text-secondary); }
-    .environment-card-value { margin-top: 0.55rem; color: var(--text-primary); font-size: 1.1rem; font-weight: 650; }
-    .environment-card-detail { margin-top: 0.25rem; color: var(--text-muted); font-size: 0.72rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-    .attention-summary, .environment-error {
+    .environment-card-header {
         display: flex;
         align-items: center;
-        gap: 0.5rem;
-        margin-top: 0.625rem;
-        padding: 0.625rem 0.75rem;
-        border-radius: var(--radius-md);
+        gap: var(--space-2);
+    }
+    .environment-label {
+        flex: 1;
         color: var(--text-secondary);
-        background: var(--surface-well);
-        border: 1px solid var(--border-hairline);
-        font-size: 0.8rem;
+        font-size: var(--font-size-sm);
+        font-weight: 600;
+    }
+    .environment-card-value {
+        margin-top: 10px;
+        color: var(--text-primary);
+        font-size: 16px;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: -0.015em;
+    }
+    .environment-card-detail {
+        margin-top: 2px;
+        overflow: hidden;
+        color: var(--text-muted);
+        font-size: var(--font-size-xs);
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
 
-    .attention-content, .environment-error > span { flex: 1; min-width: 0; }
-    .attention-content { display: flex; flex-direction: column; gap: 0.15rem; }
-    .attention-content strong { color: var(--text-primary); font-size: 0.8rem; }
-    .attention-content span { overflow: hidden; color: var(--text-muted); text-overflow: ellipsis; white-space: nowrap; }
-    .attention-summary > i { color: var(--accent-warning); }
-    .environment-error > i { color: var(--accent-danger); }
-
-    .quick-actions {
-        display: flex;
-        gap: 0.75rem;
-        margin-bottom: 2rem;
-    }
-
-    .action-btn {
+    .environment-banner {
         display: flex;
         align-items: center;
-        gap: 0.625rem;
-        padding: 0.75rem 1.25rem;
-        background: var(--surface-card);
-        border: 1px solid var(--border-subtle);
-        border-radius: var(--radius-lg);
-        text-decoration: none;
-        color: var(--text-primary);
-        font-size: inherit;
-        font-weight: 500;
-        transition: all 0.2s ease;
-        cursor: pointer;
+        margin-top: var(--space-2);
     }
 
-    .action-btn:hover {
-        background: var(--bg-hover);
-        border-color: var(--text-muted);
-        transform: translateY(-1px);
+    .environment-banner-copy {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        min-width: 0;
+        gap: 1px;
     }
-
-    .action-icon { font-size: 1rem; opacity: 0.8; }
+    .environment-banner-copy strong { font-size: var(--font-size-sm); }
+    .environment-banner-copy span {
+        overflow: hidden;
+        font-size: var(--font-size-xs);
+        opacity: 0.86;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
 
     /* Connected Devices */
-    .devices-section {
-        margin-bottom: 2rem;
-    }
+    .devices-section { margin-bottom: var(--space-6); }
 
     .devices-section h2 {
-        font-size: 1.125rem;
-        font-weight: 600;
-        color: var(--text-primary);
-        margin-bottom: 0.75rem;
         display: flex;
         align-items: center;
-        gap: 0.5rem;
+        gap: var(--space-1);
+        margin: 0 0 var(--space-2);
+        color: var(--text-primary);
+        font-size: var(--font-size-h2);
+        font-weight: 650;
     }
 
     .devices-section h2 i {
         color: var(--text-muted);
-        font-size: 0.9rem;
+        font-size: var(--font-size-md);
     }
 
     .devices-grid {
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-        gap: 0.625rem;
+        gap: var(--space-2);
     }
 
     .device-card {
         display: flex;
         align-items: center;
-        gap: 0.75rem;
-        padding: 0.75rem 1rem;
+        gap: var(--space-3);
+        min-width: 0;
+        padding: 10px 14px;
         background: var(--surface-card);
         border: 1px solid var(--border-subtle);
         border-radius: var(--radius-lg);
-        transition: border-color 0.15s;
-    }
-
-    .device-card-icon {
-        width: 36px;
-        height: 36px;
-        border-radius: var(--radius-md);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 1rem;
-        flex-shrink: 0;
-        position: relative;
-    }
-
-    .device-card-icon .brand-overlay {
-        position: absolute;
-        bottom: 2px;
-        right: 2px;
-        font-size: 0.55rem;
-        color: var(--text-muted);
-        opacity: 1;
-        line-height: 1;
-    }
-
-    .device-card-icon.platform-android {
-        background: var(--status-success-bg);
-        color: var(--status-success-fg);
-    }
-
-    .device-card-icon.platform-apple {
-        background: var(--accent-soft);
-        color: var(--accent);
-    }
-
-    .device-card-icon.platform-windows {
-        background: var(--status-info-bg);
-        color: var(--status-info-fg);
     }
 
     .device-card-info {
@@ -381,8 +320,8 @@
     }
 
     .device-card-name {
-        font-size: 0.875rem;
-        font-weight: 500;
+        font-size: var(--font-size-md);
+        font-weight: 600;
         color: var(--text-primary);
         white-space: nowrap;
         overflow: hidden;
@@ -390,40 +329,21 @@
     }
 
     .device-card-detail {
-        font-size: 0.75rem;
+        overflow: hidden;
         color: var(--text-muted);
-    }
-
-    .device-card-action {
-        width: 30px;
-        height: 30px;
-        border-radius: var(--radius-md);
-        border: none;
-        background: transparent;
-        color: var(--text-muted);
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 0.75rem;
-        flex-shrink: 0;
-        transition: all 0.15s;
-    }
-
-    .device-card-action:hover {
-        background: var(--accent-primary);
-        border-color: var(--accent-primary);
-        color: white;
+        font-size: var(--font-size-xs);
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
 
     .devices-empty {
         grid-column: 1 / -1;
         display: flex;
         align-items: center;
-        gap: 0.625rem;
-        padding: 1.25rem;
+        gap: var(--space-2);
+        padding: 14px;
         color: var(--text-muted);
-        font-size: 0.875rem;
+        font-size: var(--font-size-sm);
         background: var(--surface-well);
         border: 1px solid var(--border-hairline);
         border-radius: var(--radius-lg);
@@ -487,11 +407,11 @@
         }
     }
 
-    private RenderFragment EnvironmentCard(string icon, string label, string value, string detail, DependencyStatusType? status) => @<div class="environment-card @GetStatusClass(status)" title="@detail">
+    private RenderFragment EnvironmentCard(string icon, string label, string value, string detail, DependencyStatusType? status) => @<div class="environment-card" title="@detail">
             <div class="environment-card-header">
-                <span class="environment-icon"><i class="@($"{icon} fa-fw")"></i></span>
+                <span class="sherpa-icon-well sherpa-icon-well-sm @GetIconWellClass(label)"><i class="@($"{icon} fa-fw")"></i></span>
                 <span class="environment-label">@label</span>
-                <span class="environment-status">
+                <span class="sherpa-badge @GetStatusBadgeClass(status)">
                     <span class="sherpa-dot @GetStatusDotClass(status)" aria-hidden="true"></span>
                     <span>@GetStatusLabel(status)</span>
                 </span>
@@ -540,12 +460,21 @@
         return DependencyStatusType.Ok;
     }
 
-    private string GetStatusClass(DependencyStatusType? status) => status switch
+    private static string GetIconWellClass(string label) => label switch
     {
-        DependencyStatusType.Error => "status-error",
-        DependencyStatusType.Warning => "status-warning",
-        DependencyStatusType.Ok or DependencyStatusType.Info => "status-ok",
-        _ => "status-loading"
+        ".NET" => "sherpa-icon-well-accent",
+        "Xcode" => "sherpa-icon-well-apple",
+        "JDK" => "sherpa-icon-well-java",
+        "Android SDK" => "sherpa-icon-well-android",
+        _ => "sherpa-icon-well-neutral"
+    };
+
+    private string GetStatusBadgeClass(DependencyStatusType? status) => status switch
+    {
+        DependencyStatusType.Error => "sherpa-badge-danger",
+        DependencyStatusType.Warning => "sherpa-badge-warning",
+        DependencyStatusType.Ok or DependencyStatusType.Info => "sherpa-badge-success",
+        _ => "sherpa-badge-neutral"
     };
 
     private string GetStatusDotClass(DependencyStatusType? status) => status switch
@@ -558,9 +487,9 @@
 
     private string GetStatusLabel(DependencyStatusType? status) => status switch
     {
-        DependencyStatusType.Error => "Needs attention",
+        DependencyStatusType.Error => "Error",
         DependencyStatusType.Warning => "Warning",
-        DependencyStatusType.Ok or DependencyStatusType.Info => "Ready",
+        DependencyStatusType.Ok or DependencyStatusType.Info => "Healthy",
         _ => "Checking"
     };
 

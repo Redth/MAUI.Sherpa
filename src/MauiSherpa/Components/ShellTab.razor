@@ -6,23 +6,31 @@
 @implements IDisposable
 
 <div class="shell-tab">
-    <div class="shell-toolbar">
-        <button class="btn btn-sm btn-secondary" @onclick="ClearTerminal" title="Clear">
-            <i class="fa-solid fa-trash-alt"></i> Clear
-        </button>
-        <button class="btn btn-sm btn-secondary" @onclick="RestartShell" title="Restart shell">
-            <i class="fa-solid fa-redo"></i> Restart
-        </button>
-        @if (!ShellService.IsRunning)
-        {
-            <span class="shell-status disconnected"><i class="fa-solid fa-circle"></i> Disconnected</span>
-        }
-        else
-        {
-            <span class="shell-status connected"><i class="fa-solid fa-circle"></i> Connected</span>
-        }
+    <div class="shell-console sherpa-console">
+        <div class="shell-toolbar sherpa-console-header">
+            <div class="shell-console-title">
+                <i class="fa-solid fa-terminal fa-fw" aria-hidden="true"></i>
+                <span>Interactive shell</span>
+                @if (!ShellService.IsRunning)
+                {
+                    <span class="shell-status disconnected"><span class="sherpa-dot sherpa-dot-danger"></span> Disconnected</span>
+                }
+                else
+                {
+                    <span class="shell-status connected"><span class="sherpa-dot sherpa-dot-success"></span> Connected</span>
+                }
+            </div>
+            <div class="shell-toolbar-actions">
+                <button class="btn btn-sm btn-ghost" @onclick="ClearTerminal" title="Clear terminal">
+                    <i class="fa-solid fa-trash-can fa-fw" aria-hidden="true"></i> Clear
+                </button>
+                <button class="btn btn-sm btn-ghost" @onclick="RestartShell" title="Restart shell">
+                    <i class="fa-solid fa-rotate-right fa-fw" aria-hidden="true"></i> Restart
+                </button>
+            </div>
+        </div>
+        <div id="@terminalId" class="shell-terminal-container sherpa-console-body"></div>
     </div>
-    <div id="@terminalId" class="shell-terminal-container"></div>
 </div>
 
 <style>
@@ -30,39 +38,40 @@
         display: flex;
         flex-direction: column;
         height: 100%;
+        min-height: 0;
+        padding: var(--space-2);
     }
-    .shell-tab .btn { padding: 0.375rem 0.875rem; border: none; border-radius: var(--radius-sm); font-size: 0.75rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3125rem; transition: all 0.15s; }
-    .shell-tab .btn i { font-size: 0.6875rem; }
-    .shell-tab .btn-sm { padding: 0.25rem 0.5rem; font-size: 0.6875rem; }
-    .shell-tab .btn-secondary { background: var(--surface-control); color: var(--text-secondary); border: none; }
-    .shell-tab .btn-success { background: var(--status-success-fg); color: var(--status-success-ink); }
-    .shell-tab .btn:hover:not(:disabled) { filter: brightness(1.1); }
-    .shell-tab .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .shell-console { flex: 1; min-height: 0; }
     .shell-toolbar {
+        color: var(--console-muted);
+    }
+    .shell-console-title,
+    .shell-toolbar-actions {
         display: flex;
         align-items: center;
-        gap: 0.5rem;
-        padding: 0.25rem 0.5rem;
-        background: var(--surface-well);
-        border-bottom: 1px solid var(--border-subtle);
-        flex-shrink: 0;
+        gap: var(--space-2);
     }
     .shell-status {
-        font-size: 0.6875rem;
+        margin-inline-start: var(--space-1);
         display: flex;
         align-items: center;
-        gap: 0.25rem;
-        margin-left: auto;
+        gap: var(--space-1);
+        font-size: var(--font-size-xs);
+        font-weight: 500;
     }
     .shell-status.connected { color: var(--status-success-fg); }
-    .shell-status.connected i { font-size: 0.4375rem; }
     .shell-status.disconnected { color: var(--status-error-fg); }
-    .shell-status.disconnected i { font-size: 0.4375rem; }
     .shell-terminal-container {
         flex: 1;
-        overflow: hidden;
+        min-height: 0;
+        overflow: auto;
+        overscroll-behavior: contain;
         background: var(--surface-console);
-        padding: 0.5rem;
+    }
+
+    @@media (max-width: 560px) {
+        .shell-toolbar { align-items: flex-start; flex-direction: column; }
+        .shell-toolbar-actions { width: 100%; }
     }
 </style>
 

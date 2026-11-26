@@ -77,7 +77,7 @@
             Showing @FilteredBundleIds.Count() of @bundleIds.Count bundle IDs
         </div>
 
-        <div class="bundle-list">
+        <div class="bundle-list sherpa-list">
         
         @if (bundleIds.Count == 0 && isRefreshing)
         {
@@ -102,24 +102,27 @@
             @foreach (var bundle in FilteredBundleIds)
             {
                 var capabilities = GetCapabilities(bundle.Id);
-                <div class="bundle-card">
-                    <div class="bundle-details">
-                        <div class="bundle-identifier">
-                            <span>@bundle.Identifier</span>
-                            <button class="btn-copy" @onclick="@(() => CopyToClipboard(bundle.Identifier))" title="Copy to clipboard">
-                                <i class="fa-solid fa-copy"></i>
-                            </button>
-                        </div>
-                        <div class="bundle-name"><span>@bundle.Name</span></div>
-                        <div class="bundle-badges">
-                            <span class="badge badge-platform">@FormatPlatform(bundle.Platform)</span>
+                <div class="bundle-card sherpa-list-row">
+                    <div class="bundle-icon sherpa-icon-well sherpa-icon-well-apple">
+                        <i class="fa-solid fa-fingerprint"></i>
+                        <span class="sherpa-brand-badge"><i class="fa-brands fa-apple"></i></span>
+                    </div>
+                    <div class="bundle-details sherpa-row-stack">
+                        <div class="bundle-name sherpa-row-title">
+                            <span>@bundle.Name</span>
+                            <span class="sherpa-badge sherpa-badge-neutral">@FormatPlatform(bundle.Platform)</span>
                             @if (!string.IsNullOrEmpty(bundle.SeedId))
                             {
-                                <span class="badge badge-seed">
+                                <span class="sherpa-badge sherpa-badge-neutral">
                                     <span class="badge-seed-value @(demoMode ? "demo-blur" : "")">@bundle.SeedId</span>
                                 </span>
                             }
                         </div>
+                        <div class="bundle-identifier sherpa-row-sub mono">
+                            <span>Bundle ID: @bundle.Identifier</span>
+                            <button class="btn btn-ghost btn-icon btn-sm btn-copy" @onclick="@(() => CopyToClipboard(bundle.Identifier))" title="Copy Bundle ID" aria-label="@($"Copy bundle identifier for {bundle.Name}")">
+                                <i class="fa-regular fa-copy"></i>
+                            </button>
                         @if (capabilities.Any())
                         {
                             <div class="bundle-capabilities">
@@ -135,12 +138,13 @@
                                 }
                             </div>
                         }
+                        </div>
                     </div>
-                    <div class="bundle-actions">
-                        <button data-screenshot-external class="btn btn-secondary btn-icon" @onclick="@(() => ShowEditCapabilitiesDialog(bundle))" disabled="@isRefreshing" title="Capabilities">
+                    <div class="bundle-actions sherpa-row-actions">
+                        <button data-screenshot-external class="btn btn-secondary btn-icon btn-sm" @onclick="@(() => ShowEditCapabilitiesDialog(bundle))" disabled="@isRefreshing" title="Capabilities">
                             <i class="fa-solid fa-puzzle-piece"></i>
                         </button>
-                        <button data-screenshot-external class="btn btn-danger btn-icon" @onclick="@(() => DeleteBundle(bundle))" disabled="@isRefreshing" title="Delete">
+                        <button data-screenshot-external class="btn btn-ghost-danger btn-icon btn-sm" @onclick="@(() => DeleteBundle(bundle))" disabled="@isRefreshing" title="Delete">
                             <i class="fa-solid fa-trash"></i>
                         </button>
                     </div>
@@ -153,18 +157,17 @@
 
 
 <style>
-    h1 { margin-bottom: 1.25rem; font-size: 1.75rem; color: var(--text-primary); }
-
     .toolbar { margin-bottom: 1rem; display: flex; gap: 0.75rem; }
     .error-bar { background: var(--status-error-bg); color: var(--status-error-text); padding: 0.75rem 1rem; border: 1px solid var(--status-error-border); border-radius: var(--radius-lg); margin-bottom: 1rem; }
 
     /* Filter Section Styles */
     .filter-section {
-        background: var(--card-bg);
-        border-radius: var(--card-radius);
-        padding: 1rem;
+        background: var(--surface-card);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
+        padding: 10px 14px;
         margin-bottom: 1rem;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        box-shadow: none;
         display: flex;
         flex-wrap: wrap;
         gap: 0.75rem;
@@ -172,54 +175,44 @@
     }
 
     .search-box {
-        position: relative;
         flex: 1;
         min-width: 200px;
     }
 
     .search-box input {
         width: 100%;
-        padding: 0.625rem 36px 0.625rem 36px;
-        border: 1px solid var(--border-color);
-        border-radius: 0.375rem;
-        font-size: 0.875rem;
+        padding: 0;
+        border: 0;
+        background: transparent;
         box-sizing: border-box;
     }
 
     .search-box input:focus {
         outline: none;
-        border-color: var(--accent-primary);
-        box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.15);
+        box-shadow: none;
     }
 
     .search-icon {
-        position: absolute;
-        left: 0.75rem;
-        top: 50%;
-        transform: translateY(-50%);
         font-size: 0.875rem;
         opacity: 0.5;
     }
 
     .clear-btn {
-        position: absolute;
-        right: 0.5rem;
-        top: 50%;
-        transform: translateY(-50%);
-        background: var(--border-color);
-        border: none;
-        border-radius: 50%;
-        width: 1.25rem;
-        height: 1.25rem;
-        font-size: 0.875rem;
-        cursor: pointer;
-        display: flex;
+        display: inline-flex;
         align-items: center;
         justify-content: center;
+        width: 20px;
+        height: 20px;
+        padding: 0;
+        background: transparent;
+        border: none;
+        border-radius: var(--radius-sm);
+        font-size: 0.875rem;
+        cursor: pointer;
         color: var(--text-muted);
     }
 
-    .clear-btn:hover { background: var(--bg-hover); }
+    .clear-btn:hover { background: var(--surface-card-hover); }
 
     .filter-chips { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 
@@ -237,53 +230,28 @@
 
     .clear-filters-btn:hover { background: var(--bg-tertiary); color: var(--text-secondary); }
 
-    .results-info { font-size: 0.8125rem; color: var(--text-muted); margin-bottom: 0.75rem; }
-    .btn i { font-size: 0.75rem; }
-    .btn-icon {
-        width: 2rem; height: 2rem; padding: 0;
-        display: inline-flex; align-items: center; justify-content: center;
-        border-radius: 0.375rem; font-size: 0.8125rem;
-    }
-    .btn-icon i { font-size: 0.8125rem; margin: 0; }
+    .results-info { font-size: var(--font-size-xs); color: var(--text-muted); margin: 0 0 8px; }
 
-    .bundle-list { display: flex; flex-direction: column; gap: 0.75rem; }
+    .bundle-list { margin-bottom: 1.25rem; }
 
     .bundle-card {
-        background: var(--card-bg);
-        border: 1px solid var(--border-subtle);
-        border-radius: var(--radius-lg);
-        padding: 0.875rem;
-        display: flex;
-        justify-content: space-between;
         align-items: center;
+        background: transparent;
+        border: 0;
+        border-radius: 0;
+        box-shadow: none;
     }
 
-    .bundle-identifier { 
-        font-weight: 600; 
-        font-size: 1rem; 
-        color: var(--text-primary); 
-        font-family: monospace;
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-    }
-    .bundle-name { color: var(--text-muted); font-size: 0.875rem; margin-top: 0.25rem; }
-    .bundle-badges { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+    .bundle-details { min-width: 0; }
+    .bundle-name { display: flex; align-items: center; gap: 6px; }
+    .bundle-identifier { display: flex; align-items: center; gap: 6px; }
 
     .btn-copy {
-        background: none;
-        border: none;
-        color: var(--text-muted);
-        cursor: pointer;
-        padding: 2px 0.375rem;
-        font-size: 0.75rem;
-        border-radius: 0.25rem;
-        transition: all 0.15s;
+        width: 20px;
+        min-width: 20px;
+        height: 20px;
+        min-height: 20px;
         flex-shrink: 0;
-    }
-    .btn-copy:hover {
-        color: var(--accent-primary);
-        background: var(--bg-hover);
     }
 
     .badge { padding: 2px 0.625rem; border-radius: var(--radius-pill); font-size: 0.75rem; font-weight: 500; }
@@ -303,22 +271,19 @@
 
     /* Capability badges in bundle cards */
     .bundle-capabilities {
-        display: flex;
+        display: inline-flex;
         gap: 0.375rem;
-        margin-top: 0.625rem;
         flex-wrap: wrap;
         align-items: center;
     }
     .capability-badge {
-        display: flex;
+        display: inline-flex;
         align-items: center;
         justify-content: center;
-        width: 28px;
-        height: 28px;
-        background: var(--accent-soft);
-        border-radius: var(--radius-sm);
-        color: var(--accent);
-        font-size: 0.75rem;
+        width: 20px;
+        height: 20px;
+        color: var(--text-muted);
+        font-size: 0.6875rem;
     }
     .capability-more {
         font-size: 0.75rem;

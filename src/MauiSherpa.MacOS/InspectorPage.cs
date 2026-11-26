@@ -13,6 +13,7 @@ public class InspectorPage : ContentPage
     public InspectorPage(string startPath, string title, Type? rootComponentType = null)
     {
         Title = title;
+        this.SetDynamicResource(BackgroundColorProperty, MauiSherpa.Pages.Forms.FormTheme.PageBg);
 
         var blazorWebView = new MacOSBlazorWebView
         {

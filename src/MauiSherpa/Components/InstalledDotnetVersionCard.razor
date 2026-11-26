@@ -12,15 +12,15 @@
 
                 @if (!string.IsNullOrWhiteSpace(NewestSdkVersion))
                 {
-                    <span class="installed-dotnet-version-card__summary-chip installed-dotnet-version-card__summary-chip--sdk"
+                    <span class="installed-dotnet-version-card__summary-chip installed-dotnet-version-card__summary-chip--sdk sherpa-badge sherpa-badge-accent"
                           title="Newest installed SDK patch">
                         <i class="fa-solid fa-toolbox fa-fw" aria-hidden="true"></i>
-                        <span class="mono">SDK @NewestSdkVersion</span>
+                        <span class="mono">@NewestSdkVersion</span>
                     </span>
                 }
                 else
                 {
-                    <span class="installed-dotnet-version-card__summary-chip installed-dotnet-version-card__summary-chip--muted">
+                    <span class="installed-dotnet-version-card__summary-chip installed-dotnet-version-card__summary-chip--muted sherpa-badge sherpa-badge-neutral">
                         <i class="fa-solid fa-gears fa-fw" aria-hidden="true"></i>
                         <span>runtime only</span>
                     </span>
@@ -28,7 +28,7 @@
 
                 @if (InvalidCount > 0)
                 {
-                    <span class="badge badge-warning installed-dotnet-version-card__invalid-badge"
+                    <span class="sherpa-badge sherpa-badge-warning installed-dotnet-version-card__invalid-badge"
                           title="@InvalidCount invalid installation@(InvalidCount == 1 ? string.Empty : "s")">
                         <i class="fa-solid fa-triangle-exclamation fa-fw" aria-hidden="true"></i>
                         <span>@InvalidCount invalid</span>
@@ -45,18 +45,11 @@
                     </span>
                 }
 
-                <span class="installed-dotnet-version-card__count-pill">
-                    <strong>@SdkCount</strong>
-                    <span>SDK@(SdkCount == 1 ? string.Empty : "s")</span>
-                </span>
-                <span class="installed-dotnet-version-card__count-pill">
-                    <strong>@RuntimeCount</strong>
-                    <span>runtime@(RuntimeCount == 1 ? string.Empty : "s")</span>
-                </span>
-                <span class="installed-dotnet-version-card__count-pill">
-                    <strong>@WorkloadBandCount</strong>
-                    <span>workload band@(WorkloadBandCount == 1 ? string.Empty : "s")</span>
-                </span>
+                <span><strong>@SdkCount</strong> SDK@(SdkCount == 1 ? string.Empty : "s")</span>
+                <span aria-hidden="true">·</span>
+                <span><strong>@RuntimeCount</strong> runtime@(RuntimeCount == 1 ? string.Empty : "s")</span>
+                <span aria-hidden="true">·</span>
+                <span><strong>@WorkloadBandCount</strong> workload band@(WorkloadBandCount == 1 ? string.Empty : "s")</span>
             </div>
         </div>
 
@@ -67,7 +60,7 @@
 
     @if (expanded)
     {
-        <div id="@bodyId" class="installed-dotnet-version-card__body">
+        <div id="@bodyId" class="installed-dotnet-version-card__body sherpa-accordion-body">
             @if (Loading && Installations.Count == 0)
             {
                 <div class="installed-dotnet-version-card__state">
@@ -86,10 +79,10 @@
             {
                 @foreach (var installation in OrderedInstallations)
                 {
-                    <div class="installed-dotnet-version-card__item" @key="ItemKey(installation)">
+                    <div class="installed-dotnet-version-card__item sherpa-nested-row" @key="ItemKey(installation)">
                         <div class="installed-dotnet-version-card__item-main">
                             <div class="installed-dotnet-version-card__item-line">
-                                <span class="badge @ComponentBadgeClass(installation.Component)">@ComponentShort(installation.Component)</span>
+                                <span class="sherpa-badge @ComponentBadgeClass(installation.Component)">@ComponentShort(installation.Component)</span>
                                 <span class="installed-dotnet-version-card__item-version mono">@installation.Version</span>
                                 <span class="installed-dotnet-version-card__item-name">@ComponentDisplay(installation.Component)</span>
                             </div>
@@ -104,7 +97,7 @@
 
                                     @if (!installation.IsValid)
                                     {
-                                        <span class="badge badge-warning">
+                                        <span class="sherpa-badge sherpa-badge-warning">
                                             <i class="fa-solid fa-triangle-exclamation fa-fw" aria-hidden="true"></i>
                                             <span>invalid</span>
                                         </span>
@@ -154,17 +147,6 @@
         overflow: hidden;
     }
 
-    .installed-dotnet-version-card .badge {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.3rem;
-        padding: 2px 0.5rem;
-        border-radius: var(--radius-pill);
-        font-size: 0.68rem;
-        font-weight: 600;
-        white-space: nowrap;
-    }
-
     .installed-dotnet-version-card__toggle {
         width: 100%;
         border: 0;
@@ -174,7 +156,7 @@
         align-items: center;
         justify-content: space-between;
         gap: 1rem;
-        padding: 0.9rem 1rem;
+        padding: var(--row-padding-y) var(--row-padding-x);
         font: inherit;
         text-align: left;
         cursor: pointer;
@@ -185,7 +167,7 @@
     }
 
     .installed-dotnet-version-card__toggle:focus-visible {
-        outline: 2px solid var(--accent-primary);
+        outline: 2px solid var(--accent);
         outline-offset: -2px;
     }
 
@@ -194,7 +176,7 @@
         flex: 1;
         display: flex;
         flex-direction: column;
-        gap: 0.45rem;
+        gap: 3px;
     }
 
     .installed-dotnet-version-card__title-row,
@@ -202,8 +184,10 @@
         display: flex;
         align-items: center;
         flex-wrap: wrap;
-        gap: 0.5rem;
+        gap: 5px;
         min-width: 0;
+        color: var(--text-muted);
+        font-size: var(--font-size-xs);
     }
 
     .installed-dotnet-version-card__title {
@@ -212,30 +196,17 @@
         font-weight: 700;
     }
 
-    .installed-dotnet-version-card__summary-chip,
-    .installed-dotnet-version-card__count-pill {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.35rem;
-        padding: 0.2rem 0.55rem;
-        border-radius: var(--radius-pill);
-        background: var(--surface-well);
-        color: var(--text-secondary);
-        font-size: 0.72rem;
-        white-space: nowrap;
-    }
-
     .installed-dotnet-version-card__summary-chip--sdk {
-        color: var(--text-primary);
+        color: var(--accent);
     }
 
     .installed-dotnet-version-card__summary-chip--muted {
         opacity: 0.85;
     }
 
-    .installed-dotnet-version-card__count-pill strong {
+    .installed-dotnet-version-card__meta-row strong {
         color: var(--text-primary);
-        font-size: 0.78rem;
+        font-weight: 600;
     }
 
     .installed-dotnet-version-card__invalid-badge {
@@ -266,8 +237,6 @@
 
     .installed-dotnet-version-card__body {
         padding: 0;
-        border-top: 1px solid var(--border-hairline);
-        background: var(--surface-well);
     }
 
     .installed-dotnet-version-card__state {
@@ -281,16 +250,12 @@
     }
 
     .installed-dotnet-version-card__item {
-        display: flex;
-        align-items: center;
         justify-content: space-between;
-        gap: 0.75rem;
-        padding: 0.65rem 1rem;
-        background: var(--surface-well);
+        background: transparent;
     }
 
-    .installed-dotnet-version-card__item + .installed-dotnet-version-card__item {
-        border-top: 1px solid var(--border-hairline);
+    .installed-dotnet-version-card__item + .installed-dotnet-version-card__item::before {
+        inset-inline: 40px var(--row-padding-x);
     }
 
     .installed-dotnet-version-card__item-main {
@@ -335,6 +300,7 @@
 
     .installed-dotnet-version-card__workloads {
         margin-top: 0;
+        border-top: 1px solid var(--border-hairline);
     }
 
     @@media (max-width: 900px) {

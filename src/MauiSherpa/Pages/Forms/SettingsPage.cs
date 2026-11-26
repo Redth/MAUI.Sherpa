@@ -28,6 +28,7 @@ public class SettingsPage : ContentPage, INativeModalDismissible
     public SettingsPage(HybridFormBridgeHolder bridgeHolder)
     {
         _bridgeHolder = bridgeHolder;
+        this.SetDynamicResource(BackgroundColorProperty, FormTheme.PageBg);
 
 #if MACOSAPP
         MacOSPage.SetModalSheetWidth(this, 800);
@@ -75,11 +76,9 @@ public class SettingsPage : ContentPage, INativeModalDismissible
             Text = "Settings",
             FontSize = 18,
             FontAttributes = FontAttributes.Bold,
-            Margin = new Thickness(28, 24, 28, 12),
+            Margin = new Thickness(24, 18, 24, 12),
         };
-#if WINDOWS
         titleLabel.SetDynamicResource(Label.TextColorProperty, FormTheme.TextPrimary);
-#endif
 
         // Header separator
         var headerSeparator = new BoxView { HeightRequest = 1 };
@@ -131,9 +130,9 @@ public class SettingsPage : ContentPage, INativeModalDismissible
             FontSize = 13,
             BackgroundColor = Colors.Transparent,
             BorderWidth = 0,
-            CornerRadius = 5,
+            CornerRadius = FormTheme.ControlCornerRadius,
             Padding = new Thickness(14, 4),
-            HeightRequest = 30,
+            HeightRequest = FormTheme.ActionButtonHeight,
         };
         resetButton.SetDynamicResource(Button.TextColorProperty, FormTheme.TextMuted);
         resetButton.Clicked += async (_, _) => await _bridge.RequestActionAsync("reset");
@@ -144,9 +143,9 @@ public class SettingsPage : ContentPage, INativeModalDismissible
             FontSize = 13,
             BackgroundColor = Colors.Transparent,
             BorderWidth = 0,
-            CornerRadius = 5,
+            CornerRadius = FormTheme.ControlCornerRadius,
             Padding = new Thickness(14, 4),
-            HeightRequest = 30,
+            HeightRequest = FormTheme.ActionButtonHeight,
         };
         cancelButton.SetDynamicResource(Button.TextColorProperty, FormTheme.AccentPrimary);
         cancelButton.Clicked += (_, _) => Complete(false);
@@ -156,12 +155,12 @@ public class SettingsPage : ContentPage, INativeModalDismissible
             Text = "Save",
             FontSize = 13,
             FontAttributes = FontAttributes.Bold,
-            TextColor = Colors.White,
-            CornerRadius = 5,
+            CornerRadius = FormTheme.ControlCornerRadius,
             Padding = new Thickness(14, 4),
-            HeightRequest = 30,
+            HeightRequest = FormTheme.ActionButtonHeight,
         };
         saveButton.SetDynamicResource(Button.BackgroundColorProperty, FormTheme.AccentPrimary);
+        saveButton.SetDynamicResource(Button.TextColorProperty, FormTheme.AccentPrimaryText);
         saveButton.Clicked += async (_, _) => await _bridge.RequestActionAsync("save");
 
         var footerLayout = new Grid
@@ -173,7 +172,7 @@ public class SettingsPage : ContentPage, INativeModalDismissible
                 new ColumnDefinition(GridLength.Auto),
                 new ColumnDefinition(GridLength.Auto),
             },
-            Margin = new Thickness(28, 12, 28, 24),
+            Margin = new Thickness(24, 12, 24, 18),
             ColumnSpacing = 12,
         };
         Grid.SetColumn(resetButton, 0);
@@ -197,9 +196,7 @@ public class SettingsPage : ContentPage, INativeModalDismissible
             RowSpacing = 0,
             VerticalOptions = LayoutOptions.Fill,
         };
-#if WINDOWS
         grid.SetDynamicResource(Grid.BackgroundColorProperty, FormTheme.PageBg);
-#endif
 
         Grid.SetRow(titleLabel, 0);
         Grid.SetRow(headerSeparator, 1);

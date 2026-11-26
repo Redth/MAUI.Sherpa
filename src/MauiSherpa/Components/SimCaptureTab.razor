@@ -10,20 +10,20 @@
 <div class="sim-capture-tab">
     <div class="sim-capture-toolbar">
         <button class="btn btn-sm btn-primary" @onclick="TakeScreenshot" disabled="@isCapturing">
-            <i class="fa-solid @(isCapturing ? "fa-spinner fa-spin" : "fa-camera")"></i> Screenshot
+            <i class="fa-solid @(isCapturing ? "fa-spinner fa-spin" : "fa-camera") fa-fw" aria-hidden="true"></i> Screenshot
         </button>
         <button class="btn btn-sm btn-secondary" @onclick="OpenDataFolder" title="Reveal simulator data folder in Finder">
-            <i class="fa-solid fa-folder-open"></i> Data Folder
+            <i class="fa-solid fa-folder-open fa-fw" aria-hidden="true"></i> Data Folder
         </button>
     </div>
 
     <div class="sim-capture-content">
         @if (captures.Count == 0 && !isCapturing)
         {
-            <div class="sim-capture-empty">
-                <i class="fa-solid fa-camera"></i>
-                <span>No captures yet</span>
-                <span class="sim-capture-hint">Click "Screenshot" to capture the simulator screen</span>
+            <div class="empty-state">
+                <span class="sherpa-icon-well sherpa-icon-well-accent"><i class="fa-solid fa-camera fa-fw" aria-hidden="true"></i></span>
+                <div class="empty-title">No captures yet</div>
+                <div class="empty-description">Click Screenshot to capture the simulator screen.</div>
             </div>
         }
         else
@@ -31,18 +31,20 @@
             <div class="sim-capture-grid">
                 @foreach (var capture in captures.AsEnumerable().Reverse())
                 {
-                    <div class="sim-capture-card">
+                    <div class="sim-capture-card sherpa-card">
                         <div class="sim-capture-preview" @onclick="@(() => RevealCapture(capture))">
                             <img src="@GetImageDataUri(capture)" alt="Screenshot" />
                         </div>
                         <div class="sim-capture-info">
-                            <span class="sim-capture-time">@capture.Timestamp.ToString("HH:mm:ss")</span>
+                            <span class="sim-capture-time sherpa-meta-value mono">@capture.Timestamp.ToString("HH:mm:ss")</span>
                             <div class="sim-capture-card-actions">
-                                <button class="btn btn-sm btn-secondary" @onclick="@(() => SaveCapture(capture))" title="Save as...">
-                                    <i class="fa-solid fa-save"></i>
+                                <button class="btn btn-sm btn-secondary btn-icon" @onclick="@(() => SaveCapture(capture))"
+                                        title="Save as..." aria-label="Save screenshot as">
+                                    <i class="fa-solid fa-floppy-disk fa-fw" aria-hidden="true"></i>
                                 </button>
-                                <button class="btn btn-sm btn-secondary" @onclick="@(() => RevealCapture(capture))" title="Reveal in Finder">
-                                    <i class="fa-solid fa-external-link-alt"></i>
+                                <button class="btn btn-sm btn-ghost btn-icon" @onclick="@(() => RevealCapture(capture))"
+                                        title="Reveal in Finder" aria-label="Reveal screenshot in Finder">
+                                    <i class="fa-solid fa-arrow-up-right-from-square fa-fw" aria-hidden="true"></i>
                                 </button>
                             </div>
                         </div>
@@ -63,37 +65,30 @@
     .sim-capture-toolbar {
         display: flex;
         align-items: center;
-        gap: 0.5rem;
-        padding: 0.5rem 0.75rem;
+        flex-wrap: wrap;
+        gap: var(--space-2);
+        padding: var(--space-2) var(--space-3);
+        background: var(--surface-card);
         border-bottom: 1px solid var(--border-subtle);
         flex-shrink: 0;
     }
 
     .sim-capture-content {
         flex: 1;
-        overflow-y: auto; overscroll-behavior: contain;
-        padding: 0.75rem;
+        min-height: 0;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        padding: var(--space-3);
     }
-
-    .sim-capture-empty {
-        text-align: center; padding: 2.5rem 1.25rem;
-        color: var(--text-muted); font-size: 0.8125rem;
-        display: flex; flex-direction: column; align-items: center; gap: 0.75rem;
-    }
-    .sim-capture-empty i { font-size: 2rem; }
-    .sim-capture-hint { font-size: 0.6875rem; color: var(--text-muted); }
 
     .sim-capture-grid {
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-        gap: 0.75rem;
+        gap: var(--space-3);
     }
 
     .sim-capture-card {
-        border-radius: var(--radius-md);
         overflow: hidden;
-        background: var(--surface-well);
-        transition: box-shadow 0.15s;
     }
 
     .sim-capture-preview {
@@ -103,7 +98,10 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        background: var(--surface-console);
+        padding: var(--space-3);
+        background: var(--surface-well);
+        border: 0;
+        border-bottom: 1px solid var(--border-hairline);
     }
     .sim-capture-preview img {
         max-width: 100%;
@@ -115,26 +113,12 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 0.375rem 0.5rem;
-        border-top: 1px solid var(--border-subtle);
-    }
-    .sim-capture-time {
-        font-size: 0.6875rem;
-        font-family: 'Consolas', 'Monaco', monospace;
-        color: var(--text-muted);
+        padding: var(--space-2) var(--space-3);
     }
     .sim-capture-card-actions {
         display: flex;
-        gap: 0.25rem;
+        gap: var(--space-1);
     }
-
-    .sim-capture-tab .btn { padding: 0.375rem 0.875rem; border: none; border-radius: var(--radius-sm); font-size: 0.75rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3125rem; transition: all 0.15s; }
-    .sim-capture-tab .btn i { font-size: 0.6875rem; }
-    .sim-capture-tab .btn-sm { padding: 0.25rem 0.5rem; font-size: 0.6875rem; }
-    .sim-capture-tab .btn-primary { background: var(--accent); color: var(--text-inverse); }
-    .sim-capture-tab .btn-secondary { background: var(--surface-control); color: var(--text-secondary); border: none; }
-    .sim-capture-tab .btn:hover:not(:disabled) { filter: brightness(1.1); }
-    .sim-capture-tab .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>
 
 @code {

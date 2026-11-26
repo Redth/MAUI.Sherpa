@@ -16,7 +16,7 @@
                         <i class="fa-solid fa-list-check" aria-hidden="true"></i>
                         <span>@Title</span>
                     </span>
-                    <span class="tdc-count">@EffectiveInstallSpecs.Count</span>
+                    <span class="tdc-count sherpa-badge sherpa-badge-neutral">@EffectiveInstallSpecs.Count</span>
                 </div>
 
                 <div class="tdc-meta-line">
@@ -25,12 +25,12 @@
                         <div class="tdc-sdk-chips" aria-label="Tracked SDK channels">
                             @foreach (var spec in HeaderSdkChips)
                             {
-                                <span class="tdc-sdk-chip mono" title="@ChannelHuman(spec.VersionOrChannel)">@spec.VersionOrChannel</span>
+                                <span class="tdc-sdk-chip sherpa-badge sherpa-badge-accent mono" title="@ChannelHuman(spec.VersionOrChannel)">@spec.VersionOrChannel</span>
                             }
                         </div>
                     }
 
-                    <span class="tdc-status @HeaderStatus.CssClass">
+                    <span class="tdc-status sherpa-badge @HeaderStatus.CssClass">
                         <i class="@HeaderStatus.IconClass" aria-hidden="true"></i>
                         <span>@HeaderStatus.Text</span>
                     </span>
@@ -167,14 +167,14 @@
                         <div class="tdc-comp-group-head">
                             <i class="@group.Icon" aria-hidden="true"></i>
                             <span>@group.Key</span>
-                            <span class="tdc-comp-group-count">@group.Items.Count</span>
+                            <span class="tdc-comp-group-count sherpa-badge sherpa-badge-neutral">@group.Items.Count</span>
                         </div>
 
-                        <div class="tdc-track-list">
+                        <div class="tdc-track-list sherpa-list">
                         @foreach (var spec in group.Items)
                         {
                             var preview = PreviewFor(spec);
-                            <div class="tdc-track-item">
+                            <div class="tdc-track-item sherpa-list-row">
                                 <div class="tdc-track-details">
                                     <div class="tdc-track-line">
                                         <span class="tdc-track-channel mono">@spec.VersionOrChannel</span>
@@ -189,19 +189,19 @@
                                             @if (preview.IsPinned)
                                             {
                                                 <span class="tdc-prev-ver mono">@(preview.InstalledVersion ?? preview.Channel)</span>
-                                                <span class="tdc-badge badge-secondary" title="Pinned to an exact version">pinned</span>
+                                                <span class="tdc-badge sherpa-badge sherpa-badge-neutral" title="Pinned to an exact version">pinned</span>
                                             }
                                             else if (preview.UpdateAvailable)
                                             {
                                                 <span class="tdc-prev-ver mono old">@(preview.InstalledVersion ?? "—")</span>
                                                 <i class="fa-solid fa-arrow-right tdc-prev-arrow" aria-hidden="true"></i>
                                                 <span class="tdc-prev-ver mono new">@preview.AvailableVersion</span>
-                                                <span class="tdc-badge badge-info">update</span>
+                                                <span class="tdc-badge sherpa-badge sherpa-badge-info">update</span>
                                             }
                                             else if (preview.AvailableVersion is null)
                                             {
                                                 <span class="tdc-prev-ver mono">@(preview.InstalledVersion ?? "—")</span>
-                                                <span class="tdc-badge badge-warning" title="Couldn't resolve this channel against the release feed">unknown</span>
+                                                <span class="tdc-badge sherpa-badge sherpa-badge-warning" title="Couldn't resolve this channel against the release feed">unknown</span>
                                             }
                                             else
                                             {
@@ -216,13 +216,13 @@
 
                                     @if (spec.Source == DotnetUpInstallSource.Explicit)
                                     {
-                                        <button data-screenshot-external class="btn btn-danger btn-sm"
+                                        <button data-screenshot-external class="btn btn-ghost-danger btn-icon btn-sm"
                                                 type="button"
                                                 @onclick="() => InvokeUntrackRequested(spec)"
                                                 disabled="@(Busy || !UntrackRequested.HasDelegate)"
-                                                title="Stop tracking and uninstall this channel">
-                                            <i class="fa-solid fa-trash"></i>
-                                            <span>Untrack</span>
+                                                title="Stop tracking and uninstall this channel"
+                                                aria-label="Stop tracking and uninstall @spec.VersionOrChannel">
+                                            <i class="fa-solid fa-trash-can"></i>
                                         </button>
                                     }
                                 </div>
@@ -256,6 +256,7 @@
 
 <style>
     .tdc-card {
+        border: 1px solid var(--border-subtle);
         border-radius: var(--radius-lg);
         background: var(--surface-card);
         overflow: hidden;
@@ -332,18 +333,7 @@
     }
 
     .tdc-count,
-    .tdc-comp-group-count {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        min-width: 1.4rem;
-        padding: 0.05rem 0.5rem;
-        border-radius: 999px;
-        background: var(--surface-well);
-        color: var(--text-secondary);
-        font-size: 0.72rem;
-        font-weight: 600;
-    }
+    .tdc-comp-group-count { min-width: 1.4rem; justify-content: center; }
 
     .tdc-meta-line {
         justify-content: space-between;
@@ -359,16 +349,7 @@
     }
 
     .tdc-sdk-chip {
-        display: inline-flex;
-        align-items: center;
-        padding: 0.2rem 0.55rem;
-        border-radius: 999px;
-        background: color-mix(in srgb, var(--accent) 10%, var(--surface-card));
-        border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--border-subtle));
-        color: var(--text-primary);
         font-size: 0.76rem;
-        font-weight: 600;
-        white-space: nowrap;
     }
 
     .tdc-status,
@@ -391,24 +372,35 @@
     .tdc-status.is-checking,
     .tdc-status.is-neutral {
         color: var(--text-secondary);
+        background: var(--surface-well);
+        border-color: var(--border-hairline);
     }
 
     .tdc-status.is-info {
         color: var(--status-info-fg);
+        background: var(--status-info-bg);
+        border-color: var(--status-info-border);
     }
 
     .tdc-status.is-success {
         color: var(--status-success-fg);
+        background: var(--status-success-bg);
+        border-color: var(--status-success-border);
     }
 
-    .tdc-status.is-warning,
-    .tdc-status-note {
+    .tdc-status.is-warning {
         color: var(--status-warning-fg);
+        background: var(--status-warning-bg);
+        border-color: var(--status-warning-border);
     }
 
     .tdc-status.is-error {
         color: var(--status-error-fg);
+        background: var(--status-error-bg);
+        border-color: var(--status-error-border);
     }
+
+    .tdc-status-note { color: var(--status-warning-fg); }
 
     .tdc-chevron {
         position: absolute;
@@ -434,6 +426,7 @@
     .tdc-body {
         border-top: 1px solid var(--border-subtle);
         padding: 0;
+        background: var(--surface-well);
     }
 
     .tdc-update-checking {
@@ -487,31 +480,21 @@
         display: flex;
         flex-direction: column;
         gap: 0;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
     }
 
     .tdc-track-item {
-        display: flex;
-        align-items: center;
         justify-content: space-between;
-        gap: 0.75rem;
-        padding: 0.65rem 1rem;
-        background: color-mix(in srgb, var(--surface-well) 35%, var(--surface-card));
+        background: var(--surface-well);
     }
 
-    .tdc-track-item + .tdc-track-item {
-        border-top: 1px solid var(--border-subtle);
+    .tdc-track-item + .tdc-track-item::before {
+        inset-inline: var(--row-padding-x);
     }
 
-    .tdc-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.25rem;
-        padding: 2px 0.625rem;
-        border-radius: var(--radius-lg);
-        font-size: 0.75rem;
-        font-weight: 500;
-        white-space: nowrap;
-    }
+    .tdc-badge { font-size: 0.72rem; }
 
     .tdc-track-channel,
     .tdc-prev-ver {

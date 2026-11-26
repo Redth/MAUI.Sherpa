@@ -7,8 +7,10 @@
 <div class="sim-permissions-tab">
     @if (isLoading)
     {
-        <div class="perm-loading">
-            <i class="fa-solid fa-spinner fa-spin"></i> Loading permissions...
+        <div class="empty-state">
+            <span class="sherpa-icon-well sherpa-icon-well-apple"><i class="fa-solid fa-spinner fa-spin fa-fw" aria-hidden="true"></i></span>
+            <div class="empty-title">Loading permissions</div>
+            <div class="empty-description">Reading privacy settings from the selected simulator.</div>
         </div>
     }
     else
@@ -16,41 +18,46 @@
         <!-- Per-app permissions -->
         @if (appGroups.Count == 0 && !showQuickActions)
         {
-            <div class="perm-empty">
-                <i class="fa-solid fa-shield-halved"></i>
-                <span>No permissions have been set for any apps yet.</span>
-                <span class="perm-empty-hint">Use Quick Grant below to pre-grant permissions, or permissions will appear here after apps request them.</span>
+            <div class="empty-state">
+                <span class="sherpa-icon-well sherpa-icon-well-apple"><i class="fa-solid fa-shield-halved fa-fw" aria-hidden="true"></i></span>
+                <div class="empty-title">No permissions set</div>
+                <div class="empty-description">Use Quick Grant below, or permissions will appear after apps request them.</div>
             </div>
         }
 
         @foreach (var group in filteredGroups)
         {
-            <div class="perm-app-section">
+            <div class="perm-app-section sherpa-list">
                 <button class="perm-app-header" @onclick="() => ToggleApp(group.BundleId)">
-                    <i class="fa-solid @(expandedApps.Contains(group.BundleId) ? "fa-chevron-down" : "fa-chevron-right") perm-chevron"></i>
+                    <span class="sherpa-icon-well sherpa-icon-well-sm sherpa-icon-well-apple">
+                        <i class="fa-solid fa-shield-halved fa-fw" aria-hidden="true"></i>
+                    </span>
                     <span class="perm-app-id">@group.BundleId</span>
-                    <span class="perm-badge-count">@group.Permissions.Count</span>
+                    <span class="sherpa-badge sherpa-badge-neutral">@group.Permissions.Count</span>
+                    <i class="fa-solid @(expandedApps.Contains(group.BundleId) ? "fa-chevron-down" : "fa-chevron-right") fa-fw perm-chevron" aria-hidden="true"></i>
                 </button>
                 @if (expandedApps.Contains(group.BundleId))
                 {
                     <div class="perm-table">
                         @foreach (var perm in group.Permissions)
                         {
-                            <div class="perm-row">
+                            <div class="perm-row sherpa-list-row">
                                 <div class="perm-info">
-                                    <i class="fa-solid @perm.Permission.Icon perm-icon"></i>
+                                    <span class="sherpa-icon-well sherpa-icon-well-sm sherpa-icon-well-neutral">
+                                        <i class="fa-solid @perm.Permission.Icon fa-fw perm-icon" aria-hidden="true"></i>
+                                    </span>
                                     <span class="perm-name">@perm.Permission.DisplayName</span>
                                     @if (perm.HasPlistKey == true)
                                     {
-                                        <i class="fa-solid fa-file-circle-check perm-plist-ok" title="@($"{perm.Permission.PlistKey}: \"{perm.UsageDescription}\"")"></i>
+                                        <i class="fa-solid fa-file-circle-check fa-fw perm-plist-ok" title="@($"{perm.Permission.PlistKey}: \"{perm.UsageDescription}\"")"></i>
                                     }
                                     else if (perm.HasPlistKey == false)
                                     {
-                                        <i class="fa-solid fa-triangle-exclamation perm-plist-missing" title="@($"Missing {perm.Permission.PlistKey} in Info.plist — required for App Store submission")"></i>
+                                        <i class="fa-solid fa-triangle-exclamation fa-fw perm-plist-missing" title="@($"Missing {perm.Permission.PlistKey} in Info.plist — required for App Store submission")"></i>
                                     }
                                 </div>
                                 <div class="perm-status">
-                                    <span class="perm-badge perm-badge--@perm.Status.ToString().ToLower()">
+                                    <span class="sherpa-badge @GetStatusBadgeClass(perm.Status)">
                                         @StatusIcon(perm.Status) @perm.Status
                                     </span>
                                 </div>
@@ -61,19 +68,20 @@
                                         {
                                             <button class="btn btn-sm btn-success" disabled="@isBusy"
                                                     @onclick="() => GrantAsync(perm)">
-                                                <i class="fa-solid fa-check"></i> Grant
+                                                <i class="fa-solid fa-check fa-fw" aria-hidden="true"></i> Grant
                                             </button>
                                         }
                                         @if (perm.Status == PermissionStatus.Allowed || perm.Status == PermissionStatus.Limited)
                                         {
-                                            <button class="btn btn-sm btn-danger" disabled="@isBusy"
-                                                    @onclick="() => RevokeAsync(perm)">
-                                                <i class="fa-solid fa-ban"></i> Revoke
+                                            <button class="btn btn-sm btn-ghost-danger btn-icon" disabled="@isBusy"
+                                                    @onclick="() => RevokeAsync(perm)" title="Revoke" aria-label="Revoke @perm.Permission.DisplayName">
+                                                <i class="fa-solid fa-ban fa-fw" aria-hidden="true"></i>
                                             </button>
                                         }
-                                        <button class="btn btn-sm btn-ghost" disabled="@isBusy"
-                                                @onclick="() => ResetAsync(perm)" title="Reset to 'not determined' — app will prompt again">
-                                            <i class="fa-solid fa-rotate-left"></i>
+                                        <button class="btn btn-sm btn-ghost-danger btn-icon" disabled="@isBusy"
+                                                @onclick="() => ResetAsync(perm)" title="Reset to 'not determined' — app will prompt again"
+                                                aria-label="Reset @perm.Permission.DisplayName">
+                                            <i class="fa-solid fa-rotate-left fa-fw" aria-hidden="true"></i>
                                         </button>
                                     }
                                     else
@@ -89,17 +97,19 @@
         }
 
         <!-- Quick Actions -->
-        <div class="perm-app-section">
+        <div class="perm-app-section sherpa-list">
             <button class="perm-app-header perm-quick-header" @onclick="() => showQuickActions = !showQuickActions">
-                <i class="fa-solid @(showQuickActions ? "fa-chevron-down" : "fa-chevron-right") perm-chevron"></i>
-                <i class="fa-solid fa-bolt" style="color: var(--accent-primary);"></i>
+                <span class="sherpa-icon-well sherpa-icon-well-sm sherpa-icon-well-accent">
+                    <i class="fa-solid fa-bolt fa-fw" aria-hidden="true"></i>
+                </span>
                 <span class="perm-app-id">Quick Grant / Revoke</span>
+                <i class="fa-solid @(showQuickActions ? "fa-chevron-down" : "fa-chevron-right") fa-fw perm-chevron" aria-hidden="true"></i>
             </button>
             @if (showQuickActions)
             {
                 <div class="tool-body">
                     <div class="tool-row combobox-container">
-                        <label>Bundle ID</label>
+                        <label class="sherpa-meta-label">Bundle ID</label>
                         <input type="text" class="tool-input" value="@quickBundleId"
                                @oninput="OnQuickBundleIdInput"
                                @onfocus="() => showBundleDropdown = true"
@@ -119,7 +129,7 @@
                         }
                     </div>
                     <div class="tool-row">
-                        <label>Permission</label>
+                        <label class="sherpa-meta-label">Permission</label>
                         <SherpaSelect TValue="string"
                                       Value="@quickService"
                                       ValueChanged="@((string? value) => quickService = value ?? string.Empty)"
@@ -131,13 +141,13 @@
                     </div>
                     <div class="tool-actions">
                         <button class="btn btn-sm btn-success" disabled="@(!CanQuickAction || isBusy)" @onclick="QuickGrantAsync">
-                            <i class="fa-solid fa-check"></i> Grant
+                            <i class="fa-solid fa-check fa-fw" aria-hidden="true"></i> Grant
                         </button>
-                        <button class="btn btn-sm btn-danger" disabled="@(!CanQuickAction || isBusy)" @onclick="QuickRevokeAsync">
-                            <i class="fa-solid fa-ban"></i> Revoke
+                        <button class="btn btn-sm btn-ghost-danger" disabled="@(!CanQuickAction || isBusy)" @onclick="QuickRevokeAsync">
+                            <i class="fa-solid fa-ban fa-fw" aria-hidden="true"></i> Revoke
                         </button>
-                        <button class="btn btn-sm btn-secondary" disabled="@(!CanQuickAction || isBusy)" @onclick="QuickResetAsync">
-                            <i class="fa-solid fa-rotate-left"></i> Reset
+                        <button class="btn btn-sm btn-ghost-danger" disabled="@(!CanQuickAction || isBusy)" @onclick="QuickResetAsync">
+                            <i class="fa-solid fa-rotate-left fa-fw" aria-hidden="true"></i> Reset
                         </button>
                     </div>
                 </div>
@@ -146,8 +156,8 @@
 
         <!-- Reset All -->
         <div class="perm-reset-all">
-            <button class="btn btn-sm btn-danger" disabled="@isBusy" @onclick="ResetAllAsync">
-                <i class="fa-solid fa-triangle-exclamation"></i> Reset All Permissions
+            <button class="btn btn-sm btn-danger-soft" disabled="@isBusy" @onclick="ResetAllAsync">
+                <i class="fa-solid fa-triangle-exclamation fa-fw" aria-hidden="true"></i> Reset All Permissions
             </button>
         </div>
     }
@@ -159,40 +169,15 @@
         flex-direction: column;
         height: 100%;
         overflow-y: auto;
-        padding: 0.5rem;
-        gap: 0.5rem;
+        overscroll-behavior: contain;
+        padding: var(--space-2);
+        gap: var(--space-2);
     }
-
-    .sim-permissions-tab .btn { padding: 0.375rem 0.875rem; border: none; border-radius: var(--radius-xs); font-size: 0.75rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3125rem; transition: all 0.15s; }
-    .sim-permissions-tab .btn i { font-size: 0.6875rem; }
-    .sim-permissions-tab .btn-sm { padding: 0.25rem 0.5rem; font-size: 0.6875rem; }
-    .sim-permissions-tab .btn-primary { background: var(--accent-primary); color: white; }
-    .sim-permissions-tab .btn-secondary { background: var(--btn-secondary-bg); color: var(--text-secondary); border: none; }
-    .sim-permissions-tab .btn-success { background: var(--status-success-dot); color: white; }
-    .sim-permissions-tab .btn-danger { background: var(--status-error-dot); color: white; }
-    .sim-permissions-tab .btn-ghost { background: transparent; color: var(--text-secondary); border: 1px solid var(--border-color); font-size: 0.625rem; padding: 2px 0.375rem; }
-    .sim-permissions-tab .btn-ghost:hover { background: var(--bg-tertiary); }
-    .sim-permissions-tab .btn:hover:not(:disabled) { filter: brightness(1.1); }
-    .sim-permissions-tab .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-
-    .perm-loading, .perm-empty {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        gap: 0.5rem;
-        padding: 2rem;
-        color: var(--text-muted);
-        font-size: 0.8125rem;
-        text-align: center;
-    }
-    .perm-loading i, .perm-empty i { font-size: 1.25rem; }
-    .perm-empty-hint { font-size: 0.6875rem; color: var(--text-tertiary); max-width: 300px; }
 
     .perm-app-section {
-        background: var(--bg-secondary, white);
+        background: var(--surface-card);
         border: 1px solid var(--border-subtle);
-        border-radius: var(--radius-md);
+        border-radius: var(--radius-lg);
         overflow: hidden;
         flex-shrink: 0;
     }
@@ -200,97 +185,85 @@
     .perm-app-header {
         display: flex;
         align-items: center;
-        gap: 0.375rem;
-        padding: 0.375rem 0.625rem;
-        background: var(--surface-well);
-        font-size: 0.75rem;
-        font-weight: 600;
-        color: var(--text-primary);
-        border: none;
-        border-bottom: 1px solid var(--border-subtle);
+        gap: var(--space-2);
         width: 100%;
+        padding: var(--row-padding-y) var(--row-padding-x);
+        color: var(--text-primary);
+        background: transparent;
+        border: 0;
         cursor: pointer;
+        font: inherit;
+        font-size: var(--font-size-sm);
+        font-weight: 600;
         text-align: left;
     }
-    .perm-app-header:hover { background: var(--border-subtle); }
-    .perm-chevron { font-size: 0.5rem; color: var(--text-muted); width: 0.625rem; }
-    .perm-app-id { font-family: 'SF Mono', 'Consolas', monospace; font-size: 0.6875rem; }
-    .perm-badge-count {
-        margin-left: auto;
-        font-size: 0.625rem;
-        background: var(--bg-primary);
-        color: var(--text-muted);
-        padding: 1px 0.375rem;
-        border-radius: var(--radius-pill);
-        font-weight: 500;
-    }
+    .perm-app-header:hover { background: var(--surface-card-hover); }
+    .perm-chevron { margin-inline-start: auto; color: var(--text-muted); font-size: 0.625rem; }
+    .perm-app-id { min-width: 0; overflow: hidden; font-family: var(--font-mono); font-size: var(--font-size-xs); text-overflow: ellipsis; white-space: nowrap; }
 
     .perm-table {
         display: flex;
         flex-direction: column;
+        background: var(--surface-well);
+        border-top: 1px solid var(--border-hairline);
     }
     .perm-row {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        padding: 0.3125rem 0.625rem;
-        border-bottom: 1px solid var(--border-subtle, rgba(0,0,0,0.04));
+        gap: var(--space-2);
+        background: transparent;
     }
-    .perm-row:last-child { border-bottom: none; }
     .perm-info {
         display: flex;
+        flex: 1 1 auto;
         align-items: center;
-        gap: 0.375rem;
-        min-width: 140px;
+        gap: var(--space-2);
+        min-width: 0;
     }
-    .perm-icon { font-size: 0.6875rem; color: var(--text-muted); width: 1rem; text-align: center; }
-    .perm-name { font-size: 0.75rem; color: var(--text-primary); }
-    .perm-plist-ok { font-size: 0.5625rem; color: var(--status-success-dot); cursor: help; margin-left: 0.125rem; }
-    .perm-plist-missing { font-size: 0.5625rem; color: var(--status-warning-dot); cursor: help; margin-left: 0.125rem; }
+    .perm-icon { color: var(--text-muted); }
+    .perm-name { overflow: hidden; color: var(--text-primary); font-size: var(--font-size-sm); text-overflow: ellipsis; white-space: nowrap; }
+    .perm-plist-ok { color: var(--status-success-fg); cursor: help; }
+    .perm-plist-missing { color: var(--status-warning-fg); cursor: help; }
 
-    .perm-status { min-width: 80px; }
-    .perm-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.25rem;
-        font-size: 0.625rem;
-        font-weight: 600;
-        padding: 2px 0.375rem;
-        border-radius: var(--radius-xs);
-        text-transform: uppercase;
-        letter-spacing: 0.02em;
-    }
-    .perm-badge--allowed { background: rgba(34, 197, 94, 0.12); color: var(--status-success-dot); }
-    .perm-badge--denied { background: rgba(239, 68, 68, 0.12); color: var(--status-error-dot); }
-    .perm-badge--limited { background: rgba(245, 158, 11, 0.12); color: var(--status-warning-dot); }
-    .perm-badge--notdetermined { background: var(--bg-tertiary); color: var(--text-muted); }
+    .perm-status { min-width: 96px; }
+    .perm-actions { margin-left: auto; display: flex; gap: var(--space-1); align-items: center; }
+    .perm-readonly { font-size: var(--font-size-xs); color: var(--text-muted); font-style: italic; }
 
-    :global(.theme-dark) .perm-badge--allowed { color: var(--status-success-fg); }
-    :global(.theme-dark) .perm-badge--denied { color: var(--status-error-fg); }
-    :global(.theme-dark) .perm-badge--limited { color: var(--status-warning-fg); }
-
-    .perm-actions { margin-left: auto; display: flex; gap: 0.25rem; align-items: center; }
-    .perm-readonly { font-size: 0.5625rem; color: var(--text-tertiary); font-style: italic; }
-
-    .perm-quick-header i:nth-child(2) { margin-right: 0.125rem; }
+    .perm-quick-header .perm-app-id { font-family: var(--font-sans); font-size: var(--font-size-sm); }
 
     .perm-reset-all {
         display: flex;
         justify-content: center;
-        padding: 0.5rem 0;
+        padding: var(--space-2) 0;
     }
 
-    .tool-body { padding: 0.5rem 0.625rem; display: flex; flex-direction: column; gap: 0.375rem; }
-    .tool-row { display: flex; flex-direction: column; gap: 2px; }
-    .tool-row label { font-size: 0.6875rem; color: var(--text-secondary); font-weight: 500; }
-    .tool-input {
-        padding: 0.25rem 0.5rem; font-size: 0.75rem;
-        border: 1px solid var(--border-color); border-radius: var(--radius-xs);
-        background: var(--bg-primary, white); color: var(--text-primary);
-        outline: none; width: 100%; box-sizing: border-box;
+    .tool-body {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-2);
+        padding: var(--space-3);
+        background: var(--surface-well);
+        border-top: 1px solid var(--border-hairline);
     }
-    .tool-input:focus { border-color: var(--accent-primary); }
-    .tool-actions { display: flex; gap: 0.25rem; margin-top: 2px; }
+    .tool-row { display: flex; flex-direction: column; gap: var(--space-1); }
+    .tool-input {
+        width: 100%;
+        min-height: var(--control-height-md);
+        box-sizing: border-box;
+        padding: 0 var(--control-padding-x);
+        color: var(--text-primary);
+        background: var(--surface-control);
+        border: 1px solid var(--border-control);
+        border-bottom-color: var(--border-control-bottom);
+        border-radius: var(--radius-md);
+        box-shadow: var(--shadow-control);
+        outline: none;
+        font: inherit;
+        font-size: var(--font-size-sm);
+    }
+    .tool-input:focus {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px var(--accent-ring);
+    }
+    .tool-actions { display: flex; flex-wrap: wrap; gap: var(--space-1); margin-top: var(--space-1); }
 
     .combobox-container { position: relative; }
     .combobox-dropdown {
@@ -301,25 +274,33 @@
         z-index: 10;
         max-height: 160px;
         overflow-y: auto;
-        background: var(--bg-primary, white);
-        border: 1px solid var(--border-color);
-        border-top: none;
-        border-radius: 0 0 var(--radius-xs) var(--radius-xs);
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+        overscroll-behavior: contain;
+        padding: var(--space-1);
+        background: var(--surface-popover);
+        border: 1px solid var(--border-strong);
+        border-radius: var(--radius-lg);
+        box-shadow: var(--shadow-popover);
     }
     .combobox-option {
         display: block;
         width: 100%;
-        padding: 0.3125rem 0.5rem;
-        border: none;
-        background: none;
+        padding: var(--space-2);
         color: var(--text-primary);
-        font-family: 'SF Mono', 'Consolas', monospace;
-        font-size: 0.6875rem;
-        text-align: left;
+        background: transparent;
+        border: 0;
+        border-radius: var(--radius-sm);
         cursor: pointer;
+        font-family: var(--font-mono);
+        font-size: var(--font-size-xs);
+        text-align: left;
     }
-    .combobox-option:hover { background: var(--accent-primary); color: white; }
+    .combobox-option:hover { color: var(--text-primary); background: var(--surface-card-hover); }
+
+    @@media (max-width: 720px) {
+        .perm-row { align-items: flex-start; flex-wrap: wrap; }
+        .perm-status { min-width: 0; }
+        .perm-actions { width: 100%; padding-inline-start: 40px; }
+    }
 </style>
 
 @code {
@@ -427,6 +408,14 @@
         PermissionStatus.Denied => "●",
         PermissionStatus.Limited => "◐",
         _ => "○",
+    };
+
+    private static string GetStatusBadgeClass(PermissionStatus status) => status switch
+    {
+        PermissionStatus.Allowed => "sherpa-badge-success",
+        PermissionStatus.Denied => "sherpa-badge-danger",
+        PermissionStatus.Limited => "sherpa-badge-neutral",
+        _ => "sherpa-badge-neutral",
     };
 
     private async Task GrantAsync(AppPermission perm)

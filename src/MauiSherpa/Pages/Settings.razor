@@ -38,11 +38,16 @@
 }
 
 <div class="settings-section">
-    <h2>General</h2>
-    <div class="settings-container">
+    <div class="sherpa-section-header">
+        <h2><i class="fa-solid fa-sliders fa-fw"></i> General</h2>
+    </div>
+    <div class="settings-container sherpa-list">
         <div class="setting-group">
             <div class="setting-item">
-                <label class="setting-label">Theme</label>
+                <div class="setting-copy">
+                    <label class="setting-label">Appearance</label>
+                    <span class="setting-description">Choose how MAUI Sherpa matches your operating system theme.</span>
+                </div>
                 <div class="setting-control setting-control-end">
                     <SherpaSegmentedControl TValue="string"
                                             Value="@ViewModel.Theme"
@@ -52,29 +57,32 @@
                 </div>
             </div>
             <div class="setting-item">
-                <label class="setting-label">Demo Mode</label>
-                <div class="setting-control">
-                    <div class="setting-toggle-row">
-                        <label class="toggle-switch">
-                            <input type="checkbox" checked="@demoMode" @onchange="OnDemoModeChanged" />
-                            <span class="toggle-slider"></span>
-                        </label>
-                        <span class="setting-description">Blur sensitive values (IDs, UDIDs, serials) for presentations</span>
-                    </div>
+                <div class="setting-copy">
+                    <label class="setting-label">Demo Mode</label>
+                    <span class="setting-description">Blur sensitive identifiers for presentations and screenshots.</span>
+                </div>
+                <div class="setting-control setting-control-end">
+                    <label class="sherpa-switch">
+                        <input type="checkbox" checked="@demoMode" @onchange="OnDemoModeChanged" />
+                        <span class="sherpa-switch-track"></span>
+                    </label>
                 </div>
             </div>
             <div class="setting-item">
-                <label class="setting-label">Font Size</label>
+                <div class="setting-copy">
+                    <label class="setting-label">Font Size</label>
+                    <span class="setting-description">Adjust interface text size without changing the window scale.</span>
+                </div>
                 <div class="setting-control setting-control-end">
                     <div class="font-scale-control">
-                        <button class="btn-scale" @onclick="DecreaseFontScale" disabled="@(ViewModel.FontScale <= 0.8)" title="Decrease font size">
+                        <button class="btn btn-ghost btn-icon btn-sm btn-scale" @onclick="DecreaseFontScale" disabled="@(ViewModel.FontScale <= 0.8)" title="Decrease font size" aria-label="Decrease font size">
                             <i class="fa-solid fa-minus fa-fw"></i>
                         </button>
                         <input type="range" min="0.8" max="1.5" step="0.05"
                                value="@ViewModel.FontScale"
                                @oninput="OnFontScaleInput"
                                class="font-scale-slider" />
-                        <button class="btn-scale" @onclick="IncreaseFontScale" disabled="@(ViewModel.FontScale >= 1.5)" title="Increase font size">
+                        <button class="btn btn-ghost btn-icon btn-sm btn-scale" @onclick="IncreaseFontScale" disabled="@(ViewModel.FontScale >= 1.5)" title="Increase font size" aria-label="Increase font size">
                             <i class="fa-solid fa-plus fa-fw"></i>
                         </button>
                         <span class="font-scale-label">@($"{ViewModel.FontScale * 100:F0}%")</span>
@@ -82,7 +90,12 @@
                 </div>
             </div>
             <div class="setting-item setting-item-start">
-                <label class="setting-label">Xcode XIP Extractor</label>
+                <div class="setting-copy">
+                    <label class="setting-label">Xcode XIP Extractor</label>
+                    <span class="setting-description">
+                        Use verified system <code>xip</code> or faster bundled <code>unxip</code>; encrypted archives always use <code>archiveutil</code>.
+                    </span>
+                </div>
                 <div class="setting-control setting-control-stack">
                     <SherpaSelect TValue="string"
                                   Value="@xcodeArchiveExtractor"
@@ -91,15 +104,13 @@
                                   LeadingIcon="fa-solid fa-file-zipper"
                                   AriaLabel="Xcode XIP extractor"
                                   Class="setting-select-wide" />
-                    <div class="setting-description setting-description-block">
-                        Use the system <code>xip</code> extractor for the safest default, or the bundled <code>unxip</code> helper for faster extraction.
-                        <code>unxip</code> does not perform signature verification. If the bundled helper is unavailable, MauiSherpa falls back to <code>xip</code>.
-                        Apple Encrypted Archives (<code>.aea</code>) always use the system <code>archiveutil</code> tool.
-                    </div>
                 </div>
             </div>
             <div class="setting-item setting-item-start">
-                <label class="setting-label">Xcode Bundle Naming</label>
+                <div class="setting-copy">
+                    <label class="setting-label">Xcode Bundle Naming</label>
+                    <span class="setting-description">Choose the separator used for managed Xcode bundles in <code>/Applications</code>.</span>
+                </div>
                 <div class="setting-control setting-control-stack">
                     <SherpaSelect TValue="string"
                                   Value="@xcodeBundleSeparator"
@@ -109,15 +120,13 @@
                                   AriaLabel="Xcode bundle naming"
                                   Disabled="@isNormalizingBundles"
                                   Class="setting-select-wide" />
-                    <div class="setting-description setting-description-block">
-                        Separator used when Sherpa renames managed Xcode installs in <code>/Applications</code>.
-                        Changing this will scan for existing bundles using the other format and offer to rename them.
-                        The build number is only appended when two installs share the same version.
-                    </div>
                 </div>
             </div>
             <div class="setting-item setting-item-start">
-                <label class="setting-label">Xcode Selection</label>
+                <div class="setting-copy">
+                    <label class="setting-label">Xcode Selection</label>
+                    <span class="setting-description">Choose whether selecting Xcode renames the bundle or selects its current path.</span>
+                </div>
                 <div class="setting-control setting-control-stack">
                     <SherpaSelect TValue="string"
                                   Value="@xcodeSelectionAction"
@@ -126,14 +135,10 @@
                                   LeadingIcon="fa-solid fa-code-branch"
                                   AriaLabel="Xcode selection behavior"
                                   Class="setting-select-wide" />
-                    <div class="setting-description setting-description-block">
-                        Matches Xcodes.app's Active/Select behavior. Rename mode makes the selected bundle the real <code>/Applications/Xcode.app</code>.
-                        Do nothing mode leaves installed bundles in place and selects their full path.
-                    </div>
                     <div class="setting-toggle-row">
-                        <label class="toggle-switch">
+                        <label class="sherpa-switch">
                             <input type="checkbox" checked="@xcodeCreateSymlinkOnSelect" @onchange="OnXcodeCreateSymlinkOnSelectChanged" disabled="@IsXcodeCreateSymlinkDisabled" />
-                            <span class="toggle-slider"></span>
+                            <span class="sherpa-switch-track"></span>
                         </label>
                         <span class="setting-description">When not renaming, create <code>/Applications/Xcode.app</code> as a symbolic link to the selected bundle if possible.</span>
                     </div>
@@ -142,7 +147,10 @@
             @if (PlatformInfo.IsMacOS || PlatformInfo.IsMacCatalyst)
             {
                 <div class="setting-item setting-item-start">
-                    <label class="setting-label">Provisioning Profiles Folder</label>
+                    <div class="setting-copy">
+                        <label class="setting-label">Provisioning Profiles Folder</label>
+                        <span class="setting-description">Choose the Xcode 16+, legacy, or compatibility install location for profiles.</span>
+                    </div>
                     <div class="setting-control setting-control-stack">
                         <SherpaSelect TValue="string"
                                       Value="@provisioningProfilesDirectory"
@@ -151,31 +159,17 @@
                                       LeadingIcon="fa-solid fa-folder-tree"
                                       AriaLabel="Provisioning profiles folder"
                                       Class="setting-select-wide" />
-                        <div class="setting-description setting-description-block">
-                            Auto uses <code>~/Library/Developer/Xcode/UserData/Provisioning Profiles</code> for Xcode 16+
-                            and the legacy <code>~/Library/MobileDevice/Provisioning Profiles</code> folder for older Xcode versions.
-                            Both installs each profile in both locations for compatibility with mixed tooling.
-                        </div>
                     </div>
                 </div>
             }
         </div>
 
-        <div class="actions">
-            @if (!PlatformInfo.HasNativeToolbar)
-            {
-            <button class="btn btn-primary" @onclick="SaveSettings">
-                <i class="fa-solid fa-floppy-disk fa-fw"></i> Save Settings
-            </button>
-            <button class="btn btn-secondary" @onclick="ResetSettings">
-                <i class="fa-solid fa-rotate-left fa-fw"></i> Reset to Defaults
-            </button>
-            }
-        </div>
-        
-        <div class="setting-group" style="margin-top: 1.5rem;">
+        <div class="setting-group">
             <div class="setting-item">
-                <label class="setting-label">Version</label>
+                <div class="setting-copy">
+                    <label class="setting-label">Version</label>
+                    <span class="setting-description">Installed MAUI Sherpa application version.</span>
+                </div>
                 <div class="setting-control setting-control-end">
                     <div class="setting-value-row">
                         <span class="mono text-selectable">@appVersion</span>
@@ -189,12 +183,25 @@
                     </div>
                 </div>
             </div>
+            @if (!PlatformInfo.HasNativeToolbar)
+            {
+                <div class="actions">
+                    <button class="btn btn-primary" @onclick="SaveSettings">
+                        <i class="fa-solid fa-floppy-disk fa-fw"></i> Save Settings
+                    </button>
+                    <button class="btn btn-secondary" @onclick="ResetSettings">
+                        <i class="fa-solid fa-rotate-left fa-fw"></i> Reset to Defaults
+                    </button>
+                </div>
+            }
         </div>
     </div>
 </div>
 
 <div class="settings-section" id="settings-apple-identities">
-    <h2><i class="fa-brands fa-apple fa-fw"></i> Apple Identities</h2>
+    <div class="sherpa-section-header">
+        <h2><i class="fa-brands fa-apple fa-fw"></i> Apple Identities</h2>
+    </div>
     <p class="section-description">
         Configure App Store Connect API credentials for managing Apple Developer resources.
         <a href="https://appstoreconnect.apple.com/access/integrations/api" target="_blank" @onclick='() => OpenUrl("https://appstoreconnect.apple.com/access/integrations/api")' @onclick:preventDefault>Get API keys</a>
@@ -210,13 +217,13 @@
     }
     else
     {
-        <div class="connected-list">
+        <div class="connected-list sherpa-list">
             @foreach (var identity in appleIdentities)
             {
                 <div class="connected-list-item">
                     <div class="identity-header">
                         <div class="identity-info">
-                            <i class="fa-regular fa-id-badge fa-fw identity-icon"></i>
+                            <span class="sherpa-icon-well sherpa-icon-well-apple identity-icon"><i class="fa-regular fa-id-badge fa-fw"></i></span>
                             <span class="identity-name"><span class="@(demoMode ? "demo-blur" : "")">@identity.Name</span></span>
                         </div>
                         <div class="identity-actions">
@@ -226,8 +233,8 @@
                             <button class="btn btn-sm btn-secondary" @onclick="@(() => EditIdentity(identity))" title="Edit">
                                 <i class="fa-solid fa-pen fa-fw"></i> Edit
                             </button>
-                            <button class="btn btn-sm btn-danger-soft" @onclick="@(() => DeleteIdentity(identity))" title="Delete">
-                                <i class="fa-solid fa-trash fa-fw"></i> Delete
+                            <button class="btn btn-sm btn-icon btn-ghost-danger" @onclick="@(() => DeleteIdentity(identity))" title="Delete" aria-label="Delete @identity.Name">
+                                <i class="fa-solid fa-trash-can fa-fw"></i>
                             </button>
                         </div>
                     </div>
@@ -264,7 +271,9 @@
 </div>
 
 <div class="settings-section" id="settings-google-identities">
-    <h2><i class="fa-brands fa-google fa-fw"></i> Google Identities</h2>
+    <div class="sherpa-section-header">
+        <h2><i class="fa-brands fa-google fa-fw"></i> Google Identities</h2>
+    </div>
     <p class="section-description">
         Configure Google Cloud / Firebase service account credentials for push notifications and project management.
         <a href="https://console.firebase.google.com/project/_/settings/serviceaccounts/adminsdk" target="_blank" @onclick='() => OpenUrl("https://console.firebase.google.com/project/_/settings/serviceaccounts/adminsdk")' @onclick:preventDefault>Get service account JSON</a>
@@ -280,13 +289,13 @@
     }
     else
     {
-        <div class="connected-list">
+        <div class="connected-list sherpa-list">
             @foreach (var identity in googleIdentities)
             {
                 <div class="connected-list-item">
                     <div class="identity-header">
                         <div class="identity-info">
-                            <i class="fa-brands fa-google fa-fw identity-icon"></i>
+                            <span class="sherpa-icon-well sherpa-icon-well-accent identity-icon"><i class="fa-brands fa-google fa-fw"></i></span>
                             <span class="identity-name"><span class="@(demoMode ? "demo-blur" : "")">@identity.Name</span></span>
                         </div>
                         <div class="identity-actions">
@@ -296,8 +305,8 @@
                             <button class="btn btn-sm btn-secondary" @onclick="@(() => EditGoogleIdentity(identity))" title="Edit">
                                 <i class="fa-solid fa-pen fa-fw"></i> Edit
                             </button>
-                            <button class="btn btn-sm btn-danger-soft" @onclick="@(() => DeleteGoogleIdentity(identity))" title="Delete">
-                                <i class="fa-solid fa-trash fa-fw"></i> Delete
+                            <button class="btn btn-sm btn-icon btn-ghost-danger" @onclick="@(() => DeleteGoogleIdentity(identity))" title="Delete" aria-label="Delete @identity.Name">
+                                <i class="fa-solid fa-trash-can fa-fw"></i>
                             </button>
                         </div>
                     </div>
@@ -324,7 +333,9 @@
 </div>
 
 <div class="settings-section">
-    <h2><i class="fa-solid fa-vault fa-fw"></i> Secrets Storage</h2>
+    <div class="sherpa-section-header">
+        <h2><i class="fa-solid fa-vault fa-fw"></i> Secrets Storage</h2>
+    </div>
     <p class="section-description">
         Store app secrets, signing certificates, and publish profiles securely.
         Local Vault keeps encrypted copies on this machine; cloud providers can sync across machines and CI/CD pipelines.
@@ -360,14 +371,14 @@
     }
     else
     {
-        <div class="connected-list">
+        <div class="connected-list sherpa-list">
             @foreach (var provider in cloudProviders)
             {
                 var providerUrl = GetProviderUrl(provider);
                 <div class="connected-list-item">
                     <div class="provider-header">
                         <div class="provider-info">
-                            <i class="@GetProviderIcon(provider.ProviderType) provider-icon"></i>
+                            <span class="sherpa-icon-well sherpa-icon-well-accent provider-icon"><i class="@GetProviderIcon(provider.ProviderType)"></i></span>
                             <span class="provider-name">@provider.Name</span>
                             @if (!string.IsNullOrEmpty(providerUrl))
                             {
@@ -385,8 +396,8 @@
                                 <button class="btn btn-sm btn-secondary" @onclick="@(() => EditProvider(provider))" title="Edit">
                                     <i class="fa-solid fa-pen fa-fw"></i> Edit
                                 </button>
-                                <button class="btn btn-sm btn-danger-soft" @onclick="@(() => DeleteProvider(provider))" title="Delete">
-                                    <i class="fa-solid fa-trash fa-fw"></i> Delete
+                                <button class="btn btn-sm btn-icon btn-ghost-danger" @onclick="@(() => DeleteProvider(provider))" title="Delete" aria-label="Delete @provider.Name">
+                                    <i class="fa-solid fa-trash-can fa-fw"></i>
                                 </button>
                             }
                         </div>
@@ -488,7 +499,9 @@
 
 <!-- CI/CD Secret Publishers Section -->
 <div class="settings-section">
-    <h2><i class="fa-solid fa-rocket fa-fw"></i> CI/CD Secret Publishers</h2>
+    <div class="sherpa-section-header">
+        <h2><i class="fa-solid fa-rocket fa-fw"></i> CI/CD Secret Publishers</h2>
+    </div>
     <p class="section-description">
         Publish signing secrets directly to your CI/CD platforms for automated builds.
         Secrets will be encrypted and stored as repository secrets.
@@ -504,13 +517,13 @@
     }
     else
     {
-        <div class="connected-list">
+        <div class="connected-list sherpa-list">
             @foreach (var publisher in secretsPublishers)
             {
                 <div class="connected-list-item">
                     <div class="provider-header">
                         <div class="provider-info">
-                            <i class="@GetPublisherIcon(publisher.ProviderId) provider-icon"></i>
+                            <span class="sherpa-icon-well sherpa-icon-well-accent provider-icon"><i class="@GetPublisherIcon(publisher.ProviderId)"></i></span>
                             <span class="provider-name">@publisher.Name</span>
                         </div>
                         <div class="provider-actions">
@@ -520,8 +533,8 @@
                             <button class="btn btn-sm btn-secondary" @onclick="@(() => EditPublisher(publisher))" title="Edit">
                                 <i class="fa-solid fa-pen fa-fw"></i> Edit
                             </button>
-                            <button class="btn btn-sm btn-danger-soft" @onclick="@(() => DeletePublisher(publisher))" title="Delete">
-                                <i class="fa-solid fa-trash fa-fw"></i> Delete
+                            <button class="btn btn-sm btn-icon btn-ghost-danger" @onclick="@(() => DeletePublisher(publisher))" title="Delete" aria-label="Delete @publisher.Name">
+                                <i class="fa-solid fa-trash-can fa-fw"></i>
                             </button>
                         </div>
                     </div>
@@ -570,15 +583,17 @@
 
 <!-- Backup & Restore Section -->
 <div class="settings-section">
-    <h2><i class="fa-solid fa-shield-halved fa-fw"></i> Backup & Restore</h2>
+    <div class="sherpa-section-header">
+        <h2><i class="fa-solid fa-shield-halved fa-fw"></i> Backup &amp; Restore</h2>
+    </div>
     <p class="section-description">
         Export your settings to a password-protected file for backup or transfer to another machine.
         All sensitive data (API keys, tokens) are encrypted using AES-256-GCM.
     </p>
     
-    <div class="backup-actions">
-        <div class="backup-action-card">
-                <div class="backup-icon export">
+    <div class="backup-actions sherpa-list">
+        <div class="backup-action-card sherpa-list-row">
+                <div class="backup-icon export sherpa-icon-well sherpa-icon-well-accent">
                     <i class="fa-solid fa-download fa-fw"></i>
                 </div>
                 <div class="backup-info">
@@ -599,8 +614,8 @@
                 </button>
             </div>
             
-            <div class="backup-action-card">
-                <div class="backup-icon import">
+            <div class="backup-action-card sherpa-list-row">
+                <div class="backup-icon import sherpa-icon-well sherpa-icon-well-android">
                     <i class="fa-solid fa-upload fa-fw"></i>
                 </div>
                 <div class="backup-info">
@@ -635,31 +650,20 @@
         padding: 0;
     }
 
-    h1 { margin-bottom: 1.25rem; font-size: 1.75rem; color: var(--text-primary); font-weight: 600; }
     h2 {
-        margin: 0 0 0.35rem 0;
-        font-size: 1.075rem;
-        line-height: 1.25;
-        color: var(--text-primary);
-        font-weight: 700;
         display: flex;
         align-items: center;
-        gap: 0.75rem;
+        gap: var(--space-1);
+        margin: 0;
+        color: var(--text-primary);
+        font-size: var(--font-size-h2);
+        font-weight: 650;
+        line-height: 1.3;
     }
 
     .settings-section h2 > i {
-        width: 2rem;
-        height: 2rem;
-        border-radius: var(--radius-lg);
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        color: var(--accent-primary);
-        background: var(--accent-bg);
-        font-size: 0.95rem;
-        line-height: 1;
-        text-align: center;
-        flex: 0 0 auto;
+        color: var(--text-muted);
+        font-size: 13px;
     }
 
     /* Extra padding when rendered inside hybrid modal dialog */
@@ -677,7 +681,7 @@
     }
 
     .settings-section {
-        margin-bottom: 1.5rem;
+        margin-bottom: var(--space-6);
         padding: 0;
         background: transparent;
         border: 0;
@@ -685,9 +689,13 @@
         box-shadow: none;
     }
 
+    .settings-section > .sherpa-section-header {
+        margin: 0 0 var(--space-2);
+    }
+
     .section-description {
         color: var(--text-muted);
-        margin: 0 0 0.875rem 0;
+        margin: 0 0 var(--space-3);
         max-width: 58rem;
         font-size: 0.875rem;
         line-height: 1.45;
@@ -719,32 +727,44 @@
 
     .settings-container {
         background: var(--surface-card);
-        padding: 1rem 1.25rem;
+        padding: 0;
         border: 1px solid var(--border-subtle);
         border-radius: var(--radius-lg);
     }
 
-    .setting-group { margin-bottom: 1.5rem; }
-    .setting-group:last-child { margin-bottom: 0; }
+    .setting-group { display: contents; }
 
     .setting-item {
+        position: relative;
         display: grid;
-        grid-template-columns: minmax(160px, 200px) minmax(0, 1fr);
+        grid-template-columns: minmax(0, 1fr) auto;
         align-items: center;
-        column-gap: 1.5rem;
-        row-gap: 0.5rem;
-        padding: 1rem 0;
-        border-bottom: 1px solid var(--border-hairline);
+        gap: var(--space-4);
+        padding: 11px 16px;
     }
 
-    .setting-item:first-child { padding-top: 0; }
-    .setting-item:last-child { border-bottom: none; padding-bottom: 0; }
-    .setting-item-start { align-items: start; }
+    .setting-item + .setting-item::before,
+    .setting-group + .setting-group .setting-item::before {
+        position: absolute;
+        top: 0;
+        right: 16px;
+        left: 16px;
+        height: 1px;
+        background: var(--border-hairline);
+        content: "";
+    }
+    .setting-item-start { align-items: center; }
+    .setting-copy {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        gap: 2px;
+    }
     .setting-label {
-        font-size: 1rem;
-        line-height: 1.2;
         color: var(--text-primary);
+        font-size: var(--font-size-md);
         font-weight: 600;
+        line-height: 1.35;
     }
     .setting-control {
         min-width: 0;
@@ -756,9 +776,9 @@
         justify-content: flex-end;
     }
     .setting-control-stack {
-        align-items: flex-start;
+        align-items: flex-end;
         flex-direction: column;
-        gap: 0.625rem;
+        gap: var(--space-2);
     }
     .setting-value-row {
         display: flex;
@@ -767,18 +787,19 @@
         gap: 0.75rem;
         flex-wrap: wrap;
     }
-    .setting-item input[type="checkbox"] { width: 1.25rem; height: 1.25rem; cursor: pointer; }
-
     .setting-toggle-row {
         display: flex;
         align-items: center;
-        gap: 12px;
+        justify-content: flex-end;
+        gap: var(--space-2);
         flex-wrap: wrap;
     }
     .setting-description {
-        font-size: 13px;
+        overflow: hidden;
         color: var(--text-muted);
-        line-height: 1.45;
+        font-size: var(--font-size-xs);
+        line-height: 1.4;
+        text-overflow: ellipsis;
     }
     .setting-description-block {
         max-width: 42rem;
@@ -792,31 +813,16 @@
         font-size: 0.8rem;
     }
 
-    .toggle-switch { position: relative; display: inline-block; width: 44px; height: 24px; flex-shrink: 0; }
-    .toggle-switch input { opacity: 0; width: 0; height: 0; }
-    .toggle-slider {
-        position: absolute; cursor: pointer; inset: 0;
-        background-color: var(--surface-well); border: 1px solid var(--border-control); border-radius: var(--radius-pill);
-        transition: background-color 0.2s;
-    }
-    .toggle-slider::before {
-        content: ""; position: absolute; height: 18px; width: 18px;
-        left: 3px; bottom: 3px; background: var(--surface-control); border-radius: var(--radius-pill);
-        transition: transform 0.2s;
-    }
-    .toggle-switch input:checked + .toggle-slider { background-color: var(--accent-primary); }
-    .toggle-switch input:checked + .toggle-slider::before { transform: translateX(20px); }
-
-    .setting-select-wide { min-width: min(100%, 320px); }
+    .setting-select-wide { width: min(320px, 42vw); min-width: 220px; }
 
     .font-scale-control {
         display: flex;
         align-items: center;
-        gap: 0.75rem;
+        gap: var(--space-2);
     }
 
     .font-scale-slider {
-        width: 200px;
+        width: 150px;
         height: 0.375rem;
         -webkit-appearance: none;
         appearance: none;
@@ -839,18 +845,8 @@
     }
 
     .btn-scale {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 2rem;
-        height: 2rem;
-        border: 1px solid var(--border-control);
-        border-radius: var(--radius-sm);
+        border-color: var(--border-control);
         background: var(--surface-control);
-        color: var(--text-primary);
-        cursor: pointer;
-        font-size: 0.875rem;
-        transition: all 0.2s ease;
     }
 
     .btn-scale:hover:not(:disabled) {
@@ -875,7 +871,7 @@
         .setting-item {
             grid-template-columns: 1fr;
             align-items: start;
-            row-gap: 0.75rem;
+            gap: var(--space-2);
         }
 
         .setting-control,
@@ -887,9 +883,26 @@
         .font-scale-control {
             flex-wrap: wrap;
         }
+
+        .setting-control-stack,
+        .setting-toggle-row {
+            align-items: flex-start;
+            justify-content: flex-start;
+        }
+
+        .setting-select-wide {
+            width: min(100%, 360px);
+            min-width: 0;
+        }
     }
 
-    .actions { display: flex; gap: 0.75rem; }
+    .actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: var(--space-2);
+        padding: 8px 16px 10px;
+        border-top: 1px solid var(--border-hairline);
+    }
     .btn i { font-size: 0.875rem; }
     .btn-sm i { font-size: 0.75rem; }
 
@@ -904,7 +917,7 @@
     }
 
     .connected-list-item {
-        padding: 1rem 1.25rem;
+        padding: 11px 14px;
         position: relative;
         transition: background 0.15s ease;
     }
@@ -913,8 +926,8 @@
         content: '';
         position: absolute;
         bottom: 0;
-        left: 1.25rem;
-        right: 1.25rem;
+        left: 14px;
+        right: 14px;
         height: 1px;
         background: var(--border-hairline);
     }
@@ -938,35 +951,27 @@
         display: flex;
         justify-content: space-between;
         align-items: center;
-        margin-bottom: 0.875rem;
-        gap: 1rem;
+        margin-bottom: var(--space-2);
+        gap: var(--space-3);
     }
 
     .identity-info {
         display: flex;
         align-items: center;
-        gap: 0.625rem;
+        gap: var(--space-3);
     }
 
     .identity-icon {
-        width: 2rem;
-        height: 2rem;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 1.15rem;
-        border-radius: var(--radius-md);
-        background: var(--surface-well);
-        color: var(--text-secondary);
+        flex: 0 0 34px;
     }
 
-    .identity-name { font-weight: 700; color: var(--text-primary); font-size: 0.975rem; }
+    .identity-name { color: var(--text-primary); font-size: var(--font-size-md); font-weight: 600; }
     .identity-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; justify-content: flex-end; }
 
     .identity-details {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-        gap: 1rem 1.25rem;
+        gap: var(--space-2) var(--space-4);
     }
 
     .detail-item {
@@ -976,23 +981,22 @@
     }
 
     .detail-label {
-        font-size: 0.6875rem;
+        font-size: var(--font-size-xs);
         color: var(--text-muted);
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        font-weight: 700;
+        letter-spacing: 0.02em;
+        font-weight: 600;
     }
 
     .detail-value {
-        font-size: 0.9rem;
+        font-size: var(--font-size-sm);
         color: var(--text-primary);
         line-height: 1.35;
         overflow-wrap: anywhere;
     }
 
     .detail-value.mono {
-        font-family: "SF Mono", Menlo, Monaco, monospace;
-        font-size: 0.8125rem;
+        font-family: var(--font-mono);
+        font-size: var(--font-size-xs);
         word-break: break-all;
     }
 
@@ -1123,32 +1127,24 @@
         display: flex;
         justify-content: space-between;
         align-items: center;
-        margin-bottom: 0.875rem;
-        gap: 1rem;
+        margin-bottom: var(--space-2);
+        gap: var(--space-3);
     }
     
     .provider-info {
         display: flex;
         align-items: center;
-        gap: 0.625rem;
+        gap: var(--space-3);
     }
     
     .provider-icon {
-        width: 2rem;
-        height: 2rem;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 1.15rem;
-        border-radius: var(--radius-md);
-        background: var(--surface-well);
-        color: var(--text-secondary);
+        flex: 0 0 34px;
     }
     
     .provider-name {
-        font-weight: 700;
+        font-weight: 600;
         color: var(--text-primary);
-        font-size: 0.975rem;
+        font-size: var(--font-size-md);
     }
 
     .provider-link {
@@ -1185,7 +1181,7 @@
     .provider-details {
         display: flex;
         flex-wrap: wrap;
-        gap: 1rem 1.25rem;
+        gap: var(--space-2) var(--space-4);
     }
 
     .provider-defaults {
@@ -1233,42 +1229,28 @@
 
     /* Backup & Restore Styles */
     .backup-actions {
-        display: flex;
-        flex-direction: column;
-        gap: 1rem;
+        display: block;
     }
 
     .backup-action-card {
-        display: flex;
-        align-items: center;
-        gap: 1.25rem;
-        padding: 1.25rem;
-        background: var(--surface-card);
-        border: 1px solid var(--border-subtle);
-        border-radius: var(--radius-lg);
+        gap: var(--space-3);
+        padding: 11px 14px;
     }
 
     .backup-icon {
-        width: 56px;
-        height: 56px;
-        border-radius: var(--radius-lg);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 1.5rem;
-        flex-shrink: 0;
+        flex: 0 0 34px;
     }
 
     .backup-icon.export {
         background: var(--status-info-bg);
         color: var(--status-info-fg);
-        border: 1px solid var(--status-info-border);
+        border-color: var(--accent-border);
     }
 
     .backup-icon.import {
         background: var(--status-success-bg);
         color: var(--status-success-fg);
-        border: 1px solid var(--status-success-border);
+        border-color: var(--status-success-border);
     }
 
     .backup-info {
@@ -1277,14 +1259,14 @@
 
     .backup-info h3 {
         margin: 0 0 0.25rem 0;
-        font-size: 1rem;
+        font-size: var(--font-size-md);
         font-weight: 600;
         color: var(--text-primary);
     }
 
     .backup-info p {
         margin: 0;
-        font-size: 0.8125rem;
+        font-size: var(--font-size-xs);
         color: var(--text-muted);
         line-height: 1.4;
     }

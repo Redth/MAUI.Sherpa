@@ -52,7 +52,7 @@
 else if (filteredSessions.Count == 0 && sessions.Count == 0)
 {
     <div class="empty-state">
-        <span class="empty-icon"><i class="fa-solid fa-fw fa-chart-line" aria-hidden="true"></i></span>
+        <span class="empty-icon sherpa-icon-well"><i class="fa-solid fa-fw fa-chart-line" aria-hidden="true"></i></span>
         <h2>Capture your first profile</h2>
         <p>Choose a MAUI project and a running Android device, emulator, or booted iOS simulator. Sherpa handles the CLI command and saves every result.</p>
         <button data-screenshot-external type="button" class="btn btn-primary empty-action" @onclick="StartCaptureAsync">
@@ -67,14 +67,14 @@ else
     @if (filteredSessions.Count == 0 && !string.IsNullOrEmpty(sessionSearchText))
     {
         <div class="empty-state compact">
-            <span class="empty-icon"><i class="fa-solid fa-fw fa-magnifying-glass" aria-hidden="true"></i></span>
+            <span class="empty-icon sherpa-icon-well"><i class="fa-solid fa-fw fa-magnifying-glass" aria-hidden="true"></i></span>
             <h2>No matching profiles</h2>
             <p>Try a project, device, platform, mode, or output format.</p>
         </div>
     }
     else
     {
-        <div class="session-list">
+        <div class="session-list sherpa-list">
             @foreach (var session in filteredSessions)
             {
                 var isExpanded = expandedSessionId == session.Id;
@@ -85,7 +85,7 @@ else
                                 class="session-card-main"
                                 aria-expanded="@(isExpanded ? "true" : "false")"
                                 @onclick="@(() => ToggleSessionExpand(session.Id))">
-                            <span class="session-card-icon">
+                            <span class="session-card-icon sherpa-icon-well">
                                 <i class="fa-solid fa-fw @GetPlatformIcon(session.Target.Platform)" aria-hidden="true"></i>
                             </span>
                             <span class="session-card-info">
@@ -210,7 +210,7 @@ else
                                 <button data-screenshot-external type="button" class="btn btn-secondary btn-sm" @onclick="@(() => RevealSessionFolderAsync(session))">
                                     <i class="fa-solid fa-fw fa-folder-open" aria-hidden="true"></i> Reveal
                                 </button>
-                                <button data-screenshot-external type="button" class="btn btn-danger btn-sm destructive-action" @onclick="@(() => DeleteSessionAsync(session))">
+                                <button data-screenshot-external type="button" class="btn btn-ghost-danger btn-sm destructive-action" @onclick="@(() => DeleteSessionAsync(session))">
                                     <i class="fa-solid fa-fw fa-trash" aria-hidden="true"></i> Delete
                                 </button>
                             </div>
@@ -983,16 +983,21 @@ else
 
     .session-list {
         display: grid;
-        gap: 0.6rem;
+        gap: 0;
+        overflow: hidden;
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
+        background: var(--surface-card);
     }
 
     .session-card {
         background: var(--surface-card);
-        border: 1px solid var(--border-subtle);
-        border-radius: var(--radius-lg);
+        border: 0;
+        border-radius: 0;
         overflow: hidden;
         transition: box-shadow 0.15s;
     }
+    .session-card + .session-card { border-top: 1px solid var(--border-hairline); }
 
     .session-card.expanded {
         border-color: var(--accent-border);
@@ -1029,10 +1034,10 @@ else
     }
 
     .session-card-icon {
-        font-size: 1.3rem;
+        font-size: 0.9rem;
         width: 2rem;
-        text-align: center;
-        color: var(--text-secondary);
+        height: 2rem;
+        color: var(--accent);
     }
 
     .session-card-info {

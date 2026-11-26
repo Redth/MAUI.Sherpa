@@ -99,7 +99,7 @@ public class CreateSecretPage : FormPage<SecretCreateResult>
         {
             Text = "Choose File",
             BorderWidth = 1,
-            CornerRadius = 6,
+            CornerRadius = FormTheme.ControlCornerRadius,
             FontSize = 13,
             HeightRequest = 36,
             Padding = new Thickness(12, 0),
@@ -141,7 +141,7 @@ public class CreateSecretPage : FormPage<SecretCreateResult>
         {
             Text = "Add Metadata",
             BorderWidth = 0,
-            CornerRadius = 6,
+            CornerRadius = FormTheme.ControlCornerRadius,
             FontSize = 13,
             HeightRequest = 34,
             Padding = new Thickness(12, 0),
@@ -264,7 +264,7 @@ public class CreateSecretPage : FormPage<SecretCreateResult>
         {
             Text = "Remove",
             BorderWidth = 0,
-            CornerRadius = 5,
+            CornerRadius = FormTheme.ControlCornerRadius,
             FontSize = 12,
             HeightRequest = 36,
             Padding = new Thickness(10, 0),

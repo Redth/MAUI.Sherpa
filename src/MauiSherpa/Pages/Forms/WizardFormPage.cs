@@ -101,7 +101,7 @@ public abstract class WizardFormPage<TResult> : ContentPage, IFormPage<TResult>,
                 new ColumnDefinition(GridLength.Star),
                 new ColumnDefinition(GridLength.Auto),
             },
-            Padding = new Thickness(28, 20, 20, 12),
+            Padding = new Thickness(24, 18, 24, 12),
         };
         Grid.SetColumn(titleLabel, 0);
         Grid.SetColumn(_headerActionsLayout, 1);
@@ -159,9 +159,9 @@ public abstract class WizardFormPage<TResult> : ContentPage, IFormPage<TResult>,
             FontSize = 13,
             BackgroundColor = Colors.Transparent,
             BorderWidth = 0,
-            CornerRadius = 5,
+            CornerRadius = FormTheme.ControlCornerRadius,
             Padding = new Thickness(14, 4),
-            HeightRequest = 30,
+            HeightRequest = FormTheme.ActionButtonHeight,
         };
         cancelButton.SetDynamicResource(Button.TextColorProperty, FormTheme.AccentPrimary);
         cancelButton.Clicked += OnCancelClicked;
@@ -173,9 +173,9 @@ public abstract class WizardFormPage<TResult> : ContentPage, IFormPage<TResult>,
             FontSize = 13,
             BackgroundColor = Colors.Transparent,
             BorderWidth = 0,
-            CornerRadius = 5,
+            CornerRadius = FormTheme.ControlCornerRadius,
             Padding = new Thickness(14, 4),
-            HeightRequest = 30,
+            HeightRequest = FormTheme.ActionButtonHeight,
         };
         _backButton.SetDynamicResource(Button.TextColorProperty, FormTheme.TextSecondary);
         _backButton.Clicked += OnBackClicked;
@@ -197,14 +197,14 @@ public abstract class WizardFormPage<TResult> : ContentPage, IFormPage<TResult>,
             Text = "Next →",
             FontSize = 13,
             FontAttributes = FontAttributes.Bold,
-            TextColor = Colors.White,
-            CornerRadius = 5,
+            CornerRadius = FormTheme.ControlCornerRadius,
             Padding = new Thickness(14, 4),
-            HeightRequest = 30,
+            HeightRequest = FormTheme.ActionButtonHeight,
             MinimumWidthRequest = 88,
             IsEnabled = false,
         };
         _primaryButton.SetDynamicResource(Button.BackgroundColorProperty, FormTheme.AccentPrimary);
+        _primaryButton.SetDynamicResource(Button.TextColorProperty, FormTheme.AccentPrimaryText);
         _primaryButton.Clicked += OnPrimaryClicked;
 
         // Footer layout: Cancel on left, Back + Primary on right
@@ -222,7 +222,7 @@ public abstract class WizardFormPage<TResult> : ContentPage, IFormPage<TResult>,
                 new ColumnDefinition(GridLength.Auto),
                 new ColumnDefinition(GridLength.Star),
             },
-            Margin = new Thickness(28, 12, 28, 24),
+            Margin = new Thickness(24, 12, 24, 18),
         };
         Grid.SetColumn(cancelButton, 0);
         Grid.SetColumn(rightButtons, 1);
@@ -244,6 +244,7 @@ public abstract class WizardFormPage<TResult> : ContentPage, IFormPage<TResult>,
             RowSpacing = 0,
             VerticalOptions = LayoutOptions.Fill,
         };
+        grid.SetDynamicResource(Grid.BackgroundColorProperty, FormTheme.PageBg);
 
         Grid.SetRow(headerGrid, 0);
         Grid.SetRow(headerSeparator, 1);

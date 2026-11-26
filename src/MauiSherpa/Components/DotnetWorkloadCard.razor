@@ -87,16 +87,16 @@
                         <div class="workload-target">
                             <div class="workload-target-line">
                                 <span class="mono feature-band">@inventory.Target.FeatureBand</span>
-                                <span class="badge @(inventory.UpdateMode == DotnetWorkloadUpdateMode.WorkloadSet ? "badge-workload-set" : "badge-warning")">
+                                <span class="sherpa-badge @(inventory.UpdateMode == DotnetWorkloadUpdateMode.WorkloadSet ? "sherpa-badge-accent" : "sherpa-badge-warning")">
                                     @ModeLabel(inventory.UpdateMode)
                                 </span>
                                 @if (inventory.UpdateAvailable)
                                 {
-                                    <span class="badge badge-info">set update</span>
+                                    <span class="sherpa-badge sherpa-badge-info">set update</span>
                                 }
                                 @if (inventory.WorkloadUpdates.Count > 0)
                                 {
-                                    <span class="badge badge-info">@inventory.WorkloadUpdates.Count workload update@(inventory.WorkloadUpdates.Count == 1 ? "" : "s")</span>
+                                    <span class="sherpa-badge sherpa-badge-info">@inventory.WorkloadUpdates.Count workload update@(inventory.WorkloadUpdates.Count == 1 ? "" : "s")</span>
                                 }
                                 @if (inventory.Diagnostics.Count > 0)
                                 {
@@ -143,7 +143,7 @@
                         </div>
 
                         <div class="workload-actions">
-                            <button data-screenshot-external class="btn btn-ghost btn-sm icon-button"
+                            <button data-screenshot-external class="btn btn-ghost btn-icon btn-sm icon-button"
                                     @onclick="@(() => RepairRequested.InvokeAsync(inventory))"
                                     disabled="@(Busy || inventory.InstalledWorkloads.Count == 0)"
                                     title="@(inventory.InstalledWorkloads.Count == 0 ? "No installed workloads to repair" : "Repair installed workloads")">
@@ -190,14 +190,14 @@
 
     .workload-card--inline {
         margin: 0;
-        border-top: 1px solid var(--border-hairline);
+        border: 0;
         border-radius: 0;
         background: transparent;
         overflow: visible;
     }
 
     .workload-inline-head {
-        padding: 0.55rem 1rem;
+        padding: 0.55rem var(--row-padding-x) 0.55rem 40px;
         border-bottom: 1px solid var(--border-hairline);
         background: var(--surface-well);
     }
@@ -288,12 +288,6 @@
         background: var(--status-warning-bg);
     }
 
-    .badge-workload-set {
-        color: var(--accent);
-        background: var(--accent-soft);
-        border: 1px solid var(--accent-border);
-    }
-
     .workload-card-body {
         border-top: 1px solid var(--border-hairline);
         background: var(--surface-well);
@@ -304,7 +298,7 @@
     }
 
     .workload-card--inline .workload-row {
-        padding: 0.65rem 1rem;
+        padding: var(--row-padding-y) var(--row-padding-x) var(--row-padding-y) 40px;
         background: var(--surface-well);
     }
 
@@ -434,16 +428,6 @@
         justify-content: center;
         padding-left: 0;
         padding-right: 0;
-    }
-
-    .badge {
-        display: inline-flex;
-        align-items: center;
-        padding: 2px 0.5rem;
-        border-radius: var(--radius-pill);
-        font-size: 0.68rem;
-        font-weight: 500;
-        white-space: nowrap;
     }
 
     @@media (max-width: 850px) {

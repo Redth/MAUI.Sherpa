@@ -21,12 +21,35 @@
 @inject IJSRuntime JS
 @implements IDisposable
 
-<div class="dotnet-sdk-page-header">
+<div class="dotnet-sdk-page-header sherpa-page-header">
     <div class="dotnet-sdk-page-heading">
-        <h1><i class="fa-solid fa-layer-group fa-fw"></i> .NET SDK Manager</h1>
-        <p>Track SDK and runtime channels to keep compatible versions installed and up to date. Sherpa uses dotnetup to install, update, and manage these components.</p>
+        <h1 class="sherpa-page-title"><i class="fa-solid fa-layer-group fa-fw"></i> .NET SDK Manager</h1>
+        <p class="sherpa-page-desc">Track SDK and runtime channels to keep compatible versions installed and up to date via dotnetup.</p>
     </div>
     <div class="dotnet-sdk-page-actions">
+        <button type="button"
+                class="dotnetup-indicator sherpa-badge @DotnetUpBadgeClass @DotnetUpIndicatorClass"
+                @onclick="OpenDotnetUpDetails"
+                disabled="@isLoading"
+                title="@DotnetUpIndicatorTitle"
+                aria-label="@DotnetUpIndicatorTitle">
+            @if (!isLoading && !checkingToolUpdate && DotnetUp.IsInstalled)
+            {
+                <span class="sherpa-dot sherpa-dot-success" aria-hidden="true"></span>
+            }
+            else
+            {
+                <i class="@DotnetUpIndicatorIcon" aria-hidden="true"></i>
+            }
+            <span>dotnetup</span>
+            @if (toolUpdateInfo?.UpdateAvailable == true)
+            {
+                <span class="dotnetup-indicator-update" aria-hidden="true">
+                    <i class="fa-solid fa-arrow-up fa-fw"></i>
+                </span>
+            }
+        </button>
+
         @if (!PlatformInfo.HasNativeToolbar)
         {
             <button class="btn btn-primary" @onclick="Refresh" disabled="@isLoading">
@@ -43,22 +66,6 @@
                 <i class="fa-solid fa-folder-open fa-fw"></i> <span>Open project folder</span>
             </button>
         }
-
-        <button type="button"
-                class="dotnetup-indicator @DotnetUpIndicatorClass"
-                @onclick="OpenDotnetUpDetails"
-                disabled="@isLoading"
-                title="@DotnetUpIndicatorTitle"
-                aria-label="@DotnetUpIndicatorTitle">
-            <span>dotnetup</span>
-            <i class="@DotnetUpIndicatorIcon" aria-hidden="true"></i>
-            @if (toolUpdateInfo?.UpdateAvailable == true)
-            {
-                <span class="dotnetup-indicator-update" aria-hidden="true">
-                    <i class="fa-solid fa-arrow-up fa-fw"></i>
-                </span>
-            }
-        </button>
     </div>
 </div>
 
@@ -150,10 +157,10 @@
     </section>
 
     <section class="page-section">
-        <div class="section-head">
+        <div class="section-head sherpa-section-header">
             <div class="section-head-main">
-                <h2><i class="fa-solid fa-cubes fa-fw"></i> Installed components @if (list != null) { <span class="count">@list.Installations.Count</span> }</h2>
-                <p class="section-desc">.NET SDKs, runtimes, and ASP.NET Core runtimes dotnetup has installed on this machine.</p>
+                <h2 class="sherpa-section-title"><i class="fa-solid fa-cubes fa-fw"></i> Installed components @if (list != null) { <span class="count sherpa-badge sherpa-badge-neutral">@list.Installations.Count</span> }</h2>
+                <p class="section-desc sherpa-section-caption">.NET SDKs, runtimes, and ASP.NET Core runtimes dotnetup has installed on this machine.</p>
                 @if (list != null && list.Installations.Count > 0)
                 {
                     <p class="info-note"><i class="fa-solid fa-lightbulb fa-fw"></i> Each .NET SDK bundles its own runtime, so a standalone <strong>Runtime</strong> entry only appears when you track a runtime channel separately.</p>
@@ -174,7 +181,7 @@
         }
         else
         {
-            <div class="installed-version-list">
+            <div class="installed-version-list sherpa-list">
                 @foreach (var group in DotnetSdkPresentationBuilder.Build(list, workloadInventories, updatePreviews).InstalledGroups)
                 {
                     <InstalledDotnetVersionCard
@@ -504,6 +511,13 @@
             return "installed";
         }
     }
+
+    private string DotnetUpBadgeClass => DotnetUpIndicatorClass switch
+    {
+        "installed" or "update-available" => "sherpa-badge-success",
+        "missing" => "sherpa-badge-warning",
+        _ => "sherpa-badge-neutral"
+    };
 
     private string DotnetUpIndicatorIcon =>
         isLoading || checkingToolUpdate
@@ -1065,32 +1079,13 @@
     }
 
     .dotnet-sdk-page-header {
-        display: flex;
         align-items: center;
-        justify-content: space-between;
         flex-wrap: wrap;
-        gap: 0.75rem 1rem;
-        margin-bottom: 1.25rem;
-    }
-
-    .dotnet-sdk-page-header h1 {
-        margin: 0;
     }
 
     .dotnet-sdk-page-heading {
         min-width: 0;
-        display: flex;
         flex: 1;
-        flex-direction: column;
-        gap: 0.3rem;
-    }
-
-    .dotnet-sdk-page-heading p {
-        max-width: 52rem;
-        margin: 0;
-        color: var(--text-secondary);
-        font-size: 0.85rem;
-        line-height: 1.4;
     }
 
     .dotnet-sdk-page-actions {
@@ -1102,25 +1097,11 @@
     }
 
     .dotnetup-indicator {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.4rem;
-        min-height: 2rem;
-        padding: 0.3rem 0.5rem;
-        border: 0;
-        border-radius: var(--radius-sm);
-        background: transparent;
-        color: var(--text-secondary);
-        font: inherit;
-        font-size: 0.78rem;
-        font-weight: 500;
         cursor: pointer;
-        transition: background-color 0.15s ease, color 0.15s ease;
     }
 
     .dotnetup-indicator:hover:not(:disabled) {
-        background: var(--surface-well);
-        color: var(--text-primary);
+        filter: brightness(0.98);
     }
 
     .dotnetup-indicator:focus-visible {
@@ -1133,13 +1114,22 @@
         opacity: 0.7;
     }
 
-    .dotnetup-indicator.installed > i,
-    .dotnetup-indicator.update-available > i {
-        color: color-mix(in srgb, var(--status-success-text) 72%, var(--text-secondary));
+    .dotnetup-indicator.installed,
+    .dotnetup-indicator.update-available {
+        color: var(--status-success-fg);
+        background: var(--status-success-bg);
+        border-color: var(--status-success-border);
     }
 
-    .dotnetup-indicator.missing > i {
-        color: color-mix(in srgb, var(--status-warning-text) 72%, var(--text-secondary));
+    .dotnetup-indicator.missing {
+        color: var(--status-warning-fg);
+        background: var(--status-warning-bg);
+        border-color: var(--status-warning-border);
+    }
+
+    .dotnetup-indicator.checking {
+        color: var(--text-secondary);
+        background: var(--surface-well);
     }
 
     .dotnetup-indicator-update {
@@ -1155,7 +1145,7 @@
     }
 
     .page-section {
-        margin-bottom: 1.75rem;
+        margin-bottom: 24px;
     }
 
     .page-section + .page-section {
@@ -1163,11 +1153,7 @@
     }
 
     .section-head {
-        display: flex;
-        align-items: flex-start;
-        justify-content: space-between;
-        gap: 1rem;
-        margin-bottom: 0.75rem;
+        margin-block: 22px 10px;
     }
 
     .section-head-main {
@@ -1178,10 +1164,6 @@
         display: flex;
         align-items: center;
         gap: 0.5rem;
-        margin: 0;
-        color: var(--text-primary);
-        font-size: 1.05rem;
-        font-weight: 600;
     }
 
     .section-head h2 i,
@@ -1190,19 +1172,11 @@
     }
 
     .section-desc {
-        margin: 0.25rem 0 0;
-        color: var(--text-secondary);
-        font-size: 0.85rem;
-        line-height: 1.4;
+        margin-top: 4px;
     }
 
     .count {
-        padding: 0.05rem 0.5rem;
-        border-radius: var(--radius-pill);
-        background: var(--surface-well);
-        color: var(--text-secondary);
-        font-size: 0.72rem;
-        font-weight: 600;
+        margin-left: 4px;
     }
 
     .info-note {
@@ -1217,8 +1191,17 @@
     }
 
     .installed-version-list {
-        display: grid;
-        gap: 0.75rem;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .installed-version-list .installed-dotnet-version-card {
+        border: 0;
+        border-radius: 0;
+    }
+
+    .installed-version-list .installed-dotnet-version-card + .installed-dotnet-version-card {
+        border-top: 1px solid var(--border-hairline);
     }
 
     @@media (max-width: 700px) {

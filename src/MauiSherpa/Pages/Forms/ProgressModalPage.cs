@@ -59,6 +59,7 @@ public class ProgressModalPage : ContentPage, INativeModalDismissible
             Selector = "#app",
             ComponentType = typeof(Components.ModalApp)
         });
+        blazorWebView.SetDynamicResource(BackgroundColorProperty, FormTheme.PageBg);
         _webView = blazorWebView;
         Content = blazorWebView;
 #else
@@ -73,6 +74,7 @@ public class ProgressModalPage : ContentPage, INativeModalDismissible
             Selector = "#app",
             ComponentType = typeof(Components.ModalApp)
         });
+        blazorWebView.SetDynamicResource(BackgroundColorProperty, FormTheme.PageBg);
         HandlerProperties.SetDisconnectPolicy(blazorWebView, HandlerDisconnectPolicy.Manual);
         _webView = blazorWebView;
         Content = blazorWebView;

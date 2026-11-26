@@ -8,6 +8,7 @@
 @inject IAppleConnectService AppleService
 @inject IAppleIdentityStateService IdentityState
 @inject IAlertService AlertService
+@inject IDialogService DialogService
 @inject BlazorToastService ToastService
 @inject IEncryptedSettingsService SettingsService
 @inject IFormModalService FormModalService
@@ -23,7 +24,7 @@
 @inject ICloudSecretsService CloudSecretsService
 @inject ISecretSyncCoordinator SecretSyncCoordinator
 
-<h1><i class="fas fa-mobile-alt"></i> Registered Devices</h1>
+<h1><i class="fa-solid fa-mobile-screen-button"></i> Registered Devices</h1>
 
 <AppleIdentityPicker />
 
@@ -33,10 +34,10 @@
     {
     <div class="toolbar">
         <button class="btn btn-primary" @onclick="@(() => RefreshData(forceRefresh: true))" disabled="@isLoading">
-            <i class="fas @(isLoading ? "fa-spinner fa-spin" : "fa-sync-alt")"></i> Refresh
+            <i class="fa-solid @(isLoading ? "fa-spinner fa-spin" : "fa-arrows-rotate")"></i> Refresh
         </button>
         <button class="btn btn-success" @onclick="ShowRegisterDialog" disabled="@isLoading">
-            <i class="fas fa-plus"></i> Register Device
+            <i class="fa-solid fa-plus"></i> Register Device
         </button>
     </div>
     }
@@ -46,7 +47,7 @@
     {
     <div class="filter-section">
         <div class="search-box">
-            <span class="search-icon"><i class="fas fa-search"></i></span>
+            <span class="search-icon"><i class="fa-solid fa-search"></i></span>
             <input type="text" @bind="searchQuery" @bind:event="oninput" placeholder="Search devices..." />
             @if (!string.IsNullOrEmpty(searchQuery))
             {
@@ -89,12 +90,12 @@
         Showing @FilteredDevices.Count() of @devices.Count devices
     </div>
 
-    <div class="device-list">
+    <div class="device-list sherpa-list">
         @if (isLoading && devices.Count == 0)
         {
             <div class="loading-state">
                 <div class="loading-spinner">
-                    <i class="fab fa-apple"></i>
+                    <i class="fa-brands fa-apple"></i>
                 </div>
                 <div class="loading-title">Loading Devices</div>
                 <div class="loading-description">Fetching registered devices from App Store Connect...</div>
@@ -103,7 +104,7 @@
         else if (!FilteredDevices.Any())
         {
             <div class="empty-state">
-                <div class="empty-icon"><i class="fas @(devices.Count == 0 ? "fa-mobile-alt" : "fa-search")"></i></div>
+                <div class="empty-icon"><i class="fa-solid @(devices.Count == 0 ? "fa-mobile-screen-button" : "fa-search")"></i></div>
                 <div class="empty-title">@(devices.Count == 0 ? "No devices registered" : "No matching devices")</div>
                 <div class="empty-description">@(devices.Count == 0 ? "Register a device UDID to use it for development" : "No devices match your search or filters. Try adjusting your criteria.")</div>
             </div>
@@ -113,38 +114,45 @@
             @foreach (var device in FilteredDevices)
             {
                 var isEnabled = device.Status == "ENABLED";
-                <div class="device-card @(isEnabled ? "" : "disabled")">
-                    <div class="device-icon">
-                        <i class="fas @GetDeviceIcon(device.DeviceClass)"></i>
-                        <i class="fab fa-apple brand-overlay"></i>
+                <div class="device-card sherpa-list-row @(isEnabled ? "" : "disabled")">
+                    <div class="device-icon sherpa-icon-well sherpa-icon-well-apple">
+                        <i class="fa-solid @GetDeviceIcon(device.DeviceClass)"></i>
+                        <span class="sherpa-brand-badge"><i class="fa-brands fa-apple"></i></span>
                     </div>
-                    <div class="device-details">
-                        <div class="device-name"><span>@device.Name</span></div>
-                        <div class="device-udid"><span class="@(demoMode ? "demo-blur" : "")">@device.Udid</span></div>
-                        <div class="device-badges">
-                            <span class="badge badge-platform">@device.Platform</span>
-                            <span class="badge badge-class">@device.DeviceClass</span>
-                            <span class="badge @(isEnabled ? "badge-enabled" : "badge-disabled")">@device.Status</span>
+                    <div class="device-details sherpa-row-stack">
+                        <div class="device-name sherpa-row-title">
+                            <span>@device.Name</span>
+                            <span class="sherpa-badge sherpa-badge-neutral">@device.Platform</span>
+                            <span class="sherpa-badge sherpa-badge-neutral">@device.DeviceClass</span>
+                            <span class="sherpa-badge @(isEnabled ? "sherpa-badge-success" : "sherpa-badge-danger")">
+                                <span class="sherpa-dot @(isEnabled ? "sherpa-dot-success" : "sherpa-dot-danger")"></span> @device.Status
+                            </span>
                             @if (!string.IsNullOrEmpty(device.Model))
                             {
-                                <span class="badge badge-model">@device.Model</span>
+                                <span class="sherpa-badge sherpa-badge-neutral">@device.Model</span>
                             }
                         </div>
+                        <div class="device-udid sherpa-row-sub mono">
+                            <span class="@(demoMode ? "demo-blur" : "")">@device.Udid</span>
+                            <button class="btn btn-ghost btn-icon btn-sm btn-copy" @onclick="@(() => CopyToClipboard(device.Udid))" title="Copy UDID" aria-label="@($"Copy UDID for {device.Name}")">
+                                <i class="fa-regular fa-copy"></i>
+                            </button>
+                        </div>
                     </div>
-                    <div class="device-actions">
+                    <div class="device-actions sherpa-row-actions">
                         @if (isEnabled)
                         {
-                            <button class="btn btn-secondary btn-icon" @onclick="@(() => AddDeviceToProfilesAsync(device))" disabled="@isLoading" title="Add to Provisioning Profiles">
-                                <i class="fas fa-id-card"></i>
+                            <button class="btn btn-secondary btn-icon btn-sm" @onclick="@(() => AddDeviceToProfilesAsync(device))" disabled="@isLoading" title="Add to Provisioning Profiles">
+                                <i class="fa-solid fa-id-card"></i>
                             </button>
-                            <button class="btn btn-warning btn-icon" @onclick="@(() => ToggleDevice(device, false))" disabled="@isLoading" title="Disable">
-                                <i class="fas fa-ban"></i>
+                            <button class="btn btn-warning btn-icon btn-sm" @onclick="@(() => ToggleDevice(device, false))" disabled="@isLoading" title="Disable">
+                                <i class="fa-solid fa-ban"></i>
                             </button>
                         }
                         else
                         {
-                            <button class="btn btn-success btn-icon" @onclick="@(() => ToggleDevice(device, true))" disabled="@isLoading" title="Enable">
-                                <i class="fas fa-check"></i>
+                            <button class="btn btn-success btn-icon btn-sm" @onclick="@(() => ToggleDevice(device, true))" disabled="@isLoading" title="Enable">
+                                <i class="fa-solid fa-check"></i>
                             </button>
                         }
                     </div>
@@ -155,16 +163,15 @@
 }
 
 <style>
-    h1 { margin-bottom: 1.25rem; font-size: 1.75rem; color: var(--text-primary); }
-
     .toolbar { margin-bottom: 1rem; display: flex; gap: 0.75rem; }
     .error-bar { background: var(--status-error-bg); color: var(--status-error-text); padding: 0.75rem 1rem; border: 1px solid var(--status-error-border); border-radius: var(--radius-lg); margin-bottom: 1rem; }
 
     /* Filter Section Styles */
     .filter-section {
-        background: var(--card-bg);
-        border-radius: var(--card-radius);
-        padding: 1rem;
+        background: var(--surface-card);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
+        padding: 10px 14px;
         margin-bottom: 1rem;
         display: flex;
         flex-wrap: wrap;
@@ -173,54 +180,44 @@
     }
 
     .search-box {
-        position: relative;
         flex: 1;
         min-width: 200px;
     }
 
     .search-box input {
         width: 100%;
-        padding: 0.625rem 36px 0.625rem 36px;
-        border: 1px solid var(--border-color);
-        border-radius: 0.375rem;
-        font-size: 0.875rem;
+        padding: 0;
+        border: 0;
+        background: transparent;
         box-sizing: border-box;
     }
 
     .search-box input:focus {
         outline: none;
-        border-color: var(--accent-primary);
-        box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.15);
+        box-shadow: none;
     }
 
     .search-icon {
-        position: absolute;
-        left: 0.75rem;
-        top: 50%;
-        transform: translateY(-50%);
         font-size: 0.875rem;
         opacity: 0.5;
     }
 
     .clear-btn {
-        position: absolute;
-        right: 0.5rem;
-        top: 50%;
-        transform: translateY(-50%);
-        background: var(--border-color);
-        border: none;
-        border-radius: 50%;
-        width: 1.25rem;
-        height: 1.25rem;
-        font-size: 0.875rem;
-        cursor: pointer;
-        display: flex;
+        display: inline-flex;
         align-items: center;
         justify-content: center;
+        width: 20px;
+        height: 20px;
+        padding: 0;
+        background: transparent;
+        border: none;
+        border-radius: var(--radius-sm);
+        font-size: 0.875rem;
+        cursor: pointer;
         color: var(--text-muted);
     }
 
-    .clear-btn:hover { background: var(--bg-hover); }
+    .clear-btn:hover { background: var(--surface-card-hover); }
 
     .filter-chips { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 
@@ -238,62 +235,30 @@
 
     .clear-filters-btn:hover { background: var(--bg-tertiary); color: var(--text-secondary); }
 
-    .results-info { font-size: 0.8125rem; color: var(--text-muted); margin-bottom: 0.75rem; }
-    .btn i { font-size: 0.75rem; }
-    .btn-icon {
-        width: 2rem;
-        height: 2rem;
-        padding: 0;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        border-radius: 0.375rem;
-        font-size: 0.8125rem;
-    }
-    .btn-icon i { font-size: 0.8125rem; margin: 0; }
+    .results-info { font-size: var(--font-size-xs); color: var(--text-muted); margin: 0 0 8px; }
 
-    .device-list { display: flex; flex-direction: column; gap: 0.75rem; }
+    .device-list { margin-bottom: 1.25rem; }
 
     .device-card {
-        background: var(--card-bg);
-        border: 1px solid var(--border-subtle);
-        border-radius: var(--radius-lg);
-        padding: 0.875rem;
-        display: flex;
         align-items: center;
-        gap: 1rem;
+        background: transparent;
+        border: 0;
+        border-radius: 0;
+        box-shadow: none;
     }
 
     .device-card.disabled { opacity: 0.6; }
 
-    .device-icon {
-        width: 42px;
-        height: 42px;
-        border-radius: var(--radius-md);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 1.25rem;
-        background: var(--accent-soft);
-        color: var(--accent);
-        position: relative;
+    .device-details { min-width: 0; }
+    .device-name { display: flex; align-items: center; gap: 6px; }
+    .device-udid { display: flex; align-items: center; gap: 6px; }
+    .btn-copy {
+        width: 20px;
+        min-width: 20px;
+        height: 20px;
+        min-height: 20px;
         flex-shrink: 0;
     }
-
-    .device-icon .brand-overlay {
-        position: absolute;
-        bottom: 3px;
-        right: 3px;
-        font-size: 0.7rem;
-        color: var(--text-muted);
-        line-height: 1;
-    }
-
-    .device-details { flex: 1; }
-    .device-actions { display: flex; gap: 0.5rem; }
-    .device-name { font-weight: 600; font-size: 1rem; color: var(--text-primary); }
-    .device-udid { font-family: monospace; font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem; }
-    .device-badges { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; }
 
     .badge { padding: 2px 0.625rem; border-radius: var(--radius-pill); font-size: 0.75rem; font-weight: 500; }
     .badge-platform { background: var(--status-info-bg); color: var(--status-info-text); }
@@ -352,6 +317,12 @@
         searchQuery = "";
         filterPlatform = "";
         filterStatus = "";
+    }
+
+    private async Task CopyToClipboard(string text)
+    {
+        await DialogService.CopyToClipboardAsync(text);
+        await AlertService.ShowToastAsync("Copied to clipboard");
     }
 
     protected override async Task OnInitializedAsync()

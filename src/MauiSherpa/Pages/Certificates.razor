@@ -79,7 +79,7 @@
     <!-- Cloud Sync Hint -->
     @if (CloudSecretsService.ActiveProvider == null && !syncHintDismissed)
     {
-        <div class="alert alert-info alert-dismissible">
+        <div class="sherpa-banner sherpa-banner-info">
             <div class="alert-content">
                 <i class="fa-solid fa-cloud info-icon"></i>
                 <div>
@@ -87,7 +87,7 @@
                     <p>Configure a secrets provider in Settings to securely store signing certificates and private keys. Use a cloud provider to sync across machines.</p>
                 </div>
             </div>
-            <button type="button" class="btn-close" @onclick="DismissSyncHint" title="Dismiss" aria-label="Dismiss sync hint">
+            <button type="button" class="btn btn-ghost btn-icon btn-sm" @onclick="DismissSyncHint" title="Dismiss" aria-label="Dismiss sync hint">
                 <i class="fa-solid fa-xmark" aria-hidden="true"></i>
             </button>
         </div>
@@ -151,7 +151,7 @@
 
     @if (isSelectionMode)
     {
-        <div class="selection-bar">
+        <div class="sherpa-selection-bar">
             <label class="select-all-checkbox">
                 <input type="checkbox"
                        checked="@AllVisibleSelected"
@@ -159,11 +159,11 @@
                        @onchange="ToggleAllVisible" />
                 <span>Select all certificates shown</span>
             </label>
-            <span class="selection-count">@selectedCertificateIds.Count selected</span>
+            <span class="selection-count sherpa-badge sherpa-badge-accent">@selectedCertificateIds.Count selected</span>
         </div>
     }
 
-    <div class="cert-list">
+    <div class="cert-list sherpa-list">
         @if (isLoading && certificates.Count == 0)
         {
             <div class="loading-state">
@@ -191,7 +191,7 @@
                 var syncStatus = GetSyncStatus(cert);
                 
                 <div @key="cert.Id"
-                     class="cert-card @(isExpired ? "expired" : isExpiringSoon ? "expiring" : "") @(selectedCertificateIds.Contains(cert.Id) ? "selected" : "") @(isSelectionMode && !isLoading ? "selectable" : "")"
+                     class="cert-card sherpa-list-row @(isExpired ? "expired" : isExpiringSoon ? "expiring" : "") @(selectedCertificateIds.Contains(cert.Id) ? "selected" : "") @(isSelectionMode && !isLoading ? "selectable sherpa-list-row-interactive" : "")"
                      @onclick="() => { if (isSelectionMode) ToggleCertificateSelection(cert.Id, !selectedCertificateIds.Contains(cert.Id)); }">
                     @if (isSelectionMode)
                     {
@@ -203,51 +203,52 @@
                                    @onchange="@(e => ToggleCertificateSelection(cert.Id, e.Value is bool selected && selected))" />
                         </label>
                     }
-                    <div class="cert-icon"><i class="fa-solid fa-lock"></i></div>
-                    <div class="cert-details">
-                        <div class="cert-name"><span>@cert.Name</span></div>
-                        <div class="cert-serial">
-                            Serial: <span class="@(demoMode ? "demo-blur" : "")">@cert.SerialNumber</span>
-                            <button class="btn-copy" @onclick="@(() => CopyToClipboard(cert.SerialNumber))" @onclick:stopPropagation="true" title="Copy to clipboard">
-                                <i class="fa-solid fa-copy"></i>
-                            </button>
-                        </div>
-                        <div class="cert-badges">
+                    <div class="cert-icon sherpa-icon-well sherpa-icon-well-apple">
+                        <i class="fa-solid fa-certificate"></i>
+                        <span class="sherpa-brand-badge"><i class="fa-brands fa-apple"></i></span>
+                    </div>
+                    <div class="cert-details sherpa-row-stack">
+                        <div class="cert-name sherpa-row-title">
+                            <span>@cert.Name</span>
                             @if (!string.IsNullOrEmpty(cert.CertificateType))
                             {
-                                <span class="badge badge-type">@FormatCertType(cert.CertificateType)</span>
+                                <span class="sherpa-badge sherpa-badge-neutral">@FormatCertType(cert.CertificateType)</span>
                             }
                             @{ var formattedPlatform = FormatPlatform(cert.Platform); }
                             @if (!string.IsNullOrEmpty(formattedPlatform))
                             {
-                                <span class="badge badge-platform">@formattedPlatform</span>
+                                <span class="sherpa-badge sherpa-badge-neutral">@formattedPlatform</span>
                             }
                             @if (cert.IsLocalOnly)
                             {
-                                <span class="badge badge-local-only" title="Not published by App Store Connect — read from your local keychain">
+                                <span class="sherpa-badge sherpa-badge-info" title="Not published by App Store Connect — read from your local keychain">
                                     <i class="fa-solid fa-key"></i> Keychain only
                                 </span>
                             }
                             @if (isExpired)
                             {
-                                <span class="badge badge-expired">Expired</span>
+                                <span class="sherpa-badge sherpa-badge-danger"><span class="sherpa-dot sherpa-dot-danger"></span> Expired</span>
                             }
                             else if (isExpiringSoon)
                             {
-                                <span class="badge badge-expiring">Expiring Soon</span>
+                                <span class="sherpa-badge sherpa-badge-warning"><span class="sherpa-dot sherpa-dot-warning"></span> Expiring Soon</span>
                             }
                             else
                             {
-                                <span class="badge badge-valid">Valid</span>
+                                <span class="sherpa-badge sherpa-badge-success"><span class="sherpa-dot sherpa-dot-success"></span> Valid</span>
                             }
                         </div>
-                        <div class="cert-expiry">
-                            Expires: @cert.ExpirationDate.ToString("MMM dd, yyyy")
+                        <div class="cert-serial sherpa-row-sub mono">
+                            <span>Serial: <span class="@(demoMode ? "demo-blur" : "")">@cert.SerialNumber</span></span>
+                            <button class="btn btn-ghost btn-icon btn-sm btn-copy" @onclick="@(() => CopyToClipboard(cert.SerialNumber))" @onclick:stopPropagation="true" title="Copy serial" aria-label="@($"Copy serial for {cert.Name}")">
+                                <i class="fa-regular fa-copy"></i>
+                            </button>
+                            <span>· Expires @cert.ExpirationDate.ToString("MMM dd, yyyy")</span>
                         </div>
                     </div>
                     @if (!isSelectionMode)
                     {
-                    <div class="cert-actions">
+                    <div class="cert-actions sherpa-row-actions">
                         @if (!string.IsNullOrWhiteSpace(cert.SerialNumber))
                         {
                             <MauiSherpa.Components.SecretProviderPickerHost
@@ -257,30 +258,30 @@
                                 UnavailableSourceReason="This certificate has no matching private key in Keychain and no provider copy. Import or install its private key before syncing." />
                             @if (syncStatus is SecretLocation.CloudOnly)
                             {
-                                <button data-screenshot-external class="btn btn-secondary btn-icon" @onclick="@(() => InstallLocally(cert))" title="Install private key locally">
+                                <button data-screenshot-external class="btn btn-secondary btn-icon btn-sm" @onclick="@(() => InstallLocally(cert))" title="Install private key locally">
                                     <i class="fa-solid fa-download"></i>
                                 </button>
                             }
                         }
-                        <button data-screenshot-external class="btn btn-secondary btn-icon" @onclick="@(() => ShowExportDialog(cert))"
+                        <button data-screenshot-external class="btn btn-secondary btn-icon btn-sm" @onclick="@(() => ShowExportDialog(cert))"
                                 disabled="@isLoading" title="Export">
                             <i class="fa-solid fa-file-export"></i>
                         </button>
                         @if (!string.IsNullOrWhiteSpace(cert.SerialNumber) &&
                              syncStatus is SecretLocation.LocalOnly or SecretLocation.Both)
                         {
-                            <button data-screenshot-external class="btn btn-danger btn-icon" @onclick="@(() => DeleteLocalCertificate(cert))" title="Delete private key from Keychain">
+                            <button data-screenshot-external class="btn btn-ghost-danger btn-icon btn-sm" @onclick="@(() => DeleteLocalCertificate(cert))" title="Delete private key from Keychain">
                                 <i class="fa-solid fa-trash-alt"></i>
                             </button>
                         }
                         @if (!cert.IsLocalOnly)
                         {
-                            <button data-screenshot-external class="btn btn-secondary btn-icon" @onclick="@(() => RenewCertificate(cert))"
+                            <button data-screenshot-external class="btn btn-warning btn-icon btn-sm" @onclick="@(() => RenewCertificate(cert))"
                                     disabled="@isLoading" title="Renew… (replace this certificate and move its provisioning profiles)"
                                     aria-label="@($"Renew {cert.Name}")">
                                 <i class="fa-solid fa-rotate"></i>
                             </button>
-                            <button data-screenshot-external class="btn btn-danger btn-icon" @onclick="@(() => RevokeCertificate(cert))"
+                            <button data-screenshot-external class="btn btn-ghost-danger btn-icon btn-sm" @onclick="@(() => RevokeCertificate(cert))"
                                     disabled="@isLoading" title="Revoke">
                                 <i class="fa-solid fa-ban"></i>
                             </button>
@@ -296,73 +297,45 @@
 
 
 <style>
-    h1 { margin-bottom: 1.25rem; font-size: 1.75rem; color: var(--text-primary); }
-
     .toolbar { margin-bottom: 1rem; display: flex; gap: 0.75rem; flex-wrap: wrap; }
     .error-bar { background: var(--status-error-bg); color: var(--status-error-text); padding: 0.75rem 1rem; border: 1px solid var(--status-error-border); border-radius: var(--radius-lg); margin-bottom: 1rem; }
 
-    /* Info Alert */
-    .alert-info {
-        background: linear-gradient(135deg, rgba(66, 153, 225, 0.1), rgba(66, 153, 225, 0.05));
-        border: 1px solid rgba(66, 153, 225, 0.3);
-        border-radius: 0.5rem;
-        padding: 1rem;
+    .sherpa-banner {
         margin-bottom: 1rem;
-        display: flex;
-        align-items: flex-start;
-        gap: 0.75rem;
     }
 
-    .alert-info .alert-content {
+    .sherpa-banner .alert-content {
         flex: 1;
         display: flex;
-        gap: 0.75rem;
+        gap: var(--space-3);
         align-items: flex-start;
     }
 
-    .alert-info .info-icon {
-        font-size: 1.5rem;
-        color: var(--accent-primary);
+    .sherpa-banner .info-icon {
+        color: inherit;
         flex-shrink: 0;
         margin-top: 2px;
     }
 
-    .alert-info strong {
+    .sherpa-banner strong {
         display: block;
-        color: var(--text-primary);
         margin-bottom: 0.25rem;
     }
 
-    .alert-info p {
+    .sherpa-banner p {
         margin: 0;
-        color: var(--text-secondary);
         font-size: 0.875rem;
-        line-height: 1.5;
-    }
-
-    .alert-info .btn-close {
-        background: none;
-        border: none;
-        font-size: 1.25rem;
-        color: var(--text-secondary);
-        cursor: pointer;
-        padding: 0;
-        line-height: 1;
-        opacity: 0.6;
-        transition: opacity 0.2s;
-    }
-
-    .alert-info .btn-close:hover {
-        opacity: 1;
+        line-height: 1.45;
     }
 
     /* Filter Section Styles */
     .filter-section {
-        background: var(--card-bg);
-        border-radius: var(--card-radius);
-        padding: 1rem;
+        background: var(--surface-card);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
+        padding: 10px 14px;
         margin-bottom: 1rem;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        box-shadow: none;
         display: flex;
         flex-wrap: wrap;
         gap: 0.75rem;
@@ -370,54 +343,44 @@
     }
 
     .search-box {
-        position: relative;
         flex: 1;
         min-width: 200px;
     }
 
     .search-box input {
         width: 100%;
-        padding: 0.625rem 36px 0.625rem 36px;
-        border: 1px solid var(--border-color);
-        border-radius: 0.375rem;
-        font-size: 0.875rem;
+        padding: 0;
+        border: 0;
+        background: transparent;
         box-sizing: border-box;
     }
 
     .search-box input:focus {
         outline: none;
-        border-color: var(--accent-primary);
-        box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.15);
+        box-shadow: none;
     }
 
     .search-icon {
-        position: absolute;
-        left: 0.75rem;
-        top: 50%;
-        transform: translateY(-50%);
         font-size: 0.875rem;
         opacity: 0.5;
     }
 
     .clear-btn {
-        position: absolute;
-        right: 0.5rem;
-        top: 50%;
-        transform: translateY(-50%);
-        background: var(--border-color);
-        border: none;
-        border-radius: 50%;
-        width: 1.25rem;
-        height: 1.25rem;
-        font-size: 0.875rem;
-        cursor: pointer;
-        display: flex;
+        display: inline-flex;
         align-items: center;
         justify-content: center;
+        width: 20px;
+        height: 20px;
+        padding: 0;
+        background: transparent;
+        border: none;
+        border-radius: var(--radius-sm);
+        font-size: 0.875rem;
+        cursor: pointer;
         color: var(--text-muted);
     }
 
-    .clear-btn:hover { background: var(--bg-hover); }
+    .clear-btn:hover { background: var(--surface-card-hover); }
 
     .filter-chips {
         display: flex;
@@ -443,50 +406,33 @@
     }
 
     .results-info {
-        font-size: 0.8125rem;
+        font-size: var(--font-size-xs);
         color: var(--text-muted);
-        margin-bottom: 0.75rem;
+        margin: 0 0 8px;
     }
-    .btn i { font-size: 0.75rem; }
-    .btn-icon {
-        width: 2rem; height: 2rem; padding: 0;
-        display: inline-flex; align-items: center; justify-content: center;
-        border-radius: 0.375rem; font-size: 0.8125rem;
-    }
-    .btn-icon i { font-size: 0.8125rem; margin: 0; }
 
-    .cert-list { display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1.25rem; }
+    .cert-list { margin-bottom: 1.25rem; }
 
     .cert-card {
-        background: var(--card-bg);
-        border: 1px solid var(--border-subtle);
-        border-radius: var(--radius-lg);
-        padding: 0.875rem;
-        display: flex;
-        align-items: flex-start;
-        gap: 1rem;
+        align-items: center;
+        background: transparent;
+        border: 0;
+        border-radius: 0;
+        box-shadow: none;
     }
 
     .cert-card.expired { opacity: 0.7; }
-    .cert-card.selected { box-shadow: 0 0 0 2px var(--accent-primary); }
+    .cert-card.selected { background: color-mix(in srgb, var(--accent-soft) 55%, var(--surface-card)); }
     .cert-card.selectable { cursor: pointer; }
 
-    .cert-icon { font-size: 1.5rem; color: var(--accent); }
-    .cert-icon i { font-size: 1.25rem; }
-    .cert-details { flex: 1; }
-    .cert-name { font-weight: 600; font-size: 1rem; color: var(--text-primary); }
-    .cert-serial { 
-        font-family: monospace; 
-        font-size: 0.75rem; 
-        color: var(--text-muted); 
-        margin-top: 0.25rem;
+    .cert-details { min-width: 0; }
+    .cert-name {
         display: flex;
         align-items: center;
-        gap: 0.5rem;
+        gap: 6px;
     }
-    .cert-expiry { font-size: 0.8125rem; color: var(--text-muted); margin-top: 0.5rem; }
-    .cert-badges { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; }
-    .cert-actions { display: flex; gap: 0.25rem; align-items: center; position: relative; }
+    .cert-serial { display: flex; align-items: center; gap: 6px; }
+    .cert-actions { position: relative; }
     .cert-select {
         display: flex;
         align-items: center;
@@ -499,17 +445,6 @@
         accent-color: var(--accent-primary);
     }
 
-    .selection-bar {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 1rem;
-        padding: 0.75rem 1rem;
-        margin-bottom: 0.75rem;
-        background: var(--card-bg);
-        border: 1px solid var(--border-color);
-        border-radius: var(--card-radius);
-    }
     .select-all-checkbox {
         display: flex;
         align-items: center;
@@ -526,19 +461,11 @@
     }
 
     .btn-copy {
-        background: none;
-        border: none;
-        color: var(--text-muted);
-        cursor: pointer;
-        padding: 2px 0.375rem;
-        font-size: 0.75rem;
-        border-radius: 0.25rem;
-        transition: all 0.15s;
+        width: 20px;
+        min-width: 20px;
+        height: 20px;
+        min-height: 20px;
         flex-shrink: 0;
-    }
-    .btn-copy:hover {
-        color: var(--accent-primary);
-        background: var(--bg-hover);
     }
 
     .badge { padding: 2px 0.625rem; border-radius: var(--radius-pill); font-size: 0.75rem; font-weight: 500; }

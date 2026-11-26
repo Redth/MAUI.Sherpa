@@ -52,7 +52,7 @@ else
         </div>
     }
 
-    <div class="auth-banner @(ViewModel.IsAuthenticated && DownloadAuthService.SessionValidationMessage == null ? "auth-banner-signed-in" : "")" data-testid="apple-account-card">
+    <div class="auth-banner sherpa-banner @(DownloadAuthService.SessionValidationMessage != null ? "sherpa-banner-danger" : ViewModel.IsAuthenticated ? "sherpa-banner-success" : "sherpa-banner-warning")" data-testid="apple-account-card">
         <div class="auth-banner-icon">
             <i class="fa-solid @(DownloadAuthService.SessionValidationMessage != null ? "fa-triangle-exclamation" : ViewModel.IsAuthenticated ? "fa-user-check" : "fa-user-lock")"></i>
         </div>
@@ -124,42 +124,43 @@ else
         }
         else
         {
-                <div class="xcode-list">
+                <div class="xcode-list sherpa-list">
                     @foreach (var xcode in filteredInstalledXcodes)
                     {
-                    <div class="xcode-card @((xcode.IsSelected || xcode.IsDefault) ? "selected" : "")">
-                        <div class="xcode-card-icon">
+                    <div class="xcode-card sherpa-list-row @((xcode.IsSelected || xcode.IsDefault) ? "selected" : "")">
+                        <div class="xcode-card-icon sherpa-icon-well sherpa-icon-well-apple">
                             <i class="fa-solid fa-hammer"></i>
+                            <span class="sherpa-brand-badge"><i class="fa-brands fa-apple"></i></span>
                         </div>
-                        <div class="xcode-card-info">
-                            <div class="xcode-card-title">
-                                Xcode @xcode.Version
+                        <div class="xcode-card-info sherpa-row-stack">
+                            <div class="xcode-card-title sherpa-row-title">
+                                <span>Xcode @xcode.Version</span>
                                 @if (xcode.IsDefault)
                                 {
-                                    <span class="badge badge-installed"><i class="fa-solid fa-link"></i> Default</span>
+                                    <span class="sherpa-badge sherpa-badge-success"><span class="sherpa-dot sherpa-dot-success"></span> Default</span>
                                 }
                                 @if (xcode.IsSelected)
                                 {
-                                    <span class="badge badge-active"><i class="fa-solid fa-check"></i> Selected</span>
+                                    <span class="sherpa-badge sherpa-badge-accent"><i class="fa-solid fa-check"></i> Selected</span>
                                 }
                             </div>
-                            <div class="xcode-card-details">
-                                <span class="detail-item"><i class="fa-solid fa-code-branch"></i> Build @xcode.BuildNumber</span>
-                                <span class="detail-item"><i class="fa-solid fa-tag"></i> @Path.GetFileName(xcode.Path)</span>
-                                <span class="detail-item"><i class="fa-solid fa-folder"></i> @xcode.Path</span>
+                            <div class="xcode-card-details sherpa-row-sub mono">
+                                <span>Build @xcode.BuildNumber</span>
+                                <span>· @Path.GetFileName(xcode.Path)</span>
+                                <span>· @xcode.Path</span>
                             </div>
                         </div>
-                        <div class="xcode-card-actions">
+                        <div class="xcode-card-actions sherpa-row-actions">
                             @if (!xcode.IsSelected)
                             {
-                                <button data-screenshot-external class="btn btn-sm btn-outline" @onclick="() => SelectXcode(xcode)">
+                                <button data-screenshot-external class="btn btn-sm btn-secondary" @onclick="() => SelectXcode(xcode)">
                                     <i class="fa-solid fa-check-circle"></i> Select
                                 </button>
                             }
                             @if (!xcode.IsSelected && !xcode.IsDefault)
                             {
-                                <button data-screenshot-external class="btn btn-sm btn-danger-outline" @onclick="() => UninstallXcode(xcode)">
-                                    <i class="fa-solid fa-trash-alt"></i> Uninstall
+                                <button data-screenshot-external class="btn btn-sm btn-icon btn-ghost-danger" @onclick="() => UninstallXcode(xcode)" title="Uninstall Xcode" aria-label="@($"Uninstall Xcode {xcode.Version}")">
+                                    <i class="fa-solid fa-trash-can"></i>
                                 </button>
                             }
                         </div>
@@ -209,13 +210,13 @@ else
         }
         else if (filteredReleases.Count > 0)
         {
-            <div class="xcode-list">
+            <div class="xcode-list sherpa-list">
                 @foreach (var release in filteredReleases)
                 {
                     var installed = ViewModel.IsInstalled(release);
                     var isDownloading = downloadingRelease?.BuildNumber == release.BuildNumber;
-                    <div class="xcode-card @(installed ? "installed" : "") @(isDownloading ? "downloading" : "")">
-                        <div class="xcode-card-icon">
+                    <div class="xcode-card sherpa-list-row @(installed ? "installed" : "") @(isDownloading ? "downloading" : "")">
+                        <div class="xcode-card-icon sherpa-icon-well sherpa-icon-well-apple">
                             @if (release.IsBeta)
                             {
                                 <i class="fa-solid fa-flask"></i>
@@ -224,51 +225,50 @@ else
                             {
                                 <i class="fa-solid fa-hammer"></i>
                             }
+                            <span class="sherpa-brand-badge"><i class="fa-brands fa-apple"></i></span>
                         </div>
-                        <div class="xcode-card-info">
-                            <div class="xcode-card-title">
-                                Xcode @release.Version
+                        <div class="xcode-card-info sherpa-row-stack">
+                            <div class="xcode-card-title sherpa-row-title">
+                                <span>Xcode @release.Version</span>
                                 @if (release.IsBeta)
                                 {
-                                    <span class="badge badge-beta">@release.PrereleaseLabel</span>
+                                    <span class="sherpa-badge sherpa-badge-warning">@release.PrereleaseLabel</span>
                                 }
                                 @if (installed)
                                 {
-                                    <span class="badge badge-installed"><i class="fa-solid fa-check"></i> Installed</span>
+                                    <span class="sherpa-badge sherpa-badge-success"><span class="sherpa-dot sherpa-dot-success"></span> Installed</span>
                                 }
                             </div>
-                            <div class="xcode-card-details">
-                                <span class="detail-item"><i class="fa-solid fa-code-branch"></i> Build @release.BuildNumber</span>
-                                <span class="detail-item"><i class="fa-solid fa-calendar"></i> @release.ReleaseDate.ToString("MMM d, yyyy")</span>
+                            <div class="xcode-card-details sherpa-row-sub mono">
+                                <span>Build @release.BuildNumber</span>
+                                <span>· @release.ReleaseDate.ToString("MMM d, yyyy")</span>
                                 @if (!string.IsNullOrEmpty(release.ArchiveExtension))
                                 {
-                                    <span class="detail-item"><i class="fa-solid fa-file-archive"></i> @release.ArchiveExtension.TrimStart('.').ToUpperInvariant()</span>
+                                    <span>· @release.ArchiveExtension.TrimStart('.').ToUpperInvariant()</span>
                                 }
                                 @if (!string.IsNullOrEmpty(release.MinimumMacOSVersion))
                                 {
-                                    <span class="detail-item"><i class="fa-solid fa-desktop"></i> macOS @release.MinimumMacOSVersion+</span>
+                                    <span>· macOS @release.MinimumMacOSVersion+</span>
                                 }
                                 @if (release.FileSizeBytes > 0)
                                 {
-                                    <span class="detail-item"><i class="fa-solid fa-weight"></i> @FormatBytes(release.FileSizeBytes.Value)</span>
+                                    <span>· @FormatBytes(release.FileSizeBytes.Value)</span>
                                 }
                             </div>
-                            @if (release.Sdks.Count > 0)
+                            @if (release.Sdks.Count > 0 || release.Compilers.Count > 0)
                             {
-                                <div class="xcode-card-sdks">
-                                    @foreach (var sdk in release.Sdks.Take(5))
+                                <div class="xcode-card-extras sherpa-row-sub">
+                                    @if (release.Sdks.Count > 0)
                                     {
-                                        <span class="sdk-tag">@sdk.Name @sdk.Version</span>
+                                        @foreach (var sdk in release.Sdks.Take(5))
+                                        {
+                                            <span class="sdk-tag">@sdk.Name @sdk.Version</span>
+                                        }
+                                        @if (release.Sdks.Count > 5)
+                                        {
+                                            <span class="sdk-tag more">+@(release.Sdks.Count - 5) more</span>
+                                        }
                                     }
-                                    @if (release.Sdks.Count > 5)
-                                    {
-                                        <span class="sdk-tag more">+@(release.Sdks.Count - 5) more</span>
-                                    }
-                                </div>
-                            }
-                            @if (release.Compilers.Count > 0)
-                            {
-                                <div class="xcode-card-compilers">
                                     @foreach (var compiler in release.Compilers)
                                     {
                                         <span class="compiler-tag">@compiler.Name @compiler.Version</span>
@@ -292,10 +292,10 @@ else
                                 </div>
                             }
                         </div>
-                        <div class="xcode-card-actions">
+                        <div class="xcode-card-actions sherpa-row-actions">
                             @if (!string.IsNullOrEmpty(release.ReleaseNotesUrl))
                             {
-                                <button class="btn btn-sm btn-ghost" @onclick="() => OpenUrl(release.ReleaseNotesUrl)" title="Release Notes">
+                                <button class="btn btn-sm btn-icon btn-ghost" @onclick="() => OpenUrl(release.ReleaseNotesUrl)" title="Release Notes" aria-label="@($"Open release notes for Xcode {release.Version}")">
                                     <i class="fa-solid fa-file-alt"></i>
                                 </button>
                             }
@@ -303,19 +303,19 @@ else
                             {
                                 @if (isDownloading)
                                 {
-                                    <button class="btn btn-sm btn-danger-outline" @onclick="CancelDownload">
+                                    <button class="btn btn-sm btn-danger-soft" @onclick="CancelDownload">
                                         <i class="fa-solid fa-times"></i> Cancel
                                     </button>
                                 }
                                 else if (ViewModel.IsAuthenticated)
                                 {
-                                    <button data-screenshot-external class="btn btn-sm btn-primary-sm" @onclick="() => DownloadAndInstall(release)" disabled="@(downloadingRelease != null)">
+                                    <button data-screenshot-external class="btn btn-sm btn-primary" @onclick="() => DownloadAndInstall(release)" disabled="@(downloadingRelease != null)">
                                         <i class="fa-solid fa-download"></i> Install
                                     </button>
                                 }
                                 else
                                 {
-                                    <button class="btn btn-sm btn-outline" @onclick="() => OpenUrl(release.DownloadUrl)" title="Open in browser">
+                                    <button class="btn btn-sm btn-icon btn-outline" @onclick="() => OpenUrl(release.DownloadUrl)" title="Open in browser" aria-label="@($"Open Xcode {release.Version} download in browser")">
                                         <i class="fa-solid fa-external-link-alt"></i>
                                     </button>
                                 }
@@ -363,7 +363,7 @@ else
                         <span>@FormatBytes(ViewModel.TotalRuntimeStorageBytes) total</span>
                     }
                 </div>
-                <button data-screenshot-external class="btn btn-sm btn-primary-sm" @onclick="OpenRuntimePicker">
+                <button data-screenshot-external class="btn btn-sm btn-primary" @onclick="OpenRuntimePicker">
                     @if (ViewModel.IsLoadingDownloadableRuntimes && ViewModel.DownloadableRuntimes.Count == 0)
                     {
                         <i class="fa-solid fa-spinner fa-spin"></i>
@@ -395,53 +395,52 @@ else
             }
             else
             {
-                <div class="xcode-list">
+                <div class="xcode-list sherpa-list">
                     @foreach (var runtime in filteredRuntimeStorage)
                     {
-                        <div class="xcode-card">
-                            <div class="xcode-card-icon">
+                        <div class="xcode-card sherpa-list-row">
+                            <div class="xcode-card-icon sherpa-icon-well sherpa-icon-well-apple">
                                 <i class="@GetRuntimeIcon(runtime.PlatformIdentifier)"></i>
+                                <span class="sherpa-brand-badge"><i class="fa-brands fa-apple"></i></span>
                             </div>
-                            <div class="xcode-card-info">
-                                <div class="xcode-card-title">
-                                    @FormatRuntimeName(runtime)
-                                    <span class="badge @GetRuntimeStateBadgeClass(runtime.State)">@runtime.State</span>
+                            <div class="xcode-card-info sherpa-row-stack">
+                                <div class="xcode-card-title sherpa-row-title">
+                                    <span>@FormatRuntimeName(runtime)</span>
+                                    <span class="sherpa-badge @GetRuntimeStateBadgeClass(runtime.State)">@runtime.State</span>
                                     @if (!runtime.Deletable)
                                     {
-                                        <span class="badge badge-unknown">Protected</span>
+                                        <span class="sherpa-badge sherpa-badge-neutral">Protected</span>
                                     }
                                 </div>
-                                <div class="xcode-card-details">
-                                    <span class="detail-item"><i class="fa-solid fa-cube"></i> @runtime.Identifier</span>
+                                <div class="xcode-card-details sherpa-row-sub mono">
+                                    <span>@runtime.Identifier</span>
                                     @if (!string.IsNullOrWhiteSpace(runtime.Build))
                                     {
-                                        <span class="detail-item"><i class="fa-solid fa-code-branch"></i> Build @runtime.Build</span>
+                                        <span>· Build @runtime.Build</span>
                                     }
                                     @if (!string.IsNullOrWhiteSpace(runtime.PlatformIdentifier))
                                     {
-                                        <span class="detail-item"><i class="fa-solid fa-desktop"></i> @FriendlyPlatform(runtime.PlatformIdentifier)</span>
+                                        <span>· @FriendlyPlatform(runtime.PlatformIdentifier)</span>
                                     }
                                     @if (runtime.SizeBytes.HasValue)
                                     {
-                                        <span class="detail-item"><i class="fa-solid fa-weight"></i> @FormatBytes(runtime.SizeBytes.Value)</span>
+                                        <span>· @FormatBytes(runtime.SizeBytes.Value)</span>
                                     }
                                     @if (runtime.LastUsedAt.HasValue)
                                     {
-                                        <span class="detail-item"><i class="fa-solid fa-clock"></i> Last used @FormatLastUsed(runtime.LastUsedAt.Value)</span>
+                                        <span>· Last used @FormatLastUsed(runtime.LastUsedAt.Value)</span>
+                                    }
+                                    @if (!string.IsNullOrWhiteSpace(runtime.MountPath))
+                                    {
+                                        <span>· @runtime.MountPath</span>
                                     }
                                 </div>
-                                @if (!string.IsNullOrWhiteSpace(runtime.MountPath))
-                                {
-                                    <div class="xcode-card-details">
-                                        <span class="detail-item"><i class="fa-solid fa-folder"></i> @runtime.MountPath</span>
-                                    </div>
-                                }
                             </div>
-                            <div class="xcode-card-actions">
+                            <div class="xcode-card-actions sherpa-row-actions">
                                 @if (runtime.Deletable)
                                 {
-                                    <button data-screenshot-external class="btn btn-sm btn-danger-outline" @onclick="() => DeleteRuntime(runtime)">
-                                        <i class="fa-solid fa-trash-alt"></i> Delete
+                                    <button data-screenshot-external class="btn btn-sm btn-icon btn-ghost-danger" @onclick="() => DeleteRuntime(runtime)" title="Delete runtime" aria-label="@($"Delete {FormatRuntimeName(runtime)}")">
+                                        <i class="fa-solid fa-trash-can"></i>
                                     </button>
                                 }
                             </div>
@@ -455,12 +454,6 @@ else
 }
 
 <style>
-    h1 {
-        margin-bottom: 1.25rem;
-        font-size: 1.75rem;
-        color: var(--text-primary);
-    }
-
     .not-supported {
         text-align: center;
         padding: 3.75rem 1.25rem;
@@ -482,20 +475,12 @@ else
     }
 
     .auth-banner {
-        display: flex;
-        align-items: center;
-        gap: 1rem;
-        padding: 1rem 1.25rem;
         margin-bottom: 1rem;
-        background: var(--status-warning-bg);
-        color: var(--status-warning-text);
-        border: 1px solid var(--status-warning-border);
-        border-radius: var(--radius-lg);
     }
 
     .auth-banner-icon {
         font-size: 1.5rem;
-        color: var(--accent-warning);
+        color: inherit;
         flex-shrink: 0;
     }
 
@@ -506,28 +491,10 @@ else
         min-width: 0;
     }
 
-    .auth-banner-content strong {
-        color: var(--status-warning-text);
-    }
-
     .auth-banner-content p {
         margin: 0;
         font-size: 0.875rem;
-        color: var(--status-warning-text);
-    }
-
-    .auth-banner-signed-in {
-        background: var(--status-success-bg);
-        color: var(--status-success-text);
-    }
-
-    .auth-banner-signed-in .auth-banner-icon {
-        color: var(--accent-success);
-    }
-
-    .auth-banner-signed-in .auth-banner-content strong,
-    .auth-banner-signed-in .auth-banner-content p {
-        color: var(--status-success-text);
+        color: inherit;
     }
 
     .auth-banner-actions {
@@ -573,59 +540,36 @@ else
     .empty-icon { font-size: 2.5rem; color: var(--text-muted); margin-bottom: 1rem; opacity: 0.5; }
 
     /* Xcode Cards */
-    .xcode-list { display: flex; flex-direction: column; gap: 0.5rem; }
+    .xcode-list { margin-bottom: 1rem; }
 
     .xcode-card {
-        display: flex;
-        align-items: flex-start;
-        gap: 1rem;
-        padding: 1rem 1.25rem;
-        background: var(--card-bg);
-        border: 1px solid var(--border-subtle);
-        border-radius: var(--radius-lg);
-        transition: all 0.15s ease;
+        align-items: center;
     }
-    .xcode-card.selected { background: var(--status-success-bg); }
-    .xcode-card.downloading { background: rgba(66, 153, 225, 0.03); }
+    .xcode-card.selected { background: color-mix(in srgb, var(--accent-soft) 55%, var(--surface-card)); }
+    .xcode-card.downloading { background: color-mix(in srgb, var(--status-info-bg) 55%, var(--surface-card)); }
 
     .xcode-card-icon {
-        font-size: 1.5rem;
-        color: var(--accent-primary);
-        padding-top: 0.125rem;
-        flex-shrink: 0;
-        width: 2rem;
-        text-align: center;
+        padding: 0;
     }
-    .xcode-card.selected .xcode-card-icon { color: var(--accent-success); }
 
-    .xcode-card-info { flex: 1; min-width: 0; }
+    .xcode-card-info { min-width: 0; }
 
     .xcode-card-title {
-        font-size: 1rem;
-        font-weight: 600;
-        color: var(--text-primary);
         display: flex;
         align-items: center;
-        gap: 0.5rem;
-        flex-wrap: wrap;
+        gap: 6px;
     }
 
     .xcode-card-details {
         display: flex;
-        flex-wrap: wrap;
-        gap: 1rem;
-        margin-top: 0.375rem;
-        font-size: 0.8125rem;
-        color: var(--text-muted);
+        align-items: center;
+        gap: 6px;
     }
-    .detail-item { display: flex; align-items: center; gap: 0.375rem; }
-    .detail-item i { font-size: 0.6875rem; opacity: 0.7; }
 
-    .xcode-card-sdks, .xcode-card-compilers {
+    .xcode-card-extras {
         display: flex;
-        flex-wrap: wrap;
+        align-items: center;
         gap: 0.375rem;
-        margin-top: 0.5rem;
     }
 
     .sdk-tag {
@@ -647,13 +591,6 @@ else
         background: rgba(66, 153, 225, 0.1);
         color: var(--accent-primary);
         border: 1px solid rgba(66, 153, 225, 0.2);
-    }
-
-    .xcode-card-actions {
-        display: flex;
-        gap: 0.375rem;
-        flex-shrink: 0;
-        align-items: flex-start;
     }
 
     /* Badges */
@@ -696,77 +633,6 @@ else
         border: 1px solid var(--border-color);
     }
 
-    /* Buttons */
-    .btn-sm {
-        padding: 0.375rem 0.75rem;
-        font-size: 0.8125rem;
-    }
-    .btn-outline {
-        background: transparent;
-        border: 1px solid var(--accent-primary);
-        color: var(--accent-primary);
-        border-radius: 0.375rem;
-        cursor: pointer;
-        transition: all 0.15s;
-        display: inline-flex;
-        align-items: center;
-        gap: 0.375rem;
-    }
-    .btn-outline:hover { background: var(--accent-primary); color: white; }
-
-    .btn-primary-sm {
-        background: var(--accent-primary);
-        border: 1px solid var(--accent-primary);
-        color: white;
-        border-radius: 0.375rem;
-        cursor: pointer;
-        transition: all 0.15s;
-        display: inline-flex;
-        align-items: center;
-        gap: 0.375rem;
-    }
-    .btn-primary-sm:hover { opacity: 0.9; }
-    .btn-primary-sm:disabled { opacity: 0.5; cursor: not-allowed; }
-
-    .btn-danger-outline {
-        background: transparent;
-        border: 1px solid var(--accent-danger);
-        color: var(--accent-danger);
-        border-radius: 0.375rem;
-        cursor: pointer;
-        transition: all 0.15s;
-        display: inline-flex;
-        align-items: center;
-        gap: 0.375rem;
-    }
-    .btn-danger-outline:hover { background: var(--accent-danger); color: white; }
-    .btn-danger-outline:disabled { opacity: 0.5; cursor: not-allowed; }
-
-    .btn-ghost {
-        background: transparent;
-        border: 1px solid var(--border-color);
-        color: var(--text-muted);
-        border-radius: 0.375rem;
-        cursor: pointer;
-        transition: all 0.15s;
-        display: inline-flex;
-        align-items: center;
-        gap: 0.375rem;
-    }
-    .btn-ghost:hover { color: var(--accent-primary); border-color: var(--accent-primary); }
-
-    .btn-secondary {
-        background: var(--bg-tertiary);
-        border: 1px solid var(--border-color);
-        color: var(--text-secondary);
-        padding: 0.5rem 1rem;
-        border-radius: 0.375rem;
-        cursor: pointer;
-        font-size: 0.875rem;
-    }
-    .btn-secondary:hover { background: var(--border-color); }
-    .btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
-
     /* Available Controls */
     .available-controls {
         display: flex;
@@ -792,9 +658,9 @@ else
     }
 
     .results-info {
-        font-size: 0.8125rem;
+        font-size: var(--font-size-xs);
         color: var(--text-muted);
-        margin-bottom: 0.75rem;
+        margin: 0 0 8px;
     }
 
     .available-results-info {
@@ -815,7 +681,7 @@ else
         align-items: center;
         justify-content: space-between;
         gap: 0.75rem;
-        margin-bottom: 1rem;
+        margin: 0 0 8px;
     }
 
     .runtime-results-summary {
