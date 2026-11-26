@@ -135,6 +135,11 @@ public static class MacOSMauiProgram
         builder.Services.AddSingleton<IAndroidSdkSettingsService, AndroidSdkSettingsService>();
         builder.Services.AddSingleton<IAndroidSdkPathService, AndroidSdkPathService>();
         builder.Services.AddSingleton<IOpenJdkSettingsService, OpenJdkSettingsService>();
+        builder.Services.AddHttpClient(nameof(OpenJdkService), client => client.Timeout = TimeSpan.FromMinutes(15));
+        builder.Services.AddSingleton<IOpenJdkService>(sp => new OpenJdkService(
+            sp.GetRequiredService<IHttpClientFactory>().CreateClient(nameof(OpenJdkService)),
+            sp.GetRequiredService<IOpenJdkSettingsService>(), sp.GetRequiredService<ILoggingService>()));
+        builder.Services.AddSingleton<MauiSherpa.Services.OpenJdkModalService>();
         builder.Services.AddSingleton<IKeystoreService, KeystoreService>();
         builder.Services.AddSingleton<IKeystoreSyncService, KeystoreSyncService>();
         builder.Services.AddSingleton<ILogcatService, LogcatService>();

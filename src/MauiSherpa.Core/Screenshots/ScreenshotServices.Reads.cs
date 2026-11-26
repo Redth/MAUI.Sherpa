@@ -5,7 +5,7 @@ using MauiSherpa.Workloads.Models;
 
 namespace MauiSherpa.Core.Screenshots;
 
-internal sealed partial class ScreenshotServices
+internal sealed partial class ScreenshotServices : IOpenJdkService
 {
     private ScreenshotFixtures Fixtures => fixtures;
     private bool IsAppleHost => platform.IsMacOS || platform.IsMacCatalyst;
@@ -119,6 +119,21 @@ internal sealed partial class ScreenshotServices
     string? IOpenJdkSettingsService.CustomJdkPath => null;
     Task<string?> IOpenJdkSettingsService.GetEffectiveJdkPathAsync() => Read<string?>(Fixtures.JdkRoot);
     Task IOpenJdkSettingsService.InitializeAsync() => Task.CompletedTask;
+    IReadOnlyList<OpenJdkUpdate> IOpenJdkService.AvailableUpdates => [];
+    string? IOpenJdkService.UpdateCheckError => null;
+    event Action? IOpenJdkService.UpdatesChanged { add { } remove { } }
+    void IOpenJdkService.StartUpdateChecks() { }
+    Task IOpenJdkService.CheckForUpdatesAsync(CancellationToken ct) => Task.CompletedTask;
+    Task<IReadOnlyList<OpenJdkInstallation>> IOpenJdkService.GetInstallationsAsync(CancellationToken ct) =>
+        Read<IReadOnlyList<OpenJdkInstallation>>([new(Fixtures.JdkRoot, "21.0.8", true, false, true)]);
+    Task<IReadOnlyList<OpenJdkRelease>> IOpenJdkService.GetReleasesAsync(bool forceRefresh, CancellationToken ct) =>
+        Read<IReadOnlyList<OpenJdkRelease>>([
+            new(25, "25.0.1", new("https://aka.ms/download-jdk/microsoft-jdk-25.0.1-macos-aarch64.tar.gz")),
+            new(21, "21.0.8", new("https://aka.ms/download-jdk/microsoft-jdk-21.0.8-macos-aarch64.tar.gz")),
+            new(17, "17.0.16", new("https://aka.ms/download-jdk/microsoft-jdk-17.0.16-macos-aarch64.tar.gz"))]);
+    Task<string> IOpenJdkService.InstallAsync(int majorVersion, IProgress<string>? progress, CancellationToken ct) =>
+        throw mode.Blocked("IOpenJdkService.InstallAsync");
+    Task IOpenJdkService.UninstallAsync(string path, CancellationToken ct) => throw mode.Blocked("IOpenJdkService.UninstallAsync");
 
     Task<DoctorContext> IDoctorService.GetContextAsync(string? workingDirectory) => Read(Fixtures.DoctorContext);
     Task<DoctorReport> IDoctorService.RunDoctorAsync(DoctorContext? context, IProgress<string>? progress) => Read(Fixtures.Doctor);

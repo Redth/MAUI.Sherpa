@@ -68,6 +68,38 @@ public static class AndroidSdkLocations
         return path;
     }
 
+    public static void ValidateDeleteTarget(string path)
+    {
+        path = Normalize(path);
+        var home = Normalize(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
+        if (PathComparer.Equals(path, Path.GetPathRoot(path)) || PathComparer.Equals(path, home) ||
+            PathComparer.Equals(path, Path.GetDirectoryName(home)))
+            throw new InvalidOperationException("This folder is too broad to delete. Remove it manually if needed.");
+    }
+
+    // Reads the cmdline-tools package revision, preferring the "latest" channel.
+    public static string? GetCommandLineToolsVersion(string? sdkPath)
+    {
+        if (string.IsNullOrWhiteSpace(sdkPath)) return null;
+        try
+        {
+            var tools = Path.Combine(sdkPath, "cmdline-tools");
+            if (!Directory.Exists(tools)) return null;
+            var candidates = Directory.EnumerateDirectories(tools)
+                .OrderByDescending(d => Path.GetFileName(d) == "latest")
+                .ThenByDescending(d => Version.TryParse(Path.GetFileName(d), out var v) ? v : new Version());
+            foreach (var dir in candidates)
+            {
+                var properties = Path.Combine(dir, "source.properties");
+                if (!File.Exists(properties)) continue;
+                var line = File.ReadLines(properties).FirstOrDefault(l => l.StartsWith("Pkg.Revision=", StringComparison.Ordinal));
+                if (line != null) return line["Pkg.Revision=".Length..].Trim();
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        return null;
+    }
+
     public static IReadOnlyList<(string Path, string Label)> GetCommonPaths()
     {
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);

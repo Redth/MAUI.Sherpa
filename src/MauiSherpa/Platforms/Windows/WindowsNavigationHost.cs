@@ -156,7 +156,7 @@ public sealed class WindowsNavigationHostHandler : ViewHandler<WindowsNavigation
 
         AddHeader(navigationView, "Android");
         AddItem(navigationView, "Devices & Emulators", "/devices", WinUI.Symbol.CellPhone);
-        AddItem(navigationView, "SDK Packages", "/android-sdk", WinUI.Symbol.Library);
+        AddItem(navigationView, "SDK & JDK", "/android-sdk", WinUI.Symbol.Library);
         AddItem(navigationView, "Keystores", "/keystores", WinUI.Symbol.Permissions);
         AddItem(navigationView, "Push Testing", "/firebase-push", WinUI.Symbol.Send);
 

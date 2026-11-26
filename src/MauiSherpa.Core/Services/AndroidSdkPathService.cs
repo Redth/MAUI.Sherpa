@@ -34,7 +34,7 @@ public sealed class AndroidSdkPathService(
             (!CanConfigureMachinePath || directories.Any(d => !AndroidSdkPathConfiguration.IsSharedLocation(d))))
             throw new InvalidOperationException("Machine-wide PATH is only available for SDK tools installed outside user-local folders.");
         if (directories.Length == 0)
-            throw new InvalidOperationException("No Android command-line tools were found. Install platform-tools or command-line tools from SDK Packages.");
+            throw new InvalidOperationException("No Android command-line tools were found. Install platform-tools or command-line tools from SDK & JDK.");
         string? warning = null;
         string? shellProfileDirectory = null;
         string currentPath;

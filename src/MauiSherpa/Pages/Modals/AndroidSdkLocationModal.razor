@@ -11,10 +11,10 @@
 
 <div class="sdk-location-dialog">
     <div class="sdk-mode" role="group" aria-label="SDK action">
-        <button type="button" class="@(!install ? "selected" : "")" aria-pressed="@(!install)" @onclick="() => SetMode(false)">Use Existing</button>
+        <button type="button" class="@(!install ? "selected" : "")" aria-pressed="@(!install)" @onclick="() => SetMode(false)">Installed</button>
         <button type="button" class="@(install ? "selected" : "")" aria-pressed="@install" @onclick="() => SetMode(true)">Install New</button>
     </div>
-    <p class="sdk-location-help">@(install ? "Install Android command-line tools in a new location." : "Choose the Android SDK for Sherpa's packages, devices, and emulators.")</p>
+    <p class="sdk-location-help">@(install ? "Install Android command-line tools in a new location." : "Choose which Android SDK Sherpa uses for packages, devices, and emulators, or remove ones you no longer need.")</p>
     @if (loading)
     {
         <p role="status"><i class="fas fa-spinner fa-spin" aria-hidden="true"></i> Checking SDK locations...</p>
@@ -33,11 +33,31 @@
                         <strong>@location.Label</strong>
                         <span class="mono text-selectable">@location.Path</span>
                     </span>
-                    <span class="sdk-location-status @(location.IsActive ? "is-active" : "")">@Status(location)</span>
+                    @if (confirmDelete == location.Path)
+                    {
+                        <span class="sdk-row-confirm">
+                            <button type="button" class="sdk-row-btn" disabled="@deleting" @onclick="CancelDelete" @onclick:preventDefault @onclick:stopPropagation>Cancel</button>
+                            <button type="button" class="sdk-row-btn is-danger" disabled="@deleting" @onclick="() => DeleteAsync(location.Path)" @onclick:preventDefault @onclick:stopPropagation>
+                                @if (deleting) { <i class="fas fa-spinner fa-spin" aria-hidden="true"></i> <span>Deleting...</span> } else { <span>Delete</span> }
+                            </button>
+                        </span>
+                    }
+                    else
+                    {
+                        <span class="sdk-location-status @(location.IsActive ? "is-active" : "")">@Status(location)</span>
+                        @if (CanDelete(location))
+                        {
+                            <button type="button" class="sdk-row-icon" title="Delete this SDK" aria-label="Delete @location.Label" disabled="@(deleting || Sdk.IsBusy)" @onclick="() => AskDelete(location.Path)" @onclick:preventDefault @onclick:stopPropagation><i class="fa-regular fa-trash-can" aria-hidden="true"></i></button>
+                        }
+                    }
                     <input type="radio" name="sdk-location" checked="@(selected == location.Path)" @onchange="() => Select(location.Path)" aria-label="Select @location.Label" />
                 </label>
             }
         </fieldset>
+        @if (confirmDelete != null)
+        {
+            <p class="sdk-delete-warning" role="alert"><i class="fas fa-triangle-exclamation" aria-hidden="true"></i> Deleting removes this folder and everything in it. Android Studio or other tools may also use this SDK.</p>
+        }
         }
         else
         {
@@ -97,6 +117,16 @@
     .sdk-location-status { flex: none; font-size: 11.5px; color: var(--text-secondary); white-space: nowrap; }
     .sdk-location-status.is-active { color: var(--sdk-accent-ink); }
     .sdk-location-option input[type=radio] { appearance: auto; flex: none; width: 14px; height: 14px; margin: 0; accent-color: var(--sdk-accent); }
+    .sdk-row-icon { display: grid; place-items: center; flex: none; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--text-muted); font-size: 12px; cursor: pointer; }
+    .sdk-row-icon:hover:not(:disabled) { background: color-mix(in srgb, var(--accent-danger) 12%, transparent); color: var(--accent-danger); }
+    .sdk-row-icon:disabled { opacity: .4; cursor: default; }
+    .sdk-row-confirm { display: flex; flex: none; gap: 6px; }
+    .sdk-row-btn { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 10px; border: 1px solid var(--input-border); border-radius: 6px; background: var(--input-bg); color: var(--text-primary); font-size: 12px; font-weight: 500; cursor: pointer; }
+    .sdk-row-btn.is-danger { border-color: transparent; background: var(--accent-danger); color: #fff; }
+    .sdk-row-btn.is-danger:hover:not(:disabled) { background: var(--accent-danger-hover); }
+    .sdk-row-btn:disabled { opacity: .6; cursor: default; }
+    .sdk-delete-warning { display: flex; align-items: baseline; gap: 7px; margin: 10px 2px 0; color: var(--status-warning-text); font-size: 11.5px; line-height: 1.45; }
+    .theme-dark .sdk-delete-warning { color: #fbd38d; }
     .sdk-custom-path { margin-top: 20px; }
     .sdk-install-location { margin-top: 18px; }
     .sdk-install-location label { display: block; margin: 0 0 7px 2px; font-size: 13px; font-weight: 600; }
@@ -123,7 +153,8 @@
     private string existingPath = "", installPath = "";
     private string PresetPath => locations.Any(l => l.Path == selected) ? selected : "";
     private string? error;
-    private bool install, activate = true, loading = true;
+    private bool install, activate = true, loading = true, deleting;
+    private string? confirmDelete;
 
     protected override async Task OnInitializedAsync()
     {
@@ -204,6 +235,27 @@
             bridge.RequestClose();
         }
         return Task.CompletedTask;
+    }
+    private static bool CanDelete(AndroidSdkLocation l) => !l.IsActive && l.Status == AndroidSdkLocationStatus.Installed;
+    private void AskDelete(string path) { confirmDelete = path; error = null; }
+    private void CancelDelete() => confirmDelete = null;
+    private async Task DeleteAsync(string path)
+    {
+        deleting = true;
+        try
+        {
+            await Settings.DeleteLocationAsync(path);
+            confirmDelete = null;
+            locations = await Settings.GetKnownLocationsAsync();
+            if (existingPath == path || selected == path)
+            {
+                existingPath = locations.FirstOrDefault(l => l.IsActive)?.Path ?? "";
+                if (!install) selected = existingPath;
+            }
+            Validate();
+        }
+        catch (Exception ex) { error = ex.Message; Logger.LogError($"Could not delete Android SDK at {path}.", ex); }
+        finally { deleting = false; }
     }
     private static string Status(AndroidSdkLocation l) => l.IsActive ? "Active" : l.Status switch
     {
