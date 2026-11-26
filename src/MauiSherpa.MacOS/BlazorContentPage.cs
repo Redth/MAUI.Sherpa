@@ -106,7 +106,6 @@ public class BlazorContentPage : ContentPage
         });
 
         Content = _blazorWebView;
-        WebViewAutoresizeWorkaround.Attach(_blazorWebView);
 
         // Always show the Copilot button in the sidebar trailing area
         var initialCopilot = CreateCopilotToolbarItem();
