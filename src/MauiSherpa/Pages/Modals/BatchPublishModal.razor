@@ -11,7 +11,7 @@
     @if (isPreparing)
     {
         <div class="centered-state">
-            <i class="fa-solid fa-spinner fa-spin" style="font-size: 24px; color: var(--accent-color, #3b82f6);"></i>
+            <i class="fa-solid fa-spinner fa-spin" style="font-size: 24px; color: var(--accent);"></i>
             <h3>Loading Destinations</h3>
             <p class="step-description">Reading the repositories configured on each profile...</p>
         </div>
@@ -99,12 +99,12 @@
             <div class="publish-summary-bar">
                 @if (FailureCount == 0)
                 {
-                    <i class="fa-solid fa-circle-check" style="color: #22c55e;"></i>
+                    <i class="fa-solid fa-circle-check" style="color: var(--status-success-dot);"></i>
                     <span>Published @SuccessCount profile(s)</span>
                 }
                 else
                 {
-                    <i class="fa-solid fa-triangle-exclamation" style="color: #f59e0b;"></i>
+                    <i class="fa-solid fa-triangle-exclamation" style="color: var(--status-warning-dot);"></i>
                     <span>@SuccessCount succeeded, @FailureCount failed — see the log for details</span>
                 }
             </div>
@@ -158,7 +158,7 @@
     .btn-text-action {
         background: none;
         border: none;
-        color: var(--accent-color, #3b82f6);
+        color: var(--accent);
         font-size: 13px;
         cursor: pointer;
         padding: 4px 0;
@@ -170,7 +170,11 @@
         display: flex;
         flex-direction: column;
         overflow-y: auto;
+        overscroll-behavior: contain;
         max-height: 360px;
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-md);
+        background: var(--surface-card);
     }
 
     .check-item {
@@ -178,11 +182,16 @@
         align-items: flex-start;
         gap: 8px;
         padding: 8px;
-        border-bottom: 1px solid var(--border-color, #e2e8f0);
+        border-bottom: 1px solid var(--border-subtle);
         cursor: pointer;
     }
 
     .check-item:last-child { border-bottom: none; }
+    .check-item:hover { background: var(--surface-card-hover); }
+    .check-item:has(input:checked) {
+        background: var(--accent-soft);
+        box-shadow: inset 0 0 0 1px var(--accent);
+    }
     .check-item.unavailable { cursor: default; opacity: 0.75; }
 
     .check-item input[type="checkbox"] {
@@ -190,7 +199,7 @@
         height: 16px;
         margin-top: 2px;
         flex-shrink: 0;
-        accent-color: var(--accent-color, #3b82f6);
+        accent-color: var(--accent);
     }
 
     .profile-info {
@@ -210,14 +219,14 @@
         color: var(--text-muted);
     }
 
-    .profile-detail.warning { color: #b45309; }
+    .profile-detail.warning { color: var(--status-warning-fg); }
     .profile-detail.warning i { margin-right: 4px; }
 
     .run-row {
         display: flex;
         gap: 8px;
         padding: 8px;
-        border-bottom: 1px solid var(--border-color, #e2e8f0);
+        border-bottom: 1px solid var(--border-subtle);
     }
 
     .run-row:last-child { border-bottom: none; }
@@ -267,11 +276,11 @@
 
     .run-destination.failed .destination-message,
     .run-message.failed {
-        color: #b91c1c;
+        color: var(--status-error-fg);
     }
 
     :global(.theme-dark) .run-destination.failed .destination-message,
-    :global(.theme-dark) .run-message.failed { color: #f87171; }
+    :global(.theme-dark) .run-message.failed { color: var(--status-error-dot); }
 
     .publish-summary-bar {
         display: flex;
@@ -279,13 +288,14 @@
         gap: 8px;
         margin-top: 10px;
         padding: 8px 12px;
-        border-radius: 6px;
-        background: var(--bg-tertiary);
+        border-radius: var(--radius-sm);
+        background: var(--surface-well);
+        border: 1px solid var(--border-hairline);
         font-size: 12px;
         color: var(--text-secondary);
     }
 
-    :global(.theme-dark) .profile-detail.warning { color: #fbbf24; }
+    :global(.theme-dark) .profile-detail.warning { color: var(--status-warning-dot); }
 </style>
 
 @code {
@@ -539,9 +549,9 @@
 
     static string GetStatusStyle(RunStatus status) => status switch
     {
-        RunStatus.InProgress => "color: var(--accent-color, #3b82f6);",
-        RunStatus.Success => "color: #22c55e;",
-        RunStatus.Error => "color: #ef4444;",
+        RunStatus.InProgress => "color: var(--accent);",
+        RunStatus.Success => "color: var(--status-success-dot);",
+        RunStatus.Error => "color: var(--status-error-dot);",
         _ => "color: var(--text-muted); font-size: 8px;"
     };
 

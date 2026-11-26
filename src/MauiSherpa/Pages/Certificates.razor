@@ -32,7 +32,7 @@
 @inject IPublishProfileService PublishProfileService
 @inject IPublishProfileHealthService PublishProfileHealth
 
-<h1><i class="fas fa-certificate"></i> Certificates</h1>
+<h1><i class="fa-solid fa-certificate"></i> Certificates</h1>
 
 <AppleIdentityPicker />
 
@@ -49,28 +49,28 @@
         @if (isSelectionMode)
         {
             <button data-screenshot-external class="btn btn-primary" @onclick="BackUpSelectedAsync" disabled="@(selectedCertificateIds.Count == 0)">
-                <i class="fas fa-cloud-arrow-up"></i> Back Up
+                <i class="fa-solid fa-cloud-arrow-up"></i> Back Up
             </button>
             <button data-screenshot-external class="btn btn-secondary" @onclick="InstallSelectedAsync" disabled="@(selectedCertificateIds.Count == 0)">
-                <i class="fas fa-download"></i> Install
+                <i class="fa-solid fa-download"></i> Install
             </button>
             <button data-screenshot-external class="btn btn-secondary" @onclick="ExportSelectedAsync" disabled="@(selectedCertificateIds.Count == 0)" title="Export">
-                <i class="fas fa-file-export"></i> Export Selected...
+                <i class="fa-solid fa-file-export"></i> Export Selected...
             </button>
             <button class="btn btn-secondary" @onclick="CancelSelectionMode">
-                <i class="fas fa-times"></i> Cancel
+                <i class="fa-solid fa-times"></i> Cancel
             </button>
         }
         else
         {
             <button class="btn btn-primary" @onclick="@(() => RefreshData(forceRefresh: true))" disabled="@isLoading">
-                <i class="fas @(isLoading ? "fa-spinner fa-spin" : "fa-sync-alt")"></i> Refresh
+                <i class="fa-solid @(isLoading ? "fa-spinner fa-spin" : "fa-sync-alt")"></i> Refresh
             </button>
             <button data-screenshot-external class="btn btn-success" @onclick="ShowCreateDialog" disabled="@isLoading">
-                <i class="fas fa-plus"></i> Create Certificate
+                <i class="fa-solid fa-plus"></i> Create Certificate
             </button>
             <button class="btn btn-secondary" @onclick="BeginSelectionModeAsync" disabled="@isLoading">
-                <i class="fas fa-check-square"></i> Select
+                <i class="fa-solid fa-check-square"></i> Select
             </button>
         }
     </div>
@@ -81,7 +81,7 @@
     {
         <div class="alert alert-info alert-dismissible">
             <div class="alert-content">
-                <i class="fas fa-cloud info-icon"></i>
+                <i class="fa-solid fa-cloud info-icon"></i>
                 <div>
                     <strong>Sync certificates across machines</strong>
                     <p>Configure a secrets provider in Settings to securely store signing certificates and private keys. Use a cloud provider to sync across machines.</p>
@@ -98,7 +98,7 @@
     {
     <div class="filter-section">
         <div class="search-box">
-            <span class="search-icon"><i class="fas fa-search"></i></span>
+            <span class="search-icon"><i class="fa-solid fa-search"></i></span>
             <input type="text" @bind="searchQuery" @bind:event="oninput" placeholder="Search certificates..." />
             @if (!string.IsNullOrEmpty(searchQuery))
             {
@@ -168,7 +168,7 @@
         {
             <div class="loading-state">
                 <div class="loading-spinner">
-                    <i class="fas fa-certificate"></i>
+                    <i class="fa-solid fa-certificate"></i>
                 </div>
                 <div class="loading-title">Loading Certificates</div>
                 <div class="loading-description">Fetching certificates from App Store Connect...</div>
@@ -177,7 +177,7 @@
         else if (!FilteredCertificates.Any())
         {
             <div class="empty-state">
-                <div class="empty-icon"><i class="fas @(certificates.Count == 0 ? "fa-lock" : "fa-search")"></i></div>
+                <div class="empty-icon"><i class="fa-solid @(certificates.Count == 0 ? "fa-lock" : "fa-search")"></i></div>
                 <div class="empty-title">@(certificates.Count == 0 ? "No certificates found" : "No matching certificates")</div>
                 <div class="empty-description">@(certificates.Count == 0 ? "Click \"Create Certificate\" to generate a new signing certificate" : "No certificates match your search or filters. Try adjusting your criteria.")</div>
             </div>
@@ -203,13 +203,13 @@
                                    @onchange="@(e => ToggleCertificateSelection(cert.Id, e.Value is bool selected && selected))" />
                         </label>
                     }
-                    <div class="cert-icon"><i class="fas fa-lock"></i></div>
+                    <div class="cert-icon"><i class="fa-solid fa-lock"></i></div>
                     <div class="cert-details">
                         <div class="cert-name"><span>@cert.Name</span></div>
                         <div class="cert-serial">
                             Serial: <span class="@(demoMode ? "demo-blur" : "")">@cert.SerialNumber</span>
                             <button class="btn-copy" @onclick="@(() => CopyToClipboard(cert.SerialNumber))" @onclick:stopPropagation="true" title="Copy to clipboard">
-                                <i class="fas fa-copy"></i>
+                                <i class="fa-solid fa-copy"></i>
                             </button>
                         </div>
                         <div class="cert-badges">
@@ -225,7 +225,7 @@
                             @if (cert.IsLocalOnly)
                             {
                                 <span class="badge badge-local-only" title="Not published by App Store Connect — read from your local keychain">
-                                    <i class="fas fa-key"></i> Keychain only
+                                    <i class="fa-solid fa-key"></i> Keychain only
                                 </span>
                             }
                             @if (isExpired)
@@ -258,19 +258,19 @@
                             @if (syncStatus is SecretLocation.CloudOnly)
                             {
                                 <button data-screenshot-external class="btn btn-secondary btn-icon" @onclick="@(() => InstallLocally(cert))" title="Install private key locally">
-                                    <i class="fas fa-download"></i>
+                                    <i class="fa-solid fa-download"></i>
                                 </button>
                             }
                         }
                         <button data-screenshot-external class="btn btn-secondary btn-icon" @onclick="@(() => ShowExportDialog(cert))"
                                 disabled="@isLoading" title="Export">
-                            <i class="fas fa-file-export"></i>
+                            <i class="fa-solid fa-file-export"></i>
                         </button>
                         @if (!string.IsNullOrWhiteSpace(cert.SerialNumber) &&
                              syncStatus is SecretLocation.LocalOnly or SecretLocation.Both)
                         {
                             <button data-screenshot-external class="btn btn-danger btn-icon" @onclick="@(() => DeleteLocalCertificate(cert))" title="Delete private key from Keychain">
-                                <i class="fas fa-trash-alt"></i>
+                                <i class="fa-solid fa-trash-alt"></i>
                             </button>
                         }
                         @if (!cert.IsLocalOnly)
@@ -278,11 +278,11 @@
                             <button data-screenshot-external class="btn btn-secondary btn-icon" @onclick="@(() => RenewCertificate(cert))"
                                     disabled="@isLoading" title="Renew… (replace this certificate and move its provisioning profiles)"
                                     aria-label="@($"Renew {cert.Name}")">
-                                <i class="fas fa-rotate"></i>
+                                <i class="fa-solid fa-rotate"></i>
                             </button>
                             <button data-screenshot-external class="btn btn-danger btn-icon" @onclick="@(() => RevokeCertificate(cert))"
                                     disabled="@isLoading" title="Revoke">
-                                <i class="fas fa-ban"></i>
+                                <i class="fa-solid fa-ban"></i>
                             </button>
                         }
                     </div>
@@ -2104,10 +2104,10 @@
     
     private string GetSyncStatusIcon(SecretLocation location) => location switch
     {
-        SecretLocation.Both => "fas fa-check-circle text-sync-both",
-        SecretLocation.LocalOnly => "fas fa-hdd text-sync-local",
-        SecretLocation.CloudOnly => "fas fa-cloud text-sync-cloud",
-        _ => "fas fa-times-circle text-sync-none"
+        SecretLocation.Both => "fa-solid fa-check-circle text-sync-both",
+        SecretLocation.LocalOnly => "fa-solid fa-hdd text-sync-local",
+        SecretLocation.CloudOnly => "fa-solid fa-cloud text-sync-cloud",
+        _ => "fa-solid fa-times-circle text-sync-none"
     };
     
     private string GetSyncStatusText(SecretLocation location) => location switch

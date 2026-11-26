@@ -13,7 +13,7 @@
     @if (isLoading)
     {
         <div class="cleanup-state" role="status">
-            <i class="fas fa-spinner fa-spin" aria-hidden="true"></i>
+            <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
             <strong>Inspecting installed profiles</strong>
             <span>Checking expiration, duplicate versions, and local signing certificates...</span>
         </div>
@@ -21,7 +21,7 @@
     else if (!string.IsNullOrWhiteSpace(errorMessage))
     {
         <div class="cleanup-state cleanup-error" role="alert">
-            <i class="fas fa-exclamation-circle" aria-hidden="true"></i>
+            <i class="fa-solid fa-exclamation-circle" aria-hidden="true"></i>
             <strong>Could not inspect profiles</strong>
             <span>@errorMessage</span>
             <button class="btn btn-secondary" @onclick="LoadAsync">Try Again</button>
@@ -30,7 +30,7 @@
     else if (profiles.Count == 0)
     {
         <div class="cleanup-state">
-            <i class="fas fa-folder-open" aria-hidden="true"></i>
+            <i class="fa-solid fa-folder-open" aria-hidden="true"></i>
             <strong>No installed profiles found</strong>
             <span>The configured provisioning profile folders are empty.</span>
         </div>
@@ -64,10 +64,12 @@
             @foreach (var profile in profiles)
             {
                 var isSelected = selectedPaths.Contains(profile.Path);
-                <div class="cleanup-profile-card @(isSelected ? "selected" : "") @(!profile.RecommendedForDeletion ? "healthy" : "")">
-                    <label class="selection-checkbox">
+                <div class="cleanup-profile-card @(isSelected ? "selected" : "") @(!profile.RecommendedForDeletion ? "healthy" : "")"
+                     @onclick="() => SetSelected(profile.Path, !isSelected)">
+                    <label class="selection-checkbox" @onclick:stopPropagation="true">
                         <input type="checkbox"
                                checked="@isSelected"
+                               @onclick:stopPropagation="true"
                                @onchange="eventArgs => SetSelected(profile.Path, eventArgs.Value is true)"
                                aria-label="@($"Select {profile.Name} for deletion")" />
                     </label>
@@ -81,14 +83,14 @@
                             @if (profile.RecommendedForDeletion)
                             {
                                 <span class="health-badge warning">
-                                    <i class="fas fa-exclamation-triangle" aria-hidden="true"></i>
+                                    <i class="fa-solid fa-exclamation-triangle" aria-hidden="true"></i>
                                     Review
                                 </span>
                             }
                             else
                             {
                                 <span class="health-badge good">
-                                    <i class="fas fa-check-circle" aria-hidden="true"></i>
+                                    <i class="fa-solid fa-check-circle" aria-hidden="true"></i>
                                     Good
                                 </span>
                             }
@@ -104,9 +106,10 @@
                                     class="reveal-button"
                                     @onclick="() => RevealProfile(profile)"
                                     @onclick:preventDefault
+                                    @onclick:stopPropagation
                                     aria-label="@($"Reveal {profile.Name} in Finder")"
                                     title="Reveal in Finder">
-                                <i class="fas fa-search" aria-hidden="true"></i>
+                                <i class="fa-solid fa-search" aria-hidden="true"></i>
                             </button>
                         </div>
 
@@ -116,7 +119,7 @@
                                 @foreach (var reason in profile.Reasons)
                                 {
                                     <span class="reason">
-                                        <i class="fas fa-circle-info" aria-hidden="true"></i>
+                                        <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
                                         @reason
                                     </span>
                                 }
@@ -126,7 +129,7 @@
                         {
                             <div class="reason-list">
                                 <span class="reason good">
-                                    <i class="fas fa-shield-alt" aria-hidden="true"></i>
+                                    <i class="fa-solid fa-shield-alt" aria-hidden="true"></i>
                                     Active, current, and matched to an installed signing identity
                                 </span>
                             </div>
@@ -290,7 +293,7 @@
 
     .cleanup-state > i {
         font-size: 2rem;
-        color: var(--accent-primary);
+        color: var(--accent);
     }
 
     .cleanup-state strong {
@@ -299,7 +302,7 @@
     }
 
     .cleanup-error > i {
-        color: var(--accent-danger);
+        color: var(--status-error-fg);
     }
 
     .cleanup-summary {
@@ -311,9 +314,9 @@
 
     .summary-card {
         padding: 0.875rem 1rem;
-        border: 1px solid var(--border-color);
-        border-radius: var(--card-radius);
-        background: var(--card-bg);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
+        background: var(--surface-card);
         display: flex;
         align-items: baseline;
         gap: 0.5rem;
@@ -321,12 +324,12 @@
 
     .summary-card.recommended {
         background: var(--status-warning-bg);
-        border-color: var(--accent-warning);
+        border-color: var(--status-warning-border);
     }
 
     .summary-card.healthy {
         background: var(--status-success-bg);
-        border-color: var(--accent-success);
+        border-color: var(--status-success-border);
     }
 
     .summary-value {
@@ -359,9 +362,9 @@
     .reveal-button {
         border: 0;
         background: transparent;
-        color: var(--accent-primary);
+        color: var(--accent);
         cursor: pointer;
-        border-radius: 0.375rem;
+        border-radius: var(--radius-sm);
     }
 
     .text-button {
@@ -372,7 +375,7 @@
 
     .text-button:hover:not(:disabled),
     .reveal-button:hover {
-        background: var(--bg-hover);
+        background: var(--surface-card-hover);
     }
 
     .text-button:disabled {
@@ -391,17 +394,17 @@
         align-items: flex-start;
         gap: 0.875rem;
         padding: 0.875rem 1rem;
-        border: 1px solid var(--border-color);
-        border-radius: var(--card-radius);
-        background: var(--card-bg);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
+        background: var(--surface-card);
         cursor: pointer;
         transition: border-color 160ms ease, background-color 160ms ease;
     }
 
     .cleanup-profile-card:hover,
     .cleanup-profile-card.selected {
-        border-color: var(--accent-primary);
-        background: var(--accent-bg);
+        border-color: var(--accent);
+        background: var(--accent-soft);
     }
 
     .selection-checkbox {
@@ -418,7 +421,7 @@
         width: 18px;
         height: 18px;
         margin-top: 0.15rem;
-        accent-color: var(--accent-primary);
+        accent-color: var(--accent);
     }
 
     .profile-card-content {
@@ -464,18 +467,18 @@
 
     .kind-badge,
     .location-badge {
-        background: var(--bg-tertiary);
+        background: var(--surface-well);
         color: var(--text-secondary);
     }
 
     .health-badge.warning {
         background: var(--status-warning-bg);
-        color: var(--status-warning-text);
+        color: var(--status-warning-fg);
     }
 
     .health-badge.good {
         background: var(--status-success-bg);
-        color: var(--status-success-text);
+        color: var(--status-success-fg);
     }
 
     .profile-meta {
@@ -508,25 +511,25 @@
         display: inline-flex;
         align-items: center;
         gap: 0.4rem;
-        color: var(--status-warning-text);
+        color: var(--status-warning-fg);
         font-size: 0.76rem;
         line-height: 1.4;
     }
 
     .reason.good {
-        color: var(--status-success-text);
+        color: var(--status-success-fg);
     }
 
     .btn {
         min-height: 44px;
         padding: 0.625rem 1rem;
         border: 0;
-        border-radius: 0.5rem;
+        border-radius: var(--radius-md);
         cursor: pointer;
     }
 
     .btn-secondary {
-        background: var(--bg-tertiary);
+        background: var(--surface-well);
         color: var(--text-primary);
     }
 

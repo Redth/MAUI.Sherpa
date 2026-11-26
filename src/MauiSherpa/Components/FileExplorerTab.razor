@@ -20,13 +20,13 @@
         </div>
         <div class="file-toolbar-actions">
             <button class="btn btn-sm btn-secondary" @onclick="UploadFileAsync" disabled="@isLoading" title="Upload file to current folder">
-                <i class="fas fa-upload"></i>
+                <i class="fa-solid fa-upload"></i>
             </button>
             <button class="btn btn-sm btn-secondary" @onclick="RefreshAsync" disabled="@isLoading">
-                <i class="fas fa-sync-alt @(isLoading ? "fa-spin" : "")"></i>
+                <i class="fa-solid fa-sync-alt @(isLoading ? "fa-spin" : "")"></i>
             </button>
             <button class="btn btn-sm btn-secondary" @onclick="NavigateUp" disabled="@(currentPath == "/")">
-                <i class="fas fa-level-up-alt"></i>
+                <i class="fa-solid fa-level-up-alt"></i>
             </button>
         </div>
     </div>
@@ -35,13 +35,13 @@
         @if (isLoading)
         {
             <div class="file-loading">
-                <i class="fas fa-spinner fa-spin"></i> Loading...
+                <i class="fa-solid fa-spinner fa-spin"></i> Loading...
             </div>
         }
         else if (entries.Count == 0)
         {
             <div class="file-empty">
-                <i class="fas fa-folder-open"></i>
+                <i class="fa-solid fa-folder-open"></i>
                 <span>Empty directory</span>
             </div>
         }
@@ -60,7 +60,7 @@
                 {
                     <div class="file-row @(entry.IsDirectory ? "file-row-dir" : "")" @ondblclick="@(() => { if (entry.IsDirectory) NavigateTo(entry.FullPath); })">
                         <span class="file-col-icon">
-                            <i class="fas @(entry.IsDirectory ? "fa-folder" : GetFileIcon(entry.Name))"></i>
+                            <i class="fa-solid @(entry.IsDirectory ? "fa-folder" : GetFileIcon(entry.Name))"></i>
                         </span>
                         <span class="file-col-name" title="@entry.FullPath">
                             @if (entry.IsDirectory)
@@ -79,11 +79,11 @@
                             @if (!entry.IsDirectory)
                             {
                                 <button class="btn-file-action" @onclick="@(() => DownloadFileAsync(entry))" title="Download">
-                                    <i class="fas fa-download"></i>
+                                    <i class="fa-solid fa-download"></i>
                                 </button>
                             }
                             <button class="btn-file-action btn-file-delete" @onclick="@(() => DeleteAsync(entry))" title="Delete">
-                                <i class="fas fa-trash-alt"></i>
+                                <i class="fa-solid fa-trash-alt"></i>
                             </button>
                         </span>
                     </div>
@@ -100,11 +100,11 @@
         height: 100%;
         font-size: 0.75rem;
     }
-    .file-explorer .btn { padding: 0.375rem 0.875rem; border: none; border-radius: 0.3125rem; font-size: 0.75rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3125rem; transition: all 0.15s; }
+    .file-explorer .btn { padding: 0.375rem 0.875rem; border: none; border-radius: var(--radius-sm); font-size: 0.75rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3125rem; transition: all 0.15s; }
     .file-explorer .btn i { font-size: 0.6875rem; }
     .file-explorer .btn-sm { padding: 0.25rem 0.5rem; font-size: 0.6875rem; }
-    .file-explorer .btn-primary { background: var(--accent-primary); color: white; }
-    .file-explorer .btn-secondary { background: var(--btn-secondary-bg); color: var(--text-secondary); border: none; }
+    .file-explorer .btn-primary { background: var(--accent); color: var(--text-inverse); }
+    .file-explorer .btn-secondary { background: var(--surface-control); color: var(--text-secondary); border: none; }
     .file-explorer .btn:hover:not(:disabled) { filter: brightness(1.1); }
     .file-explorer .btn:disabled { opacity: 0.5; cursor: not-allowed; }
     .file-toolbar {
@@ -112,8 +112,8 @@
         align-items: center;
         justify-content: space-between;
         padding: 0.25rem 0.5rem;
-        background: var(--bg-tertiary, #edf2f7);
-        border-bottom: 1px solid var(--border-color, #e2e8f0);
+        background: var(--surface-well);
+        border-bottom: 1px solid var(--border-subtle);
         gap: 0.5rem;
         flex-shrink: 0;
     }
@@ -121,21 +121,21 @@
         display: flex;
         align-items: center;
         gap: 2px;
-        overflow-x: auto;
+        overflow-x: auto; overscroll-behavior: contain;
         flex: 1;
     }
     .breadcrumb-item {
         background: none;
         border: none;
         padding: 2px 0.25rem;
-        border-radius: 0.25rem;
-        color: var(--accent-primary, #4299e1);
+        border-radius: var(--radius-xs);
+        color: var(--accent);
         cursor: pointer;
         font-size: 0.75rem;
         font-family: 'Consolas', 'Monaco', monospace;
         white-space: nowrap;
     }
-    .breadcrumb-item:hover { background: var(--bg-secondary); }
+    .breadcrumb-item:hover { background: var(--surface-popover); }
     .breadcrumb-separator { color: var(--text-muted); font-size: 0.625rem; }
     .file-toolbar-actions { display: flex; gap: 0.25rem; flex-shrink: 0; }
 
@@ -147,24 +147,24 @@
         font-weight: 600;
         font-size: 0.6875rem;
         color: var(--text-secondary);
-        border-bottom: 1px solid var(--border-color, #e2e8f0);
+        border-bottom: 1px solid var(--border-subtle);
         text-transform: uppercase;
         letter-spacing: 0.5px;
         flex-shrink: 0;
     }
-    .file-scroll { flex: 1; overflow-y: auto; }
+    .file-scroll { flex: 1; overflow-y: auto; overscroll-behavior: contain; }
     .file-row {
         display: flex;
         align-items: center;
         padding: 3px 0.5rem;
-        border-bottom: 1px solid var(--border-subtle, rgba(0,0,0,0.04));
+        border-bottom: 1px solid var(--border-subtle);
         transition: background 0.1s;
     }
     .file-row-dir { font-weight: 500; }
     .file-col-icon { width: 28px; text-align: center; flex-shrink: 0; color: var(--text-muted); }
-    .file-row-dir .file-col-icon { color: #eab308; }
+    .file-row-dir .file-col-icon { color: var(--status-warning-fg); }
     .file-col-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-primary); }
-    .file-col-name a { color: var(--accent-primary, #4299e1); text-decoration: none; }
+    .file-col-name a { color: var(--accent); text-decoration: none; }
     .file-col-name a:hover { text-decoration: underline; }
     .file-col-size { width: 70px; text-align: right; color: var(--text-muted); flex-shrink: 0; padding-right: 0.75rem; }
     .file-col-perms { width: 90px; font-family: 'Consolas', 'Monaco', monospace; font-size: 0.6875rem; color: var(--text-muted); flex-shrink: 0; }
@@ -172,10 +172,10 @@
     .file-col-actions { width: 56px; display: flex; gap: 0.25rem; justify-content: flex-end; flex-shrink: 0; }
     .btn-file-action {
         background: none; border: none; color: var(--text-muted); cursor: pointer;
-        padding: 2px 0.25rem; border-radius: 0.25rem; font-size: 0.6875rem;
+        padding: 2px 0.25rem; border-radius: var(--radius-xs); font-size: 0.6875rem;
     }
-    .btn-file-action:hover { background: var(--bg-secondary); color: var(--text-primary); }
-    .btn-file-delete:hover { color: #f56565; }
+    .btn-file-action:hover { background: var(--surface-popover); color: var(--text-primary); }
+    .btn-file-delete:hover { color: var(--status-error-fg); }
 
     .file-loading, .file-empty {
         display: flex; align-items: center; justify-content: center; gap: 0.5rem;

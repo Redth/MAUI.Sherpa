@@ -26,14 +26,14 @@
         @if (isLoadingData)
         {
             <div class="loading-state">
-                <i class="fas fa-spinner fa-spin"></i>
+                <i class="fa-solid fa-spinner fa-spin"></i>
                 <span>Loading data...</span>
             </div>
         }
         else if (!string.IsNullOrEmpty(errorMessage))
         {
             <div class="error-message">
-                <i class="fas fa-exclamation-circle"></i>
+                <i class="fa-solid fa-circle-exclamation"></i>
                 @errorMessage
             </div>
         }
@@ -42,22 +42,34 @@
             <!-- Step Indicator -->
             <div class="step-indicator">
                 <div class="step @(currentStep >= 1 ? "active" : "") @(currentStep > 1 ? "completed" : "")">
-                    <div class="step-number">@(currentStep > 1 ? "✓" : "1")</div>
+                    <div class="step-number">
+                        @if (currentStep > 1) { <i class="fa-solid fa-check" aria-hidden="true"></i> }
+                        else { <span>1</span> }
+                    </div>
                     <div class="step-label">Type</div>
                 </div>
                 <div class="step-line @(currentStep > 1 ? "active" : "")"></div>
                 <div class="step @(currentStep >= 2 ? "active" : "") @(currentStep > 2 ? "completed" : "")">
-                    <div class="step-number">@(currentStep > 2 ? "✓" : "2")</div>
+                    <div class="step-number">
+                        @if (currentStep > 2) { <i class="fa-solid fa-check" aria-hidden="true"></i> }
+                        else { <span>2</span> }
+                    </div>
                     <div class="step-label">Bundle ID</div>
                 </div>
                 <div class="step-line @(currentStep > 2 ? "active" : "")"></div>
                 <div class="step @(currentStep >= 3 ? "active" : "") @(currentStep > 3 ? "completed" : "")">
-                    <div class="step-number">@(currentStep > 3 ? "✓" : "3")</div>
+                    <div class="step-number">
+                        @if (currentStep > 3) { <i class="fa-solid fa-check" aria-hidden="true"></i> }
+                        else { <span>3</span> }
+                    </div>
                     <div class="step-label">Certificates</div>
                 </div>
                 <div class="step-line @(currentStep > 3 ? "active" : "")"></div>
                 <div class="step @(currentStep >= 4 ? "active" : "") @(currentStep > 4 ? "completed" : "")">
-                    <div class="step-number">@(currentStep > 4 ? "✓" : "4")</div>
+                    <div class="step-number">
+                        @if (currentStep > 4) { <i class="fa-solid fa-check" aria-hidden="true"></i> }
+                        else { <span>4</span> }
+                    </div>
                     <div class="step-label">@(RequiresDevices ? "Devices" : "Name")</div>
                 </div>
                 @if (RequiresDevices)
@@ -110,7 +122,7 @@
                         @foreach (var type in group.Types)
                         {
                             <label class="type-option @(selectedProfileType == type.Value ? "selected" : "")">
-                                <input type="radio" name="profileType" value="@type.Value" 
+                                <input type="radio" name="profileType" value="@type.Value"
                                        checked="@(selectedProfileType == type.Value)"
                                        @onchange="@(() => SelectProfileType(type.Value))" />
                                 <div class="type-content">
@@ -133,12 +145,12 @@
         <p class="step-description">Choose the App ID for this profile.</p>
 
         <div class="search-box" style="margin-bottom: 1rem;">
-            <i class="fas fa-search"></i>
+            <i class="fa-solid fa-search"></i>
             <input type="text" @bind="bundleIdSearch" @bind:event="oninput" placeholder="Search bundle IDs..." />
             @if (!string.IsNullOrEmpty(bundleIdSearch))
             {
                 <button class="clear-search" @onclick="@(() => bundleIdSearch = string.Empty)">
-                    <i class="fas fa-times"></i>
+                    <i class="fa-solid fa-xmark" aria-hidden="true"></i>
                 </button>
             }
         </div>
@@ -160,7 +172,7 @@
             @if (!FilteredBundleIds.Any())
             {
                 <div class="empty-list">
-                    <i class="fas fa-inbox"></i>
+                    <i class="fa-solid fa-inbox"></i>
                     <span>No bundle IDs found</span>
                 </div>
             }
@@ -206,16 +218,16 @@
             @if (!FilteredCertificates.Any())
             {
                 <div class="empty-list">
-                    <i class="fas fa-certificate"></i>
+                    <i class="fa-solid fa-certificate"></i>
                     <span>No compatible @(IsDevelopmentProfile ? "development" : "distribution") certificates found</span>
                 </div>
             }
         </div>
-        
+
         @if (selectedCertificateIds.Any())
         {
             <div class="selection-summary">
-                <i class="fas fa-check-circle"></i> @selectedCertificateIds.Count certificate(s) selected
+                <i class="fa-solid fa-circle-check"></i> @selectedCertificateIds.Count certificate(s) selected
             </div>
         }
     </div>
@@ -231,17 +243,17 @@
 
         <div class="device-toolbar">
             <div class="search-box">
-                <i class="fas fa-search"></i>
+                <i class="fa-solid fa-search"></i>
                 <input type="text" @bind="deviceSearch" @bind:event="oninput" placeholder="Filter devices..." />
                 @if (!string.IsNullOrEmpty(deviceSearch))
                 {
                     <button class="clear-search" @onclick="@(() => deviceSearch = string.Empty)">
-                        <i class="fas fa-times"></i>
+                        <i class="fa-solid fa-xmark" aria-hidden="true"></i>
                     </button>
                 }
             </div>
             <label class="select-all-checkbox">
-                <input type="checkbox" 
+                <input type="checkbox"
                        checked="@(selectedDeviceIds.Count == FilteredDevices.Count() && FilteredDevices.Any())"
                        @onchange="ToggleAllDevices" />
                 <span>Select All (@FilteredDevices.Count())</span>
@@ -274,7 +286,7 @@
             @if (!FilteredDevices.Any())
             {
                 <div class="empty-list">
-                    <i class="fas fa-mobile-alt"></i>
+                    <i class="fa-solid fa-mobile-screen-button"></i>
                     <span>No compatible devices found for @GetPlatformFromProfileType()</span>
                 </div>
             }
@@ -283,13 +295,13 @@
         @if (selectedDeviceIds.Any())
         {
             <div class="selection-summary">
-                <i class="fas fa-check-circle"></i> @selectedDeviceIds.Count device(s) selected
+                <i class="fa-solid fa-circle-check"></i> @selectedDeviceIds.Count device(s) selected
             </div>
         }
         else
         {
             <div class="selection-summary warning">
-                <i class="fas fa-exclamation-triangle"></i> At least 1 device is required
+                <i class="fa-solid fa-triangle-exclamation"></i> At least 1 device is required
             </div>
         }
     </div>
@@ -307,7 +319,7 @@
             @if (!string.IsNullOrEmpty(suggestedName) && profileName != suggestedName)
             {
                 <button class="btn-suggestion" @onclick="@(() => { profileName = suggestedName; UpdateWizardState(); })">
-                    <i class="fas fa-lightbulb"></i> Use suggested: @suggestedName
+                    <i class="fa-solid fa-lightbulb"></i> Use suggested: @suggestedName
                 </button>
             }
         </div>
@@ -364,8 +376,9 @@
         width: 28px;
         height: 28px;
         border-radius: 50%;
-        background: var(--border-color, #e2e8f0);
-        color: var(--text-muted, #a0aec0);
+        background: var(--surface-control);
+        color: var(--text-muted);
+        border: 1px solid var(--border-control);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -373,37 +386,37 @@
         font-weight: 600;
     }
 
-    .step.active .step-number { background: var(--accent-primary, #8b5cf6); color: white; }
-    .step.completed .step-number { background: #48bb78; color: white; }
+    .step.active .step-number { background: var(--accent); border-color: var(--accent); color: var(--text-inverse); }
+    .step.completed .step-number { background: var(--status-success-bg); border-color: var(--status-success-border); color: var(--status-success-fg); }
 
     .step-label {
         font-size: 0.6875rem;
-        color: var(--text-muted, #a0aec0);
+        color: var(--text-muted);
         white-space: nowrap;
     }
 
-    .step.active .step-label { color: var(--accent-primary, #8b5cf6); font-weight: 500; }
-    .step.completed .step-label { color: #48bb78; }
+    .step.active .step-label { color: var(--accent); font-weight: 500; }
+    .step.completed .step-label { color: var(--status-success-dot); }
 
     .step-line {
         width: 2.5rem;
-        height: 2px;
-        background: var(--border-color, #e2e8f0);
+        height: 1px;
+        background: var(--border-hairline);
         margin-bottom: 1.25rem;
     }
 
-    .step-line.active { background: #48bb78; }
+    .step-line.active { background: var(--status-success-border); }
 
     .step-content h3 {
         margin: 0 0 0.25rem 0;
         font-size: 1rem;
-        color: var(--text-primary, #1a202c);
+        color: var(--text-primary);
     }
 
     .step-description {
         margin: 0 0 1.25rem 0;
         font-size: 0.8125rem;
-        color: var(--text-muted, #718096);
+        color: var(--text-muted);
     }
 
     /* Profile Type Groups */
@@ -415,20 +428,21 @@
 
     .platform-group {
         border: none;
-        border-radius: var(--card-radius, 1rem);
+        border-radius: var(--radius-xl);
         overflow: hidden;
-        background: var(--card-bg, white);
+        background: var(--surface-card);
     }
 
     .platform-header {
         padding: 0.625rem 0.875rem;
-        background: var(--bg-secondary, #f7fafc);
+        background: var(--surface-well);
+        border: 1px solid var(--border-hairline);
         font-weight: 600;
         font-size: 0.8125rem;
         display: flex;
         align-items: center;
         gap: 0.5rem;
-        color: var(--text-secondary, #4a5568);
+        color: var(--text-secondary);
     }
 
     .type-options { display: flex; flex-direction: column; }
@@ -438,27 +452,29 @@
         align-items: flex-start;
         gap: 0.75rem;
         padding: 0.75rem 0.875rem;
-        border-bottom: 1px solid var(--border-color, #e2e8f0);
+        border-bottom: 1px solid var(--border-subtle);
         cursor: pointer;
         transition: background 0.15s;
     }
 
     .type-option:last-child { border-bottom: none; }
-    .type-option:hover { background: var(--bg-hover, #f7fafc); }
-    .type-option.selected { background: var(--accent-bg, #faf5ff); }
-    .type-option input[type="radio"] { margin-top: 2px; accent-color: var(--accent-primary, #8b5cf6); }
+    .type-option:hover { background: var(--surface-card-hover); }
+    .type-option.selected { background: var(--accent-soft); }
+    .type-option.selected { box-shadow: inset 0 0 0 1px var(--accent); }
+    .type-option input[type="radio"] { margin-top: 2px; accent-color: var(--accent); }
 
     .type-content { flex: 1; }
-    .type-name { font-weight: 500; font-size: 0.875rem; color: var(--text-primary, #1a202c); }
-    .type-description { font-size: 0.75rem; color: var(--text-muted, #718096); margin-top: 2px; }
+    .type-name { font-weight: 500; font-size: 0.875rem; color: var(--text-primary); }
+    .type-description { font-size: 0.75rem; color: var(--text-muted); margin-top: 2px; }
 
     /* Selection List */
     .selection-list {
-        border: none;
-        border-radius: var(--card-radius, 1rem);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-xl);
         max-height: 280px;
         overflow-y: auto;
-        background: var(--card-bg, white);
+        overscroll-behavior: contain;
+        background: var(--surface-card);
     }
 
     .selection-list.devices { max-height: 240px; }
@@ -468,32 +484,33 @@
         align-items: flex-start;
         gap: 0.75rem;
         padding: 0.75rem 0.875rem;
-        border-bottom: 1px solid var(--border-color, #e2e8f0);
+        border-bottom: 1px solid var(--border-subtle);
         cursor: pointer;
         transition: background 0.15s;
     }
 
     .selection-item:last-child { border-bottom: none; }
-    .selection-item.selected { background: var(--accent-bg, #faf5ff); }
+    .selection-item.selected { background: var(--accent-soft); }
+    .selection-item.selected { box-shadow: inset 0 0 0 1px var(--accent); }
     .selection-item.disabled { opacity: 0.5; cursor: not-allowed; }
-    .selection-item input { margin-top: 2px; accent-color: var(--accent-primary, #8b5cf6); }
+    .selection-item input { margin-top: 2px; accent-color: var(--accent); }
 
     .item-content { flex: 1; min-width: 0; }
     .item-name { font-weight: 500; font-size: 0.875rem; color: var(--text-primary); display: flex; align-items: center; gap: 0.5rem; }
-    .item-detail { font-size: 0.75rem; color: var(--text-muted, #718096); margin-top: 2px; display: flex; gap: 0.75rem; font-family: monospace; }
+    .item-detail { font-size: 0.75rem; color: var(--text-muted); margin-top: 2px; display: flex; gap: 0.75rem; font-family: monospace; }
 
     .badge {
         display: inline-block;
         padding: 2px 0.5rem;
-        border-radius: 0.625rem;
+        border-radius: var(--radius-lg);
         font-size: 0.6875rem;
         font-weight: 500;
-        background: var(--bg-tertiary, #e2e8f0);
-        color: var(--text-secondary, #4a5568);
+        background: var(--surface-well);
+        color: var(--text-secondary);
         margin-top: 0.25rem;
     }
 
-    .badge-warning { background: var(--status-warning-bg); color: var(--status-warning-text); }
+    .badge-warning { background: var(--status-warning-bg); color: var(--status-warning-fg); }
 
     .badge-sync-both { background: var(--sync-synced-bg); color: var(--sync-synced-text); }
     .badge-sync-local { background: var(--sync-local-bg); color: var(--sync-local-text); }
@@ -516,15 +533,16 @@
         margin-top: 0.75rem;
         padding: 0.5rem 0.75rem;
         background: var(--status-success-bg);
-        border-radius: var(--card-radius, 1rem);
+        border: 1px solid var(--status-success-border);
+        border-radius: var(--radius-xl);
         font-size: 0.8125rem;
-        color: var(--status-success-text);
+        color: var(--status-success-fg);
         display: flex;
         align-items: center;
         gap: 0.5rem;
     }
 
-    .selection-summary.warning { background: var(--status-warning-bg); color: var(--status-warning-text); }
+    .selection-summary.warning { background: var(--status-warning-bg); border-color: var(--status-warning-border); color: var(--status-warning-fg); }
 
     /* Device Toolbar */
     .device-toolbar {
@@ -544,7 +562,7 @@
         color: var(--text-secondary);
     }
 
-    .select-all-checkbox input { accent-color: var(--accent-primary, #8b5cf6); }
+    .select-all-checkbox input { accent-color: var(--accent); }
 
     /* Form Elements */
     .form-group { margin-bottom: 1.25rem; }
@@ -553,20 +571,20 @@
     .form-input {
         width: 100%;
         padding: 0.625rem 0.875rem;
-        border: 1px solid var(--border-color, #e2e8f0);
-        border-radius: 0.375rem;
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-sm);
         font-size: 0.875rem;
         box-sizing: border-box;
-        background: var(--input-bg, white);
+        background: var(--surface-control);
         color: var(--text-primary);
     }
 
-    .form-input:focus { outline: none; border-color: var(--accent-primary, #8b5cf6); box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.15); }
+    .form-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 
     .btn-suggestion {
         background: none;
         border: none;
-        color: var(--accent-primary, #8b5cf6);
+        color: var(--accent);
         font-size: 0.8125rem;
         cursor: pointer;
         padding: 0.375rem 0;
@@ -585,8 +603,9 @@
         display: grid;
         grid-template-columns: 1fr 1fr;
         gap: 0.75rem;
-        background: var(--card-bg, #f7fafc);
-        border-radius: var(--card-radius, 1rem);
+        background: var(--surface-well);
+        border: 1px solid var(--border-hairline);
+        border-radius: var(--radius-xl);
         padding: 1rem;
     }
 
@@ -604,13 +623,13 @@
         color: var(--text-muted);
     }
 
-    .loading-state i { font-size: 1.5rem; color: #ed8936; }
+    .loading-state i { font-size: 1.5rem; color: var(--status-warning-dot); }
 
     .error-message {
         padding: 0.75rem 1rem;
         background: var(--status-error-bg);
-        border-radius: 0.75rem;
-        color: var(--status-error-text);
+        border-radius: var(--radius-lg);
+        color: var(--status-error-fg);
         display: flex;
         align-items: center;
         gap: 0.625rem;
@@ -668,25 +687,25 @@
 
     private static readonly List<ProfileTypeGroup> ProfileTypeGroups = new()
     {
-        new("iOS", "fab fa-apple", new[]
+        new("iOS", "fa-brands fa-apple", new[]
         {
             new ProfileTypeInfo("IOS_APP_DEVELOPMENT", "Development", "Run app on registered devices during development"),
             new ProfileTypeInfo("IOS_APP_ADHOC", "Ad Hoc", "Distribute to a limited number of registered devices"),
             new ProfileTypeInfo("IOS_APP_STORE", "App Store", "Submit to the App Store or TestFlight")
         }),
-        new("tvOS", "fas fa-tv", new[]
+        new("tvOS", "fa-solid fa-tv", new[]
         {
             new ProfileTypeInfo("TVOS_APP_DEVELOPMENT", "Development", "Run app on registered Apple TVs during development"),
             new ProfileTypeInfo("TVOS_APP_ADHOC", "Ad Hoc", "Distribute to a limited number of registered Apple TVs"),
             new ProfileTypeInfo("TVOS_APP_STORE", "App Store", "Submit to the App Store or TestFlight")
         }),
-        new("Mac Catalyst", "fas fa-layer-group", new[]
+        new("Mac Catalyst", "fa-solid fa-layer-group", new[]
         {
             new ProfileTypeInfo("MAC_CATALYST_APP_DEVELOPMENT", "Development", "Run iPad app on Mac during development"),
             new ProfileTypeInfo("MAC_CATALYST_APP_STORE", "Mac App Store", "Submit iPad app to Mac App Store"),
             new ProfileTypeInfo("MAC_CATALYST_APP_DIRECT", "Direct Distribution", "Distribute iPad app outside Mac App Store")
         }),
-        new("macOS", "fas fa-laptop", new[]
+        new("macOS", "fa-solid fa-laptop", new[]
         {
             new ProfileTypeInfo("MAC_APP_DEVELOPMENT", "Development", "Run app on registered Macs during development"),
             new ProfileTypeInfo("MAC_APP_STORE", "Mac App Store", "Submit to the Mac App Store"),
@@ -911,10 +930,10 @@
 
     private string GetSyncStatusIcon(SecretLocation location) => location switch
     {
-        SecretLocation.Both => "fas fa-check-circle",
-        SecretLocation.LocalOnly => "fas fa-hdd",
-        SecretLocation.CloudOnly => "fas fa-cloud",
-        _ => "fas fa-times-circle"
+        SecretLocation.Both => "fa-solid fa-circle-check",
+        SecretLocation.LocalOnly => "fa-solid fa-hdd",
+        SecretLocation.CloudOnly => "fa-solid fa-cloud",
+        _ => "fa-solid fa-circle-xmark"
     };
 
     private string GetSyncStatusText(SecretLocation location) => location switch
@@ -962,12 +981,12 @@
 
     private string GetDeviceIcon(string deviceClass) => deviceClass?.ToUpperInvariant() switch
     {
-        "IPHONE" => "fas fa-mobile-alt",
-        "IPAD" => "fas fa-tablet-alt",
-        "MAC" => "fas fa-laptop",
-        "APPLE_TV" => "fas fa-tv",
-        "APPLE_WATCH" => "fas fa-clock",
-        _ => "fas fa-microchip"
+        "IPHONE" => "fa-solid fa-mobile-screen-button",
+        "IPAD" => "fa-solid fa-tablet-screen-button",
+        "MAC" => "fa-solid fa-laptop",
+        "APPLE_TV" => "fa-solid fa-tv",
+        "APPLE_WATCH" => "fa-solid fa-clock",
+        _ => "fa-solid fa-microchip"
     };
 
     private string FormatCertType(string certType) => certType.Replace("_", " ");

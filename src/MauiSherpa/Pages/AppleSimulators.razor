@@ -27,7 +27,7 @@
 @if (!SimulatorService.IsSupported)
 {
     <div class="not-supported">
-        <div class="warning-icon"><i class="fas fa-exclamation-triangle"></i></div>
+        <div class="warning-icon"><i class="fa-solid fa-exclamation-triangle"></i></div>
         <h2>macOS Only</h2>
         <p>Apple simulator and device management requires macOS with Xcode installed.</p>
     </div>
@@ -36,7 +36,7 @@ else
 {
 <!-- Physical Devices Section -->
 <div class="device-section-heading">
-    <h2 class="device-section-label"><i class="fas fa-mobile-alt" aria-hidden="true"></i> Physical Devices</h2>
+    <h2 class="device-section-label"><i class="fa-solid fa-mobile-alt" aria-hidden="true"></i> Physical Devices</h2>
 </div>
 @if (physicalDevicesError != null)
 {
@@ -47,7 +47,7 @@ else
 }
 @if (isLoadingDevices)
 {
-    <div class="loading-indicator"><i class="fas fa-spinner fa-spin"></i> Scanning for devices...</div>
+    <div class="loading-indicator"><i class="fa-solid fa-spinner fa-spin"></i> Scanning for devices...</div>
 }
 else if (physicalDevices.Count == 0 && physicalDevicesError == null)
 {
@@ -60,8 +60,8 @@ else
         {
             <div class="simulator-card @(device.IsConnected ? "running" : "")">
                 <div class="simulator-icon">
-                    <i class="fas @GetPhysicalDeviceIcon(device)"></i>
-                    <i class="fab fa-apple brand-overlay"></i>
+                    <i class="fa-solid @GetPhysicalDeviceIcon(device)"></i>
+                    <i class="fa-brands fa-apple brand-overlay"></i>
                 </div>
                 <div class="simulator-details">
                     <div class="simulator-name">@device.Name</div>
@@ -72,7 +72,7 @@ else
                     <div class="simulator-udid">
                         <span class="@(demoMode ? "demo-blur" : "")">@device.Udid</span>
                         <button class="btn-copy" @onclick="@(() => CopyToClipboard(device.Udid))" title="Copy UDID">
-                            <i class="fas fa-copy"></i>
+                            <i class="fa-solid fa-copy"></i>
                         </button>
                     </div>
                     <div class="simulator-badges">
@@ -81,7 +81,7 @@ else
                         @if (device.IsConnected)
                         {
                             <span class="badge badge-transport">
-                                <i class="@(device.IsWired ? "fab fa-usb" : device.IsWireless ? "fas fa-wifi" : "fas fa-question-circle")" aria-hidden="true"></i> @device.TransportLabel
+                                <i class="@(device.IsWired ? "fa-brands fa-usb" : device.IsWireless ? "fa-solid fa-wifi" : "fa-solid fa-question-circle")" aria-hidden="true"></i> @device.TransportLabel
                             </span>
                         }
                         @if (device.DeveloperModeStatus == "disabled")
@@ -92,21 +92,21 @@ else
                 </div>
                 <div class="simulator-actions">
                     <button data-screenshot-external class="btn btn-secondary btn-icon" @onclick="() => ShowPairing(device.Identifier)" disabled="@isUnpairing" title="Pair or check connection" aria-label="@($"Pair or check connection for {device.Name}")">
-                        <i class="fas fa-link"></i>
+                        <i class="fa-solid fa-link"></i>
                     </button>
                     <button data-screenshot-external class="btn btn-info btn-icon" @onclick="@(() => SimInspector.OpenAsync(device.Identifier, device.Name, SimInspectorTab.Logs, isPhysicalDevice: true))" disabled="@(!device.IsPaired || !device.IsConnected)" title="Logs">
-                        <i class="fas fa-scroll"></i>
+                        <i class="fa-solid fa-scroll"></i>
                     </button>
                     <button data-screenshot-external class="btn btn-secondary btn-icon" @onclick="@(() => SimInspector.OpenAsync(device.Identifier, device.Name, SimInspectorTab.Apps, isPhysicalDevice: true))" disabled="@(!device.IsPaired || !device.IsConnected)" title="Apps">
-                        <i class="fas fa-th-large"></i>
+                        <i class="fa-solid fa-th-large"></i>
                     </button>
                     <button data-screenshot-external class="btn btn-secondary btn-icon" @onclick="@(() => InstallAppOnDevice(device))" disabled="@(!device.IsPaired || !device.IsConnected || device.DeveloperModeStatus == "disabled")" title="Install App">
-                        <i class="fas fa-download"></i>
+                        <i class="fa-solid fa-download"></i>
                     </button>
                     @if (device.IsPaired)
                     {
                         <button data-screenshot-external class="btn btn-danger btn-icon" @onclick="() => UnpairDevice(device)" disabled="@(isUnpairing || showPairing)" title="Unpair device" aria-label="@($"Unpair {device.Name}")">
-                            <i class="fas fa-unlink"></i>
+                            <i class="fa-solid fa-unlink"></i>
                         </button>
                     }
                 </div>
@@ -117,11 +117,11 @@ else
 
 <!-- Simulators Section -->
 <div class="device-section-heading device-section-heading-spaced">
-    <h2 class="device-section-label"><i class="fas fa-desktop" aria-hidden="true"></i> Simulators</h2>
+    <h2 class="device-section-label"><i class="fa-solid fa-desktop" aria-hidden="true"></i> Simulators</h2>
     @if (!isSelectionMode)
     {
         <button class="btn btn-secondary" @onclick="BeginSelectionMode" disabled="@(isLoading || isDeletingSimulator || simulators.Count == 0)">
-            <i class="fas fa-check-square"></i> Select
+            <i class="fa-solid fa-check-square"></i> Select
         </button>
     }
 </div>
@@ -130,13 +130,13 @@ else
 {
 <div class="toolbar">
     <button class="btn btn-primary" @onclick="RefreshAll" disabled="@(isLoading || isLoadingDevices)">
-        <i class="fas @(isLoading ? "fa-spinner fa-spin" : "fa-sync-alt")"></i> Refresh
+        <i class="fa-solid @(isLoading ? "fa-spinner fa-spin" : "fa-sync-alt")"></i> Refresh
     </button>
     <button data-screenshot-external class="btn btn-primary" @ref="pairButton" @onclick="() => ShowPairing()" disabled="@(!PairingService.IsSupported || isUnpairing)">
-        <i class="fas fa-link"></i> Pair Device
+        <i class="fa-solid fa-link"></i> Pair Device
     </button>
     <button data-screenshot-external class="btn btn-success" @onclick="ShowCreateDialog" disabled="@isLoading">
-        <i class="fas fa-plus"></i> Create Simulator
+        <i class="fa-solid fa-plus"></i> Create Simulator
     </button>
 </div>
 }
@@ -149,7 +149,7 @@ else
     <div class="filter-bar">
         <div class="filter-group" style="flex: 1;">
             <div class="search-box">
-                <i class="fas fa-search"></i>
+                <i class="fa-solid fa-search"></i>
                 <input type="text" placeholder="Search by name..." @bind="searchQuery" @bind:event="oninput" />
             </div>
         </div>
@@ -207,7 +207,7 @@ else
             <button class="btn btn-secondary" @onclick="CancelSelectionMode" disabled="@isDeletingSimulator">Cancel Selection</button>
             <button data-screenshot-external class="btn btn-danger" @onclick="DeleteSelectedSimulators"
                     disabled="@(isLoading || isDeletingSimulator || selectedSimulatorIds.Count == 0)">
-                <i class="fas fa-trash"></i> Delete Selected
+                <i class="fa-solid fa-trash"></i> Delete Selected
             </button>
         </div>
     </div>
@@ -218,7 +218,7 @@ else
     {
         <div class="loading-state">
             <div class="loading-spinner">
-                <i class="fas fa-tablet-screen-button"></i>
+                <i class="fa-solid fa-tablet-screen-button"></i>
             </div>
             <div class="loading-title">Loading Simulators</div>
             <div class="loading-description">Discovering iOS Simulators...</div>
@@ -227,7 +227,7 @@ else
     else if (simulators.Count == 0)
     {
         <div class="empty-state">
-            <div class="empty-icon"><i class="fas fa-tablet-screen-button"></i></div>
+            <div class="empty-icon"><i class="fa-solid fa-tablet-screen-button"></i></div>
             <div class="empty-title">No simulators found</div>
             <div class="empty-description">Click "Create Simulator" to set up a new iOS Simulator</div>
         </div>
@@ -235,7 +235,7 @@ else
     else if (!FilteredSimulators.Any())
     {
         <div class="empty-state">
-            <div class="empty-icon"><i class="fas fa-search"></i></div>
+            <div class="empty-icon"><i class="fa-solid fa-search"></i></div>
             <div class="empty-title">No matching simulators</div>
             <div class="empty-description">No simulators match your search or filters. Try adjusting your criteria.</div>
         </div>
@@ -265,9 +265,9 @@ else
                     }
                     else
                     {
-                        <i class="fas @GetDeviceIcon(sim.ProductFamily)"></i>
+                        <i class="fa-solid @GetDeviceIcon(sim.ProductFamily)"></i>
                     }
-                    <i class="fab fa-apple brand-overlay"></i>
+                    <i class="fa-brands fa-apple brand-overlay"></i>
                 </div>
                 <div class="simulator-details">
                     <div class="simulator-name">@sim.Name</div>
@@ -284,7 +284,7 @@ else
                     <div class="simulator-udid">
                         <span class="@(demoMode ? "demo-blur" : "")">@sim.Udid</span>
                         <button class="btn-copy" @onclick="@(() => CopyToClipboard(sim.Udid))" @onclick:stopPropagation="true" title="Copy UDID">
-                            <i class="fas fa-copy"></i>
+                            <i class="fa-solid fa-copy"></i>
                         </button>
                     </div>
                     <div class="simulator-badges">
@@ -312,46 +312,46 @@ else
                     @if (isBooting)
                     {
                         <button class="btn btn-secondary btn-icon" disabled>
-                            <i class="fas fa-spinner fa-spin"></i>
+                            <i class="fa-solid fa-spinner fa-spin"></i>
                         </button>
                     }
                     else if (isBooted)
                     {
                         <button data-screenshot-external class="btn btn-info btn-icon" @onclick="@(() => SimInspector.OpenAsync(sim.Udid, sim.Name))" title="Logs">
-                            <i class="fas fa-scroll"></i>
+                            <i class="fa-solid fa-scroll"></i>
                         </button>
                         <button data-screenshot-external class="btn btn-secondary btn-icon" @onclick="@(() => SimInspector.OpenAsync(sim.Udid, sim.Name, SimInspectorTab.Apps))" title="Inspect">
-                            <i class="fas fa-search"></i>
+                            <i class="fa-solid fa-search"></i>
                         </button>
                         <button data-screenshot-external class="btn btn-warning btn-icon" @onclick="@(() => ShutdownSimulator(sim))" disabled="@isLoading" title="Shutdown">
-                            <i class="fas fa-stop"></i>
+                            <i class="fa-solid fa-stop"></i>
                         </button>
                     }
                     else
                     {
                         <button data-screenshot-external class="btn btn-success btn-icon" @onclick="@(() => BootSimulator(sim))" disabled="@(isLoading || isDeletingSimulator || !sim.IsAvailable)" title="Boot">
-                            <i class="fas fa-play"></i>
+                            <i class="fa-solid fa-play"></i>
                         </button>
                     }
                     <button data-screenshot-external class="btn btn-danger btn-icon" @onclick="() => DeleteSimulator(sim)" disabled="@(isLoading || isDeletingSimulator || isBooting)" title="Delete simulator" aria-label="@($"Delete {sim.Name}")">
-                        <i class="fas fa-trash"></i>
+                        <i class="fa-solid fa-trash"></i>
                     </button>
                     <div class="sim-dropdown">
                         <button class="btn btn-secondary btn-icon sim-dropdown-toggle" @onclick="@(() => ToggleDropdown(sim.Udid))" @onclick:stopPropagation="true" title="More actions">
-                            <i class="fas fa-ellipsis-v"></i>
+                            <i class="fa-solid fa-ellipsis-v"></i>
                         </button>
                         @if (openDropdownId == sim.Udid)
                         {
                             <div class="sim-dropdown-menu">
                                 <button data-screenshot-external class="sim-dropdown-item" @onclick="@(() => { CloseDropdown(); OpenSimulatorDirectory(sim); })">
-                                    <i class="fas fa-folder-open"></i> Open in @(Platform.IsMacCatalyst || Platform.IsMacOS ? "Finder" : "Explorer")
+                                    <i class="fa-solid fa-folder-open"></i> Open in @(Platform.IsMacCatalyst || Platform.IsMacOS ? "Finder" : "Explorer")
                                 </button>
                                 <div class="sim-dropdown-divider"></div>
                                 <button data-screenshot-external class="sim-dropdown-item" @onclick="@(() => { CloseDropdown(); CloneSimulator(sim); })" disabled="@(isLoading || isBooting)">
-                                    <i class="fas fa-clone"></i> Clone
+                                    <i class="fa-solid fa-clone"></i> Clone
                                 </button>
                                 <button data-screenshot-external class="sim-dropdown-item" @onclick="@(() => { CloseDropdown(); EraseSimulator(sim); })" disabled="@(isLoading || isBooted || isBooting)">
-                                    <i class="fas fa-rotate-left"></i> Reset
+                                    <i class="fa-solid fa-rotate-left"></i> Reset
                                 </button>
                             </div>
                         }

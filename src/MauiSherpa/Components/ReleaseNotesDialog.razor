@@ -20,11 +20,11 @@
             {
                 <header class="release-dialog-header">
                     <div>
-                        <h2 id="release-notes-title"><i class="fas fa-mountain"></i> Release Notes</h2>
+                        <h2 id="release-notes-title"><i class="fa-solid fa-mountain"></i> Release Notes</h2>
                         <p>What's new in MAUI Sherpa</p>
                     </div>
                     <button class="release-close" @onclick="CloseAsync" title="Close release notes" aria-label="Close release notes">
-                        <i class="fas fa-xmark"></i>
+                        <i class="fa-solid fa-xmark"></i>
                     </button>
                 </header>
             }
@@ -32,12 +32,12 @@
             <div class="release-dialog-body">
                 @if (isLoading && releases.Count == 0)
                 {
-                    <div class="release-state"><i class="fas fa-circle-notch fa-spin"></i> Loading release notes...</div>
+                    <div class="release-state"><i class="fa-solid fa-circle-notch fa-spin"></i> Loading release notes...</div>
                 }
                 else if (!string.IsNullOrEmpty(errorMessage) && releases.Count == 0)
                 {
                     <div class="release-state release-error">
-                        <i class="fas fa-circle-exclamation"></i>
+                        <i class="fa-solid fa-circle-exclamation"></i>
                         <span>@errorMessage</span>
                         <button class="btn btn-secondary" @onclick="LoadReleasesAsync">Retry</button>
                     </div>
@@ -65,10 +65,10 @@
                                     }
                                     <span class="release-date">@release.PublishedAt.ToString("MMM d, yyyy")</span>
                                     </span>
-                                    <i class="fas @(expandedReleases.Contains(release.TagName) ? "fa-chevron-up" : "fa-chevron-down")"></i>
+                                    <i class="fa-solid @(expandedReleases.Contains(release.TagName) ? "fa-chevron-up" : "fa-chevron-down")"></i>
                                 </button>
                                 <button class="release-open" @onclick="() => OpenReleaseAsync(release.HtmlUrl)" title="Open on GitHub" aria-label="Open @release.TagName on GitHub">
-                                    <i class="fas fa-arrow-up-right-from-square"></i>
+                                    <i class="fa-solid fa-arrow-up-right-from-square"></i>
                                 </button>
                             </div>
                             @if (expandedReleases.Contains(release.TagName))
@@ -100,9 +100,9 @@
         display: flex;
         flex-direction: column;
         overflow: hidden;
-        background: var(--card-bg);
-        border: 1px solid var(--border-color);
-        border-radius: 0.5rem;
+        background: var(--surface-card);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-md);
         box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25);
     }
 
@@ -117,7 +117,7 @@
         display: flex;
         flex-direction: column;
         overflow: hidden;
-        background: var(--card-bg);
+        background: var(--surface-card);
     }
 
     .release-native-content .release-dialog-body {
@@ -131,7 +131,7 @@
         justify-content: space-between;
         gap: 1rem;
         padding: 1rem 1.25rem;
-        border-bottom: 1px solid var(--border-color);
+        border-bottom: 1px solid var(--border-subtle);
     }
 
     .release-dialog-header h2 { margin: 0; color: var(--text-primary); font-size: 1.1rem; }
@@ -142,14 +142,14 @@
         width: 32px;
         height: 32px;
         border: none;
-        border-radius: 0.4rem;
+        border-radius: var(--radius-sm);
         background: transparent;
         color: var(--text-muted);
         cursor: pointer;
     }
 
-    .release-close:hover { color: var(--text-primary); background: var(--bg-hover); }
-    .release-dialog-body { min-height: 180px; padding: 0.75rem; overflow-y: auto; }
+    .release-close:hover { color: var(--text-primary); background: var(--surface-card-hover); }
+    .release-dialog-body { min-height: 180px; padding: 0.75rem; overflow-y: auto; overscroll-behavior: contain; }
 
     .release-state {
         min-height: 160px;
@@ -161,8 +161,8 @@
         font-size: 0.85rem;
     }
 
-    .release-error { color: var(--accent-danger); }
-    .release-card { margin-bottom: 0.5rem; overflow: hidden; background: var(--bg-tertiary); border-radius: 0.4rem; }
+    .release-error { color: var(--status-error-fg); }
+    .release-card { margin-bottom: 0.5rem; overflow: hidden; background: var(--surface-well); border-radius: var(--radius-sm); }
 
     .release-header {
         display: flex;
@@ -187,19 +187,19 @@
         text-align: left;
     }
 
-    .release-header:hover { background: var(--bg-hover); }
+    .release-header:hover { background: var(--surface-card-hover); }
     .release-info { min-width: 0; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
     .release-tag { color: var(--text-primary); font-size: 0.85rem; font-weight: 650; }
     .release-name { color: var(--text-secondary); font-size: 0.78rem; }
     .release-date { color: var(--text-muted); font-size: 0.72rem; }
-    .release-prerelease { padding: 0.1rem 0.3rem; border-radius: 0.25rem; background: rgba(237, 137, 54, 0.12); color: var(--accent-warning); font-size: 0.62rem; font-weight: 650; text-transform: uppercase; }
+    .release-prerelease { padding: 0.1rem 0.3rem; border-radius: var(--radius-xs); background: var(--status-warning-bg); color: var(--status-warning-fg); font-size: 0.62rem; font-weight: 650; text-transform: uppercase; }
     .release-summary > i { flex-shrink: 0; color: var(--text-muted); font-size: 0.7rem; }
-    .release-open { width: 30px; height: 30px; flex-shrink: 0; border: none; border-radius: 0.25rem; background: transparent; color: var(--text-muted); cursor: pointer; }
-    .release-open:hover { color: var(--accent-primary); background: var(--card-bg); }
+    .release-open { width: 30px; height: 30px; flex-shrink: 0; border: none; border-radius: var(--radius-xs); background: transparent; color: var(--text-muted); cursor: pointer; }
+    .release-open:hover { color: var(--accent); background: var(--surface-card); }
 
     .release-body {
         padding: 0.8rem 1rem 1rem;
-        border-top: 1px solid var(--border-color);
+        border-top: 1px solid var(--border-subtle);
         color: var(--text-secondary);
         font-size: 0.8rem;
         line-height: 1.55;
@@ -209,10 +209,10 @@
     .release-body h1:first-child, .release-body h2:first-child, .release-body h3:first-child { margin-top: 0; }
     .release-body p { margin: 0.35rem 0; }
     .release-body ul, .release-body ol { margin: 0.35rem 0; padding-left: 1.25rem; }
-    .release-body code, .release-body pre { background: var(--card-bg); }
-    .release-body code { padding: 0.08rem 0.3rem; border-radius: 0.2rem; }
-    .release-body pre { padding: 0.65rem; overflow-x: auto; border-radius: 0.3rem; }
-    .release-body a { color: var(--accent-primary); }
+    .release-body code, .release-body pre { background: var(--surface-card); }
+    .release-body code { padding: 0.08rem 0.3rem; border-radius: var(--radius-xs); }
+    .release-body pre { padding: 0.65rem; overflow-x: auto; overscroll-behavior: contain; border-radius: var(--radius-xs); }
+    .release-body a { color: var(--accent); }
 
     @@media (max-width: 600px) {
         .release-overlay { padding: 0.75rem; }

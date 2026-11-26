@@ -35,7 +35,7 @@
         <div class="copilot-header__right">
             @if (isConnecting)
             {
-                <span class="copilot-header__connecting"><i class="fas fa-spinner fa-spin"></i></span>
+                <span class="copilot-header__connecting"><i class="fa-solid fa-spinner fa-spin"></i></span>
             }
             else if (!CopilotService.IsConnected)
             {
@@ -52,13 +52,13 @@
 
 @if (!IsEmbedded)
 {
-    <h1><i class="fas fa-robot"></i> GitHub Copilot</h1>
+    <h1><i class="fa-solid fa-robot"></i> GitHub Copilot</h1>
 }
 
 @if (isCheckingAvailability)
 {
     <div class="checking-status">
-        <div class="loading-spinner"><i class="fas fa-spinner fa-spin"></i></div>
+        <div class="loading-spinner"><i class="fa-solid fa-spinner fa-spin"></i></div>
         <div class="loading-text">Checking Copilot availability...</div>
     </div>
 }
@@ -66,7 +66,7 @@ else if (availability != null && !availability.IsInstalled)
 {
     <!-- Copilot Not Installed -->
     <div class="setup-required">
-        <div class="setup-icon error"><i class="fas fa-exclamation-triangle"></i></div>
+        <div class="setup-icon error"><i class="fa-solid fa-exclamation-triangle"></i></div>
         <h2>GitHub Copilot CLI Not Found</h2>
         <p>The GitHub Copilot CLI needs to be installed to use this feature.</p>
         
@@ -79,7 +79,7 @@ else if (availability != null && !availability.IsInstalled)
                     <a href="#" @onclick:preventDefault 
                        @onclick='() => OpenUrl("https://docs.github.com/en/copilot/managing-copilot/configure-personal-settings/installing-the-github-copilot-extension-in-your-environment")'
                        class="btn btn-primary">
-                        <i class="fas fa-external-link-alt"></i> Get GitHub Copilot CLI
+                        <i class="fa-solid fa-external-link-alt"></i> Get GitHub Copilot CLI
                     </a>
                 </div>
             </div>
@@ -93,7 +93,7 @@ else if (availability != null && !availability.IsInstalled)
         </div>
 
         <button class="btn btn-secondary" @onclick="@(() => CheckAvailability(forceRefresh: true))">
-            <i class="fas fa-sync-alt"></i> Check Again
+            <i class="fa-solid fa-sync-alt"></i> Check Again
         </button>
     </div>
 }
@@ -101,12 +101,12 @@ else if (availability != null && !availability.IsAuthenticated)
 {
     <!-- Copilot Not Authenticated -->
     <div class="setup-required">
-        <div class="setup-icon warning"><i class="fas fa-sign-in-alt"></i></div>
+        <div class="setup-icon warning"><i class="fa-solid fa-sign-in-alt"></i></div>
         <h2>Authentication Required</h2>
         <p>You need to log in to GitHub Copilot before you can use it.</p>
         @if (!string.IsNullOrEmpty(availability.Version))
         {
-            <p class="version-info"><i class="fas fa-check-circle"></i> Copilot CLI installed (v@(availability.Version))</p>
+            <p class="version-info"><i class="fa-solid fa-check-circle"></i> Copilot CLI installed (v@(availability.Version))</p>
         }
         
         <div class="setup-steps">
@@ -125,7 +125,7 @@ else if (availability != null && !availability.IsAuthenticated)
                     <div class="code-block">
                         <code>copilot auth login</code>
                         <button class="btn-copy-code" @onclick="@(() => CopyToClipboard("copilot auth login"))" title="Copy">
-                            <i class="fas fa-copy"></i>
+                            <i class="fa-solid fa-copy"></i>
                         </button>
                     </div>
                 </div>
@@ -140,7 +140,7 @@ else if (availability != null && !availability.IsAuthenticated)
         </div>
 
         <button class="btn btn-secondary" @onclick="@(() => CheckAvailability(forceRefresh: true))">
-            <i class="fas fa-sync-alt"></i> Check Again
+            <i class="fa-solid fa-sync-alt"></i> Check Again
         </button>
     </div>
 }
@@ -165,14 +165,14 @@ else
         @if (!CopilotService.IsConnected)
         {
             <button class="btn btn-sm btn-primary" @onclick="Connect" disabled="@isConnecting">
-                <i class="fas @(isConnecting ? "fa-spinner fa-spin" : "fa-plug")"></i>
+                <i class="fa-solid @(isConnecting ? "fa-spinner fa-spin" : "fa-plug")"></i>
                 @(isConnecting ? "Connecting..." : "Connect")
             </button>
         }
         else
         {
             <button class="btn btn-sm btn-secondary" @onclick="Disconnect">
-                <i class="fas fa-unlink"></i> Disconnect
+                <i class="fa-solid fa-unlink"></i> Disconnect
             </button>
         }
     </div>
@@ -181,11 +181,11 @@ else
     @if (!CopilotService.IsConnected && !isConnecting)
     {
         <div class="welcome-section">
-            <div class="welcome-icon"><i class="fas fa-robot"></i></div>
+            <div class="welcome-icon"><i class="fa-solid fa-robot"></i></div>
             <h2>Welcome to Copilot</h2>
             <p>Connect to GitHub Copilot to get AI-powered assistance with your development environment.</p>
             <button class="btn btn-primary btn-lg" @onclick="Connect">
-                <i class="fas fa-plug"></i> Connect to Copilot
+                <i class="fa-solid fa-plug"></i> Connect to Copilot
             </button>
         </div>
     }
@@ -205,7 +205,7 @@ else
                                   Searchable="true"
                                   Class="copilot-model-select" />
                     <button class="model-selector__new-chat" @onclick="NewChatAsync" disabled="@(isBusy || isConnecting || isStartingSession)" title="Start a new conversation">
-                        <i class="fas fa-plus"></i> New chat
+                        <i class="fa-solid fa-plus"></i> New chat
                     </button>
                 </div>
 
@@ -224,17 +224,17 @@ else
                 @if (currentUsageInfo != null || CopilotService.IsConnected)
                 {
                     <div class="usage-info @(currentUsageInfo == null ? "subtle" : "")">
-                        <span class="usage-item"><i class="fas fa-robot"></i> @(currentUsageInfo?.Model ?? SelectedModelDisplayName)</span>
+                        <span class="usage-item"><i class="fa-solid fa-robot"></i> @(currentUsageInfo?.Model ?? SelectedModelDisplayName)</span>
                         @if (currentUsageInfo?.InputTokens.HasValue == true || currentUsageInfo?.OutputTokens.HasValue == true)
                         {
                             <span class="usage-item">
-                                <i class="fas fa-arrow-right"></i> @(currentUsageInfo.InputTokens ?? 0)
-                                <i class="fas fa-arrow-left"></i> @(currentUsageInfo.OutputTokens ?? 0)
+                                <i class="fa-solid fa-arrow-right"></i> @(currentUsageInfo.InputTokens ?? 0)
+                                <i class="fa-solid fa-arrow-left"></i> @(currentUsageInfo.OutputTokens ?? 0)
                             </span>
                         }
                         @if (currentUsageInfo?.CurrentTokens.HasValue == true && currentUsageInfo.TokenLimit.HasValue)
                         {
-                            <span class="usage-item"><i class="fas fa-database"></i> @currentUsageInfo.CurrentTokens / @currentUsageInfo.TokenLimit</span>
+                            <span class="usage-item"><i class="fa-solid fa-database"></i> @currentUsageInfo.CurrentTokens / @currentUsageInfo.TokenLimit</span>
                         }
                     </div>
                 }
@@ -248,21 +248,21 @@ else
 {
     <div class="debug-overlay @(debugOverlayExpanded ? "expanded" : "")">
         <div class="debug-header">
-            <span class="debug-title"><i class="fas fa-bug"></i> Debug Logs</span>
+            <span class="debug-title"><i class="fa-solid fa-bug"></i> Debug Logs</span>
             <div class="debug-controls">
                 <input type="text" class="debug-filter" placeholder="Filter logs..." 
                        @bind="debugFilter" @bind:event="oninput" />
                 <button class="debug-btn" @onclick="CopyFilteredLogs" title="Copy filtered logs">
-                    <i class="fas fa-copy"></i>
+                    <i class="fa-solid fa-copy"></i>
                 </button>
                 <button class="debug-btn" @onclick="ClearDebugLogs" title="Clear logs">
-                    <i class="fas fa-trash"></i>
+                    <i class="fa-solid fa-trash"></i>
                 </button>
                 <button class="debug-btn" @onclick="ToggleDebugExpanded" title="@(debugOverlayExpanded ? "Collapse" : "Expand")">
-                    <i class="fas @(debugOverlayExpanded ? "fa-compress-alt" : "fa-expand-alt")"></i>
+                    <i class="fa-solid @(debugOverlayExpanded ? "fa-compress-alt" : "fa-expand-alt")"></i>
                 </button>
                 <button class="debug-btn" @onclick="() => showDebugOverlay = false" title="Close">
-                    <i class="fas fa-times"></i>
+                    <i class="fa-solid fa-times"></i>
                 </button>
             </div>
         </div>
@@ -283,7 +283,7 @@ else
 @if (!IsEmbedded)
 {
 <button class="debug-toggle-btn" @onclick="() => showDebugOverlay = !showDebugOverlay" title="Toggle Debug Overlay">
-    <i class="fas fa-bug"></i>
+    <i class="fa-solid fa-bug"></i>
 </button>
 }
 

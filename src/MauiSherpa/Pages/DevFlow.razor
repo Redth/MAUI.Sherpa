@@ -10,7 +10,7 @@
 @inject IDevFlowDiscoveryService Discovery
 @implements IDisposable
 
-<h1><i class="fas fa-wand-magic-sparkles"></i> MAUI DevFlow Inspector</h1>
+<h1><i class="fa-solid fa-fw fa-wand-magic-sparkles"></i> MAUI DevFlow Inspector</h1>
 
 <div class="broker-card">
     <div class="connection-row">
@@ -19,7 +19,7 @@
         <span class="port-sep">:</span>
         <input type="number" @bind="brokerPort" placeholder="19223" class="input-field port-input" />
         <button class="btn btn-primary" @onclick="RefreshAgents" disabled="@isLoading">
-            <i class="fas @(isLoading ? "fa-spinner fa-spin" : "fa-plug")"></i>
+            <i class="fa-solid fa-fw @(isLoading ? "fa-spinner fa-spin" : "fa-plug")"></i>
             @(isLoading ? "Connecting..." : "Connect")
         </button>
         <label class="auto-refresh-label">
@@ -31,11 +31,11 @@
     <div class="connection-status">
         @if (brokerConnected == true)
         {
-            <span class="status-badge status-connected"><i class="fas fa-circle"></i> Broker connected — @agents.Count agent(s)</span>
+            <span class="status-badge status-connected"><i class="fa-solid fa-fw fa-circle"></i> Broker connected — @agents.Count agent(s)</span>
         }
         else if (brokerConnected == false)
         {
-            <span class="status-badge status-disconnected"><i class="fas fa-circle"></i> No broker reachable on @brokerHost (tried @brokerPort, 19223, 19323)</span>
+            <span class="status-badge status-disconnected"><i class="fa-solid fa-fw fa-circle"></i> No broker reachable on @brokerHost (tried @brokerPort, 19223, 19323)</span>
         }
     </div>
 </div>
@@ -49,19 +49,19 @@
              @onclick="@(() => { if (supported) OpenInspector(agent); })"
              title="@(outdated ? $"Agent version {agent.Version} is below minimum {MinSupportedAgentVersion}. Update MAUI DevFlow packages." : !supported ? $"Agent version {agent.Version} is not supported." : "")">
             <div class="agent-icon">
-                <i class="fas @GetPlatformIcon(agent.Platform)"></i>
-                <i class="fab @GetBrandIcon(agent.Platform) brand-overlay"></i>
+                <i class="fa-solid fa-fw @GetPlatformIcon(agent.Platform)"></i>
+                <i class="fa-brands fa-fw @GetBrandIcon(agent.Platform) brand-overlay"></i>
             </div>
             <div class="agent-info">
                 <div class="agent-name">
                     @(agent.AppName ?? "Unknown App")
                     @if (!supported)
                     {
-                        <span class="agent-outdated-badge"><i class="fas fa-triangle-exclamation"></i> Update required</span>
+                        <span class="agent-outdated-badge"><i class="fa-solid fa-fw fa-triangle-exclamation"></i> Update required</span>
                     }
                     else if (outdated)
                     {
-                        <span class="agent-outdated-badge"><i class="fas fa-triangle-exclamation"></i> Outdated</span>
+                        <span class="agent-outdated-badge"><i class="fa-solid fa-fw fa-triangle-exclamation"></i> Outdated</span>
                     }
                 </div>
                 <div class="agent-meta">
@@ -72,25 +72,25 @@
                     }
                 </div>
                 <div class="agent-details">
-                    <span class="agent-port"><i class="fas fa-network-wired"></i> Port @agent.Port</span>
+                    <span class="agent-port"><i class="fa-solid fa-fw fa-network-wired"></i> Port @agent.Port</span>
                     @if (agent.ConnectedAt != null)
                     {
-                        <span class="agent-time"><i class="fas fa-clock"></i> @FormatTimeAgo(agent.ConnectedAt.Value)</span>
+                        <span class="agent-time"><i class="fa-solid fa-fw fa-clock"></i> @FormatTimeAgo(agent.ConnectedAt.Value)</span>
                     }
                     @if (!string.IsNullOrEmpty(agent.Version))
                     {
-                        <span class="agent-version"><i class="fas fa-code-branch"></i> @DevFlowVersionSupport.FormatVersionLabel(agent.Version)</span>
+                        <span class="agent-version"><i class="fa-solid fa-fw fa-code-branch"></i> @DevFlowVersionSupport.FormatVersionLabel(agent.Version)</span>
                     }
                 </div>
             </div>
             <div class="agent-arrow">
                 @if (supported)
                 {
-                    <i class="fas fa-chevron-right"></i>
+                    <i class="fa-solid fa-fw fa-chevron-right"></i>
                 }
                 else
                 {
-                    <i class="fas fa-ban" style="color: var(--text-tertiary);"></i>
+                    <i class="fa-solid fa-fw fa-ban" style="color: var(--text-muted);"></i>
                 }
             </div>
         </div>
@@ -100,7 +100,7 @@
     {
         <div class="agent-card hint-card">
             <div class="agent-icon hint-icon">
-                <i class="fas fa-wand-magic-sparkles"></i>
+                <i class="fa-solid fa-fw fa-wand-magic-sparkles"></i>
             </div>
             <div class="agent-info">
                 <div class="agent-name">@(brokerConnected == true ? "No agents connected" : "Get started")</div>
@@ -109,7 +109,7 @@
                 </div>
                 <div class="hint-actions">
                     <a href="#" @onclick="OpenQuickStartGuide" @onclick:preventDefault class="hint-link">
-                        <i class="fas fa-book"></i> Quick Start guide
+                        <i class="fa-solid fa-fw fa-book"></i> Quick Start guide
                     </a>
                 </div>
             </div>
@@ -118,7 +118,7 @@
 
     <div class="agent-card direct-connect-card" @onclick:stopPropagation>
         <div class="agent-icon direct-icon">
-            <i class="fas fa-plug"></i>
+            <i class="fa-solid fa-fw fa-plug"></i>
         </div>
         <div class="agent-info">
             <div class="agent-name">Direct Connect</div>
@@ -127,7 +127,7 @@
                 <span class="port-sep">:</span>
                 <input type="number" @bind="manualPort" placeholder="9223" class="input-field port-input direct-port" />
                 <button data-screenshot-external class="btn btn-secondary btn-sm" @onclick="ManualConnect">
-                    <i class="fas fa-arrow-right"></i>
+                    <i class="fa-solid fa-fw fa-arrow-right"></i>
                 </button>
             </div>
         </div>
@@ -306,15 +306,12 @@
 
 <style>
     .broker-card {
-        background: rgba(59, 130, 246, 0.08);
-        border-radius: 12px;
+        background: var(--status-info-bg);
+        border: 1px solid var(--status-info-border);
+        border-radius: var(--radius-lg);
         padding: 1rem 1.25rem;
         margin-bottom: 1rem;
         margin-top: 0.75rem;
-    }
-
-    :deep(.theme-dark) .broker-card {
-        background: rgba(59, 130, 246, 0.12);
     }
 
     .connection-row {
@@ -332,9 +329,9 @@
     .broker-input {
         width: 160px;
         padding: 0.35rem 0.6rem;
-        border: 1px solid var(--input-border);
-        border-radius: 6px;
-        background: var(--input-bg);
+        border: 1px solid var(--border-control);
+        border-radius: var(--radius-sm);
+        background: var(--surface-control);
         color: var(--text-primary);
         font-size: 0.85rem;
     }
@@ -342,9 +339,9 @@
     .port-input {
         width: 80px;
         padding: 0.35rem 0.6rem;
-        border: 1px solid var(--input-border);
-        border-radius: 6px;
-        background: var(--input-bg);
+        border: 1px solid var(--border-control);
+        border-radius: var(--radius-sm);
+        background: var(--surface-control);
         color: var(--text-primary);
         font-size: 0.85rem;
         -moz-appearance: textfield;
@@ -357,7 +354,7 @@
     }
 
     .port-sep {
-        color: var(--text-tertiary);
+        color: var(--text-muted);
         font-weight: 600;
         font-size: 0.9rem;
     }
@@ -383,7 +380,7 @@
     }
 
     .status-connected {
-        color: #22c55e;
+        color: var(--status-success-fg);
     }
 
     .status-connected i {
@@ -391,7 +388,7 @@
     }
 
     .status-disconnected {
-        color: #ef4444;
+        color: var(--status-error-fg);
     }
 
     .status-disconnected i {
@@ -401,12 +398,12 @@
     /* Direct connect card */
     .direct-connect-card {
         cursor: default;
-        background: var(--bg-tertiary);
+        background: var(--surface-well);
     }
 
     .direct-icon {
-        background: rgba(107, 114, 128, 0.12);
-        color: #6b7280;
+        background: var(--surface-control);
+        color: var(--text-muted);
     }
 
     .direct-connect-row {
@@ -436,12 +433,12 @@
     /* Hint card */
     .hint-card {
         cursor: default;
-        background: var(--bg-tertiary);
+        background: var(--surface-well);
     }
 
     .hint-icon {
-        background: rgba(234, 179, 8, 0.12);
-        color: #eab308;
+        background: var(--status-warning-bg);
+        color: var(--status-warning-fg);
     }
 
     .hint-text {
@@ -454,10 +451,10 @@
     .hint-text code {
         font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
         font-size: 0.78rem;
-        color: var(--accent-color, #8b5cf6);
-        background: var(--bg-primary);
+        color: var(--accent);
+        background: var(--surface-canvas);
         padding: 0.1rem 0.35rem;
-        border-radius: 3px;
+        border-radius: var(--radius-xs);
     }
 
     .hint-actions {
@@ -466,7 +463,7 @@
 
     .hint-link {
         font-size: 0.8rem;
-        color: var(--accent-color, #8b5cf6);
+        color: var(--accent);
         text-decoration: none;
     }
 
@@ -485,8 +482,9 @@
         align-items: center;
         gap: 0.75rem;
         padding: 0.75rem 1rem;
-        background: var(--card-bg);
-        border-radius: 22px;
+        background: var(--surface-card);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
         cursor: pointer;
         transition: all 0.2s ease;
     }
@@ -499,13 +497,13 @@
 
     .agent-outdated-badge {
         font-size: 0.7rem;
-        color: #ef4444;
+        color: var(--status-error-fg);
         font-weight: 500;
         margin-left: 0.5rem;
     }
 
     .agent-version {
-        color: var(--text-tertiary);
+        color: var(--text-muted);
     }
 
     .agent-icon {
@@ -515,7 +513,7 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        border-radius: 12px;
+        border-radius: var(--radius-lg);
         flex-shrink: 0;
         position: relative;
     }
@@ -525,78 +523,48 @@
         bottom: 4px;
         right: 4px;
         font-size: 1.1rem;
-        color: #999;
+        color: var(--text-muted);
         opacity: 1;
         line-height: 1;
     }
 
-    :global(.theme-dark) .brand-overlay {
-        color: #888;
-        opacity: 1;
-    }
-
     /* Platform colors */
     .platform-apple .agent-icon {
-        background: rgba(147, 51, 234, 0.12);
-        color: #9333ea;
+        background: var(--accent-soft);
+        color: var(--accent);
     }
     .platform-android .agent-icon {
-        background: rgba(34, 197, 94, 0.12);
-        color: #22c55e;
+        background: var(--status-success-bg);
+        color: var(--status-success-fg);
     }
     .platform-windows .agent-icon {
-        background: rgba(59, 130, 246, 0.12);
-        color: #3b82f6;
+        background: var(--status-info-bg);
+        color: var(--status-info-fg);
     }
     .platform-linux .agent-icon {
-        background: rgba(234, 179, 8, 0.12);
-        color: #eab308;
+        background: var(--status-warning-bg);
+        color: var(--status-warning-fg);
     }
     .platform-other .agent-icon {
-        background: var(--bg-tertiary);
+        background: var(--surface-well);
         color: var(--text-secondary);
     }
 
     .platform-apple .agent-platform {
-        background: rgba(147, 51, 234, 0.12);
-        color: #9333ea;
+        background: var(--accent-soft);
+        color: var(--accent);
     }
     .platform-android .agent-platform {
-        background: rgba(34, 197, 94, 0.12);
-        color: #16a34a;
+        background: var(--status-success-bg);
+        color: var(--status-success-fg);
     }
     .platform-windows .agent-platform {
-        background: rgba(59, 130, 246, 0.12);
-        color: #3b82f6;
+        background: var(--status-info-bg);
+        color: var(--status-info-fg);
     }
     .platform-linux .agent-platform {
-        background: rgba(234, 179, 8, 0.12);
-        color: #ca8a04;
-    }
-
-    :global(.theme-dark) .platform-apple .agent-platform {
-        color: #c084fc;
-    }
-    :global(.theme-dark) .platform-android .agent-platform {
-        color: #4ade80;
-    }
-    :global(.theme-dark) .platform-windows .agent-platform {
-        color: #60a5fa;
-    }
-    :global(.theme-dark) .platform-linux .agent-platform {
-        color: #facc15;
-    }
-    :global(.theme-dark) .platform-apple .agent-icon {
-        color: #c084fc;
-    }
-    :global(.theme-dark) .platform-android .agent-icon {
-        color: #4ade80;
-    }
-    :global(.theme-dark) .platform-windows .agent-icon {
-        color: #60a5fa;
-    }
-    :global(.theme-dark) .platform-linux .agent-icon {
-        color: #facc15;
+        background: var(--status-warning-bg);
+        color: var(--status-warning-fg);
     }
 
     .agent-info {
@@ -619,18 +587,18 @@
     .agent-platform, .agent-tfm {
         font-size: 0.75rem;
         padding: 0.1rem 0.5rem;
-        border-radius: 4px;
+        border-radius: var(--radius-xs);
         color: var(--text-secondary);
         font-weight: 500;
     }
 
     .agent-tfm {
-        background: var(--bg-tertiary);
+        background: var(--surface-well);
     }
 
     .agent-project {
         font-size: 0.8rem;
-        color: var(--text-tertiary);
+        color: var(--text-muted);
         margin-top: 0.25rem;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -642,7 +610,7 @@
         gap: 1rem;
         margin-top: 0.4rem;
         font-size: 0.8rem;
-        color: var(--text-tertiary);
+        color: var(--text-muted);
     }
 
     .agent-details i {
@@ -650,7 +618,7 @@
     }
 
     .agent-arrow {
-        color: var(--text-tertiary);
+        color: var(--text-muted);
         font-size: 1rem;
     }
 

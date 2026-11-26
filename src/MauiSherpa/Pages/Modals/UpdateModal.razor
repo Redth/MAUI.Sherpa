@@ -8,7 +8,7 @@
 
 <div class="dialog-content">
     <div class="dialog-header">
-        <h2><i class="fas fa-arrow-up"></i> Update Available</h2>
+        <h2><i class="fa-solid fa-arrow-up"></i> Update Available</h2>
     </div>
 
     @if (updateResult?.LatestRelease != null)
@@ -19,7 +19,7 @@
                     <span class="label">Current Version</span>
                     <span class="version">v@(TruncateVersion(updateResult.CurrentVersion))</span>
                 </div>
-                <span class="version-arrow"><i class="fas fa-arrow-right"></i></span>
+                <span class="version-arrow"><i class="fa-solid fa-arrow-right"></i></span>
                 <div class="version-badge new">
                     <span class="label">New Version</span>
                     <span class="version">@(updateResult.LatestRelease.TagName)</span>
@@ -30,7 +30,7 @@
                 <div class="release-notes-header">
                     <h4>What's New</h4>
                     <span class="release-date">
-                        <i class="far fa-calendar"></i>
+                        <i class="fa-regular fa-calendar"></i>
                         @updateResult.LatestRelease.PublishedAt.ToString("MMM dd, yyyy")
                     </span>
                 </div>
@@ -53,28 +53,28 @@
             else if (updateError != null)
             {
                 <div class="update-error">
-                    <span class="error-text"><i class="fas fa-exclamation-triangle"></i> @updateError</span>
+                    <span class="error-text"><i class="fa-solid fa-exclamation-triangle"></i> @updateError</span>
                 </div>
                 <button class="btn btn-secondary" @onclick="Cancel">Close</button>
                 <button class="btn btn-secondary" @onclick="OpenInBrowser">
-                    <i class="fas fa-external-link-alt"></i> Open Release Page
+                    <i class="fa-solid fa-external-link-alt"></i> Open Release Page
                 </button>
                 <button class="btn btn-primary" @onclick="AutoUpdate">
-                    <i class="fas fa-redo"></i> Retry
+                    <i class="fa-solid fa-redo"></i> Retry
                 </button>
             }
             else
             {
                 <button class="btn btn-secondary" @onclick="Cancel">
-                    <i class="fas fa-times"></i> Not Now
+                    <i class="fa-solid fa-times"></i> Not Now
                 </button>
                 <button class="btn btn-secondary" @onclick="OpenInBrowser">
-                    <i class="fas fa-external-link-alt"></i> Manual Download
+                    <i class="fa-solid fa-external-link-alt"></i> Manual Download
                 </button>
                 @if (OperatingSystem.IsMacCatalyst() || OperatingSystem.IsMacOS())
                 {
                     <button class="btn btn-primary" @onclick="AutoUpdate">
-                        <i class="fas fa-download"></i> Download &amp; Install
+                        <i class="fa-solid fa-download"></i> Download &amp; Install
                     </button>
                 }
             }
@@ -185,7 +185,7 @@
 
     .dialog-header {
         padding: 1.25rem 1.5rem;
-        border-bottom: 1px solid var(--border-color);
+        border-bottom: 1px solid var(--border-subtle);
     }
 
     .dialog-header h2 {
@@ -199,12 +199,12 @@
     }
 
     .dialog-header h2 i {
-        color: var(--accent-purple);
+        color: var(--accent);
     }
 
     .dialog-body {
         padding: 1.5rem;
-        overflow-y: auto;
+        overflow-y: auto; overscroll-behavior: contain;
         flex: 1;
     }
 
@@ -222,18 +222,18 @@
         align-items: center;
         gap: 0.375rem;
         padding: 1rem 1.5rem;
-        border-radius: 0.625rem;
+        border-radius: var(--radius-lg);
         flex: 1;
     }
 
     .version-badge.current {
-        background: var(--bg-tertiary);
-        border: 1px solid var(--border-color, rgba(128,128,128,0.15));
+        background: var(--surface-well);
+        border: 1px solid var(--border-subtle);
     }
 
     .version-badge.new {
-        background: rgba(52, 211, 153, 0.08);
-        border: 2px solid rgba(52, 211, 153, 0.4);
+        background: var(--status-success-bg);
+        border: 1px solid var(--status-success-border);
     }
 
     .version-badge .label {
@@ -253,7 +253,7 @@
     .version-badge.new .version {
         font-size: 1.25rem;
         font-weight: 700;
-        color: var(--accent-success, #34d399);
+        color: var(--status-success-fg);
     }
 
     .version-info > .version-arrow {
@@ -292,10 +292,10 @@
 
     .notes-content {
         padding: 1rem;
-        background: var(--bg-tertiary);
-        border-radius: 0.5rem;
+        background: var(--surface-well);
+        border-radius: var(--radius-md);
         max-height: 250px;
-        overflow-y: auto;
+        overflow-y: auto; overscroll-behavior: contain;
         font-size: 0.875rem;
         line-height: 1.6;
         color: var(--text-secondary);
@@ -306,7 +306,7 @@
         justify-content: flex-end;
         gap: 0.75rem;
         padding: 1.25rem 1.5rem;
-        border-top: 1px solid var(--border-color);
+        border-top: 1px solid var(--border-subtle);
     }
 
     .update-progress {
@@ -319,15 +319,15 @@
     .progress-bar-container {
         width: 100%;
         height: 6px;
-        background: var(--bg-tertiary);
-        border-radius: 3px;
+        background: var(--surface-well);
+        border-radius: var(--radius-xs);
         overflow: hidden;
     }
 
     .progress-bar-fill {
         height: 100%;
-        background: linear-gradient(90deg, var(--accent-purple), var(--accent-success));
-        border-radius: 3px;
+        background: linear-gradient(90deg, var(--accent), var(--status-success-fg));
+        border-radius: var(--radius-xs);
         transition: width 0.3s ease;
     }
 
@@ -343,7 +343,7 @@
 
     .error-text {
         font-size: 0.8125rem;
-        color: var(--accent-danger, #ef4444);
+        color: var(--status-error-fg);
     }
 
     .error-text i {

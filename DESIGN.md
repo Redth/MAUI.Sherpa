@@ -284,6 +284,17 @@ Prevent double scrollbars and accidental outer-page scroll hijacking across moda
 - **Scroll Containment:** Every nested scrollable container (`.sherpa-console-body`, `.sherpa-select-menu`, `.selection-list`, `.operation-log`, `.sherpa-scroll`) sets `overscroll-behavior: contain;` so hitting the top or bottom never chains scroll to the parent modal or page.
 - **Subtle Cross-Platform Scrollbars:** Nested scroll regions use thin, understated scrollbars (`6px`, transparent track, subtle thumb); dark consoles always use dark-tinted translucent thumbs (`rgba(255,255,255,0.20)`) so Windows and Linux never render bright white scrollbar tracks inside dark terminals.
 
+### 10. Toasts & Background Task Center (`ToastContainer`, `BackgroundTaskCenter`)
+- **Theme-Aware Popover Toasts:** Toasts use `--surface-popover` with `1px solid var(--border-strong)`, `--radius-lg`, `--shadow-popover`, a 24×24 tinted semantic icon badge (`--status-*-bg/fg`), and a ghost `fa-xmark` dismiss button — never hardcoded dark cards with thick 4px Bootstrap left stripes.
+- **Collision-Free Positioning:** Stack toasts cleanly above the bottom-right Background Task Center trigger (`bottom: 4.5rem; right: 1.25rem;`) so notifications and background task controls never overlap.
+
+### 11. Multi-Step Wizards, Data Grids, Forms & Copilot Surfaces
+- **Wizards & Steppers (`CISecretsWizard`, `AppleConfigWizardModal`):** Use a crisp horizontal step rail (completed steps show `--status-success-bg/fg` checkmarks, active step uses `--accent`), selectable choice cards (`1px solid var(--border-subtle)`, `--accent-soft` + `var(--accent)` border when selected), and full-row clickable resource selection lists.
+- **Bulk Selection Bars & Breadcrumbs:** Use `--accent-soft` + `1px solid var(--accent-border)` for selection mode bars (`Select all`, count badge, bulk actions) and clean icon breadcrumbs with quiet chevron separators in Secrets.
+- **Dense Data Grids & Log Tables (`DataGrid`, `LogcatContent`, `SimLogContent`):** Sticky `--surface-well` header rows, 1px hairline column/row dividers, tabular monospace columns, compact severity pills (`V`/`D`/`I`/`W`/`E`), and `overscroll-behavior: contain` scroll bodies.
+- **Form Fields & Path Input Groups:** Join monospace path inputs seamlessly with attached Copy / Reveal / Browse action buttons inside a single focusable wrapper, pair invalid inputs with `--status-error-fg` inline recovery copy, and use full-bordered semantic alert banners (no thick left stripes).
+- **Empty States, Skeletons & Copilot (`CopilotOverlay`, `CopilotToolResultCard`):** Compose empty states with a tinted icon well, concise title, 1-line guidance, and at most one primary CTA; prefer calm neutral skeleton bars over giant pulsing spinners; frame Copilot tool-call cards in `--surface-well` with collapsible `--surface-console` output.
+
 ---
 
 ## Do's and Don'ts

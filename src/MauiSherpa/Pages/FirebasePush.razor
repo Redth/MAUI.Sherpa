@@ -17,19 +17,19 @@
 
 <div class="push-page-header">
     <div class="push-page-heading">
-        <h1><i class="fas fa-paper-plane"></i> Firebase Push Testing</h1>
+        <h1><i class="fa-solid fa-fw fa-paper-plane"></i> Firebase Push Testing</h1>
         <p>Send test notifications to Android devices through Firebase Cloud Messaging (FCM v1).</p>
     </div>
     <div class="push-page-status">
         @if (hasCredentials)
         {
             <span class="push-pill success" title="Firebase project">
-                <i class="fas fa-fire"></i> @(string.IsNullOrEmpty(projectId) ? "Service account ready" : projectId)
+                <i class="fa-solid fa-fw fa-fire"></i> @(string.IsNullOrEmpty(projectId) ? "Service account ready" : projectId)
             </span>
         }
         else
         {
-            <span class="push-pill warning"><i class="fas fa-triangle-exclamation"></i> No service account</span>
+            <span class="push-pill warning"><i class="fa-solid fa-fw fa-triangle-exclamation"></i> No service account</span>
         }
     </div>
 </div>
@@ -49,7 +49,7 @@
             <section>
                 <div class="push-section-head">
                     <div class="push-section-head-main">
-                        <h2><span class="push-section-icon"><i class="fas fa-pen-to-square"></i></span> Message</h2>
+                        <h2><span class="push-section-icon"><i class="fa-solid fa-fw fa-pen-to-square"></i></span> Message</h2>
                         <p class="push-section-desc">
                             @(rawJsonMode ? "Paste a raw FCM v1 message for full control over platform options." : "Compose a notification and pick who receives it.")
                         </p>
@@ -57,10 +57,10 @@
                     <div class="push-section-actions">
                         <div class="push-segmented">
                             <button type="button" class="@(!rawJsonMode ? "active" : "")" @onclick="@(() => SetRawJsonMode(false))">
-                                <i class="fas fa-list"></i> Form
+                                <i class="fa-solid fa-fw fa-list"></i> Form
                             </button>
                             <button type="button" class="@(rawJsonMode ? "active" : "")" @onclick="@(() => SetRawJsonMode(true))">
-                                <i class="fas fa-code"></i> JSON
+                                <i class="fa-solid fa-fw fa-code"></i> JSON
                             </button>
                         </div>
                     </div>
@@ -83,10 +83,10 @@
                         <div class="push-fields">
                             <div class="push-segmented">
                                 <button type="button" class="@(useToken ? "active" : "")" @onclick="@(() => SetUseToken(true))">
-                                    <i class="fas fa-mobile-screen"></i> Device token
+                                    <i class="fa-solid fa-fw fa-mobile-screen"></i> Device token
                                 </button>
                                 <button type="button" class="@(!useToken ? "active" : "")" @onclick="@(() => SetUseToken(false))">
-                                    <i class="fas fa-hashtag"></i> Topic
+                                    <i class="fa-solid fa-fw fa-hashtag"></i> Topic
                                 </button>
                             </div>
                             @if (useToken)
@@ -131,7 +131,7 @@
                         <div class="push-subheading">
                             <span>Data payload <span class="push-optional">optional</span></span>
                             <button type="button" class="push-link-btn" @onclick="AddDataEntry">
-                                <i class="fas fa-plus"></i> Add field
+                                <i class="fa-solid fa-fw fa-plus"></i> Add field
                             </button>
                         </div>
                         @if (dataEntries.Count == 0)
@@ -152,7 +152,7 @@
                                                value="@dataEntries[index].Value"
                                                @oninput="e => { UpdateDataValue(index, e.Value?.ToString()); MarkDirty(); }" />
                                         <button type="button" class="push-icon-btn danger" title="Remove field" @onclick="() => { RemoveDataEntry(index); MarkDirty(); }">
-                                            <i class="fas fa-xmark"></i>
+                                            <i class="fa-solid fa-fw fa-xmark"></i>
                                         </button>
                                     </div>
                                 }
@@ -202,7 +202,7 @@
                     }
                 </ul>
                 <button data-screenshot-external class="btn btn-primary push-send-btn" @onclick="SendCurrent" disabled="@(!CanSendCurrent || isSending)">
-                    <i class="fas @(isSending ? "fa-spinner fa-spin" : "fa-paper-plane")"></i>
+                    <i class="fa-solid fa-fw @(isSending ? "fa-spinner fa-spin" : "fa-paper-plane")"></i>
                     @(isSending ? "Sending…" : "Send Push")
                 </button>
                 @if (activeProject == null)
@@ -243,7 +243,7 @@
     bool CanSend => hasCredentials && HasTarget && HasContent;
     bool CanSendCurrent => rawJsonMode ? hasCredentials && HasRawJson : CanSend;
 
-    static string CheckIcon(bool done) => done ? "fas fa-circle-check" : "fa-regular fa-circle";
+    static string CheckIcon(bool done) => done ? "fa-solid fa-fw fa-circle-check" : "fa-regular fa-fw fa-circle";
 
     Task SendCurrent() => rawJsonMode ? SendRawJson() : SendPush();
 

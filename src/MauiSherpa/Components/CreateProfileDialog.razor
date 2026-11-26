@@ -17,29 +17,41 @@
     <div class="dialog-overlay" @onclick="HandleOverlayClick" id="create-profile-modal">
         <div class="dialog" @onclick:stopPropagation="true" role="dialog" aria-modal="true" aria-labelledby="create-profile-modal-title">
             <div class="dialog-header">
-                <h2 id="create-profile-modal-title"><i class="fas fa-plus-circle"></i> Create Provisioning Profile</h2>
-                <button class="close-btn" @onclick="Close"><i class="fas fa-times"></i></button>
+                <h2 id="create-profile-modal-title"><i class="fa-solid fa-circle-plus"></i> Create Provisioning Profile</h2>
+                <button class="close-btn" @onclick="Close"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
             </div>
 
             <!-- Step Indicator -->
             <div class="step-indicator">
                 <div class="step @(currentStep >= 1 ? "active" : "") @(currentStep > 1 ? "completed" : "")">
-                    <div class="step-number">@(currentStep > 1 ? "✓" : "1")</div>
+                    <div class="step-number">
+                        @if (currentStep > 1) { <i class="fa-solid fa-check" aria-hidden="true"></i> }
+                        else { <span>1</span> }
+                    </div>
                     <div class="step-label">Type</div>
                 </div>
                 <div class="step-line @(currentStep > 1 ? "active" : "")"></div>
                 <div class="step @(currentStep >= 2 ? "active" : "") @(currentStep > 2 ? "completed" : "")">
-                    <div class="step-number">@(currentStep > 2 ? "✓" : "2")</div>
+                    <div class="step-number">
+                        @if (currentStep > 2) { <i class="fa-solid fa-check" aria-hidden="true"></i> }
+                        else { <span>2</span> }
+                    </div>
                     <div class="step-label">Bundle ID</div>
                 </div>
                 <div class="step-line @(currentStep > 2 ? "active" : "")"></div>
                 <div class="step @(currentStep >= 3 ? "active" : "") @(currentStep > 3 ? "completed" : "")">
-                    <div class="step-number">@(currentStep > 3 ? "✓" : "3")</div>
+                    <div class="step-number">
+                        @if (currentStep > 3) { <i class="fa-solid fa-check" aria-hidden="true"></i> }
+                        else { <span>3</span> }
+                    </div>
                     <div class="step-label">Certificates</div>
                 </div>
                 <div class="step-line @(currentStep > 3 ? "active" : "")"></div>
                 <div class="step @(currentStep >= 4 ? "active" : "") @(currentStep > 4 ? "completed" : "")">
-                    <div class="step-number">@(currentStep > 4 ? "✓" : "4")</div>
+                    <div class="step-number">
+                        @if (currentStep > 4) { <i class="fa-solid fa-check" aria-hidden="true"></i> }
+                        else { <span>4</span> }
+                    </div>
                     <div class="step-label">@(RequiresDevices ? "Devices" : "Name")</div>
                 </div>
                 @if (RequiresDevices)
@@ -56,14 +68,14 @@
                 @if (isLoadingData)
                 {
                     <div class="loading-state">
-                        <i class="fas fa-spinner fa-spin"></i>
+                        <i class="fa-solid fa-spinner fa-spin"></i>
                         <span>Loading data...</span>
                     </div>
                 }
                 else if (!string.IsNullOrEmpty(errorMessage))
                 {
                     <div class="error-message">
-                        <i class="fas fa-exclamation-circle"></i>
+                        <i class="fa-solid fa-circle-exclamation"></i>
                         @errorMessage
                     </div>
                 }
@@ -101,7 +113,7 @@
                 @if (currentStep > 1)
                 {
                     <button class="btn btn-secondary" @onclick="PreviousStep" disabled="@isCreating">
-                        <i class="fas fa-arrow-left"></i> Back
+                        <i class="fa-solid fa-arrow-left"></i> Back
                     </button>
                 }
                 <div class="spacer"></div>
@@ -111,12 +123,12 @@
                     <button class="btn btn-primary" @onclick="CreateProfile" disabled="@(!CanCreate || isCreating)">
                         @if (isCreating)
                         {
-                            <i class="fas fa-spinner fa-spin"></i>
+                            <i class="fa-solid fa-spinner fa-spin"></i>
                             <span>Creating...</span>
                         }
                         else
                         {
-                            <i class="fas fa-plus"></i>
+                            <i class="fa-solid fa-plus"></i>
                             <span>Create Profile</span>
                         }
                     </button>
@@ -124,7 +136,7 @@
                 else
                 {
                     <button class="btn btn-primary" @onclick="NextStep" disabled="@(!CanProceed)">
-                        Next <i class="fas fa-arrow-right"></i>
+                        Next <i class="fa-solid fa-arrow-right"></i>
                     </button>
                 }
             </div>
@@ -149,7 +161,7 @@
                         @foreach (var type in group.Types)
                         {
                             <label class="type-option @(selectedProfileType == type.Value ? "selected" : "")">
-                                <input type="radio" name="profileType" value="@type.Value" 
+                                <input type="radio" name="profileType" value="@type.Value"
                                        checked="@(selectedProfileType == type.Value)"
                                        @onchange="@(() => SelectProfileType(type.Value))" />
                                 <div class="type-content">
@@ -172,7 +184,7 @@
         <p class="step-description">Choose the App ID for this profile.</p>
 
         <div class="search-box">
-            <i class="fas fa-search"></i>
+            <i class="fa-solid fa-search"></i>
             <input type="text" @bind="bundleIdSearch" @bind:event="oninput" placeholder="Search bundle IDs..." />
         </div>
 
@@ -193,7 +205,7 @@
             @if (!FilteredBundleIds.Any())
             {
                 <div class="empty-list">
-                    <i class="fas fa-inbox"></i>
+                    <i class="fa-solid fa-inbox"></i>
                     <span>No bundle IDs found</span>
                 </div>
             }
@@ -230,16 +242,16 @@
             @if (!FilteredCertificates.Any())
             {
                 <div class="empty-list">
-                    <i class="fas fa-certificate"></i>
+                    <i class="fa-solid fa-certificate"></i>
                     <span>No compatible @(IsDevelopmentProfile ? "development" : "distribution") certificates found</span>
                 </div>
             }
         </div>
-        
+
         @if (selectedCertificateIds.Any())
         {
             <div class="selection-summary">
-                <i class="fas fa-check-circle"></i> @selectedCertificateIds.Count certificate(s) selected
+                <i class="fa-solid fa-circle-check"></i> @selectedCertificateIds.Count certificate(s) selected
             </div>
         }
     </div>
@@ -255,13 +267,13 @@
 
         <div class="device-toolbar">
             <label class="select-all-checkbox">
-                <input type="checkbox" 
+                <input type="checkbox"
                        checked="@(selectedDeviceIds.Count == FilteredDevices.Count() && FilteredDevices.Any())"
                        @onchange="ToggleAllDevices" />
                 <span>Select All (@FilteredDevices.Count())</span>
             </label>
             <div class="search-box small">
-                <i class="fas fa-search"></i>
+                <i class="fa-solid fa-search"></i>
                 <input type="text" @bind="deviceSearch" @bind:event="oninput" placeholder="Search devices..." />
             </div>
         </div>
@@ -292,7 +304,7 @@
             @if (!FilteredDevices.Any())
             {
                 <div class="empty-list">
-                    <i class="fas fa-mobile-alt"></i>
+                    <i class="fa-solid fa-mobile-screen-button"></i>
                     <span>No compatible devices found for @GetPlatformFromProfileType()</span>
                 </div>
             }
@@ -301,13 +313,13 @@
         @if (selectedDeviceIds.Any())
         {
             <div class="selection-summary">
-                <i class="fas fa-check-circle"></i> @selectedDeviceIds.Count device(s) selected
+                <i class="fa-solid fa-circle-check"></i> @selectedDeviceIds.Count device(s) selected
             </div>
         }
         else
         {
             <div class="selection-summary warning">
-                <i class="fas fa-exclamation-triangle"></i> At least 1 device is required
+                <i class="fa-solid fa-triangle-exclamation"></i> At least 1 device is required
             </div>
         }
     </div>
@@ -325,7 +337,7 @@
             @if (!string.IsNullOrEmpty(suggestedName) && profileName != suggestedName)
             {
                 <button class="btn-suggestion" @onclick="@(() => profileName = suggestedName)">
-                    <i class="fas fa-lightbulb"></i> Use suggested: @suggestedName
+                    <i class="fa-solid fa-lightbulb"></i> Use suggested: @suggestedName
                 </button>
             }
         </div>
@@ -373,8 +385,8 @@
     }
 
     .dialog {
-        background: var(--card-bg, white);
-        border-radius: 0.75rem;
+        background: var(--surface-card);
+        border-radius: var(--radius-lg);
         width: 90%;
         max-width: 700px;
         max-height: 85vh;
@@ -388,31 +400,31 @@
         justify-content: space-between;
         align-items: center;
         padding: 1rem 1.5rem;
-        border-bottom: 1px solid var(--border-color, #e2e8f0);
+        border-bottom: 1px solid var(--border-subtle);
     }
 
     .dialog-header h2 {
         margin: 0;
         font-size: 1.125rem;
         font-weight: 600;
-        color: var(--text-primary, #1a202c);
+        color: var(--text-primary);
         display: flex;
         align-items: center;
         gap: 0.625rem;
     }
 
-    .dialog-header h2 i { color: #8b5cf6; }
+    .dialog-header h2 i { color: var(--accent); }
 
     .close-btn {
         background: none;
         border: none;
         font-size: 1.125rem;
-        color: var(--text-muted, #a0aec0);
+        color: var(--text-muted);
         cursor: pointer;
         padding: 0.25rem 0.5rem;
     }
 
-    .close-btn:hover { color: var(--text-secondary, #4a5568); }
+    .close-btn:hover { color: var(--text-secondary); }
 
     /* Step Indicator */
     .step-indicator {
@@ -420,8 +432,8 @@
         align-items: center;
         justify-content: center;
         padding: 1.25rem 1.5rem;
-        background: var(--bg-secondary, #f7fafc);
-        border-bottom: 1px solid var(--border-color, #e2e8f0);
+        background: var(--surface-well);
+        border-bottom: 1px solid var(--border-hairline);
         gap: 0.5rem;
     }
 
@@ -436,8 +448,9 @@
         width: 28px;
         height: 28px;
         border-radius: 50%;
-        background: var(--border-color, #e2e8f0);
-        color: var(--text-muted, #a0aec0);
+        background: var(--surface-control);
+        color: var(--text-muted);
+        border: 1px solid var(--border-control);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -446,49 +459,52 @@
     }
 
     .step.active .step-number {
-        background: #8b5cf6;
-        color: white;
+        background: var(--accent);
+        border-color: var(--accent);
+        color: var(--text-inverse);
     }
 
     .step.completed .step-number {
-        background: #48bb78;
-        color: white;
+        background: var(--status-success-bg);
+        border-color: var(--status-success-border);
+        color: var(--status-success-fg);
     }
 
     .step-label {
         font-size: 0.6875rem;
-        color: var(--text-muted, #a0aec0);
+        color: var(--text-muted);
         white-space: nowrap;
     }
 
-    .step.active .step-label { color: #8b5cf6; font-weight: 500; }
-    .step.completed .step-label { color: #48bb78; }
+    .step.active .step-label { color: var(--accent); font-weight: 500; }
+    .step.completed .step-label { color: var(--status-success-dot); }
 
     .step-line {
         width: 2.5rem;
-        height: 2px;
-        background: var(--border-color, #e2e8f0);
+        height: 1px;
+        background: var(--border-hairline);
         margin-bottom: 1.25rem;
     }
 
-    .step-line.active { background: #48bb78; }
+    .step-line.active { background: var(--status-success-border); }
 
     .dialog-body {
         flex: 1;
         padding: 1.5rem;
         overflow-y: auto;
+        overscroll-behavior: contain;
     }
 
     .step-content h3 {
         margin: 0 0 0.25rem 0;
         font-size: 1rem;
-        color: var(--text-primary, #1a202c);
+        color: var(--text-primary);
     }
 
     .step-description {
         margin: 0 0 1.25rem 0;
         font-size: 0.8125rem;
-        color: var(--text-muted, #718096);
+        color: var(--text-muted);
     }
 
     /* Profile Type Groups */
@@ -499,20 +515,20 @@
     }
 
     .platform-group {
-        border: 1px solid var(--border-color, #e2e8f0);
-        border-radius: 0.5rem;
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-md);
         overflow: hidden;
     }
 
     .platform-header {
         padding: 0.625rem 0.875rem;
-        background: var(--bg-secondary, #f7fafc);
+        background: var(--surface-card);
         font-weight: 600;
         font-size: 0.8125rem;
         display: flex;
         align-items: center;
         gap: 0.5rem;
-        color: var(--text-secondary, #4a5568);
+        color: var(--text-secondary);
     }
 
     .type-options {
@@ -525,23 +541,24 @@
         align-items: flex-start;
         gap: 0.75rem;
         padding: 0.75rem 0.875rem;
-        border-bottom: 1px solid var(--border-color, #e2e8f0);
+        border-bottom: 1px solid var(--border-subtle);
         cursor: pointer;
         transition: background 0.15s;
     }
 
     .type-option:last-child { border-bottom: none; }
-    .type-option:hover { background: var(--bg-hover, #f7fafc); }
-    .type-option.selected { background: #faf5ff; }
+    .type-option:hover { background: var(--surface-card-hover); }
+    .type-option.selected { background: var(--accent-soft); }
+    .type-option.selected { box-shadow: inset 0 0 0 1px var(--accent); }
 
     .type-option input[type="radio"] {
         margin-top: 2px;
-        accent-color: #8b5cf6;
+        accent-color: var(--accent);
     }
 
     .type-content { flex: 1; }
-    .type-name { font-weight: 500; font-size: 0.875rem; color: var(--text-primary, #1a202c); }
-    .type-description { font-size: 0.75rem; color: var(--text-muted, #718096); margin-top: 2px; }
+    .type-name { font-weight: 500; font-size: 0.875rem; color: var(--text-primary); }
+    .type-description { font-size: 0.75rem; color: var(--text-muted); margin-top: 2px; }
 
     /* Search Box */
     .search-box {
@@ -554,23 +571,23 @@
         left: 0.75rem;
         top: 50%;
         transform: translateY(-50%);
-        color: var(--text-muted, #a0aec0);
+        color: var(--text-muted);
         font-size: 0.875rem;
     }
 
     .search-box input {
         width: 100%;
         padding: 0.625rem 0.75rem 0.625rem 36px;
-        border: 1px solid var(--border-color, #e2e8f0);
-        border-radius: 0.375rem;
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-sm);
         font-size: 0.875rem;
         box-sizing: border-box;
     }
 
     .search-box input:focus {
         outline: none;
-        border-color: #8b5cf6;
-        box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.15);
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px var(--accent-soft);
     }
 
     .search-box.small { margin-bottom: 0; }
@@ -579,10 +596,11 @@
 
     /* Selection List */
     .selection-list {
-        border: 1px solid var(--border-color, #e2e8f0);
-        border-radius: 0.5rem;
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-md);
         max-height: 280px;
         overflow-y: auto;
+        overscroll-behavior: contain;
     }
 
     .selection-list.devices { max-height: 240px; }
@@ -592,29 +610,30 @@
         align-items: flex-start;
         gap: 0.75rem;
         padding: 0.75rem 0.875rem;
-        border-bottom: 1px solid var(--border-color, #e2e8f0);
+        border-bottom: 1px solid var(--border-subtle);
         cursor: pointer;
         transition: background 0.15s;
     }
 
     .selection-item:last-child { border-bottom: none; }
-    .selection-item.selected { background: #faf5ff; }
+    .selection-item.selected { background: var(--accent-soft); }
+    .selection-item.selected { box-shadow: inset 0 0 0 1px var(--accent); }
     .selection-item.disabled { opacity: 0.5; cursor: not-allowed; }
 
-    .selection-item input { margin-top: 2px; accent-color: #8b5cf6; }
+    .selection-item input { margin-top: 2px; accent-color: var(--accent); }
 
     .item-content { flex: 1; min-width: 0; }
-    .item-name { 
-        font-weight: 500; 
-        font-size: 0.875rem; 
-        color: var(--text-primary, #1a202c);
+    .item-name {
+        font-weight: 500;
+        font-size: 0.875rem;
+        color: var(--text-primary);
         display: flex;
         align-items: center;
         gap: 0.5rem;
     }
-    .item-detail { 
-        font-size: 0.75rem; 
-        color: var(--text-muted, #718096); 
+    .item-detail {
+        font-size: 0.75rem;
+        color: var(--text-muted);
         margin-top: 2px;
         display: flex;
         gap: 0.75rem;
@@ -624,20 +643,20 @@
     .badge {
         display: inline-block;
         padding: 2px 0.5rem;
-        border-radius: 0.625rem;
+        border-radius: var(--radius-lg);
         font-size: 0.6875rem;
         font-weight: 500;
-        background: #e2e8f0;
-        color: #4a5568;
+        background: var(--border-subtle);
+        color: var(--text-secondary);
         margin-top: 0.25rem;
     }
 
-    .badge-warning { background: #fef3c7; color: #92400e; }
+    .badge-warning { background: var(--status-warning-bg); color: var(--status-warning-fg); }
 
     .empty-list {
         padding: 2.5rem 1.25rem;
         text-align: center;
-        color: var(--text-muted, #a0aec0);
+        color: var(--text-muted);
         display: flex;
         flex-direction: column;
         align-items: center;
@@ -649,18 +668,20 @@
     .selection-summary {
         margin-top: 0.75rem;
         padding: 0.5rem 0.75rem;
-        background: #f0fff4;
-        border-radius: 0.375rem;
+        background: var(--status-success-bg);
+        border: 1px solid var(--status-success-border);
+        border-radius: var(--radius-sm);
         font-size: 0.8125rem;
-        color: #276749;
+        color: var(--status-success-fg);
         display: flex;
         align-items: center;
         gap: 0.5rem;
     }
 
     .selection-summary.warning {
-        background: #fffbeb;
-        color: #92400e;
+        background: var(--status-warning-bg);
+        border-color: var(--status-warning-border);
+        color: var(--status-warning-fg);
     }
 
     /* Device Toolbar */
@@ -680,7 +701,7 @@
         cursor: pointer;
     }
 
-    .select-all-checkbox input { accent-color: #8b5cf6; }
+    .select-all-checkbox input { accent-color: var(--accent); }
 
     /* Form Elements */
     .form-group {
@@ -691,53 +712,54 @@
         display: block;
         font-size: 0.8125rem;
         font-weight: 500;
-        color: var(--text-secondary, #4a5568);
+        color: var(--text-secondary);
         margin-bottom: 0.375rem;
     }
 
     .form-input {
         width: 100%;
         padding: 0.625rem 0.875rem;
-        border: 1px solid var(--border-color, #e2e8f0);
-        border-radius: 0.375rem;
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-sm);
         font-size: 0.875rem;
         box-sizing: border-box;
     }
 
     .form-input:focus {
         outline: none;
-        border-color: #8b5cf6;
-        box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.15);
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px var(--accent-soft);
     }
 
     .btn-suggestion {
         margin-top: 0.5rem;
         padding: 0.375rem 0.75rem;
-        background: #faf5ff;
-        border: 1px dashed #8b5cf6;
-        border-radius: 0.375rem;
+        background: var(--accent-soft);
+        border: 1px dashed var(--accent);
+        border-radius: var(--radius-sm);
         font-size: 0.75rem;
-        color: #6b46c1;
+        color: var(--accent-hover);
         cursor: pointer;
         display: flex;
         align-items: center;
         gap: 0.375rem;
     }
 
-    .btn-suggestion:hover { background: #ede9fe; }
+    .btn-suggestion:hover { background: var(--accent-soft); }
 
     /* Summary Section */
     .summary-section {
         margin-top: 1.5rem;
         padding: 1rem;
-        background: var(--bg-secondary, #f7fafc);
-        border-radius: 0.5rem;
+        background: var(--surface-well);
+        border: 1px solid var(--border-hairline);
+        border-radius: var(--radius-md);
     }
 
     .summary-section h4 {
         margin: 0 0 0.75rem 0;
         font-size: 0.875rem;
-        color: var(--text-secondary, #4a5568);
+        color: var(--text-secondary);
     }
 
     .summary-grid {
@@ -754,14 +776,14 @@
 
     .summary-label {
         font-size: 0.6875rem;
-        color: var(--text-muted, #a0aec0);
+        color: var(--text-muted);
         text-transform: uppercase;
     }
 
     .summary-value {
         font-size: 0.8125rem;
         font-weight: 500;
-        color: var(--text-primary, #1a202c);
+        color: var(--text-primary);
     }
 
     /* Dialog Footer */
@@ -769,7 +791,7 @@
         display: flex;
         align-items: center;
         padding: 1rem 1.5rem;
-        border-top: 1px solid var(--border-color, #e2e8f0);
+        border-top: 1px solid var(--border-subtle);
         gap: 0.75rem;
     }
 
@@ -777,10 +799,10 @@
 
     .btn-outline {
         background: none;
-        border: 1px solid var(--border-color, #e2e8f0);
-        color: var(--text-secondary, #4a5568);
+        border: 1px solid var(--border-subtle);
+        color: var(--text-secondary);
     }
-    .btn-outline:hover:not(:disabled) { background: var(--bg-hover, #f7fafc); }
+    .btn-outline:hover:not(:disabled) { background: var(--surface-card-hover); }
 
     /* Loading & Error States */
     .loading-state {
@@ -790,17 +812,17 @@
         justify-content: center;
         padding: 2.5rem;
         gap: 0.75rem;
-        color: var(--text-muted, #a0aec0);
+        color: var(--text-muted);
     }
 
-    .loading-state i { font-size: 1.5rem; color: #8b5cf6; }
+    .loading-state i { font-size: 1.5rem; color: var(--accent); }
 
     .error-message {
         padding: 0.75rem 1rem;
-        background: #fff5f5;
-        border: 1px solid #fc8181;
-        border-radius: 0.375rem;
-        color: #c53030;
+        background: var(--status-error-bg);
+        border: 1px solid var(--status-error-dot);
+        border-radius: var(--radius-sm);
+        color: var(--status-error-fg);
         display: flex;
         align-items: center;
         gap: 0.625rem;
@@ -808,44 +830,44 @@
 
     /* Dark mode overrides */
     .theme-dark .dialog {
-        border: 1px solid rgba(255, 255, 255, 0.1);
+        border: 1px solid var(--border-control);
     }
 
     .theme-dark .platform-header {
-        background: rgba(255, 255, 255, 0.08);
+        background: var(--border-subtle);
         color: var(--text-primary);
     }
 
     .theme-dark .platform-group {
-        border-color: rgba(255, 255, 255, 0.1);
+        border-color: var(--border-control);
     }
 
     .theme-dark .type-option {
-        border-bottom-color: rgba(255, 255, 255, 0.06);
+        border-bottom-color: var(--border-hairline);
     }
 
     .theme-dark .type-option.selected,
     .theme-dark .selection-item.selected {
-        background: rgba(139, 92, 246, 0.15);
+        background: var(--accent-soft);
     }
 
     .theme-dark .type-option:hover {
-        background: rgba(255, 255, 255, 0.06);
+        background: var(--border-hairline);
     }
 
     .theme-dark .type-option.selected:hover {
-        background: rgba(139, 92, 246, 0.2);
+        background: var(--accent-soft);
     }
 
     .theme-dark .type-option input[type="radio"],
     .theme-dark .selection-item input[type="radio"],
     .theme-dark .selection-item input[type="checkbox"] {
-        accent-color: #a78bfa;
+        accent-color: var(--accent-hover);
         -webkit-appearance: none;
         appearance: none;
         width: 1rem;
         height: 1rem;
-        border: 2px solid rgba(255, 255, 255, 0.35);
+        border: 2px solid var(--border-strong);
         border-radius: 50%;
         background: transparent;
         cursor: pointer;
@@ -854,86 +876,86 @@
 
     .theme-dark .type-option input[type="radio"]:checked,
     .theme-dark .selection-item input[type="radio"]:checked {
-        border-color: #a78bfa;
-        background: #a78bfa;
-        box-shadow: inset 0 0 0 3px var(--card-bg, #2d3748);
+        border-color: var(--accent-hover);
+        background: var(--accent-hover);
+        box-shadow: inset 0 0 0 3px var(--surface-card);
     }
 
     .theme-dark .selection-item input[type="checkbox"] {
-        border-radius: 3px;
+        border-radius: var(--radius-xs);
     }
 
     .theme-dark .selection-item input[type="checkbox"]:checked {
-        border-color: #a78bfa;
-        background: #a78bfa;
+        border-color: var(--accent-hover);
+        background: var(--accent-hover);
     }
 
     .theme-dark .type-description {
-        color: var(--text-secondary, #a0aec0);
+        color: var(--text-secondary, var(--text-muted));
     }
 
     .theme-dark .step-number {
-        border: 1px solid rgba(255, 255, 255, 0.15);
+        border: 1px solid var(--border-strong);
     }
 
     .theme-dark .step.active .step-number {
-        border-color: #8b5cf6;
+        border-color: var(--accent);
     }
 
     .theme-dark .badge {
-        background: rgba(255, 255, 255, 0.1);
+        background: var(--border-control);
         color: var(--text-secondary);
     }
 
     .theme-dark .badge-warning {
-        background: rgba(251, 191, 36, 0.15);
-        color: #fbbf24;
+        background: var(--status-warning-bg);
+        color: var(--status-warning-dot);
     }
 
     .theme-dark .selection-list {
-        border-color: rgba(255, 255, 255, 0.1);
+        border-color: var(--border-control);
     }
 
     .theme-dark .selection-item {
-        border-bottom-color: rgba(255, 255, 255, 0.06);
+        border-bottom-color: var(--border-hairline);
     }
 
     .theme-dark .selection-summary {
-        background: rgba(72, 187, 120, 0.12);
-        color: #68d391;
+        background: var(--status-success-bg);
+        color: var(--status-success-dot);
     }
 
     .theme-dark .selection-summary.warning {
-        background: rgba(251, 191, 36, 0.12);
-        color: #fbbf24;
+        background: var(--status-warning-bg);
+        color: var(--status-warning-dot);
     }
 
     .theme-dark .btn-suggestion {
-        background: rgba(139, 92, 246, 0.12);
-        border-color: rgba(139, 92, 246, 0.4);
-        color: #a78bfa;
+        background: var(--accent-soft);
+        border-color: var(--accent-border);
+        color: var(--accent-hover);
     }
 
     .theme-dark .btn-suggestion:hover {
-        background: rgba(139, 92, 246, 0.2);
+        background: var(--accent-soft);
     }
 
     .theme-dark .form-input,
     .theme-dark .search-box input {
-        background: var(--bg-tertiary, #374151);
+        background: var(--surface-control);
         color: var(--text-primary);
-        border-color: var(--border-color);
+        border-color: var(--border-subtle);
     }
 
     .theme-dark .error-message {
-        background: rgba(245, 101, 101, 0.12);
-        border-color: rgba(245, 101, 101, 0.3);
-        color: #fc8181;
+        background: var(--status-error-bg);
+        border-color: var(--status-error-border);
+        color: var(--status-error-dot);
     }
 
     .theme-dark .summary-section {
-        background: rgba(255, 255, 255, 0.04);
-        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: var(--surface-well);
+        border: 1px solid var(--border-subtle);
     }
 </style>
 
@@ -995,25 +1017,25 @@
     // Profile type definitions
     private static readonly List<ProfileTypeGroup> ProfileTypeGroups = new()
     {
-        new("iOS", "fab fa-apple", new[]
+        new("iOS", "fa-brands fa-apple", new[]
         {
             new ProfileTypeInfo("IOS_APP_DEVELOPMENT", "Development", "Run app on registered devices during development"),
             new ProfileTypeInfo("IOS_APP_ADHOC", "Ad Hoc", "Distribute to a limited number of registered devices"),
             new ProfileTypeInfo("IOS_APP_STORE", "App Store", "Submit to the App Store or TestFlight")
         }),
-        new("tvOS", "fas fa-tv", new[]
+        new("tvOS", "fa-solid fa-tv", new[]
         {
             new ProfileTypeInfo("TVOS_APP_DEVELOPMENT", "Development", "Run app on registered Apple TVs during development"),
             new ProfileTypeInfo("TVOS_APP_ADHOC", "Ad Hoc", "Distribute to a limited number of registered Apple TVs"),
             new ProfileTypeInfo("TVOS_APP_STORE", "App Store", "Submit to the App Store or TestFlight")
         }),
-        new("Mac Catalyst", "fas fa-layer-group", new[]
+        new("Mac Catalyst", "fa-solid fa-layer-group", new[]
         {
             new ProfileTypeInfo("MAC_CATALYST_APP_DEVELOPMENT", "Development", "Run iPad app on Mac during development"),
             new ProfileTypeInfo("MAC_CATALYST_APP_STORE", "Mac App Store", "Submit iPad app to Mac App Store"),
             new ProfileTypeInfo("MAC_CATALYST_APP_DIRECT", "Direct Distribution", "Distribute iPad app outside Mac App Store")
         }),
-        new("macOS", "fas fa-laptop", new[]
+        new("macOS", "fa-solid fa-laptop", new[]
         {
             new ProfileTypeInfo("MAC_APP_DEVELOPMENT", "Development", "Run app on registered Macs during development"),
             new ProfileTypeInfo("MAC_APP_STORE", "Mac App Store", "Submit to the Mac App Store"),
@@ -1187,12 +1209,12 @@
 
     private string GetDeviceIcon(string deviceClass) => deviceClass?.ToUpperInvariant() switch
     {
-        "IPHONE" => "fas fa-mobile-alt",
-        "IPAD" => "fas fa-tablet-alt",
-        "MAC" => "fas fa-laptop",
-        "APPLE_TV" => "fas fa-tv",
-        "APPLE_WATCH" => "fas fa-clock",
-        _ => "fas fa-microchip"
+        "IPHONE" => "fa-solid fa-mobile-screen-button",
+        "IPAD" => "fa-solid fa-tablet-screen-button",
+        "MAC" => "fa-solid fa-laptop",
+        "APPLE_TV" => "fa-solid fa-tv",
+        "APPLE_WATCH" => "fa-solid fa-clock",
+        _ => "fa-solid fa-microchip"
     };
 
     private string FormatCertType(string certType) => certType.Replace("_", " ");

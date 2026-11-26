@@ -8,7 +8,7 @@
 <button class="copilot-fab fab-hidden" 
         @onclick="ToggleOverlay"
         title="@(isOpen ? "Close Copilot" : "Open Copilot")">
-    <i class="fas @(isOpen ? "fa-chevron-down" : "fa-robot")"></i>
+    <i class="fa-solid fa-fw @(isOpen ? "fa-chevron-down" : "fa-robot")"></i>
 </button>
 
 @* Inline overlay fallback — used when ICopilotModalService is not available (e.g. macOS AppKit) *@
@@ -16,8 +16,8 @@
 {
     <div class="copilot-overlay-backdrop" @onclick="CloseOverlay">
         <div class="copilot-overlay @(isClosing ? "closing" : "")" @onclick:stopPropagation="true">
-            <button class="btn-close-inline" @onclick="CloseOverlay" title="Close">
-                <i class="fas fa-times"></i>
+            <button class="btn-close-inline" @onclick="CloseOverlay" title="Close" aria-label="Close Copilot">
+                <i class="fa-solid fa-fw fa-xmark" aria-hidden="true"></i>
             </button>
             <div class="overlay-content">
                 <MauiSherpa.Pages.Copilot 
@@ -41,11 +41,11 @@
         height: 56px;
         border-radius: 50%;
         border: none;
-        background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
-        color: white;
+        background: linear-gradient(135deg, var(--accent-indigo), var(--accent-purple));
+        color: var(--text-inverse);
         font-size: 1.5rem;
         cursor: pointer;
-        box-shadow: 0 0.25rem 0.75rem rgba(99, 102, 241, 0.4);
+        box-shadow: var(--shadow-popover);
         transition: all 0.3s ease;
         z-index: 20001;
         display: flex;
@@ -59,12 +59,12 @@
     
     .copilot-fab:hover {
         transform: scale(1.1);
-        box-shadow: 0 0.375rem 1.25rem rgba(99, 102, 241, 0.5);
+        box-shadow: var(--shadow-popover);
     }
     
     .copilot-fab.overlay-open {
-        background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
-        box-shadow: 0 0.25rem 0.75rem rgba(79, 70, 229, 0.5);
+        background: linear-gradient(135deg, var(--accent-purple), var(--accent-indigo));
+        box-shadow: var(--shadow-popover);
     }
     
     .copilot-fab.overlay-open:hover {
@@ -79,7 +79,7 @@
     .copilot-overlay-backdrop {
         position: fixed;
         inset: 0;
-        background: rgba(0, 0, 0, 0.5);
+        background: var(--modal-overlay);
         backdrop-filter: blur(4px);
         z-index: 20000;
         display: flex;
@@ -99,9 +99,10 @@
         max-width: 900px;
         height: calc(100vh - 100px);
         max-height: 800px;
-        background: var(--card-bg, #ffffff);
-        border-radius: 1rem;
-        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+        background: var(--surface-popover);
+        border: 1px solid var(--border-strong);
+        border-radius: var(--radius-xl);
+        box-shadow: var(--shadow-popover);
         display: flex;
         flex-direction: column;
         overflow: hidden;
@@ -141,12 +142,12 @@
         top: 0.5rem;
         right: 0.5rem;
         z-index: 10;
-        background: var(--bg-tertiary, #edf2f7);
-        border: none;
-        color: var(--text-muted, #718096);
+        background: var(--surface-well);
+        border: 1px solid transparent;
+        color: var(--text-muted);
         width: 28px;
         height: 28px;
-        border-radius: 50%;
+        border-radius: var(--radius-sm);
         cursor: pointer;
         display: flex;
         align-items: center;
@@ -158,7 +159,8 @@
 
     .btn-close-inline:hover {
         opacity: 1;
-        background: var(--border-color, #e2e8f0);
+        background: var(--surface-card-hover);
+        border-color: var(--border-subtle);
     }
     
     .overlay-content {
@@ -168,9 +170,6 @@
         flex-direction: column;
     }
     
-    .theme-dark .copilot-overlay {
-        background: var(--card-bg);
-    }
 </style>
 
 @code {

@@ -8,18 +8,18 @@
 <div class="capture-tab">
     <div class="capture-toolbar">
         <button class="btn btn-sm btn-primary" @onclick="TakeScreenshot" disabled="@isCapturing">
-            <i class="fas @(isCapturing ? "fa-spinner fa-spin" : "fa-camera")"></i> Screenshot
+            <i class="fa-solid @(isCapturing ? "fa-spinner fa-spin" : "fa-camera")"></i> Screenshot
         </button>
         @if (CaptureService.IsRecording)
         {
             <button class="btn btn-sm btn-danger" @onclick="StopRecording">
-                <i class="fas fa-stop"></i> Stop Recording (@FormatDuration(recordingElapsed))
+                <i class="fa-solid fa-stop"></i> Stop Recording (@FormatDuration(recordingElapsed))
             </button>
         }
         else
         {
             <button class="btn btn-sm btn-secondary" @onclick="StartRecording" disabled="@isCapturing">
-                <i class="fas fa-video"></i> Record
+                <i class="fa-solid fa-video"></i> Record
             </button>
         }
     </div>
@@ -28,7 +28,7 @@
         @if (captures.Count == 0 && !isCapturing)
         {
             <div class="capture-empty">
-                <i class="fas fa-camera-retro"></i>
+                <i class="fa-solid fa-camera-retro"></i>
                 <span>Take a screenshot or start recording</span>
             </div>
         }
@@ -42,7 +42,7 @@
                             @if (capture.IsVideo)
                             {
                                 <div class="capture-video-placeholder">
-                                    <i class="fas fa-film"></i>
+                                    <i class="fa-solid fa-film"></i>
                                     <span>Video (@FormatSize(capture.Data.Length))</span>
                                 </div>
                             }
@@ -55,7 +55,7 @@
                             <span class="capture-time">@capture.Timestamp.ToString("HH:mm:ss")</span>
                             <span class="capture-size">@FormatSize(capture.Data.Length)</span>
                             <button class="btn-capture-save" @onclick="@(() => SaveCaptureAsync(capture))" title="Save">
-                                <i class="fas fa-download"></i>
+                                <i class="fa-solid fa-download"></i>
                             </button>
                         </div>
                     </div>
@@ -72,12 +72,12 @@
         height: 100%;
         font-size: 0.75rem;
     }
-    .capture-tab .btn { padding: 0.375rem 0.875rem; border: none; border-radius: 0.3125rem; font-size: 0.75rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3125rem; transition: all 0.15s; }
+    .capture-tab .btn { padding: 0.375rem 0.875rem; border: none; border-radius: var(--radius-sm); font-size: 0.75rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3125rem; transition: all 0.15s; }
     .capture-tab .btn i { font-size: 0.6875rem; }
     .capture-tab .btn-sm { padding: 0.25rem 0.5rem; font-size: 0.6875rem; }
-    .capture-tab .btn-primary { background: var(--accent-primary); color: white; }
-    .capture-tab .btn-secondary { background: var(--btn-secondary-bg); color: var(--text-secondary); border: none; }
-    .capture-tab .btn-danger { background: #f56565; color: white; }
+    .capture-tab .btn-primary { background: var(--accent); color: var(--text-inverse); }
+    .capture-tab .btn-secondary { background: var(--surface-control); color: var(--text-secondary); border: none; }
+    .capture-tab .btn-danger { background: var(--status-error-fg); color: var(--status-error-ink); }
     .capture-tab .btn:hover:not(:disabled) { filter: brightness(1.1); }
     .capture-tab .btn:disabled { opacity: 0.5; cursor: not-allowed; }
     .capture-toolbar {
@@ -85,11 +85,11 @@
         align-items: center;
         gap: 0.5rem;
         padding: 0.375rem 0.5rem;
-        background: var(--bg-tertiary, #edf2f7);
-        border-bottom: 1px solid var(--border-color, #e2e8f0);
+        background: var(--surface-well);
+        border-bottom: 1px solid var(--border-subtle);
         flex-shrink: 0;
     }
-    .capture-content { flex: 1; overflow-y: auto; padding: 0.5rem; }
+    .capture-content { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 0.5rem; }
     .capture-empty {
         display: flex; flex-direction: column; align-items: center;
         justify-content: center; gap: 0.75rem; padding: 48px;
@@ -103,10 +103,10 @@
         gap: 0.5rem;
     }
     .capture-card {
-        border: 1px solid var(--border-color, #e2e8f0);
-        border-radius: 0.5rem;
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-md);
         overflow: hidden;
-        background: var(--bg-secondary, #fff);
+        background: var(--surface-popover);
     }
     .capture-preview {
         max-height: 300px;
@@ -114,7 +114,7 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        background: #f0f0f0;
+        background: var(--surface-well);
     }
     .capture-preview img {
         max-width: 100%;
@@ -142,9 +142,9 @@
     .capture-size { flex: 1; }
     .btn-capture-save {
         background: none; border: none; color: var(--text-muted);
-        cursor: pointer; padding: 2px 0.375rem; border-radius: 0.25rem;
+        cursor: pointer; padding: 2px 0.375rem; border-radius: var(--radius-xs);
     }
-    .btn-capture-save:hover { background: var(--bg-tertiary); color: var(--accent-primary); }
+    .btn-capture-save:hover { background: var(--surface-well); color: var(--accent); }
 </style>
 
 @code {

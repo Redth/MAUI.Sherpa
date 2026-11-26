@@ -22,7 +22,7 @@
 @inject ICloudSecretsService CloudSecretsService
 @implements IDisposable
 
-<h1><i class="fas fa-id-card"></i> Provisioning Profiles</h1>
+<h1><i class="fa-solid fa-id-card"></i> Provisioning Profiles</h1>
 
 <AppleIdentityPicker />
 
@@ -34,40 +34,40 @@
         @if (isSelectionMode)
         {
         <button data-screenshot-external class="btn btn-primary" @onclick="BackUpSelectedAsync" disabled="@(selectedProfileIds.Count == 0)">
-            <i class="fas fa-cloud-arrow-up"></i> Back Up
+            <i class="fa-solid fa-cloud-arrow-up"></i> Back Up
         </button>
         <button data-screenshot-external class="btn btn-secondary" @onclick="InstallSelectedAsync" disabled="@(selectedProfileIds.Count == 0)">
-            <i class="fas fa-download"></i> Install
+            <i class="fa-solid fa-download"></i> Install
         </button>
         <button data-screenshot-external class="btn btn-secondary" @onclick="ExportSelectedAsync" disabled="@(selectedProfileIds.Count == 0)">
-            <i class="fas fa-file-export"></i> Export
+            <i class="fa-solid fa-file-export"></i> Export
         </button>
         <button class="btn btn-secondary" @onclick="CancelSelectionMode">
-            <i class="fas fa-times"></i> Cancel
+            <i class="fa-solid fa-times"></i> Cancel
         </button>
         }
         else
         {
         <button data-screenshot-external class="btn btn-purple" @onclick="ShowCreateDialog" disabled="@isLoading">
-            <i class="fas fa-plus"></i> Create Profile
+            <i class="fa-solid fa-plus"></i> Create Profile
         </button>
         <button class="btn btn-primary" @onclick="@(() => RefreshData(forceRefresh: true))" disabled="@isLoading">
-            <i class="fas @(isLoading ? "fa-spinner fa-spin" : "fa-sync-alt")"></i> Refresh
+            <i class="fa-solid @(isLoading ? "fa-spinner fa-spin" : "fa-sync-alt")"></i> Refresh
         </button>
         <button data-screenshot-external class="btn btn-secondary" @onclick="RevealProfilesFolder" disabled="@isLoading">
-            <i class="fas fa-folder-open"></i> Profiles Folder
+            <i class="fa-solid fa-folder-open"></i> Profiles Folder
         </button>
         <button data-screenshot-external class="btn btn-secondary" @onclick="ShowCleanupDialog" disabled="@isLoading">
-            <i class="fas fa-broom"></i> Clean Up
+            <i class="fa-solid fa-broom"></i> Clean Up
         </button>
         @if (GetInstallableProfiles().Any())
         {
             <button data-screenshot-external class="btn btn-success" @onclick="InstallAllProfiles" disabled="@isLoading">
-                <i class="fas fa-download"></i> Install All (@GetInstallableProfiles().Count())
+                <i class="fa-solid fa-download"></i> Install All (@GetInstallableProfiles().Count())
             </button>
         }
         <button class="btn btn-secondary" @onclick="BeginSelectionMode" disabled="@isLoading">
-            <i class="fas fa-check-square"></i> Select
+            <i class="fa-solid fa-check-square"></i> Select
         </button>
         }
         <div class="toolbar-spacer"></div>
@@ -79,7 +79,7 @@
     {
     <div class="filter-section">
         <div class="search-box">
-            <span class="search-icon"><i class="fas fa-search"></i></span>
+            <span class="search-icon"><i class="fa-solid fa-search"></i></span>
             <input type="text" @bind="searchQuery" @bind:event="oninput" placeholder="Search profiles..." />
             @if (!string.IsNullOrEmpty(searchQuery))
             {
@@ -148,7 +148,7 @@
         {
             <div class="loading-state">
                 <div class="loading-spinner">
-                    <i class="fas fa-id-card"></i>
+                    <i class="fa-solid fa-id-card"></i>
                 </div>
                 <div class="loading-title">Loading Profiles</div>
                 <div class="loading-description">Fetching provisioning profiles from App Store Connect...</div>
@@ -157,14 +157,14 @@
         else if (!FilteredProfiles.Any())
         {
             <div class="empty-state">
-                <div class="empty-icon"><i class="fas @(profiles.Count == 0 ? "fa-file-alt" : "fa-search")"></i></div>
+                <div class="empty-icon"><i class="fa-solid @(profiles.Count == 0 ? "fa-file-alt" : "fa-search")"></i></div>
                 <div class="empty-title">@(profiles.Count == 0 ? "No provisioning profiles found" : "No matching profiles")</div>
                 <div class="empty-description">
                     @if (profiles.Count == 0)
                     {
                         <span>Create a new profile to get started</span>
                         <button data-screenshot-external class="btn btn-purple btn-empty-cta" @onclick="ShowCreateDialog">
-                            <i class="fas fa-plus"></i> Create Profile
+                            <i class="fa-solid fa-plus"></i> Create Profile
                         </button>
                     }
                     else
@@ -205,7 +205,7 @@
                         @if (!string.IsNullOrEmpty(profile.BundleId))
                         {
                             <div class="profile-bundle-id">
-                                <i class="fas fa-cube"></i> <span>@profile.BundleId</span>
+                                <i class="fa-solid fa-cube"></i> <span>@profile.BundleId</span>
                             </div>
                         }
                         <div class="profile-badges">
@@ -242,30 +242,30 @@
                             @key="@($"profile-sync-{profile.Id}")"
                             Item="@(new SecretItemRef(SecretItemKind.ProvisioningProfile, profile.Id, profile.Name) { AppleIdentityId = profilesIdentityId })" />
                         <button data-screenshot-external class="btn btn-secondary btn-icon" @onclick="@(() => ShowEditDialog(profile))" disabled="@isLoading" title="Edit">
-                            <i class="fas fa-edit"></i>
+                            <i class="fa-solid fa-edit"></i>
                         </button>
                         <button data-screenshot-external class="btn btn-secondary btn-icon" @onclick="@(() => DownloadProfile(profile))" disabled="@isLoading" title="Download">
-                            <i class="fas fa-download"></i>
+                            <i class="fa-solid fa-download"></i>
                         </button>
                         <div class="prof-dropdown">
                             <button class="btn btn-secondary btn-icon prof-dropdown-toggle" @onclick="@(() => ToggleDropdown(profile.Id))" @onclick:stopPropagation="true" title="More actions">
-                                <i class="fas fa-ellipsis-v"></i>
+                                <i class="fa-solid fa-ellipsis-v"></i>
                             </button>
                             @if (openDropdown == profile.Id)
                             {
                                 <div class="prof-dropdown-menu">
                                     <button data-screenshot-external class="prof-dropdown-item" @onclick="@(() => { openDropdown = null; DownloadProfileTo(profile); })">
-                                        <i class="fas fa-folder-open"></i> Download to...
+                                        <i class="fa-solid fa-folder-open"></i> Download to...
                                     </button>
                                     <button data-screenshot-external class="prof-dropdown-item" @onclick="@(() => { openDropdown = null; InstallProfile(profile); })">
-                                        <i class="fas fa-folder-plus"></i> Install to System
+                                        <i class="fa-solid fa-folder-plus"></i> Install to System
                                     </button>
                                     <button data-screenshot-external class="prof-dropdown-item" @onclick="@(() => RevealInstalledProfile(profile))">
-                                        <i class="fas fa-magnifying-glass"></i> @RevealProfileLabel
+                                        <i class="fa-solid fa-magnifying-glass"></i> @RevealProfileLabel
                                     </button>
                                     <div class="prof-dropdown-divider"></div>
                                     <button data-screenshot-external class="prof-dropdown-item danger" @onclick="@(() => { openDropdown = null; DeleteProfile(profile); })" disabled="@isLoading">
-                                        <i class="fas fa-trash"></i> Delete
+                                        <i class="fa-solid fa-trash"></i> Delete
                                     </button>
                                 </div>
                             }

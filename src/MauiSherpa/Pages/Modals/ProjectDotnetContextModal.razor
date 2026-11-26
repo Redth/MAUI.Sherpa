@@ -15,7 +15,7 @@
     @if (isLoading)
     {
         <div class="state-panel">
-            <i class="fas fa-spinner fa-spin" aria-hidden="true"></i>
+            <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
             <div>
                 <strong>Inspecting project .NET context</strong>
                 <span class="mono">@FolderPath</span>
@@ -25,13 +25,13 @@
     else if (!string.IsNullOrWhiteSpace(errorMessage))
     {
         <div class="state-panel state-panel--error">
-            <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
+            <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
             <div>
                 <strong>Project inspection failed</strong>
                 <span>@errorMessage</span>
             </div>
             <button type="button" class="btn btn-secondary btn-sm" @onclick="ReloadAsync">
-                <i class="fas fa-rotate" aria-hidden="true"></i> Retry
+                <i class="fa-solid fa-rotate" aria-hidden="true"></i> Retry
             </button>
         </div>
     }
@@ -39,7 +39,7 @@
     {
         <section class="context-card context-card--identity">
             <div class="identity-row">
-                <i class="fas fa-folder-open" aria-hidden="true"></i>
+                <i class="fa-solid fa-folder-open" aria-hidden="true"></i>
                 <div>
                     <span class="eyebrow">Project folder</span>
                     <strong class="mono" title="@project.FolderPath">@project.FolderPath</strong>
@@ -49,7 +49,7 @@
             @if (!string.IsNullOrWhiteSpace(project.GlobalJsonPath))
             {
                 <div class="identity-row">
-                    <i class="fas fa-file-code" aria-hidden="true"></i>
+                    <i class="fa-solid fa-file-code" aria-hidden="true"></i>
                     <div>
                         <span class="eyebrow">Effective global.json</span>
                         <strong class="mono" title="@project.GlobalJsonPath">@project.GlobalJsonPath</strong>
@@ -61,7 +61,7 @@
         @if (project.Status == GlobalJsonStatus.NoGlobalJson)
         {
             <div class="state-panel">
-                <i class="fas fa-circle-info" aria-hidden="true"></i>
+                <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
                 <div>
                     <strong>No global.json found</strong>
                     <span>The project uses the machine's default SDK. Sherpa walked up from this folder just like the <code>dotnet</code> host.</span>
@@ -71,7 +71,7 @@
         else if (project.Status == GlobalJsonStatus.NoSdkVersion)
         {
             <div class="state-panel">
-                <i class="fas fa-circle-info" aria-hidden="true"></i>
+                <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
                 <div>
                     <strong>No SDK version requested</strong>
                     <span>This <code>global.json</code> does not define <code>sdk.version</code>, so it does not resolve to a project SDK.</span>
@@ -126,7 +126,7 @@
                 @if (project.UsesLegacyWorkloadSetProperty)
                 {
                     <p class="inline-note">
-                        <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
+                        <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
                         This file uses the legacy workload-set shape. Sherpa writes the supported <code>sdk.workloadVersion</code> property.
                     </p>
                 }
@@ -148,14 +148,14 @@
                                 class="btn btn-primary btn-sm"
                                 disabled="@isBusy"
                                 @onclick="InstallOrTrackProjectAsync">
-                            <i class="fas fa-circle-arrow-up" aria-hidden="true"></i>
+                            <i class="fa-solid fa-circle-arrow-up" aria-hidden="true"></i>
                             Update project SDK
                         </button>
                     }
                     else if (project.Satisfied && project.AlreadyTracked)
                     {
                         <span class="ready-message">
-                            <i class="fas fa-circle-check" aria-hidden="true"></i>
+                            <i class="fa-solid fa-circle-check" aria-hidden="true"></i>
                             Ready — this project's SDK is installed and tracked.
                         </span>
                     }
@@ -170,7 +170,7 @@
                                 class="btn @(project.Satisfied ? "btn-secondary" : "btn-primary") btn-sm"
                                 disabled="@isBusy"
                                 @onclick="InstallOrTrackProjectAsync">
-                            <i class="fas @(project.Satisfied ? "fa-thumbtack" : "fa-download")" aria-hidden="true"></i>
+                            <i class="fa-solid @(project.Satisfied ? "fa-thumbtack" : "fa-download")" aria-hidden="true"></i>
                             @(project.Satisfied ? "Track this project" : "Install SDK for this project")
                         </button>
                     }
@@ -198,7 +198,7 @@
             else if (!project.Satisfied)
             {
                 <div class="state-panel">
-                    <i class="fas fa-box-open" aria-hidden="true"></i>
+                    <i class="fa-solid fa-box-open" aria-hidden="true"></i>
                     <div>
                         <strong>No matching SDK installation</strong>
                         <span>Install the project SDK to see its resolved version and workload context.</span>
@@ -208,7 +208,7 @@
             else
             {
                 <div class="state-panel">
-                    <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
+                    <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
                     <div>
                         <strong>Installation target is ambiguous</strong>
                         <span>The SDK exists in more than one root or architecture, so Sherpa cannot safely choose one project's component details.</span>
@@ -254,17 +254,17 @@
 
                     <div class="workload-actions">
                         <button type="button" class="btn btn-secondary btn-sm" disabled="@isBusy" @onclick="ChangeProjectWorkloadPinAsync">
-                            <i class="fas fa-thumbtack" aria-hidden="true"></i>
+                            <i class="fa-solid fa-thumbtack" aria-hidden="true"></i>
                             @(string.IsNullOrWhiteSpace(project.WorkloadVersion) ? "Pin & restore" : "Change pin & restore")
                         </button>
                         @if (!string.IsNullOrWhiteSpace(project.WorkloadVersion))
                         {
                             <button type="button" class="btn btn-secondary btn-sm" disabled="@isBusy" @onclick="RemoveProjectWorkloadPinAsync">
-                                <i class="fas fa-link-slash" aria-hidden="true"></i> Use machine default
+                                <i class="fa-solid fa-link-slash" aria-hidden="true"></i> Use machine default
                             </button>
                         }
                         <button type="button" class="btn btn-secondary btn-sm" disabled="@isBusy" @onclick="RestoreProjectWorkloadsAsync">
-                            <i class="fas fa-rotate" aria-hidden="true"></i> Restore workloads
+                            <i class="fa-solid fa-rotate" aria-hidden="true"></i> Restore workloads
                         </button>
                     </div>
                 </section>
@@ -272,7 +272,7 @@
             else if (project.Satisfied)
             {
                 <div class="state-panel">
-                    <i class="fas fa-puzzle-piece" aria-hidden="true"></i>
+                    <i class="fa-solid fa-puzzle-piece" aria-hidden="true"></i>
                     <div>
                         <strong>Workload target unavailable</strong>
                         <span>No exact workload inventory matched the resolved SDK feature band, install root, and architecture.</span>
@@ -284,7 +284,7 @@
     else
     {
         <div class="state-panel state-panel--error">
-            <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
+            <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
             <div>
                 <strong>Missing project context</strong>
                 <span>Close this window and open the project context again.</span>
@@ -297,7 +297,7 @@
     .project-context-modal {
         height: 100%;
         box-sizing: border-box;
-        overflow-y: auto;
+        overflow-y: auto; overscroll-behavior: contain;
         padding: 1.1rem 1.25rem 1.5rem;
         display: flex;
         flex-direction: column;
@@ -308,9 +308,9 @@
     .context-card,
     .resolved-section,
     .state-panel {
-        border: 1px solid var(--border-color);
-        border-radius: 0.8rem;
-        background: var(--card-bg);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
+        background: var(--surface-card);
     }
 
     .context-card {
@@ -334,7 +334,7 @@
     .state-panel > i {
         width: 1.1rem;
         margin-top: 0.15rem;
-        color: var(--accent-primary);
+        color: var(--accent);
         text-align: center;
     }
 
@@ -363,11 +363,11 @@
     }
 
     .state-panel--error {
-        border-color: color-mix(in srgb, var(--accent-danger) 45%, var(--border-color));
+        border-color: var(--status-error-border);
     }
 
     .state-panel--error > i {
-        color: var(--accent-danger);
+        color: var(--status-error-fg);
     }
 
     .section-heading,
@@ -422,8 +422,8 @@
     .facts-grid > div {
         min-width: 0;
         padding: 0.65rem 0.75rem;
-        border-radius: 0.6rem;
-        background: var(--bg-tertiary);
+        border-radius: var(--radius-lg);
+        background: var(--surface-well);
     }
 
     .facts-grid strong {
@@ -447,15 +447,15 @@
     .inline-note {
         margin: 0.75rem 0 0;
         padding: 0.65rem 0.75rem;
-        border-radius: 0.6rem;
-        background: var(--bg-tertiary);
+        border-radius: var(--radius-lg);
+        background: var(--surface-well);
         color: var(--text-secondary);
         font-size: 0.78rem;
     }
 
     .inline-note i {
         margin-right: 0.35rem;
-        color: var(--accent-warning);
+        color: var(--status-warning-fg);
     }
 
     .project-action-row,
@@ -464,7 +464,7 @@
     }
 
     .ready-message {
-        color: var(--accent-success);
+        color: var(--status-success-fg);
         font-size: 0.82rem;
         font-weight: 600;
     }

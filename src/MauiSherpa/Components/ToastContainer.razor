@@ -6,10 +6,12 @@
     @foreach (var toast in ToastService.Toasts)
     {
         <div class="sherpa-toast sherpa-toast-@toast.Type.ToString().ToLower() @(toast.IsExiting ? "exiting" : "")" @key="toast.Id">
-            <i class="fas @GetIcon(toast.Type)"></i>
+            <span class="sherpa-toast-icon" aria-hidden="true">
+                <i class="fa-solid fa-fw @GetIcon(toast.Type)"></i>
+            </span>
             <span class="sherpa-toast-message">@toast.Message</span>
-            <button class="sherpa-toast-dismiss" @onclick="() => ToastService.Dismiss(toast)">
-                <i class="fas fa-times"></i>
+            <button class="sherpa-toast-dismiss" aria-label="Dismiss notification" @onclick="() => ToastService.Dismiss(toast)">
+                <i class="fa-solid fa-fw fa-xmark" aria-hidden="true"></i>
             </button>
         </div>
     }
@@ -18,7 +20,7 @@
 <style>
     .sherpa-toast-container {
         position: fixed;
-        bottom: 1.25rem;
+        bottom: 4.5rem;
         right: 1.25rem;
         z-index: 20001;
         display: flex;
@@ -32,48 +34,69 @@
         align-items: center;
         gap: 0.75rem;
         padding: 0.75rem 1rem;
-        border-radius: 0.5rem;
-        background: #2C2C2C;
-        color: #fff;
-        box-shadow: 0 0.25rem 0.75rem rgba(0, 0, 0, 0.3);
+        border: 1px solid var(--border-strong);
+        border-radius: var(--radius-lg);
+        background: var(--surface-popover);
+        color: var(--text-primary);
+        box-shadow: var(--shadow-popover);
         min-width: 280px;
         max-width: 400px;
         pointer-events: auto;
         animation: sherpaSlideIn 0.3s ease-out;
-        border-left: 0.25rem solid;
     }
 
     .sherpa-toast.exiting {
         animation: sherpaSlideOut 0.3s ease-in forwards;
     }
 
-    .sherpa-toast-success { border-left-color: #28a745; }
-    .sherpa-toast-success i:first-child { color: #28a745; }
-    .sherpa-toast-info { border-left-color: #17a2b8; }
-    .sherpa-toast-info i:first-child { color: #17a2b8; }
-    .sherpa-toast-warning { border-left-color: #ffc107; }
-    .sherpa-toast-warning i:first-child { color: #ffc107; }
-    .sherpa-toast-error { border-left-color: #dc3545; }
-    .sherpa-toast-error i:first-child { color: #dc3545; }
+    .sherpa-toast-icon {
+        width: 24px;
+        height: 24px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        border-radius: var(--radius-sm);
+        font-size: 0.75rem;
+    }
 
-    .sherpa-toast i:first-child { font-size: 1.2em; flex-shrink: 0; }
+    .sherpa-toast-success .sherpa-toast-icon {
+        background: var(--status-success-bg);
+        color: var(--status-success-fg);
+    }
+
+    .sherpa-toast-info .sherpa-toast-icon {
+        background: var(--status-info-bg);
+        color: var(--status-info-fg);
+    }
+
+    .sherpa-toast-warning .sherpa-toast-icon {
+        background: var(--status-warning-bg);
+        color: var(--status-warning-fg);
+    }
+
+    .sherpa-toast-error .sherpa-toast-icon {
+        background: var(--status-error-bg);
+        color: var(--status-error-fg);
+    }
+
     .sherpa-toast-message { flex: 1; font-size: 0.9em; line-height: 1.4; }
 
     .sherpa-toast-dismiss {
         background: none;
         border: none;
-        color: #888;
+        color: var(--text-muted);
         cursor: pointer;
         padding: 0.25rem;
         margin: -4px;
-        border-radius: 0.25rem;
+        border-radius: var(--radius-sm);
         transition: color 0.2s, background 0.2s;
         flex-shrink: 0;
     }
 
     .sherpa-toast-dismiss:hover {
-        color: #fff;
-        background: rgba(255, 255, 255, 0.1);
+        color: var(--text-primary);
+        background: var(--surface-card-hover);
     }
 
     @@keyframes sherpaSlideIn {
@@ -103,7 +126,7 @@
         ToastType.Success => "fa-check-circle",
         ToastType.Info => "fa-info-circle",
         ToastType.Warning => "fa-exclamation-triangle",
-        ToastType.Error => "fa-times-circle",
+        ToastType.Error => "fa-circle-xmark",
         _ => "fa-info-circle"
     };
 

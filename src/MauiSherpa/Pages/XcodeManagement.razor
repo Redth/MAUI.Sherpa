@@ -18,12 +18,12 @@
 @inject IAppleDownloadAuthService DownloadAuthService
 @implements IDisposable
 
-<h1><i class="fab fa-apple"></i> @ViewModel.Title</h1>
+<h1><i class="fa-brands fa-apple"></i> @ViewModel.Title</h1>
 
 @if (!Platform.IsMacCatalyst && !Platform.IsMacOS)
 {
     <div class="not-supported">
-        <div class="warning-icon"><i class="fas fa-exclamation-triangle"></i></div>
+        <div class="warning-icon"><i class="fa-solid fa-exclamation-triangle"></i></div>
         <h2>macOS Only</h2>
         <p>Apple development tools management requires macOS with Xcode installed.</p>
     </div>
@@ -34,19 +34,19 @@ else
     {
         <div class="toolbar">
             <button class="btn btn-primary" @onclick="RefreshAll" disabled="@IsActiveTabLoading">
-                <i class="fas fa-sync-alt"></i> @(IsActiveTabLoading ? "Loading..." : "Refresh")
+                <i class="fa-solid fa-sync-alt"></i> @(IsActiveTabLoading ? "Loading..." : "Refresh")
             </button>
             <div class="toolbar-spacer"></div>
             @if (ViewModel.IsAuthenticated)
             {
                 <button data-screenshot-external class="btn btn-outline" @onclick="SignOut">
-                    <i class="fas fa-lock"></i> Sign Out
+                    <i class="fa-solid fa-lock"></i> Sign Out
                 </button>
             }
             else
             {
                 <button data-screenshot-external class="btn btn-outline" @onclick="OpenAuthModal">
-                    <i class="fas fa-lock-open"></i> Sign In
+                    <i class="fa-solid fa-lock-open"></i> Sign In
                 </button>
             }
         </div>
@@ -54,7 +54,7 @@ else
 
     <div class="auth-banner @(ViewModel.IsAuthenticated && DownloadAuthService.SessionValidationMessage == null ? "auth-banner-signed-in" : "")" data-testid="apple-account-card">
         <div class="auth-banner-icon">
-            <i class="fas @(DownloadAuthService.SessionValidationMessage != null ? "fa-triangle-exclamation" : ViewModel.IsAuthenticated ? "fa-user-check" : "fa-user-lock")"></i>
+            <i class="fa-solid @(DownloadAuthService.SessionValidationMessage != null ? "fa-triangle-exclamation" : ViewModel.IsAuthenticated ? "fa-user-check" : "fa-user-lock")"></i>
         </div>
         <div class="auth-banner-content">
             @if (DownloadAuthService.SessionValidationMessage is { } validationMessage)
@@ -77,13 +77,13 @@ else
             @if (ViewModel.IsAuthenticated)
             {
                 <button data-screenshot-external class="btn btn-outline" data-testid="apple-sign-out" @onclick="SignOut">
-                    <i class="fas fa-lock"></i> Sign Out
+                    <i class="fa-solid fa-lock"></i> Sign Out
                 </button>
             }
             else
             {
                 <button data-screenshot-external class="btn btn-primary" data-testid="apple-sign-in" @onclick="OpenAuthModal">
-                    <i class="fas fa-lock-open"></i> Sign In
+                    <i class="fa-solid fa-lock-open"></i> Sign In
                 </button>
             }
         </div>
@@ -101,7 +101,7 @@ else
         @if (ViewModel.IsLoading && ViewModel.InstalledXcodes.Count == 0)
         {
             <div class="loading-state">
-                <div class="loading-spinner"><i class="fas fa-spinner fa-spin"></i></div>
+                <div class="loading-spinner"><i class="fa-solid fa-spinner fa-spin"></i></div>
                 <div class="loading-title">Discovering Xcode Installations</div>
                 <div class="loading-description">Scanning /Applications for Xcode bundles...</div>
             </div>
@@ -109,7 +109,7 @@ else
         else if (ViewModel.InstalledXcodes.Count == 0)
         {
             <div class="empty-state">
-                <div class="empty-icon"><i class="fas fa-box-open"></i></div>
+                <div class="empty-icon"><i class="fa-solid fa-box-open"></i></div>
                 <h3>No Xcode Installations Found</h3>
                 <p>Install Xcode from the Mac App Store or download from the Available tab.</p>
             </div>
@@ -117,7 +117,7 @@ else
         else if (filteredInstalledXcodes.Count == 0)
         {
             <div class="empty-state">
-                <div class="empty-icon"><i class="fas fa-search"></i></div>
+                <div class="empty-icon"><i class="fa-solid fa-search"></i></div>
                 <h3>No Matching Xcode Installations</h3>
                 <p>Try a different search to find an installed Xcode version.</p>
             </div>
@@ -129,37 +129,37 @@ else
                     {
                     <div class="xcode-card @((xcode.IsSelected || xcode.IsDefault) ? "selected" : "")">
                         <div class="xcode-card-icon">
-                            <i class="fas fa-hammer"></i>
+                            <i class="fa-solid fa-hammer"></i>
                         </div>
                         <div class="xcode-card-info">
                             <div class="xcode-card-title">
                                 Xcode @xcode.Version
                                 @if (xcode.IsDefault)
                                 {
-                                    <span class="badge badge-installed"><i class="fas fa-link"></i> Default</span>
+                                    <span class="badge badge-installed"><i class="fa-solid fa-link"></i> Default</span>
                                 }
                                 @if (xcode.IsSelected)
                                 {
-                                    <span class="badge badge-active"><i class="fas fa-check"></i> Selected</span>
+                                    <span class="badge badge-active"><i class="fa-solid fa-check"></i> Selected</span>
                                 }
                             </div>
                             <div class="xcode-card-details">
-                                <span class="detail-item"><i class="fas fa-code-branch"></i> Build @xcode.BuildNumber</span>
-                                <span class="detail-item"><i class="fas fa-tag"></i> @Path.GetFileName(xcode.Path)</span>
-                                <span class="detail-item"><i class="fas fa-folder"></i> @xcode.Path</span>
+                                <span class="detail-item"><i class="fa-solid fa-code-branch"></i> Build @xcode.BuildNumber</span>
+                                <span class="detail-item"><i class="fa-solid fa-tag"></i> @Path.GetFileName(xcode.Path)</span>
+                                <span class="detail-item"><i class="fa-solid fa-folder"></i> @xcode.Path</span>
                             </div>
                         </div>
                         <div class="xcode-card-actions">
                             @if (!xcode.IsSelected)
                             {
                                 <button data-screenshot-external class="btn btn-sm btn-outline" @onclick="() => SelectXcode(xcode)">
-                                    <i class="fas fa-check-circle"></i> Select
+                                    <i class="fa-solid fa-check-circle"></i> Select
                                 </button>
                             }
                             @if (!xcode.IsSelected && !xcode.IsDefault)
                             {
                                 <button data-screenshot-external class="btn btn-sm btn-danger-outline" @onclick="() => UninstallXcode(xcode)">
-                                    <i class="fas fa-trash-alt"></i> Uninstall
+                                    <i class="fa-solid fa-trash-alt"></i> Uninstall
                                 </button>
                             }
                         </div>
@@ -178,12 +178,12 @@ else
                 @if (!ViewModel.IsAuthenticated)
                 {
                     <span class="auth-hint">
-                        <i class="fas fa-info-circle"></i> Sign in with Apple ID to download Xcode
+                        <i class="fa-solid fa-info-circle"></i> Sign in with Apple ID to download Xcode
                     </span>
                 }
                 @if (ViewModel.IsLoadingAvailable)
                 {
-                    <span class="loading-indicator"><i class="fas fa-spinner fa-spin"></i> Fetching releases...</span>
+                    <span class="loading-indicator"><i class="fa-solid fa-spinner fa-spin"></i> Fetching releases...</span>
                 }
             </div>
         }
@@ -202,7 +202,7 @@ else
         @if (ViewModel.IsLoadingAvailable && filteredReleases.Count == 0)
         {
             <div class="loading-state">
-                <div class="loading-spinner"><i class="fas fa-spinner fa-spin"></i></div>
+                <div class="loading-spinner"><i class="fa-solid fa-spinner fa-spin"></i></div>
                 <div class="loading-title">Fetching Available Releases</div>
                 <div class="loading-description">Fetching releases and checking Apple archive availability...</div>
             </div>
@@ -218,11 +218,11 @@ else
                         <div class="xcode-card-icon">
                             @if (release.IsBeta)
                             {
-                                <i class="fas fa-flask"></i>
+                                <i class="fa-solid fa-flask"></i>
                             }
                             else
                             {
-                                <i class="fas fa-hammer"></i>
+                                <i class="fa-solid fa-hammer"></i>
                             }
                         </div>
                         <div class="xcode-card-info">
@@ -234,23 +234,23 @@ else
                                 }
                                 @if (installed)
                                 {
-                                    <span class="badge badge-installed"><i class="fas fa-check"></i> Installed</span>
+                                    <span class="badge badge-installed"><i class="fa-solid fa-check"></i> Installed</span>
                                 }
                             </div>
                             <div class="xcode-card-details">
-                                <span class="detail-item"><i class="fas fa-code-branch"></i> Build @release.BuildNumber</span>
-                                <span class="detail-item"><i class="fas fa-calendar"></i> @release.ReleaseDate.ToString("MMM d, yyyy")</span>
+                                <span class="detail-item"><i class="fa-solid fa-code-branch"></i> Build @release.BuildNumber</span>
+                                <span class="detail-item"><i class="fa-solid fa-calendar"></i> @release.ReleaseDate.ToString("MMM d, yyyy")</span>
                                 @if (!string.IsNullOrEmpty(release.ArchiveExtension))
                                 {
-                                    <span class="detail-item"><i class="fas fa-file-archive"></i> @release.ArchiveExtension.TrimStart('.').ToUpperInvariant()</span>
+                                    <span class="detail-item"><i class="fa-solid fa-file-archive"></i> @release.ArchiveExtension.TrimStart('.').ToUpperInvariant()</span>
                                 }
                                 @if (!string.IsNullOrEmpty(release.MinimumMacOSVersion))
                                 {
-                                    <span class="detail-item"><i class="fas fa-desktop"></i> macOS @release.MinimumMacOSVersion+</span>
+                                    <span class="detail-item"><i class="fa-solid fa-desktop"></i> macOS @release.MinimumMacOSVersion+</span>
                                 }
                                 @if (release.FileSizeBytes > 0)
                                 {
-                                    <span class="detail-item"><i class="fas fa-weight"></i> @FormatBytes(release.FileSizeBytes.Value)</span>
+                                    <span class="detail-item"><i class="fa-solid fa-weight"></i> @FormatBytes(release.FileSizeBytes.Value)</span>
                                 }
                             </div>
                             @if (release.Sdks.Count > 0)
@@ -296,7 +296,7 @@ else
                             @if (!string.IsNullOrEmpty(release.ReleaseNotesUrl))
                             {
                                 <button class="btn btn-sm btn-ghost" @onclick="() => OpenUrl(release.ReleaseNotesUrl)" title="Release Notes">
-                                    <i class="fas fa-file-alt"></i>
+                                    <i class="fa-solid fa-file-alt"></i>
                                 </button>
                             }
                             @if (!installed && !string.IsNullOrEmpty(release.DownloadUrl))
@@ -304,19 +304,19 @@ else
                                 @if (isDownloading)
                                 {
                                     <button class="btn btn-sm btn-danger-outline" @onclick="CancelDownload">
-                                        <i class="fas fa-times"></i> Cancel
+                                        <i class="fa-solid fa-times"></i> Cancel
                                     </button>
                                 }
                                 else if (ViewModel.IsAuthenticated)
                                 {
                                     <button data-screenshot-external class="btn btn-sm btn-primary-sm" @onclick="() => DownloadAndInstall(release)" disabled="@(downloadingRelease != null)">
-                                        <i class="fas fa-download"></i> Install
+                                        <i class="fa-solid fa-download"></i> Install
                                     </button>
                                 }
                                 else
                                 {
                                     <button class="btn btn-sm btn-outline" @onclick="() => OpenUrl(release.DownloadUrl)" title="Open in browser">
-                                        <i class="fas fa-external-link-alt"></i>
+                                        <i class="fa-solid fa-external-link-alt"></i>
                                     </button>
                                 }
                             }
@@ -328,7 +328,7 @@ else
         else
         {
             <div class="empty-state">
-                <div class="empty-icon"><i class="fas @(ViewModel.AvailableReleases.Count == 0 ? "fa-cloud-download-alt" : "fa-search")"></i></div>
+                <div class="empty-icon"><i class="fa-solid @(ViewModel.AvailableReleases.Count == 0 ? "fa-cloud-download-alt" : "fa-search")"></i></div>
                 <h3>@(ViewModel.AvailableReleases.Count == 0 ? "No Xcode Releases Found" : "No Matching Xcode Releases")</h3>
                 <p>@(ViewModel.AvailableReleases.Count == 0
                     ? "Try refreshing to load the latest releases."
@@ -345,7 +345,7 @@ else
              ViewModel.DownloadableRuntimes.Count == 0)
         {
             <div class="loading-state">
-                <div class="loading-spinner"><i class="fas fa-spinner fa-spin"></i></div>
+                <div class="loading-spinner"><i class="fa-solid fa-spinner fa-spin"></i></div>
                 <div class="loading-title">Loading Simulator Runtimes</div>
                 <div class="loading-description">Querying installed and downloadable simulator runtimes...</div>
             </div>
@@ -366,12 +366,12 @@ else
                 <button data-screenshot-external class="btn btn-sm btn-primary-sm" @onclick="OpenRuntimePicker">
                     @if (ViewModel.IsLoadingDownloadableRuntimes && ViewModel.DownloadableRuntimes.Count == 0)
                     {
-                        <i class="fas fa-spinner fa-spin"></i>
+                        <i class="fa-solid fa-spinner fa-spin"></i>
                         <span>Loading...</span>
                     }
                     else
                     {
-                        <i class="fas fa-plus"></i>
+                        <i class="fa-solid fa-plus"></i>
                         <span>Add Runtime...</span>
                     }
                 </button>
@@ -380,7 +380,7 @@ else
             @if (ViewModel.RuntimeStorage.Count == 0)
             {
                 <div class="empty-state">
-                    <div class="empty-icon"><i class="fas fa-layer-group"></i></div>
+                    <div class="empty-icon"><i class="fa-solid fa-layer-group"></i></div>
                     <h3>No Simulator Runtimes Found</h3>
                     <p>No simulator runtimes were reported by `xcrun simctl` yet. Use <strong>Add Runtime...</strong> to install one.</p>
                 </div>
@@ -388,7 +388,7 @@ else
             else if (filteredRuntimeStorage.Count == 0)
             {
                 <div class="empty-state">
-                    <div class="empty-icon"><i class="fas fa-search"></i></div>
+                    <div class="empty-icon"><i class="fa-solid fa-search"></i></div>
                     <h3>No Matching Runtimes</h3>
                     <p>Try a different search to find a simulator runtime.</p>
                 </div>
@@ -412,28 +412,28 @@ else
                                     }
                                 </div>
                                 <div class="xcode-card-details">
-                                    <span class="detail-item"><i class="fas fa-cube"></i> @runtime.Identifier</span>
+                                    <span class="detail-item"><i class="fa-solid fa-cube"></i> @runtime.Identifier</span>
                                     @if (!string.IsNullOrWhiteSpace(runtime.Build))
                                     {
-                                        <span class="detail-item"><i class="fas fa-code-branch"></i> Build @runtime.Build</span>
+                                        <span class="detail-item"><i class="fa-solid fa-code-branch"></i> Build @runtime.Build</span>
                                     }
                                     @if (!string.IsNullOrWhiteSpace(runtime.PlatformIdentifier))
                                     {
-                                        <span class="detail-item"><i class="fas fa-desktop"></i> @FriendlyPlatform(runtime.PlatformIdentifier)</span>
+                                        <span class="detail-item"><i class="fa-solid fa-desktop"></i> @FriendlyPlatform(runtime.PlatformIdentifier)</span>
                                     }
                                     @if (runtime.SizeBytes.HasValue)
                                     {
-                                        <span class="detail-item"><i class="fas fa-weight"></i> @FormatBytes(runtime.SizeBytes.Value)</span>
+                                        <span class="detail-item"><i class="fa-solid fa-weight"></i> @FormatBytes(runtime.SizeBytes.Value)</span>
                                     }
                                     @if (runtime.LastUsedAt.HasValue)
                                     {
-                                        <span class="detail-item"><i class="fas fa-clock"></i> Last used @FormatLastUsed(runtime.LastUsedAt.Value)</span>
+                                        <span class="detail-item"><i class="fa-solid fa-clock"></i> Last used @FormatLastUsed(runtime.LastUsedAt.Value)</span>
                                     }
                                 </div>
                                 @if (!string.IsNullOrWhiteSpace(runtime.MountPath))
                                 {
                                     <div class="xcode-card-details">
-                                        <span class="detail-item"><i class="fas fa-folder"></i> @runtime.MountPath</span>
+                                        <span class="detail-item"><i class="fa-solid fa-folder"></i> @runtime.MountPath</span>
                                     </div>
                                 }
                             </div>
@@ -441,7 +441,7 @@ else
                                 @if (runtime.Deletable)
                                 {
                                     <button data-screenshot-external class="btn btn-sm btn-danger-outline" @onclick="() => DeleteRuntime(runtime)">
-                                        <i class="fas fa-trash-alt"></i> Delete
+                                        <i class="fa-solid fa-trash-alt"></i> Delete
                                     </button>
                                 }
                             </div>
@@ -1297,12 +1297,12 @@ else
 
     private static string GetRuntimeIcon(string? platformIdentifier) => FriendlyPlatform(platformIdentifier) switch
     {
-        "iOS" => "fas fa-mobile-alt",
-        "watchOS" => "fas fa-clock",
-        "tvOS" => "fas fa-tv",
-        "visionOS" => "fas fa-vr-cardboard",
-        "macOS" => "fas fa-laptop",
-        _ => "fas fa-cube"
+        "iOS" => "fa-solid fa-mobile-alt",
+        "watchOS" => "fa-solid fa-clock",
+        "tvOS" => "fa-solid fa-tv",
+        "visionOS" => "fa-solid fa-vr-cardboard",
+        "macOS" => "fa-solid fa-laptop",
+        _ => "fa-solid fa-cube"
     };
 
     private string GetRuntimeStateBadgeClass(string state) => state.ToLowerInvariant() switch

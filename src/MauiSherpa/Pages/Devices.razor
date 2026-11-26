@@ -27,20 +27,20 @@
 <MauiSherpa.Components.AndroidSdkContext Changed="SdkChangedAsync" />
 
 <div class="device-section-heading">
-    <h2 class="device-section-label"><i class="fas fa-mobile-alt" aria-hidden="true"></i> Physical Devices</h2>
+    <h2 class="device-section-label"><i class="fa-solid fa-mobile-alt" aria-hidden="true"></i> Physical Devices</h2>
 </div>
 
 @if (!string.IsNullOrEmpty(deviceError))
 {
     <div class="device-warning" role="alert">
-        <i class="fas fa-exclamation-triangle"></i>
+        <i class="fa-solid fa-exclamation-triangle"></i>
         <span>Could not check connected devices: @deviceError Previously shown devices may no longer be connected.</span>
         <button class="btn btn-secondary" @onclick="RefreshDevices" disabled="@isLoadingDevices">Retry</button>
     </div>
 }
 @if (isLoadingDevices && devices.Count == 0)
 {
-    <div class="empty-hint"><i class="fas fa-spinner fa-spin"></i> Scanning for devices...</div>
+    <div class="empty-hint"><i class="fa-solid fa-spinner fa-spin"></i> Scanning for devices...</div>
 }
 else if (!PhysicalDevices.Any() && deviceError == null)
 {
@@ -53,26 +53,26 @@ else
         {
             <div class="device-card @(device.State == "device" ? "running" : "")" @key="device.Serial">
                 <div class="device-icon">
-                    <i class="fas fa-mobile-alt"></i><i class="fab fa-android brand-overlay"></i>
+                    <i class="fa-solid fa-mobile-alt"></i><i class="fa-brands fa-android brand-overlay"></i>
                 </div>
                 <div class="device-details">
                     <div class="device-name">@(device.Model ?? "Unknown Device")</div>
                     <div class="device-serial">
                         <span class="@(demoMode ? "demo-blur" : "")">@device.Serial</span>
                         <button class="btn-copy" @onclick="() => CopyToClipboard(device.Serial)" title="Copy serial number" aria-label="Copy serial number for @(device.Model ?? "device")">
-                            <i class="fas fa-copy"></i>
+                            <i class="fa-solid fa-copy"></i>
                         </button>
                     </div>
                     <div class="device-badges">
                         <span class="badge @(device.State == "device" ? "badge-success" : "badge-warning")">@DeviceStateLabel(device.State)</span>
-                        <span class="badge badge-transport"><i class="@(device.IsWireless ? "fas fa-wifi" : "fab fa-usb")"></i> @(device.IsWireless ? "Wi-Fi" : "USB")</span>
+                        <span class="badge badge-transport"><i class="@(device.IsWireless ? "fa-solid fa-wifi" : "fa-brands fa-usb")"></i> @(device.IsWireless ? "Wi-Fi" : "USB")</span>
                     </div>
                 </div>
                 <div class="device-actions">
                     <button data-screenshot-external class="btn btn-info btn-icon" @onclick="() => DeviceInspector.OpenAsync(device.Serial, device.Model ?? device.Serial)"
-                            disabled="@(!hasAdbSnapshot || device.State != "device")" title="Logs" aria-label="Logs for @(device.Model ?? device.Serial)"><i class="fas fa-scroll"></i></button>
+                            disabled="@(!hasAdbSnapshot || device.State != "device")" title="Logs" aria-label="Logs for @(device.Model ?? device.Serial)"><i class="fa-solid fa-scroll"></i></button>
                     <button data-screenshot-external class="btn btn-secondary btn-icon" @onclick="() => DeviceInspector.OpenAsync(device.Serial, device.Model ?? device.Serial, InspectorTab.Files)"
-                            disabled="@(!hasAdbSnapshot || device.State != "device")" title="Inspect" aria-label="Inspect @(device.Model ?? device.Serial)"><i class="fas fa-search"></i></button>
+                            disabled="@(!hasAdbSnapshot || device.State != "device")" title="Inspect" aria-label="Inspect @(device.Model ?? device.Serial)"><i class="fa-solid fa-search"></i></button>
                 </div>
             </div>
         }
@@ -80,11 +80,11 @@ else
 }
 
 <div class="device-section-heading device-section-heading-spaced">
-    <h2 class="device-section-label"><i class="fas fa-desktop" aria-hidden="true"></i> Emulators</h2>
+    <h2 class="device-section-label"><i class="fa-solid fa-desktop" aria-hidden="true"></i> Emulators</h2>
     @if (!isSelectionMode)
     {
         <button class="btn btn-secondary" @onclick="BeginSelectionMode" disabled="@(IsBusy || emulators.Count == 0)">
-            <i class="fas fa-check-square"></i> Select
+            <i class="fa-solid fa-check-square"></i> Select
         </button>
     }
 </div>
@@ -92,13 +92,13 @@ else
 @if (!PlatformInfo.HasNativeToolbar)
 {
     <div class="toolbar">
-        <button class="btn btn-primary" @onclick="RefreshAll" disabled="@IsBusy"><i class="fas @(isLoadingEmulators || isLoadingDevices ? "fa-spinner fa-spin" : "fa-sync-alt")"></i> Refresh</button>
-        <button data-screenshot-external class="btn btn-primary" @onclick="PairDevice" disabled="@IsBusy"><i class="fas fa-link"></i> Pair Device</button>
-        <button data-screenshot-external class="btn btn-success" @onclick="ShowCreateDialog" disabled="@IsBusy"><i class="fas fa-plus"></i> Create Emulator</button>
+        <button class="btn btn-primary" @onclick="RefreshAll" disabled="@IsBusy"><i class="fa-solid @(isLoadingEmulators || isLoadingDevices ? "fa-spinner fa-spin" : "fa-sync-alt")"></i> Refresh</button>
+        <button data-screenshot-external class="btn btn-primary" @onclick="PairDevice" disabled="@IsBusy"><i class="fa-solid fa-link"></i> Pair Device</button>
+        <button data-screenshot-external class="btn btn-success" @onclick="ShowCreateDialog" disabled="@IsBusy"><i class="fa-solid fa-plus"></i> Create Emulator</button>
     </div>
     <div class="filter-bar">
         <div class="search-box">
-            <i class="fas fa-search"></i>
+            <i class="fa-solid fa-search"></i>
             <input type="search" placeholder="Search emulators..." aria-label="Search emulators" @bind="searchQuery" @bind:event="oninput" />
         </div>
         <SherpaSelect TValue="string"
@@ -131,7 +131,7 @@ else
 @if (HasUnknownEmulatorIdentities)
 {
     <div class="device-warning" role="status">
-        <i class="fas fa-exclamation-triangle"></i>
+        <i class="fa-solid fa-exclamation-triangle"></i>
         <span>A connected emulator could not be identified. Wait for it to finish starting or stop it before deleting an emulator.</span>
     </div>
 }
@@ -150,7 +150,7 @@ else
         <div class="selection-actions">
             <button class="btn btn-secondary" @onclick="CancelSelectionMode" disabled="@isOperating">Cancel Selection</button>
             <button data-screenshot-external class="btn btn-danger" @onclick="DeleteSelectedEmulators" disabled="@(IsBusy || selectedEmulators.Count == 0 || !CanVerifyEmulatorState)">
-                <i class="fas fa-trash"></i> Delete Selected
+                <i class="fa-solid fa-trash"></i> Delete Selected
             </button>
         </div>
     </div>
@@ -159,7 +159,7 @@ else
 <div class="device-list">
     @if (isLoadingEmulators && emulators.Count == 0)
     {
-        <div class="empty-hint"><i class="fas fa-spinner fa-spin"></i> Loading emulators...</div>
+        <div class="empty-hint"><i class="fa-solid fa-spinner fa-spin"></i> Loading emulators...</div>
     }
     else if (emulators.Count == 0)
     {
@@ -186,7 +186,7 @@ else
                     </label>
                 }
                 <div class="device-icon">
-                    <i class="fas @(isStarting ? "fa-spinner fa-spin" : GetEmulatorFormIcon(emulator))"></i><i class="fab fa-android brand-overlay"></i>
+                    <i class="fa-solid @(isStarting ? "fa-spinner fa-spin" : GetEmulatorFormIcon(emulator))"></i><i class="fa-brands fa-android brand-overlay"></i>
                 </div>
                 <div class="device-details">
                     <div class="device-name">@emulator.Name</div>
@@ -210,21 +210,21 @@ else
                     <div class="device-actions">
                         @if (isStarting)
                         {
-                            <button class="btn btn-secondary btn-icon" disabled aria-label="Starting @emulator.Name"><i class="fas fa-spinner fa-spin"></i></button>
+                            <button class="btn btn-secondary btn-icon" disabled aria-label="Starting @emulator.Name"><i class="fa-solid fa-spinner fa-spin"></i></button>
                         }
                         else if (instance != null)
                         {
-                            <button data-screenshot-external class="btn btn-info btn-icon" @onclick="() => DeviceInspector.OpenAsync(instance.Serial, emulator.Name)" title="Logs" aria-label="Logs for @emulator.Name"><i class="fas fa-scroll"></i></button>
-                            <button data-screenshot-external class="btn btn-secondary btn-icon" @onclick="() => DeviceInspector.OpenAsync(instance.Serial, emulator.Name, InspectorTab.Files)" title="Inspect" aria-label="Inspect @emulator.Name"><i class="fas fa-search"></i></button>
-                            <button data-screenshot-external class="btn btn-warning btn-icon" @onclick="() => StopEmulator(emulator)" disabled="@IsBusy" title="Stop" aria-label="Stop @emulator.Name"><i class="fas fa-stop"></i></button>
+                            <button data-screenshot-external class="btn btn-info btn-icon" @onclick="() => DeviceInspector.OpenAsync(instance.Serial, emulator.Name)" title="Logs" aria-label="Logs for @emulator.Name"><i class="fa-solid fa-scroll"></i></button>
+                            <button data-screenshot-external class="btn btn-secondary btn-icon" @onclick="() => DeviceInspector.OpenAsync(instance.Serial, emulator.Name, InspectorTab.Files)" title="Inspect" aria-label="Inspect @emulator.Name"><i class="fa-solid fa-search"></i></button>
+                            <button data-screenshot-external class="btn btn-warning btn-icon" @onclick="() => StopEmulator(emulator)" disabled="@IsBusy" title="Stop" aria-label="Stop @emulator.Name"><i class="fa-solid fa-stop"></i></button>
                         }
                         else
                         {
-                            <button data-screenshot-external class="btn btn-success btn-icon" @onclick="() => StartEmulator(emulator, false)" disabled="@(IsBusy || !CanVerifyEmulatorState || !HasSystemImage(emulator))" title="Start" aria-label="Start @emulator.Name"><i class="fas fa-play"></i></button>
-                            <button data-screenshot-external class="btn btn-secondary btn-icon" @onclick="() => StartEmulator(emulator, true)" disabled="@(IsBusy || !CanVerifyEmulatorState || !HasSystemImage(emulator))" title="Cold Boot" aria-label="Cold boot @emulator.Name"><i class="fas fa-snowflake"></i></button>
+                            <button data-screenshot-external class="btn btn-success btn-icon" @onclick="() => StartEmulator(emulator, false)" disabled="@(IsBusy || !CanVerifyEmulatorState || !HasSystemImage(emulator))" title="Start" aria-label="Start @emulator.Name"><i class="fa-solid fa-play"></i></button>
+                            <button data-screenshot-external class="btn btn-secondary btn-icon" @onclick="() => StartEmulator(emulator, true)" disabled="@(IsBusy || !CanVerifyEmulatorState || !HasSystemImage(emulator))" title="Cold Boot" aria-label="Cold boot @emulator.Name"><i class="fa-solid fa-snowflake"></i></button>
                         }
                         <button data-screenshot-external class="btn btn-danger btn-icon" @onclick="() => DeleteEmulator(emulator)" disabled="@(IsBusy || isStarting || !CanVerifyEmulatorState)"
-                                title="Delete emulator" aria-label="Delete @emulator.Name"><i class="fas fa-trash"></i></button>
+                                title="Delete emulator" aria-label="Delete @emulator.Name"><i class="fa-solid fa-trash"></i></button>
                     </div>
                 }
             </div>
@@ -241,16 +241,16 @@ else
             var device = devices.FirstOrDefault(d => d.Serial == instance.Serial);
             var name = instance.AvdName ?? device?.Model ?? "Unidentified emulator";
             <div class="device-card" @key="instance.Serial">
-                <div class="device-icon"><i class="fas fa-mobile-alt"></i><i class="fab fa-android brand-overlay"></i></div>
+                <div class="device-icon"><i class="fa-solid fa-mobile-alt"></i><i class="fa-brands fa-android brand-overlay"></i></div>
                 <div class="device-details">
                     <div class="device-name">@name</div>
                     <div class="device-serial @(demoMode ? "demo-blur" : "")">@instance.Serial</div>
                     <div class="device-badges"><span class="badge badge-warning">@(instance.AvdName == null ? "Identity unknown" : "Not in AVD list")</span></div>
                 </div>
                 <div class="device-actions">
-                    <button data-screenshot-external class="btn btn-info btn-icon" @onclick="() => DeviceInspector.OpenAsync(instance.Serial, name)" disabled="@(device?.State != "device")" title="Logs" aria-label="Logs for @name"><i class="fas fa-scroll"></i></button>
-                    <button data-screenshot-external class="btn btn-secondary btn-icon" @onclick="() => DeviceInspector.OpenAsync(instance.Serial, name, InspectorTab.Files)" disabled="@(device?.State != "device")" title="Inspect" aria-label="Inspect @name"><i class="fas fa-search"></i></button>
-                    <button data-screenshot-external class="btn btn-warning btn-icon" @onclick="() => StopConnectedEmulator(instance, name)" disabled="@IsBusy" title="Stop" aria-label="Stop @name"><i class="fas fa-stop"></i></button>
+                    <button data-screenshot-external class="btn btn-info btn-icon" @onclick="() => DeviceInspector.OpenAsync(instance.Serial, name)" disabled="@(device?.State != "device")" title="Logs" aria-label="Logs for @name"><i class="fa-solid fa-scroll"></i></button>
+                    <button data-screenshot-external class="btn btn-secondary btn-icon" @onclick="() => DeviceInspector.OpenAsync(instance.Serial, name, InspectorTab.Files)" disabled="@(device?.State != "device")" title="Inspect" aria-label="Inspect @name"><i class="fa-solid fa-search"></i></button>
+                    <button data-screenshot-external class="btn btn-warning btn-icon" @onclick="() => StopConnectedEmulator(instance, name)" disabled="@IsBusy" title="Stop" aria-label="Stop @name"><i class="fa-solid fa-stop"></i></button>
                 </div>
             </div>
         }

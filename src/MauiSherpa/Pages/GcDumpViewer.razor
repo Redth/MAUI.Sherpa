@@ -5,7 +5,7 @@
 
 <div class="viewer-page">
     <div class="viewer-header">
-        <i class="fas fa-memory"></i>
+        <i class="fa-solid fa-fw fa-memory"></i>
         <span class="viewer-title">GC Dump — Heap Statistics</span>
         @if (!string.IsNullOrEmpty(fileName))
         {
@@ -17,14 +17,14 @@
         @if (loading)
         {
             <div class="viewer-loading">
-                <i class="fas fa-spinner fa-spin fa-2x"></i>
+                <i class="fa-solid fa-fw fa-spinner fa-spin fa-2x"></i>
                 <div>Analyzing GC dump...</div>
             </div>
         }
         else if (errorMessage is not null)
         {
             <div class="viewer-error">
-                <i class="fas fa-exclamation-triangle"></i>
+                <i class="fa-solid fa-fw fa-exclamation-triangle"></i>
                 <span>@errorMessage</span>
             </div>
         }
@@ -32,9 +32,9 @@
         {
             <div class="gcdump-toolbar">
                 <div class="gcdump-summary">
-                    <span><i class="fas fa-cubes"></i> @report.TotalCount.ToString("N0") objects</span>
-                    <span><i class="fas fa-database"></i> @FormatBytes(report.TotalSize)</span>
-                    <span><i class="fas fa-list"></i> @report.Types.Count types</span>
+                    <span><i class="fa-solid fa-fw fa-cubes"></i> @report.TotalCount.ToString("N0") objects</span>
+                    <span><i class="fa-solid fa-fw fa-database"></i> @FormatBytes(report.TotalSize)</span>
+                    <span><i class="fa-solid fa-fw fa-list"></i> @report.Types.Count types</span>
                 </div>
                 <div class="gcdump-filter">
                     <input type="text" class="form-control form-control-sm"
@@ -50,15 +50,15 @@
                         <tr>
                             <th class="gcdump-col-name" @onclick="@(() => Sort("name"))">
                                 Type Name
-                                @if (sortColumn == "name") { <i class="fas @(sortAsc ? "fa-sort-up" : "fa-sort-down")"></i> }
+                                @if (sortColumn == "name") { <i class="fa-solid fa-fw @(sortAsc ? "fa-sort-up" : "fa-sort-down")"></i> }
                             </th>
                             <th class="gcdump-col-count" @onclick="@(() => Sort("count"))">
                                 Count
-                                @if (sortColumn == "count") { <i class="fas @(sortAsc ? "fa-sort-up" : "fa-sort-down")"></i> }
+                                @if (sortColumn == "count") { <i class="fa-solid fa-fw @(sortAsc ? "fa-sort-up" : "fa-sort-down")"></i> }
                             </th>
                             <th class="gcdump-col-size" @onclick="@(() => Sort("size"))">
                                 Total Size
-                                @if (sortColumn == "size") { <i class="fas @(sortAsc ? "fa-sort-up" : "fa-sort-down")"></i> }
+                                @if (sortColumn == "size") { <i class="fa-solid fa-fw @(sortAsc ? "fa-sort-up" : "fa-sort-down")"></i> }
                             </th>
                             <th class="gcdump-col-pct">%</th>
                         </tr>
@@ -174,7 +174,7 @@
         display: flex;
         flex-direction: column;
         height: 100vh;
-        background: var(--bg-primary);
+        background: var(--surface-canvas);
     }
 
     .viewer-header {
@@ -182,8 +182,8 @@
         align-items: center;
         gap: 0.5rem;
         padding: 0.75rem 1rem;
-        background: var(--bg-secondary);
-        border-bottom: 1px solid var(--border-color);
+        background: var(--surface-card);
+        border-bottom: 1px solid var(--border-subtle);
         font-size: 0.875rem;
         font-weight: 600;
         color: var(--text-primary);
@@ -217,7 +217,7 @@
         flex: 1;
     }
 
-    .viewer-error { color: var(--text-warning, #eab308); }
+    .viewer-error { color: var(--status-warning-fg); }
 
     .gcdump-toolbar {
         display: flex;
@@ -225,7 +225,7 @@
         justify-content: space-between;
         padding: 0.5rem 1rem;
         gap: 1rem;
-        border-bottom: 1px solid var(--border-color);
+        border-bottom: 1px solid var(--border-subtle);
     }
 
     .gcdump-summary {
@@ -245,15 +245,16 @@
         width: 220px;
         padding: 0.3rem 0.6rem;
         font-size: 0.8125rem;
-        border: 1px solid var(--border-color);
-        border-radius: 6px;
-        background: var(--bg-secondary);
+        border: 1px solid var(--border-control);
+        border-radius: var(--radius-sm);
+        background: var(--surface-control);
         color: var(--text-primary);
     }
 
     .gcdump-table-container {
         flex: 1;
         overflow-y: auto;
+        overscroll-behavior: contain;
     }
 
     .gcdump-table {
@@ -270,8 +271,8 @@
 
     .gcdump-table th {
         padding: 0.5rem 0.75rem;
-        background: var(--bg-tertiary);
-        border-bottom: 1px solid var(--border-color);
+        background: var(--surface-well);
+        border-bottom: 1px solid var(--border-subtle);
         text-align: left;
         font-weight: 600;
         font-size: 0.75rem;
@@ -282,15 +283,15 @@
         user-select: none;
     }
 
-    .gcdump-table th:hover { background: var(--bg-secondary); }
+    .gcdump-table th:hover { background: var(--surface-card-hover); }
     .gcdump-table th i { margin-left: 0.25rem; font-size: 0.625rem; }
 
     .gcdump-table td {
         padding: 0.375rem 0.75rem;
-        border-bottom: 1px solid var(--border-color);
+        border-bottom: 1px solid var(--border-hairline);
     }
 
-    .gcdump-table tr:hover td { background: var(--bg-tertiary); }
+    .gcdump-table tr:hover td { background: var(--surface-card-hover); }
 
     .gcdump-col-name { min-width: 300px; }
 
@@ -317,8 +318,8 @@
 
     .pct-bar {
         height: 4px;
-        background: var(--accent-color, #3b82f6);
-        border-radius: 2px;
+        background: var(--accent);
+        border-radius: var(--radius-xs);
         min-width: 1px;
         max-width: 80px;
     }
