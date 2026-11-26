@@ -869,6 +869,7 @@
     private async Task ShowCreateDialog()
     {
         var page = new CreateCertificatePage(
+            BridgeHolder,
             requireDiskExport: !LocalCertificateService.IsSupported);
         var request = await FormModalService.ShowAsync<CreateCertificateFormResult>(page);
         if (request == null) return;
@@ -887,18 +888,18 @@
                     "Use My Own Request");
                 if (generateRequest)
                 {
+                    var suggestedRequestName =
+                        $"{request.CertificateType.ToLowerInvariant().Replace('_', '-')}-{DateTime.Now:yyyyMMdd-HHmmss}.certSigningRequest";
                     var csrPage = new CreateCertificateRequestPage(
+                        BridgeHolder,
                         IdentityState.SelectedIdentity?.Name ?? "Apple Signing Key",
                         isPaymentProcessing: request.CertificateType == "APPLE_PAY",
-                        storeKeyInKeychain: storeKeyInKeychain);
+                        storeKeyInKeychain: storeKeyInKeychain,
+                        suggestedFileName: suggestedRequestName);
                     var csr = await FormModalService.ShowAsync<CreateCertificateRequestFormResult>(csrPage);
                     if (csr == null) return;
 
-                    var requestPath = await DialogService.PickSaveFileAsync(
-                        "Save Certificate Signing Request",
-                        $"{request.CertificateType.ToLowerInvariant().Replace('_', '-')}-{DateTime.Now:yyyyMMdd-HHmmss}.certSigningRequest",
-                        "certSigningRequest",
-                        startOnDesktop: true);
+                    var requestPath = csrPage.SavePath;
                     if (string.IsNullOrWhiteSpace(requestPath)) return;
 
                     if (storeKeyInKeychain)
@@ -1402,6 +1403,7 @@
 
         // Step 1: choose the replacement.
         var form = await FormModalService.ShowAsync<RenewCertificateFormResult>(new RenewCertificatePage(
+            BridgeHolder,
             oldCert,
             typeLabel,
             candidates,

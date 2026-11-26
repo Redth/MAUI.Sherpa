@@ -565,15 +565,15 @@ h1 > i {
     align-items: center;
     gap: 0.5rem;
     margin: 0;
-    font-size: var(--font-size-h2);
-    font-weight: 650;
-    letter-spacing: -0.01em;
+    font-size: var(--font-size-h1);
+    font-weight: 700;
+    letter-spacing: -0.02em;
     color: var(--text-primary);
 }
 
 .device-section-label > i {
-    font-size: 0.9em;
-    color: var(--text-muted);
+    font-size: 0.88em;
+    color: var(--accent);
 }
 
 p {
@@ -2668,11 +2668,111 @@ main:focus-visible,
     justify-content: space-between;
     flex-wrap: wrap;
     gap: 10px;
-    padding: 9px 14px;
+    padding: 8px 12px;
     margin-bottom: 10px;
     background: var(--accent-soft);
     border: 1px solid var(--accent-border);
-    border-radius: var(--radius-lg);
+    border-radius: var(--radius-md);
+}
+
+.sherpa-selection-lead {
+    display: inline-flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+/* Prevent double outlines or square corner clipping on selected rows inside connected lists. */
+.sherpa-list > .sherpa-list-row.selected,
+.sherpa-list > .sherpa-list-row.is-selected {
+    background: color-mix(in srgb, var(--accent-soft) 60%, var(--surface-card));
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+}
+
+/* Crisp custom checkboxes inside Sherpa lists, selection bars, and forms (excluding switches). */
+.sherpa-list input[type="checkbox"],
+.sherpa-selection-bar input[type="checkbox"],
+.sherpa-form input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    flex-shrink: 0;
+    appearance: none;
+    -webkit-appearance: none;
+    display: inline-grid;
+    place-content: center;
+    background: var(--surface-control);
+    border: 1.5px solid var(--border-strong);
+    border-radius: var(--radius-xs);
+    cursor: pointer;
+    transition: background var(--motion-fast) var(--ease-standard), border-color var(--motion-fast) var(--ease-standard);
+}
+
+.sherpa-list input[type="checkbox"]::before,
+.sherpa-selection-bar input[type="checkbox"]::before,
+.sherpa-form input[type="checkbox"]::before {
+    content: "";
+    width: 8px;
+    height: 4.5px;
+    border-left: 2px solid var(--text-inverse);
+    border-bottom: 2px solid var(--text-inverse);
+    transform: translateY(-1px) rotate(-45deg) scale(0);
+    transition: transform 90ms ease;
+}
+
+.sherpa-list input[type="checkbox"]:checked,
+.sherpa-selection-bar input[type="checkbox"]:checked,
+.sherpa-form input[type="checkbox"]:checked {
+    background: var(--accent);
+    border-color: var(--accent);
+}
+
+.sherpa-list input[type="checkbox"]:checked::before,
+.sherpa-selection-bar input[type="checkbox"]:checked::before,
+.sherpa-form input[type="checkbox"]:checked::before {
+    transform: translateY(-1px) rotate(-45deg) scale(1);
+}
+
+.sherpa-list input[type="checkbox"]:disabled,
+.sherpa-selection-bar input[type="checkbox"]:disabled,
+.sherpa-form input[type="checkbox"]:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+/* macOS native AppKit button sheen polish. */
+.platform-macos .btn-secondary {
+    background: #ffffff;
+    border-color: rgba(0, 0, 0, 0.12);
+    border-bottom-color: rgba(0, 0, 0, 0.18);
+    box-shadow: 0 0.5px 1px rgba(0, 0, 0, 0.09), 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.platform-macos .btn-secondary:hover:not(:disabled) {
+    background: #f5f5f7;
+    border-color: rgba(0, 0, 0, 0.16);
+}
+
+.platform-macos.theme-dark .btn-secondary {
+    background: rgba(255, 255, 255, 0.10);
+    border-color: rgba(255, 255, 255, 0.12);
+    border-top-color: rgba(255, 255, 255, 0.18);
+    box-shadow: 0 1px 1px rgba(0, 0, 0, 0.28);
+}
+
+.platform-macos.theme-dark .btn-secondary:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.15);
+    border-color: rgba(255, 255, 255, 0.18);
+}
+
+.platform-macos .btn-primary {
+    box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.22), 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+.platform-macos .btn-danger {
+    box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.18), 0 1px 2px rgba(0, 0, 0, 0.14);
 }
 
 .sherpa-skeleton {
@@ -2827,6 +2927,300 @@ main:focus-visible,
 .terminal-container::-webkit-scrollbar-thumb:hover,
 .xterm-viewport::-webkit-scrollbar-thumb:hover {
     background: rgba(255, 255, 255, 0.34);
+}
+
+/* Shared form layout and field primitives (hybrid modal forms and settings). */
+.sherpa-form {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 18px 24px 20px;
+}
+
+.sherpa-form-section {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.sherpa-form-section-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 650;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+}
+
+.sherpa-form-grid-2 {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px 14px;
+}
+
+.sherpa-form-grid-3 {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px 14px;
+}
+
+@media (max-width: 560px) {
+    .sherpa-form-grid-2,
+    .sherpa-form-grid-3 {
+        grid-template-columns: 1fr;
+    }
+}
+
+.sherpa-field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+}
+
+.sherpa-field-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.sherpa-field-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-primary);
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    line-height: 1.3;
+}
+
+.sherpa-field-opt {
+    color: var(--text-muted);
+    font-size: var(--font-size-xs);
+    font-weight: 400;
+}
+
+.sherpa-field-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0;
+    color: var(--accent);
+    background: none;
+    border: 0;
+    cursor: pointer;
+    font: inherit;
+    font-size: var(--font-size-xs);
+    font-weight: 500;
+}
+
+.sherpa-field-link:hover {
+    text-decoration: underline;
+}
+
+.sherpa-field-help {
+    color: var(--text-muted);
+    font-size: var(--font-size-xs);
+    line-height: 1.4;
+}
+
+.sherpa-field-error {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    color: var(--status-error-fg);
+    font-size: var(--font-size-xs);
+    line-height: 1.4;
+}
+
+.sherpa-input,
+.sherpa-textarea {
+    width: 100%;
+    padding: 0 10px;
+    color: var(--text-primary);
+    background: var(--surface-control);
+    border: 1px solid var(--border-control);
+    border-radius: var(--radius-md);
+    font: inherit;
+    font-size: var(--font-size-md);
+    outline: none;
+    transition: border-color var(--motion-fast) var(--ease-standard), box-shadow var(--motion-fast) var(--ease-standard);
+}
+
+.sherpa-input {
+    height: var(--control-height-md);
+}
+
+.sherpa-textarea {
+    padding: 8px 10px;
+    resize: vertical;
+    line-height: 1.45;
+}
+
+.sherpa-input:focus,
+.sherpa-textarea:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-ring);
+}
+
+.sherpa-input:disabled,
+.sherpa-textarea:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.sherpa-input.invalid,
+.sherpa-textarea.invalid {
+    border-color: var(--status-error-dot);
+}
+
+.sherpa-input.invalid:focus,
+.sherpa-textarea.invalid:focus {
+    box-shadow: 0 0 0 3px var(--status-error-bg);
+}
+
+.sherpa-input-group {
+    display: flex;
+    align-items: stretch;
+    width: 100%;
+    overflow: hidden;
+    background: var(--surface-control);
+    border: 1px solid var(--border-control);
+    border-radius: var(--radius-md);
+    transition: border-color var(--motion-fast) var(--ease-standard), box-shadow var(--motion-fast) var(--ease-standard);
+}
+
+.sherpa-input-group:focus-within {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-ring);
+}
+
+.sherpa-input-group input {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: calc(var(--control-height-md) - 2px);
+    padding: 0 10px;
+    color: var(--text-primary);
+    background: transparent;
+    border: 0;
+    outline: 0;
+    font: inherit;
+    font-size: var(--font-size-md);
+}
+
+.sherpa-input-group-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    padding: 0 10px;
+    color: var(--text-secondary);
+    background: var(--surface-well);
+    border: 0;
+    border-left: 1px solid var(--border-hairline);
+    cursor: pointer;
+    font: inherit;
+    font-size: var(--font-size-xs);
+    font-weight: 500;
+    white-space: nowrap;
+    transition: background var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
+}
+
+.sherpa-input-group-btn:hover:not(:disabled) {
+    color: var(--text-primary);
+    background: var(--surface-card-hover);
+}
+
+.sherpa-input-group-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.sherpa-disclosure {
+    overflow: hidden;
+    background: var(--surface-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+}
+
+.sherpa-disclosure-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+    padding: 9px 12px;
+    color: var(--text-primary);
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+    font: inherit;
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    text-align: left;
+    transition: background var(--motion-fast) var(--ease-standard);
+}
+
+.sherpa-disclosure-head:hover {
+    background: var(--surface-card-hover);
+}
+
+.sherpa-disclosure-lead {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.sherpa-disclosure-chev {
+    color: var(--text-muted);
+    font-size: 10px;
+    transition: transform var(--motion-normal) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
+}
+
+.sherpa-disclosure.open .sherpa-disclosure-chev {
+    color: var(--text-primary);
+    transform: rotate(90deg);
+}
+
+.sherpa-disclosure-body {
+    padding: 12px;
+    background: var(--surface-well);
+    border-top: 1px solid var(--border-hairline);
+}
+
+.sherpa-kv-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) auto;
+    gap: 8px;
+    align-items: center;
+}
+
+.sherpa-file-chip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 8px 12px;
+    background: var(--surface-well);
+    border: 1px solid var(--border-hairline);
+    border-radius: var(--radius-md);
+}
+
+.sherpa-segmented-full {
+    display: flex;
+    width: 100%;
+}
+
+.sherpa-segmented-full .sherpa-segmented-btn {
+    flex: 1 1 0;
+}
+
+.sherpa-select-full {
+    width: 100%;
 }
 
 .sherpa-scroll,

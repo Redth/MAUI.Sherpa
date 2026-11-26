@@ -185,7 +185,10 @@ styles is `src/MauiSherpa/wwwroot/css/app.css`.
   (Apple Blue, SF Pro at 13px, 12px cards), `.platform-windows` (Sherpa Violet,
   Fluent 2 8px/4px radii, Segoe UI at 14px), and `.platform-linux` (Adwaita Blue,
   Libadwaita 12px/8px radii).
-- **Native hybrid dialogs:** Keep `FormTheme.cs` synchronized with `app.css` per
+- **Native hybrid dialogs:** Use `HybridFormPage<T>` (not raw native MAUI `FormPage<T>`
+  with `Picker`/`Entry`) for all creation/edit dialogs so forms use `.sherpa-form`,
+  `<SherpaSelect>`, `<SherpaSegmentedControl>`, `.sherpa-input-group`, and collapsible
+  `.sherpa-disclosure` sections. Keep `FormTheme.cs` synchronized with `app.css` per
   platform (pure-neutral backgrounds, platform accents, `FormTheme.ControlCornerRadius`)
   so native MAUI dialog headers/footers join seamlessly with `ModalLayout.razor`.
 - **Console/log output & nested scrolling:** Use `.sherpa-console` (`--surface-console: #141416`,

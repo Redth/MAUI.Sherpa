@@ -1,0 +1,205 @@
+@page "/modal/create-bundle-id"
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Pages.Forms
+@inject HybridFormBridgeHolder BridgeHolder
+@implements IDisposable
+
+@if (bridge is not null)
+{
+    <div class="sherpa-form sherpa-scroll">
+        @if (!string.IsNullOrWhiteSpace(errorMessage))
+        {
+            <div class="sherpa-banner sherpa-banner-danger">
+                <i class="fa-solid fa-circle-exclamation fa-fw" aria-hidden="true"></i>
+                <div>
+                    <strong>Bundle ID could not be registered</strong>
+                    <div>@errorMessage</div>
+                </div>
+            </div>
+        }
+
+        <div class="sherpa-field">
+            <label class="sherpa-field-label" for="bundle-identifier">Bundle Identifier</label>
+            <input id="bundle-identifier"
+                   type="text"
+                   class="sherpa-input mono @(!IsIdentifierValid ? "invalid" : null)"
+                   @bind="identifier"
+                   @bind:event="oninput"
+                   @bind:after="OnIdentifierChanged"
+                   placeholder="com.company.appname"
+                   disabled="@isSubmitting" />
+            @if (!IsIdentifierValid)
+            {
+                <div class="sherpa-field-error">
+                    <i class="fa-solid fa-circle-exclamation fa-fw" aria-hidden="true"></i>
+                    @IdentifierError
+                </div>
+            }
+            else
+            {
+                <div class="sherpa-field-help">
+                    Use a reverse-DNS identifier. Wildcards are supported only as the final <span class="mono">.*</span>.
+                </div>
+            }
+        </div>
+
+        <div class="sherpa-field">
+            <label class="sherpa-field-label" for="bundle-name">Name</label>
+            <input id="bundle-name"
+                   type="text"
+                   class="sherpa-input"
+                   @bind="name"
+                   @bind:event="oninput"
+                   @bind:after="OnFieldChanged"
+                   placeholder="My App"
+                   disabled="@isSubmitting" />
+        </div>
+
+        <div class="sherpa-field">
+            <label class="sherpa-field-label">Platform</label>
+            <SherpaSegmentedControl TValue="string"
+                                    Value="@platform"
+                                    ValueChanged="OnPlatformChanged"
+                                    Options="PlatformOptions"
+                                    AriaLabel="Bundle ID platform"
+                                    Class="sherpa-segmented-full" />
+            <div class="sherpa-field-help">
+                Mac Catalyst apps use iOS. Select macOS only for native AppKit apps.
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private HybridFormBridge? bridge;
+    private IAppleConnectService? appleService;
+    private string identifier = "";
+    private string name = "";
+    private string platform = "IOS";
+    private string? errorMessage;
+    private bool identifierTouched;
+    private bool isSubmitting;
+
+    private static readonly IReadOnlyList<SherpaSegmentOption<string>> PlatformOptions =
+    [
+        new("IOS", "iOS", "fa-brands fa-apple", "iOS, iPadOS, watchOS, visionOS, and Mac Catalyst"),
+        new("MAC_OS", "macOS", "fa-solid fa-desktop", "Native AppKit applications"),
+        new("UNIVERSAL", "Universal", "fa-solid fa-layer-group", "All Apple platforms")
+    ];
+
+    private string? IdentifierValidationError => ValidateIdentifier(identifier);
+    private bool IsIdentifierValid => !identifierTouched || IdentifierValidationError is null;
+    private string IdentifierError => IdentifierValidationError ?? "";
+    private bool CanSubmit =>
+        !isSubmitting &&
+        IdentifierValidationError is null &&
+        !string.IsNullOrWhiteSpace(name);
+
+    protected override void OnInitialized()
+    {
+        bridge = BridgeHolder.Current;
+        if (bridge is null)
+            return;
+
+        appleService = bridge.Parameters.GetValueOrDefault("AppleService") as IAppleConnectService
+            ?? throw new InvalidOperationException("Apple service is unavailable.");
+        bridge.PreventSubmitClose = true;
+        bridge.SubmitRequested += OnSubmitRequested;
+        UpdateValidation();
+    }
+
+    private void OnIdentifierChanged()
+    {
+        identifierTouched = true;
+        OnFieldChanged();
+    }
+
+    private void OnFieldChanged()
+    {
+        errorMessage = null;
+        UpdateValidation();
+    }
+
+    private void OnPlatformChanged(string? value)
+    {
+        platform = value ?? "IOS";
+        OnFieldChanged();
+    }
+
+    private void UpdateValidation()
+    {
+        if (bridge is null)
+            return;
+
+        bridge.SetValid(CanSubmit);
+        bridge.SetActionState(
+            enabled: CanSubmit,
+            busy: isSubmitting,
+            actionText: isSubmitting ? "Creating..." : "Create");
+    }
+
+    private async Task OnSubmitRequested()
+    {
+        if (bridge is null || appleService is null || !CanSubmit)
+            return;
+
+        isSubmitting = true;
+        errorMessage = null;
+        UpdateValidation();
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            var created = await appleService.CreateBundleIdAsync(
+                identifier.Trim(),
+                name.Trim(),
+                platform);
+            bridge.Result = created;
+            bridge.PreventSubmitClose = false;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+            isSubmitting = false;
+            bridge.PreventSubmitClose = true;
+            UpdateValidation();
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private static string? ValidateIdentifier(string value)
+    {
+        var candidate = value.Trim();
+        if (string.IsNullOrWhiteSpace(candidate))
+            return "Bundle identifier is required.";
+        if (candidate.Any(char.IsWhiteSpace))
+            return "Bundle IDs cannot contain spaces.";
+        if (candidate.Contains("..", StringComparison.Ordinal))
+            return "Bundle IDs cannot contain consecutive dots.";
+        if (!candidate.Contains('.'))
+            return "Use a reverse-DNS identifier such as com.company.appname.";
+
+        var parts = candidate.Split('.');
+        if (parts.Any(string.IsNullOrEmpty))
+            return "Bundle ID segments cannot be empty.";
+
+        for (var index = 0; index < parts.Length; index++)
+        {
+            var part = parts[index];
+            if (part == "*" && index == parts.Length - 1)
+                continue;
+            if (part.Contains('*'))
+                return "A wildcard is allowed only as the final .* segment.";
+            if (part.Any(character => !char.IsLetterOrDigit(character) && character != '-'))
+                return "Use only letters, numbers, hyphens, and dots.";
+        }
+
+        return null;
+    }
+
+    public void Dispose()
+    {
+        if (bridge is not null)
+            bridge.SubmitRequested -= OnSubmitRequested;
+    }
+}

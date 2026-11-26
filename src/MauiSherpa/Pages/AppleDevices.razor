@@ -12,6 +12,7 @@
 @inject BlazorToastService ToastService
 @inject IEncryptedSettingsService SettingsService
 @inject IFormModalService FormModalService
+@inject HybridFormBridgeHolder BridgeHolder
 @implements IDisposable
 @inject IToolbarService ToolbarService
 @inject IPlatformService PlatformInfo
@@ -453,7 +454,8 @@
 
     private async Task ShowRegisterDialog()
     {
-        var result = await FormModalService.ShowAsync<RegisterDeviceFormResult>(new RegisterDevicePage(AppleService));
+        var result = await FormModalService.ShowAsync<RegisterDeviceFormResult>(
+            new RegisterDevicePage(BridgeHolder, AppleService));
         if (result == null) return;
 
         await AlertService.ShowToastAsync($"Device '{result.Device.Name}' registered!");

@@ -1,0 +1,120 @@
+@page "/modal/register-device"
+@using MauiSherpa.Core.Interfaces
+@using MauiSherpa.Pages.Forms
+@inject HybridFormBridgeHolder BridgeHolder
+@implements IDisposable
+
+@if (bridge is not null)
+{
+    <div class="sherpa-form sherpa-scroll">
+        <div class="sherpa-field">
+            <label class="sherpa-field-label" for="device-name">Device Name</label>
+            <input id="device-name"
+                   type="text"
+                   class="sherpa-input"
+                   @bind="name"
+                   @bind:event="oninput"
+                   @bind:after="UpdateValidation"
+                   placeholder="John's iPhone" />
+        </div>
+
+        <div class="sherpa-field">
+            <label class="sherpa-field-label" for="device-udid">UDID</label>
+            <input id="device-udid"
+                   type="text"
+                   class="sherpa-input mono"
+                   @bind="udid"
+                   @bind:event="oninput"
+                   @bind:after="UpdateValidation"
+                   placeholder="00008030-000000000000002E" />
+            <div class="sherpa-field-help">
+                Find the UDID in Finder on macOS or iTunes on Windows while the device is connected.
+                iPhone and iPad UDIDs commonly look like <span class="mono">00008030-000000000000002E</span>.
+            </div>
+        </div>
+
+        <div class="sherpa-field">
+            <label class="sherpa-field-label">Platform</label>
+            <SherpaSegmentedControl TValue="string"
+                                    Value="@platform"
+                                    ValueChanged="OnPlatformChanged"
+                                    Options="PlatformOptions"
+                                    AriaLabel="Device platform"
+                                    Class="sherpa-segmented-full" />
+        </div>
+
+        <div class="sherpa-field">
+            <label class="sherpa-field-label sherpa-checkbox-row">
+                <input type="checkbox"
+                       @bind="addToProfiles"
+                       @bind:after="UpdateValidation" />
+                <span>Add to provisioning profiles</span>
+            </label>
+            <div class="sherpa-field-help">
+                After registering, choose which development and ad hoc profiles to recreate with this device.
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private HybridFormBridge? bridge;
+    private IAppleConnectService? appleService;
+    private string name = "";
+    private string udid = "";
+    private string platform = "IOS";
+    private bool addToProfiles = true;
+
+    private static readonly IReadOnlyList<SherpaSegmentOption<string>> PlatformOptions =
+    [
+        new("IOS", "iOS", "fa-solid fa-mobile-screen-button", "iPhone, iPad, Apple TV, Apple Watch, and Vision Pro"),
+        new("MACOS", "macOS", "fa-solid fa-desktop", "Mac development devices")
+    ];
+
+    protected override void OnInitialized()
+    {
+        bridge = BridgeHolder.Current;
+        if (bridge is null)
+            return;
+
+        appleService = bridge.Parameters.GetValueOrDefault("AppleService") as IAppleConnectService
+            ?? throw new InvalidOperationException("Apple service is unavailable.");
+        bridge.SubmitRequested += OnSubmitRequested;
+        UpdateValidation();
+    }
+
+    private void OnPlatformChanged(string? value)
+    {
+        platform = value ?? "IOS";
+        UpdateValidation();
+    }
+
+    private void UpdateValidation() =>
+        bridge?.SetValid(
+            !string.IsNullOrWhiteSpace(udid) &&
+            !string.IsNullOrWhiteSpace(name));
+
+    private async Task OnSubmitRequested()
+    {
+        if (bridge is null || appleService is null)
+            return;
+
+        var device = await appleService.RegisterDeviceAsync(
+            udid.Trim(),
+            name.Trim(),
+            platform);
+        bridge.Result = new RegisterDeviceFormResult(device, addToProfiles);
+    }
+
+    public void Dispose()
+    {
+        if (bridge is not null)
+            bridge.SubmitRequested -= OnSubmitRequested;
+    }
+}
+
+<style>
+    .sherpa-checkbox-row {
+        cursor: pointer;
+    }
+</style>

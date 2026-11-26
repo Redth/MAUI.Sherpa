@@ -116,11 +116,18 @@ else
 
 <!-- Simulators Section -->
 <div class="device-section-heading device-section-heading-spaced">
-    <h2 class="device-section-label"><i class="fa-solid fa-desktop" aria-hidden="true"></i> Simulators</h2>
+    <h2 class="device-section-label">
+        <i class="fa-solid fa-desktop fa-fw" aria-hidden="true"></i>
+        <span>Simulators</span>
+        @if (simulators.Count > 0)
+        {
+            <span class="sherpa-badge sherpa-badge-neutral">@simulators.Count</span>
+        }
+    </h2>
     @if (!isSelectionMode)
     {
-        <button class="btn btn-secondary" @onclick="BeginSelectionMode" disabled="@(isLoading || isDeletingSimulator || simulators.Count == 0)">
-            <i class="fa-solid fa-check-square"></i> Select
+        <button class="btn btn-secondary btn-sm" @onclick="BeginSelectionMode" disabled="@(isLoading || isDeletingSimulator || simulators.Count == 0)">
+            <i class="fa-solid fa-check-square fa-fw"></i> Select
         </button>
     }
 </div>
@@ -189,24 +196,26 @@ else
 @if (isSelectionMode)
 {
     <div class="sherpa-selection-bar">
-        <label class="simulator-select-all">
-            <input type="checkbox" checked="@AllVisibleSimulatorsSelected"
-                   disabled="@(isLoading || isDeletingSimulator || !SelectableSimulators.Any())"
-                   @onchange="ToggleAllVisibleSimulators" />
-            <span>Select all shown</span>
-        </label>
-        <span class="simulator-selection-count sherpa-badge sherpa-badge-accent" role="status">
-            @selectedSimulatorIds.Count selected
-            @if (HiddenSelectionCount > 0)
-            {
-                <span>(@HiddenSelectionCount hidden by filters)</span>
-            }
-        </span>
+        <div class="sherpa-selection-lead">
+            <label class="simulator-select-all">
+                <input type="checkbox" checked="@AllVisibleSimulatorsSelected"
+                       disabled="@(isLoading || isDeletingSimulator || !SelectableSimulators.Any())"
+                       @onchange="ToggleAllVisibleSimulators" />
+                <span>Select all shown</span>
+            </label>
+            <span class="simulator-selection-count sherpa-badge sherpa-badge-accent" role="status">
+                @selectedSimulatorIds.Count selected
+                @if (HiddenSelectionCount > 0)
+                {
+                    <span>(@HiddenSelectionCount hidden by filters)</span>
+                }
+            </span>
+        </div>
         <div class="simulator-selection-actions">
-            <button class="btn btn-ghost btn-sm" @onclick="CancelSelectionMode" disabled="@isDeletingSimulator">Cancel Selection</button>
-            <button data-screenshot-external class="btn btn-danger-soft btn-sm" @onclick="DeleteSelectedSimulators"
+            <button class="btn btn-secondary btn-sm" @onclick="CancelSelectionMode" disabled="@isDeletingSimulator">Cancel</button>
+            <button data-screenshot-external class="btn btn-danger btn-sm" @onclick="DeleteSelectedSimulators"
                     disabled="@(isLoading || isDeletingSimulator || selectedSimulatorIds.Count == 0)">
-                <i class="fa-solid fa-trash"></i> Delete Selected
+                <i class="fa-solid fa-trash-can fa-fw"></i> Delete Selected
             </button>
         </div>
     </div>
@@ -794,7 +803,7 @@ else
         if (availableRuntimes.Count == 0 && availableDeviceTypes.Count == 0)
             await RefreshSimulators(forceRefresh: false);
 
-        var page = new Forms.CreateSimulatorPage(SimulatorService, availableRuntimes, availableDeviceTypes);
+        var page = new Forms.CreateSimulatorPage(BridgeHolder, SimulatorService, availableRuntimes, availableDeviceTypes);
         var created = await FormModalService.ShowAsync<bool>(page);
 
         if (created == true)

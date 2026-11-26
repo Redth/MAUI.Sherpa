@@ -87,11 +87,18 @@ else
 }
 
 <div class="device-section-heading device-section-heading-spaced">
-    <h2 class="device-section-label"><i class="fa-solid fa-desktop" aria-hidden="true"></i> Emulators</h2>
+    <h2 class="device-section-label">
+        <i class="fa-solid fa-desktop fa-fw" aria-hidden="true"></i>
+        <span>Emulators</span>
+        @if (emulators.Count > 0)
+        {
+            <span class="sherpa-badge sherpa-badge-neutral">@emulators.Count</span>
+        }
+    </h2>
     @if (!isSelectionMode)
     {
-        <button class="btn btn-secondary" @onclick="BeginSelectionMode" disabled="@(IsBusy || emulators.Count == 0)">
-            <i class="fa-solid fa-check-square"></i> Select
+        <button class="btn btn-secondary btn-sm" @onclick="BeginSelectionMode" disabled="@(IsBusy || emulators.Count == 0)">
+            <i class="fa-solid fa-check-square fa-fw"></i> Select
         </button>
     }
 </div>
@@ -146,18 +153,20 @@ else
 @if (isSelectionMode)
 {
     <div class="selection-bar sherpa-selection-bar">
-        <label class="select-all">
-            <input type="checkbox" checked="@AllVisibleEmulatorsSelected" disabled="@(IsBusy || !SelectableEmulators.Any())" @onchange="ToggleAllVisibleEmulators" />
-            <span>Select all shown</span>
-        </label>
-        <span class="selection-count sherpa-badge sherpa-badge-accent" role="status">
-            @selectedEmulators.Count selected
-            @if (HiddenSelectionCount > 0) { <span>(@HiddenSelectionCount hidden by filters)</span> }
-        </span>
+        <div class="sherpa-selection-lead">
+            <label class="select-all">
+                <input type="checkbox" checked="@AllVisibleEmulatorsSelected" disabled="@(IsBusy || !SelectableEmulators.Any())" @onchange="ToggleAllVisibleEmulators" />
+                <span>Select all shown</span>
+            </label>
+            <span class="selection-count sherpa-badge sherpa-badge-accent" role="status">
+                @selectedEmulators.Count selected
+                @if (HiddenSelectionCount > 0) { <span>(@HiddenSelectionCount hidden by filters)</span> }
+            </span>
+        </div>
         <div class="selection-actions">
-            <button class="btn btn-ghost btn-sm" @onclick="CancelSelectionMode" disabled="@isOperating">Cancel Selection</button>
-            <button data-screenshot-external class="btn btn-danger-soft btn-sm" @onclick="DeleteSelectedEmulators" disabled="@(IsBusy || selectedEmulators.Count == 0 || !CanVerifyEmulatorState)">
-                <i class="fa-solid fa-trash"></i> Delete Selected
+            <button class="btn btn-secondary btn-sm" @onclick="CancelSelectionMode" disabled="@isOperating">Cancel</button>
+            <button data-screenshot-external class="btn btn-danger btn-sm" @onclick="DeleteSelectedEmulators" disabled="@(IsBusy || selectedEmulators.Count == 0 || !CanVerifyEmulatorState)">
+                <i class="fa-solid fa-trash-can fa-fw"></i> Delete Selected
             </button>
         </div>
     </div>
@@ -287,22 +296,29 @@ else
     .device-card { gap: var(--space-3); background: transparent; border: 0; border-radius: 0; }
     .device-card.starting { background: var(--status-warning-bg); }
     .device-card.selectable { cursor: pointer; }
-    .device-card.selected { background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent-border); }
+    .device-card.selected { background: color-mix(in srgb, var(--accent-soft) 60%, var(--surface-card)); }
     .device-details { flex: 1; min-width: 0; }
     .device-name { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; white-space: normal; }
     .device-info, .device-serial { display: flex; align-items: center; gap: 4px; overflow-wrap: anywhere; white-space: normal; }
     .serial-copy { width: 20px !important; min-width: 20px !important; height: 20px; min-height: 20px; }
-    .device-actions, .selection-actions { display: flex; align-items: center; gap: 0.25rem; }
+    .device-actions, .selection-actions { display: flex; align-items: center; gap: 6px; }
     .device-warning { align-items: center; margin: 0.75rem 0; }
     .device-warning span { flex: 1; }
-    .empty-hint { margin: 0.75rem 0; color: var(--text-muted); font-size: 0.875rem; }
-    .empty-state { padding: 2.5rem; text-align: center; background: var(--card-bg); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); }
-    .empty-title { font-weight: 600; color: var(--text-primary); }
-    .empty-description { margin-top: 0.5rem; font-size: 0.875rem; color: var(--text-muted); }
+    .empty-hint {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 0;
+        padding: 12px 14px;
+        color: var(--text-muted);
+        font-size: var(--font-size-sm);
+        background: var(--surface-card);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
+    }
     .selection-bar { margin-bottom: 10px; }
-    .select-all { display: flex; align-items: center; gap: 0.5rem; color: var(--text-primary); }
-    .selection-count { flex: 1; }
-    .selection-actions { gap: 0.5rem; }
+    .select-all { display: inline-flex; align-items: center; gap: 8px; color: var(--text-primary); font-weight: 500; cursor: pointer; }
+    .selection-count { flex: 0 0 auto; }
     .emulator-select { display: flex; align-items: center; }
     .other-heading { margin: 22px 0 10px; color: var(--text-primary); font-size: var(--font-size-h2); font-weight: 650; }
     @@media (max-width: 680px) { .device-card { gap: 0.6rem; } .device-actions { flex-wrap: wrap; justify-content: flex-end; } .selection-actions { margin-left: auto; } }
@@ -532,7 +548,7 @@ else
             var availableImages = (packages ?? Enumerable.Empty<SdkPackageInfo>())
                 .Where(p => p.Path.StartsWith("system-images;", StringComparison.Ordinal))
                 .Select(p => p.Path).Where(p => !installedImages.Contains(p)).OrderByDescending(p => p).ToList();
-            var page = new CreateEmulatorPage(installedImages, availableImages, definitions?.ToList() ?? [], skins?.ToList() ?? []);
+            var page = new CreateEmulatorPage(BridgeHolder, installedImages, availableImages, definitions?.ToList() ?? [], skins?.ToList() ?? []);
             var formResult = await FormModalService.ShowAsync<EmulatorCreateResult>(page);
             if (formResult == null) return;
 

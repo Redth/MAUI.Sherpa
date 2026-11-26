@@ -1,0 +1,186 @@
+@page "/modal/create-certificate"
+@using MauiSherpa.Core.Services
+@using MauiSherpa.Pages.Forms
+@inject HybridFormBridgeHolder BridgeHolder
+@implements IDisposable
+
+@if (bridge is not null)
+{
+    <div class="sherpa-form sherpa-scroll">
+        <div class="sherpa-field">
+            <label class="sherpa-field-label">Certificate Type</label>
+            <SherpaSelect TValue="string"
+                          Value="@certificateType"
+                          ValueChanged="OnCertificateTypeChanged"
+                          Options="CertificateTypeOptions"
+                          AriaLabel="Certificate type"
+                          Searchable="true"
+                          Class="sherpa-select-full" />
+            @if (SelectedType is { } selectedType)
+            {
+                <div class="sherpa-field-help">@selectedType.Category: @selectedType.Description</div>
+            }
+        </div>
+
+        @if (SelectedType is { CanCreateInApp: false } portalType)
+        {
+            <div class="sherpa-banner sherpa-banner-info">
+                <i class="fa-solid fa-arrow-up-right-from-square fa-fw" aria-hidden="true"></i>
+                <div>
+                    <strong>Continue in Apple Developer</strong>
+                    <div>
+                        @(portalType.PortalReason) Open Apple Developer, sign in with the intended team,
+                        and select "@portalType.Name". Sherpa can generate a certificate request and
+                        securely retain its private key before opening the portal.
+                    </div>
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="sherpa-field">
+                <label class="sherpa-field-label sherpa-checkbox-row">
+                    <input type="checkbox"
+                           @bind="saveToDisk"
+                           @bind:after="OnFieldChanged"
+                           disabled="@requireDiskExport" />
+                    <span>Save a copy to disk</span>
+                </label>
+                <div class="sherpa-field-help">
+                    @(requireDiskExport
+                        ? "Required because this platform does not provide a supported certificate store."
+                        : "The certificate is installed in the platform certificate store and synced to default providers.")
+                </div>
+            </div>
+
+            @if (saveToDisk)
+            {
+                <div class="sherpa-field">
+                    <div class="sherpa-field-header">
+                        <label class="sherpa-field-label" for="certificate-passphrase">
+                            P12 Passphrase <span class="sherpa-field-opt">(optional)</span>
+                        </label>
+                    </div>
+                    <div class="sherpa-input-group">
+                        <input id="certificate-passphrase"
+                               type="@(showPassphrase ? "text" : "password")"
+                               @bind="passphrase"
+                               @bind:event="oninput"
+                               placeholder="Leave empty for an unprotected P12" />
+                        <button type="button"
+                                class="sherpa-input-group-btn"
+                                title="@(showPassphrase ? "Hide passphrase" : "Show passphrase")"
+                                aria-label="@(showPassphrase ? "Hide passphrase" : "Show passphrase")"
+                                @onclick="TogglePassphrase">
+                            <i class="fa-solid @(showPassphrase ? "fa-eye-slash" : "fa-eye")" aria-hidden="true"></i>
+                        </button>
+                    </div>
+                    <div class="sherpa-field-help">Only used for the copy saved to disk.</div>
+                </div>
+            }
+        }
+    </div>
+}
+
+@code {
+    private HybridFormBridge? bridge;
+    private IReadOnlyList<AppleCertificateTypeOption> certificateTypes = Array.Empty<AppleCertificateTypeOption>();
+    private string certificateType = "";
+    private bool requireDiskExport;
+    private bool saveToDisk;
+    private bool showPassphrase;
+    private string passphrase = "";
+
+    private AppleCertificateTypeOption? SelectedType =>
+        certificateTypes.FirstOrDefault(option =>
+            string.Equals(option.Value, certificateType, StringComparison.Ordinal));
+
+    private IReadOnlyList<SherpaSelectOption<string>> CertificateTypeOptions =>
+        certificateTypes
+            .Select(option => new SherpaSelectOption<string>(
+                option.Value,
+                option.PickerLabel,
+                option.Description,
+                Icon: CertificateTypeIcon(option),
+                Group: option.Category))
+            .ToArray();
+
+    protected override void OnInitialized()
+    {
+        bridge = BridgeHolder.Current;
+        if (bridge is null)
+            return;
+
+        certificateTypes = bridge.Parameters.GetValueOrDefault("CertificateTypes")
+            as IReadOnlyList<AppleCertificateTypeOption>
+            ?? AppleCertificateTypes.All;
+        requireDiskExport = bridge.Parameters.GetValueOrDefault("RequireDiskExport") is true;
+        saveToDisk = requireDiskExport;
+        certificateType = certificateTypes.FirstOrDefault()?.Value ?? "";
+
+        bridge.SubmitRequested += OnSubmitRequested;
+        UpdateValidation();
+    }
+
+    private void OnCertificateTypeChanged(string? value)
+    {
+        certificateType = value ?? "";
+        UpdateValidation();
+    }
+
+    private void OnFieldChanged() => UpdateValidation();
+
+    private void TogglePassphrase() => showPassphrase = !showPassphrase;
+
+    private void UpdateValidation()
+    {
+        if (bridge is null)
+            return;
+
+        var isValid = SelectedType is not null;
+        bridge.SetValid(isValid);
+        bridge.SetActionState(
+            enabled: isValid,
+            actionText: SelectedType is { CanCreateInApp: false }
+                ? "Open Apple Developer"
+                : "Create");
+    }
+
+    private Task OnSubmitRequested()
+    {
+        if (bridge is null || SelectedType is not { } selectedType)
+            return Task.CompletedTask;
+
+        var shouldSaveToDisk = selectedType.CanCreateInApp && saveToDisk;
+        bridge.Result = new CreateCertificateFormResult(
+            selectedType.Value,
+            shouldSaveToDisk,
+            shouldSaveToDisk ? passphrase : null);
+        return Task.CompletedTask;
+    }
+
+    private static string CertificateTypeIcon(AppleCertificateTypeOption option)
+    {
+        if (option.Name.Contains("Developer ID", StringComparison.OrdinalIgnoreCase))
+            return "fa-solid fa-shield-halved";
+        if (option.Name.Contains("Distribution", StringComparison.OrdinalIgnoreCase))
+            return "fa-solid fa-box-open";
+        if (option.Name.Contains("Development", StringComparison.OrdinalIgnoreCase))
+            return "fa-solid fa-hammer";
+        return option.Category == "Services"
+            ? "fa-solid fa-server"
+            : "fa-solid fa-certificate";
+    }
+
+    public void Dispose()
+    {
+        if (bridge is not null)
+            bridge.SubmitRequested -= OnSubmitRequested;
+    }
+}
+
+<style>
+    .sherpa-checkbox-row {
+        cursor: pointer;
+    }
+</style>
