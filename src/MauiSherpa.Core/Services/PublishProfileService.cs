@@ -624,12 +624,13 @@ public class PublishProfileService : IPublishProfileService
                     X509KeyStorageFlags.Exportable);
                 foreach (var certificate in imported)
                 {
-                    var alreadyAdded = combined.Cast<X509Certificate2>().Any(existing =>
-                        string.Equals(existing.Thumbprint, certificate.Thumbprint, StringComparison.OrdinalIgnoreCase));
-                    if (alreadyAdded)
+                    if (combined.Cast<X509Certificate2>().Any(existing =>
+                        string.Equals(existing.Thumbprint, certificate.Thumbprint, StringComparison.OrdinalIgnoreCase)))
+                    {
                         certificate.Dispose();
-                    else
-                        combined.Add(certificate);
+                        continue;
+                    }
+                    combined.Add(certificate);
                 }
             }
 

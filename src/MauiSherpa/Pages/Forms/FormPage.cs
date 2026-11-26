@@ -229,7 +229,7 @@ public abstract class FormPage<TResult> : ContentPage, IFormPage<TResult>, IForm
                 _submittingIndicator.IsRunning = false;
                 _submittingIndicator.IsVisible = false;
 
-                await DisplayAlertAsync("Error", ex.Message, "OK");
+                await DisplayAlert("Error", ex.Message, "OK");
             });
         }
     }

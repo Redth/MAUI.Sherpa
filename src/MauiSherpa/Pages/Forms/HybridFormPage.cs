@@ -324,7 +324,7 @@ public abstract class HybridFormPage<TResult> : ContentPage, IFormPage<TResult>,
                     _submittingIndicator.IsVisible = false;
                 }
 
-                await DisplayAlertAsync("Error", ex.Message, "OK");
+                await DisplayAlert("Error", ex.Message, "OK");
             });
         }
     }
@@ -347,7 +347,7 @@ public abstract class HybridFormPage<TResult> : ContentPage, IFormPage<TResult>,
         }
         catch (Exception ex)
         {
-            await Dispatcher.DispatchAsync(() => DisplayAlertAsync("Error", ex.Message, "OK"));
+            await Dispatcher.DispatchAsync(() => DisplayAlert("Error", ex.Message, "OK"));
         }
     }
 

@@ -11,12 +11,12 @@ public class AlertService : MauiSherpa.Core.Interfaces.IAlertService
 
     public async Task ShowAlertAsync(string title, string message, string? cancel = null)
     {
-        await Application.Current!.Windows[0].Page!.DisplayAlertAsync(title, message, cancel ?? "OK");
+        await Application.Current!.Windows[0].Page!.DisplayAlert(title, message, cancel ?? "OK");
     }
 
     public async Task<bool> ShowConfirmAsync(string title, string message, string? confirm = null, string? cancel = null)
     {
-        return await Application.Current!.Windows[0].Page!.DisplayAlertAsync(
+        return await Application.Current!.Windows[0].Page!.DisplayAlert(
             title,
             message,
             confirm ?? "Yes",
@@ -25,7 +25,7 @@ public class AlertService : MauiSherpa.Core.Interfaces.IAlertService
 
     public async Task<string?> ShowActionSheetAsync(string title, string? cancel, string? destruction, params string[] buttons)
     {
-        return await Application.Current!.Windows[0].Page!.DisplayActionSheetAsync(
+        return await Application.Current!.Windows[0].Page!.DisplayActionSheet(
             title,
             cancel,
             destruction,

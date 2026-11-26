@@ -345,7 +345,7 @@ public abstract class WizardFormPage<TResult> : ContentPage, IFormPage<TResult>,
         }
         catch (Exception ex)
         {
-            await Dispatcher.DispatchAsync(() => DisplayAlertAsync("Error", ex.Message, "OK"));
+            await Dispatcher.DispatchAsync(() => DisplayAlert("Error", ex.Message, "OK"));
         }
     }
 
@@ -367,7 +367,7 @@ public abstract class WizardFormPage<TResult> : ContentPage, IFormPage<TResult>,
         }
         catch (Exception ex)
         {
-            await Dispatcher.DispatchAsync(() => DisplayAlertAsync("Error", ex.Message, "OK"));
+            await Dispatcher.DispatchAsync(() => DisplayAlert("Error", ex.Message, "OK"));
         }
     }
 
@@ -384,7 +384,7 @@ public abstract class WizardFormPage<TResult> : ContentPage, IFormPage<TResult>,
         }
         catch (Exception ex)
         {
-            await Dispatcher.DispatchAsync(() => DisplayAlertAsync("Error", ex.Message, "OK"));
+            await Dispatcher.DispatchAsync(() => DisplayAlert("Error", ex.Message, "OK"));
         }
     }
 

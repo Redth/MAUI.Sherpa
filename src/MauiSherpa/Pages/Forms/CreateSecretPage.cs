@@ -210,7 +210,7 @@ public class CreateSecretPage : FormPage<SecretCreateResult>
         }
         catch (Exception ex)
         {
-            await DisplayAlertAsync("Error", $"Failed to read file: {ex.Message}", "OK");
+            await DisplayAlert("Error", $"Failed to read file: {ex.Message}", "OK");
         }
     }
 

@@ -128,7 +128,7 @@ public class BlazorContentPage : ContentPage
         // Safety timeout for loading overlay
         Dispatcher.StartTimer(TimeSpan.FromSeconds(15), () =>
         {
-            if (_loadingOverlay != null)
+            if (!_splashService.IsBlazorReady || _loadingOverlay != null || _blazorWebView.Opacity < 1)
             {
                 if (_blazorWebView.Handler?.PlatformView is WebKit.WKWebView wv)
                     wv.Hidden = false;
@@ -145,6 +145,7 @@ public class BlazorContentPage : ContentPage
     /// </summary>
     private void AddNativeLoadingOverlay()
     {
+        if (_splashService.IsBlazorReady) return;
         if (_blazorWebView.Handler?.PlatformView is not AppKit.NSView webViewNative) return;
         // Never add the overlay inside the WKWebView itself: WebKit then stops laying out its
         // content view and the page renders blank. Only overlay once the web view has a container.
@@ -193,7 +194,7 @@ public class BlazorContentPage : ContentPage
         webView.SetValueForKey(NSObject.FromObject(false), new NSString("drawsBackground"));
 
         // Also hide the native view until Blazor is ready — prevents dark flash
-        webView.Hidden = true;
+        webView.Hidden = !_splashService.IsBlazorReady;
     }
 
     private TitlebarDragView? _dragOverlay;
@@ -216,7 +217,7 @@ public class BlazorContentPage : ContentPage
         var titlebarHeight = windowFrame.Height - contentLayoutRect.GetMaxY();
         if (titlebarHeight < 20) titlebarHeight = 52;
 
-        var container = webViewNative.Superview ?? webViewNative;
+        if (webViewNative.Superview is not NSView container) return;
         CGRect frame;
         if (container.IsFlipped)
             frame = new CGRect(0, 0, container.Bounds.Width, titlebarHeight);
@@ -240,6 +241,7 @@ public class BlazorContentPage : ContentPage
                 webView.Hidden = false;
 
             HideSplash();
+            AddTitlebarDragOverlay();
             await _blazorWebView.FadeToAsync(1, 300, Easing.CubicIn);
             SetupSidebarWidthPersistence();
 
@@ -283,7 +285,8 @@ public class BlazorContentPage : ContentPage
 
     private void HideSplash()
     {
-        if (_loadingOverlay == null) return;
+        var overlay = _loadingOverlay;
+        if (overlay == null) return;
         NSApplication.SharedApplication.BeginInvokeOnMainThread(() =>
         {
             // Animate opacity to 0 using CoreAnimation
@@ -291,10 +294,11 @@ public class BlazorContentPage : ContentPage
             CoreAnimation.CATransaction.AnimationDuration = 0.3;
             CoreAnimation.CATransaction.CompletionBlock = () =>
             {
-                _loadingOverlay?.RemoveFromSuperview();
-                _loadingOverlay = null;
+                overlay.RemoveFromSuperview();
+                if (ReferenceEquals(_loadingOverlay, overlay))
+                    _loadingOverlay = null;
             };
-            _loadingOverlay!.Layer!.Opacity = 0;
+            overlay.Layer!.Opacity = 0;
             CoreAnimation.CATransaction.Commit();
         });
     }
@@ -600,12 +604,9 @@ public class BlazorContentPage : ContentPage
             var buttonSize = new CGSize(Math.Max(132, fittingSize.Width + 16), 30);
             button.Frame = new CGRect(CGPoint.Empty, buttonSize);
 
-            // NSToolbarItem.MinSize/MaxSize are obsolete; size the view with constraints instead.
-            button.TranslatesAutoresizingMaskIntoConstraints = false;
-            button.WidthAnchor.ConstraintEqualTo(buttonSize.Width).Active = true;
-            button.HeightAnchor.ConstraintEqualTo(buttonSize.Height).Active = true;
-
             toolbarItem.View = button;
+            toolbarItem.MinSize = buttonSize;
+            toolbarItem.MaxSize = buttonSize;
             _nativeReleaseNotesItem = toolbarItem;
             _releaseNotesButton = button;
         }

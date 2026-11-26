@@ -6,7 +6,6 @@ using UniformTypeIdentifiers;
 #elif MACOSAPP
 using AppKit;
 using Foundation;
-using UniformTypeIdentifiers;
 #elif WINDOWS
 using WinUI = Microsoft.UI.Xaml;
 using WinUIControls = Microsoft.UI.Xaml.Controls;
@@ -210,14 +209,16 @@ public class DialogService : IDialogService
 
         await Dispatcher.DispatchAsync(() =>
         {
-            var panel = NSOpenPanel.OpenPanel;
-            panel.Title = title;
-            panel.CanChooseDirectories = true;
-            panel.CanChooseFiles = false;
-            panel.AllowsMultipleSelection = false;
-            panel.CanCreateDirectories = true;
-            panel.DirectoryUrl = NSUrl.FromFilename(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
+            var panel = new NSOpenPanel
+            {
+                Title = title,
+                CanChooseDirectories = true,
+                CanChooseFiles = false,
+                AllowsMultipleSelection = false,
+                CanCreateDirectories = true,
+                DirectoryUrl = NSUrl.FromFilename(
+                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)),
+            };
 
             var result = panel.RunModal();
             if (result == 1 && panel.Url?.Path is string path)
@@ -320,15 +321,21 @@ public class DialogService : IDialogService
 
         await Dispatcher.DispatchAsync(() =>
         {
-            var panel = NSOpenPanel.OpenPanel;
-            panel.Title = title;
-            panel.CanChooseFiles = true;
-            panel.CanChooseDirectories = false;
-            panel.AllowsMultipleSelection = false;
+            var panel = new NSOpenPanel
+            {
+                Title = title,
+                CanChooseFiles = true,
+                CanChooseDirectories = false,
+                AllowsMultipleSelection = false,
+            };
 
-            var allowedContentTypes = ToContentTypes(extensions);
-            if (allowedContentTypes.Length > 0)
-                panel.AllowedContentTypes = allowedContentTypes;
+            var allowedFileTypes = extensions?
+                .Select(extension => extension.TrimStart('.', '*'))
+                .Where(extension => !string.IsNullOrWhiteSpace(extension))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (allowedFileTypes is { Length: > 0 })
+                panel.AllowedFileTypes = allowedFileTypes;
 
             var result = panel.RunModal();
             if (result == 1 && panel.Url?.Path is string path)
@@ -453,16 +460,17 @@ public class DialogService : IDialogService
 
         await Dispatcher.DispatchAsync(() =>
         {
-            var panel = NSSavePanel.SavePanel;
-            panel.Title = title;
-            panel.NameFieldStringValue = suggestedName;
-            panel.CanCreateDirectories = true;
+            var panel = new NSSavePanel
+            {
+                Title = title,
+                NameFieldStringValue = suggestedName,
+                CanCreateDirectories = true,
+            };
             if (startOnDesktop)
                 panel.DirectoryUrl = NSUrl.FromFilename(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory));
 
-            var allowedContentTypes = ToContentTypes([extension]);
-            if (allowedContentTypes.Length > 0)
-                panel.AllowedContentTypes = allowedContentTypes;
+            var cleanExt = extension.TrimStart('.');
+            panel.AllowedFileTypes = new[] { cleanExt };
 
             var result = panel.RunModal();
             if (result == 1 && panel.Url?.Path is string path)
@@ -522,17 +530,5 @@ public class DialogService : IDialogService
         }
         return null;
     }
-#endif
-
-#if MACOSAPP
-    // NSSavePanel.AllowedFileTypes is obsolete; map extensions ("png", ".png", "*.png") to UTTypes.
-    private static UTType[] ToContentTypes(IEnumerable<string>? extensions) =>
-        (extensions ?? [])
-            .Select(extension => extension.TrimStart('.', '*'))
-            .Where(extension => !string.IsNullOrWhiteSpace(extension))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Select(extension => UTType.CreateFromExtension(extension))
-            .OfType<UTType>()
-            .ToArray();
 #endif
 }
