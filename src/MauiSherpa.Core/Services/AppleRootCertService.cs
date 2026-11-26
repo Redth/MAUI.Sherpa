@@ -185,7 +185,7 @@ public class AppleRootCertService : IAppleRootCertService
     {
         try
         {
-            var cert = new X509Certificate2(certPath);
+            var cert = X509CertificateLoader.LoadCertificateFromFile(certPath);
             return cert.SerialNumber;
         }
         catch
@@ -198,7 +198,7 @@ public class AppleRootCertService : IAppleRootCertService
     {
         try
         {
-            var cert = new X509Certificate2(certPath);
+            var cert = X509CertificateLoader.LoadCertificateFromFile(certPath);
             return cert.Subject;
         }
         catch

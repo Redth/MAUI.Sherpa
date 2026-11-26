@@ -33,7 +33,7 @@ public partial class HybridFormBridge
             }
             catch (Exception ex)
             {
-                await page.Dispatcher.DispatchAsync(() => page.DisplayAlert("Error", ex.Message, "OK"));
+                await page.Dispatcher.DispatchAsync(() => page.DisplayAlertAsync("Error", ex.Message, "OK"));
             }
         };
         return button;
@@ -91,7 +91,7 @@ public partial class HybridFormBridge
                 }
                 catch (Exception ex)
                 {
-                    await page.Dispatcher.DispatchAsync(() => page.DisplayAlert("Error", ex.Message, "OK"));
+                    await page.Dispatcher.DispatchAsync(() => page.DisplayAlertAsync("Error", ex.Message, "OK"));
                 }
             });
             nsButton.BezelStyle = AppKit.NSBezelStyle.AccessoryBarAction;

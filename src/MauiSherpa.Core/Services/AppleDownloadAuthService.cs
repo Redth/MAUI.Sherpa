@@ -646,14 +646,12 @@ public class AppleDownloadAuthService : IAppleDownloadAuthService
         {
             // s2k_fo: hex-encode the SHA256 hash, then use hex string bytes as PBKDF2 password
             var passHex = Encoding.UTF8.GetBytes(Convert.ToHexString(passwordHash).ToLowerInvariant());
-            using var pbkdf2 = new Rfc2898DeriveBytes(passHex, saltBytes, iterations, HashAlgorithmName.SHA256);
-            derivedKey = pbkdf2.GetBytes(32);
+            derivedKey = Rfc2898DeriveBytes.Pbkdf2(passHex, saltBytes, iterations, HashAlgorithmName.SHA256, 32);
         }
         else
         {
             // s2k: raw SHA256 bytes as PBKDF2 password
-            using var pbkdf2 = new Rfc2898DeriveBytes(passwordHash, saltBytes, iterations, HashAlgorithmName.SHA256);
-            derivedKey = pbkdf2.GetBytes(32);
+            derivedKey = Rfc2898DeriveBytes.Pbkdf2(passwordHash, saltBytes, iterations, HashAlgorithmName.SHA256, 32);
         }
 
         // x = SHA256(salt || SHA256(0x3A || derivedKey))  — Apple GSA variant (no username in x)
