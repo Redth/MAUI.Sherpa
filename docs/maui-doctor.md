@@ -54,7 +54,7 @@ MauiSherpa/
 
 ## Target Framework
 
-- **net10.0** - All projects target .NET 10
+- **net11.0** - All projects target .NET 11
 
 ## NuGet Dependencies
 

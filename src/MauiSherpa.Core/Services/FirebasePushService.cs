@@ -63,7 +63,7 @@ public class FirebasePushService : IFirebasePushService
 
         try
         {
-            var credential = GoogleCredential.FromJson(serviceAccountJson).CreateScoped(FcmScopes);
+            var credential = CredentialFactory.FromJson<ServiceAccountCredential>(serviceAccountJson).ToGoogleCredential().CreateScoped(FcmScopes);
             var accessToken = await credential.UnderlyingCredential.GetAccessTokenForRequestAsync();
 
             using var doc = JsonDocument.Parse(serviceAccountJson);
@@ -133,7 +133,7 @@ public class FirebasePushService : IFirebasePushService
             // Validate the user's JSON is parseable
             using var userDoc = JsonDocument.Parse(messageJson);
 
-            var credential = GoogleCredential.FromJson(serviceAccountJson).CreateScoped(FcmScopes);
+            var credential = CredentialFactory.FromJson<ServiceAccountCredential>(serviceAccountJson).ToGoogleCredential().CreateScoped(FcmScopes);
             var accessToken = await credential.UnderlyingCredential.GetAccessTokenForRequestAsync();
 
             using var saDoc = JsonDocument.Parse(serviceAccountJson);

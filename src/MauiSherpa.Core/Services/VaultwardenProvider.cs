@@ -360,8 +360,7 @@ public class VaultwardenProvider : ICloudSecretsProvider
         // kdfType 0 = PBKDF2-SHA256 (most common for Vaultwarden/Bitwarden)
         var saltBytes = Encoding.UTF8.GetBytes(salt);
         var passwordBytes = Encoding.UTF8.GetBytes(password);
-        using var pbkdf2 = new Rfc2898DeriveBytes(passwordBytes, saltBytes, iterations, HashAlgorithmName.SHA256);
-        return pbkdf2.GetBytes(32);
+        return Rfc2898DeriveBytes.Pbkdf2(passwordBytes, saltBytes, iterations, HashAlgorithmName.SHA256, 32);
     }
 
     /// <summary>
@@ -371,8 +370,7 @@ public class VaultwardenProvider : ICloudSecretsProvider
     internal static string HashPassword(byte[] masterKey, string password)
     {
         var passwordBytes = Encoding.UTF8.GetBytes(password);
-        using var pbkdf2 = new Rfc2898DeriveBytes(masterKey, passwordBytes, 1, HashAlgorithmName.SHA256);
-        return Convert.ToBase64String(pbkdf2.GetBytes(32));
+        return Convert.ToBase64String(Rfc2898DeriveBytes.Pbkdf2(masterKey, passwordBytes, 1, HashAlgorithmName.SHA256, 32));
     }
 
     private async Task<(string AccessToken, string RefreshToken, int ExpiresIn, string ProtectedKey)> LoginAsync(

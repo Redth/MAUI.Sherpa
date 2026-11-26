@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-MauiSherpa is a .NET 10 MAUI Blazor Hybrid desktop application for managing developer tools:
+MauiSherpa is a .NET 11 MAUI Blazor Hybrid desktop application for managing developer tools:
 - Android SDK (packages, emulators, devices)
 - Android Keystores (creation, signatures, PEPK export, cloud sync)
 - Apple Developer Tools (certificates, profiles, devices, bundle IDs)
@@ -30,7 +30,7 @@ MAUI.Sherpa/
 │   │   ├── Services/             # Platform-specific service implementations
 │   │   ├── Platforms/            # Platform-specific code (Windows)
 │   │   └── wwwroot/              # Static assets (CSS, JS, index.html)
-│   ├── MauiSherpa.MacOS/         # macOS AppKit app head (net10.0-macos)
+│   ├── MauiSherpa.MacOS/         # macOS AppKit app head (net11.0-macos)
 │   ├── MauiSherpa.LinuxGtk/      # Linux GTK app head
 │   └── MauiSherpa.Workloads/     # .NET SDK workload querying library
 │       ├── Models/               # Workload data models
@@ -46,10 +46,10 @@ MAUI.Sherpa/
 
 ```bash
 # Build for macOS (AppKit head)
-dotnet build src/MauiSherpa.MacOS -f net10.0-macos
+dotnet build src/MauiSherpa.MacOS -f net11.0-macos
 
 # Build for Windows (on Windows only)
-dotnet build src/MauiSherpa -f net10.0-windows10.0.19041.0
+dotnet build src/MauiSherpa -f net11.0-windows10.0.19041.0
 
 # Build entire solution (uses default TFM for each project)
 dotnet build MauiSherpa.slnx
@@ -58,10 +58,10 @@ dotnet build MauiSherpa.slnx
 dotnet test MauiSherpa.slnx
 
 # Publish macOS app
-dotnet publish src/MauiSherpa.MacOS -f net10.0-macos -c Release
+dotnet publish src/MauiSherpa.MacOS -f net11.0-macos -c Release
 
 # Publish Windows app
-dotnet publish src/MauiSherpa -f net10.0-windows10.0.19041.0 -c Release
+dotnet publish src/MauiSherpa -f net11.0-windows10.0.19041.0 -c Release
 ```
 
 `src/MauiSherpa` is the shared UI project and the Windows head. It only builds on Windows — on
@@ -72,11 +72,11 @@ macOS and Linux its `Build`/`Rebuild`/`Publish` targets are no-ops so solution b
 **IMPORTANT:** `dotnet run` does NOT work for .NET MAUI apps (until .NET 11). Use one of:
 ```bash
 # Option 1: Build with -t:Run target (keeps process alive until app exits)
-dotnet build src/MauiSherpa.MacOS -f net10.0-macos -t:Run
+dotnet build src/MauiSherpa.MacOS -f net11.0-macos -t:Run
 
 # Option 2: Build then manually open the .app bundle
-dotnet build src/MauiSherpa.MacOS -f net10.0-macos
-open "src/MauiSherpa.MacOS/bin/Debug/net10.0-macos/osx-arm64/MAUI Sherpa.app"
+dotnet build src/MauiSherpa.MacOS -f net11.0-macos
+open "src/MauiSherpa.MacOS/bin/Debug/net11.0-macos/osx-arm64/MAUI Sherpa.app"
 ```
 
 **Always launch from `bin/` path**, NOT `artifacts/`. The `artifacts/` copy may be stale and missing DLLs.
@@ -331,7 +331,7 @@ target framework, and workload upgrade. Independently versioned packages such as
 - **Moq** for mocking
 - **FluentAssertions** for assertions
 
-Test projects target `net10.0` (not platform-specific) for portability.
+Test projects target `net11.0` (not platform-specific) for portability.
 
 ## Debugging Workflow
 

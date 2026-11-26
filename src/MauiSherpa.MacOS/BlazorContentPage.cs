@@ -116,11 +116,29 @@ public class BlazorContentPage : ContentPage
         {
             if (_blazorWebView.Handler != null)
             {
-                AddNativeLoadingOverlay();
                 MakeWebViewTransparent();
+                // The WKWebView is not parented yet when HandlerChanged fires; defer the overlays
+                // until the page container has added it.
+                Dispatcher.Dispatch(AddNativeLoadingOverlay);
                 Dispatcher.Dispatch(AddTitlebarDragOverlay);
             }
         };
+
+        // TEMP-DIAG
+        Dispatcher.StartTimer(TimeSpan.FromSeconds(10), () =>
+        {
+            void Dump(AppKit.NSView v, int d)
+            {
+                Console.WriteLine($"[Sherpa-tree] {new string(' ', d * 2)}{v.GetType().Name} frame={v.Frame} hidden={v.Hidden} alpha={v.AlphaValue} layerOp={v.Layer?.Opacity}");
+                if (d < 12)
+                    foreach (var c in v.Subviews) Dump(c, d + 1);
+            }
+            var wk = _blazorWebView.Handler?.PlatformView as AppKit.NSView;
+            Console.WriteLine($"[Sherpa-tree] wk={wk?.GetType().Name} window={wk?.Window != null} super={wk?.Superview?.GetType().Name}");
+            var root = wk?.Window?.ContentView;
+            if (root != null) Dump(root, 0);
+            return false;
+        });
 
         // Safety timeout for loading overlay
         Dispatcher.StartTimer(TimeSpan.FromSeconds(15), () =>
@@ -143,7 +161,16 @@ public class BlazorContentPage : ContentPage
     private void AddNativeLoadingOverlay()
     {
         if (_blazorWebView.Handler?.PlatformView is not AppKit.NSView webViewNative) return;
-        var superview = webViewNative.Superview ?? webViewNative;
+        // Never add the overlay inside the WKWebView itself: WebKit then stops laying out its
+        // content view and the page renders blank. Only overlay once the web view has a container.
+        var superview = webViewNative.Superview;
+        if (superview == null) return;
+        Console.WriteLine($"[Sherpa] AddNativeLoadingOverlay: existing={_loadingOverlay != null}, superview={superview.GetType().Name}");
+
+        // HandlerChanged can fire more than once. HideSplash only removes the overlay we still
+        // track, so an untracked earlier overlay would cover the web view permanently.
+        _loadingOverlay?.RemoveFromSuperview();
+        _loadingOverlay = null;
 
         var bgColor = AppKit.NSColor.WindowBackground;
 
@@ -181,8 +208,7 @@ public class BlazorContentPage : ContentPage
         // Use KVC to disable it so the native window background is visible.
         webView.SetValueForKey(NSObject.FromObject(false), new NSString("drawsBackground"));
 
-        // Also hide the native view until Blazor is ready — prevents dark flash
-        webView.Hidden = true;
+        // TEMP-EXPERIMENT: don't hide
     }
 
     private TitlebarDragView? _dragOverlay;
@@ -561,9 +587,12 @@ public class BlazorContentPage : ContentPage
             var buttonSize = new CGSize(Math.Max(132, fittingSize.Width + 16), 30);
             button.Frame = new CGRect(CGPoint.Empty, buttonSize);
 
+            // NSToolbarItem.MinSize/MaxSize are obsolete; size the view with constraints instead.
+            button.TranslatesAutoresizingMaskIntoConstraints = false;
+            button.WidthAnchor.ConstraintEqualTo(buttonSize.Width).Active = true;
+            button.HeightAnchor.ConstraintEqualTo(buttonSize.Height).Active = true;
+
             toolbarItem.View = button;
-            toolbarItem.MinSize = buttonSize;
-            toolbarItem.MaxSize = buttonSize;
             _nativeReleaseNotesItem = toolbarItem;
             _releaseNotesButton = button;
         }

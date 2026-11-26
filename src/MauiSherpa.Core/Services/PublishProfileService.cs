@@ -618,20 +618,18 @@ public class PublishProfileService : IPublishProfileService
         {
             foreach (var bundle in bundles)
             {
-                var imported = new X509Certificate2Collection();
-                imported.Import(
+                var imported = X509CertificateLoader.LoadPkcs12Collection(
                     bundle.P12,
                     bundle.Password,
                     X509KeyStorageFlags.Exportable);
                 foreach (var certificate in imported)
                 {
-                    if (combined.Cast<X509Certificate2>().Any(existing =>
-                        string.Equals(existing.Thumbprint, certificate.Thumbprint, StringComparison.OrdinalIgnoreCase)))
-                    {
+                    var alreadyAdded = combined.Cast<X509Certificate2>().Any(existing =>
+                        string.Equals(existing.Thumbprint, certificate.Thumbprint, StringComparison.OrdinalIgnoreCase));
+                    if (alreadyAdded)
                         certificate.Dispose();
-                        continue;
-                    }
-                    combined.Add(certificate);
+                    else
+                        combined.Add(certificate);
                 }
             }
 

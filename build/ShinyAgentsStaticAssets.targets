@@ -1,13 +1,16 @@
 <Project>
   <!--
-    Shiny.Blazor.Controls.Agents 2.5.0 declares a staticwebassets/.gitkeep asset (and two endpoints for it)
-    that isn't in the package. The Apple bundle step turns every static web asset into a BundleResource
-    and fails on the missing file, so drop the phantom asset before the package assets are processed.
+    Shiny.Blazor.Controls.Agents (2.5.0 and 3.0.0) declares a staticwebassets/.gitkeep asset (and endpoints
+    for it) that isn't in the package. The Apple bundle step turns every static web asset into a BundleResource
+    and fails on the missing file, so drop the phantom asset once the package assets have been loaded.
+
+    3.0.0 ships a PackageAssets.json manifest, read by ReadPackageStaticWebAssetManifests, and its RelativePath
+    carries a fingerprint pattern (#[.{fingerprint}]?.gitkeep), so match on the suffix.
   -->
-  <Target Name="_RemoveMissingShinyAgentsStaticAssets" BeforeTargets="UpdateExistingPackageStaticWebAssets">
+  <Target Name="_RemoveMissingShinyAgentsStaticAssets" AfterTargets="ReadPackageStaticWebAssetManifests">
     <ItemGroup>
       <_MissingShinyAgentsAsset Include="@(StaticWebAsset)"
-                                Condition="'%(StaticWebAsset.SourceId)' == 'Shiny.Blazor.Controls.Agents' AND '%(StaticWebAsset.RelativePath)' == '.gitkeep'" />
+                                Condition="'%(StaticWebAsset.SourceId)' == 'Shiny.Blazor.Controls.Agents' AND $([System.String]::Copy('%(StaticWebAsset.RelativePath)').EndsWith('.gitkeep'))" />
       <StaticWebAsset Remove="@(_MissingShinyAgentsAsset)" />
       <_MissingShinyAgentsEndpoint Include="@(StaticWebAssetEndpoint)"
                                    Condition="'%(StaticWebAssetEndpoint.AssetFile)' != '' AND $([System.String]::Copy('%(StaticWebAssetEndpoint.AssetFile)').EndsWith('.gitkeep')) AND $([System.String]::Copy('%(StaticWebAssetEndpoint.Identity)').StartsWith('_content/Shiny.Blazor.Controls.Agents/'))" />

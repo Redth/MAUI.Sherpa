@@ -299,10 +299,10 @@ cd MAUI.Sherpa
 dotnet restore
 
 # Build for macOS (AppKit)
-dotnet build src/MauiSherpa.MacOS -f net10.0-macos
+dotnet build src/MauiSherpa.MacOS -f net11.0-macos
 
 # Build for Windows (Windows only)
-dotnet build src/MauiSherpa -f net10.0-windows10.0.19041.0
+dotnet build src/MauiSherpa -f net11.0-windows10.0.19041.0
 
 # Run tests
 dotnet test

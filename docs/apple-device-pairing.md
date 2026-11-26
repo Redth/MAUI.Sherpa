@@ -110,9 +110,9 @@ selected for another attempt; successfully deleted simulators are removed from t
 ```sh
 dotnet test tests/MauiSherpa.Core.Tests --filter 'FullyQualifiedName~AppleDevicePairingServiceTests|FullyQualifiedName~SimulatorDeletionTests'
 node --test tests/javascript/modalInterop.test.cjs
-dotnet build src/MauiSherpa.MacOS -f net10.0-macos
+dotnet build src/MauiSherpa.MacOS -f net11.0-macos
 
-HELPER="src/MauiSherpa.MacOS/bin/Debug/net10.0-macos/osx-arm64/MAUI Sherpa.app/Contents/MacOS/sherpa-apple-pairing"
+HELPER="src/MauiSherpa.MacOS/bin/Debug/net11.0-macos/osx-arm64/MAUI Sherpa.app/Contents/MacOS/sherpa-apple-pairing"
 "$HELPER" --self-test
 APPLE_PAIRING_HELPER="$HELPER" python3 -B tests/native/test_apple_pairing_host.py
 "$HELPER" --probe
