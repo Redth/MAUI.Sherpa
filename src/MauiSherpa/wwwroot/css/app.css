@@ -2010,11 +2010,12 @@ main:focus-visible,
 
 .sherpa-select-menu {
     z-index: 10020;
+    display: flex;
+    flex-direction: column;
     max-width: calc(100vw - 16px);
     max-height: min(360px, calc(100vh - 16px));
-    padding: var(--space-1);
-    overflow: auto;
-    overscroll-behavior: contain;
+    padding: 0;
+    overflow: hidden;
     background: var(--surface-popover);
     border: 1px solid var(--border-strong);
     border-radius: var(--radius-lg);
@@ -2022,16 +2023,18 @@ main:focus-visible,
 }
 
 .sherpa-select-search {
-    position: sticky;
-    inset-block-start: 0;
-    z-index: 1;
     display: flex;
+    flex-shrink: 0;
     align-items: center;
     gap: var(--space-2);
-    margin: calc(var(--space-1) * -1) calc(var(--space-1) * -1) var(--space-1);
     padding: var(--space-2);
     background: var(--surface-popover);
     border-bottom: 1px solid var(--border-hairline);
+}
+
+.sherpa-select-search > i {
+    color: var(--text-muted);
+    font-size: 12px;
 }
 
 .sherpa-select-search input {
@@ -2042,12 +2045,37 @@ main:focus-visible,
     background: var(--surface-control);
     border: 1px solid var(--border-control);
     border-radius: var(--radius-sm);
-    outline: 0;
+    outline: none;
 }
 
-.sherpa-select-search input:focus {
+.sherpa-select-search input:focus,
+.sherpa-select-search input:focus-visible {
+    outline: none;
     border-color: var(--accent);
     box-shadow: 0 0 0 3px var(--accent-ring);
+}
+
+.sherpa-select-options {
+    flex: 1 1 auto;
+    min-height: 0;
+    padding: var(--space-1);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
+}
+
+.sherpa-select-options::-webkit-scrollbar {
+    width: 6px;
+}
+
+.sherpa-select-options::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.sherpa-select-options::-webkit-scrollbar-thumb {
+    background: var(--border-strong);
+    border-radius: var(--radius-pill);
 }
 
 .sherpa-select-group-label {
@@ -3062,7 +3090,10 @@ main:focus-visible,
 }
 
 .sherpa-input:focus,
-.sherpa-textarea:focus {
+.sherpa-input:focus-visible,
+.sherpa-textarea:focus,
+.sherpa-textarea:focus-visible {
+    outline: none;
     border-color: var(--accent);
     box-shadow: 0 0 0 3px var(--accent-ring);
 }
@@ -3110,6 +3141,16 @@ main:focus-visible,
     outline: 0;
     font: inherit;
     font-size: var(--font-size-md);
+}
+
+.sherpa-input-group input:focus,
+.sherpa-input-group input:focus-visible,
+.search-box input:focus,
+.search-box input:focus-visible,
+.sherpa-search input:focus,
+.sherpa-search input:focus-visible {
+    outline: none;
+    box-shadow: none;
 }
 
 .sherpa-input-group-btn {

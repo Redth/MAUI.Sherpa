@@ -46,13 +46,16 @@ export function positionPopover(rootId) {
     const matchWidth = panel.dataset.popoverMatchWidth === "true";
     const alignStart = panel.dataset.popoverAlign !== "end";
 
+    const hasInnerScroll = Boolean(panel.querySelector("[data-popover-scroll]"));
     panel.style.boxSizing = "border-box";
     panel.style.maxWidth = `${availableWidth}px`;
     panel.style.maxHeight = `${availableHeight}px`;
     panel.style.minWidth = matchWidth
         ? `${Math.min(triggerRect.width, availableWidth)}px`
         : "";
-    panel.style.overflowY = panel.scrollHeight > availableHeight ? "auto" : "";
+    panel.style.overflowY = hasInnerScroll
+        ? "hidden"
+        : (panel.scrollHeight > availableHeight ? "auto" : "");
 
     const panelRect = panel.getBoundingClientRect();
 
